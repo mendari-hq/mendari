@@ -77,6 +77,21 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets' keys rotate** (LP-11, the key holder's command line):
+  `mendari evalset rotate --to <id>` re-seals every set's sealed values under the current
+  evaluation-set key in batches, each chained (`evalset.rotated`: key ids and counts),
+  compare-and-set, in every state of a set; an interrupted run resumes, a value no key opens is
+  listed by its set and case hash, and a key it moved values off seals nothing more.
+  `rotate --check` proves, reading only, that everything opens with the current key alone, each
+  case's commitment and keyed hash match, and its index rows under the current index key are
+  there. `mendari evalset reindex` rebuilds the hidden-case index under a new index key in one
+  transaction (`evalset_index.rebuilt`); an index key it replaced indexes nothing more, and it
+  never goes back to an older one.
+  `mendari evalset export` writes the sealed sets and cases as stored (ciphertext, ids and key
+  ids) to a new owner-only file, needing no key and chaining nothing. `audit verify --evalsets`
+  now opens every sealed column a set or case has, the freeze record and aggregates included
+  once a freeze fills them. A test pins each column of the `evalset_` tables as sealed or clear.
+  Runbook: `docs/operations/evalsets.md`, Rotating the evaluation-set key.
 - **Hidden evaluation sets, stored** (LP-11, the key holder's command line; no route yet):
   `mendari evalset create`, `add`, `remove-case` and `list` keep an organization's sets of a
   pack in the deployment's own database (`evalset_sets`, `evalset_cases`, `evalset_index`), never

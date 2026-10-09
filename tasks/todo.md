@@ -959,7 +959,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`case_ref`), stray, retired and PHI keys refused before every write and at startup; the
     runbook `docs/operations/evalsets.md`. The sealed freeze record's column is `freeze_record`
     (FREEZE is reserved in Postgres).
-  - [ ] **11f** Key lifecycle: rotation with its check, reindexing, the sealed export.
+  - [ ] **11f** (PR open) Key lifecycle: rotation with its check, reindexing, the sealed export:
+    `mendari evalset rotate --to <id> [--batch N] [--check]` (copied from `phi rotate`: chained
+    `evalset.rotated` batches, compare-and-set, retired keys seal nothing, every set state; the
+    check reads only), `mendari evalset reindex` (the whole index under the current index key,
+    one transaction, `evalset_index.rebuilt`, earlier index keys retired), `mendari evalset
+    export` (the rows as stored: ciphertext, ids and key ids, no key, nothing chained; 11g allows
+    its case ids and sealed tokens, conflict 56); `SEALED_COLUMNS` and its pin; the runbook's
+    "Rotating the evaluation-set key".
   - [ ] **11g** The generated no-leak sweep, before any evaluation-set route (tests only).
   - [ ] **11h** Store II: sampling, assignment, blind labelling, adjudication, agreement.
   - [ ] **11i** Store III: freeze and its commitment, the grading read, the rotation rule,

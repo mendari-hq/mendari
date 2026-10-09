@@ -29,8 +29,9 @@ from mendari.core.audit import (
     PERSON_KINDS,
     SUBJECT_TABLES,
 )
+from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.evalsets import EvalsetStore
-from mendari.core.phi import PhiPolicy
+from mendari.core.phi import PhiPolicy, key_id
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from tests.conftest import encrypt_mode, evalset_keys_for_test, hand_written, message
@@ -38,6 +39,7 @@ from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
 EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
+NEXT_EVALSET_KEY = evalset_keys_for_test().key  # what they rotate to (LP-11f)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
 INBOX = "mendari/patient-inbox-router"
 CLINIC = "clinic-a"
@@ -145,11 +147,19 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         org=home, email="lee@example.org", roles=["viewer"], created_by="ops"
     )
     store.revoke_invitation(invitation["id"], org=home, revoked_by="ops")
-    # A hidden evaluation set (LP-11e): made, a case added (the index key's epoch) and removed.
+    # A hidden evaluation set (LP-11e): made, a case added (the index key's epoch) and removed;
+    # then its keys' lifecycle (LP-11f), the deployment's: the index rebuilt, the next key read
+    # first and swapped in, and the set re-sealed under it.
     hidden = EvalsetStore(store, EVALSETS)
     made_set = hidden.create_set(home, pack, "a hidden set", created_by="ops")["set"]
     added = hidden.add_cases(made_set, [hand_written(f"A hidden case of {home}")])
     hidden.remove_case(made_set, added["cases"][0]["case"])
+    hidden.reindex()
+    store.evalset_ready(EvalsetKeys(EVALSETS.key, EVALSETS.index_key, (NEXT_EVALSET_KEY,)))
+    swapped = EvalsetStore(
+        store, EvalsetKeys(NEXT_EVALSET_KEY, EVALSETS.index_key, (EVALSETS.key,))
+    )
+    swapped.rotate(to=key_id(NEXT_EVALSET_KEY))
     made.update(decisions=[first, second, third], home=home)
     return made
 

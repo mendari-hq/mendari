@@ -1692,7 +1692,8 @@ def _evalset_keys() -> Any:
 
 
 def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any, str]:
-    """The deployment's database for `mendari evalset` (LP-11e): given, or $DATABASE_URL. To
+    """The deployment's database for `mendari evalset` (LP-11e): given, or $DATABASE_URL (an
+    empty --db is given, and refused as no database, never read as $DATABASE_URL's). To
     write, it must be a server's (`_servers_database`: it holds a decision, a deployment, a hold
     or a hidden set, so a mistyped path is refused) and is opened marking nothing of PHI: the
     store checks the evaluation-set keys against the database, and marks them, before each
@@ -1700,7 +1701,8 @@ def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any,
     store (`core/evalsets.py`) and the database's name as shown (no password)."""
     from mendari.core.evalsets import EvalsetStore
 
-    target = target or os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        target = os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         raise MendariError("give --db (the server's database) or set DATABASE_URL")
     if not writes:
@@ -1709,16 +1711,18 @@ def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any,
     return EvalsetStore(AuditStore(target, marks=False), keys), shown
 
 
-def _outside_the_code(path: Path) -> None:
-    """Refuse a file of hidden cases inside the installed package or a checkout of Mendari's
-    repository (ADR-0011): hidden sets live in the deployment's database only, never where code
-    is shipped or committed. The path is not printed."""
+def _outside_the_code(
+    path: Path, what: str = "a file of hidden cases", then: str = "move it, then add it"
+) -> None:
+    """Refuse a file of hidden cases (or, `what`, the sealed export of the sets) inside the
+    installed package or a checkout of Mendari's repository (ADR-0011): hidden sets live in the
+    deployment's database only, never where code is shipped or committed. The path is not
+    printed."""
     resolved = path.resolve()
     package = Path(__file__).resolve().parent
     if resolved.is_relative_to(package) or any(_is_checkout(d) for d in resolved.parents):
         raise MendariError(
-            "a file of hidden cases is kept outside Mendari's package and any checkout of its "
-            "repository: move it, then add it"
+            f"{what} is kept outside Mendari's package and any checkout of its repository: {then}"
         )
 
 
@@ -1778,6 +1782,91 @@ def cmd_evalset_remove_case(args: argparse.Namespace) -> int:
         removed = store.remove_case(args.set_id, args.case)
     _print_json(removed)
     print(f"removed from {args.set_id} in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_evalset_rotate(args: argparse.Namespace) -> int:
+    """Re-seal the hidden sets under the current evaluation-set key, or (`--check`) show,
+    reading only, whether everything opens with it alone (LP-11f). JSON on stdout: key ids,
+    set ids, case hashes and counts, never a key or a value."""
+    from mendari.core.evalset_keys import evalset_keys
+    from mendari.core.evalsets import OFF
+
+    keys = evalset_keys()  # a malformed or half-set key fails before anything is opened
+    if args.check:
+        store, _ = _evalset_store(args.db, keys, writes=False)  # read-only: marks nothing
+        with store.store:
+            if keys is None:
+                raise MendariError(OFF)
+            checked = store.check()
+        _print_json(checked)
+        if checked["ready"]:
+            print("ready: everything opens with the current key alone", file=sys.stderr)
+        return 0 if checked["ready"] else 1
+    if keys is None:
+        raise MendariError(OFF)
+    if not args.to:
+        raise MendariError("give --to <key id>: evalset_keys.current in /api/health")
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        rotated = store.rotate(to=args.to, batch=args.batch)
+    _print_json(rotated)
+    if rotated["unopenable"]:
+        print(
+            f"{len(rotated['unopenable'])} row(s) holding a value no key here opens were left as "
+            "they are: add the key they name to MENDARI_EVALSET_READ_KEYS, then run again",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"done in {shown}: run `mendari evalset rotate --check` before dropping the read keys",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_reindex(args: argparse.Namespace) -> int:
+    """Rebuild the hidden-case index under the current index key, in one transaction; chained
+    (LP-11f). Prints the index key's id and counts."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        rebuilt = store.reindex()
+    _print_json(rebuilt)
+    print(
+        f"{rebuilt['count']} case(s) indexed under index key {rebuilt['key_id']} in {shown}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_export(args: argparse.Namespace) -> int:
+    """The sealed export of every hidden set and case (LP-11f): ciphertext, ids and key ids, as
+    stored, to a new file only its owner reads, outside the package and any checkout. Needs no
+    key, opens nothing, chains nothing; the database is opened read-only. Prints the header:
+    counts and key ids."""
+    out = Path(args.out)
+    _outside_the_code(out, "an export of hidden sets", "write it elsewhere")
+    if out.exists():
+        raise MendariError(f"--out {out} exists: an export never overwrites a file")
+    store, _ = _evalset_store(args.db, None, writes=False)
+    with store.store:
+        lines = store.export()
+    try:
+        descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise MendariError(f"--out {out} exists: an export never overwrites a file") from None
+    except OSError as error:
+        raise MendariError(f"--out {out}: cannot write it ({type(error).__name__})") from None
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            for line in lines:
+                handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
+    except BaseException:
+        out.unlink(missing_ok=True)  # never a partial export left to be taken for a whole one
+        raise
+    _print_json(lines[0])
+    print(f"{len(lines) - 1} row(s) written to {out}: ciphertext and ids, no key", file=sys.stderr)
     return 0
 
 
@@ -2675,6 +2764,33 @@ def build_parser() -> argparse.ArgumentParser:
     evalset_list.add_argument("--org", help="only this organization's")
     evalset_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     evalset_list.set_defaults(handler=cmd_evalset_list)
+    evalset_rotate = evalset.add_parser(
+        "rotate", help="re-seal the hidden sets under the current evaluation-set key"
+    )
+    evalset_rotate.add_argument(
+        "--to", help="the current key's id (evalset_keys.current in /api/health)"
+    )
+    evalset_rotate.add_argument(
+        "--batch", type=int, default=200, help="rows per batch (default 200)"
+    )
+    evalset_rotate.add_argument(
+        "--check",
+        action="store_true",
+        help="check, reading only: does everything open with the current key alone?",
+    )
+    evalset_rotate.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_rotate.set_defaults(handler=cmd_evalset_rotate)
+    evalset_reindex = evalset.add_parser(
+        "reindex", help="rebuild the hidden-case index under the current index key"
+    )
+    evalset_reindex.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_reindex.set_defaults(handler=cmd_evalset_reindex)
+    evalset_export = evalset.add_parser(
+        "export", help="the sealed sets and cases as stored (ciphertext and ids), no key needed"
+    )
+    evalset_export.add_argument("--out", required=True, help="a new file to write")
+    evalset_export.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_export.set_defaults(handler=cmd_evalset_export)
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")

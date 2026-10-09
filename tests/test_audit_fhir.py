@@ -266,6 +266,9 @@ NOT_ON_A_DECISION = {
     "evalset.case_added",
     "evalset.case_removed",
     "evalset_index.epoch",
+    # The evaluation-set keys' rotation batch and the index rebuilt (`KEYS_CHAIN`, LP-11f).
+    "evalset.rotated",
+    "evalset_index.rebuilt",
 }
 
 
