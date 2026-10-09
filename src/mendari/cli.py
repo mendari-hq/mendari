@@ -137,7 +137,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     from mendari.evals import run_pack_tests
 
-    decision = _decision(args)
+    decision = _decision(args, origin_cap=False)  # the pack's own policy, as its tests say
     outcomes = run_pack_tests(decision)
     if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
         where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in pack.yaml)"
@@ -166,7 +166,13 @@ def cmd_decide(args: argparse.Namespace) -> int:
             hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
             return None if hold is None else f"hold {hold['id']}"
 
-    decision = _decision(args, store=store, hold_source=held)
+    approved = None
+    if store is not None:  # a pack from a registry, approved in that deployment's trail
+
+        def approved(pack: Pack) -> bool:
+            return store.registry_approval(pack.id, pack.digest, tenancy.DEFAULT_ORG) is not None
+
+    decision = _decision(args, store=store, hold_source=held, origin_approval=approved)
     if args.text is not None:
         payload: Any = {"message": {"body": args.text}}
     else:
@@ -185,7 +191,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
 
-    decision = _decision(args)
+    decision = _decision(args, origin_cap=False)  # measures the pack's own policy
     pack = decision.pack
     dataset = resolve_dataset(pack, args.dataset)
     if args.limit:
@@ -371,7 +377,8 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, name)
         datasets.append(dataset.head(args.limit) if args.limit else dataset)
     for run in args.run:
-        decision = Decision(pack, providers=_providers(pack, parse_providers(run.split(","))))
+        providers = _providers(pack, parse_providers(run.split(",")))
+        decision = Decision(pack, providers=providers, origin_cap=False)  # the pack's policy
         workers = args.workers or (8 if decision.is_remote else 1)
         for dataset in datasets:
             report = evaluate(decision, dataset, workers=workers)
@@ -1504,6 +1511,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
         print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
     else:
         print("  runs on the maintained engine: a copy of the reference pack in this release")
+    print(
+        "  served, it never automates until your organization approves this digest "
+        "(POST /api/registry-approvals); `mendari test` and `eval` check its own policy"
+    )
     return 0
 
 

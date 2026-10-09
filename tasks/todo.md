@@ -1354,10 +1354,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
     /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
     `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
-  - [ ] **18d** Origin at pull and the cap: the verified marker records the registry URL,
-    namespace, publisher type, key id and any yank; a pack from a registry is capped at
-    HUMAN_REVIEW until the organization approves its digest (`registry_approvals`, chained),
-    at every risk level, and nothing in the pack lifts it.
+  - [x] **18d** (PR open) Origin at pull and the cap: the verified marker (`.mendari-verified`)
+    is now `mendari.origin/1` JSON (registry URL, namespace, publisher type, key id, archive,
+    digest, when, the recall served then), rewritten on every pull, a cached one too; one from
+    before (the archive's SHA-256 alone) still reads (`core/origin.py` `pulled_record`,
+    `Pack.pulled`). A pack from a registry never automates until its organization approves its
+    exact digest, at every risk level (2 and 3 need their governance approval too), nor while
+    its marker records a recall: `Decision._origin_holds` adds to the hold, so AUTO becomes
+    HUMAN_REVIEW with the same recommendation and the reason; no field of the pack lifts it,
+    and a pulled copy of a reference pack is capped too (default 5). `registry_approvals`
+    (`AuditStore.approve_registry_pack`, `revoke_registry_approval`, `registry_approval`),
+    `GET/POST /api/registry-approvals` and `DELETE …/{id}` (`approve`; a served pack from a
+    registry and the digest it serves only), chained `registry_pack.approved` and `.revoked`
+    (administrative kinds, FHIR AuditEvent, security log). `mendari decide --db` honours the
+    trail's approvals and is capped without one; `mendari test`, `eval` and `leaderboard --run`
+    check the pack's own policy (`origin_cap=False`), and `mendari pull` says what serving it
+    needs.
   - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
     checked against their registry's yank records on a schedule, and a yanked one (or one no
     check reached for too long) stops automating.

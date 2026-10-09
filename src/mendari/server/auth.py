@@ -278,6 +278,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/api/usage$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
+        ("POST", r"^/api/registry-approvals$", "approve"),
+        ("DELETE", r"^/api/registry-approvals/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),
     ]
 ]

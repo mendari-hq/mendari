@@ -5,7 +5,8 @@ Proposed (2026-10-09). Built in steps (LP-18, `tasks/todo.md`); each step adds w
 here, in the order they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
-- 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`).
+- 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
+- 18d, origin at pull and the cap on a pulled pack (`registry_approvals`).
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -79,7 +80,18 @@ Nothing on a pack's page comes from the uploader unchecked.
    is still a recall, since it only stops automation. An administrator may delete a version
    with a reason: its archive answers 410, its bytes go when no version that is not deleted
    needs them, and its row and a tombstone stay, so its version is never published again.
-6. **Versions published before.** They keep their stored metadata (versions are immutable),
+6. **Origin and the cap (18d).** A pull writes, beside the pack, where it came from
+   (`mendari.origin/1`: the registry's URL, namespace, publisher type, key id, archive, digest,
+   time, and any recall the registry served then; a marker from before holds the archive's
+   SHA-256 alone). Served, a pack from a registry never automates until its organization
+   approves its exact digest (`registry_approvals`, `POST`/`DELETE /api/registry-approvals`,
+   the `approve` permission, chained `registry_pack.approved` and `.revoked`), at any risk
+   level (2 and 3 need their governance approval too), and never while recalled: AUTO becomes
+   HUMAN_REVIEW, as under a hold. The cap follows the origin, not the bytes: a pulled copy of a
+   reference pack is capped too, and no field of the pack lifts it. `mendari test`, `mendari
+   eval` and `leaderboard --run` check the pack's own policy (`origin_cap=False`); a server and
+   `mendari decide` never do.
+7. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.
