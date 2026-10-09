@@ -1296,7 +1296,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
     still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
     alerts, not a figure shown as checked).
-  - [x] **18b** (PR open) The registry's chain: every write appends a chained event in its transaction
+  - [x] **18b** (#229, merged 2026-10-09) The registry's chain: every write appends a chained event in its transaction
     (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
     `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
     SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
