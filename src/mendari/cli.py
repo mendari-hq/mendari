@@ -410,10 +410,10 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
 
 
 def cmd_card(args: argparse.Namespace) -> int:
-    from mendari.core.card import render_card
+    from mendari.core.card import card_of
 
     pack = resolve_pack(args.pack)
-    card = render_card(pack)
+    card = card_of(pack)
     if args.write:
         target = pack.root / "DECISION_CARD.md"
         if target.is_symlink():  # the write would land wherever the link points

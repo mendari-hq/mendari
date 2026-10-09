@@ -54,7 +54,7 @@ from mendari.core.audit import (
     AuditStore,
     usage_totals,
 )
-from mendari.core.card import benchmark, render_card
+from mendari.core.card import benchmark, card_of
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
@@ -1068,11 +1068,13 @@ def create_app(
             ),
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
+            # A pack from a registry: what it carries about itself (its benchmark and
+            # leaderboard) is its publisher's, never shown, as the registry shows none (ADR-0012).
             "benchmark": None
-            if (published := benchmark(pack)) is None
+            if pack.origin == "hub" or (published := benchmark(pack)) is None
             else _with_figures(published),
-            "leaderboard": leaderboard.load(pack),
-            "card_markdown": render_card(pack),
+            "leaderboard": None if pack.origin == "hub" else leaderboard.load(pack),
+            "card_markdown": card_of(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
 

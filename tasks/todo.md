@@ -1272,7 +1272,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     image and a `javascript:` link in publisher text are inert, `hub_seed.py
     --hostile-example`, run by `hub-site`), no benchmark fact or leaderboard. Regression test:
     AI Guard (risk 2) with an uploaded risk-1 card, a 99.9% benchmark and leaderboard shows only
-    the registry's card, everywhere. ADR-0012 and this plan.
+    the registry's card, everywhere. ADR-0012 and this plan. Adversarial review (1 high, 2
+    medium, 4 low), all fixed: publisher text (a newline or Markdown in the name, summary, card
+    fields, rationale, evidence, criteria, names, or the changelog) made headings, tables,
+    rules, images and "Clinically reviewed" claims in the registry's card; in that card every
+    publisher string is now one line with Markdown's punctuation escaped (`_t`), every name a
+    code span its own backticks and pipes cannot break (`_c`), an evidence link only an http(s)
+    address with nothing Markdown reads, and the changelog's `## ` versions its only headings
+    (`mendari card` on a pack of one's own is unchanged, byte for byte); a pulled pack's
+    uploaded benchmark and leaderboard were still shown by the engine's pack detail and
+    `mendari card` (`card_of`: a pack from a registry as the registry renders it); the Hub
+    renders no image; a card over 1 MB is refused; `checked.engine_release` names the release
+    the engine was chosen against, and the Hub says the publisher type is the namespace's as it
+    stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
+    still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
+    alerts, not a figure shown as checked).
   - [ ] **18b** The registry's chain: every write appends a chained event (`hub_events`;
     publish, report, namespace, publisher type, token, key), `mendari registry verify`; a
     reviewer's review of a version (`POST …/review`, the admin token until LP-19's reviewers),
@@ -1286,8 +1300,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **18d** Origin at pull and the cap: the verified marker records the registry URL,
     namespace, publisher type, key id and any yank; a pack from a registry is capped at
     HUMAN_REVIEW until the organization approves its digest (`registry_approvals`, chained),
-    at every risk level, and nothing in the pack lifts it. The engine's card and pack detail
-    leave out a pulled pack's uploaded benchmark and leaderboard, as the registry does.
+    at every risk level, and nothing in the pack lifts it.
   - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
     checked against their registry's yank records on a schedule, and a yanked one (or one no
     check reached for too long) stops automating.

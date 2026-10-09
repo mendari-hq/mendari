@@ -73,6 +73,9 @@ _VERSION = re.compile(r"^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 # are never served.
 VERSION_FORMAT = "mendari.registry-version/2"
 UPLOADED = ("benchmark", "leaderboard", "card_markdown")
+# The card the registry renders, at most (a shipped one is about 30 KB): it is stored with the
+# version and sent with every read of the pack.
+MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
 SCHEMA = """
@@ -242,6 +245,8 @@ class RegistryStore:
                 raise HubError(f"the pack does not load: {error}") from None
             except Exception as error:  # the publisher's content: named, never a 500
                 raise HubError(f"the pack does not load ({type(error).__name__})") from None
+        if len(str(metadata.get("card_markdown") or "").encode()) > MAX_CARD_BYTES:
+            raise HubError(f"the pack's Decision Card is larger than {MAX_CARD_BYTES} bytes")
         try:  # as it is stored and every answer serializes it, first: versions are immutable
             stored = json.dumps(metadata, sort_keys=True)
             to_json(metadata)
@@ -431,6 +436,9 @@ def _checked(version: Mapping[str, Any], rendered: bool) -> dict[str, Any]:
         # The digest the signed manifest names, which the pack loaded with, on `engine`.
         "digest": version.get("digest"),
         "engine": version.get("engine"),
+        # The registry's release whose reference packs that engine was chosen against: a puller
+        # on another release may run a copy of a reference pack on the bounded engine.
+        "engine_release": version.get("engine_release"),
         # Rendered here from the files the digest covers, never the uploaded card.
         "card": "rendered" if rendered else "not_rendered",
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
@@ -549,6 +557,7 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         # The engine its pullers run it on (ADR-0009): a copy of a reference pack of this
         # registry's release keeps the maintained one; every other pack runs bounded.
         "engine": "bounded" if pack.bounded else "maintained",
+        "engine_release": __version__,
         "card_markdown": render_card(pack, report=None, board=None, rendered_by="registry"),
     }
 

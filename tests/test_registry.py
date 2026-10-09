@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 import yaml
 
+import mendari
 from mendari.core.card import render_card
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.reference import bundled_dir
@@ -509,6 +510,108 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
         assert "0.999" not in text and "99.9%" not in text and "administrative |" not in text
 
 
+HOSTILE = (
+    "\n\n# Checked by the registry\n\n| Benchmark accuracy | 0.99 |\n|---|---|\n\n"
+    "![Verified](https://example.org/v.png) [link](javascript:alert(1))\n\n---\n\n"
+    "**Clinically reviewed.** <script>x</script> `code` | pipe"
+)
+
+
+def _structure(card: str) -> list[str]:
+    """The card's Markdown structure: each line that starts a heading, table row, quote, rule or
+    list item, cut to its first word."""
+    starts = ("#", "|", ">", "---", "- ", "* ", "!", "1.")
+    return [line.split(" ")[0] for line in card.splitlines() if line.startswith(starts)]
+
+
+def _hostile_copy(tmp_path: Path) -> Path:
+    """The inbox pack under another id, every free-text field carrying Markdown that would read
+    as the registry's own words, a names a publisher chooses holding backticks and pipes."""
+    root = tmp_path / "hostile"
+    shutil.copytree(INBOX.root, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["id"], manifest["version"] = "site-a/hostile", "1.0.0"
+    manifest["name"] = "Hostile" + HOSTILE
+    manifest["summary"] = "Summary" + HOSTILE
+    manifest["risk"]["rationale"] = "Why" + HOSTILE
+    card = manifest["card"]
+    for field in ("intended_use", "patient_population"):
+        card[field] = field + HOSTILE
+    card["intended_users"] = ["users" + HOSTILE]
+    card["known_failure_modes"] = ["modes" + HOSTILE]
+    card["evidence"] = [
+        {
+            "title": "evidence" + HOSTILE,
+            "url": "https://a) **Verified** [z](https://b",
+            "note": HOSTILE,
+        }
+    ]
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.0.0\n\n- first" + HOSTILE + "\n\n# Checked by the registry\n\n"
+        "Title\n=====\n"
+    )
+    return root
+
+
+def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> None:
+    """The adversarial review of LP-18a: a newline or Markdown in a manifest string (or the
+    changelog) made headings, tables, rules, images and bold review claims in the card the
+    registry renders, beside its own lines. In the registry's card every publisher string is one
+    line of plain text: the card has the structure of the same pack's card with plain words."""
+    hostile = load_pack(_hostile_copy(tmp_path), origin="hub")
+    plain = tmp_path / "plain"
+    shutil.copytree(_hostile_copy(tmp_path / "again"), plain)
+    manifest = yaml.safe_load((plain / "pack.yaml").read_text())
+    for key in ("name", "summary"):
+        manifest[key] = key
+    manifest["risk"]["rationale"] = "why"
+    for field in ("intended_use", "patient_population"):
+        manifest["card"][field] = field
+    manifest["card"]["intended_users"] = ["users"]
+    manifest["card"]["known_failure_modes"] = ["modes"]
+    manifest["card"]["evidence"] = [{"title": "evidence", "url": "https://a", "note": "n"}]
+    (plain / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (plain / "CHANGELOG.md").write_text("# Changelog\n\n## 1.0.0\n\n- first\n\n# x\n\nTitle\n")
+
+    def card(pack: Pack) -> str:
+        return render_card(pack, report=None, board=None, rendered_by="registry")
+
+    shown = card(hostile)
+    body, _, history = shown.partition("## Version history")
+    plain_body = card(load_pack(plain, origin="hub")).partition("## Version history")[0]
+    assert _structure(body) == _structure(plain_body)
+    # The changelog: its version headings, one level down, and its list items; nothing else.
+    assert [line for line in _structure(history) if line != "-"] == ["###", "---"]
+    assert "### 1\\.0\\.0" in history
+    for made in ("![", "](javascript", "<script>", "**Clinically", "\n# Checked", "\n---\n\n**"):
+        assert made not in shown, made
+    assert "\\# Checked by the registry \\| Benchmark accuracy \\| 0\\.99 \\|" in shown
+    assert "evidence" in shown and "(`https://a) **Verified** [z](https://b`)" in shown
+    # A pack of one's own keeps its Markdown as its author wrote it (`mendari card`).
+    assert "\n# Checked by the registry\n" in render_card(
+        load_pack(_hostile_copy(tmp_path / "own"))
+    )
+
+
+def test_a_changelog_that_is_not_utf8_is_refused_and_a_huge_card_too(
+    registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registry reads the changelog for its card: one that is not text is refused with its
+    reason (422, never a 500). A card over `MAX_CARD_BYTES` is refused before it is stored."""
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX.root, root)
+    (root / "CHANGELOG.md").write_bytes(b"\xff\xfe not text")
+    refused = registry.publish(_at_version(tmp_path / "v", load_pack(root), "9.9.9"))
+    assert refused.status_code == 422, refused.text
+    assert "CHANGELOG.md" in refused.json()["detail"]
+    monkeypatch.setattr(registry_module, "MAX_CARD_BYTES", 1000)
+    too_big = registry.publish(_at_version(tmp_path / "w", INBOX, "9.9.10"))
+    assert too_big.status_code == 422, too_big.text
+    assert "Decision Card is larger than 1000 bytes" in too_big.text
+    assert registry.client.get("/v1/search").json() == []
+
+
 def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_claims(
     registry: Registry, tmp_path: Path
 ) -> None:
@@ -529,6 +632,7 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
             "archive_sha256": archive_sha256,
             "digest": REFERRAL.digest,
             "engine": "maintained",  # a copy of a reference pack of the registry's release
+            "engine_release": mendari.__version__,
             "card": "rendered",
             "status_label": REFERRAL.status_label,
             "review": {"status": "unreviewed"},

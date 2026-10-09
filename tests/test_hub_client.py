@@ -109,6 +109,32 @@ def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     assert resolve_pack("site-a/inbox").digest == pack.digest  # the cache is on the search path
 
 
+def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
+    hub: Hub, tmp_path: Path
+) -> None:
+    """The LP-18a review: the registry shows no uploaded benchmark or leaderboard, but the
+    engine's pack detail and `mendari card` did, once the pack was pulled. A pack from a registry
+    is shown as the registry renders it (ADR-0012); the same pack of one's own keeps its own."""
+    from fastapi.testclient import TestClient
+
+    from mendari.core.card import card_of
+    from mendari.server.app import create_app
+
+    token, key = hub.namespace("site-a")
+    pack = copy_pack(tmp_path, "site-a/inbox")
+    assert (pack.root / "evals" / "benchmark.json").is_file()
+    hub.client(token).push(pack, key)
+    pulled = pull("site-a/inbox", hub.client())
+    card = card_of(pulled)
+    assert "The registry shows no figure it did not compute itself" in card
+    assert "## Provider comparison" not in card and "## Provider comparison" in card_of(pack)
+    with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
+        detail = engine.get("/api/packs/site-a/inbox").json()
+    assert detail["origin"] == "hub"
+    assert detail["benchmark"] is None and detail["leaderboard"] is None
+    assert detail["card_markdown"] == card
+
+
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

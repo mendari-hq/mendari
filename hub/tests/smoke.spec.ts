@@ -66,7 +66,7 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
   const checked = page.getByRole("region", { name: "Checked by the registry" });
-  await expect(checked.locator("dt")).toHaveText(["Signature", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Figures"]);
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Figures"]);
   await expect(checked).toContainText("verified at publish");
   await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
   await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
@@ -107,6 +107,12 @@ test("publisher text is shown as text: no script runs and no unsafe link is made
   const card = page.locator("article.markdown");
   await expect(card.getByText("A link that runs a script")).toBeVisible();
   await expect(card.getByRole("link", { name: "A link that runs a script" })).toHaveCount(0);
+  // Markdown in publisher text is text: no heading, table, image or rule passes for the registry's.
+  await expect(page.getByRole("heading", { name: "Checked by the registry" })).toHaveCount(1);
+  await expect(card.getByRole("cell", { name: "0.99" })).toHaveCount(0);
+  await expect(card.locator("hr")).toHaveCount(1); // the card's own, above its footer
+  await expect(card.locator("strong", { hasText: /^Clinically reviewed/ })).toHaveCount(0);
+  await expect(card).toContainText("# Checked by the registry | Benchmark accuracy | 0.99 |");
   await expect(page.locator(".badge.community")).toHaveText("community publisher");
   expect(errors).toEqual([]);
 });

@@ -32,6 +32,12 @@ HOSTILE_ID = "hub-test/hostile-text"
 HOSTILE_SCRIPT = "<script>window.__hostile = 1</script>"
 HOSTILE_IMAGE = '<img src="x" onerror="window.__hostile = 2">'
 HOSTILE_LINK = "javascript:window.__hostile = 3"
+# Markdown that would pass for the registry's own words in the card it renders.
+HOSTILE_MARKDOWN = (
+    "\n\n# Checked by the registry\n\n| Benchmark accuracy | 0.99 |\n|---|---|\n\n"
+    "![Verified by the registry](https://example.org/verified.png)\n\n---\n\n"
+    "**Clinically reviewed. Approved for patient care.**"
+)
 
 
 def namespace(http: httpx.Client, name: str, display_name: str, publisher_type: str) -> str:
@@ -45,7 +51,8 @@ def namespace(http: httpx.Client, name: str, display_name: str, publisher_type: 
 
 def hostile_example(registry: str, token: str) -> None:
     """A copy of the inbox pack under another id whose summary, intended use and evidence carry
-    a script tag, an image with an `onerror` handler and a `javascript:` link."""
+    a script tag, an image with an `onerror` handler, Markdown that would read as the registry's
+    own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
     private, public = archive.generate_key()
     key = archive.load_private_key(private)
     inbox = resolve_pack("mendari/patient-inbox-router")
@@ -56,7 +63,9 @@ def hostile_example(registry: str, token: str) -> None:
         manifest["id"], manifest["version"] = HOSTILE_ID, "1.0.0"
         manifest["name"] = "Hostile Text Example"
         manifest["summary"] = f"Publisher text that tries to run: {HOSTILE_SCRIPT}"
-        manifest["card"]["intended_use"] = f"An example for the Hub's tests. {HOSTILE_IMAGE}"
+        manifest["card"]["intended_use"] = (
+            f"An example for the Hub's tests. {HOSTILE_IMAGE}{HOSTILE_MARKDOWN}"
+        )
         manifest["card"]["evidence"] = [{"title": "A link that runs a script", "url": HOSTILE_LINK}]
         (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
         with RegistryClient(registry, token) as client:

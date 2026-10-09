@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 type Params = { namespace: string; name: string };
 
 // The card's own headings sit under this page's "Decision Card" (h2), so they start at h3.
-const CARD_HEADINGS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6" } as const;
+// No image is shown: a publisher's picture could pass for a badge, and would tell its server
+// who reads the page.
+const CARD_ELEMENTS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6", img: () => null } as const;
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { namespace, name } = await params;
@@ -45,12 +47,18 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <h2 id="checked-heading">Checked by the registry</h2>
         <dl>
           <Item term="Signature">
-            {checked.signature.algorithm}, key <span className="mono">{checked.signature.key_id}</span>,
-            {checked.publisher_type ? ` a key of this ${checked.publisher_type} publisher's,` : null} verified at publish
+            {checked.signature.algorithm}, key <span className="mono">{checked.signature.key_id}</span> of this
+            namespace, verified at publish
+          </Item>
+          <Item term="Publisher type">
+            {checked.publisher_type ?? "Not set"}: set by the registry&apos;s administrators for this namespace (as it stands now)
           </Item>
           <Item term="Archive"><span className="mono break">sha256 {checked.archive_sha256}</span></Item>
           <Item term="Pack digest"><span className="mono break">{checked.digest}</span></Item>
-          <Item term="Engine">{checked.engine ? ENGINE_WORDS[checked.engine] : "Not recorded (published before the registry recorded it)"}</Item>
+          <Item term="Engine">
+            {checked.engine ? ENGINE_WORDS[checked.engine] : "Not recorded (published before the registry recorded it)"}
+            {checked.engine_release ? ` (registry release ${checked.engine_release})` : null}
+          </Item>
           <Item term="Decision Card">
             {checked.card === "rendered"
               ? "Rendered by the registry from the files the digest covers; the uploaded card is not shown"
@@ -96,7 +104,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           <p className="muted">Rendered by the registry from the pack&apos;s own files. What it says is the publisher&apos;s.</p>
           <article className="markdown">
             {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
-            <Markdown components={CARD_HEADINGS} remarkPlugins={[remarkGfm]} skipHtml>
+            <Markdown components={CARD_ELEMENTS} remarkPlugins={[remarkGfm]} skipHtml>
               {latest.card_markdown}
             </Markdown>
           </article>

@@ -13,6 +13,7 @@ export type Checked = {
   archive_sha256: string;
   digest: string;
   engine: "bounded" | "maintained" | null; // null: published before the registry recorded it
+  engine_release?: string | null; // the registry's release whose reference packs chose the engine
   card: "rendered" | "not_rendered";
   status_label: string | null;
   review: { status: string };

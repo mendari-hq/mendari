@@ -60,8 +60,14 @@ Nothing on a pack's page comes from the uploader unchecked.
 2. (18a) The card is rendered with the pack loaded as a pack from a registry (`origin="hub"`), so
    it shows neither a maintained nor a community source line: the registry's checks, not the
    card, say where a pack comes from.
-3. (18a) Publisher text in the card is Markdown the Hub renders without raw HTML, and links whose
-   scheme is not `http`, `https` or `mailto` are dropped.
+3. (18a) In the registry's card, publisher text is plain text: each string on one line with
+   Markdown's punctuation escaped, each name a code span, an evidence link only an http(s)
+   address, and only the changelog's version lines as headings. So no heading, table, rule,
+   image, link or bold line in it can pass for the registry's own words. The Hub renders the
+   card without raw HTML or images, and drops unsafe links.
+4. (18a) Where Mendari serves or shows a pack pulled from a registry (the engine's pack detail,
+   `mendari card`), it shows the registry's card too, without the pack's uploaded benchmark and
+   leaderboard (`card_of`).
 
 ## Consequences
 - A publisher can no longer show a better benchmark than the registry measured, or a lower risk
