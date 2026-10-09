@@ -1203,7 +1203,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
     `docs/operations/revoking-access.md`; the hold page's table names the command line.
   - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
-  - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
+  - [ ] **21n** (#217, draft) The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
     Prepared: the purge at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily;
     a test pins them and runs each with the secret, and gate `hosted-monitoring` names it. Its
     alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for Production; the gate
