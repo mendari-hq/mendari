@@ -477,8 +477,23 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # Notes sealed under encrypt are checked with this deployment's keys. Verifying opens the
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
+    head = None
+    if (args.against is None) != (args.public_key is None):
+        raise MendariError("--against and --public-key go together: a statement and its key")
+    if args.against is not None and args.since_checkpoint:
+        raise MendariError("--against needs a full verification: leave out --since-checkpoint")
+    if args.against is not None:  # a signed checkpoint (LP-21k), checked before the chain
+        from mendari.core import checkpoint
+
+        statement = _read_json(args.against, "--against", shape=dict)
+        if isinstance(statement.get("statement"), dict):  # as `/api/audit/checkpoint` answers
+            statement = statement["statement"]
+        problem = checkpoint.problem(statement, checkpoint.load_public(args.public_key))
+        if problem is not None:
+            raise MendariError(f"--against: {problem}")
+        head = statement["head"]
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint)
+        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint, head=head)
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -488,10 +503,18 @@ def cmd_audit_checkpoint(args: argparse.Namespace) -> int:
     one (LP-21j), outside the chain; exit 1 when it is broken (nothing recorded). Opening the
     database migrates it, as every command that writes does; the checkpoint is the one row
     written: nothing is marked or chained."""
+    from mendari.core.checkpoint import checkpoint_key
+
+    key = checkpoint_key()  # a malformed key fails before anything is opened
     _servers_database(args.db, used=False, tables=_EVERY_RELEASE)  # mistyped: refused
     with AuditStore(args.db, marks=False) as store:
-        status = store.record_checkpoint()
+        status = store.record_checkpoint(signer=key)
     _print_json(status)
+    if status.get("statement_refused") is not None:
+        raise MendariError(
+            f"the day's stored checkpoint statement is refused ({status['statement_refused']}): "
+            "someone with the database changed it; follow the incident runbook"
+        )
     return 0 if status["ok"] else 1
 
 
@@ -1899,6 +1922,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="only the events after the last checkpoint (mendari audit checkpoint)",
     )
+    verify.add_argument(
+        "--against",
+        help="a signed checkpoint, or /api/audit/checkpoint's answer (JSON file), whose head the "
+        "chain must hold (with --public-key)",
+    )
+    verify.add_argument("--public-key", help="the checkpoint key's public half (base64)")
     verify.set_defaults(handler=cmd_audit_verify)
     checkpoint = audit.add_parser(
         "checkpoint", help="verify from the last checkpoint and record the head as the next"

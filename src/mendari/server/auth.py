@@ -212,6 +212,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/openapi\.json$", "read"),
         # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.
         ("GET", r"^/api/internal/retention$", "public"),
+        # The scheduled checkpoint likewise (LP-21j, 21k), and the signed one it publishes.
+        ("GET", r"^/api/internal/checkpoint$", "public"),
+        ("GET", r"^/api/audit/checkpoint$", "public"),
         # The scheduled monitor (LP-21f): the same secret, checked there.
         ("GET", r"^/api/internal/monitor$", "public"),
         ("GET", r"^/api/notice$", "read"),
