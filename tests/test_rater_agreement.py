@@ -157,6 +157,29 @@ def report(cases: list[dict[str, dict[str, str]]], **options: Any) -> dict[str, 
     return agreement(pack.manifest, cases, pack=pack.ref, **options)
 
 
+def pair_statistic(a: str, b: str) -> Any:
+    def statistic(sample: Sequence[dict[str, str]]) -> float | None:
+        value = kappa([(row[a], row[b]) for row in sample if a in row and b in row])
+        return None if value is None else float(value)
+
+    return statistic
+
+
+def pool_statistic(sample: Sequence[dict[str, str]]) -> float | None:
+    value = alpha([list(row.values()) for row in sample])
+    return None if value is None else float(value)
+
+
+def expected_interval(rows: list[dict[str, str]], statistic: Any, resamples: int) -> dict[str, Any]:
+    """The interval the report should hold: the question's cases resampled with the seed."""
+    _, low, high, dropped = stats.bootstrap_defined(rows, statistic, resamples, 0)
+    if dropped:
+        reason = f"undefined in {dropped} of {resamples} resamples"
+        return {"status": "not_estimable", "reason": reason, "dropped": dropped}
+    assert low is not None and high is not None
+    return {"status": "ok", "low": round(low, 6), "high": round(high, 6), "dropped": 0}
+
+
 def test_the_report_holds_percent_kappa_per_pair_and_alpha() -> None:
     cases = []
     for i in range(30):
@@ -167,6 +190,7 @@ def test_the_report_holds_percent_kappa_per_pair_and_alpha() -> None:
         cases.append(
             {raters[0]: certain(unsafe_advice=unsafe), raters[1]: certain(unsafe_advice=other)}
         )
+    rows = [{rater: labels["unsafe_advice"] for rater, labels in case.items()} for case in cases]
     result = report(cases, resamples=200)
     assert result["format"] == FORMAT and result["level"] == 0.95
     assert result["seeds"] == {"bootstrap": 0, "resamples": 200}
@@ -182,10 +206,17 @@ def test_the_report_holds_percent_kappa_per_pair_and_alpha() -> None:
         assert pair["n"] == len(shared) == 15
         assert pair["estimate"] == round(float(kappa(shared) or 0), 6)
         assert pair["labels"][a] == dict(sorted({"yes": 5, "no": 10}.items()))
-        assert pair["interval"]["status"] in {"ok", "not_estimable"}
+        assert pair["interval"] == expected_interval(rows, pair_statistic(a, b), 200)
     units = [[case[r]["unsafe_advice"] for r in case] for case in cases]
     assert unsafe["alpha"]["estimate"] == round(float(alpha(units) or 0), 6)
     assert (unsafe["alpha"]["cases"], unsafe["alpha"]["ratings"]) == (30, 60)
+    assert unsafe["alpha"]["interval"] == expected_interval(rows, pool_statistic, 200)
+    statuses = {pair["interval"]["status"] for pair in unsafe["kappa"]}
+    assert statuses == {"ok", "not_estimable"}  # both shapes are checked above
+    for coefficient in [*unsafe["kappa"], unsafe["alpha"]]:
+        interval = coefficient["interval"]
+        if interval["status"] == "ok":
+            assert interval["low"] <= coefficient["estimate"] <= interval["high"]
 
 
 def test_an_undefined_coefficient_and_interval_say_so() -> None:
@@ -200,8 +231,9 @@ def test_an_undefined_coefficient_and_interval_say_so() -> None:
     assert out_of_scope["alpha"]["reason"] == "every rating is one and the same label"
     assert out_of_scope["percent"]["k"] == out_of_scope["percent"]["n"] == 10
 
-    # One disagreement in twelve: the estimate is defined, but resamples that miss that case
-    # leave kappa undefined, so the interval is not estimable and says in how many.
+    # Two `yes` cases in twelve (one agreed, one not): the estimate is defined, but resamples
+    # that draw neither leave both raters on `no` throughout, so kappa is undefined there; the
+    # interval is not estimable and says in how many.
     rare = [
         *same,
         {"r1": certain(out_of_scope="yes"), "r2": certain(out_of_scope="yes")},
@@ -211,6 +243,8 @@ def test_an_undefined_coefficient_and_interval_say_so() -> None:
     assert pair["status"] == "ok" and pair["estimate"] is not None
     interval = pair["interval"]
     assert interval["status"] == "not_estimable" and 0 < interval["dropped"] < 200
+    rows = stats.resample_indices(len(rare), 200, 0)
+    assert interval["dropped"] == sum(1 for row in rows if 10 not in row and 11 not in row)
     assert interval["reason"] == f"undefined in {interval['dropped']} of 200 resamples"
 
 

@@ -215,12 +215,15 @@ How far raters who label the same cases blind agree, per question of the pack (L
 the pack's member questions, and a derived question's label for a rater comes from the pack's
 decision table over that rater's member labels. An adjudicator's label is not a first pass.
 
+The report holds `format`, `pack`, `level` (0.95), `seeds` (`{bootstrap, resamples}`: the seed,
+and 2,000 resamples unless set) and `questions`: for each of the pack's questions, `cases` (the
+cases with at least one rating) and these:
+
 | Field | What it holds |
 |---|---|
 | `percent` | Of the cases two or more raters labelled, those whose labels all agree: k of n with its exact interval, as every share is shown. |
 | `kappa` | One entry per pair of raters who labelled a case in common: `raters`, `n` (the cases both labelled), `labels` (each rater's label counts on them), Cohen's kappa as `estimate`, and its `interval`. |
 | `alpha` | Krippendorff's alpha (nominal) across the pool, as pairs vary from case to case and ratings may be missing: `cases` and `ratings` counted (cases with two or more ratings), `estimate`, `interval`. |
-| `seeds` | `{bootstrap, resamples}`: the seed and the number of resamples (2,000 unless set). |
 
 Kappa and alpha are computed exactly (fractions) and rounded to 6 places. Their intervals are the
 percentile bootstrap over seeded resamples of the question's cases, the same index matrix for
