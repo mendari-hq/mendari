@@ -23,13 +23,14 @@ from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from mendari import alerts as alerts_module
-from mendari import cli
+from mendari import cli, settings
+from mendari.alerts import AlertSettings
 from mendari.core import clock, tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import CallBudget, Decision
 from mendari.errors import MendariError, ProviderError
 from mendari.server import auth as auth_module
-from mendari.server.app import create_app, error_response
+from mendari.server.app import create_app, error_response, quota_alert
 from mendari.server.auth import permission_for
 from mendari.server.limits import (
     DEFAULT_RATES,
@@ -135,6 +136,10 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=many", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "tokens=5", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=5,decisions=6", "at most once"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_decisions=5", "must look like"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_LLM=50", "must look like"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_jev=5,eval_jev=6", "at most once"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_llm=-1", "must look like"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "many", "non-negative integer"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "-1", "non-negative integer"),
     ],
@@ -612,14 +617,14 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
 # -- organization quotas --------------------------------------------------------------------------
 
 
-def test_each_organization_has_its_own_quota_and_evaluations_spend_none(
+def test_each_organization_has_its_own_quota_and_evaluations_spend_their_own(
     store: AuditStore,
 ) -> None:
     reached: list[tuple[str, str, int]] = []
     budget = CallBudget(
         store,
         {"jev": None},
-        org_limits={"decisions": 2, "jev": 1},
+        org_limits={"decisions": 2, "jev": 1, "eval_jev": 1},
         on_quota_reached=lambda *args: reached.append(args),
     )
     with tenancy.acting_for("north"):
@@ -631,14 +636,75 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_none(
         with pytest.raises(ProviderError, match="quota_exhausted"):
             budget.acquire("jev")
         evaluation = budget.for_evaluation()
-        evaluation.admit_decision()  # no quota: an evaluation is not the organization's work
-        evaluation.acquire("jev")  # counted in the deployment's budget only
+        evaluation.admit_decision()  # an evaluation's case is not one of its decisions
+        evaluation.acquire("jev")  # its own quota, with the deployment's budget
+        with pytest.raises(ProviderError, match="quota_exhausted"):
+            evaluation.acquire("jev")
+        evaluation.acquire("llm")  # no `eval_llm` quota: no limit
     with tenancy.acting_for("south"):
         budget.admit_decision()
-    assert store.org_usage("north") == {"decisions": 2, "jev": 1}
-    assert store.org_usage("south") == {"decisions": 1}
-    assert store.usage("jev") == 2
-    assert reached == [("north", "decisions", 2), ("north", "jev", 1)]  # once each, when reached
+        budget.for_evaluation().acquire("jev")  # its own evaluations, its own quota
+    assert store.org_usage("north") == {"decisions": 2, "jev": 1, "eval_jev": 1}
+    assert store.org_usage("south") == {"decisions": 1, "eval_jev": 1}
+    assert store.usage("jev") == 3
+    assert reached == [
+        ("north", "decisions", 2),
+        ("north", "jev", 1),
+        ("north", "eval_jev", 1),
+        ("south", "eval_jev", 1),
+    ]  # once each, when reached
+
+
+def test_every_quota_is_read_and_an_evaluation_s_large_quota_is_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=5,jev=4,llm=3,eval_jev=2,eval_llm=1")
+    assert settings.org_daily_limits() == {
+        "decisions": 5, "jev": 4, "llm": 3, "eval_jev": 2, "eval_llm": 1,
+    }  # fmt: skip
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_jev=500,eval_llm=10")
+    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
+        create_app(db_path=tmp_path / "a.db", budget_limits={"jev": 500, "llm": 200})
+    assert "eval_jev=500 in MENDARI_ORG_DAILY_LIMITS is not below" in caplog.text
+    assert "eval_llm" not in caplog.text  # 10 of 200: fine
+
+
+def test_the_quota_alert_says_what_an_evaluation_quota_stops(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[dict[str, Any]] = []
+
+    def post(url: str, **kwargs: Any) -> httpx.Response:
+        posted.append(json.loads(kwargs["content"]))
+        return httpx.Response(204, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
+    alert = quota_alert(AlertSettings("https://alerts.example.org/hook"), store)
+    alert("north", "eval_jev", 3)
+    alert("north", "decisions", 5)
+    evaluation, decisions = (sent["alerts"][0]["message"] for sent in posted)
+    assert "evaluations make no more of these calls" in evaluation
+    assert "human review" not in evaluation
+    assert "decisions fall back to human review" in decisions
+
+
+def test_an_evaluation_over_its_quota_never_lowers_a_live_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+) -> None:
+    """The organization's evaluations use up their Jev quota: the rest of the evaluation's
+    calls fail (`quota_exhausted`), and its live decisions are automated as before."""
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=10,jev=10,eval_jev=3")
+    db = str(tmp_path / "quota.db")
+    client = TestClient(create_app(db_path=db, providers=screened))
+    run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
+    assert run.status_code == 200, run.text
+    with AuditStore(db) as store:
+        assert store.org_usage("default") == {"eval_jev": 3}
+    outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(2)]
+    assert [o["outcome"] for o in outcomes] == ["AUTO", "AUTO"]
+    assert all(not o["errors"] for o in outcomes)
+    used = client.get("/api/health").json()["org_quotas"]["used_today"]
+    assert used == {"decisions": 2, "jev": 2, "eval_jev": 3}
 
 
 def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
@@ -655,7 +721,7 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     monkeypatch.setattr(alerts_module.httpx, "post", post)
     db = str(tmp_path / "quota.db")
     client = TestClient(create_app(db_path=db, providers=screened))
-    # Evaluations run on the deployment's budgets, never the organization's quota.
+    # Evaluations never spend the decisions quota (only `eval_*`, unset here: no limit).
     run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
     outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(4)]

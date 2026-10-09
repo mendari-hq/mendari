@@ -691,7 +691,8 @@ local providers still answer. With sign-in on, decisions, the AI
 guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
-decisions fall back to human review, and each principal (a person, a key, a client, an EHR
+decisions fall back to human review (their evaluations have their own, `eval_jev` and
+`eval_llm`), and each principal (a person, a key, a client, an EHR
 launch) a daily cap on the decisions it asks for (`MENDARI_PRINCIPAL_DAILY_LIMIT`), past which its
 requests are refused until midnight (`429`), so one leaked key cannot spend its organization's day. A security log goes to stdout as JSON lines: one access line
 per API request and the security events (sign-ins and EHR launches, refusals, requests from other sites, rate
