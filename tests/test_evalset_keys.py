@@ -210,7 +210,7 @@ def test_the_keys_need_sign_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         create_app(db_path=tmp_path / "a.db")
 
 
-@pytest.mark.parametrize("environment", ["preview", "development", ""])
+@pytest.mark.parametrize("environment", ["preview", "development", "Production"])
 def test_the_keys_are_refused_on_vercel_outside_production(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: str
 ) -> None:
@@ -223,6 +223,20 @@ def test_the_keys_are_refused_on_vercel_outside_production(
         create_app(db_path=tmp_path / "a.db")
     monkeypatch.setenv("VERCEL_ENV", "production")
     create_app(db_path=tmp_path / "b.db")  # it starts
+
+
+def test_the_keys_say_so_where_vercel_hides_its_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project that hides Vercel's system variables has `VERCEL` (the root `app.py` sets it)
+    and no `VERCEL_ENV`: refused, saying what is missing rather than blaming Preview."""
+    evalset_on(monkeypatch)
+    encrypt_mode(monkeypatch)
+    sign_in_env(monkeypatch)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    with pytest.raises(MendariError, match="VERCEL_ENV is not set: expose Vercel's system"):
+        create_app(db_path=tmp_path / "a.db")
 
 
 def test_health_shows_key_ids_only_and_only_to_readers(

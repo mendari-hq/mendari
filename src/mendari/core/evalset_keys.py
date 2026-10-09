@@ -185,14 +185,24 @@ def require_evalset_deployment(*, sign_in: bool) -> None:
     """Refuse, at startup, a server with the evaluation-set keys where hidden sets must not be
     served: without sign-in (open mode holds every permission), or on the hosted site outside
     Production (`VERCEL` set, `VERCEL_ENV` not `production`: a Preview runs on a copy of the
-    database, which must hold only ciphertext; the root `app.py` sets `VERCEL` too, so serve
-    locally with `mendari serve`)."""
+    database, which must hold only ciphertext). A project that hides Vercel's system variables
+    has no `VERCEL_ENV` (the root `app.py` sets `VERCEL` alone), so the keys are refused there
+    too, saying so; serve locally with `mendari serve`."""
     if not sign_in:
         raise MendariError(
             f"{KEY_ENV} and {INDEX_ENV} turn on hidden evaluation sets, which need sign-in: "
             "set it up (docs/operations/accounts.md), or unset both keys"
         )
-    if os.environ.get("VERCEL") and os.environ.get("VERCEL_ENV", "").strip() != "production":
+    if not os.environ.get("VERCEL"):
+        return
+    environment = os.environ.get("VERCEL_ENV", "").strip()
+    if not environment:
+        raise MendariError(
+            f"{KEY_ENV} and {INDEX_ENV} need VERCEL_ENV=production on Vercel, and VERCEL_ENV is "
+            "not set: expose Vercel's system environment variables in the project's settings "
+            "(locally, serve with `mendari serve`)"
+        )
+    if environment != "production":
         raise MendariError(
             f"{KEY_ENV} and {INDEX_ENV} are for the hosted Production environment only: remove "
             "them from Preview and Development, then redeploy"
