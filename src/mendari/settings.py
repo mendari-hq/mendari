@@ -66,6 +66,38 @@ def pas_payer_url() -> str:
     return url
 
 
+def pas_codes() -> dict[str, str]:
+    """The X12 codes this site sends in Da Vinci PAS requests, by name, from its settings
+    (`pas.X12_SETTINGS`: $MENDARI_PAS_REQUEST_TYPE, $MENDARI_PAS_CERTIFICATION_TYPE and the
+    others); only those set. Mendari ships no X12 code value: these are the site's."""
+    from mendari.standards.pas import X12_CODE, X12_SETTINGS, PasError
+
+    codes = {}
+    for name, variable in X12_SETTINGS.items():
+        value = os.environ.get(variable, "").strip()
+        if not value:
+            continue
+        if not X12_CODE.fullmatch(value):
+            raise PasError(f"{variable} must be an X12 code: 1 to 3 capital letters or digits")
+        codes[name] = value
+    return codes
+
+
+def sandbox_payer_review_action() -> str | None:
+    """The X12 review action code (306) the sandbox's mock payer answers every request with
+    ($MENDARI_SANDBOX_PAYER_REVIEW_ACTION); unset: none, and its answers carry no review action
+    code, which PAS allows."""
+    from mendari.standards.pas import REVIEW_ACTION
+
+    value = os.environ.get("MENDARI_SANDBOX_PAYER_REVIEW_ACTION", "").strip()
+    if value and not REVIEW_ACTION.fullmatch(value):
+        raise MendariError(
+            "MENDARI_SANDBOX_PAYER_REVIEW_ACTION must be an X12 code: 1 to 3 capital letters or "
+            "digits"
+        )
+    return value or None
+
+
 def fhir_validation() -> FhirValidation:
     """US Core checks on FHIR inputs ($MENDARI_FHIR_VALIDATION): `warn` (default) returns and
     audits the issues without changing the decision; `enforce` blocks a non-conforming input

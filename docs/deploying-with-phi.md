@@ -598,8 +598,8 @@ the audit chain:
 - under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
   The dashboard offers no note field there, and a payer's words are not kept;
 - in every mode, the chain keeps a payer's outcome and review actions only as codes (R4's
-  `queued`, `complete`, `error` or `partial`; an X12 306 code such as `A1`): text in their
-  place is dropped;
+  `queued`, `complete`, `error` or `partial`; the payer's X12 306 code, 1 to 3 capital letters
+  or digits): text in their place is dropped;
 - under `off`, notes are kept in the clear for whoever may read the decision;
 - notes written into the chain by earlier releases stay there (the chain is never rewritten),
   but are shown only to those who may read inputs.
@@ -728,6 +728,27 @@ By default, nothing. Each of these is off until you configure it:
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
+| Da Vinci PAS submissions (`submit` on `POST /api/packs/{pack}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes |
+
+**Da Vinci PAS codes.** A PAS request carries X12 codes, and Mendari ships none of their values
+(X12's code lists are under X12's terms; the owner's decision of 2026-10-07). Set your own, from
+the X12 implementation guide you are licensed for and as your payer expects them. A request (or
+`mendari pas build`'s flags) may give its own, and a service type in the order wins over the
+setting:
+
+| Setting | X12 element | In PAS |
+|---|---|---|
+| `MENDARI_PAS_REQUEST_TYPE` | 1525, each item's request type | Required: without it (or `request_type`), building the request is refused (`422`) naming the setting |
+| `MENDARI_PAS_CERTIFICATION_TYPE` | 1322, each item's certification type | Required, as above (`certification_type`) |
+| `MENDARI_PAS_SERVICE_TYPE` | 1365, the service type, when neither the request nor the order's category gives one | Required, as above (`service_type`) |
+| `MENDARI_PAS_SELF_RELATIONSHIP` | 1069, the Coverage's code for self, beside FHIR's `self` | Optional: unset, it is left out, and the Coverage names the patient as its subscriber (PAS's rule `self-beneficiary`) |
+| `MENDARI_PAS_PAYER_ENTITY`, `MENDARI_PAS_REQUESTER_ENTITY` | 98, the payer's and the requesting organization's entity codes | Optional: unset, the organizations go untyped |
+
+Each is 1 to 3 capital letters or digits; anything else is refused naming the setting. The
+sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
+with no review action code when it is unset or empty. The compose sandbox sets all of these for
+its synthetic requests except the service type: its synthetic orders carry none, and they are not
+all one kind of service, so each request there gives its own (`service_type`).
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for

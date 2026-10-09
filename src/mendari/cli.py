@@ -1249,14 +1249,24 @@ def cmd_sandbox_payer(args: argparse.Namespace) -> int:
             "pip install '.[server]', or uv sync)"
         ) from None
     from mendari.sandbox.payer import create_payer_app
+    from mendari.settings import sandbox_payer_review_action
 
-    _run_server(create_payer_app(), args.host, args.port)
+    review_action = sandbox_payer_review_action()
+    if review_action is None:
+        print(
+            "sandbox payer: answering with no review action code; set "
+            "MENDARI_SANDBOX_PAYER_REVIEW_ACTION to an X12 306 code to send one",
+            file=sys.stderr,
+        )
+    _run_server(create_payer_app(review_action), args.host, args.port)
     return 0
 
 
 def cmd_pas_build(args: argparse.Namespace) -> int:
+    from mendari.settings import pas_codes
     from mendari.standards import pas
 
+    site_codes = pas_codes()  # a setting that is not an X12 code stops before any work
     with _read_store(args.db) as store:
         record = store.get(args.decision)
     if record is None:
@@ -1278,6 +1288,9 @@ def cmd_pas_build(args: argparse.Namespace) -> int:
         service_type=args.service_type,
         place_of_service=args.place_of_service,
         diagnoses=args.diagnosis,
+        request_type=args.request_type,
+        certification_type=args.certification_type,
+        site_codes=site_codes,
     )
     Path(args.out).write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
     print(f"PAS request for decision {record['id']} written to {args.out}")
@@ -1734,6 +1747,15 @@ def _port(text: str) -> int:
     if not 0 < port < 65536:
         raise argparse.ArgumentTypeError(f"not a port: {port} (1 to 65535)")
     return port
+
+
+def _x12_code(text: str) -> str:
+    """An X12 code value's shape, checked before any work starts (argparse names the flag)."""
+    from mendari.standards.pas import X12_CODE
+
+    if not X12_CODE.fullmatch(text):
+        raise argparse.ArgumentTypeError("not an X12 code: 1 to 3 capital letters or digits")
+    return text
 
 
 def _monitored_days(text: str) -> int:
@@ -2213,7 +2235,21 @@ def build_parser() -> argparse.ArgumentParser:
     pas_build.add_argument("--decision", required=True, help="a submit_ready decision id")
     for name in ("patient", "coverage", "insurer", "requester", "order"):
         pas_build.add_argument(f"--{name}", required=True, help=f"the {name} (FHIR JSON file)")
-    pas_build.add_argument("--service-type", help="X12 service type (1365), e.g. 62")
+    # X12 codes: the site's own (Mendari ships no X12 code value), else its settings.
+    pas_build.add_argument(
+        "--service-type",
+        help="X12 service type (1365); else the order's, else $MENDARI_PAS_SERVICE_TYPE",
+    )
+    pas_build.add_argument(
+        "--request-type",
+        type=_x12_code,
+        help="X12 request type (1525); else $MENDARI_PAS_REQUEST_TYPE",
+    )
+    pas_build.add_argument(
+        "--certification-type",
+        type=_x12_code,
+        help="X12 certification type (1322); else $MENDARI_PAS_CERTIFICATION_TYPE",
+    )
     pas_build.add_argument("--place-of-service", help="CMS place of service, e.g. 22")
     pas_build.add_argument("--diagnosis", action="append", default=[], help="ICD-10-CM (repeat)")
     pas_build.add_argument("--out", required=True, help="where to write the Bundle")

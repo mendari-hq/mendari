@@ -8,8 +8,10 @@
 - `dtr-*.json`: `Questionnaire/$questionnaire-package` answers: for the order with documentation
   missing (found by its CRD assertion id, pre-answered from the decision), and for a
   questionnaire asked for by its canonical alone.
-- `pas-request.json`, `pas-response.json`: the PAS request Bundle for the complete request, and
-  the sandbox payer's answer to it.
+- `pas-request.json`, `pas-response.json`: the PAS request Bundle for the complete request, with
+  every X12 code a site may set, and the sandbox payer's answer to it with a review action code;
+  `pas-request-required.json`, `pas-response-no-review-code.json`: the same request with only the
+  X12 codes PAS requires, and an answer with no review action code.
 
     uv run python scripts/davinci_sample.py var/fhir-samples/davinci
 """
@@ -17,6 +19,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import sys
 import tempfile
@@ -190,14 +193,21 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
         (out / f"{name}.json").write_text(json.dumps(answer, indent=2) + "\n", encoding="utf-8")
     print(f"{len(asks)} DTR packages written to {out}")
 
-    # PAS: the complete request, with the resources a practice's EHR holds (synthetic).
+    # PAS: the complete request, with the resources a practice's EHR holds (synthetic). Mendari
+    # ships no X12 code value: these are a site's (its settings, `settings.pas_codes`), here only
+    # to make the sample. `pas-request.json` carries every one a site may set, and
+    # `pas-request-required.json` only those PAS requires; the payer answers the first with a
+    # review action code and the second without one (PAS makes both optional).
     ready = updated["crd-submit-ready"]
     record = store.get(davinci.assertion_id(ready) or "")
     if record is None:
         sys.exit("pas: the complete request's decision is not in the store")
     npi = "http://hl7.org/fhir/sid/us-npi"
     member = {"system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB"}
-    request = pas.request_bundle(
+    required = {"request_type": "HS", "certification_type": "I", "service_type": "62"}
+    optional = {"self_relationship": "18", "payer_entity": "PR", "requester_entity": "1P"}
+    build = functools.partial(
+        pas.request_bundle,
         decision={"id": record["id"], "recommendation": record["recommendation"]},
         order=ready,
         patient={
@@ -227,14 +237,21 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
             "name": "Riverside Clinic (synthetic)",
             "identifier": [{"system": npi, "value": "1245319599"}],
         },
-        service_type="62",  # X12 1365: MRI/CAT scan
         place_of_service="22",  # on-campus outpatient hospital
         diagnoses=["M54.16"],
     )
-    answer = sandbox_payer.respond(request)
-    for name, resource in (("pas-request", request), ("pas-response", answer)):
+    request = build(site_codes=required | optional)
+    answer = sandbox_payer.respond(request, review_action="A1")
+    bare = build(site_codes=required)
+    samples = {
+        "pas-request": request,
+        "pas-response": answer,
+        "pas-request-required": bare,
+        "pas-response-no-review-code": sandbox_payer.respond(bare),
+    }
+    for name, resource in samples.items():
         (out / f"{name}.json").write_text(json.dumps(resource, indent=2) + "\n", encoding="utf-8")
-    print(f"PAS request and response written to {out} ({pas.outcome(answer)['outcome']})")
+    print(f"{len(samples)} PAS requests and responses written to {out}")
 
 
 if __name__ == "__main__":

@@ -4,8 +4,15 @@
 When the Prior Authorization Preflight finds a request complete (`submit_ready`), the practice
 can send it to the payer as a PAS request Bundle: a Claim with `use = preauthorization`, followed
 by what it references (the patient, the Coverage, the payer, the requesting organization and the
-order). The resources come from the EHR, and the X12 codes the payer needs come from the request
-or the order. Nothing is filled in: a missing element is an error that names it.
+order). The resources come from the EHR. Nothing is filled in: a missing element is an error that
+names it.
+
+X12's code lists are X12's work, under X12's terms: Mendari carries the code systems' names (the
+urls in HL7's guide) and none of their code values (LP-14, the owner's decision of 2026-10-07).
+The X12 codes a request carries come from the request or the order, else from the site's settings
+(`X12_SETTINGS`). PAS requires three: the request type, the certification type and the service
+type; one that nothing gives is an error naming its setting. The others (the Coverage's
+relationship code, the organizations' entity codes) are optional in PAS, sent only when set.
 
 `submit` posts the Bundle to the payer's `Claim/$submit` through the outbound guard (the payer
 must be on `MENDARI_FHIR_ALLOWED_SERVERS`) and reads the decision in the ClaimResponse. The
@@ -54,9 +61,22 @@ PROFILE = {
 # The longest payer text kept: an authorization number, and a disposition (free text).
 AUTHORIZATION_MAX = 100
 DISPOSITION_MAX = 1000
-# The codes the chain keeps: R4's ClaimResponse.outcome, and the shape of an X12 306 code.
+# The shape of an X12 code value: an identifier of 1 to 3 capital letters or digits.
+X12_CODE = re.compile(r"[A-Z0-9]{1,3}")
+# The codes the chain keeps: R4's ClaimResponse.outcome, and a review action shaped as X12's.
 OUTCOMES = frozenset({"queued", "complete", "error", "partial"})
-REVIEW_ACTION = re.compile(r"[A-Z0-9]{1,3}")
+REVIEW_ACTION = X12_CODE
+# The X12 codes a site sends, by name, and the setting that supplies each (`settings.pas_codes`).
+X12_SETTINGS = {
+    # Required by PAS: given with the request, else the setting.
+    "request_type": "MENDARI_PAS_REQUEST_TYPE",  # 1525, each item's request type
+    "certification_type": "MENDARI_PAS_CERTIFICATION_TYPE",  # 1322, each item's
+    "service_type": "MENDARI_PAS_SERVICE_TYPE",  # 1365, when neither request nor order gives one
+    # Optional in PAS: sent only when set.
+    "self_relationship": "MENDARI_PAS_SELF_RELATIONSHIP",  # 1069, the patient's own coverage
+    "payer_entity": "MENDARI_PAS_PAYER_ENTITY",  # 98, the payer
+    "requester_entity": "MENDARI_PAS_REQUESTER_ENTITY",  # 98, the requesting organization
+}
 
 
 class PasError(MendariError):
@@ -74,19 +94,26 @@ def request_bundle(
     service_type: str | None = None,
     place_of_service: str | None = None,
     diagnoses: Sequence[str] = (),
-    request_type: str = "HS",
-    certification_type: str = "I",
+    request_type: str | None = None,
+    certification_type: str | None = None,
+    site_codes: Mapping[str, str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """The PAS request Bundle for a decided order. `decision` is the pack's decision record (its
     id identifies the request). `service_type` is the X12 service type (1365) and
     `place_of_service` the CMS place-of-service code, unless the order carries them.
-    `request_type` (X12 1525) and `certification_type` (1322) default to a health services review
-    for an initial request."""
+    `request_type` (X12 1525) and `certification_type` (1322) are the request's own.
+    `site_codes` are the site's X12 codes by name (`X12_SETTINGS`, from `settings.pas_codes`):
+    what the request and the order do not give."""
     now = now or datetime.now(UTC)
     if decision.get("recommendation") != "submit_ready":
         raise PasError("only a complete request (submit_ready) is sent for prior authorization")
-    service_type = service_type or _code(order.get("category"), f"{X12}/1365")
+    site = site_codes or {}
+    request_type = request_type or site.get("request_type")
+    certification_type = certification_type or site.get("certification_type")
+    service_type = (
+        service_type or _code(order.get("category"), f"{X12}/1365") or site.get("service_type")
+    )
     place_of_service = place_of_service or _code(order.get("locationCode"), POS)
     procedure_system, procedure = _procedure(order.get("code"))
     problems = _missing(patient, coverage, insurer, requester)
@@ -94,8 +121,16 @@ def request_bundle(
         f"the order's {name}"
         for name, value in (
             ("procedure code in CPT, HCPCS or ICD-10-PCS", procedure),
-            ("X12 service type (1365)", service_type),
             ("place of service", place_of_service),
+        )
+        if not value
+    ]
+    problems += [
+        f"the X12 {key.replace('_', ' ')} ({element}: from {source}, or set {X12_SETTINGS[key]})"
+        for key, element, source, value in (
+            ("service_type", 1365, "the order or the request", service_type),
+            ("request_type", 1525, "the request", request_type),
+            ("certification_type", 1322, "the request", certification_type),
         )
         if not value
     ]
@@ -172,9 +207,12 @@ def request_bundle(
     resources = [
         (refs["claim"], claim),
         (refs["patient"], _profiled(patient, PROFILE["Patient"])),
-        (refs["coverage"], _coverage(coverage, refs)),
-        (refs["insurer"], _organization(insurer, PROFILE["insurer"], "PR")),
-        (refs["requester"], _organization(requester, PROFILE["requestor"], "1P")),
+        (refs["coverage"], _coverage(coverage, refs, site.get("self_relationship"))),
+        (refs["insurer"], _organization(insurer, PROFILE["insurer"], site.get("payer_entity"))),
+        (
+            refs["requester"],
+            _organization(requester, PROFILE["requestor"], site.get("requester_entity")),
+        ),
         (refs["order"], _order(order, refs["patient"])),
     ]
     return {
@@ -201,8 +239,8 @@ def submit(bundle: Mapping[str, Any], payer: str, http: GuardedHttp) -> dict[str
 
 def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
     """The ClaimResponse in a PAS response Bundle: its outcome, the authorization number, and
-    each item's review action (X12 306: A1 certified, A3 not certified, A4 pended...). An
-    outcome or a review action that is not a code (a payer's mistake) is dropped."""
+    each item's review action (an X12 306 code, as the payer sends it). An outcome or a review
+    action that is not a code (a payer's mistake) is dropped."""
     entries = [e.get("resource") for e in answer.get("entry") or [] if isinstance(e, Mapping)]
     response = next(
         (r for r in entries if isinstance(r, Mapping) and r.get("resourceType") == "ClaimResponse"),
@@ -299,28 +337,40 @@ def _profiled(resource: Mapping[str, Any], profile: str) -> dict[str, Any]:
     return {"resourceType": resource["resourceType"], "meta": {"profile": [profile]}, **copied}
 
 
-def _coverage(coverage: Mapping[str, Any], refs: Mapping[str, str]) -> dict[str, Any]:
-    """The patient's own coverage, with the X12 relationship code PAS reads (1069: 18, self)."""
+def _coverage(
+    coverage: Mapping[str, Any], refs: Mapping[str, str], x12_self: str | None
+) -> dict[str, Any]:
+    """The patient's own coverage, with the site's X12 code for self (1069) beside FHIR's when it
+    sets one. PAS's rule `self-beneficiary` asks for the subscriber unless that X12 code is
+    there: without it the subscriber is named, the patient, whose own coverage this is."""
     relationship = _code(coverage.get("relationship"), RELATIONSHIP) or "self"
     if relationship != "self":
         raise PasError("PAS requests for a dependent's coverage need the subscriber: not supported")
     copied = _profiled(coverage, PROFILE["Coverage"])
-    copied["relationship"] = {
-        "coding": [
-            {"system": RELATIONSHIP, "code": "self"},
-            {"system": f"{X12}/1069", "code": "18"},
-        ]
-    }
+    coding = [{"system": RELATIONSHIP, "code": "self"}]
+    if x12_self:
+        coding.append({"system": f"{X12}/1069", "code": x12_self})
+    copied["relationship"] = {"coding": coding}
     copied["beneficiary"] = {"reference": refs["patient"]}
     copied["payor"] = [{"reference": refs["insurer"]}]
     copied.pop("subscriber", None)
+    if not x12_self:
+        copied["subscriber"] = {"reference": refs["patient"]}
     return copied
 
 
-def _organization(organization: Mapping[str, Any], profile: str, entity: str) -> dict[str, Any]:
+def _organization(
+    organization: Mapping[str, Any], profile: str, entity: str | None
+) -> dict[str, Any]:
+    """The payer or the requesting organization, typed with the site's X12 entity code (98) when
+    it sets one, else untyped, as PAS allows. The EHR's own type is never sent: PAS binds the
+    type to X12's list (required)."""
     copied = _profiled(organization, profile)
     copied["active"] = True
-    copied["type"] = [{"coding": [{"system": f"{X12}/98", "code": entity}]}]
+    if entity:
+        copied["type"] = [{"coding": [{"system": f"{X12}/98", "code": entity}]}]
+    else:
+        copied.pop("type", None)
     return copied
 
 
