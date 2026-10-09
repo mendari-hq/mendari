@@ -31,7 +31,7 @@ hash-chained audit record.
 
 ## In one minute
 
-In a clone of the [repository](https://github.com/Junebugg1214/mendari) (Mendari is not on PyPI
+In a clone of the [repository](https://github.com/mendari-hq/mendari) (Mendari is not on PyPI
 until its first release), with [uv](https://docs.astral.sh/uv/):
 
 <!-- check: run quickstart -->
@@ -49,4 +49,4 @@ its policy's safeguards run: the patient inbox, for one, automates only while a 
 messages for emergencies, and sends everything to a person with the keyword rules alone.
 
 The code, the reference packs and the contribution guide are in the
-[repository](https://github.com/Junebugg1214/mendari).
+[repository](https://github.com/mendari-hq/mendari).

@@ -172,7 +172,7 @@ def test_publishing_needs_a_public_repository_and_a_reviewed_environment() -> No
 def test_the_environment_guard_fails_closed(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("GITHUB_REPOSITORY", "Junebugg1214/mendari")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "mendari-hq/mendari")
     monkeypatch.setenv("GH_TOKEN", "test-token")
 
     def unreachable(path: str, token: str) -> dict[str, Any]:
@@ -182,8 +182,8 @@ def test_the_environment_guard_fails_closed(
     assert check.main(["environment", "pypi"]) == 1
     assert "no evidence of the environment's protection (HTTPError)" in capsys.readouterr().err
     answers = {
-        "/repos/Junebugg1214/mendari": PUBLIC,
-        "/repos/Junebugg1214/mendari/environments/pypi": PROTECTED,
+        "/repos/mendari-hq/mendari": PUBLIC,
+        "/repos/mendari-hq/mendari/environments/pypi": PROTECTED,
     }
     monkeypatch.setattr(check, "_get", lambda path, token: answers[path])
     assert check.main(["environment", "pypi"]) == 0

@@ -35,5 +35,5 @@ its source is; /licenses/inventory.json lists the same, and what the `-sources` 
 from.
 
 The `-sources` image stays published for as long as the image it belongs to. If you cannot get
-it, open an issue in the Mendari repository (https://github.com/Junebugg1214/mendari) and the
+it, open an issue in the Mendari repository (https://github.com/mendari-hq/mendari) and the
 maintainers will send it to you.

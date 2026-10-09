@@ -40,7 +40,7 @@ DEBIAN = (
     "https://deb.debian.org/debian-security/pool/updates/main",
 )
 SNAPSHOT = "https://snapshot.debian.org"
-USER_AGENT = "mendari-image-sources (https://github.com/Junebugg1214/mendari)"
+USER_AGENT = "mendari-image-sources (https://github.com/mendari-hq/mendari)"
 
 Fetch = Callable[[str], bytes | None]
 

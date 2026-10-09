@@ -115,7 +115,7 @@ where the pack lives, never from `publisher.type`, which every pack declares for
     ```
 
 5. **List yourself as its maintainer** in
-    [`community-packs/MAINTAINERS.yaml`](https://github.com/Junebugg1214/mendari/blob/main/community-packs/MAINTAINERS.yaml),
+    [`community-packs/MAINTAINERS.yaml`](https://github.com/mendari-hq/mendari/blob/main/community-packs/MAINTAINERS.yaml),
     with your GitHub user name: `{id: community/<name>, maintainers: [<you>]}`.
 
 6. **Check it locally**, with the checks CI runs:
@@ -127,7 +127,7 @@ where the pack lives, never from `publisher.type`, which every pack declares for
     Each problem says what to fix. Run it until it says "passed: ready for review".
 
 7. **Open the pull request.** Sign off every commit (`git commit -s`, the
-    [Developer Certificate of Origin](https://github.com/Junebugg1214/mendari/blob/main/CONTRIBUTING.md#sign-off-the-developer-certificate-of-origin)).
+    [Developer Certificate of Origin](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#sign-off-the-developer-certificate-of-origin)).
     Change only `community-packs/<name>/` and your entry in `MAINTAINERS.yaml`. Use the pack
     template: add `?template=pack.md` to the address of the "Open a pull request" page, or run
     `gh pr create --template pack.md`. It asks for the risk level and why, who reviewed the
@@ -306,7 +306,7 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   policies) or copyrighted instruments; code systems with licence terms (CPT, SNOMED CT) only
   as their licences allow, each declared in `code_systems` with its `licence_note`; the
   sources of `card.evidence` given (see
-  [CONTRIBUTING.md](https://github.com/Junebugg1214/mendari/blob/main/CONTRIBUTING.md#content-provenance)).
+  [CONTRIBUTING.md](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#content-provenance)).
 - **The card.** Intended use, users, population, out-of-scope uses and failure modes, written
   for a clinician.
 - **Fit.** It does not duplicate a pack already there, and you answer the review.

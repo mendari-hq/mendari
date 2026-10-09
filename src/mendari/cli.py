@@ -1594,11 +1594,9 @@ TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
-AUTHORING_GUIDE = (
-    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md"
-)
+AUTHORING_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md"
 COMMUNITY_GUIDE = (
-    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md"
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md"
 )
 
 

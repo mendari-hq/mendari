@@ -1,7 +1,7 @@
 # {{name}}: a community Decision Pack, written in YAML. Change anything; `mendari validate`
 # checks it, and `mendari community-check` runs every check CI runs on a community pack.
 # The authoring guide walks through every section:
-# https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
 #
 # A community pack lives in community-packs/<name>/ with the id community/<name>. It
 # recommends and never automates (a person confirms every decision), decides with local
