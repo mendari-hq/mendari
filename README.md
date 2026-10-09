@@ -781,6 +781,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   searched, and is still pulled by its exact version, with the record shown and its signature
   checked against the keys you pinned. An administrator can also delete a version that must
   not be served: its archive's bytes go, and a tombstone stays.
+- **Limits and headers.** The registry limits reads per address and writes per token
+  (`MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then overrides such as
+  `registry_write=240/h:40`), and both it and the Hub send a strict CSP, refuse framing and send
+  HSTS.
 - **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.

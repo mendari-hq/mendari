@@ -1231,6 +1231,7 @@ REGISTRY_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; for
 REGISTRY_HEADERS = {
     **SECURITY_HEADERS,
     "Content-Security-Policy": REGISTRY_CSP,
+    "Cross-Origin-Embedder-Policy": "require-corp",
     "Cache-Control": "no-store",
 }
 REGISTRY_RATES: dict[str, Rate] = {

@@ -30,6 +30,7 @@ EXPECTED = {
     "content-security-policy": (
         "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     ),
+    "cross-origin-embedder-policy": "require-corp",
     "cache-control": "no-store",
 }
 
@@ -52,7 +53,7 @@ def test_every_registry_route_answers_with_the_headers(tmp_path: Path) -> None:
         for route in app.routes:
             if not isinstance(route, APIRoute):
                 continue
-            for method in route.methods:
+            for method in route.methods or ():
                 answer = remote.request(method, _example(route.path))
                 for name, value in EXPECTED.items():
                     assert answer.headers.get(name) == value, (method, route.path, name)

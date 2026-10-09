@@ -295,6 +295,20 @@ jobs:
         working-directory: hub
         env:
           CI: "1"
+      - name: Start the built site for the scanner
+        working-directory: hub
+        run: |
+          mkdir -p /tmp/zap && chmod 777 /tmp/zap
+          npm run start > /tmp/zap/hub.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3100/ > /dev/null && exit 0; sleep 1; done; exit 1
+      - name: OWASP ZAP baseline scan of every Hub page (pinned image), medium and high fail
+        # The baseline (passive) scan spiders the site the registry above serves, the hostile
+        # example included; scripts/zap_check.py fails on a medium or high alert (LP-18f).
+        run: >-
+          docker run --rm --network host -v /tmp/zap:/zap/wrk:rw ghcr.io/zaproxy/zaproxy:2.16.1@sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab
+          zap-baseline.py -t http://127.0.0.1:3100 -J zap.json -I
+      - name: No medium or high risks on the Hub
+        run: uv run python scripts/zap_check.py /tmp/zap/zap.json
 
   hub-e2e:
     # The v0.5 exit: on a clean machine, `pip install mendari && mendari pull
