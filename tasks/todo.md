@@ -1412,7 +1412,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the 404 and assets by value, each nonce fresh, the inline scripts carrying it, no
     violation). CI's `hub-site` runs the OWASP ZAP baseline (the pinned image) over the site,
     `scripts/zap_check.py` failing on medium or high: locally 0 medium or high (2 low, 4
-    informational), the Spectre isolation low fixed by COEP.
+    informational), the Spectre isolation low fixed by COEP. Adversarial review (with 18g's):
+    made-up bearer tokens each had a bucket, so writes were never limited (now a token the
+    registry did not issue counts against its sender's address); the limit's database work ran
+    on the event loop (now in the thread pool); an unhandled error's 500 had no headers (now a
+    bare 500 with them); the Hub's tests cover an unmatched page too.
   - [x] **18g** (PR open) The regression check (`hub/regression.py`): on every publish
     (`MENDARI_REGISTRY_REGRESSION`, `on` unless set), the pack is evaluated on its own
     `evaluation.benchmark_dataset` (a file its digest covers) in a child process (`python -I -m

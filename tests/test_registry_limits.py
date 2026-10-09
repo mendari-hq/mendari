@@ -117,3 +117,34 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "registry_write": "120/h:30",
         "registry_report": "60/h:10",
     }
+
+
+def test_made_up_tokens_share_their_senders_bucket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The LP-18f review: each made-up bearer token had a bucket of its own, so writes with a
+    fresh one each time were never limited. A token the registry did not issue counts against
+    its sender's address."""
+    monkeypatch.setenv("MENDARI_REGISTRY_RATE_LIMITS", "on,registry_write=2/h:2")
+    with TestClient(create_registry_app(tmp_path / "a.db", admin_token=REGISTRY_ADMIN)) as client:
+        codes = [
+            client.post(
+                "/v1/namespaces",
+                json={"name": "x"},
+                headers={"authorization": f"Bearer made-up-{n}"},
+            ).status_code
+            for n in range(4)
+        ]
+    assert codes == [401, 401, 429, 429]
+
+
+def test_an_unhandled_error_is_a_bare_500_with_the_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = create_registry_app(tmp_path / "a.db")
+    with TestClient(app, raise_server_exceptions=False) as client:
+        monkeypatch.setattr(RegistryStore, "latest", lambda self: 1 / 0)
+        answer = client.get("/v1/search")
+    assert answer.status_code == 500 and answer.json()["detail"] == "internal error"
+    for name, value in EXPECTED.items():
+        assert answer.headers.get(name) == value, name
