@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/patient-inbox-router` · version **0.4.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/patient-inbox-router` · version **0.4.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:261d9a85d9c866e1cb714296fb8324bc921bf3de0e73768beeafb77be9f0eeae` |
+| Pack digest | `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` |
 | Last validation | 2026-10-07 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -108,7 +108,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`. Each 
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 598 [0.1-1.5%] |
-| Latency p50 / p95 | 0.15 / 0.21 ms |
+| Latency p50 / p95 | 0.18 / 0.84 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23 of 23 [85.2-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
@@ -264,7 +264,16 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.4.1
+#### 0.4.2
+
+- A comment in the manifest no longer names a default chat model: Mendari has none. The
+  `llm` and `rules_and_llm` variants ask the model `LLM_MODEL` names; without it the `llm`
+  member is `not_configured` and every decision goes to a person (the keyword rules still
+  answer inside `rules_and_llm`).
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.4.1
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
   patient care." It is derived from the new `card.provenance: synthetic`, never written by the

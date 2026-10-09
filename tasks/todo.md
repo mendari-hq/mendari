@@ -884,17 +884,24 @@ pushes none), so the first published images wait on the item below; the PyPI rel
       sets (e.g. "8/12 in the held-out set"), measured on earlier pack versions. They agree
       with the card's provider comparison today; replacing them with the command that measures
       each (as 10b-i did for the local-site percentages) is a wording change per pack.
-  - [ ] **LP-10c** The model that answered, on each answer and in each report; and removing
+  - [x] **LP-10c** The model that answered, on each answer and in each report; and removing
     `DEFAULT_MODEL` (an `llm` variant with no model fails as `not_configured`, in `preflight`).
     - [x] **10c-i** (#158) The model that answered: Jev already recorded it; the `llm`
       provider now stamps the id the endpoint reports (well formed only, else the configured
       one, and the call stands) on each answer, and `vote` names each member that answered with
       its model. No format bump: the spec already defined `models` as the models that answered;
       earlier `llm`/`vote` runs named the configured one (CHANGELOG).
-    - [ ] **10c-ii** Removing `DEFAULT_MODEL`, owner-gated as below.
-    **Owner check done (2026-10-07):** the removal goes ahead. Without a model an `llm` slot fails
-    as `not_configured` (a person decides); `mendari calibrate` and the agreement run refuse up
-    front instead of sending no model. The PR reads Preview's health before it merges.
+    - [x] **10c-ii** (#171) No default model: an `llm` variant asks the model it pins, else
+      `LLM_MODEL` (empty is unset), else it is `not_configured`, in `preflight` and wherever a
+      request is built, so no request carries no model and nothing is charged. A decision that
+      needs it goes to a person, never AUTO (HUMAN_REVIEW, or ABSTAIN when the variant answers
+      the primary question); inside `rules_and_llm` the rules still answer. `mendari
+      calibrate` refuses in one line before anything else; `mendari agreement` refuses when a
+      variant, or a composite's member, cannot be called. Health: `llm.default_model` is null
+      when unset. Inbox pack 0.4.2 (a manifest comment named the default; digest only).
+      Breaking for the command line and self-hosted servers (CHANGELOG). Owner check done
+      2026-10-07; the PR's Preview health is checked after CI, before merging. Review: the
+      README, the authoring guide and the deploy steps say an `llm` variant needs `LLM_MODEL`.
 
 - [ ] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed).
   **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the

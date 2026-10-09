@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/patient-inbox-router
-version: 0.4.1
+version: 0.4.2
 name: Patient Inbox Router
 summary: >-
   Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a
@@ -146,7 +146,7 @@ providers:
         timeout_ms: 5000
         state_fields: [message.subject, message.body]
       rules_and_llm:
-        # As rules_and_jev, with a chat model (LLM_MODEL; default Claude Sonnet 5) as the
+        # As rules_and_jev, with a chat model (LLM_MODEL, which has no default) as the
         # second screen. The keyword rules stay as the offline floor.
         type: any_of
         escalate: {urgency: urgent}

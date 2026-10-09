@@ -271,7 +271,9 @@ run
 `mendari leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
 A remote variant's endpoint and key come from the deployment, never from the pack: a variant
 may pin `model`, but one that names environment variables (`api_key_env`, `endpoint_env` and
-the like) is refused.
+the like) is refused. An `llm` variant needs a model: the one it pins, or `LLM_MODEL` set to
+an AI Gateway id (`<vendor>/<model>`). There is no default, so without either it never calls a
+model: every case is `not_configured`, and the leaderboard row counts only errors.
 
 `state_fields` lists the input fields a model variant sends (dotted, `message.body`): the
 minimum necessary. Without it the whole input is sent. Name them on every `llm` and `jev`
