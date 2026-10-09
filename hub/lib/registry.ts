@@ -7,40 +7,30 @@ export type Risk = { level: number; category: string };
 
 import type { Figure } from "./figures";
 
-export type Benchmark = { dataset: string | null; n: number | null; accuracy: number | null } | null;
-
-// A leaderboard as the registry serves it beside a version (mendari.figures/1): ranked against the
-// version's own digest, by set of records, each row with its figures. Null when malformed.
-export type ServedRow = {
-  config: string;
-  dataset: string;
-  n: number;
-  pack_version: string;
-  macro_f1?: number | null;
-  ece?: number | null;
-  latency_p50_ms?: number | null;
-  cost_per_decision_usd?: number | null;
-  rank: number | null;
-  standing: string;
-  standing_text: string | null;
-  group: number;
-  figures: {
-    accuracy: Figure | null;
-    false_automation: Figure | null;
-    automation: Figure | null;
-    critical: { question: string; label: string; detected: Figure; auto_missed: number; insufficient_evidence: boolean }[];
-    critical_named?: boolean; // the pack has several critical labels: name each, as the card does
-  };
+// What the registry checked itself at publish (ADR-0012), beside every version.
+export type Checked = {
+  signature: { algorithm: string; key_id: string; verified: boolean };
+  archive_sha256: string;
+  digest: string;
+  engine: "bounded" | "maintained" | null; // null: published before the registry recorded it
+  engine_release?: string | null; // the registry's release whose reference packs chose the engine
+  card: "rendered" | "not_rendered";
+  status_label: string | null;
+  review: { status: string };
+  publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
 };
 
-export type BoardFigures = {
-  ranking: { method: string; min_positives: number };
-  groups: { dataset: string; sha256: string | null; n: number; about: string[]; label: string }[];
-  rows: ServedRow[];
+// What the publisher says about the pack, unchecked.
+export type Claimed = {
+  publisher: { name: string; type: string } | null;
+  risk: { level: number; category: string; declared_by: "publisher" };
+  license: string | null;
+  summary: string | null;
 };
 
-// What the registry works out on read beside a version; absent from an older registry.
-export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: BoardFigures | null };
+// What the registry works out on read beside a version (mendari.figures/1). It shows no figure
+// it did not compute itself, so these stay null until it computes one.
+export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: null };
 
 export type PackSummary = {
   id: string;
@@ -60,16 +50,14 @@ export type PackSummary = {
   archive_sha256: string;
   publisher_type: string | null;
   claimed_publisher: { name: string; type: string };
-  // Derived by the registry from the manifest's card.provenance; absent on versions published before it.
   status_label?: string;
-  benchmark: Benchmark;
+  checked: Checked;
+  claimed: Claimed;
   figures?: VersionFigures;
 };
 
-export type PackVersion = PackSummary & {
-  card_markdown: string | null;
-  leaderboard: Record<string, unknown> | null; // as the publisher sent it; the Hub shows figures.leaderboard
-};
+// The card the registry rendered from the pack's own files; null for a version published before.
+export type PackVersion = PackSummary & { card_markdown: string | null };
 
 export type PackDetail = { id: string; versions: string[]; latest: PackVersion };
 
@@ -121,4 +109,13 @@ export const RISK_WORDS: Record<number, string> = {
   2: "Clinical support, human review by default",
   3: "Clinical support, governance needed to automate",
   4: "Never automated",
+};
+
+export const ENGINE_WORDS: Record<string, string> = {
+  bounded: "The engine for packs from a registry: RE2 patterns, input limits and a 1 s CPU budget per decision",
+  maintained: "The maintained engine: a copy of a reference pack of the registry's own release",
+};
+
+export const REVIEW_WORDS: Record<string, string> = {
+  unreviewed: "Not reviewed by the registry: the risk level is the publisher's own",
 };

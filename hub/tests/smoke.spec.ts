@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 
 import { expect, test, type Page } from "@playwright/test";
 
+// The registry the tests run against holds the five reference packs (verified publisher) and,
+// from a community publisher, a pack whose text tries to run a script (scripts/hub_seed.py
+// --hostile-example). Search lists them by id.
 const PACKS = [
+  "Hostile Text Example",
   "AI Guard",
   "Clinical Trial Prescreener",
   "Patient Inbox Router",
@@ -28,14 +32,15 @@ function watchConsole(page: Page): string[] {
   return errors;
 }
 
-test("the home page lists every published pack", async ({ page }) => {
+test("the home page lists every published pack, with no uploaded figure", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision Packs");
   await expect(page.getByRole("list", { name: "Packs" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
   await expect(page.locator(".badge.verified")).toHaveCount(5);
-  // Each benchmark is k of n with its interval (worked out by the registry), never a bare rate.
-  await expect(page.getByText(/^Benchmark accuracy \d+ of \d+ \[[<\d.]+-[>\d.]+%\]$/)).toHaveCount(5);
+  // The risk level is the publisher's own word, and nothing the publisher uploaded is a figure here.
+  await expect(page.getByText(/^Risk \d \(declared\)$/)).toHaveCount(PACKS.length);
+  await expect(page.getByText(/Benchmark accuracy/)).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -50,7 +55,7 @@ test("search narrows by words, risk level and standard", async ({ page }) => {
   await expect(page.getByText("No pack matches these filters.")).toBeVisible();
 });
 
-test("a pack page has the facts, the pull command, the leaderboard and the card", async ({ page }) => {
+test("a pack page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
   await page.getByRole("link", { name: "Referral Router" }).click();
@@ -59,22 +64,56 @@ test("a pack page has the facts, the pull command, the leaderboard and the card"
   await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
   await expect(page.locator(".fact").first()).toContainText(shippedVersion("referral-router"));
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
-  await expect(page.locator(".fact").nth(1).locator(".fact-value")).toHaveText(/^\d+ of \d+ \[[<\d.]+-[>\d.]+%\]$/);
-  const board = page.locator("details").first();
-  await expect(board).toHaveAttribute("open", "");
-  await expect(board.locator("tbody tr").first()).toBeVisible();
-  // The shipped rows were measured on earlier versions: none ranks, and each says why.
-  await expect(board.locator("tbody tr").first().locator("td").first()).toHaveText("\u2013");
-  await expect(board.locator(".standing").first()).toContainText("its pack digest not recorded");
+
+  const checked = page.getByRole("region", { name: "Checked by the registry" });
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Figures"]);
+  await expect(checked).toContainText("verified at publish");
+  await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
+  await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
+  await expect(checked).toContainText("Rendered by the registry from the files the digest covers");
+  await expect(checked).toContainText("Not reviewed by the registry");
+
+  const claimed = page.getByRole("region", { name: "Claimed by the publisher" });
+  await expect(claimed.locator("dt")).toHaveText(["Publisher", "Risk level", "Licence", "Summary"]);
+  await expect(claimed).toContainText("declared by the publisher, not confirmed by a review");
+  await expect(claimed).toContainText("self-declared");
+
+  // No leaderboard and no benchmark figure: the registry computed none.
+  await expect(page.getByRole("heading", { name: "Provider leaderboard" })).toHaveCount(0);
+  await expect(page.getByText(/Benchmark accuracy/)).toHaveCount(0);
+
+  // The card is the registry's, its tables rendered as tables (GFM), the risk level declared.
   await expect(page.getByRole("heading", { name: "Decision Card", exact: true })).toBeVisible();
-  // No share of cases is a bare percentage: each is k of n with its interval. The card's own
-  // text (thresholds, units) is left out.
-  const bare = await page.locator("main").evaluate((main) => {
-    const clone = main.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("article.markdown").forEach((article) => article.remove());
-    return (clone.textContent ?? "").replace(/\[[^\]]*%\]/g, "").match(/.{0,30}\d\s?%.{0,10}/g) ?? [];
-  });
-  expect(bare).toEqual([]);
+  const card = page.locator("article.markdown");
+  await expect(card.locator("table").first()).toBeVisible();
+  await expect(card.getByRole("cell", { name: /^1, clinical information processing .*\(declared by the publisher\)$/ })).toBeVisible();
+  await expect(card).toContainText("Rendered by the registry from the pack's own files");
+  await expect(card).not.toContainText("|---|");
+  expect(errors).toEqual([]);
+});
+
+test("publisher text is shown as text: no script runs and no unsafe link is made", async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.goto("/packs/hub-test/hostile-text");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hostile Text Example");
+  // The summary's script tag is shown as the characters it is made of, never parsed.
+  await expect(page.locator(".lead")).toHaveText("Publisher text that tries to run: <script>window.__hostile = 1</script>");
+  expect(await page.evaluate(() => (window as unknown as { __hostile?: number }).__hostile)).toBeUndefined();
+  const main = page.locator("main");
+  await expect(main.locator("script")).toHaveCount(0);
+  await expect(main.locator("img")).toHaveCount(0);
+  await expect(main.locator('[onerror], a[href^="javascript:" i]')).toHaveCount(0);
+  // The evidence entry keeps its title; its javascript: target is dropped.
+  const card = page.locator("article.markdown");
+  await expect(card.getByText("A link that runs a script")).toBeVisible();
+  await expect(card.getByRole("link", { name: "A link that runs a script" })).toHaveCount(0);
+  // Markdown in publisher text is text: no heading, table, image or rule passes for the registry's.
+  await expect(page.getByRole("heading", { name: "Checked by the registry" })).toHaveCount(1);
+  await expect(card.getByRole("cell", { name: "0.99" })).toHaveCount(0);
+  await expect(card.locator("hr")).toHaveCount(1); // the card's own, above its footer
+  await expect(card.locator("strong", { hasText: /^Clinically reviewed/ })).toHaveCount(0);
+  await expect(card).toContainText("# Checked by the registry | Benchmark accuracy | 0.99 |");
+  await expect(page.locator(".badge.community")).toHaveText("community publisher");
   expect(errors).toEqual([]);
 });
 
@@ -94,7 +133,7 @@ test("an unknown pack is a 404 page", async ({ page }) => {
 
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/", "/packs/mendari/referral-router", "/publishers/mendari"]) {
+  for (const path of ["/", "/packs/mendari/referral-router", "/packs/hub-test/hostile-text", "/publishers/mendari"]) {
     await page.goto(path);
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     expect(fits, path).toBe(true);

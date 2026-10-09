@@ -14,6 +14,12 @@
   - that version does not exist yet.
 
   Versions are immutable.
+- **What a version shows** (ADR-0012): only what the registry checked or rendered itself,
+  in two groups. `checked`: the signing key, the archive's SHA-256, the pack digest, the engine
+  it was checked on, the card (rendered here from the files the digest covers, never the
+  uploaded one) and the review status. `claimed`: what the publisher says (its name and type,
+  the risk level it declares, the licence and summary). An uploaded card, benchmark or
+  leaderboard is never shown: it stays in the signed archive, unread.
 - **Reads** (no token): packs, versions, archives, namespaces and their keys, and search.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
@@ -27,7 +33,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import math
 import os
 import re
 import secrets
@@ -63,12 +68,14 @@ from mendari.hub import archive
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _VERSION = re.compile(r"^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
-# A leaderboard the registry shows as the pack carries it, within these bounds: a shipped one
-# nests 5 levels and holds about 10 KB. Deeper than about 255 levels, the response serializer
-# fails, and the version is immutable.
-MAX_LEADERBOARD_DEPTH = 32
-MAX_LEADERBOARD_BYTES = 1_000_000
-MAX_DATASET_NAME = 200
+# Stored with each version published since the registry renders its own card (ADR-0012). A
+# version stored without it was published before: its uploaded card, benchmark and leaderboard
+# are never served.
+VERSION_FORMAT = "mendari.registry-version/2"
+UPLOADED = ("benchmark", "leaderboard", "card_markdown")
+# The card the registry renders, at most (a shipped one is about 30 KB): it is stored with the
+# version and sent with every read of the pack.
+MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
 SCHEMA = """
@@ -238,6 +245,8 @@ class RegistryStore:
                 raise HubError(f"the pack does not load: {error}") from None
             except Exception as error:  # the publisher's content: named, never a 500
                 raise HubError(f"the pack does not load ({type(error).__name__})") from None
+        if len(str(metadata.get("card_markdown") or "").encode()) > MAX_CARD_BYTES:
+            raise HubError(f"the pack's Decision Card is larger than {MAX_CARD_BYTES} bytes")
         try:  # as it is stored and every answer serializes it, first: versions are immutable
             stored = json.dumps(metadata, sort_keys=True)
             to_json(metadata)
@@ -399,14 +408,58 @@ def _no_migration(_: Session) -> None:
 
 
 def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    """A version as every read serves it: what was stored at publish, without anything the pack
+    carried about itself (a version published before the registry rendered its own card stored
+    the uploaded one, its benchmark and leaderboard), and the two groups (ADR-0012)."""
+    stored = json.loads(row["metadata"])
+    rendered = stored.get("format") == VERSION_FORMAT
+    served = {
         "namespace": row["namespace"],
         "name": row["name"],
         "id": f"{row['namespace']}/{row['name']}",
         "version": row["version"],
         "published_at": row["created_at"],
         "archive_sha256": row["archive_sha256"],
-        **json.loads(row["metadata"]),
+        **{key: value for key, value in stored.items() if key not in UPLOADED},
+        "card_markdown": stored.get("card_markdown") if rendered else None,
+    }
+    return {**served, "checked": _checked(served, rendered), "claimed": _claimed(served)}
+
+
+def _checked(version: Mapping[str, Any], rendered: bool) -> dict[str, Any]:
+    """What the registry verified or worked out itself, at publish."""
+    return {
+        # The archive's signature, by this key of the namespace's, over a manifest that lists
+        # every file with its SHA-256 (`archive.verify`).
+        "signature": {"algorithm": "Ed25519", "key_id": version.get("key_id"), "verified": True},
+        "archive_sha256": version.get("archive_sha256"),
+        # The digest the signed manifest names, which the pack loaded with, on `engine`.
+        "digest": version.get("digest"),
+        "engine": version.get("engine"),
+        # The registry's release whose reference packs that engine was chosen against: a puller
+        # on another release may run a copy of a reference pack on the bounded engine.
+        "engine_release": version.get("engine_release"),
+        # Rendered here from the files the digest covers, never the uploaded card.
+        "card": "rendered" if rendered else "not_rendered",
+        # Derived by the code from the manifest's provenance: it only ever lowers a claim.
+        "status_label": version.get("status_label"),
+        "review": {"status": "unreviewed"},
+    }
+
+
+def _claimed(version: Mapping[str, Any]) -> dict[str, Any]:
+    """What the publisher says about the pack, as its manifest says it: not checked."""
+    risk = version.get("risk")
+    risk = risk if isinstance(risk, dict) else {}
+    return {
+        "publisher": version.get("claimed_publisher"),
+        "risk": {
+            "level": risk.get("level"),
+            "category": risk.get("category"),
+            "declared_by": "publisher",
+        },
+        "license": version.get("license"),
+        "summary": version.get("summary"),
     }
 
 
@@ -455,16 +508,13 @@ def _in_order(names: list[str], members: list[str]) -> bool:
 
 
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
-    """What the registry shows and searches: from the pack itself, never from the uploader."""
+    """What the registry shows and searches: from the files the pack's digest covers, never from
+    what it carries about itself (the uploaded card, benchmark and leaderboard, ADR-0012)."""
+    from mendari.core.card import render_card
+
     m = pack.manifest
-    benchmark = _json(pack.attestation("evals/benchmark.json"))
-    leaderboard = _json(pack.attestation("evals/leaderboard.json"))
-    questions = (benchmark or {}).get("questions")
-    primary = questions.get(m.policy.primary) if isinstance(questions, dict) else None
-    primary = primary if isinstance(primary, dict) else {}
-    dataset = (benchmark or {}).get("dataset")
-    card = _text(pack.attestation("DECISION_CARD.md"), "DECISION_CARD.md")
     return {
+        "format": VERSION_FORMAT,
         "pack_name": m.name,
         "summary": " ".join(m.summary.split()),
         "license": m.license,
@@ -504,69 +554,12 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         ),
         "digest": pack.digest,
         "key_id": verified.key_id,
-        "benchmark": {
-            "dataset": _short_text(dataset.get("name")) if isinstance(dataset, dict) else None,
-            "n": _count(primary.get("n")),
-            "accuracy": _number(primary.get("accuracy")),
-        }
-        if benchmark
-        else None,
-        "leaderboard": leaderboard if _bounded(leaderboard) else None,
-        "card_markdown": card,
+        # The engine its pullers run it on (ADR-0009): a copy of a reference pack of this
+        # registry's release keeps the maintained one; every other pack runs bounded.
+        "engine": "bounded" if pack.bounded else "maintained",
+        "engine_release": __version__,
+        "card_markdown": render_card(pack, report=None, board=None, rendered_by="registry"),
     }
-
-
-def _short_text(value: Any) -> str | None:
-    return value if isinstance(value, str) and len(value) <= MAX_DATASET_NAME else None
-
-
-def _count(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def _number(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    try:
-        return value if math.isfinite(value) else None
-    except OverflowError:  # an integer past the float range
-        return None
-
-
-def _bounded(document: dict[str, Any] | None) -> bool:
-    """Whether a JSON document the pack carries nests at most `MAX_LEADERBOARD_DEPTH` levels and
-    serializes to at most `MAX_LEADERBOARD_BYTES`."""
-    if document is None:
-        return False
-    stack: list[tuple[Any, int]] = [(document, 1)]
-    while stack:
-        node, depth = stack.pop()
-        if depth > MAX_LEADERBOARD_DEPTH:
-            return False
-        children = (
-            node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
-        )
-        stack.extend((child, depth + 1) for child in children)
-    return len(json.dumps(document)) <= MAX_LEADERBOARD_BYTES
-
-
-def _json(path: Path) -> dict[str, Any] | None:
-    """A JSON object the pack carries about itself, or None if it is missing, not JSON, nested
-    too deep or not an object."""
-    try:
-        found = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
-        return None
-    return found if isinstance(found, dict) else None
-
-
-def _text(path: Path, name: str) -> str | None:
-    if not path.is_file():
-        return None
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise HubError(f"{name} is not UTF-8 text") from None
 
 
 # -- the HTTP API ---------------------------------------------------------------------------------
@@ -696,36 +689,34 @@ def create_registry_app(
         versions = store.versions(namespace, name)
         if not versions:
             raise HubError(f"no pack {namespace}/{name}", 404)
-        publisher_type = store.namespace(namespace)["publisher_type"]
-        latest = versions[-1]
         return {
             "id": f"{namespace}/{name}",
             "versions": [v["version"] for v in versions],
-            # Figures are worked out on read (mendari.evals.figures), never stored.
-            "latest": {
-                **latest,
-                "publisher_type": publisher_type,
-                "figures": figures.registry(latest),
-            },
+            "latest": served(versions[-1]),
         }
 
     @app.get("/v1/packs/{namespace}/{name}/reports")
     def reports(namespace: str, name: str) -> dict[str, Any]:
-        """Each site's results next to the pack's own benchmark, version by version."""
-        versions = store.versions(namespace, name)
-        if not versions:
+        """Each site's shared results, version by version (unverified until sites sign them)."""
+        if not store.versions(namespace, name):
             raise HubError(f"no pack {namespace}/{name}", 404)
-        benchmark = {v["version"]: v.get("benchmark") for v in versions}
-        return {
-            "id": f"{namespace}/{name}",
-            "benchmark": benchmark,
-            "sites": store.reports(namespace, name),
-        }
+        return {"id": f"{namespace}/{name}", "sites": store.reports(namespace, name)}
 
     @app.get("/v1/packs/{namespace}/{name}/{version}")
     def pack_version(namespace: str, name: str, version: str) -> dict[str, Any]:
-        found = store.version(namespace, name, version)
-        return {**found, "figures": figures.registry(found)}
+        return served(store.version(namespace, name, version))
+
+    def served(version: dict[str, Any]) -> dict[str, Any]:
+        """A version with what the registry knows of its namespace now: the publisher type its
+        administrators set after checking who publishes there (a checked fact, unlike the type
+        the pack claims). Figures are worked out on read (mendari.evals.figures), never stored."""
+        publisher_type = store.namespace(version["namespace"])["publisher_type"]
+        return {
+            **version,
+            "publisher_type": publisher_type,
+            "checked": {**version["checked"], "publisher_type": publisher_type},
+            "figures": figures.registry(version),
+        }
 
     @app.get("/v1/packs/{namespace}/{name}/{version}/archive")
     def pack_archive(namespace: str, name: str, version: str) -> Response:
@@ -785,8 +776,14 @@ def create_registry_app(
                 continue
             if publisher_type and item["publisher_type"] != publisher_type:
                 continue
-            kept = {k: v for k, v in item.items() if k not in ("card_markdown", "leaderboard")}
-            found.append({**kept, "figures": figures.registry(item, with_leaderboard=False)})
+            kept = {k: v for k, v in item.items() if k != "card_markdown"}
+            found.append(
+                {
+                    **kept,
+                    "checked": {**item["checked"], "publisher_type": item["publisher_type"]},
+                    "figures": figures.registry(item, with_leaderboard=False),
+                }
+            )
         return sorted(found, key=lambda item: item["id"])
 
     return app

@@ -3,15 +3,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
-import { shown } from "@/lib/figures";
-import { pack, RISK_WORDS, type BoardFigures } from "@/lib/registry";
+import remarkGfm from "remark-gfm";
+import { ENGINE_WORDS, pack, REVIEW_WORDS, RISK_WORDS } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
 type Params = { namespace: string; name: string };
 
 // The card's own headings sit under this page's "Decision Card" (h2), so they start at h3.
-const CARD_HEADINGS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6" } as const;
+// No image is shown: a publisher's picture could pass for a badge, and would tell its server
+// who reads the page.
+const CARD_ELEMENTS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6", img: () => null } as const;
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { namespace, name } = await params;
@@ -23,36 +25,70 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
   const detail = await pack(namespace, name);
   if (!detail) notFound();
   const latest = detail.latest;
-  const board = latest.figures?.leaderboard ?? null; // ranked and worked out by the registry
+  const { checked, claimed } = latest;
+  const risk = claimed.risk;
   return (
     <>
       <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
       <h1>{latest.pack_name}</h1>
       <p className="lead">{latest.summary}</p>
-      <p className="notice"><strong>{latest.status_label ?? "Not clinically reviewed."}</strong></p>
+      <p className="notice"><strong>{checked.status_label ?? "Not clinically reviewed."}</strong></p>
       <div className="row">
-        {latest.publisher_type ? <span className={`badge ${latest.publisher_type}`}>{latest.publisher_type} publisher</span> : null}
-        <span className={`badge risk-${latest.risk.level}`}>Risk {latest.risk.level}: {RISK_WORDS[latest.risk.level]}</span>
+        {checked.publisher_type ? <span className={`badge ${checked.publisher_type}`}>{checked.publisher_type} publisher</span> : null}
+        <span className={`badge risk-${risk.level}`} title="Declared by the publisher">Risk {risk.level} (declared): {RISK_WORDS[risk.level]}</span>
         {latest.standards.map((standard) => <span className="chip" key={standard}>{standard}</span>)}
       </div>
       <section className="facts" aria-label="At a glance">
         <Fact label="Latest version" value={latest.version} />
-        <Fact
-          label="Benchmark accuracy"
-          value={shown(latest.figures?.benchmark)}
-          foot={typeof latest.benchmark?.dataset === "string" ? `on ${latest.benchmark.dataset}` : undefined}
-        />
         <Fact label="Decides" value={latest.primary} foot={`${latest.questions.length} questions`} />
-        <Fact label="License" value={latest.license} />
       </section>
+
+      <section className="group checked" aria-labelledby="checked-heading">
+        <h2 id="checked-heading">Checked by the registry</h2>
+        <dl>
+          <Item term="Signature">
+            {checked.signature.algorithm}, key <span className="mono">{checked.signature.key_id}</span> of this
+            namespace, verified at publish
+          </Item>
+          <Item term="Publisher type">
+            {checked.publisher_type ?? "Not set"}: set by the registry&apos;s administrators for this namespace (as it stands now)
+          </Item>
+          <Item term="Archive"><span className="mono break">sha256 {checked.archive_sha256}</span></Item>
+          <Item term="Pack digest"><span className="mono break">{checked.digest}</span></Item>
+          <Item term="Engine">
+            {checked.engine ? ENGINE_WORDS[checked.engine] : "Not recorded (published before the registry recorded it)"}
+            {checked.engine_release ? ` (registry release ${checked.engine_release})` : null}
+          </Item>
+          <Item term="Decision Card">
+            {checked.card === "rendered"
+              ? "Rendered by the registry from the files the digest covers; the uploaded card is not shown"
+              : "Not shown: published before the registry rendered cards"}
+          </Item>
+          <Item term="Review">{REVIEW_WORDS[checked.review.status] ?? checked.review.status}</Item>
+          <Item term="Figures">None yet: the registry shows no figure it did not compute itself</Item>
+        </dl>
+      </section>
+
+      <section className="group claimed" aria-labelledby="claimed-heading">
+        <h2 id="claimed-heading">Claimed by the publisher</h2>
+        <p className="muted">What the pack says about itself. The registry has not checked it.</p>
+        <dl>
+          {claimed.publisher ? (
+            <Item term="Publisher">{claimed.publisher.name} ({claimed.publisher.type}, self-declared)</Item>
+          ) : null}
+          <Item term="Risk level">{risk.level}, {risk.category}: declared by the publisher, not confirmed by a review</Item>
+          <Item term="Licence">{claimed.license}</Item>
+          <Item term="Summary">{claimed.summary}</Item>
+        </dl>
+      </section>
+
       <h2>Use it</h2>
       <code className="pull">pip install mendari &amp;&amp; mendari pull {detail.id}</code>
       <p className="muted">
-        Pulls verify the archive against its signature ({latest.key_id}) and the pack digest{" "}
-        <span className="mono">{latest.digest.slice(0, 19)}…</span>, then cache it for{" "}
+        Pulls verify the archive against its signature ({checked.signature.key_id}) and the pack digest{" "}
+        <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for{" "}
         <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
       </p>
-      {board?.groups.length ? <Leaderboard board={board} /> : null}
       <h2>Site reports</h2>
       <p className="muted">
         A site can share how this pack did on its own data (metrics only; no case leaves the site):{" "}
@@ -65,8 +101,12 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       {latest.card_markdown ? (
         <>
           <h2>Decision Card</h2>
+          <p className="muted">Rendered by the registry from the pack&apos;s own files. What it says is the publisher&apos;s.</p>
           <article className="markdown">
-            <Markdown components={CARD_HEADINGS}>{latest.card_markdown}</Markdown>
+            {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
+            <Markdown components={CARD_ELEMENTS} remarkPlugins={[remarkGfm]} skipHtml>
+              {latest.card_markdown}
+            </Markdown>
           </article>
         </>
       ) : null}
@@ -84,59 +124,11 @@ function Fact({ label, value, foot }: { label: string; value: string; foot?: str
   );
 }
 
-function Leaderboard({ board }: { board: BoardFigures }) {
+function Item({ term, children }: { term: string; children: React.ReactNode }) {
   return (
-    <>
-      <h2>Provider leaderboard</h2>
-      <p className="muted">
-        Each set of records is compared on its own, ranked ({board.ranking.method}) by the critical cases caught
-        first, never by accuracy alone. Only configurations measured on this version of the pack rank, and only
-        where a critical label has at least {board.ranking.min_positives} positives.
-      </p>
-      {board.groups.map((group, index) => {
-        // Each row keyed by its place in the served order (unique, and fixed by the registry).
-        const rows = board.rows.map((row, position) => ({ row, position })).filter(({ row }) => row.group === index);
-        return (
-          <details key={`${group.label} ${index}`} open={index === 0}>
-            <summary><b>{group.dataset}</b> <span className="muted">{group.about.join("; ")}</span></summary>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th className="num">Rank</th><th>Configuration</th><th>Critical detected</th>
-                    <th className="num">False automation</th><th className="num">Accuracy</th><th className="num">Automated</th>
-                    <th className="num">Macro-F1</th><th className="num">ECE</th><th className="num">p50 ms</th><th className="num">Cost / decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ row, position }) => (
-                    <tr key={position}>
-                      <td className="num">{row.rank ?? <span title={row.standing_text ?? ""}>–</span>}</td>
-                      <td>{row.config}{row.standing_text ? <span className="standing">{row.standing_text}</span> : null}</td>
-                      <td>
-                        {row.figures.critical.length ? row.figures.critical.map((c) => (
-                          <div key={`${c.question}=${c.label}`}>
-                            {(row.figures.critical_named ?? row.figures.critical.length > 1) ? `${c.question}=${c.label} ` : ""}
-                            {shown(c.detected)} ({c.auto_missed} automated)
-                            {c.insufficient_evidence ? <span className="evidence-mark">insufficient evidence</span> : null}
-                          </div>
-                        )) : "n/a"}
-                      </td>
-                      <td className="num">{shown(row.figures.false_automation)}</td>
-                      <td className="num">{shown(row.figures.accuracy)}</td>
-                      <td className="num">{shown(row.figures.automation)}</td>
-                      <td className="num">{typeof row.macro_f1 === "number" ? row.macro_f1.toFixed(3) : "n/a"}</td>
-                      <td className="num">{typeof row.ece === "number" ? row.ece.toFixed(3) : "n/a"}</td>
-                      <td className="num">{typeof row.latency_p50_ms === "number" ? row.latency_p50_ms.toFixed(1) : "n/a"}</td>
-                      <td className="num">{typeof row.cost_per_decision_usd === "number" ? `$${row.cost_per_decision_usd.toPrecision(2)}` : "unknown"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        );
-      })}
-    </>
+    <div className="item">
+      <dt>{term}</dt>
+      <dd>{children}</dd>
+    </div>
   );
 }
