@@ -516,7 +516,7 @@ refused (`422`).
 - The input hash key's id (16 hex digits of an HMAC under it, which reveal nothing about it) is
   in every keyed hash and in `/api/health` (`input_hash`).
 
-**Rotating the keys.** Each of the three changes without losing data or breaking the chain.
+**Rotating the keys.** Each changes without losing data or breaking the chain.
 
 *The PHI key* (`mendari phi rotate`). Every kept input, its evidence and every note is re-sealed
 under the new key in batches, each recorded in the chain (`phi.rotated`: key ids and counts,
@@ -556,6 +556,12 @@ never a key); decisions and the chain itself are never touched. In this order:
 
 With Neon preview branches, each branch is a copy: run steps 4 and 5 on any branch a deployment
 still uses, or recreate the branches afterwards.
+
+*The evaluation-set keys* (`mendari evalset rotate`, `mendari evalset reindex`). Hidden
+evaluation sets have keys of their own (section 8), rotated the same way: reader first, swap,
+re-seal, check, drop. A new index key means rebuilding the hidden-case index at once. The steps
+are in [the hidden evaluation sets' runbook](operations/evalsets.md#rotating-the-evaluation-set-key);
+a PHI rotation never touches the sets, nor theirs a kept input.
 
 *The input hash key.* Set the new `MENDARI_INPUT_HASH_KEY` and redeploy. The first record
 hashed under it starts a new epoch, chained (`input_hash.epoch`, with the key id before it).

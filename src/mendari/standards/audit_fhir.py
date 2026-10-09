@@ -359,6 +359,9 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "evalset.case_added": ("C", "Hidden evaluation case added", None),
     "evalset.case_removed": ("D", "Hidden evaluation case removed", None),
     "evalset_index.epoch": ("C", "Hidden-case index key epoch", _CONFIGURATION),
+    # Their keys' lifecycle (LP-11f), the deployment's: key ids and counts only.
+    "evalset.rotated": ("U", "Evaluation-set key rotation batch", _CONFIGURATION),
+    "evalset_index.rebuilt": ("U", "Hidden-case index rebuilt", _CONFIGURATION),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (
@@ -415,10 +418,15 @@ _ADMINISTRATIVE_DETAILS = (
     "inputs",
     "details",
     "notes",
+    "counts",
+    "count",
     "source",
     "kinds",
     "ended",
 )
+# The kinds whose details include mappings of counts (a key rotation's `from`, by key id, and an
+# evaluation-set rotation's `counts`, by table): each written `name=count`.
+_COUNTED = ("phi.rotated", "evalset.rotated")
 
 
 def administrative_resources(events: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -440,8 +448,8 @@ def administrative_event(event: Mapping[str, Any]) -> dict[str, Any]:
         value = payload.get(key)
         if value is None or key == actor_key:
             continue
-        if isinstance(value, Mapping):  # a PHI key rotation's `from`: each key id, how many
-            if kind != "phi.rotated":
+        if isinstance(value, Mapping):  # a key rotation's `from` or `counts` (`_COUNTED`)
+            if kind not in _COUNTED:
                 continue
             value = ",".join(f"{name}={count}" for name, count in value.items())
         elif isinstance(value, list | tuple):

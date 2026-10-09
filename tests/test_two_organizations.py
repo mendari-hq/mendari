@@ -324,6 +324,11 @@ DEPLOYMENT_READS = {
         "the hidden-case index across every organization (LP-11e): read in the store only, for "
         "the pack store's upload check (LP-20), never during a call",
     ),
+    # The evaluation-set keys' lifecycle (LP-11f): the key holder's command line only.
+    "EvalsetStore.rotate": ("", "re-seals every organization's sets: never during a call"),
+    "EvalsetStore.check": ("", "opens every organization's sets: never during a call"),
+    "EvalsetStore.reindex": ("", "rebuilds the whole hidden-case index: never during a call"),
+    "EvalsetStore.export": ("", "copies every organization's sealed sets: never during a call"),
 }
 
 
@@ -1911,5 +1916,9 @@ def test_every_store_method_that_may_read_every_organization_is_probed() -> None
     }
     assert found == {*EXPLICIT, "holds", "memberships"}
     assert {name for name in DEPLOYMENT_READS if name.startswith("EvalsetStore.")} == {
-        "EvalsetStore.hidden_matches"
+        "EvalsetStore.hidden_matches",
+        "EvalsetStore.rotate",
+        "EvalsetStore.check",
+        "EvalsetStore.reindex",
+        "EvalsetStore.export",
     }

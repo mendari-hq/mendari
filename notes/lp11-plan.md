@@ -267,7 +267,7 @@ Hidden data reaches the store only through the operator's command line, or throu
       - It opens everything with `current_only()`, recomputes every commitment, and checks the index rows of the current epoch.
       - It reports `read_not_retired`, `current_retired`, the failures (capped at `CHECK_FAILURES_SHOWN`) and `ready`.
       - It exits 1 unless the database is ready.
-    - `mendari evalset reindex` needs both keys. It rebuilds the whole index under the current index key in one transaction, and chains `evalset_index.epoch` (when the key is new) and `evalset_index.rebuilt {key_id, count}`. Chained case hashes keep their key id.
+    - `mendari evalset reindex` needs both keys. It rebuilds the whole index under the current index key in one transaction, and chains `evalset_index.epoch` (when the key is new) and `evalset_index.rebuilt {key_id, count}`. Chained case hashes keep their key id. In the same transaction it marks every earlier index key retired (`evalset_index_retired:`), and `evalset_ready` refuses a retired index key, as it does a retired sealing key. A reindex under an index key older than the newest epoch is refused, so it never retires the newer key (11f review).
     - `mendari evalset export --db --out FILE` writes ciphertext, ids and key ids only. It needs no key, opens nothing and chains nothing.
     - A runbook section "Rotating the evaluation-set key" beside "Rotating the keys": add the reader first, swap, re-seal, check, drop; plus the reindex steps.
   - **Files:** `src/mendari/core/{evalsets.py, audit.py}`, `src/mendari/standards/audit_fhir.py`, `src/mendari/cli.py`, `docs/deploying-with-phi.md`, `docs/operations/evalsets.md`, `README.md`, `CHANGELOG.md`.
@@ -303,7 +303,7 @@ Hidden data reaches the store only through the operator's command line, or throu
       - `mendari audit export [--administrative]`, the feedback export, `/api/evals`, `/api/audit/verify`, health and OpenAPI.
       - The stdout and stderr of every `evalset` command, the export file, and raw `audit_events`.
     - The assertions:
-      - No mark appears anywhere.
+      - No mark appears anywhere, except as conflicts 38, 55 and 56 allow (the export file holds case ids and sealed tokens).
       - Each `evalset.*` payload's keys are within a pinned allow-list for its kind.
       - Every URL answers someone.
       - Every evaluation-set route is swept.
@@ -618,6 +618,7 @@ Hidden data reaches the store only through the operator's command line, or throu
 53. (11m, 11n) The screens could be a tab in Access or a separate page. Default: two views inside the dashboard, `#labelling` and `#evalsets`. There is no standalone page, and no review screen is reused. The three tests that pin the Access tab lists stay unchanged.
 54. The prompt names `/api/audit/export`, which does not exist. Default: the sweep covers `/api/audit/export/fhir`, the administrative list and its export, and `mendari audit export [--administrative]`.
 55. (11a review; 11g, 11k) The set's coverage and agreement aggregates name stratum and language values, which planted marks would flag. Default: as for the set's name (conflict 38), the sweep allows stratum and language marks only in `curate` responses of the set's organization and in the key holder's command-line output (`evalset coverage`, `evalset show`); nowhere else, and never in a chain payload.
+56. (11f review; 11g) The sealed export holds every case id and sealed token, as stored, since the ciphertext is bound to those ids. Default: the sweep allows case-id and sealed-token marks in the export file only. Content marks (inputs, author, stratum, language, the author's id, the set's name, intended labels) and key values stay banned there, as everywhere.
 
 ## Owner decisions still open
 

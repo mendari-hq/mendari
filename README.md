@@ -839,7 +839,10 @@ The key holder keeps the sets from the command line (`mendari evalset create`, `
 `remove-case` and `list`; [the runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md)):
 hand-written cases only, sealed in the deployment's own database, with ids, keyed case hashes
 and commitments in the chain, which `mendari audit verify --evalsets` checks the sealed cases
-against. No route serves a set yet.
+against. Their key rotates as the PHI key does (`mendari evalset rotate`, then
+`rotate --check`), a new index key rebuilds the hidden-case index (`mendari evalset reindex`),
+and `mendari evalset export` copies the sealed sets as stored, needing no key. No route serves a
+set yet.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

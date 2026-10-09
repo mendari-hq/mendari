@@ -15,6 +15,12 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   and a salted commitment of its input and attributes; the hidden-case index; the keys checked
   against the database's marks before every write; `mendari audit verify --evalsets`. No route
   reads the tables yet.
+- 11f, the keys' lifecycle (`mendari evalset rotate [--check]`, `reindex`, `export`): rotation
+  copied from the PHI key's, in chained batches and in every state of a set, with a read-only
+  check; the hidden-case index rebuilt under a new index key in one transaction, the index keys
+  it replaced refused from then on; the sealed export (the rows as stored: ciphertext, ids,
+  states, times and case hashes; no key needed); every sealed column listed once
+  (`SEALED_COLUMNS`) and pinned by a test.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
@@ -67,7 +73,9 @@ the label values, with the labeller (by user id) and the time; the clear values 
 Every opening of a case's input, attributes or labels by a labeller, or by sampling, measuring,
 freezing or grading, is chained. The key holder's `mendari audit verify --evalsets` (which
 checks sealed rows against their chained commitments) and rotation check open sealed rows and
-print counts only, chaining nothing; the sealed export copies ciphertext only.
+print ids, case hashes, key ids and counts only, never a value, chaining nothing; the sealed
+export copies the rows as stored, sealed values as ciphertext beside their ids, organizations,
+states, times and keyed case hashes, and needs no key.
 
 **Aggregates only.** No route returns frozen or active content to anyone: grading runs in the
 server and answers aggregates only (no per-case field, no missed ids), with local providers only

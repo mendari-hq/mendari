@@ -27,7 +27,20 @@ the deployment's own database, in the `evalset_` tables of `core/audit.py`, and 
 Every write first checks the keys against the database (`AuditStore._evalset_ready`) in its own
 transaction, and the first index row under a new index key starts its epoch
 (`evalset_index.epoch`, a deployment event). Messages name ids, line numbers and JSON paths,
-never a value. PHI retention, erasure and key rotation never touch these rows."""
+never a value. PHI retention, erasure and key rotation never touch these rows.
+
+The keys' lifecycle (LP-11f), on the sealed columns `SEALED_COLUMNS` lists:
+- `rotate` re-seals under the current key what another key sealed, in batches, as the PHI key's
+  rotation does (`AuditStore.rotate_phi`): each batch chains `evalset.rotated` (key ids and
+  counts, a deployment event under `KEYS_CHAIN`), and the keys it moved values off are retired.
+- `check` proves, reading only, that everything opens with the current key alone, recomputes
+  each case's commitment and checks the index rows of the current index key.
+- `reindex` rebuilds the whole hidden-case index under the current index key in one
+  transaction (`evalset_index.rebuilt`) and retires the earlier index keys, which index nothing
+  more here; chained case hashes keep the key id they were made under, and the commitments
+  carry the binding across index keys.
+- `export` copies the sealed rows as they are stored, ciphertext and ids, opening nothing.
+Each prints ids, case hashes, key ids and counts only, and only `rotate` and `reindex` chain."""
 
 from __future__ import annotations
 
@@ -38,16 +51,28 @@ import json
 import re
 import secrets
 import uuid
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from mendari.core import accounts
-from mendari.core.audit import EVALSET_INDEX_EPOCH, KEYS_CHAIN, AuditStore, _now
+from mendari.core.audit import (
+    CHECK_FAILURES_SHOWN,
+    EVALSET_INDEX_EPOCH,
+    EVALSET_INDEX_RETIRED,
+    EVALSET_RETIRED,
+    EVALSET_TARGET,
+    KEYS_CHAIN,
+    ROTATE_BATCH,
+    AuditStore,
+    _mark,
+    _now,
+)
 from mendari.core.db import Session
-from mendari.core.evalset_keys import INDEX_ENV, KEY_ENV, EvalsetKeys
+from mendari.core.evalset_keys import INDEX_ENV, KEY_ENV, READ_ENV, EvalsetKeys, Kind
 from mendari.core.pack import Pack, not_json
-from mendari.core.phi import key_id
+from mendari.core.phi import key_id, token_key
 from mendari.errors import MendariError
 from mendari.evals.canonical import canonical_input, normalised_input
 
@@ -72,6 +97,41 @@ OFF = (
     f"hidden evaluation sets are off: they need {KEY_ENV} and {INDEX_ENV}, the deployment's "
     "own (docs/operations/evalsets.md)"
 )
+# What `export` writes, line by line: this format's header, then each row as stored.
+EXPORT_FORMAT = "mendari.evalset_export/1"
+
+
+class SealedTable(NamedTuple):
+    """An `evalset_` table's sealed values: each sealed column with the kind it is sealed as,
+    the columns holding the ids each value is bound to, and the column naming a row in what is
+    printed beside its set (None: the set's id alone; never a case's id)."""
+
+    columns: Mapping[str, Kind]
+    set_id: str
+    case_id: str | None
+    shown: str | None
+
+
+# Every sealed column of the `evalset_` tables, by table (LP-11f): a rotation re-seals, its check
+# opens, `verify` opens and the export copies exactly these. Every other column of an `evalset_`
+# table is in the clear (ids, organizations, states, times, keyed hashes, commitments), and a
+# test pins each column to one list or the other, so a sealed column a later step adds is never
+# left out. Each table here has an `id` (its primary key, which a rotation pages by), an `org`
+# and a `created_at`.
+SEALED_COLUMNS: dict[str, SealedTable] = {
+    "evalset_sets": SealedTable(
+        {"header": "header", "freeze_record": "freeze", "aggregates": "aggregates"},
+        set_id="id",
+        case_id=None,
+        shown=None,
+    ),
+    "evalset_cases": SealedTable(
+        {"input": "input", "attributes": "attributes"},
+        set_id="set_id",
+        case_id="id",
+        shown="case_hash",
+    ),
+}
 
 
 def case_ref(salt: bytes, set_id: str, case_id: str, value: Any, attributes: Any) -> str:
@@ -283,6 +343,330 @@ class EvalsetStore:
             self.store._append(db, KEYS_CHAIN, "evalset_index.epoch", {"key_id": current})
         return current
 
+    # -- the keys' lifecycle (LP-11f) ----------------------------------------------------------
+
+    def rotate(self, *, to: str, batch: int = ROTATE_BATCH) -> dict[str, Any]:
+        """Re-seal under the current evaluation-set key every sealed value sealed under another
+        (`mendari evalset rotate`), as `AuditStore.rotate_phi` does for the PHI key. `to` is the
+        current key's id, as the operator read it off `/api/health` (`evalset_keys.current`): a
+        run whose key is another refuses, and so does one to a key an earlier rotation retired;
+        the target is recorded (`EVALSET_TARGET`). Rows are read in pages by id, table by table
+        (`SEALED_COLUMNS`), opened with the ring and re-sealed outside the chain lock, then
+        written in a short exclusive session that checks the keys again (`_evalset_ready`) and
+        changes a row only if its sealed values are still what was read (compare-and-set),
+        chaining one `evalset.rotated` with what it changed; the keys values moved off are
+        marked retired in that session, so nothing seals with them here again. A re-seal
+        changes the ciphertext, never the value, so it runs in every state of a set, a frozen
+        one's included (conflict 31): `check` recomputes the commitments afterwards. An
+        interrupted run is run again: what is done stays done. A row holding a value no key
+        opens is left as it is and listed in `unopenable` (its set, a case by its hash, the
+        value's kind and the key it names)."""
+        keys = self._ring()
+        if batch < 1:
+            raise MendariError("a batch is 1 row or more")
+        current = key_id(keys.key)
+        if to != current:
+            raise MendariError(
+                f"this run's {KEY_ENV} is key {current}, not {to}: run with the key the deployment "
+                "seals with (its id is evalset_keys.current in /api/health)"
+            )
+        with self.store._db.session(exclusive=True) as db:
+            if db.one("SELECT name FROM settings WHERE name = ?", (EVALSET_RETIRED + to,)):
+                raise MendariError(
+                    f"key {to} was retired by an earlier rotation: make a new key and rotate to "
+                    "it (docs/operations/evalsets.md, Rotating the evaluation-set key)"
+                )
+            self.store._evalset_ready(db, keys)
+            db.all(
+                "INSERT INTO settings (name, value) VALUES (?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+                (EVALSET_TARGET, to),
+            )
+        summary: dict[str, Any] = {
+            "to": to,
+            "counts": dict.fromkeys(SEALED_COLUMNS, 0),
+            "batches": 0,
+            "from": Counter(),
+            "unopenable": [],
+        }
+        for table in SEALED_COLUMNS:
+            self._rotate_table(table, f"v2:{to}:", batch, summary)
+        return {**summary, "from": dict(sorted(summary["from"].items()))}
+
+    def _rotate_table(self, table: str, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        """One table's rows holding a value sealed under another key than `prefix` names,
+        re-sealed a page at a time (`_apply_rotation` writes each page)."""
+        keys = self._ring()
+        sealed = SEALED_COLUMNS[table]
+        stale = " OR ".join(
+            f"({column} IS NOT NULL AND substr({column}, 1, 20) <> ?)" for column in sealed.columns
+        )
+        after = ""
+        while True:
+            with self.store._db.session(exclusive=False) as db:
+                rows = db.all(
+                    f"SELECT {_selected(sealed)} FROM {table} WHERE id > ? AND ({stale}) "
+                    "ORDER BY id LIMIT ?",
+                    (after, *(prefix for _ in sealed.columns), batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                set_id, case_id = _bound_to(sealed, row)
+                resealed: dict[str, str] = {}
+                froms: list[str] = []
+                failed = None
+                for column, kind in sealed.columns.items():
+                    token = row[column]
+                    if token is None or str(token).startswith(prefix):
+                        continue
+                    try:
+                        value, opened = keys.open(kind, str(token), set_id, case_id)
+                    except MendariError:
+                        failed = {**_named(sealed, row), "kind": kind, "key": token_key(str(token))}
+                        break
+                    resealed[column] = keys.seal(kind, value, set_id, case_id)
+                    froms.append(opened)
+                if failed is not None:
+                    summary["unopenable"].append(failed)
+                    continue
+                changes.append((row, resealed, froms))
+            if changes:
+                self._apply_rotation(table, changes, summary)
+
+    def _apply_rotation(self, table: str, changes: list[Any], summary: dict[str, Any]) -> None:
+        """Write one page's re-sealed values where the row still holds what was read, and chain
+        the batch (`evalset.rotated`: key ids and counts, never a key), retiring each key it
+        moved values off."""
+        keys = self._ring()
+        sealed = SEALED_COLUMNS[table]
+        moved: Counter[str] = Counter()
+        done = 0
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            for row, resealed, froms in changes:
+                changed = ", ".join(f"{column} = ?" for column in resealed)
+                same = " AND ".join(
+                    f"{column} IS NULL" if row[column] is None else f"{column} = ?"
+                    for column in sealed.columns
+                )
+                old = [row[column] for column in sealed.columns if row[column] is not None]
+                written = db.all(
+                    f"UPDATE {table} SET {changed} WHERE id = ? AND {same} RETURNING id",
+                    (*resealed.values(), row["id"], *old),
+                )
+                if written:  # still what was read: neither removed nor re-sealed since
+                    done += 1
+                    moved.update(froms)
+            if done:
+                for retired in sorted(moved):
+                    if retired != summary["to"]:
+                        _mark(db, EVALSET_RETIRED + retired, _now())
+                counts = {name: done if name == table else 0 for name in SEALED_COLUMNS}
+                payload = {
+                    "to": summary["to"],
+                    "from": dict(sorted(moved.items())),
+                    "counts": counts,
+                }
+                self.store._append(db, KEYS_CHAIN, "evalset.rotated", payload)
+        summary["counts"][table] += done
+        summary["from"].update(moved)
+        summary["batches"] += bool(done)
+
+    def check(self, *, batch: int = 500) -> dict[str, Any]:
+        """Reads only (`mendari evalset rotate --check`, on a store opened read-only): whether
+        every sealed value opens with the current key alone, as dropping the read keys
+        requires, as `AuditStore.phi_check` does for the PHI key. Counts the sealed values by
+        the key each names, with the newest under each other key; opens each with the current
+        key only (`current_only`); for each case, recomputes the commitment its
+        `evalset.case_added` chained (`case_ref`), its keyed hash when it is under the current
+        index key, and its two index rows under the current index key (the current epoch's: a
+        case without them waits for `reindex`). Counts the index rows by key id. A failure
+        names the value's kind (`case` for a case's checks), its set, a case by its hash, and
+        the key it names or what did not match (`commitment`, `case_hash`, `index`). `ready`
+        only when everything opened and matched and the current key is not retired. Nothing is
+        chained, marked or written."""
+        keys = self._ring()
+        alone = keys.current_only()
+        current = key_id(keys.key)
+        index_now = key_id(keys.index_key)
+        by_key: dict[str, Counter[str]] = {table: Counter() for table in SEALED_COLUMNS}
+        newest: dict[str, str] = {}
+        failures: list[dict[str, str]] = []
+        retired: set[str] = set()
+        with self.store._db.session(exclusive=False) as db:
+            present = [table for table in SEALED_COLUMNS if db.columns(table)]
+            refs = {
+                str(payload.get("case")): payload.get("case_ref")
+                for row in db.all(
+                    "SELECT payload FROM audit_events WHERE event = ?", ("evalset.case_added",)
+                )
+                if isinstance(payload := json.loads(row["payload"]), Mapping)
+            }
+            if "settings" not in self.store.unmigrated:  # an older database, read as it is
+                retired = {
+                    name[len(EVALSET_RETIRED) :]
+                    for row in db.all(
+                        "SELECT name FROM settings WHERE name LIKE ?", (EVALSET_RETIRED + "%",)
+                    )
+                    if (name := str(row["name"])).startswith(EVALSET_RETIRED)
+                }
+            indexed_by_key = (
+                {
+                    str(row["key_id"]): int(row["n"])
+                    for row in db.all(
+                        "SELECT key_id, count(*) AS n FROM evalset_index GROUP BY key_id"
+                    )
+                }
+                if db.columns("evalset_index")
+                else {}
+            )
+        for table in present:
+            sealed = SEALED_COLUMNS[table]
+            after = ""
+            while True:
+                with self.store._db.session(exclusive=False) as db:
+                    rows = db.all(
+                        f"SELECT {_selected(sealed)}, org, created_at FROM {table} WHERE id > ? "
+                        "ORDER BY id LIMIT ?",
+                        (after, batch),
+                    )
+                    cases = [str(row["id"]) for row in rows] if table == "evalset_cases" else []
+                    indexed = _index_rows(db, index_now, cases)
+                if not rows:
+                    break
+                after = rows[-1]["id"]
+                for row in rows:
+                    set_id, case_id = _bound_to(sealed, row)
+                    values: dict[str, Any] = {}
+                    for column, kind in sealed.columns.items():
+                        token = row[column]
+                        if token is None:
+                            continue
+                        named = token_key(str(token))
+                        by_key[table][named] += 1
+                        if named != current:
+                            newest[named] = max(newest.get(named, ""), str(row["created_at"]))
+                        try:
+                            values[column] = alone.open(kind, str(token), set_id, case_id)[0]
+                        except MendariError:
+                            failures.append({"kind": kind, **_named(sealed, row), "key": named})
+                    if table == "evalset_cases" and len(values) == len(sealed.columns):
+                        failures += [
+                            {"kind": "case", **_named(sealed, row), "key": problem}
+                            for problem in _case_problems(keys, row, values, refs, indexed)
+                        ]
+        read = sorted(keys.ring_ids - {current})
+        return {
+            "current": current,
+            "read": read,
+            # A read key no rotation moved values off is not retired: a deployment that still
+            # seals with it (built before the swap) would go on doing so; delete those first.
+            "read_not_retired": [key for key in read if key not in retired],
+            "current_retired": current in retired,
+            "by_key": {table: dict(sorted(counts.items())) for table, counts in by_key.items()},
+            "newest_not_current": dict(sorted(newest.items())),
+            "index": {"current": index_now, "by_key": dict(sorted(indexed_by_key.items()))},
+            "failures": len(failures),
+            "failed": failures[:CHECK_FAILURES_SHOWN],
+            "ready": not failures and current not in retired,
+        }
+
+    def reindex(self) -> dict[str, Any]:
+        """Rebuild the whole hidden-case index under the current index key
+        (`mendari evalset reindex`), in one transaction: every case's input is opened with the
+        ring and indexed under both forms, every other index row is deleted, and
+        `evalset_index.rebuilt` (the index key's id and how many cases) is chained, after
+        `evalset_index.epoch` when the key is new. A reader sees the index before or after,
+        never a mix of key ids. Every earlier index key (each with an epoch here, rows or none)
+        is retired in the same transaction (`EVALSET_INDEX_RETIRED`), so a deployment or shell
+        still holding one indexes nothing more under it, where `hidden_matches` would not look.
+        A case input no key opens refuses it all, before anything is written, and so does an
+        index key older than one that started an epoch here since (it would retire the newer
+        key, `_refuse_an_older_index_key`). Chained case
+        hashes keep the index key id they were made under: a case's commitment, which no index
+        key keys, carries its binding across epochs. The index key's id, how many cases were
+        indexed, and the index rows it replaced by key id."""
+        keys = self._ring()
+        index_key = key_id(keys.index_key)
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            _refuse_an_older_index_key(db, index_key)
+            rows = db.all("SELECT id, set_id, org, input FROM evalset_cases ORDER BY id")
+            entries: list[tuple[str, str, str, str, str, str]] = []
+            unopenable: Counter[str] = Counter()
+            for row in rows:
+                set_id, case_id = str(row["set_id"]), str(row["id"])
+                try:
+                    value, _ = keys.open("input", str(row["input"]), set_id, case_id)
+                except MendariError:
+                    unopenable[token_key(str(row["input"]))] += 1
+                    continue
+                for variant, digest in keys.index_hashes(value).items():
+                    entries.append((digest, variant, index_key, set_id, case_id, str(row["org"])))
+            if unopenable:
+                named = ", ".join(f"{key} ({count})" for key, count in sorted(unopenable.items()))
+                raise MendariError(
+                    f"{sum(unopenable.values())} case input(s) no key here opens, sealed under "
+                    f"{named}: nothing was reindexed; add that key to {READ_ENV}, then run again"
+                )
+            replaced = {
+                str(row["key_id"]): int(row["n"])
+                for row in db.all("SELECT key_id, count(*) AS n FROM evalset_index GROUP BY key_id")
+            }
+            db.all("DELETE FROM evalset_index")
+            _insert(
+                db,
+                "evalset_index",
+                ("hash", "variant", "key_id", "set_id", "case_id", "org"),
+                entries,
+            )
+            epoch = self._mark_index_epoch(db, keys) if entries else None
+            earlier = set(replaced) | {
+                name[len(EVALSET_INDEX_EPOCH) :]
+                for row in db.all(
+                    "SELECT name FROM settings WHERE name LIKE ?", (EVALSET_INDEX_EPOCH + "%",)
+                )
+                if (name := str(row["name"])).startswith(EVALSET_INDEX_EPOCH)
+            }
+            for retired in sorted(earlier - {index_key}):
+                _mark(db, EVALSET_INDEX_RETIRED + retired, _now())
+            rebuilt = {"key_id": index_key, "count": len(rows)}
+            self.store._append(db, KEYS_CHAIN, "evalset_index.rebuilt", rebuilt)
+        if epoch is not None:
+            self._index_epoch = epoch
+        return {**rebuilt, "replaced": dict(sorted(replaced.items()))}
+
+    def export(self) -> list[dict[str, Any]]:
+        """The sealed export (`mendari evalset export`), opening nothing and needing no key: a
+        header (`EXPORT_FORMAT`, when, how many rows of each table, and how many sealed values
+        each key id sealed, the keys a restore needs), then every row of each table holding
+        sealed values (`SEALED_COLUMNS`) as stored: each sealed value its ciphertext, the rest
+        ids, organizations, states, times and keyed case hashes. The hidden-case index is left
+        out: `reindex` rebuilds it from the sealed inputs. Cases are read before sets, so every
+        case's set is in it (a set is never deleted). Nothing is chained or marked."""
+        tables: dict[str, list[dict[str, Any]]] = {}
+        with self.store._db.session(exclusive=False) as db:
+            for table in reversed(SEALED_COLUMNS):
+                present = db.columns(table)
+                tables[table] = db.all(f"SELECT * FROM {table} ORDER BY id") if present else []
+        sealed_by: Counter[str] = Counter(
+            token_key(str(row[column]))
+            for table, sealed in SEALED_COLUMNS.items()
+            for row in tables[table]
+            for column in sealed.columns
+            if row.get(column) is not None
+        )
+        header = {
+            "format": EXPORT_FORMAT,
+            "exported_at": _now(),
+            "rows": {table: len(tables[table]) for table in SEALED_COLUMNS},
+            "key_ids": dict(sorted(sealed_by.items())),
+        }
+        return [header, *({"table": t, "row": row} for t in SEALED_COLUMNS for row in tables[t])]
+
     # -- reads ----------------------------------------------------------------------------
 
     def sets(self, org: str | None = None) -> list[dict[str, Any]]:
@@ -398,6 +782,105 @@ def _problem(record: Any, header: Mapping[str, Any]) -> str | None:
         if label not in questions[question]:
             return f"labels.{question} is not one of its labels"
     return None
+
+
+def _selected(sealed: SealedTable) -> str:
+    """The columns a rotation or its check reads of a table: its id, the ids its values are
+    bound to, the column that names it, and its sealed columns."""
+    named = (sealed.set_id, sealed.case_id, sealed.shown)
+    return ", ".join(dict.fromkeys(("id", *filter(None, named), *sealed.columns)))
+
+
+def _bound_to(sealed: SealedTable, row: Mapping[str, Any]) -> tuple[str, str]:
+    """The set and case ids a row's sealed values are bound to (an empty case id: the set's)."""
+    case_id = "" if sealed.case_id is None else str(row[sealed.case_id])
+    return str(row[sealed.set_id]), case_id
+
+
+def _named(sealed: SealedTable, row: Mapping[str, Any]) -> dict[str, str]:
+    """A row as printed: its set's id and, for a case's values, the case's keyed hash (never
+    its id)."""
+    named = {"set": str(row[sealed.set_id])}
+    if sealed.shown is not None:
+        named["case"] = str(row[sealed.shown])
+    return named
+
+
+def _refuse_an_older_index_key(db: Session, index_key: str) -> None:
+    """A reindex never goes back to an older index key (`reindex`): one that already started an
+    epoch here, when a later epoch started under another. That reindex would retire the newer
+    key, and the deployments holding it would then refuse to start; a new key has no epoch yet
+    and passes."""
+    if not db.one("SELECT name FROM settings WHERE name = ?", (EVALSET_INDEX_EPOCH + index_key,)):
+        return
+    newest = db.one(
+        "SELECT payload FROM audit_events WHERE decision_id = ? AND event = ? "
+        "ORDER BY seq DESC LIMIT 1",
+        (KEYS_CHAIN, "evalset_index.epoch"),
+    )
+    later = json.loads(newest["payload"]).get("key_id") if newest else None
+    if later is not None and later != index_key:
+        raise MendariError(
+            f"index key {index_key} is older than index key {later}, which already indexes "
+            f"cases here: reindex with the newest {INDEX_ENV}"
+        )
+
+
+def _index_rows(
+    db: Session, index_key: str, case_ids: Sequence[str]
+) -> dict[str, dict[str, tuple[str, str, str]]]:
+    """The index rows of these cases under one index key: by case id, each variant's hash, set
+    id and organization."""
+    found: dict[str, dict[str, tuple[str, str, str]]] = {}
+    if not case_ids:
+        return found
+    marks = ", ".join("?" for _ in case_ids)
+    for row in db.all(
+        "SELECT case_id, variant, hash, set_id, org FROM evalset_index "
+        f"WHERE key_id = ? AND case_id IN ({marks})",
+        (index_key, *case_ids),
+    ):
+        found.setdefault(str(row["case_id"]), {})[str(row["variant"])] = (
+            str(row["hash"]),
+            str(row["set_id"]),
+            str(row["org"]),
+        )
+    return found
+
+
+def _case_problems(
+    keys: EvalsetKeys,
+    row: Mapping[str, Any],
+    values: Mapping[str, Any],
+    refs: Mapping[str, Any],
+    indexed: Mapping[str, Mapping[str, tuple[str, str, str]]],
+) -> list[str]:
+    """What a case's opened values do not match (`check`): the commitment its event chained
+    (`commitment`), its keyed hash when it is under the current index key (`case_hash`), and
+    its two index rows under the current index key (`index`)."""
+    problems = []
+    set_id, case_id, hashed = str(row["set_id"]), str(row["id"]), str(row["case_hash"])
+    body = values["attributes"]
+    try:
+        salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+        made: str | None = case_ref(salt, set_id, case_id, values["input"], body.get("attributes"))
+    except (MendariError, ValueError, AttributeError):
+        made = None
+    if made is None or made != refs.get(hashed):
+        problems.append("commitment")
+    index_key = key_id(keys.index_key)
+    if hashed.startswith(f"hmac-sha256:{index_key}:") and keys.case_hash(set_id, case_id) != hashed:
+        problems.append("case_hash")
+    try:
+        expected = {
+            variant: (digest, set_id, str(row["org"]))
+            for variant, digest in keys.index_hashes(values["input"]).items()
+        }
+    except MendariError:
+        expected = {}
+    if not expected or indexed.get(case_id, {}) != expected:
+        problems.append("index")
+    return problems
 
 
 def _check_set_id(set_id: str) -> None:

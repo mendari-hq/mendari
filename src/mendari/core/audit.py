@@ -33,7 +33,7 @@ from mendari.core.db import connect
 from mendari.core.evalset_keys import INDEX_ENV as EVALSET_INDEX_ENV
 from mendari.core.evalset_keys import KEY_ENV as EVALSET_KEY_ENV
 from mendari.core.evalset_keys import READ_ENV as EVALSET_READ_ENV
-from mendari.core.evalset_keys import EvalsetKeys
+from mendari.core.evalset_keys import EvalsetKeys, Kind
 from mendari.core.phi import GENERATE, LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.session_seal import SealError, seal, unseal
@@ -112,11 +112,15 @@ CHECK_FAILURES_SHOWN = 50
 # Hidden evaluation sets' keys (LP-11e, ADR-0011), marked as the PHI key's are: each key of the
 # evaluation-set ring a writer held (`EVALSET_KNOWN` + its id), so a row naming another was
 # altered and a stray ring is refused; each key a rotation moved values off (`EVALSET_RETIRED`
-# + its id, LP-11f), which then seals nothing more here; and each index key's epoch
-# (`EVALSET_INDEX_EPOCH` + its id: since when). None of them is a PHI key's mark, nor the reverse.
+# + its id, LP-11f), which then seals nothing more here; the key the last rotation re-sealed
+# under (`EVALSET_TARGET`, LP-11f); each index key's epoch (`EVALSET_INDEX_EPOCH` + its id:
+# since when); and each index key a reindex replaced (`EVALSET_INDEX_RETIRED` + its id, LP-11f),
+# which then indexes nothing more here. None of them is a PHI key's mark, nor the reverse.
 EVALSET_KNOWN = "evalset_key_known:"
 EVALSET_RETIRED = "evalset_key_retired:"
+EVALSET_TARGET = "evalset_key_target"
 EVALSET_INDEX_EPOCH = "evalset_index_epoch:"
+EVALSET_INDEX_RETIRED = "evalset_index_retired:"
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
 # The organization in the chain (LP-12g, ADR-0008). A database a memberships-mode server opened
@@ -188,7 +192,11 @@ PERSON_KINDS = frozenset({NOTICE_EVENT})
 DEPLOYMENT_KINDS = frozenset(
     {
         "deployment.recorded",
-        "evalset_index.epoch",  # a new evaluation-set index key (LP-11e, `KEYS_CHAIN`)
+        # The hidden evaluation sets' keys (LP-11e, LP-11f; `KEYS_CHAIN`): a new index key, a
+        # rotation's batch, and the index rebuilt under the current index key.
+        "evalset_index.epoch",
+        "evalset.rotated",
+        "evalset_index.rebuilt",
         "input_hash.epoch",
         "phi.rotated",
         "retention.purged",
@@ -1009,15 +1017,16 @@ class AuditStore:
 
     def _evalset_ready(self, db: _Session, keys: EvalsetKeys) -> None:
         """Refuses, before anything is written: a current key a rotation retired (it seals
-        nothing more); any of these keys (the ring's or the index key) that this database knows
-        as a PHI key (`KNOWN`) or input hash key (`HASH_EPOCH`); a key of the ring this database
-        knows as an index key (`EVALSET_INDEX_EPOCH`), or an index key it knows as a key of the
-        ring (`EVALSET_KNOWN`), so the two roles never share a key, earlier keys included; and,
-        once a set exists, a ring that holds no key this database knows (`EVALSET_KNOWN`), a
-        stray key whose rows no reader could open beside the others. A rotation's documented
-        order passes: the next key is added as a read key first (and so becomes known), then
-        swapped in. Only then are the ring's keys marked known. Messages name variables and key
-        ids, never a key."""
+        nothing more); an index key a reindex replaced (it indexes nothing more: what it indexed
+        here, `hidden_matches` would not find); any of these keys (the ring's or the index key)
+        that this database knows as a PHI key (`KNOWN`) or input hash key (`HASH_EPOCH`); a key
+        of the ring this database knows as an index key (`EVALSET_INDEX_EPOCH`), or an index key
+        it knows as a key of the ring (`EVALSET_KNOWN`), so the two roles never share a key,
+        earlier keys included; and, once a set exists, a ring that holds no key this database
+        knows (`EVALSET_KNOWN`), a stray key whose rows no reader could open beside the others.
+        A rotation's documented order passes: the next key is added as a read key first (and so
+        becomes known), then swapped in. Only then are the ring's keys marked known. Messages
+        name variables and key ids, never a key."""
         current = key_id(keys.key)
         index = key_id(keys.index_key)
         read = sorted(keys.ring_ids - {current})
@@ -1028,6 +1037,11 @@ class AuditStore:
                 f"This deployment's evaluation-set key {current} was retired by a key rotation: "
                 f"deploy the current {EVALSET_KEY_ENV} (the retired one belongs in "
                 f"{EVALSET_READ_ENV})."
+            )
+        if db.one("SELECT name FROM settings WHERE name = ?", (EVALSET_INDEX_RETIRED + index,)):
+            raise MendariError(
+                f"This deployment's evaluation-set index key {index} was replaced by a reindex: "
+                f"deploy the current {EVALSET_INDEX_ENV}."
             )
         ours = sorted(named)
         names = [mark + key for key in ours for mark in (KNOWN, HASH_EPOCH)]
@@ -4934,14 +4948,18 @@ class AuditStore:
         transaction that chains its event, so a row read here whose event came too late for the
         events read, or a case deleted since, has that event in the later ones: a write that
         runs beside a verification never reads as a break. A database without the tables (an
-        older one, read as it is) has no rows."""
+        older one, read as it is) has no rows. Each row's sealed values are its table's
+        `SEALED_COLUMNS` (LP-11f), so a sealed column added later is verified too."""
+        from mendari.core.evalsets import SEALED_COLUMNS  # that module imports this one
+
         cases: list[dict[str, Any]] = []
         sets: list[dict[str, Any]] = []
         if db.columns("evalset_sets") and db.columns("evalset_cases"):
-            sets = db.all("SELECT id, org, header FROM evalset_sets")
-            cases = db.all(
-                "SELECT id, set_id, org, input, attributes, case_hash FROM evalset_cases"
-            )
+            of_sets = ", ".join(("id", "org", *SEALED_COLUMNS["evalset_sets"].columns))
+            sets = db.all(f"SELECT {of_sets} FROM evalset_sets")
+            sealed = SEALED_COLUMNS["evalset_cases"].columns
+            of_cases = ", ".join(("id", "set_id", "org", "case_hash", *sealed))
+            cases = db.all(f"SELECT {of_cases} FROM evalset_cases")
         later = [
             (str(row["event"]), json.loads(row["payload"]))
             for row in db.all(
@@ -4971,14 +4989,16 @@ class AuditStore:
         Every `evalset.created` has its set and every `evalset.case_added` its case (found by
         the keyed case hash it chained), in that set and organization, unless an
         `evalset.case_removed` of it follows; every row has its event (`unchained`: a row
-        written without one, or kept after its removal). With `keys`, each set's header opens,
-        each case's hash is recomputed when it is under the current index key (an older one's
-        cannot be), and each case's input and attributes open and give the commitment its event
-        chained (`case_ref`). A row that fails under a key the ring holds, or names a key no one
-        here held, was altered: `broken_at` its event. A row sealed under a key this database
-        knows and the ring lacks cannot be checked: `unopenable`, by key id. Counts and ids
-        only: no value is returned."""
-        from mendari.core.evalsets import case_ref  # that module imports this one
+        written without one, or kept after its removal). With `keys`, each set's sealed values
+        open under its own set (its header; its freeze record and aggregates once a freeze fills
+        them, LP-11i), each case's hash is recomputed when it is under the current index key (an
+        older one's cannot be), and each case's sealed values open, its input and attributes
+        giving the commitment its event chained (`case_ref`). Which values are sealed is
+        `SEALED_COLUMNS` (LP-11f). A row that fails under a key the ring holds, or names a key no
+        one here held, was altered: `broken_at` its event. A row sealed under a key this
+        database knows and the ring lacks cannot be checked: `unopenable`, by key id. Counts and
+        ids only: no value is returned."""
+        from mendari.core.evalsets import SEALED_COLUMNS, case_ref  # that module imports this one
 
         ring = keys if isinstance(keys, EvalsetKeys) else None
         counts = {"sets": 0, "checked": 0, "removed": 0, "unchecked": 0}
@@ -5000,7 +5020,7 @@ class AuditStore:
         created_later = {p.get("set") for k, p in later if k == "evalset.created"}
 
         def opened(
-            ring: EvalsetKeys, kind: _SealedRow, token: str, set_id: str, case_id: str = ""
+            ring: EvalsetKeys, kind: Kind, token: str, set_id: str, case_id: str = ""
         ) -> tuple[Any, bool]:
             """The value, and whether it was opened (False: unopenable, counted); raises
             `MendariError` for a row that was altered."""
@@ -5012,6 +5032,21 @@ class AuditStore:
                     raise
                 unopenable[named] += 1
                 return None, False
+
+        def opened_row(
+            ring: EvalsetKeys, table: str, row: Mapping[str, Any], set_id: str, case_id: str = ""
+        ) -> dict[str, Any] | None:
+            """Each sealed value a row holds, by column (None: one was unopenable, counted);
+            raises `MendariError` for a row that was altered."""
+            values: dict[str, Any] = {}
+            every = True
+            for column, sealed_as in SEALED_COLUMNS[table].columns.items():
+                if row[column] is not None:
+                    values[column], was_opened = opened(
+                        ring, sealed_as, str(row[column]), set_id, case_id
+                    )
+                    every = every and was_opened
+            return values if every else None
 
         chained_sets: set[str] = set()
         chained_cases: set[str] = set()
@@ -5029,7 +5064,7 @@ class AuditStore:
                 counts["sets"] += 1
                 if ring is not None:
                     try:
-                        opened(ring, "header", str(sets[set_id]["header"]), set_id)
+                        opened_row(ring, "evalset_sets", sets[set_id], set_id)
                     except MendariError:
                         return broken, counts
                 continue
@@ -5053,14 +5088,12 @@ class AuditStore:
                 under_current = bool(current_index) and str(case).startswith(str(current_index))
                 if under_current and ring.case_hash(set_id, case_id) != case:
                     return broken, counts
-                value, value_opened = opened(ring, "input", str(row["input"]), set_id, case_id)
-                body, body_opened = opened(
-                    ring, "attributes", str(row["attributes"]), set_id, case_id
-                )
-                if not (value_opened and body_opened):
+                values = opened_row(ring, "evalset_cases", row, set_id, case_id)
+                if values is None:
                     continue
+                body = values["attributes"]
                 salt = base64.b64decode(str(body.get("salt", "")), validate=True)
-                made = case_ref(salt, set_id, case_id, value, body.get("attributes"))
+                made = case_ref(salt, set_id, case_id, values["input"], body.get("attributes"))
             except (MendariError, ValueError, AttributeError):
                 return broken, counts
             if made != payload.get("case_ref"):
@@ -5496,8 +5529,6 @@ def _show_own_note(
 
 # Decisions a verification from a checkpoint reads per query (`_verify`).
 _VERIFY_BATCH = 500
-# The sealed values of an evaluation set's rows that `verify` opens (`_check_evalsets`).
-_SealedRow = Literal["header", "input", "attributes"]
 
 
 def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
