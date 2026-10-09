@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from mendari.core.pack import _PROVIDER_FILE_KEYS
-from mendari.providers import PROVIDER_TYPES
+from mendari.providers import PROVIDER_CONFIG_MODELS, PROVIDER_TYPES
 
 ROOT = Path(__file__).resolve().parents[1]
 THREAT_MODEL = ROOT / "docs" / "security" / "threat-model.md"
@@ -20,6 +20,7 @@ STRIDE = "STRIDE"
 PACK_CONTENT = "## Pack content"
 PACK_CONTENT_PARTS = ["Inputs", "Trust boundary", "What a pack can do", "What a pack cannot do"]
 CITED_ROW = re.compile(r"\b[STRIDE]\d+\b")
+PROVIDER_TABLE = "| Provider type | Decides | Variant keys |"
 
 
 def rows() -> list[str]:
@@ -84,6 +85,19 @@ def test_the_pack_content_part_names_every_pack_input() -> None:
         *PROVIDER_TYPES,
     ]
     assert [name for name in inputs if name not in named] == []
+
+
+def test_the_provider_table_lists_each_types_closed_config_keys() -> None:
+    """The Inputs part's provider table has one row per provider type, and its last column
+    names exactly the keys that type's closed config takes beside `type`: a key added to or
+    removed from a config fails here until the table says so."""
+    part = pack_content()
+    table = part[part.index(PROVIDER_TABLE) :].split("\n\n", 1)[0].splitlines()[2:]
+    cells = [line.strip("| ").split(" | ") for line in table]
+    keys = {kind.strip("`"): set(re.findall(r"`(\w+)`", row[-1])) for kind, *row in cells}
+    assert sorted(keys) == sorted(PROVIDER_TYPES)
+    for kind, model in PROVIDER_CONFIG_MODELS.items():
+        assert keys[kind] == set(model.model_fields) - {"type"}, kind
 
 
 def test_the_pack_content_part_cites_only_rows_that_exist() -> None:

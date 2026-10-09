@@ -108,14 +108,14 @@ is read only if the digest covers it, and only as hashed (T2, E9). What a pack s
 
 | Input | What it sets | Checked |
 |---|---|---|
-| `pack.yaml` | The manifest: id, version, publisher, risk level, card, `code_systems`, the questions (their instructions and criteria are the prompt its model variants send), the provider slots and their variants, `audit.store_input`, `guard`, `cds_hooks` and `evaluation` | At load, as a closed model but for the variant keys (`core/spec.py` `PackManifest`) |
+| `pack.yaml` | The manifest: `spec_version`, id, version, name, summary, `license`, publisher, risk level, card, `code_systems`, the questions (their instructions and criteria are the prompt its model variants send), the provider slots and their variants, `audit.store_input`, `guard`, `cds_hooks` and `evaluation` | At load, as a closed model but for the variant keys (`core/spec.py` `PackManifest`) |
 | `policy` | Thresholds, rules, label policies and `automation_requires`: inline, or in a file it names | At load; policy only lowers automation (E3) |
 | `inputs.schema` | The JSON Schema every input is checked against | At load (`core/input_schema.py`): self-contained (E9); for a pack the deployment does not own, its keywords and the caps (D8); for an owned one, the expansion bounds (D10) |
-| `inputs.fhir` | The FHIR mapping: how a record becomes an input, and the Task a decision writes | At load for a pack the deployment does not own; for an owned one where it is used, and by `mendari validate` |
+| `inputs.fhir` | The FHIR mapping: how a record becomes an input, and the Task a decision writes | At load, that it is a file the digest covers (E9); its content at load for a pack the deployment does not own, for an owned one where it is used, and by `mendari validate` |
 | `tests` | Behaviour tests (`mendari test`, the examples in the API reference) | At load, only that it is a file the digest covers; a case's shape where it is read (D7); its input against the schema by `mendari validate` |
 | `evaluation.datasets` | JSON Lines datasets (`mendari eval`, `POST /api/packs/{namespace}/{name}/evals`) | At load, only that each is a file the digest covers; each line where it is read (D7); its input and labels by `mendari validate` |
 | `config`, `library`, `model_file`, `calibration` | A variant's or composite member's pack file: a rules, criteria or dosing config, a CQL library, a naive Bayes model, an LLM calibration | At load: a file the digest covers, named by its field (E9), and read by its provider's check (E8) |
-| Variant keys | Everything else a variant or composite member sets, by provider type (below) | At load, against its type's closed config (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): refused for a pack the deployment does not own, a warning for an owned one (E8) |
+| Variant keys | Everything else a variant or composite member sets, by provider type (below) | At load, against its type's closed config (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): refused for a pack the deployment does not own, a warning for an owned one; a `jev` or `llm` variant or member that sets `api_key_env`, `connector_env`, `endpoint_env`, `model_env`, `base_url_env` or `local_key_env` is refused for every pack (`core/spec.py`) (E8) |
 | Wording templates | `cds_hooks.card.summaries`, and the FHIR mapping's `task.description` and `task.performer` | A card summary's placeholder names at load, a Task text's where it is used (at load for a pack the deployment does not own); bare placeholders for a pack the deployment does not own (E4) |
 | `cds_hooks.prefetch` | What a CDS Hooks service needs from the EHR, read from the EHR's FHIR server when the request leaves it out | At load: a relative read or search, refused for a pack the deployment does not own, a warning for an owned one (E1) |
 | `CHANGELOG.md` | The history the card shows | In the digest; UTF-8 where it is read (D7) |
@@ -140,8 +140,9 @@ takes beside `type`:
 ### Trust boundary
 
 Whether the deployment owns a pack decides most of what follows. It is read from where the pack
-was found and the digest `load_pack` hashed, never from the manifest, a registry's record or a
-marker file (`core/origin.py` `bounded`, read as `Pack.bounded`; S15):
+was found and the digest `load_pack` hashed, never from a registry's record or a marker file; the
+manifest can only give ownership up, by an id in `community/` (`core/origin.py` `bounded`, read
+as `Pack.bounded`; S15):
 
 - **Owned:** the reference packs this release bundles (`maintained`); an operator's own packs
   (`local`: in `MENDARI_PACKS_PATH`, or a path given on the command line), a copy of a pulled
@@ -153,9 +154,13 @@ marker file (`core/origin.py` `bounded`, read as `Pack.bounded`; S15):
   (`hub`); LP-20 adds the pack store's (`store`). These run on the community engine (D8), and
   what only warns for an owned pack refuses them at load.
 
-A community pack is held further: it recommends and never automates, its default variants are
-local, it is at most risk level 1, it keeps only a hash of its inputs, and it is served only with
-`MENDARI_COMMUNITY_PACKS=on` (E10). Every surface labels a pack by its origin (S13). A pack from
+A community pack recommends and never automates, wherever it was loaded from (E10). One in
+`community-packs/` is held further, or it is not served (and CI refuses it): its default
+variants are local, it is at most risk level 1 and it keeps only a hash of its inputs; and it is
+served only with `MENDARI_COMMUNITY_PACKS=on` (E10). A pack with a `community/` id loaded from
+anywhere else (`MENDARI_PACKS_PATH`, a path, a registry) is not held to these three. Every surface labels a community pack "Community · not clinically reviewed" (S13); the API, the
+dashboard and the SMART patient view label every pack by its origin, and the Decision Card names
+the source only of a maintained or community pack. A pack from
 outside comes in across boundary 5 (a registry) or 7 (a pull request) above, and every pack
 reaches out through 3 (FHIR servers, the CQL engine) and 4 (model providers), only at addresses
 the deployment sets or allows (E1, E8).
@@ -170,11 +175,13 @@ the deployment sets or allows (E1, E8).
   choice (I5); a pack the deployment does not own can do none of it (I5, E10).
   `test_a_registry_packs_remote_variant_needs_state_fields`,
   `test_a_registry_packs_pinned_model_gives_way_to_the_deployments`.
-- **Any pack sets its own Jev price.** `cost_per_1k_input_tokens_usd` sets the `cost_usd`
-  recorded on its decisions and shown on the dashboard and in reports, a pack the deployment
-  does not own included. It changes what is recorded, not what is called: the daily budgets and
+- **Any pack sets its own Jev price.** `cost_per_1k_input_tokens_usd` (finite and at most $1,
+  since LP-21g, or null for unknown) sets the `cost_usd` recorded on its decisions, summed in the
+  usage ledger and shown on the dashboard and in reports, a pack the deployment does not own
+  included. It changes what is recorded, not what is called: the daily budgets and
   quotas count calls (D2). Residual (`tasks/todo.md`, LP-16 conflict 24), for LP-20.
-  `test_jev_answers_show_jevs_own_confidence_and_cost_input_tokens_only`.
+  `test_jev_request_is_minimal_and_typed`, `test_a_jev_call_without_a_price_is_unknown_never_zero`,
+  `test_a_jev_price_is_finite_and_at_most_a_dollar_per_thousand_tokens`.
 - **Any pack turns batching off or sets a temperature.** A model variant with `batch: false` is
   asked in a call of its own instead of sharing one with the decision's other questions, so a
   decision makes more calls, each counted against the budgets and quotas (D2) and made within
@@ -206,7 +213,8 @@ the deployment sets or allows (E1, E8).
   use), a prefetch template that is not a relative read or search, and a card summary
   placeholder that is not bare: the pack loads with them as `Pack.warnings` (`mendari list`, the
   start-up log, `/api/health` `pack_warnings`) and decides as it did before LP-16, each variant
-  building, or failing, as it did. A Task text placeholder that is not bare is not warned of,
+  building, or failing, as it did, but a Jev variant priced above $1 per 1,000 input tokens:
+  LP-21g bounded the price, so it now fails when it is built. A Task text placeholder that is not bare is not warned of,
   and renders as before. `mendari validate` refuses all of them, and the prefetch still reads
   only from the EHR's FHIR server (E1). A pack the deployment does not own is refused for any
   of them (E1, E4, E8). Conflicts 17 and 21: making owned packs refuse is a one-line change, for
@@ -246,29 +254,36 @@ Whatever it says, and whoever wrote it, a pack cannot:
   a URL or a local file (E9).
 - **Change another pack's logic.** Its CQL library goes to the shared engine under names that
   end in a hash of its pack id and text, so it cannot replace or shadow another pack's (T4).
-- **Stop or stall the server.** Whatever its content, a pack that fails to load or build is
-  listed under `/api/health` `invalid` and every other pack is served, and health builds no pack
-  in the request (D7). A pack the deployment does not own runs its patterns on RE2, within caps
-  and one second of CPU per decision (D8); an owned pack's input schema is bounded at load (D10);
-  a decision's remote calls stop at its deadline, which a pack cannot set (D9).
+- **Stop the server.** Whatever its content, a pack that fails to load or build is listed
+  under `/api/health` `invalid` and every other pack is served, and health builds no pack in the
+  request (D7). A pack the deployment does not own runs its patterns on RE2, within caps and a
+  budget of one second of CPU per decision, so about 3.5 s at worst (D8); a decision's remote
+  calls stop at its deadline, which a pack cannot set (D9). An owned pack's input schema is
+  bounded at load (D10), but its patterns run on `re` with no time limit, so one that
+  backtracks can stall its instance (above, and the residual risks).
 - **Choose where its data goes, or with which credentials.** The variables a remote provider
   reads its endpoint, model and key from are fixed in the code and are the deployment's, a
   variant that names one is refused at load, and every call goes to the deployment's endpoints
-  with its keys (E8); with `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, only to the origins it lists
-  (E1, I5). A prefetch read stays on the EHR's FHIR server and fills in FHIR ids only (E1, E4).
+  with its keys (E8); with `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, a Jev or LLM call goes
+  only to the origins it lists (E1, I5), and a `cql` call goes only to an origin on the FHIR
+  allow-list, set or not (E1). A prefetch read stays on the EHR's FHIR server and fills in FHIR ids only (E1, E4).
 - **Inject through its wording.** A wording template names only `{recommendation}`,
   `{priority}` and the pack's questions, and in a pack the deployment does not own each is a
   bare name (E4).
 - **Automate beyond its risk level.** Policy only lowers automation: level 4 is never automated,
   and levels 2 and 3 only under an approval of the pack's digest (E3).
-- **Choose its model or the size of its calls, or send a model more than it names, if the
-  deployment does not own it.** Its model is the deployment's, its `max_tokens` and `timeout_ms`
-  are held to the provider defaults and a `reasoning_effort` above `low` is dropped (E10), every
-  model variant and member names its `state_fields` (I5), and its configs are checked at load
-  first (E8).
-- **Automate, block or call a model unasked, if it is a community pack.** It recommends and a
-  person confirms every decision, a rule of its own never blocks, and it runs a remote variant
-  only where the deployment names it (E10).
+- **Choose its model, the length of its answers, its timeouts or its reasoning effort, or send
+  a model more than it names, if the deployment does not own it.** Its model is the
+  deployment's, its `max_tokens` and `timeout_ms` are held to the provider defaults and a
+  `reasoning_effort` above `low` is dropped (E10), every model variant and member names its
+  `state_fields` (I5), and its configs are checked at load first (E8). Its questions' text, sent
+  with every call, is its own, up to the provider's request limit (LLM 100,000 characters, Jev
+  80,000).
+- **Automate, block by a rule of its own, or call a model unasked, if it is a community pack.**
+  It recommends and a person confirms every decision on an input that is not rejected, a rule of
+  its own never blocks, and it runs a remote variant only where the deployment names it (E10).
+  An input its schema rejects is still a final `BLOCK` (`input rejected`), as for any pack, so
+  its schema (a `not` with a `pattern`, say) can refuse cases no person sees.
 
 ## Residual risks and assumptions
 

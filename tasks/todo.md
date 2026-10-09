@@ -518,7 +518,7 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
-- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+- [x] **LP-16 build** (ADR-0009), in the PRs below (16c-2 is not part of it, below):
   - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
     `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
     not a reference pack's of the installed release, `core/reference.py`);
@@ -590,8 +590,8 @@ registry or copied into the store.
     pack can set (every manifest input, provider type and variant key, the wording templates,
     `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
     digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
-    24 are written there). `tests/test_threat_model.py` holds it to every input, to rows and
-    tests that exist, and to no line that reads as a row; gate a3's `what` says LP-16a–g. LP-16
+    24 are written there). `tests/test_threat_model.py` holds it to every input, to each provider
+    type's closed config keys, to rows and tests that exist, and to no line that reads as a row; gate a3's `what` says LP-16a–g. LP-16
     counts as merged for LP-18 and LP-20 once 16g lands, 16e-2 with it (16c-2 is not part of
     LP-16, above).
 
