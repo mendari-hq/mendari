@@ -17,6 +17,8 @@ be checked here, since a recall only lowers automation.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import threading
 import time
@@ -34,7 +36,10 @@ CHECK_ENV = "MENDARI_REGISTRY_RECALL_CHECK_S"
 STALE_ENV = "MENDARI_REGISTRY_RECALL_STALE_S"
 DEFAULT_CHECK_S = 300.0
 DEFAULT_STALE_S = 86_400.0
-TIMEOUT_S = 5.0
+TIMEOUT_S = 5.0  # each connect and read
+DEADLINE_S = 20.0  # the whole answer
+# A read started this long ago is taken as lost (a thread that never returned): another starts.
+ABANDONED_S = 60.0
 MAX_YANKS_BYTES = 5_000_000
 SEVERITIES = ("low", "medium", "high", "critical")
 
@@ -54,17 +59,34 @@ def _seconds(name: str, default: float) -> float:
     return value
 
 
-def fetch_yanks(registry: str) -> list[dict[str, Any]]:
-    """A registry's recalled versions (`GET /v1/yanks`), https only (http to this machine)."""
+log = logging.getLogger("mendari.recalls")
+
+
+def fetch_yanks(registry: str, *, deadline_s: float = DEADLINE_S) -> list[dict[str, Any]]:
+    """A registry's recalled versions (`GET /v1/yanks`), https only (http to this machine): the
+    whole read within `deadline_s` and at most `MAX_YANKS_BYTES`, however the registry sends it."""
     parts = urlsplit(registry)
     local = (parts.hostname or "") in ("localhost", "127.0.0.1", "::1")
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
         raise MendariError("a registry is read over https")
-    with httpx.Client(timeout=TIMEOUT_S, follow_redirects=False) as http:
-        response = http.get(f"{registry.rstrip('/')}/v1/yanks")
-    if response.status_code != 200 or len(response.content) > MAX_YANKS_BYTES:
-        raise MendariError(f"the registry answered HTTP {response.status_code}")
-    found = response.json()
+    started = time.monotonic()
+    body = bytearray()
+    with (
+        httpx.Client(timeout=TIMEOUT_S, follow_redirects=False) as http,
+        http.stream("GET", f"{registry.rstrip('/')}/v1/yanks") as response,
+    ):
+        if response.status_code != 200:
+            raise MendariError(f"the registry answered HTTP {response.status_code}")
+        declared = response.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > MAX_YANKS_BYTES:
+            raise MendariError("the registry's recalls are too large")
+        for chunk in response.iter_bytes():
+            body += chunk
+            if len(body) > MAX_YANKS_BYTES:
+                raise MendariError("the registry's recalls are too large")
+            if time.monotonic() - started > deadline_s:
+                raise MendariError("the registry's recalls took too long")
+    found = json.loads(bytes(body))
     if not isinstance(found, list):
         raise MendariError("the registry's recalls are not a list")
     return [item for item in found if isinstance(item, dict)]
@@ -74,7 +96,8 @@ def fetch_yanks(registry: str) -> list[dict[str, Any]]:
 class _Registry:
     checked_at: float | None = None  # the last read that worked (monotonic)
     recalled: dict[tuple[str, str], str] = field(default_factory=dict)  # (pack, version) -> why
-    reading: bool = False
+    reading_since: float | None = None  # a read in flight, since
+    failing: str | None = None  # the last read's error type, while reads fail
 
 
 class RecallWatch:
@@ -92,6 +115,11 @@ class RecallWatch:
     ):
         self.check_s = check_s if check_s is not None else _seconds(CHECK_ENV, DEFAULT_CHECK_S)
         self.stale_s = stale_s if stale_s is not None else _seconds(STALE_ENV, DEFAULT_STALE_S)
+        if self.stale_s < 2 * self.check_s:
+            raise MendariError(
+                f"{STALE_ENV} is at least twice {CHECK_ENV}: otherwise every pack from a registry "
+                "is held between two reads"
+            )
         self._fetch, self._clock, self._background = fetch, clock, background
         self._lock = threading.Lock()
         self.registries: dict[str, _Registry] = {
@@ -105,9 +133,13 @@ class RecallWatch:
         state = self.registries[registry]
         try:
             listed = (self._fetch or fetch_yanks)(registry)
-        except Exception:  # unreachable, refused, not JSON: what was known stands until stale
+        except Exception as error:  # unreachable, refused, not JSON: what was known stands
+            kind = type(error).__name__
             with self._lock:
-                state.reading = False
+                state.reading_since = None
+                changed, state.failing = state.failing != kind, kind
+            if changed:  # once a change of state, never the registry's own words
+                log.warning("a registry's recalls could not be read (%s)", kind)
             return
         recalled: dict[tuple[str, str], str] = {}
         for item in listed:
@@ -120,7 +152,8 @@ class RecallWatch:
             why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
             recalled[(pack, version)] = why
         with self._lock:
-            state.recalled, state.checked_at, state.reading = recalled, self._clock(), False
+            state.recalled, state.checked_at = recalled, self._clock()
+            state.reading_since, state.failing = None, None
 
     def _due(self, registry: str) -> None:
         """Start a background read if this registry's is due and none is running (never, for
@@ -130,12 +163,15 @@ class RecallWatch:
         state = self.registries[registry]
         with self._lock:
             now = self._clock()
-            if state.reading or (
-                state.checked_at is not None and now - state.checked_at < self.check_s
-            ):
+            reading = state.reading_since is not None and now - state.reading_since < ABANDONED_S
+            if reading or (state.checked_at is not None and now - state.checked_at < self.check_s):
                 return
-            state.reading = True
-        threading.Thread(target=self.refresh, args=(registry,), daemon=True).start()
+            state.reading_since = now
+        try:
+            threading.Thread(target=self.refresh, args=(registry,), daemon=True).start()
+        except RuntimeError:  # no thread to be had: tried again on a later decision
+            with self._lock:
+                state.reading_since = None
 
     def held(self, pack: Pack) -> str | None:
         """Why this pack may not automate for its registry now, or None."""
@@ -165,6 +201,7 @@ class RecallWatch:
                     if state.checked_at is None
                     else round(now - state.checked_at),
                     "recalled": len(state.recalled),
+                    "failing": state.failing,
                 }
                 for url, state in self.registries.items()
             }

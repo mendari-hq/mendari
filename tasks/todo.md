@@ -1387,7 +1387,16 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     whose marker names no registry are held: AUTO becomes HUMAN_REVIEW and its own BLOCK goes
     to a person (`Decision(recall_source=)`, with the approval cap). A failed read keeps what
     was known until stale. Health (past the read check) shows `registry_recalls`: each
-    registry's last read's age and how many it recalls.
+    registry's last read's age, how many it recalls and the error type while reads fail.
+    Adversarial review (2 medium, 5 low), fixed: a read had no total time limit (a registry
+    sending a byte a second held it for good, and no other read started), now the whole answer
+    within 20 s and a read in flight over 60 s is taken as lost; the answer was buffered whole
+    before its 5 MB cap, now refused by its length or as it streams; a thread that cannot start
+    no longer fails the decision; a failed read is logged once a change of state (its type);
+    the stale time must be at least twice the check time; the settings table says what a
+    serverless host or `mendari decide` sees (the recall known at the last pull) and that
+    these reads are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`; tests for every answer
+    `fetch_yanks` refuses, the single read in flight and the settings.
   - [ ] **18f** Rate limits (the `Limiter`, on the registry's own database), security headers on
     every registry route and every Hub page (CSP, HSTS, frame-ancestors), each asserted by
     exact value, and a scanner baseline in the `hub-site` job.
