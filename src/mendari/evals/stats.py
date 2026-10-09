@@ -8,7 +8,8 @@ Every function is deterministic; the random ones take a seed, written into what 
 - `clopper_pearson(k, n)`: the exact interval for a proportion, from the beta quantile; never a
   normal approximation (`proportion` keeps k, n and the interval together).
 - `mcnemar_exact(b, c)`: the two-sided exact test on a paired comparison's discordant cases.
-- `bootstrap` and `paired_bootstrap`: percentile intervals over seeded resamples of cases.
+- `bootstrap` and `paired_bootstrap`: percentile intervals over seeded resamples of cases;
+  `bootstrap_defined` for a statistic a resample can leave undefined, counting those it drops.
 - `holm`: Holm-Bonferroni over a named family of comparisons.
 - `equal_mass_ece`: calibration error over equal-count bins, "not estimable" when they are small.
 """
@@ -21,7 +22,9 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import NormalDist
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 LEVEL = 0.95
 RESAMPLES = 2000
@@ -345,6 +348,37 @@ def bootstrap(
     )
     tail = (1.0 - level) / 2.0
     return estimate, percentile(stats, tail), percentile(stats, 1.0 - tail)
+
+
+def bootstrap_defined(
+    records: Sequence[T],
+    statistic: Callable[[Sequence[T]], float | None],
+    resamples: int = 2000,
+    seed: int = 0,
+    level: float = 0.95,
+) -> tuple[float | None, float | None, float | None, int]:
+    """(estimate, low, high, dropped): `bootstrap` for a statistic that a sample can leave
+    undefined (None, as a kappa when both raters used one label throughout). The estimate is
+    the statistic on every record; the percentile interval is over the resamples where it is
+    defined, and `dropped` counts the others, always reported so a reader can say the interval
+    is not estimable. With no resample defined, the bounds are None."""
+    n = len(records)
+    if n == 0:
+        raise ValueError("no records")
+    estimate = statistic(records)
+    values: list[float] = []
+    dropped = 0
+    for row in resample_indices(n, resamples, seed):
+        value = statistic([records[i] for i in row])
+        if value is None:
+            dropped += 1
+        else:
+            values.append(value)
+    if not values:
+        return estimate, None, None, dropped
+    values.sort()
+    tail = (1.0 - level) / 2.0
+    return estimate, percentile(values, tail), percentile(values, 1.0 - tail), dropped
 
 
 def paired_bootstrap(

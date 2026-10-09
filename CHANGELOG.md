@@ -72,6 +72,11 @@ The first release (not yet published).
   warning under 100, duplicates whose labels disagree, and the language, source and stratum mix.
   It prints counts, never a case's text. Its two canonical forms of an input are pinned, as the
   hidden evaluation sets (LP-11) and the pack store's upload check (LP-20) will use them.
+- **Rater agreement** (`mendari.agreement/1`, for LP-11's blind labelling): percent agreement as
+  k of n with its exact interval, Cohen's kappa for each pair of raters and Krippendorff's alpha
+  across the pool, exact, each with a seeded percentile bootstrap interval; an undefined
+  coefficient or interval says why. Checked against hand-computed references, statsmodels and
+  scipy; no dependency is added.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

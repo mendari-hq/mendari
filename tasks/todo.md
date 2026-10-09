@@ -926,8 +926,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     cases and positives, the warning under 100, disagreeing duplicates, the language, source and
     stratum mix, never a case's text); ADR-0011; this plan. AI Guard's test set: 164
     `verdict=block`, 30 distinct (recorded; `mendari.eval/2` unchanged).
-  - [ ] **11b** Rater agreement statistics (pure): percent agreement with Clopper-Pearson,
-    Cohen's kappa per rater pair, Krippendorff's nominal alpha, seeded percentile bootstrap.
+  - [ ] **11b** (PR open) Rater agreement (`evals/rater_agreement.py`, `mendari.agreement/1`,
+    pure): percent agreement as k of n with Clopper-Pearson, Cohen's kappa per rater pair and
+    Krippendorff's nominal alpha, exact, each with a seeded percentile bootstrap
+    (`stats.bootstrap_defined` counts the resamples it drops); derived questions through the
+    pack's table over each rater's member labels. Checked against Krippendorff (2011) exactly,
+    statsmodels and scipy on the same index matrix.
   - [ ] **11c** Evaluation-set keys and sealing, nothing stored yet (`MENDARI_EVALSET_KEY`,
     `MENDARI_EVALSET_READ_KEYS`, `MENDARI_EVALSET_INDEX_KEY`; off unless both are set).
   - [ ] **11d** Permissions: `label` (the `labeller` role, memberships mode), `curate`
