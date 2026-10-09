@@ -1195,6 +1195,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         ),
         (admin, ("GET", "/api/auth/keys"), "/api/auth/keys", {}),
         (admin, ("GET", "/api/auth/clients"), "/api/auth/clients", {}),
+        (admin, ("GET", "/api/usage"), "/api/usage", {}),  # the organization's usage ledger
     ]
     if world.accounts == "memberships":
         for path in ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests"):

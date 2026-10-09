@@ -18,7 +18,9 @@ here, in the order they landed:
 - 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
   `mendari audit verify --against`; its hosted schedule waits for 21n);
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
-  `CallBudget.for_evaluation`, never the decisions' quotas).
+  `CallBudget.for_evaluation`, never the decisions' quotas);
+- 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
+  `mendari usage` for the operator).
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.

@@ -245,7 +245,8 @@ code.wrap { overflow-wrap: anywhere; }
 .history { margin: var(--space-3) 0 0; }
 .history li { overflow-wrap: anywhere; }
 .history li > .muted:first-child { display: block; font-size: var(--text-sm); }
-.admin-body > .table-scroll { margin-top: var(--space-4); }
+.admin-body > .table-scroll,
+.admin-body > p.muted:first-child { margin-top: var(--space-4); }  /* below the tab bar */
 .admin-body td.nowrap .row { flex-wrap: nowrap; }  /* a row's buttons side by side */
 .settings-button { display: none; }
 .settings-button[aria-expanded="true"] { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); }

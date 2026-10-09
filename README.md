@@ -846,7 +846,9 @@ chained event of an organization names it (the deployment's own events name none
 `mendari audit verify` checks it against the row the event is about; each organization's administrators read and export their own administrative events
 (`/api/audit/administrative`), and what is the whole deployment's (the chain's verification,
 the deployment records, today's call totals) is the operator's, from the command line
-(`mendari audit verify`, `mendari usage`). A test calls every route as two organizations and
+(`mendari audit verify`, `mendari usage`, which also gives every organization's usage ledger:
+remote calls and their cost by day). An organization's administrators see their own usage in the
+Access view's Usage tab and at `GET /api/usage`. A test calls every route as two organizations and
 fails on any answer that shows one the other's data (`tests/test_two_organizations.py`).
 
 A link or form on another site cannot act with a signed-in browser, or sign it out: such a
