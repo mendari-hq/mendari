@@ -142,6 +142,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "pack verify": (["{missing}", "--public-key", "{missing}"], {}),
     "registry serve": (["--db", "{not_db}"], {}),
     "registry verify": (["--db", "{missing_db}"], {}),
+    "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),
     "monitor": (["--db", "{missing_db}"], {}),
     "smart check": ([DEAD], {}),
     "phi purge": (["--db", "{missing_db}"], {}),

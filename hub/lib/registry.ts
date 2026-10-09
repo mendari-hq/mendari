@@ -59,10 +59,26 @@ export type PackSummary = {
   figures?: VersionFigures;
 };
 
-// The card the registry rendered from the pack's own files; null for a version published before.
-export type PackVersion = PackSummary & { card_markdown: string | null };
+// A recall: the signed record (hub/yank.py), checked by the registry before it stored it, and a
+// deletion, if the version's archive was removed.
+export type Yank = {
+  format: string;
+  pack: string;
+  version: string;
+  reason: string;
+  severity: "low" | "medium" | "high" | "critical";
+  signer: "publisher" | "registry";
+  key_id: string;
+  at: string;
+};
+export type Deleted = { reason: string; at: string };
+export type Recalled = { version: string; yank: Yank | null; deleted: Deleted | null };
 
-export type PackDetail = { id: string; versions: string[]; latest: PackVersion };
+// The card the registry rendered from the pack's own files; null for a version published before.
+export type PackVersion = PackSummary & { card_markdown: string | null; yank?: Yank | null; deleted?: Deleted | null };
+
+// `latest` is the newest version that is not recalled: null when every version is.
+export type PackDetail = { id: string; versions: string[]; recalled?: Recalled[]; latest: PackVersion | null };
 
 export type Namespace = {
   name: string;

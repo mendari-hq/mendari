@@ -1481,15 +1481,47 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
-    from mendari.hub.client import pull
+    from mendari.hub.client import pull, recall_of
 
     with _registry_client(args) as registry:
         pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
+        namespace, name = pack.id.split("/")
+        recall = recall_of(registry.version(namespace, name, pack.version), registry)
     print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
+    if recall is not None:
+        by = "its publisher" if recall["signer"] == "publisher" else "the registry"
+        signed = (
+            "the record's signature holds"
+            if recall["verified"]
+            else f"the record does not verify: {recall['problem']}"
+        )
+        print(
+            f"  RECALLED ({recall['severity']}) by {by} at {recall['at']}: {recall['reason']}\n"
+            f"  {signed}; do not automate with this version",
+            file=sys.stderr,
+        )
     if pack.bounded:
         print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
     else:
         print("  runs on the maintained engine: a copy of the reference pack in this release")
+    return 0
+
+
+def cmd_yank(args: argparse.Namespace) -> int:
+    """Recall a version your namespace published, signed with its key (`hub/yank.py`)."""
+    from mendari.core.spec import is_pack_id, is_version
+    from mendari.hub import archive
+
+    pack_id, _, version = args.ref.partition("@")
+    if not is_pack_id(pack_id) or not is_version(version):
+        raise MendariError(f"{args.ref!r} is not namespace/name@version: name the exact version")
+    key = archive.load_private_key(Path(args.key).read_bytes())
+    namespace, name = pack_id.split("/")
+    with _registry_client(args) as registry:
+        recalled = registry.yank(
+            namespace, name, version, reason=args.reason, severity=args.severity, key=key
+        )
+    print(f"recalled {recalled['id']}@{recalled['version']} ({args.severity})")
     return 0
 
 
@@ -2620,6 +2652,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--accept-new-key", action="store_true", help="trust a key the namespace rotated to"
     )
     pull_cmd.set_defaults(handler=cmd_pull)
+    yank_cmd = sub.add_parser(
+        "yank", help="recall a version your namespace published (signed with its key)"
+    )
+    yank_cmd.add_argument("ref", help="namespace/name@version")
+    yank_cmd.add_argument("--reason", required=True, help="why, in one line (it is public)")
+    yank_cmd.add_argument(
+        "--severity", required=True, choices=("low", "medium", "high", "critical")
+    )
+    yank_cmd.add_argument("--key", required=True, help="publisher private key (PEM)")
+    yank_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    yank_cmd.set_defaults(handler=cmd_yank)
     search_cmd = sub.add_parser("search", help="search the registry")
     search_cmd.add_argument("query", nargs="*")
     search_cmd.add_argument("--risk", type=int, help="risk level 0-4")

@@ -1323,12 +1323,26 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     who acted. Left: a review note is chained for good (an administrator's words about a pack;
     the route says never case text). A signed head, as the audit chain has (LP-21k), is
     for later.
-  - [ ] **18c** Yank as a recall, and delete: a `mendari.yank/1` record with a reason and a
-    severity, signed (by the namespace's key through `mendari yank`, or by the registry's
-    `MENDARI_REGISTRY_SIGNING_KEY` for a recall the registry makes) and chained; a yanked
-    version is gone from latest, search and the namespace's list, still fetchable by exact
-    version with its record; delete (admin, a reason: the archive's bytes removed, a tombstone
-    kept, chained); `mendari pull` shows the record; the Hub shows it.
+  - [x] **18c** (PR open) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
+    record (pack, version, digest, archive, a one-line printable reason of at most 300, a
+    severity `low` to `critical`, the signer, its key id, a UTC time) signed over its canonical
+    JSON, by a namespace key (`mendari yank ns/name@version --reason --severity --key`,
+    `RegistryClient.yank`) or, for an administrator's recall (`POST …/yank` with a reason and a
+    severity), by the registry's `MENDARI_REGISTRY_SIGNING_KEY` (32 bytes base64; `GET
+    /v1/registry-key`; without it 409). Stored only if it names exactly that version, is within
+    10 minutes of now and its signature holds with that key; once per version (409); chained
+    `pack.yanked` (`hub_yanks`, row-hashed). A recalled version leaves latest, search and the
+    namespace's list (`latest` is null when every version is), stays served by exact version
+    with `yank`, and `GET /v1/yanks` lists every recall; its archive is never deleted by a yank.
+    Delete (`POST …/delete`, administrators, a reason): the archive answers 410 with the reason,
+    its bytes go when no version that is not deleted needs them, row and tombstone kept
+    (`hub_deletions`, `pack.deleted`), the version never published again; `verify` allows a
+    deleted version's missing archive. `mendari pull` of a recalled exact version prints the
+    record and whether its signature holds with a pinned key (`recall_of`; the registry's own
+    key pinned on first use as `@registry`); latest with every version recalled is an error.
+    The Hub lists recalled versions apart (severity, who signed, when, the reason as text), and
+    a pack with every version recalled says so. `hub_seed.py --hostile-example` recalls an
+    earlier version.
   - [ ] **18d** Origin at pull and the cap: the verified marker records the registry URL,
     namespace, publisher type, key id and any yank; a pack from a registry is capped at
     HUMAN_REVIEW until the organization approves its digest (`registry_approvals`, chained),

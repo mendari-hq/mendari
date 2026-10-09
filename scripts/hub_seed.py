@@ -67,11 +67,24 @@ def hostile_example(registry: str, token: str, admin: str) -> None:
             f"An example for the Hub's tests. {HOSTILE_IMAGE}{HOSTILE_MARKDOWN}"
         )
         manifest["card"]["evidence"] = [{"title": "A link that runs a script", "url": HOSTILE_LINK}]
-        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+        namespace, name = HOSTILE_ID.split("/")
         with RegistryClient(registry, token) as client:
-            client.add_key(HOSTILE_ID.split("/")[0], public)
-            published = client.push(load_pack(root), key)
-    print(f"published {published['id']}@{published['version']}")
+            client.add_key(namespace, public)
+            # An earlier version, recalled by its publisher (the Hub lists it apart, with why).
+            for version in ("0.9.0", "1.0.0"):
+                manifest["version"] = version
+                text = yaml.safe_dump(manifest, sort_keys=False)
+                (root / "pack.yaml").write_text(text, encoding="utf-8")
+                published = client.push(load_pack(root), key)
+                print(f"published {published['id']}@{published['version']}")
+            client.yank(
+                namespace,
+                name,
+                "0.9.0",
+                reason="Routed a <b>refill</b> request as routine",
+                severity="high",
+                key=key,
+            )
     # A registry review that found a higher risk level than the pack declares (risk 0).
     review = {"risk_level": 2, "note": "Reads free text from patients <b>not</b> routing alone"}
     with httpx.Client(base_url=registry.rstrip("/"), timeout=60) as http:

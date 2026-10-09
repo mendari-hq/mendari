@@ -4,7 +4,8 @@
 Proposed (2026-10-09). Built in steps (LP-18, `tasks/todo.md`); each step adds what it built
 here, in the order they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
-- 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews.
+- 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
+- 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`).
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -66,7 +67,19 @@ Nothing on a pack's page comes from the uploader unchecked.
    reported, never started again. The chain is unkeyed: whoever can write the whole database
    can rewrite it whole. Its head (`GET /v1/chain/head`: the event count and the last hash),
    kept elsewhere, is what shows that; a signed head is for later.
-5. **Versions published before.** They keep their stored metadata (versions are immutable),
+5. **Recalls (18c).** A yank is a `mendari.yank/1` record (pack, version, digest, archive,
+   reason, severity, signer, key id, time), signed over its canonical JSON. The publisher signs
+   with one of the namespace's keys; the registry signs a recall it makes with its own key
+   (`MENDARI_REGISTRY_SIGNING_KEY`, published at `GET /v1/registry-key`). The registry stores it
+   only if it names exactly that version, its time is within ten minutes of now, and its
+   signature holds; a version is recalled once. A recalled version leaves the latest version,
+   search and the namespace's list, and is still served by exact version with its record
+   (`GET /v1/yanks` lists every recall). Its archive is never deleted by a yank. A client shows
+   the record and whether its signature holds with a key it pinned; one that does not verify
+   is still a recall, since it only stops automation. An administrator may delete a version
+   with a reason: its archive answers 410, its bytes go when no version that is not deleted
+   needs them, and its row and a tombstone stay, so its version is never published again.
+6. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.

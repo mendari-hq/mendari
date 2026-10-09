@@ -119,6 +119,13 @@ test("publisher text is shown as text: no script runs and no unsafe link is made
   await expect(checked).toContainText(
     /Reviewed by the registry on \d{4}-\d\d-\d\d: risk level 2 found, where the publisher declared 0\. Reads free text from patients <b>not<\/b> routing alone/,
   );
+  // An earlier version, recalled by its publisher: listed apart, with its reason as text.
+  const recalled = page.getByRole("region", { name: "Recalled versions" });
+  await expect(recalled.locator("li")).toHaveCount(1);
+  await expect(recalled).toContainText(
+    /0\.9\.0 high recalled by its publisher on \d{4}-\d\d-\d\d, signed with ed25519:[0-9a-f]{16}: Routed a <b>refill<\/b> request as routine/,
+  );
+  await expect(page.locator(".chip.mono")).toHaveText(["1.0.0"]);
   await expect(page.getByRole("region", { name: "Claimed by the publisher" })).toContainText(
     "declared by the publisher; the registry's review found level 2",
   );
