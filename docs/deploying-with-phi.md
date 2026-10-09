@@ -13,7 +13,7 @@ Run Mendari inside your organization's network or an approved cloud account:
   `MENDARI_PACKS`);
 - Postgres (not SQLite) for the audit store.
 
-[`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
+[`deploy/`](https://github.com/mendari-hq/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
 in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention, checkpoint and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
@@ -70,7 +70,7 @@ request (`rate_limits.client_ip`) and whether `X-Forwarded-For` gave it
 address. If it is the proxy's (a `172.x` or `10.x` address, say), everyone shares one sign-in
 limit and the log cannot tell people apart. Limit per address at the proxy too, on `/auth/` and
 `/smart/` only (a hospital sends everyone's traffic from one address):
-[`deploy/onprem/nginx-limits.conf`](https://github.com/Junebugg1214/mendari/blob/main/deploy/onprem/nginx-limits.conf)
+[`deploy/onprem/nginx-limits.conf`](https://github.com/mendari-hq/mendari/blob/main/deploy/onprem/nginx-limits.conf)
 is an example, at 120 a minute per address. If your people and EHRs all leave through one
 address (NAT, a Citrix farm), size both for your busiest minute of sign-ins and EHR launches:
 the proxy's rate and burst, and Mendari's own limit (§4). A proxy must not replace Mendari's
@@ -713,7 +713,7 @@ decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
 minute per address
-([`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel), with its
+([`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel), with its
 runbook). Start such a rule in log mode, read what it would have refused for 7 days, then
 enforce it. Never limit `/api` or `/fhir` per address.
 
@@ -1006,6 +1006,6 @@ order:
 - [ ] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
       `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production and confirmed in
       `/api/health` signed in.
-- [ ] The firewall rule in [`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel)
+- [ ] The firewall rule in [`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel)
       added in log mode, its findings read for 7 days, then enforced.
 - [ ] Then Vercel Authentication lifted.

@@ -47,7 +47,7 @@ from tests.test_backend_services import EC_KEY, RSA_KEY, Signer
 pytestmark = pytest.mark.browser
 
 KEY = re.compile(r"ohk_[A-Za-z0-9_-]{43}")
-DOCS_SITE = "https://junebugg1214.github.io/mendari/"  # mkdocs.yml site_url
+DOCS_SITE = "https://mendari-hq.github.io/mendari/"  # mkdocs.yml site_url
 MARKUP = '<img src=x onerror="window.pwned=1">'
 KID_MARKUP = "<img/src/onerror=window.pwned=1>"  # a kid is visible ASCII without spaces
 PEOPLE = re.compile(r"^/api/auth/(members|invitations|access-requests)(/|$)")

@@ -364,4 +364,4 @@ Whatever it says, and whoever wrote it, a pack cannot:
 
 ## Reporting a vulnerability
 
-See [`SECURITY.md`](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md).
+See [`SECURITY.md`](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md).

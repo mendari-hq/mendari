@@ -441,7 +441,7 @@ behaviour.
     `github-pages` environment) from the strict build, checked for excluded paths and for the
     notice on every page: the docs site now shows the notice (`mendari.notices`, through a
     MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
-    `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
+    `docs` job). `site_url`: `https://mendari-hq.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
     upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
@@ -1554,7 +1554,7 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
      ruleset shows Active with those three rules.
    - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
-     project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
+     project name `mendari`, owner `mendari-hq`, repository `mendari`, workflow
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
@@ -1580,11 +1580,11 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
-   build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
+   build needs" step passed; GitHub → the `mendari-hq` organization → Packages lists the six `mendari-*`
    images (make each public in its package settings if it is private).
 9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
    Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
-   the site opens at `https://junebugg1214.github.io/mendari/` (mkdocs.yml `site_url`; for a
+   the site opens at `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a
    custom domain, change it and add the domain in Pages), every page shows the notice, then a
    build PR points the README and `mendari new` at it and switches the install line to `pip
    install mendari`.
@@ -2025,8 +2025,15 @@ Sign-in: Google, the owner as the only admin.
 - [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
 
-## Done: the move to the mendari-hq organization (2026-10-08)
-The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private).
+## Done: the move to the `mendari-hq` organization (2026-10-08)
+The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private; the
+old name redirects, and the repository id, which Vercel's link keeps, is unchanged).
+- [x] Links to the repository, the security contact (`SECURITY.md`, `security.txt`), the docs
+  site (`https://mendari-hq.github.io/mendari/`, mkdocs.yml `site_url`) and the image names
+  (`ghcr.io/mendari-hq/…`: `release.yml` pushes to `github.repository_owner`, owner's choice)
+  name the organization; nothing published, tagged or dispatched (#211)
+- [x] Kept: `@Junebugg1214` as the code owner and maintainer (a person; the organization has no
+  teams); dated records in `notes/` (old links redirect)
 - [x] Follow-up PR (#212): packs.yml passes `github.repository_owner` as the owner. Since the move
   that is the organization, which no pull request's author is, so the owner's pull requests could
   no longer remove a community pack or change `community-packs/` with other files (failing closed).
@@ -2035,6 +2042,15 @@ The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still 
   email, several people or a symbolic link name no owner), and only for a pull request into the
   default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and the
   fork rule stays.
+- [ ] **Owner:** install the Vercel GitHub app on `mendari-hq` and reconnect `openhealth-hub`
+  (its link still names `Junebugg1214/mendari`): `vercel git connect`. `mendari-web` has no Git
+  link, so the new `security.txt` reaches mendari.co only when it is deployed by hand
+- [ ] **Owner:** `main`'s protection under the organization: the five required checks carried
+  over, but *Do not allow bypassing* (admins) is off, though `tasks/lessons.md` says it was on;
+  no ruleset requires a code owner's review (`.github/CODEOWNERS` assumes one)
+- [ ] **Owner:** Actions secrets and variables (present: `NEON_API_KEY`, `NEON_PROJECT_ID`),
+  environments (present: Vercel's `Preview` and `Production`), and that preview and production
+  deploys still start from pull requests and `main`
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**

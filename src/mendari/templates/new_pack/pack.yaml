@@ -1,6 +1,6 @@
 # {{name}}: a Decision Pack written in YAML. Change anything; `mendari validate` checks it.
 # The authoring guide walks through every section:
-# https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
 spec_version: "0.2"
 id: {{id}}
 version: 0.1.0
