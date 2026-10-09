@@ -815,8 +815,9 @@ logs, at startup, each slot the Jev defaults turn on.
   alerts and posted them; with `--each-org`, `0`); the quota alert is tried once on the
   decision's path. The server
   records each alert it sends (`alert_deliveries`: its body, status, tries, last HTTP status and
-  an error code; never the URL or the secret), so a failed one stays `pending` for another try,
-  five in all. Each run of `GET /api/internal/monitor` first sends the due ones again;
+  an error code; never the URL or the secret), so one that may yet go through (no answer, `408`,
+  `429`, `5xx`) stays `pending` for another try, five in all (any other answer is `failed` at
+  once). Each run of `GET /api/internal/monitor` first sends the due ones again;
   `mendari monitor` records nothing and sends none again, so a deployment that wants pending
   alerts tried again schedules the route, with `CRON_SECRET`.
   A receiver checks the signature over the raw body:
