@@ -132,15 +132,22 @@ def _labelled(
                     )
                 if label not in manifest.labels(question):
                     raise MendariError(f"{where}: {question}'s label is not one of its labels")
-            own = dict(labels)
-            for key, table in derived.items():
-                spec = table.derive
-                if spec is not None and all(member in labels for member in spec.members):
-                    answers = {member: _certain(member, labels[member]) for member in spec.members}
-                    own[key] = derive_answer(key, table, answers).label
-            rated[rater] = own
+            rated[rater] = with_derived(manifest, labels)
         out.append(rated)
     return out
+
+
+def with_derived(manifest: PackManifest, labels: Mapping[str, str]) -> dict[str, str]:
+    """`labels` (a rater's, or a case's settled labels, of the pack's member questions) with the
+    label of each derived question whose members it all labels, from the pack's decision
+    table (`derive_answer`)."""
+    own = dict(labels)
+    for key, table in manifest.derived.items():
+        spec = table.derive
+        if spec is not None and all(member in labels for member in spec.members):
+            answers = {member: _certain(member, labels[member]) for member in spec.members}
+            own[key] = derive_answer(key, table, answers).label
+    return own
 
 
 def _certain(question: str, label: str) -> Answer:
@@ -232,3 +239,46 @@ def _coefficient(
             "dropped": 0,
         }
     return {"estimate": round(float(estimate), stats.DIGITS), "status": "ok", "interval": interval}
+
+
+def agreement_text(report: Mapping[str, Any]) -> str:
+    """The report for a terminal: each question's percent agreement (k of n, with its exact
+    interval), each pair's kappa and the pool's alpha, raters as the report names them; counts
+    and coefficients only, never a label."""
+    seeds = report["seeds"]
+    lines = [
+        f"Rater agreement for {report['pack']} ({report['format']}, "
+        f"{round(report['level'] * 100)}% intervals, bootstrap seed {seeds['bootstrap']}, "
+        f"{seeds['resamples']} resamples)"
+    ]
+    for question, measured in report["questions"].items():
+        percent = measured["percent"]
+        lines.append(f"  {question}: {measured['cases']} cases")
+        lines.append(
+            f"    percent agreement: {percent['k']} of {percent['n']}"
+            + _between(percent.get("low"), percent.get("high"))
+        )
+        for pair in measured["kappa"]:
+            first, second = pair["raters"]
+            lines.append(
+                f"    kappa {first} and {second} (n {pair['n']}): {_coefficient_text(pair)}"
+            )
+        alpha = measured["alpha"]
+        lines.append(
+            f"    alpha ({alpha['cases']} cases, {alpha['ratings']} ratings): "
+            f"{_coefficient_text(alpha)}"
+        )
+    return "\n".join(lines)
+
+
+def _between(low: float | None, high: float | None) -> str:
+    return "" if low is None or high is None else f" ({low} to {high})"
+
+
+def _coefficient_text(measured: Mapping[str, Any]) -> str:
+    if measured.get("estimate") is None:
+        return f"not estimable: {measured.get('reason')}"
+    interval = measured["interval"]
+    if interval["status"] != "ok":
+        return f"{measured['estimate']}, interval not estimable: {interval['reason']}"
+    return f"{measured['estimate']}" + _between(interval["low"], interval["high"])

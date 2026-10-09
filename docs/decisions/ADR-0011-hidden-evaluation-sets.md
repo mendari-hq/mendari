@@ -26,6 +26,14 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   audit and feedback exports, the sealed export and every table hold no planted mark but where
   the plan's conflicts 38, 55 and 56 allow it, and each event's payload keys are pinned; every
   route inventory runs with the feature on; threat model I13.
+- 11h, blind labelling in the store and on the key holder's command line (`mendari evalset
+  sample|assign|adjudicate|progress|agreement|coverage`): a seeded draw within strata, each
+  drawn case weighted; two labellers a case, balanced, and a third for a disputed case, never an
+  administrator of the set's organization; a labeller is shown the input and the questions only,
+  each read chained before it is returned; one sealed label per assignment, bound to its id and
+  chained as a salted commitment, settling the case agreed, disputed, resolved or unresolved;
+  agreement and coverage measured and sealed as the set's aggregates; `audit verify --evalsets`
+  recomputes each label. No route yet, so no person labels.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
