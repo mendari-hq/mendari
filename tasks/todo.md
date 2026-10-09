@@ -1336,7 +1336,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     who acted. Left: a review note is chained for good (an administrator's words about a pack;
     the route says never case text). A signed head, as the audit chain has (LP-21k), is
     for later.
-  - [x] **18c** (PR open) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
+  - [x] **18c** (#232, merged 2026-10-09) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
     record (pack, version, digest, archive, a one-line printable reason of at most 300, a
     severity `low` to `critical`, the signer, its key id, a UTC time) signed over its canonical
     JSON, by a namespace key (`mendari yank ns/name@version --reason --severity --key`,
