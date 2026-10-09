@@ -946,7 +946,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     key and is bound to its kind, set, case and label; case and index hashes are keyed by the
     index key. The PHI policy's sealing moved into `phi.seal_with` and `phi.open_with` with its
     bytes unchanged (tokens sealed before still open). Health shows the key ids to readers.
-  - [ ] **11d** (PR open; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
+  - [ ] **11d** (#223; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
     `label` (the `labeller` role, memberships mode only; a label-only member sees a page saying
     so), `curate` (people; administrators, who hold neither `label` nor `grade`), and `grade`,
     held only by a grading key the operator mints (`mendari access grader-key`, at most 365
