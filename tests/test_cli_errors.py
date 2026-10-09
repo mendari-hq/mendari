@@ -162,6 +162,13 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "evalset rotate": (["--to", "0123456789abcdef", "--db", "{missing_db}"], {}),
     "evalset reindex": (["--db", "{not_db}"], {}),
     "evalset export": (["--out", "{out}", "--db", "{missing_db}"], {}),
+    # Blind labelling (LP-11h): off without the keys; progress reads a missing database.
+    "evalset sample": ([SET_ID, "--per-stratum", "2", "--db", "{not_db}"], {}),
+    "evalset assign": ([SET_ID, "--labeller", "user:0123456789abcdef", "--db", "{not_db}"], {}),
+    "evalset adjudicate": ([SET_ID, "--labeller", "user:0123456789abcdef", "--db", "{not_db}"], {}),
+    "evalset progress": ([SET_ID, "--db", "{missing_db}"], {}),
+    "evalset agreement": ([SET_ID, "--db", "{not_db}"], {}),
+    "evalset coverage": ([SET_ID, "--db", "{not_db}"], {}),
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
     "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),

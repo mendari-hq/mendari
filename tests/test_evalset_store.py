@@ -28,7 +28,7 @@ from mendari.cli import main
 from mendari.core import evalsets as evalsets_module
 from mendari.core.audit import EVALSET_KNOWN, EVALSET_RETIRED, HASH_EPOCH, KNOWN
 from mendari.core.evalset_keys import AAD, CASE_PREFIX, INDEX_PREFIX, EvalsetKeys
-from mendari.core.evalsets import CASE_REF_PREFIX, EvalsetStore, case_ref
+from mendari.core.evalsets import CASE_REF_PREFIX, LABEL_REF_PREFIX, EvalsetStore, case_ref
 from mendari.core.phi import DETAILS_AAD, INPUT_HASH_PREFIX, NOTE_AAD, PhiPolicy, key_id
 from mendari.errors import MendariError
 from mendari.evals import ledger
@@ -474,14 +474,15 @@ def test_the_index_matches_both_canonical_and_normalised_inputs(
 
 def test_index_and_commitment_prefixes_never_collide() -> None:
     """No hash or binding the deployment makes starts as another does: the index key's two
-    (case hashes, index hashes), the unkeyed commitments (a case's, a note's) and the associated
-    data of sealed values."""
+    (case hashes, index hashes), the unkeyed commitments (a case's, a label's, a note's) and the
+    associated data of sealed values."""
     prefixes = [
         AAD,
         CASE_PREFIX,
         INDEX_PREFIX + b"canonical\x00",
         INDEX_PREFIX + b"text\x00",
         CASE_REF_PREFIX,
+        LABEL_REF_PREFIX,
         NOTE_AAD,
         DETAILS_AAD,
         INPUT_HASH_PREFIX,
@@ -639,11 +640,28 @@ def test_verify_holds_and_counts_the_sets(
     events = len(chained(store))
     plain = store.verify()
     checked = store.verify(evalsets=keys)
-    assert checked == {**plain, "evalsets": {"sets": 1, "checked": 2, "removed": 1, "unchecked": 0}}
+    assert checked == {
+        **plain,
+        "evalsets": {
+            "sets": 1,
+            "checked": 2,
+            "removed": 1,
+            "unchecked": 0,
+            "assignments": 0,
+            "labels": 0,
+        },
+    }
     unchecked = store.verify(evalsets=True)  # without keys: each counted, never a break
     assert unchecked == {
         **plain,
-        "evalsets": {"sets": 1, "checked": 0, "removed": 1, "unchecked": 2},
+        "evalsets": {
+            "sets": 1,
+            "checked": 0,
+            "removed": 1,
+            "unchecked": 2,
+            "assignments": 0,
+            "labels": 0,
+        },
     }
     assert plain["ok"] and plain["events"] == events
     with pytest.raises(ValueError, match="full verification only"):
@@ -704,7 +722,14 @@ def test_verify_finds_an_altered_row(
         "events": len(chained(store)),
         "broken_at": seq,
         "reason": "organization",
-        "evalsets": {"sets": 1, "checked": 0, "removed": 0, "unchecked": 0},
+        "evalsets": {
+            "sets": 1,
+            "checked": 0,
+            "removed": 0,
+            "unchecked": 0,
+            "assignments": 0,
+            "labels": 0,
+        },
     }
 
 
@@ -763,7 +788,14 @@ def test_verify_counts_what_a_missing_key_sealed_as_unopenable(
         result = store.verify(evalsets=later)  # the previous key dropped too early
     assert result["ok"] is False and "broken_at" not in result
     assert result["unopenable"] == {key_id(keys.key): 3}  # the header, an input, its attributes
-    assert result["evalsets"] == {"sets": 1, "checked": 1, "removed": 0, "unchecked": 0}
+    assert result["evalsets"] == {
+        "sets": 1,
+        "checked": 1,
+        "removed": 0,
+        "unchecked": 0,
+        "assignments": 0,
+        "labels": 0,
+    }
 
 
 def test_verify_marks_nothing(
@@ -862,7 +894,14 @@ def test_audit_verify_passes_after_cases_added(
     code, out, _ = run(capsys, "audit", "verify", "--evalsets", *db)
     status = json.loads(out)
     assert code == 0 and status["ok"]
-    assert status["evalsets"] == {"sets": 1, "checked": 3, "removed": 1, "unchecked": 0}
+    assert status["evalsets"] == {
+        "sets": 1,
+        "checked": 3,
+        "removed": 1,
+        "unchecked": 0,
+        "assignments": 0,
+        "labels": 0,
+    }
     assert run(capsys, "audit", "verify", *db)[0] == 0
 
 
@@ -885,7 +924,7 @@ def test_the_commands_refuse_while_the_keys_are_unset(
     assert code == 0 and json.loads(out) == []
     code, out, _ = run(capsys, "audit", "verify", "--evalsets", "--db", db)
     assert code == 0 and json.loads(out)["evalsets"] == {
-        "sets": 0, "checked": 0, "removed": 0, "unchecked": 0,
+        "sets": 0, "checked": 0, "removed": 0, "unchecked": 0, "assignments": 0, "labels": 0,
     }  # fmt: skip
     assert Path(db).read_bytes() == before
 

@@ -28,6 +28,7 @@ from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.tenancy import DEFAULT_ORG
 
 ORG_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")
+USER_ID = re.compile(r"user:[0-9a-f]{16}")  # `person_id`'s form
 RESERVED_ORG = DEFAULT_ORG
 # The server's roles for people and machines (server/auth.py `ROLES`, which a test keeps equal).
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
@@ -37,6 +38,11 @@ NEVER_ON_A_MEMBERSHIP = frozenset({"grading"})
 GRANTING_RESERVED = ("labeller",)
 MEMBERSHIP_ROLES = (*PERSON_ROLES, *(r for r in RESERVED_ROLES if r not in NEVER_ON_A_MEMBERSHIP))
 ADMIN = "admin"
+# Who labels a hidden set's cases (`label`), and the roles that manage hidden sets (`curate`,
+# server/auth.py `PERMISSIONS`, which a test keeps equal): the store assigns a case only to a
+# labeller who holds none of them in the set's organization (separation of duties, LP-11h).
+LABELLER = "labeller"
+CURATING = (ADMIN,)
 INVITE_DAYS = 7
 INVITE_MAX_DAYS = 30
 # Open requests to join one person may have at once (`AuditStore.request_access`): a bound on
