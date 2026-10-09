@@ -146,12 +146,26 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "evaluate",
             "admin",
             "keys",
+            "curate",
         }
     ),
+    # Hidden evaluation sets (LP-11, ADR-0011). `labeller` is a reserved role a membership holds
+    # (memberships mode only, `GRANTING_RESERVED`); `grading` is held only by a grading key the
+    # operator mints (`mendari access grader-key`), never by a person or a membership.
+    "labeller": frozenset({"label"}),
+    "grading": frozenset({"grade"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
-# managing keys, clients, members and invitations.
-PEOPLE_ONLY = frozenset({"keys"})
+# managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
+# and labelling their cases (`label`).
+PEOPLE_ONLY = frozenset({"keys", "curate", "label"})
+# What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
+# administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
+GRADING_ONLY = frozenset({"grade"})
+GRADING = "grading"
+# What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
+# sets need sign-in (core/evalset_keys.py refuses the keys without it).
+NEVER_OPEN = frozenset({"grade", "label", "curate"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -362,17 +376,28 @@ class Principal:
 
     def may(self, permission: str) -> bool:
         if self.kind == "open":
-            return True
+            return permission not in NEVER_OPEN
         return permission in self.permissions()
 
     def role_permissions(self) -> frozenset[str]:
         """What the roles grant; for a key (or a token), never a people-only permission. An EHR
-        launch has its level's permissions only, and nobody else ever has those."""
+        launch has its level's permissions only, and nobody else ever has those; a grading key
+        has `grade` only, and nobody else ever has that. Open mode never holds `NEVER_OPEN`."""
         if self.kind == "ehr":
             return EHR_LEVELS.get(self.level or "", frozenset())
+        if self.is_grading_key:
+            return GRADING_ONLY
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
-        granted -= EHR_ONLY
-        return granted if self.kind in ("user", "open") else granted - PEOPLE_ONLY
+        granted -= EHR_ONLY | GRADING_ONLY
+        if self.kind == "open":
+            return granted - NEVER_OPEN
+        return granted if self.kind == "user" else granted - PEOPLE_ONLY
+
+    @property
+    def is_grading_key(self) -> bool:
+        """A grading key: an API key of role `grading` and no other, unscoped (only the
+        operator mints one, `AuditStore.create_grading_key`)."""
+        return self.kind == "key" and self.roles == {GRADING} and self.grant is None
 
     def permissions(self) -> frozenset[str]:
         """The effective permissions: the role's, narrowed by the scopes (never widened)."""
@@ -897,8 +922,8 @@ class Auth:
         organization and roles from the membership they chose, as it is now (one read, nothing
         cached). None for no session. Without that membership in force (none chosen, removed,
         or removed and given again: a new one is chosen anew) they act for no organization,
-        with no role: never `default`, never another of their memberships. Reserved roles
-        (`pack_author`, `labeller`) grant nothing."""
+        with no role: never `default`, never another of their memberships. Of the reserved
+        roles, `labeller` grants `label` (LP-11); `pack_author` grants nothing yet."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
         if session is None:
             if sent:
@@ -914,7 +939,8 @@ class Auth:
         if isinstance(chosen, str) and isinstance(held, str):
             found = self.store.membership_in_force(person, chosen)
             if found is not None and found["id"] == held:
-                org, roles = chosen, frozenset(found["roles"]) & frozenset(ROLES)
+                granting = frozenset(ROLES) | frozenset(accounts.GRANTING_RESERVED)
+                org, roles = chosen, frozenset(found["roles"]) & granting
         request.state.member_session = session  # what choosing an organization rewrites
         return Principal(
             kind="user",
@@ -1046,6 +1072,11 @@ class Auth:
                     403,
                     challenge=refused,
                 )
+            if permission in GRADING_ONLY and not principal.is_grading_key:
+                _refused_permission(principal, "grading_only")
+                raise AuthError(
+                    "only the deployment's grading key may do this", 403, challenge=refused
+                )
             _refused_permission(principal, permission)
             if principal.kind == "ehr":
                 raise AuthError(
@@ -1073,9 +1104,9 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
 
 def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
-    `people_only`, `ehr_only`, `out_of_scope`, `no_organization` (memberships mode: a person of
-    none), `org_changed` (a window on another organization than the one chosen since) or
-    `not_a_member` (choosing an organization one holds no membership of)."""
+    `people_only`, `ehr_only`, `grading_only`, `out_of_scope`, `no_organization` (memberships
+    mode: a person of none), `org_changed` (a window on another organization than the one
+    chosen since) or `not_a_member` (choosing an organization one holds no membership of)."""
     security_log.event(
         "auth.permission.refused",
         outcome="refused",

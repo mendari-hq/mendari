@@ -625,8 +625,10 @@ function keyScope(k) {
 
 // Rotated: offered on an active key, and on a replaced one whose replacement was revoked (if the
 // answer carrying it was lost, the server lets it be rotated again).
-const rotatable = (k) => k.status === "active"
-  || (k.status === "replaced" && adminState.keys.find((r) => r.id === k.replaced_by)?.status === "revoked");
+// Only a machine's key rotates: one the operator made on the command line for evaluation runs
+// (a role outside MACHINE_ROLES) is listed and revoked here, never rotated (the server refuses).
+const rotatable = (k) => MACHINE_ROLES.some((r) => r.key === k.role) && (k.status === "active"
+  || (k.status === "replaced" && adminState.keys.find((r) => r.id === k.replaced_by)?.status === "revoked"));
 
 function showKeys() {
   const first = adminState.presets[0] ?? null;

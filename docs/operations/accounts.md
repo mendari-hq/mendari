@@ -23,8 +23,13 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   with `MENDARI_INPUT_HASH_KEY` when the deployment has one). An address here is ASCII, and
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
-  `admin`), and may also hold `pack_author` and `labeller`, which grant nothing yet. `grading`
-  is a machine's and is never held by a membership. An organization always keeps an
+  `admin`), and may also hold `pack_author`, which grants nothing yet, and `labeller`, which
+  grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
+  only, and no route needs it yet). A member who only labels sees a page saying so, and no
+  packs or review queue. `grading` is a machine's and is never held by a membership: an
+  organization's grading key is made by the operator, `mendari access grader-key --org <org>
+  --reason <why> [--days N]` (at most 365 days; its secret printed once), holds `grade` and
+  nothing else, and an administrator lists and revokes it in the Access view, never rotates it. An organization always keeps an
   administrator who has signed in: removing or demoting its last one is refused (a pending
   membership, not yet taken up, does not count).
 - An invitation is a link, valid once, for 7 days by default (at most 30), for whoever signs in
@@ -246,8 +251,8 @@ client is "You", a member's name, or what the chain recorded (an e-mail address 
   membership given or bound at sign-in): it is chained as handled, outcome `joined`, and no
   longer counts against their five open requests. Granting one left open from before this,
   of someone who is a member already, is a `409`: refuse it to close it.
-- `grading` is never given (`422`), and `pack_author` and `labeller` may be given but grant
-  nothing yet.
+- `grading` is never given (`422`); `pack_author` may be given but grants nothing yet, and
+  `labeller` grants `label` only.
 - Inviting and handling a request to join give someone access, so they wait for the notice
   acknowledgement as creating a key does; accepting an invitation does not.
 - On the command line `mendari access members` and `mendari access requests` only read:

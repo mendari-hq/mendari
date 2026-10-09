@@ -876,6 +876,31 @@ def cmd_access_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_access_grader_key(args: argparse.Namespace) -> int:
+    """An organization's grading key (LP-11, ADR-0011): the only credential that may read a
+    hidden evaluation set to grade against it, holding `grade` and nothing else. The operator's
+    alone: no HTTP route mints one, and an administrator may list and revoke it, never rotate
+    it. Chained (`key.created`, with the role, the organization and why); its secret is printed
+    once, here, and kept nowhere."""
+    reason = _access_call(lambda: break_glass_reason(args.reason))
+    store, shown = _access_store(args.db)
+    if store.organizations() and store.organization(args.org) is None:
+        raise MendariError(
+            f"no organization {args.org} in {shown}: create it first (mendari access org create)"
+        )
+    key = _access_call(
+        lambda: store.create_grading_key(
+            org=args.org, created_by=_command_line_actor(), reason=reason, days=args.days
+        )
+    )
+    _print_json(key)
+    print(
+        f"made in {shown}: its secret is shown once, above; give it only to the grading runner",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def cmd_access_end_sessions(args: argparse.Namespace) -> int:
     """The break-glass for sessions (LP-21l): signs out every person (`people`: sessions and
     sign-ins under way), every EHR launch (`launches`), or both (`all`), on every instance at
@@ -2129,6 +2154,16 @@ def build_parser() -> argparse.ArgumentParser:
     every.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
     every.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     every.set_defaults(handler=cmd_access_revoke, what="all")
+    grader = access.add_parser(
+        "grader-key", help="an organization's grading key (hidden evaluation sets; LP-11)"
+    )
+    grader.add_argument("--org", required=True, help="the organization it grades for")
+    grader.add_argument(
+        "--days", type=int, default=90, help="how long it lives (1 to 365; default 90)"
+    )
+    grader.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    grader.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    grader.set_defaults(handler=cmd_access_grader_key)
     end = access.add_parser(
         "end-sessions", help="break-glass: sign out every person, every EHR launch, or both"
     )

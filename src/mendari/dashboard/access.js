@@ -4,7 +4,8 @@
 // (the server keeps the choice for this browser). Holding none, they see who they are signed in
 // as and may ask to join an organization by its id: the server answers the same whether or not
 // it exists, and this page never lists organizations. Holding one whose roles grant nothing yet
-// (reserved roles), they are told so. Reached only through `state.noAccess` (router.js).
+// (a reserved role), they are told so; one who only labels hidden evaluation sets is told what
+// they do. Reached only through `state.noAccess` (router.js).
 
 import { views } from "./router.js";
 import { api, emptyState, esc, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
@@ -16,6 +17,15 @@ const LAST_CHOSEN = "oh.org";
 views.access = async (main, [reason = "none"]) => {
   const who = state.me ? `<p class="muted">Signed in as <b>${esc(state.me.actor)}</b>.</p>` : "";
   if (reason === "choose") return choose(main, who);
+  if (reason === "label") {
+    main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
+      icon: "shield-check",
+      title: "You label cases for hidden evaluation sets",
+      text: "There is nothing to label yet. Cases to label will be listed here once an administrator assigns them.",
+    })}${accountButtons()}`;
+    wireAccount(main);
+    return;
+  }
   if (reason === "nothing") {
     const held = state.memberships.find((m) => m.org === state.me?.org);
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({

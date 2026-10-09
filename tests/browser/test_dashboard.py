@@ -2111,6 +2111,7 @@ PERMISSIONS = {  # server/auth.py
         "read_input",
         "review",
     ],
+    "labeller": ["label"],  # LP-11: memberships mode only
 }
 
 

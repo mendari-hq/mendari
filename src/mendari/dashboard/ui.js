@@ -308,7 +308,7 @@ export const MEMBERSHIP_ROLES = [
   { key: "governance", label: "Governance", text: "approves packs and holds automation" },
   { key: "admin", label: "Administrator", text: "everything, and manages people" },
   { key: "pack_author", label: "Pack author", reserved: true },
-  { key: "labeller", label: "Labeller", reserved: true },
+  { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
 ];
 
 export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.label ?? key;

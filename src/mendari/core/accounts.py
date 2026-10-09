@@ -8,9 +8,10 @@ share. The records live in the audit store (`core/audit.py`); memberships mode r
   without regard to the case of its letters (`normalise_email`).
 - An organization is a record with an id of lower-case letters, digits and hyphens. `default`
   is reserved for the owner's existing data: only the bootstrap creates its record.
-- A membership holds a set of roles: the server's roles, plus `pack_author` and `labeller`,
-  which grant nothing until LP-20 and LP-11 give them permissions. `grading` is reserved for a
-  machine (LP-11) and is never held by a membership.
+- A membership holds a set of roles: the server's roles, plus `pack_author` (which grants
+  nothing until LP-20 gives it permissions) and `labeller` (which grants `label`, labelling the
+  cases of hidden evaluation sets, LP-11, in memberships mode only). `grading` is reserved for
+  a machine (a grading key, LP-11) and is never held by a membership.
 - What the chain records of an e-mail address is a digest, keyed with the input-hash key
   (`MENDARI_INPUT_HASH_KEY`) when there is one, so the chain names nobody; without that key it
   is a plain SHA-256, which a dictionary of addresses could reverse.
@@ -32,6 +33,8 @@ RESERVED_ORG = DEFAULT_ORG
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
 RESERVED_ROLES = ("pack_author", "labeller", "grading")
 NEVER_ON_A_MEMBERSHIP = frozenset({"grading"})
+# The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`).
+GRANTING_RESERVED = ("labeller",)
 MEMBERSHIP_ROLES = (*PERSON_ROLES, *(r for r in RESERVED_ROLES if r not in NEVER_ON_A_MEMBERSHIP))
 ADMIN = "admin"
 INVITE_DAYS = 7

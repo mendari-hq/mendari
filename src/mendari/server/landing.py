@@ -31,7 +31,7 @@ from urllib.parse import quote
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.server import api_docs, scopes, sessions, snippets
-from mendari.server.auth import EHR_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
+from mendari.server.auth import EHR_ONLY, GRADING_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
@@ -88,6 +88,9 @@ _ORDER = (
     "evaluate",
     "admin",
     "keys",
+    "curate",
+    "label",
+    "grade",
 )
 _WHO = {
     "public": "anyone, with no credential",
@@ -99,6 +102,10 @@ _WHO = {
     "launch_decide": "an EHR launch from an EHR registered here to decide",
     "discover": "every role, and a key or token scoped to decide (the lists of the packs it may "
     "decide with): never an EHR launch",
+    "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
+    "a token",
+    "grade": "the organization's grading key, which only the operator makes: never a person, an "
+    "administrator or another key",
 }
 _LISTED = 8  # a row with more calls than this folds them away
 
@@ -333,7 +340,9 @@ def _rank(permission: str) -> tuple[int, str]:
 
 def _scope(method: str, path: str, permission: str) -> str:
     """What a scoped key or token needs for the call (`server/scopes.py`)."""
-    if permission in ("public", "page", "person") or permission in PEOPLE_ONLY | EHR_ONLY:
+    if permission in ("public", "page", "person") or permission in (
+        PEOPLE_ONLY | EHR_ONLY | GRADING_ONLY
+    ):
         return ""
     needed = scopes.needed(method, path)
     if needed is None:
