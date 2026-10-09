@@ -731,6 +731,7 @@ mendari keys register --namespace my-site --public-key keys/publisher.pub
 mendari push packs/my-pack --key keys/publisher.key          # build, sign, publish
 
 mendari pull mendari/referral-router                         # anyone, from that registry
+mendari yank my-site/my-pack@1.0.0 --reason "misroutes refills" --severity high --key keys/publisher.key
 mendari search referral --standard "CDS Hooks"
 mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 ```
@@ -768,6 +769,12 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
   namespace, key, token, version, report and review is named by its event), and a registry
   reviewer's review records the risk level it found beside the one the publisher declared.
+- **A recall** (`mendari yank`) is a signed record with a reason and a severity: the
+  publisher signs it with a namespace key, or the registry with its own
+  (`MENDARI_REGISTRY_SIGNING_KEY`). A recalled version is never the latest and is not
+  searched, and is still pulled by its exact version, with the record shown and its signature
+  checked against the keys you pinned. An administrator can also delete a version that must
+  not be served: its archive's bytes go, and a tombstone stays.
 - **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.

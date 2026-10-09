@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ENGINE_WORDS, pack, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
+import { ENGINE_WORDS, pack, type Recalled, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,18 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
   const { namespace, name } = await params;
   const detail = await pack(namespace, name);
   if (!detail) notFound();
+  const recalled = detail.recalled ?? [];
   const latest = detail.latest;
+  if (!latest) {
+    return (
+      <>
+        <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
+        <h1>{detail.id}</h1>
+        <p className="notice"><strong>Every version of this pack is recalled. Do not use it.</strong></p>
+        <Recalls recalled={recalled} />
+      </>
+    );
+  }
   const { checked, claimed } = latest;
   const risk = claimed.risk;
   return (
@@ -98,6 +109,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </p>
       <h2>Versions</h2>
       <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>
+      <Recalls recalled={recalled} />
       {latest.card_markdown ? (
         <>
           <h2>Decision Card</h2>
@@ -111,6 +123,34 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         </>
       ) : null}
     </>
+  );
+}
+
+// Recalled versions, each with the record's reason (publisher text, shown as text) and who
+// signed it. Still pullable by exact version; never the latest, never in search.
+function Recalls({ recalled }: { recalled: Recalled[] }) {
+  if (!recalled.length) return null;
+  return (
+    <section className="group recalled" aria-labelledby="recalled-heading">
+      <h2 id="recalled-heading">Recalled versions</h2>
+      <p className="muted">A recalled version is not the latest and is not searched. Do not automate with it.</p>
+      <ul>
+        {recalled.map(({ version, yank, deleted }) => (
+          <li key={version}>
+            <span className="mono">{version}</span>
+            {yank ? (
+              <>
+                {" "}
+                <span className={`badge severity-${yank.severity}`}>{yank.severity}</span> recalled by{" "}
+                {yank.signer === "publisher" ? "its publisher" : "the registry"} on {yank.at.slice(0, 10)}, signed
+                with <span className="mono">{yank.key_id}</span>: {yank.reason}
+              </>
+            ) : null}
+            {deleted ? <> Deleted on {deleted.at.slice(0, 10)}: {deleted.reason}</> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

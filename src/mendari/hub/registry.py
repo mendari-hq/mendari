@@ -29,6 +29,12 @@
 - **Reviews.** A registry reviewer records the risk level a version's review found
   (`POST …/review`, the admin token until reviewer accounts exist); until then the version's
   risk level is shown as declared by the publisher.
+- **Recalls** (`hub/yank.py`). A version is yanked by a signed `mendari.yank/1` record (the
+  publisher's, signed with a namespace key, or the registry's, signed with its own key): it
+  leaves the latest version, search and the namespace's list, and is still served by exact
+  version with the record. An administrator may delete a version, with a reason: its archive's
+  bytes are removed (no version still needing them), its row and a tombstone are kept, and it
+  is never served or published again. Both are chained.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
 
@@ -50,7 +56,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -73,7 +79,7 @@ from mendari.evals.share import (
     summary,
     where,
 )
-from mendari.hub import archive
+from mendari.hub import archive, yank
 
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -150,6 +156,23 @@ CREATE TABLE IF NOT EXISTS hub_reviews (
     created_at  TEXT NOT NULL,
     ordinal     INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS hub_yanks (
+    namespace   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    record      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (namespace, name, version)
+);
+CREATE TABLE IF NOT EXISTS hub_deletions (
+    namespace   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    deleted_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (namespace, name, version)
+);
 CREATE TABLE IF NOT EXISTS hub_meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
@@ -181,6 +204,14 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     ),
     "reports": ("hub_reports", lambda row: str(row["id"])),
     "reviews": ("hub_reviews", lambda row: str(row["id"])),
+    "yanks": (
+        "hub_yanks",
+        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+    ),
+    "deletions": (
+        "hub_deletions",
+        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+    ),
 }
 
 
@@ -442,8 +473,9 @@ class RegistryStore:
                 "SELECT * FROM hub_versions WHERE namespace = ? AND name = ?", (namespace, name)
             )
             reviews = _reviews(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+            recalls = _recalls(db, "WHERE namespace = ? AND name = ?", (namespace, name))
         return sorted(
-            (_version_row(r, reviews.get(_key(r))) for r in rows),
+            (_version_row(r, reviews.get(_key(r)), recalls.get(_key(r))) for r in rows),
             key=lambda v: version_key(v["version"]),
         )
 
@@ -453,14 +485,12 @@ class RegistryStore:
                 "SELECT * FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
                 (namespace, name, version),
             )
-            reviews = _reviews(
-                db,
-                "WHERE namespace = ? AND name = ? AND version = ?",
-                (namespace, name, version),
-            )
+            selected = "WHERE namespace = ? AND name = ? AND version = ?"
+            reviews = _reviews(db, selected, (namespace, name, version))
+            recalls = _recalls(db, selected, (namespace, name, version))
         if row is None:
             raise HubError(f"no pack {namespace}/{name}@{version}", 404)
-        return _version_row(row, reviews.get(_key(row)))
+        return _version_row(row, reviews.get(_key(row)), recalls.get(_key(row)))
 
     def archive(self, sha256: str) -> bytes:
         with self._db.session(exclusive=False) as db:
@@ -610,6 +640,128 @@ class RegistryStore:
             )
         return self.version(namespace, name, version)
 
+    def recalled(self) -> list[dict[str, Any]]:
+        """Every recalled version: pack, version, its yank record and its deletion."""
+        with self._db.session(exclusive=False) as db:
+            recalls = _recalls(db, "", ())
+        return [
+            {"pack": f"{ns}/{name}", "version": version, **{"yank": None, "deleted": None, **r}}
+            for (ns, name, version), r in sorted(recalls.items())
+        ]
+
+    def registry_key(self) -> dict[str, str] | None:
+        """The registry's own signing key, as published (None when it has none)."""
+        key = yank.registry_key()
+        return None if key is None else yank.registry_public(key)
+
+    def recall(
+        self, namespace: str, name: str, version: str, record: Mapping[str, Any], *, by: str
+    ) -> dict[str, Any]:
+        """Store a yank record for one version, after checking it: its fields name exactly this
+        version (pack, version, digest, archive), its time is now (within `MAX_SKEW_S`), and its
+        signature holds with a key of the namespace's (`signer: publisher`) or the registry's
+        own (`signer: registry`). A version is recalled once (409)."""
+        found = self.version(namespace, name, version)
+        problem = yank.shape_problem(record)
+        if problem:
+            raise HubError(f"not a yank: {problem}")
+        expected = {
+            "pack": f"{namespace}/{name}",
+            "version": version,
+            "digest": found["digest"],
+            "archive_sha256": found["archive_sha256"],
+        }
+        if any(record[field] != value for field, value in expected.items()):
+            raise HubError("the yank is not about this version (its pack, digest or archive)")
+        when = yank.at(record)
+        assert when is not None  # shape_problem checked it
+        if abs((datetime.now(UTC) - when).total_seconds()) > yank.MAX_SKEW_S:
+            raise HubError("the yank's time is not now: sign it again")
+        if record["signer"] == "registry":
+            own = yank.registry_key()
+            if own is None:
+                raise HubError("this registry has no signing key", 409)
+            public = own.public_key()
+            key_id = yank.registry_public(own)["key_id"]
+        else:
+            keys = {k["key_id"]: k["public_pem"] for k in self.namespace(namespace)["keys"]}
+            key_id = str(record["key_id"])
+            if key_id not in keys:
+                raise HubError("the yank is signed by a key that is not this namespace's")
+            public = archive.load_public_key(keys[key_id].encode())
+        problem = yank.problem(record, public, key_id)
+        if problem:
+            raise HubError(f"the yank does not verify: {problem}")
+        stored = {field: record[field] for field in (*yank.FIELDS, "signature")}
+        where = ("namespace = ? AND name = ? AND version = ?", (namespace, name, version))
+        with self._db.session(exclusive=True) as db:
+            if db.one(f"SELECT version FROM hub_yanks WHERE {where[0]}", where[1]):
+                raise HubError(f"{namespace}/{name}@{version} is already recalled", 409)
+            db.all(
+                "INSERT INTO hub_yanks (namespace, name, version, record, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (namespace, name, version, json.dumps(stored, sort_keys=True), _now_ms()),
+            )
+            record_event(
+                db,
+                "pack.yanked",
+                _pack_subject(namespace, name, version),
+                {
+                    **expected,
+                    "severity": record["severity"],
+                    "reason": record["reason"],
+                    "signer": record["signer"],
+                    "key_id": key_id,
+                    "by": by,
+                },
+                row=("yanks", *where),
+            )
+        return self.version(namespace, name, version)
+
+    def delete(
+        self, namespace: str, name: str, version: str, *, reason: str, by: str
+    ) -> dict[str, Any]:
+        """Remove a version's archive (what must not be served: content it should never have
+        carried), keeping its row and a tombstone; it is never served, and its version never
+        published again. The archive's bytes go when no version that is not deleted needs
+        them."""
+        found = self.version(namespace, name, version)
+        where = ("namespace = ? AND name = ? AND version = ?", (namespace, name, version))
+        with self._db.session(exclusive=True) as db:
+            if db.one(f"SELECT version FROM hub_deletions WHERE {where[0]}", where[1]):
+                raise HubError(f"{namespace}/{name}@{version} is already deleted", 409)
+            db.all(
+                "INSERT INTO hub_deletions (namespace, name, version, reason, deleted_by, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (namespace, name, version, reason, by, _now_ms()),
+            )
+            needed = db.one(
+                "SELECT v.version FROM hub_versions v LEFT JOIN hub_deletions d ON "
+                "d.namespace = v.namespace AND d.name = v.name AND d.version = v.version "
+                "WHERE v.archive_sha256 = ? AND d.version IS NULL",
+                (found["archive_sha256"],),
+            )
+            removed = needed is None
+            if removed:
+                db.all(
+                    "DELETE FROM hub_archives WHERE archive_sha256 = ?", (found["archive_sha256"],)
+                )
+            record_event(
+                db,
+                "pack.deleted",
+                _pack_subject(namespace, name, version),
+                {
+                    "pack": f"{namespace}/{name}",
+                    "version": version,
+                    "archive_sha256": found["archive_sha256"],
+                    "archive_removed": removed,
+                    "reason": reason,
+                    "by": by,
+                },
+                row=("deletions", *where),
+            )
+        return self.version(namespace, name, version)
+
     def verify(self) -> dict[str, Any]:
         """Check the chain and the rows it covers. Each event's hash and its order; then every
         namespace, key, token, version, report and review must be the row its newest event
@@ -678,7 +830,11 @@ class RegistryStore:
                 )
         if any(sha != data for sha, data in archives.items()):
             return _broken(None, "an archive is not the bytes its name hashes", events, prev)
-        if any(str(v["archive_sha256"]) not in archives for v in rows["versions"]):
+        gone = {ROWS["deletions"][1](row) for row in rows["deletions"]}
+        if any(
+            str(v["archive_sha256"]) not in archives and ROWS["versions"][1](v) not in gone
+            for v in rows["versions"]
+        ):
             return _broken(None, "a version's archive is missing", events, prev)
         for key in rows["keys"]:
             try:
@@ -701,16 +857,20 @@ class RegistryStore:
         }
 
     def latest(self) -> list[dict[str, Any]]:
-        """The newest version of every pack, with its namespace's publisher type."""
+        """The newest version of every pack that is not recalled (yanked or deleted), with its
+        namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
             rows = db.all("SELECT * FROM hub_versions")
             reviews = _reviews(db, "", ())
+            recalls = _recalls(db, "", ())
             types = {
                 r["name"]: r["publisher_type"]
                 for r in db.all("SELECT name, publisher_type FROM hub_namespaces")
             }
         newest: dict[tuple[str, str], dict[str, Any]] = {}
         for row in rows:
+            if _key(row) in recalls:  # a yanked or deleted version is never the latest
+                continue
             item = _version_row(row, reviews.get(_key(row)))
             key = (row["namespace"], row["name"])
             if key not in newest or version_key(item["version"]) > version_key(
@@ -764,7 +924,26 @@ def _reviews(
     return newest
 
 
-def _version_row(row: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def _recalls(
+    db: Session, where: str, params: tuple[str, ...]
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Each recalled version the clause selects: its yank record and its deletion, if any."""
+    found: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in db.all(f"SELECT * FROM hub_yanks {where}", params):
+        found.setdefault(_key(row), {})["yank"] = json.loads(row["record"])
+    for row in db.all(f"SELECT * FROM hub_deletions {where}", params):
+        found.setdefault(_key(row), {})["deleted"] = {
+            "reason": row["reason"],
+            "at": row["created_at"],
+        }
+    return found
+
+
+def _version_row(
+    row: Mapping[str, Any],
+    review: Mapping[str, Any] | None = None,
+    recall: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """A version as every read serves it: what was stored at publish, without anything the pack
     carried about itself (a version published before the registry rendered its own card stored
     the uploaded one, its benchmark and leaderboard), and the two groups (ADR-0012)."""
@@ -780,8 +959,12 @@ def _version_row(row: Mapping[str, Any], review: Mapping[str, Any] | None = None
         **{key: value for key, value in stored.items() if key not in UPLOADED},
         "card_markdown": stored.get("card_markdown") if rendered else None,
     }
+    recall = recall or {}
     return {
         **served,
+        # A recall (`hub/yank.py`): the signed record, checked when it was stored, and a deletion.
+        "yank": recall.get("yank"),
+        "deleted": recall.get("deleted"),
         "checked": _checked(served, rendered, review),
         "claimed": _claimed(served, review),
     }
@@ -981,6 +1164,48 @@ class ReviewRequest(BaseModel):
         return note
 
 
+class YankRequest(BaseModel):
+    # A publisher's signed record (`hub/yank.py`), or an administrator's reason and severity.
+    record: dict[str, Any] | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=yank.MAX_REASON)
+    severity: yank.Severity | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_a_line(cls, reason: str | None) -> str | None:
+        why = None if reason is None else yank.printable_line(reason, yank.MAX_REASON)
+        if why:
+            raise ValueError(f"a reason is {why}")
+        return reason
+
+
+class DeleteRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=yank.MAX_REASON)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_a_line(cls, reason: str) -> str:
+        why = yank.printable_line(reason, yank.MAX_REASON)
+        if why:
+            raise ValueError(f"a reason is {why}")
+        return reason
+
+
+Small = TypeVar("Small", bound=BaseModel)
+# A review, a recall or a deletion: a valid one is under 2 KB.
+MAX_SMALL_BYTES = 16_000
+
+
+def _body_of(model: type[BaseModel]) -> dict[str, Any]:
+    """The request body a route reads itself, for its OpenAPI description."""
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": model.model_json_schema()}},
+        }
+    }
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
@@ -1098,14 +1323,35 @@ def create_registry_app(
                 raise HTTPException(413, "the archive is too large")
         return store.publish(namespace, name, version, bytes(body), by=actor(request))
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/review", status_code=201)
-    def review(
-        request: Request, namespace: str, name: str, version: str, body: ReviewRequest
-    ) -> dict[str, Any]:
+    async def small_body(request: Request, model: type[Small]) -> Small:
+        """A small JSON body, read only after its sender was checked and at most
+        `MAX_SMALL_BYTES` (a body FastAPI parses for a route is read before the route runs)."""
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_SMALL_BYTES:
+                raise HTTPException(413, "the body is too large")
+        try:
+            parsed = from_json(bytes(body), allow_inf_nan=False)
+        except ValueError:
+            problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
+            raise RequestValidationError([problem]) from None
+        try:
+            return model.model_validate(parsed)
+        except ValidationError as error:
+            raise RequestValidationError(error.errors()) from None
+
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/review",
+        status_code=201,
+        openapi_extra=_body_of(ReviewRequest),
+    )
+    async def review(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A registry reviewer records the risk level a version's review found, with a short
         note (chained `pack.reviewed`). Until reviewer accounts exist (LP-19), the admin token
         records it. The newest review of a version is the one shown."""
         require_admin(request)
+        body = await small_body(request, ReviewRequest)
         store.review(
             namespace,
             name,
@@ -1116,15 +1362,93 @@ def create_registry_app(
         )
         return served(store.version(namespace, name, version))
 
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/yank",
+        status_code=201,
+        openapi_extra=_body_of(YankRequest),
+    )
+    async def recall(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """Recall a version. The namespace's publisher sends a `mendari.yank/1` record it signed
+        with one of the namespace's keys (`mendari yank`); an administrator sends a reason and a
+        severity, and the registry signs the record with its own key
+        (`MENDARI_REGISTRY_SIGNING_KEY`). Chained `pack.yanked`; a version is recalled once."""
+        token = bearer(request)
+        as_admin = bool(admin and token and hmac.compare_digest(token, admin))
+        if not as_admin:
+            require_publisher(request, namespace)
+        body = await small_body(request, YankRequest)
+        if as_admin:
+            if body.record is not None:
+                raise HubError("an administrator's recall is signed by the registry: send a reason")
+            if body.reason is None or body.severity is None:
+                raise HubError("a recall needs a reason and a severity")
+            own = yank.registry_key()
+            if own is None:
+                raise HubError(
+                    "this registry has no signing key (MENDARI_REGISTRY_SIGNING_KEY)", 409
+                )
+            found = store.version(namespace, name, version)
+            record: dict[str, Any] = yank.sign(
+                pack=f"{namespace}/{name}",
+                version=version,
+                digest=found["digest"],
+                archive_sha256=found["archive_sha256"],
+                reason=body.reason,
+                severity=body.severity,
+                signer="registry",
+                key=own,
+                key_id=yank.registry_public(own)["key_id"],
+            )
+        else:
+            if body.record is None:
+                raise HubError("a publisher's recall is a record signed with a namespace key")
+            if body.record.get("signer") != "publisher":
+                raise HubError("a publisher's recall is signed by the publisher")
+            record = body.record
+        return served(store.recall(namespace, name, version, record, by=actor(request)))
+
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/delete", openapi_extra=_body_of(DeleteRequest)
+    )
+    async def delete(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """Delete a version (administrators): its archive is no longer served, and its bytes
+        are removed when no other version needs them. The row and a tombstone with the reason
+        stay; chained `pack.deleted`."""
+        require_admin(request)
+        body = await small_body(request, DeleteRequest)
+        return served(store.delete(namespace, name, version, reason=body.reason, by=actor(request)))
+
+    @app.get("/v1/registry-key")
+    def registry_key() -> dict[str, str]:
+        """The registry's own public key, which signs the recalls it makes."""
+        published = store.registry_key()
+        if published is None:
+            raise HubError("this registry has no signing key", 404)
+        return published
+
+    @app.get("/v1/yanks")
+    def yanks() -> list[dict[str, Any]]:
+        """Every recalled version: its signed yank record and its deletion, if any. From LP-18e
+        a running server checks the packs it pulled against this list."""
+        return store.recalled()
+
     @app.get("/v1/packs/{namespace}/{name}")
     def pack(namespace: str, name: str) -> dict[str, Any]:
+        """A pack: its versions, the recalled ones apart, and its newest version that is not
+        recalled (`latest`, null when every version is)."""
         versions = store.versions(namespace, name)
         if not versions:
             raise HubError(f"no pack {namespace}/{name}", 404)
+        live = [v for v in versions if v["yank"] is None and v["deleted"] is None]
         return {
             "id": f"{namespace}/{name}",
-            "versions": [v["version"] for v in versions],
-            "latest": served(versions[-1]),
+            "versions": [v["version"] for v in live],
+            "recalled": [
+                {"version": v["version"], "yank": v["yank"], "deleted": v["deleted"]}
+                for v in versions
+                if v not in live
+            ],
+            "latest": served(live[-1]) if live else None,
         }
 
     @app.get("/v1/packs/{namespace}/{name}/reports")
@@ -1153,6 +1477,10 @@ def create_registry_app(
     @app.get("/v1/packs/{namespace}/{name}/{version}/archive")
     def pack_archive(namespace: str, name: str, version: str) -> Response:
         found = store.version(namespace, name, version)
+        if found["deleted"] is not None:
+            raise HubError(
+                f"{namespace}/{name}@{version} was deleted: {found['deleted']['reason']}", 410
+            )
         return Response(
             store.archive(found["archive_sha256"]),
             media_type="application/octet-stream",

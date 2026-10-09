@@ -180,6 +180,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): ("report.shared",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/review"): ("pack.reviewed",),
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/delete"): ("pack.deleted",),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
     (ENGINE, "DELETE", "/api/governance/{approval_id}"): ("governance.revoked",),
     (ENGINE, "POST", "/api/holds"): ("automation.held",),
