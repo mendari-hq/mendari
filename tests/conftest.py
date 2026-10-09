@@ -72,6 +72,7 @@ CORE = {
     "test_referral_pack.py", "test_trial_pack.py", "test_prior_auth_pack.py",
     "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
     "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
+    "test_rater_agreement.py",
 }  # fmt: skip
 
 

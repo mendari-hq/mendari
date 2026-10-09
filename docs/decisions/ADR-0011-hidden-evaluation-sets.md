@@ -4,6 +4,8 @@
 Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
 `notes/lp11-plan.md`); each step adds what it built here, in the order they land:
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file;
+- 11b, rater agreement (percent agreement, Cohen's kappa per pair, Krippendorff's alpha, with
+  seeded bootstrap intervals), pure;
 - 11c, the evaluation-set keys and sealing (`core/evalset_keys.py`), nothing stored yet.
 
 ## Context
