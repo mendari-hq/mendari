@@ -1188,7 +1188,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
     (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
-  - [ ] **21k** (#209) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
+  - [x] **21k** (#209, merged 2026-10-08) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
     signs the day's first checkpoint (`checkpoint_statements`; `{format, date, head, key_id,
     signature}`, no position or count); `GET /api/audit/checkpoint` publishes the newest with
     the public key (public, read once a minute per instance); `GET /api/internal/checkpoint`
