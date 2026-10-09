@@ -41,8 +41,11 @@ Configuration comes from the environment:
   refused.
 - `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
   crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30). The scheduled
-  monitor (`/api/internal/monitor`) answers the same secret, once a `crons` entry names it;
-  `MENDARI_STATUS_ORG` is the organization it leaves out (the status checks').
+  monitor (`/api/internal/monitor`) and checkpoint (`/api/internal/checkpoint`) answer the same
+  secret, once a `crons` entry names them; `MENDARI_STATUS_ORG` is the organization the monitor
+  leaves out (the status checks').
+- `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
+  `/api/audit/checkpoint` (LP-21k).
 - `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
   `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
 - `LLM_MODEL`: default model for `llm` variants (an AI Gateway id, `<vendor>/<model>`).

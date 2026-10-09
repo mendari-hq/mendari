@@ -57,7 +57,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be repor
 community leaders responsible for enforcement, the maintainers listed in
 [GOVERNANCE.md](GOVERNANCE.md), privately. GitHub has no private messages, so use the
 repository's private reporting form: the **Security** tab, then **Report a vulnerability**
-([direct link](https://github.com/Junebugg1214/mendari/security/advisories/new)), with a title starting "Conduct report". Only you and the maintainers see
+([direct link](https://github.com/mendari-hq/mendari/security/advisories/new)), with a title starting "Conduct report". Only you and the maintainers see
 it. Content that breaks GitHub's own rules can also be reported to GitHub with "Report content".
 All complaints will be reviewed and investigated promptly and fairly.
 

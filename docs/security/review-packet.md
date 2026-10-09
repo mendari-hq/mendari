@@ -206,7 +206,9 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
 ## Where the evidence is
 
 - **The threat model** ([`threat-model.md`](threat-model.md)): every threat by STRIDE id, its
-  mitigation and the tests that check it. Every test it names exists.
+  mitigation and the tests that check it. Every test it names exists. Its "Pack content" part
+  lists every input a pack supplies, where the deployment's trust in a pack ends (owned or not,
+  by origin and digest), and what a pack can and cannot do, each with its row or residual.
 - **Tests:** `tests/`, about 1,800 on Postgres. The security-relevant files:
   `test_auth.py` (the route × principal matrix), `test_api_keys.py`, `test_scopes.py`,
   `test_backend_services.py` (37 kinds of bad assertion), `test_sessions.py`,

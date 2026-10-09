@@ -477,8 +477,23 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # Notes sealed under encrypt are checked with this deployment's keys. Verifying opens the
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
+    head = None
+    if (args.against is None) != (args.public_key is None):
+        raise MendariError("--against and --public-key go together: a statement and its key")
+    if args.against is not None and args.since_checkpoint:
+        raise MendariError("--against needs a full verification: leave out --since-checkpoint")
+    if args.against is not None:  # a signed checkpoint (LP-21k), checked before the chain
+        from mendari.core import checkpoint
+
+        statement = _read_json(args.against, "--against", shape=dict)
+        if isinstance(statement.get("statement"), dict):  # as `/api/audit/checkpoint` answers
+            statement = statement["statement"]
+        problem = checkpoint.problem(statement, checkpoint.load_public(args.public_key))
+        if problem is not None:
+            raise MendariError(f"--against: {problem}")
+        head = statement["head"]
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint)
+        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint, head=head)
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -488,10 +503,18 @@ def cmd_audit_checkpoint(args: argparse.Namespace) -> int:
     one (LP-21j), outside the chain; exit 1 when it is broken (nothing recorded). Opening the
     database migrates it, as every command that writes does; the checkpoint is the one row
     written: nothing is marked or chained."""
+    from mendari.core.checkpoint import checkpoint_key
+
+    key = checkpoint_key()  # a malformed key fails before anything is opened
     _servers_database(args.db, used=False, tables=_EVERY_RELEASE)  # mistyped: refused
     with AuditStore(args.db, marks=False) as store:
-        status = store.record_checkpoint()
+        status = store.record_checkpoint(signer=key)
     _print_json(status)
+    if status.get("statement_refused") is not None:
+        raise MendariError(
+            f"the day's stored checkpoint statement is refused ({status['statement_refused']}): "
+            "someone with the database changed it; follow the incident runbook"
+        )
     return 0 if status["ok"] else 1
 
 
@@ -881,10 +904,22 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
 
 def cmd_usage(args: argparse.Namespace) -> int:
     """The deployment's totals, read-only: today's metered calls (Jev, LLM) against this
-    environment's daily limits, the last purge with its counts, and the latest deployment
-    records. In memberships mode the server shows them to no organization (ADR-0008)."""
+    environment's daily limits, the last purge with its counts, the latest deployment records,
+    and the usage ledger (LP-21g) of every organization (or `--org`) over the last `--days`
+    local days, with its totals by provider type and purpose (a cost only where every call was
+    priced). In memberships mode the server shows the deployment's to no organization
+    (ADR-0008); an organization's administrators see their own ledger (`GET /api/usage`)."""
+    from datetime import timedelta
+
+    from mendari.core.audit import usage_totals
+
+    if not 1 <= args.days <= 366:
+        raise MendariError("--days is 1 to 366")
     limits = daily_limits()
+    until = clock.today()
+    since = until - timedelta(days=args.days - 1)
     with _read_store(args.db) as store:
+        rows = store.usage_ledger(args.org, since=since.isoformat(), until=until.isoformat())
         _print_json(
             {
                 "day": clock.today().isoformat(),
@@ -897,6 +932,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
                 },
                 "last_purge": store.last_purge(),
                 "deployments": store.deployments(None, limit=args.deployments),
+                "ledger": {
+                    "since": since.isoformat(),
+                    "until": until.isoformat(),
+                    "rows": rows,
+                    "totals": usage_totals(rows),
+                },
             }
         )
     return 0
@@ -1566,11 +1607,9 @@ TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
-AUTHORING_GUIDE = (
-    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md"
-)
+AUTHORING_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md"
 COMMUNITY_GUIDE = (
-    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md"
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md"
 )
 
 
@@ -1921,6 +1960,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="only the events after the last checkpoint (mendari audit checkpoint)",
     )
+    verify.add_argument(
+        "--against",
+        help="a signed checkpoint, or /api/audit/checkpoint's answer (JSON file), whose head the "
+        "chain must hold (with --public-key)",
+    )
+    verify.add_argument("--public-key", help="the checkpoint key's public half (base64)")
     verify.set_defaults(handler=cmd_audit_verify)
     checkpoint = audit.add_parser(
         "checkpoint", help="verify from the last checkpoint and record the head as the next"
@@ -1950,12 +1995,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     usage = sub.add_parser(
         "usage",
-        help="the deployment's totals: today's metered calls, the last purge, its deployments",
+        help="the deployment's totals: today's calls, the usage ledger, the last purge and more",
     )
     usage.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
     usage.add_argument(
         "--deployments", type=int, default=20, help="how many deployment records (newest first)"
     )
+    usage.add_argument("--days", type=int, default=30, help="the ledger's last days (1-366)")
+    usage.add_argument("--org", help="one organization's ledger (default: every one)")
     usage.set_defaults(handler=cmd_usage)
 
     automation = sub.add_parser(

@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FILE = ROOT / "web" / ".well-known" / "security.txt"
-REPORT = "https://github.com/Junebugg1214/mendari/security/advisories/new"
+REPORT = "https://github.com/mendari-hq/mendari/security/advisories/new"
 
 
 def fields() -> dict[str, list[str]]:
@@ -35,7 +35,7 @@ def test_the_contact_is_the_private_reporting_form_and_no_address() -> None:
 
 def test_the_policy_and_its_disclosure_window_are_linked() -> None:
     found = fields()
-    assert found["Policy"] == ["https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md"]
+    assert found["Policy"] == ["https://github.com/mendari-hq/mendari/blob/main/SECURITY.md"]
     assert found["Canonical"] == ["https://mendari.co/.well-known/security.txt"]
     security = (ROOT / "SECURITY.md").read_text()
     assert "Coordinated disclosure, 90 days." in security
