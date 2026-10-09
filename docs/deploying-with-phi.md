@@ -949,6 +949,8 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
 | `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How often a server reads the recalls of each registry its served packs came from; a recalled pack stops automating (LP-18e) | 4 |
+| `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (1 to 604800 seconds) | After this long without a successful read of its registry's recalls, a pack from that registry stops automating | 4 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
