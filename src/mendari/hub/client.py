@@ -254,6 +254,15 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     target = cache / namespace / name / version
     if not target.resolve().is_relative_to(cache / namespace / name):
         raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    deleted = meta.get("deleted")
+    if isinstance(deleted, Mapping):
+        # Deleted by the registry: never served, and a copy cached before is removed.
+        if target.exists():
+            shutil.rmtree(target)
+        raise HubError(
+            f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
+        )
+    _registry_key(client)  # pinned on first contact, before any recall it signs is read
     if (target / _MARKER).is_file() and (target / _MARKER).read_text().strip() == meta[
         "archive_sha256"
     ]:
@@ -279,35 +288,55 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     return load_pack(target, origin="hub")
 
 
-def recall_of(meta: Mapping[str, Any], client: RegistryClient) -> dict[str, Any] | None:
-    """What a version's recall says (None: it is not recalled): its severity, reason, signer and
-    time, and whether its signature holds with a key this machine pinned (`verified`, and
-    `problem` when it does not)."""
+def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> dict[str, Any] | None:
+    """What the registry says recalls `pack` (None: nothing): its yank's severity, reason, signer
+    and time, and whether the record's signature holds with a key this machine pinned and names
+    exactly this pack, version and digest (`verified`, and `problem` when it does not); or that
+    the version was deleted. A record that does not verify is still a recall: it only stops
+    automation."""
     from mendari.hub import yank
 
     record = meta.get("yank")
+    deleted = meta.get("deleted")
     if not isinstance(record, Mapping):
+        if isinstance(deleted, Mapping):
+            reason = str(deleted.get("reason", ""))
+            return {
+                "severity": "critical",
+                "reason": reason,
+                "signer": "registry",
+                "at": deleted.get("at"),
+                "verified": False,
+                "problem": "the version was deleted (no signed record)",
+                "deleted": True,
+            }
         return None
     shown = {name: record.get(name) for name in ("severity", "reason", "signer", "at")}
     problem = yank.shape_problem(record)
-    if problem is None:
-        namespace = str(record["pack"]).partition("/")[0]
-        if record["signer"] == "publisher":
-            keys = _trusted_keys(client, namespace, str(record["key_id"]), accept_new_key=False)
-            key = keys.get(str(record["key_id"]))
-        else:
-            key = _registry_key(client)
-        problem = (
-            "it is signed by a key this machine does not trust"
-            if key is None
-            else yank.problem(record, key, str(record["key_id"]))
-        )
-    if problem is None and (record["digest"], record["archive_sha256"]) != (
-        meta.get("digest"),
-        meta.get("archive_sha256"),
+    if problem is None and (record["pack"], record["version"], record["digest"]) != (
+        pack.id,
+        pack.version,
+        pack.digest,
     ):
-        problem = "it is about another build of this version"
-    return {**shown, "verified": problem is None, "problem": problem}
+        problem = "it is about another pack, version or build"
+    if problem is None:
+        try:
+            if record["signer"] == "publisher":
+                namespace = pack.id.split("/")[0]
+                keys = _trusted_keys(client, namespace, str(record["key_id"]), accept_new_key=False)
+                key = keys.get(str(record["key_id"]))
+            else:
+                key = _registry_key(client)
+        except HubError as error:  # a key this machine has not pinned, say
+            key, problem = None, str(error)
+        if problem is None:
+            problem = (
+                "it is signed by a key this machine does not trust"
+                if key is None
+                else yank.problem(record, key, str(record["key_id"]))
+            )
+    return {**shown, "verified": problem is None, "problem": problem,
+            "deleted": isinstance(deleted, Mapping)}  # fmt: skip
 
 
 def _registry_key(client: RegistryClient) -> Ed25519PublicKey | None:

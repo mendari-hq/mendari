@@ -1342,7 +1342,18 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     key pinned on first use as `@registry`); latest with every version recalled is an error.
     The Hub lists recalled versions apart (severity, who signed, when, the reason as text), and
     a pack with every version recalled says so. `hub_seed.py --hostile-example` recalls an
-    earlier version.
+    earlier version. Adversarial review (3 medium, 4 low), fixed: a version deleted after it
+    was pulled was still served from the cache with no word (a pull now refuses it and removes
+    the copy; `recall_of` treats a deletion as a recall); the yank, delete and review routes
+    parsed any body before checking the token (5 MB: about 120 MB of memory; now the sender
+    first, then at most 16 KB); `recall_of` took the namespace and pack from the record and
+    compared with a second answer (now the record must name the pulled pack, version and
+    digest), and a key this machine had not pinned aborted the pull and hid the recall (now
+    `verified: false` with why); the registry's key is pinned at a pull's first contact, not
+    only when its first recall is read. Left for 18d and 18e, as planned: a server, and
+    `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
+    /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
+    `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
   - [ ] **18d** Origin at pull and the cap: the verified marker records the registry URL,
     namespace, publisher type, key id and any yank; a pack from a registry is capped at
     HUMAN_REVIEW until the organization approves its digest (`registry_approvals`, chained),

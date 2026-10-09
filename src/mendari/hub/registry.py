@@ -56,7 +56,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -1191,6 +1191,21 @@ class DeleteRequest(BaseModel):
         return reason
 
 
+Small = TypeVar("Small", bound=BaseModel)
+# A review, a recall or a deletion: a valid one is under 2 KB.
+MAX_SMALL_BYTES = 16_000
+
+
+def _body_of(model: type[BaseModel]) -> dict[str, Any]:
+    """The request body a route reads itself, for its OpenAPI description."""
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": model.model_json_schema()}},
+        }
+    }
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
@@ -1308,14 +1323,35 @@ def create_registry_app(
                 raise HTTPException(413, "the archive is too large")
         return store.publish(namespace, name, version, bytes(body), by=actor(request))
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/review", status_code=201)
-    def review(
-        request: Request, namespace: str, name: str, version: str, body: ReviewRequest
-    ) -> dict[str, Any]:
+    async def small_body(request: Request, model: type[Small]) -> Small:
+        """A small JSON body, read only after its sender was checked and at most
+        `MAX_SMALL_BYTES` (a body FastAPI parses for a route is read before the route runs)."""
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_SMALL_BYTES:
+                raise HTTPException(413, "the body is too large")
+        try:
+            parsed = from_json(bytes(body), allow_inf_nan=False)
+        except ValueError:
+            problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
+            raise RequestValidationError([problem]) from None
+        try:
+            return model.model_validate(parsed)
+        except ValidationError as error:
+            raise RequestValidationError(error.errors()) from None
+
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/review",
+        status_code=201,
+        openapi_extra=_body_of(ReviewRequest),
+    )
+    async def review(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A registry reviewer records the risk level a version's review found, with a short
         note (chained `pack.reviewed`). Until reviewer accounts exist (LP-19), the admin token
         records it. The newest review of a version is the one shown."""
         require_admin(request)
+        body = await small_body(request, ReviewRequest)
         store.review(
             namespace,
             name,
@@ -1326,16 +1362,22 @@ def create_registry_app(
         )
         return served(store.version(namespace, name, version))
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/yank", status_code=201)
-    def recall(
-        request: Request, namespace: str, name: str, version: str, body: YankRequest
-    ) -> dict[str, Any]:
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/yank",
+        status_code=201,
+        openapi_extra=_body_of(YankRequest),
+    )
+    async def recall(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """Recall a version. The namespace's publisher sends a `mendari.yank/1` record it signed
         with one of the namespace's keys (`mendari yank`); an administrator sends a reason and a
         severity, and the registry signs the record with its own key
         (`MENDARI_REGISTRY_SIGNING_KEY`). Chained `pack.yanked`; a version is recalled once."""
         token = bearer(request)
-        if admin and token and hmac.compare_digest(token, admin):
+        as_admin = bool(admin and token and hmac.compare_digest(token, admin))
+        if not as_admin:
+            require_publisher(request, namespace)
+        body = await small_body(request, YankRequest)
+        if as_admin:
             if body.record is not None:
                 raise HubError("an administrator's recall is signed by the registry: send a reason")
             if body.reason is None or body.severity is None:
@@ -1358,7 +1400,6 @@ def create_registry_app(
                 key_id=yank.registry_public(own)["key_id"],
             )
         else:
-            require_publisher(request, namespace)
             if body.record is None:
                 raise HubError("a publisher's recall is a record signed with a namespace key")
             if body.record.get("signer") != "publisher":
@@ -1366,14 +1407,15 @@ def create_registry_app(
             record = body.record
         return served(store.recall(namespace, name, version, record, by=actor(request)))
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/delete")
-    def delete(
-        request: Request, namespace: str, name: str, version: str, body: DeleteRequest
-    ) -> dict[str, Any]:
+    @app.post(
+        "/v1/packs/{namespace}/{name}/{version}/delete", openapi_extra=_body_of(DeleteRequest)
+    )
+    async def delete(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """Delete a version (administrators): its archive is no longer served, and its bytes
         are removed when no other version needs them. The row and a tombstone with the reason
         stay; chained `pack.deleted`."""
         require_admin(request)
+        body = await small_body(request, DeleteRequest)
         return served(store.delete(namespace, name, version, reason=body.reason, by=actor(request)))
 
     @app.get("/v1/registry-key")
@@ -1386,8 +1428,8 @@ def create_registry_app(
 
     @app.get("/v1/yanks")
     def yanks() -> list[dict[str, Any]]:
-        """Every recalled version: its signed yank record and its deletion, if any (a running
-        server checks the packs it pulled against this list)."""
+        """Every recalled version: its signed yank record and its deletion, if any. From LP-18e
+        a running server checks the packs it pulled against this list."""
         return store.recalled()
 
     @app.get("/v1/packs/{namespace}/{name}")

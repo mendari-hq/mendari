@@ -211,19 +211,66 @@ def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
     assert "RECALLED (medium) by its publisher" in err and "misroutes refills" in err
     assert "the record's signature holds; do not automate with this version" in err
     meta = hub.client().version("site-a", "inbox", pack.version)
-    assert recall_of(meta, hub.client()) == {
+    assert recall_of(meta, hub.client(), pack) == {
         "severity": "medium",
         "reason": "misroutes refills",
         "signer": "publisher",
         "at": meta["yank"]["at"],
         "verified": True,
         "problem": None,
+        "deleted": False,
     }
     forged = {**meta, "yank": {**meta["yank"], "reason": "nothing to see"}}
-    shown = recall_of(forged, hub.client())
+    shown = recall_of(forged, hub.client(), pack)
     assert shown is not None and not shown["verified"]
     assert shown["problem"] == "its signature does not hold"
-    assert recall_of({**meta, "yank": None}, hub.client()) is None
+    # A real record about another pack (a registry could serve one): a recall, not verified.
+    other = copy_pack(tmp_path / "other", "site-a/other")
+    shown = recall_of(meta, hub.client(), other)
+    assert shown is not None and shown["problem"] == "it is about another pack, version or build"
+    assert recall_of({**meta, "yank": None}, hub.client(), pack) is None
+
+
+def test_a_deleted_version_is_removed_from_the_cache_and_never_pulled(
+    hub: Hub,  # noqa: F811
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The LP-18c review: a version deleted after it was pulled was still served from the cache
+    with no word. A pull now refuses it and removes the cached copy."""
+    import httpx
+
+    from mendari.hub import client
+
+    token, key = hub.namespace("site-a")
+    pack = copy_pack(tmp_path, "site-a/inbox")
+    hub.client(token).push(pack, key)
+    cached = pull(f"site-a/inbox@{pack.version}", hub.client())
+    assert cached.root.is_dir()
+    with httpx.Client(
+        base_url=hub.url, headers={"authorization": "Bearer admin-token-for-tests"}
+    ) as http:
+        http.post(
+            f"/v1/packs/site-a/inbox/{pack.version}/delete", json={"reason": "carried a file"}
+        ).raise_for_status()
+    assert main(["pull", f"site-a/inbox@{pack.version}", "--registry", hub.url]) == 1
+    assert "was deleted from the registry: carried a file" in capsys.readouterr().err
+    assert not cached.root.exists()
+    assert not (client.packs_cache() / "site-a" / "inbox" / pack.version).exists()
+
+
+def test_a_recall_body_is_read_only_after_its_sender_is_checked(registry: Registry) -> None:
+    """The LP-18c review: FastAPI read and parsed a recall's body (any size) before the route
+    checked the token. Now the token comes first, and the body is capped."""
+    assert registry.publish().status_code == 201
+    huge = b'{"record": {"x": "' + b"a" * 5_000_000 + b'"}}'
+    for route in ("yank", "delete", "review"):
+        refused = registry.client.post(f"{PATH}/{route}", content=huge)
+        assert refused.status_code in (401, 403), (route, refused.status_code)
+        too_big = registry.client.post(f"{PATH}/{route}", content=huge, headers=ADMIN)
+        assert too_big.status_code == 413, route
+    not_json = registry.client.post(f"{PATH}/delete", content=b"{", headers=ADMIN)
+    assert not_json.status_code == 422
 
 
 def test_the_yank_command_needs_an_exact_version(capsys: pytest.CaptureFixture[str]) -> None:

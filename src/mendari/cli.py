@@ -1486,7 +1486,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
     with _registry_client(args) as registry:
         pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
         namespace, name = pack.id.split("/")
-        recall = recall_of(registry.version(namespace, name, pack.version), registry)
+        recall = recall_of(registry.version(namespace, name, pack.version), registry, pack)
     print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
     if recall is not None:
         by = "its publisher" if recall["signer"] == "publisher" else "the registry"
