@@ -90,6 +90,201 @@ gap. The packet for the external review is [`review-packet.md`](review-packet.md
 | E9 | A pack reaches outside its own directory: a signed archive entry named `pack//<absolute path>` is written at that path on the registry host and on every machine that pulls the pack (a `.pth` file in site-packages runs code); a compromised registry answers a version such as `../../x` and `mendari pull` deletes and replaces that directory; an input schema's `$ref` makes the server fetch any URL (a request to an address the pack chose, and validation rules outside the signed pack) or read any local file on every check, with no timeout; a symbolic link in a directory pack (`CHANGELOG.md` to `/proc/self/environ`) puts a host file in the card `GET /api/packs/{id}` returns; a manifest path through a hidden entry (`config: .logic/triage_rules.yaml`) or into `evals/` is read and decides, but the digest skips it, so the logic changes without voiding a governance approval bound to the digest; with refusals compared by spelling, a case variant on a case-insensitive filesystem (`EVALS/t.yaml`, `__PYCACHE__/t.yaml`, `logic/decision_card.md` on macOS or Windows) read a file the digest skips, and a `cql` variant's `library:` (not among the paths checked at load) could live in `evals/` on any filesystem; an archive with names that are one file where case is not significant (`A` and `a/x.yaml`, published from Linux) made `mendari pull` on a Mac print a traceback, or the last of two colliding files win | 3, 5 | Archive names are read as written, not normalised: `pack/` and then plain segments (none empty, `.`, `..` or hidden, no backslash), no two of them equal once case-folded and NFC-normalized and no file named as another's folded directory (`verify`), and `extract` checks that every file resolves inside the destination before it writes any, and names a file it cannot write. `pull` requires the registry's version to be a semantic version, the cache path to stay inside the cache, and the signed manifest to name that pack and version, before it touches the disk. An input schema's `$ref`, `$dynamicRef` and `$recursiveRef` must point inside it (`#...`) and resolve to a schema there, `$schema` and `$id` may appear only at the root, `$dynamicAnchor` and `format: regex` not at all, checked at load (`core/input_schema.py`), and the validator's registry retrieves nothing. `load_pack` refuses a directory pack with a symbolic link that resolves outside it (hidden entries and `__pycache__`, which are not part of a pack and never digested, archived or read, are skipped, so a `.venv` beside its files is fine), `load_pack` hashes the pack first, and every file it or a provider then reads (`Pack.path`) must be one of the files hashed, compared by device and inode, not by spelling: a case variant, a link, a file added after the load or a key the load does not list cannot reach a file the digest leaves out. The written path is still checked for a clear message, naming the manifest field (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets.*`, and a provider's `config`, `library`, `model_file`, `calibration`): through a hidden entry or `__pycache__`, in `evals/` or a `DECISION_CARD.md`, or not a file the digest covers. Attestations are read only through `Pack.attestation`, by their fixed names and `evaluation.benchmark`, which must be in `evals/`; `mendari card --write` does not write through a link. | `test_names_with_empty_or_dot_segments_are_refused`, `test_extract_writes_nothing_outside_the_destination`, `test_links_are_refused`, `test_a_registry_cannot_choose_where_a_pull_writes`, `test_a_registry_cannot_serve_one_version_as_another`, `test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing`, `test_a_schema_that_is_not_self_contained_fails_to_load`, `test_a_symbolic_link_out_of_the_pack_is_refused`, `test_a_virtualenv_or_cache_in_the_pack_folder_is_not_part_of_the_pack`, `test_the_card_reads_the_changelog_only_inside_the_pack`, `test_card_write_never_writes_through_a_symbolic_link`, `test_paths_cannot_escape_the_pack`, `test_a_manifest_path_through_a_hidden_entry_is_refused`, `test_a_manifest_path_to_an_attestation_is_refused`, `test_a_link_into_a_hidden_entry_is_refused`, `test_the_refusal_names_the_manifest_field`, `test_a_case_variant_of_a_left_out_path_is_refused`, `test_pack_path_refuses_a_case_variant_of_an_attestation`, `test_a_cql_library_is_checked_at_load_naming_the_field`, `test_pack_path_accepts_only_a_file_the_digest_hashed`, `test_the_benchmark_must_be_an_attestation`, `test_the_benchmark_must_be_in_evals`, `test_every_shipped_pack_reads_only_digested_files`, `test_names_that_are_one_file_where_case_is_not_significant_are_refused`, `test_a_file_extract_cannot_write_is_a_hub_error` |
 | E10 | A pack the deployment does not own acts or spends beyond what it was granted: a community pack automates by its self-declared thresholds or risk level, blocks cases with a policy rule no person sees, runs on a remote model through an unscoped provider setting (`router=jev`) or an evaluation request, or declares a risk level above 1; it, or a pack pulled from a registry, pins a model, asks for a long answer, a long timeout or a high reasoning effort, or sends a model the whole input | 4, 7 | A community pack never automates: the policy caps AUTO to HUMAN_REVIEW (ADR-0002: policy only lowers automation), and a policy rule's BLOCK is refused at load and in CI (one loaded by path goes to a person instead). Its default variants must be local; unscoped provider settings skip it, and only `community/<name>:slot=variant` runs it on a remote variant, through an evaluation request too; for it and for a pack pulled from a registry (any pack on the community engine, `Pack.bounded`), the model is the deployment's (its `model` is dropped), `max_tokens` and `timeout_ms` are held to the provider defaults (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value of its own stands) and a `reasoning_effort` above `low` is dropped (`core/origin.py` `deployment_config`), its own values checked at load first, and every model variant and member must name its `state_fields` (LP-16e). A risk level above 1, `store_input` other than `hash` or a remote default refuses it at load (and in CI). Community packs are served only with `MENDARI_COMMUNITY_PACKS=on`. | `test_a_community_pack_recommends_and_never_automates`, `test_a_community_pack_never_blocks_on_its_own`, `test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named`, `test_a_rule_asking_for_auto_is_capped_for_a_community_pack`, `test_unscoped_provider_settings_never_reach_a_community_pack`, `test_a_community_packs_pinned_model_and_max_tokens_give_way_to_the_deployments`, `test_a_registry_packs_pinned_model_gives_way_to_the_deployments`, `test_a_registry_packs_answer_length_timeout_and_effort_are_capped`, `test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served`, `test_community_packs_are_searched_only_when_turned_on` |
 
+## Pack content
+
+What a Decision Pack can set, which packs the deployment owns, and what a pack can and cannot do
+with what it sets (LP-16,
+[ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+Each limit names the row above that holds it; each thing a pack can do names the row that bounds
+it, or why it is left as it is.
+
+### Inputs
+
+A pack is a directory, or a signed archive of one (S4). Mendari reads it as data (YAML, JSON and
+text): nothing in it is imported or run as Python, and a `cql` variant's library runs on the
+deployment's CQL engine. Its digest covers every file but those under `evals/`, any
+`DECISION_CARD.md`, and hidden entries and `__pycache__` (S15); a file it decides or tests with
+is read only if the digest covers it, and only as hashed (T2, E9). What a pack sets:
+
+| Input | What it sets | Checked |
+|---|---|---|
+| `pack.yaml` | The manifest: `spec_version`, id, version, name, summary, `license`, publisher, risk level, card, `code_systems`, the questions (their instructions and criteria are the prompt its model variants send), the provider slots and their variants, `audit.store_input`, `guard`, `cds_hooks` and `evaluation` | At load, as a closed model but for the variant keys (`core/spec.py` `PackManifest`) |
+| `policy` | Thresholds, rules, label policies and `automation_requires`: inline, or in a file it names | At load; policy only lowers automation (E3) |
+| `inputs.schema` | The JSON Schema every input is checked against | At load (`core/input_schema.py`): self-contained (E9); for a pack the deployment does not own, its keywords and the caps (D8); for an owned one, the expansion bounds (D10) |
+| `inputs.fhir` | The FHIR mapping: how a record becomes an input, and the Task a decision writes | At load, that it is a file the digest covers (E9); its content at load for a pack the deployment does not own, for an owned one where it is used, and by `mendari validate` |
+| `tests` | Behaviour tests (`mendari test`, the examples in the API reference) | At load, only that it is a file the digest covers; a case's shape where it is read (D7); its input against the schema by `mendari validate` |
+| `evaluation.datasets` | JSON Lines datasets (`mendari eval`, `POST /api/packs/{namespace}/{name}/evals`) | At load, only that each is a file the digest covers; each line where it is read (D7); its input and labels by `mendari validate` |
+| `config`, `library`, `model_file`, `calibration` | A variant's or composite member's pack file: a rules, criteria or dosing config, a CQL library, a naive Bayes model, an LLM calibration | At load: a file the digest covers, named by its field (E9), and read by its provider's check (E8) |
+| Variant keys | Everything else a variant or composite member sets, by provider type (below) | At load, against its type's closed config (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): refused for a pack the deployment does not own, a warning for an owned one; a `jev` or `llm` variant or member that sets `api_key_env`, `connector_env`, `endpoint_env`, `model_env`, `base_url_env` or `local_key_env` is refused for every pack (`core/spec.py`) (E8) |
+| Wording templates | `cds_hooks.card.summaries`, and the FHIR mapping's `task.description` and `task.performer` | A card summary's placeholder names at load, a Task text's where it is used (at load for a pack the deployment does not own); bare placeholders for a pack the deployment does not own (E4) |
+| `cds_hooks.prefetch` | What a CDS Hooks service needs from the EHR, read from the EHR's FHIR server when the request leaves it out | At load: a relative read or search, refused for a pack the deployment does not own, a warning for an owned one (E1) |
+| `CHANGELOG.md` | The history the card shows | In the digest; UTF-8 where it is read (D7) |
+| Attestations: `evals/` (`evaluation.benchmark`, `evals/leaderboard.json`) and `DECISION_CARD.md` | What the pack says about itself | Outside the digest; their shape where they are shown (D7); never read to decide (E9) |
+
+Every provider type the engine has (`providers.PROVIDER_TYPES`), and the keys its closed config
+takes beside `type`:
+
+| Provider type | Decides | Variant keys |
+|---|---|---|
+| `rules` | On this machine, by weighted patterns in its `config` | `config` |
+| `criteria` | On this machine, on coded data, dates and numbers, by its `config` | `config` |
+| `dosing` | On this machine, by dose arithmetic on text, with its `config` | `config` |
+| `naive_bayes` | On this machine, by its trained `model_file` | `model_file`, `text_fields` |
+| `cql` | On the deployment's CQL engine (`MENDARI_CQL_URL`, on the FHIR allow-list), sent the record as a FHIR Bundle Mendari builds (`standards/record_fhir.py`) | `library`, `expressions`, `as_of` |
+| `jev` | At Jev, the deployment's endpoint | `model`, `timeout_ms`, `state_fields`, `cost_per_1k_input_tokens_usd`, `batch` |
+| `llm` | At a chat model, through the AI Gateway or at `LLM_BASE_URL` | `model`, `timeout_ms`, `max_tokens`, `temperature`, `reasoning_effort`, `state_fields`, `calibration`, `batch` |
+| `any_of` | By its members, each of a type above that is not a composite: the most alarming answer wins | `members`, `escalate` |
+| `cascade` | By its members in order: the first confident answer stands | `members`, `accept_at` |
+| `vote` | By its members' weighted average | `members`, `weights` |
+
+### Trust boundary
+
+Whether the deployment owns a pack decides most of what follows. It is read from where the pack
+was found and the digest `load_pack` hashed, never from a registry's record or a marker file; the
+manifest can only give ownership up, by an id in `community/` (`core/origin.py` `bounded`, read
+as `Pack.bounded`; S15):
+
+- **Owned:** the reference packs this release bundles (`maintained`); an operator's own packs
+  (`local`: in `MENDARI_PACKS_PATH`, or a path given on the command line), a copy of a pulled
+  pack included, which is how an operator says it trusts one; and a pack pulled from a registry
+  whose digest is one of the bundled reference packs', which is that pack. Installing an owned
+  pack means trusting its author, as with any plugin.
+- **Not owned:** a community pack (in `community-packs/`, or any pack whose id is in
+  `community/`, wherever it was loaded from) and every other pack pulled from a registry
+  (`hub`); LP-20 adds the pack store's (`store`). These run on the community engine (D8), and
+  what only warns for an owned pack refuses them at load.
+
+A community pack recommends and never automates, wherever it was loaded from (E10). One in
+`community-packs/` is held further, or it is not served (and CI refuses it): its default
+variants are local, it is at most risk level 1 and it keeps only a hash of its inputs; and it is
+served only with `MENDARI_COMMUNITY_PACKS=on` (E10). A pack with a `community/` id loaded from
+anywhere else (`MENDARI_PACKS_PATH`, a path, a registry) is not held to these three. Every surface labels a community pack "Community · not clinically reviewed" (S13); the API, the
+dashboard and the SMART patient view label every pack by its origin, and the Decision Card names
+the source only of a maintained or community pack. A pack from
+outside comes in across boundary 5 (a registry) or 7 (a pull request) above, and every pack
+reaches out through 3 (FHIR servers, the CQL engine) and 4 (model providers), only at addresses
+the deployment sets or allows (E1, E8).
+
+### What a pack can do
+
+- **An owned pack chooses what its model calls send and ask for.** A `jev` or `llm` variant
+  without `state_fields` sends the whole input. A pinned `model` is used: an `llm` variant's
+  wins over `LLM_MODEL`, and a `jev` variant's applies where the deployment sets no `JEV_MODEL`.
+  It may ask for up to 32,000 tokens, an LLM timeout of up to 120 s (Jev 10 s) and any
+  `reasoning_effort`, each call within the decision's deadline (D9). This is the operator's
+  choice (I5); a pack the deployment does not own can do none of it (I5, E10).
+  `test_a_registry_packs_remote_variant_needs_state_fields`,
+  `test_a_registry_packs_pinned_model_gives_way_to_the_deployments`.
+- **Any pack sets its own Jev price.** `cost_per_1k_input_tokens_usd` (finite and at most $1,
+  since LP-21g, or null for unknown) sets the `cost_usd` recorded on its decisions, summed in the
+  usage ledger and shown on the dashboard and in reports, a pack the deployment does not own
+  included. It changes what is recorded, not what is called: the daily budgets and
+  quotas count calls (D2). Residual (`tasks/todo.md`, LP-16 conflict 24), for LP-20.
+  `test_jev_request_is_minimal_and_typed`, `test_a_jev_call_without_a_price_is_unknown_never_zero`,
+  `test_a_jev_price_is_finite_and_at_most_a_dollar_per_thousand_tokens`.
+- **Any pack turns batching off or sets a temperature.** A model variant with `batch: false` is
+  asked in a call of its own instead of sharing one with the decision's other questions, so a
+  decision makes more calls, each counted against the budgets and quotas (D2) and made within
+  the deadline (D9). An `llm` variant's `temperature` (0 to 2) is sent as the pack sets it. A
+  pack the deployment does not own keeps both. Residual (conflict 24), for LP-20.
+  `test_a_variant_can_opt_out_of_batching`.
+- **A pack from a registry is chosen for as an owned pack is.** The deployment's unscoped
+  `MENDARI_PROVIDERS` settings (`slot=variant`) apply to it. So do the Jev defaults while Jev is
+  set up: they are keyed by pack id (`JEV_DEFAULTS`), so a pack from a registry with a reference
+  pack's id at another version gets them where it has the same slots and variants. And
+  `POST /api/packs/{namespace}/{name}/evals` runs any variant of it that a caller with the
+  `evaluate` permission names, a remote one on up to 200 cases. A community pack, by contrast,
+  takes only the settings that name it, and runs a remote variant only where named (E10). Residual
+  (conflict 24), for LP-20. `test_unscoped_provider_settings_never_reach_a_community_pack`.
+- **A pack from a registry automates under its own policy.** As an owned pack does, it automates
+  by its own thresholds at risk levels 0 and 1, at levels 2 and 3 only under an approval of its
+  digest, and never at level 4 (E3), and its own rules may block. Its risk level is what its
+  publisher declares. Pulling it is the operator's choice (ADR-0009); only a community pack is
+  held to recommending (E10). LP-18 is planned to cap a pulled pack at human review until the
+  organization approves its digest.
+- **An owned pack runs its patterns on `re`.** Its rules' and input schema's patterns run with
+  no time limit, so one that backtracks stalls the worker that runs it while holding the
+  interpreter (a crafted 10,000-character message to the inbox pack holds it for about 0.55 s).
+  Accepted (ADR-0009, and the residual risks below). Its schema's shape is bounded at load (D10);
+  a pack the deployment does not own runs on RE2 within a budget (D8).
+  `test_owned_packs_stay_on_re`, `test_health_answers_within_its_bound_with_a_pathological_pack_loaded`.
+- **An owned pack's content problems only warn.** A variant or member its provider's closed
+  config refuses (a key nothing reads, a value out of range, a pack file the provider cannot
+  use), a prefetch template that is not a relative read or search, and a card summary
+  placeholder that is not bare: the pack loads with them as `Pack.warnings` (`mendari list`, the
+  start-up log, `/api/health` `pack_warnings`) and decides as it did before LP-16, each variant
+  building, or failing, as it did, but a Jev variant priced above $1 per 1,000 input tokens:
+  LP-21g bounded the price, so it now fails when it is built. A Task text placeholder that is not bare is not warned of,
+  and renders as before. `mendari validate` refuses all of them, and the prefetch still reads
+  only from the EHR's FHIR server (E1). A pack the deployment does not own is refused for any
+  of them (E1, E4, E8). Conflicts 17 and 21: making owned packs refuse is a one-line change, for
+  the owner. `test_an_owned_packs_unread_key_warns_and_it_still_serves`,
+  `test_a_broken_non_default_variant_is_refused_for_a_registry_pack_and_warned_for_an_owned_one`,
+  `test_a_prefetch_template_must_be_a_relative_read_or_search`,
+  `test_a_wording_template_takes_bare_placeholders_only`.
+- **A pack's tests, datasets and attestations are its publisher's word.** Loading, a registry's
+  publish and `mendari pull` check only that its tests and datasets are files the digest covers;
+  `mendari validate` checks their inputs against the schema and their labels against the
+  questions, and loading does not (conflict 17). Its benchmark, leaderboard and card are outside
+  the digest, so they change without changing it: a registry checks their shape (D7) and shows
+  them as the pack carries them. `community-check` evaluates a community pack again and refuses
+  a benchmark or card that differs; nothing evaluates a pack from a registry again. None of them
+  is read to decide (E9). LP-18 is planned to have the registry render the card itself and
+  ignore the uploaded attestations.
+- **A pack's slow decisions can keep health waiting.** `/api/health`, and the sign-in check that
+  runs before every request, use the same thread pool as the decide routes (AnyIO's default, 40
+  threads), and a decision waiting on remote providers holds its thread until they answer or
+  its deadline passes (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set; D9). Forty such
+  decisions at once make health, and every other request, wait for a thread. Health itself does
+  no pack work (D7). Residual (conflict 23), not in LP-16.
+
+### What a pack cannot do
+
+Whatever it says, and whoever wrote it, a pack cannot:
+
+- **Pass for another pack or another origin.** Its origin is where it was found, and every
+  surface labels it by origin; a community pack's id is `community/<name>`, never a maintained
+  pack's, and its FHIR systems live under its own url (S13). A pack from a registry keeps the
+  maintained engine only with a reference pack's digest (S15), and one with a reference pack's
+  id, a version that ties its and other files is refused at load, publish and pull (S16).
+- **Change what it decides behind its digest.** Every file it decides with is in its digest and
+  read as hashed, so a file edited after the load is refused, never used, and a governance
+  approval is bound to the digest (T2). It reads nothing outside its directory or its digest: no
+  link out of the pack, no hidden entry, nothing in `evals/` on the decide path, and no `$ref` to
+  a URL or a local file (E9).
+- **Change another pack's logic.** Its CQL library goes to the shared engine under names that
+  end in a hash of its pack id and text, so it cannot replace or shadow another pack's (T4).
+- **Stop the server.** Whatever its content, a pack that fails to load or build is listed
+  under `/api/health` `invalid` and every other pack is served, and health builds no pack in the
+  request (D7). A pack the deployment does not own runs its patterns on RE2, within caps and a
+  budget of one second of CPU per decision, so about 3.5 s at worst (D8); a decision's remote
+  calls stop at its deadline, which a pack cannot set (D9). An owned pack's input schema is
+  bounded at load (D10), but its patterns run on `re` with no time limit, so one that
+  backtracks can stall its instance (above, and the residual risks).
+- **Choose where its data goes, or with which credentials.** The variables a remote provider
+  reads its endpoint, model and key from are fixed in the code and are the deployment's, a
+  variant that names one is refused at load, and every call goes to the deployment's endpoints
+  with its keys (E8); with `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, a Jev or LLM call goes
+  only to the origins it lists (E1, I5), and a `cql` call goes only to an origin on the FHIR
+  allow-list, set or not (E1). A prefetch read stays on the EHR's FHIR server and fills in FHIR ids only (E1, E4).
+- **Inject through its wording.** A wording template names only `{recommendation}`,
+  `{priority}` and the pack's questions, and in a pack the deployment does not own each is a
+  bare name (E4).
+- **Automate beyond its risk level.** Policy only lowers automation: level 4 is never automated,
+  and levels 2 and 3 only under an approval of the pack's digest (E3).
+- **Choose its model, the length of its answers, its timeouts or its reasoning effort, or send
+  a model more than it names, if the deployment does not own it.** Its model is the
+  deployment's, its `max_tokens` and `timeout_ms` are held to the provider defaults and a
+  `reasoning_effort` above `low` is dropped (E10), every model variant and member names its
+  `state_fields` (I5), and its configs are checked at load first (E8). Its questions' text, sent
+  with every call, is its own, up to the provider's request limit (LLM 100,000 characters, Jev
+  80,000).
+- **Automate, block by a rule of its own, or call a model unasked, if it is a community pack.**
+  It recommends and a person confirms every decision on an input that is not rejected, a rule of
+  its own never blocks, and it runs a remote variant only where the deployment names it (E10).
+  An input its schema rejects is still a final `BLOCK` (`input rejected`), as for any pack, so
+  its schema (a `not` with a `pattern`, say) can refuse cases no person sees.
+
 ## Residual risks and assumptions
 
 - **The patterns of the packs a deployment owns run on `re` with no time limit** (those of a
