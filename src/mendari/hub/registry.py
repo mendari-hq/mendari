@@ -35,6 +35,13 @@
   version with the record. An administrator may delete a version, with a reason: its archive's
   bytes are removed (no version still needing them), its row and a tombstone are kept, and it
   is never served or published again. Both are chained.
+- **Limits and headers** (LP-18f). Every request counts against a rate in the registry's own
+  database (`Limiter`, `MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then
+  overrides such as `registry_write=240/h:40`): reads per address, writes per token (or
+  address), site reports per token. A refused one is `429` with `Retry-After`, before its body
+  is read. Every answer carries the security headers, a CSP that loads nothing
+  (`default-src 'none'; frame-ancestors 'none'`), `Cache-Control: no-store`, and HSTS but on
+  this machine.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
 
@@ -56,7 +63,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -68,6 +75,8 @@ from mendari import __version__
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
+from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
+from mendari.core.rate_buckets import RateBuckets
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
@@ -80,6 +89,9 @@ from mendari.evals.share import (
     where,
 )
 from mendari.hub import archive, yank
+from mendari.server.app import HSTS, SECURITY_HEADERS
+from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
+from mendari.server.origin import is_local_host
 
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -94,7 +106,8 @@ UPLOADED = ("benchmark", "leaderboard", "card_markdown")
 MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
-SCHEMA = """
+SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS hub_namespaces (
     name            TEXT PRIMARY KEY,
     publisher_type  TEXT NOT NULL,
@@ -176,8 +189,10 @@ CREATE TABLE IF NOT EXISTS hub_deletions (
 CREATE TABLE IF NOT EXISTS hub_meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
-)
+);
 """
+    + RATE_SCHEMA
+)
 
 
 def _now() -> str:
@@ -257,7 +272,7 @@ def _pack_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
 
 
-class RegistryStore:
+class RegistryStore(RateBuckets):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
     ):
@@ -1210,6 +1225,58 @@ class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
 
+# The registry answers JSON and archives, never a page: its CSP loads nothing and no one frames
+# it. With the engine's own (`server/app.py` `SECURITY_HEADERS`).
+REGISTRY_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+REGISTRY_HEADERS = {
+    **SECURITY_HEADERS,
+    "Content-Security-Policy": REGISTRY_CSP,
+    "Cache-Control": "no-store",
+}
+REGISTRY_RATES: dict[str, Rate] = {
+    "registry_read": Rate(600, 60, 200),  # per address
+    "registry_write": Rate(120, 3600, 30),  # per token, or address without one
+    "registry_report": Rate(60, 3600, 10),  # a site's report, per token
+}
+_REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
+
+
+def registry_limit_settings() -> LimitSettings:
+    """From `MENDARI_REGISTRY_RATE_LIMITS`: a mode (`on` unless set, `log`, `off`), then
+    overrides of `REGISTRY_RATES` in the engine's syntax (`registry_read=1200/min:300`)."""
+    raw = os.environ.get("MENDARI_REGISTRY_RATE_LIMITS", "").strip()
+    mode, rates = "on", dict(REGISTRY_RATES)
+    for item in (part.strip() for part in raw.split(",") if part.strip()):
+        name, sep, value = item.partition("=")
+        if not sep and item.lower() in ("on", "log", "off"):
+            mode = item.lower()
+        elif sep and name.strip() in REGISTRY_RATES:
+            try:
+                rates[name.strip()] = parse_rate(value.strip(), name.strip())
+            except MendariError as error:
+                raise MendariError(
+                    str(error).replace("MENDARI_RATE_LIMITS", "MENDARI_REGISTRY_RATE_LIMITS")
+                ) from None
+        else:
+            raise MendariError(
+                "MENDARI_REGISTRY_RATE_LIMITS: a mode (on, log or off), then overrides of "
+                f"{', '.join(REGISTRY_RATES)} such as registry_write=240/h:40"
+            )
+    return LimitSettings(mode=cast(Literal["on", "log", "off"], mode), rates=rates)
+
+
+def _rate_class(request: Request) -> tuple[str, str]:
+    """A request's limit and its bucket's key: reads per address; writes and reports per token
+    (by its id), or per address when it has none."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return "registry_read", f"ip:{client_ip(request)}"
+    header = request.headers.get("authorization", "")
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+    key = f"token:{token_id(token)}" if token else f"ip:{client_ip(request)}"
+    kind = "registry_report" if _REPORTS.match(request.url.path) else "registry_write"
+    return kind, key
+
+
 def create_registry_app(
     target: str | Path, *, admin_token: str | None = None, migrate_url: str | None = None
 ) -> FastAPI:
@@ -1226,6 +1293,26 @@ def create_registry_app(
         store.close()  # the Postgres pool, closed with the app rather than by the collector
 
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan)
+    limiter = Limiter(store, registry_limit_settings())
+
+    @app.middleware("http")
+    async def _limits_and_headers(request: Request, call_next: Any) -> Response:
+        """The rate first (no body read, nothing stored for a refused request), then every
+        answer's headers, refusals and errors included."""
+        refused = limiter.hit(*_rate_class(request)) if limiter.on else None
+        if refused is not None:
+            response: Response = JSONResponse(
+                {"error": "RateLimited", "detail": f"too many requests ({refused.limit})"},
+                429,
+                headers={"Retry-After": str(refused.retry_after)},
+            )
+        else:
+            response = await call_next(request)
+        for name, value in REGISTRY_HEADERS.items():
+            response.headers[name] = value
+        if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
+            response.headers["Strict-Transport-Security"] = HSTS
+        return response
 
     @app.exception_handler(HubError)
     async def _hub_error(_: Request, error: HubError) -> JSONResponse:

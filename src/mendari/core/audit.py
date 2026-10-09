@@ -36,6 +36,7 @@ from mendari.core.evalset_keys import READ_ENV as EVALSET_READ_ENV
 from mendari.core.evalset_keys import EvalsetKeys, Kind
 from mendari.core.phi import GENERATE, LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
+from mendari.core.rate_buckets import RateBuckets
 from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
 from mendari.errors import (
@@ -865,7 +866,7 @@ def _supersede_earlier_ratings(db: _Session) -> None:
 # -- store ---------------------------------------------------------------------------------
 
 
-class AuditStore:
+class AuditStore(RateBuckets):
     def __init__(
         self,
         target: str | Path,
@@ -1616,54 +1617,7 @@ class AuditStore:
             )
         return {row["metric"]: int(row["count"]) for row in rows}
 
-    # -- rate limits (server/limits.py) -------------------------------------------------------
-    # GCRA on one row per bucket: `tat` is when the bucket would be empty again (ms since the
-    # epoch). A request is admitted when the bucket, with it, runs at most `tolerance` ahead of
-    # now; each admitted request moves `tat` one `interval` on. Not part of the audit chain:
-    # no lock but the row's own.
-
-    def rate_take(
-        self, bucket: str, interval: int, tolerance: int, now: int, cost: int = 1
-    ) -> int | None:
-        """Admit `cost` requests into `bucket` at once (None), or refuse them all without
-        counting any: the milliseconds until they would be admitted. One statement, atomic
-        across instances. More than the burst (`cost * interval > tolerance`) never fits, so
-        it is refused without touching the bucket."""
-        step = interval * cost
-        with self._db.session(exclusive=False) as db:
-            if step > tolerance:
-                row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
-                return _wait(row, step, tolerance, now)
-            admitted = db.one(
-                "INSERT INTO rate_limits (bucket, tat, expires_at) VALUES (?, ?, ?) "
-                f"ON CONFLICT (bucket) DO UPDATE SET tat = {_FROM} + ?, expires_at = {_FROM} + ? "
-                f"WHERE {_FROM} + ? - ? <= ? RETURNING tat",
-                (
-                    *(bucket, now + step, now + step),
-                    *(now, now, step),
-                    *(now, now, step),
-                    *(now, now, step, tolerance, now),
-                ),
-            )
-            if admitted is not None:
-                return None
-            row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
-        return _wait(row, step, tolerance, now)
-
-    def rate_peek(self, bucket: str, interval: int, tolerance: int, now: int) -> int | None:
-        """What `rate_take` would answer, without counting anything."""
-        with self._db.session(exclusive=False) as db:
-            row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
-        return _wait(row, interval, tolerance, now)
-
-    def rate_purge(self, now: int, batch: int) -> None:
-        """Delete up to `batch` buckets that are empty again (equivalent to no row)."""
-        with self._db.session(exclusive=False) as db:
-            db.all(
-                "DELETE FROM rate_limits WHERE bucket IN (SELECT bucket FROM rate_limits "
-                "WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)",
-                (now, batch),
-            )
+    # -- rate limits: `RateBuckets` (`core/rate_buckets.py`) ---------------------------------
 
     def usage(self, provider: str) -> int:
         day = clock.today().isoformat()
@@ -5462,17 +5416,6 @@ _SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
 
 
 # A bucket's start for the next request: its `tat`, or now if that has passed (GCRA's max).
-_FROM = "(CASE WHEN rate_limits.tat > ? THEN rate_limits.tat ELSE ? END)"
-
-
-def _wait(row: Mapping[str, Any] | None, interval: int, tolerance: int, now: int) -> int | None:
-    """Milliseconds until a bucket at `row` admits `interval` more (one request's worth, or
-    a weighted take's); None: it admits now."""
-    tat = max(int(row["tat"]), now) if row is not None else now
-    wait = tat + interval - tolerance - now
-    return wait if wait > 0 else None
-
-
 def _session_key(kind: str, value: str) -> str:
     """A session-table row's key: sha256(kind || 0x00 || value). Kinds are short lowercase names
     (never a NUL), so two (kind, value) pairs share a preimage only if they are equal."""
