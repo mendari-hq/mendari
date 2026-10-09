@@ -1287,10 +1287,20 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
     still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
     alerts, not a figure shown as checked).
-  - [ ] **18b** The registry's chain: every write appends a chained event (`hub_events`;
-    publish, report, namespace, publisher type, token, key), `mendari registry verify`; a
-    reviewer's review of a version (`POST …/review`, the admin token until LP-19's reviewers),
-    chained, shown in `checked.review`; `test_shipped.py`'s registry list emptied.
+  - [x] **18b** The registry's chain: every write appends a chained event in its transaction
+    (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
+    `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
+    SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
+    `pack.reviewed`), each naming who acted (`admin` or `token:<id>`); `mendari registry verify
+    --db` (read-only; exit 1 when broken) checks every hash and the order, and that every
+    namespace, key, token, version (with its published digest and archive), report and review
+    is named by its event, so a row written past the API is found; a registry with rows from
+    before the chain records them once (`registry.chain_started`). A review (`POST
+    …/{version}/review`, the admin token until LP-19's reviewers: the risk level found and a
+    one-line note) shows in `checked.review` (`reviewed`, the level, whether it matches) and
+    `claimed.risk.confirmed`; the newest is shown; the Hub says it in words, and `hub_seed.py
+    --hostile-example` records one that found a higher level. `test_shipped.py`: the registry's
+    seven writes chained, `NOT_CHAINED_YET` empty and its strict xfail gone.
   - [ ] **18c** Yank as a recall, and delete: a `mendari.yank/1` record with a reason and a
     severity, signed (by the namespace's key through `mendari yank`, or by the registry's
     `MENDARI_REGISTRY_SIGNING_KEY` for a recall the registry makes) and chained; a yanked

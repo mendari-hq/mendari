@@ -172,6 +172,14 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
+    # The registry's own chain (`hub_events`, LP-18b).
+    (REGISTRY, "POST", "/v1/namespaces"): ("namespace.created",),
+    (REGISTRY, "PATCH", "/v1/namespaces/{namespace}"): ("namespace.publisher_type_set",),
+    (REGISTRY, "POST", "/v1/namespaces/{namespace}/tokens"): ("token.issued",),
+    (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
+    (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): ("report.shared",),
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/review"): ("pack.reviewed",),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
     (ENGINE, "DELETE", "/api/governance/{approval_id}"): ("governance.revoked",),
     (ENGINE, "POST", "/api/holds"): ("automation.held",),
@@ -247,14 +255,7 @@ NOT_CHAINED: dict[Route, str] = {
     (PAYER, "POST", "/Claim/$submit"): "the sandbox's synthetic payer: no store, writes nothing",
 }
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).
-NOT_CHAINED_YET: dict[Route, str] = {
-    (REGISTRY, "POST", "/v1/namespaces"): "LP-19: chained claims",
-    (REGISTRY, "PATCH", "/v1/namespaces/{namespace}"): "LP-19: chained approvals",
-    (REGISTRY, "POST", "/v1/namespaces/{namespace}/tokens"): "LP-19: token ownership",
-    (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): "LP-19",
-    (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): "LP-18: chained publish",
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): "LP-18",
-}
+NOT_CHAINED_YET: dict[Route, str] = {}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -298,8 +299,10 @@ def _recorded_events() -> set[str]:
     recorded: set[str] = set()
     for path in (ROOT / "src" / "mendari").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                position = {"_append": 2, "_append_many": 1, "record_event": 1}.get(node.func.attr)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute | ast.Name):
+                # A store's method, or the registry's own `record_event` (`hub/registry.py`).
+                called = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+                position = {"_append": 2, "_append_many": 1, "record_event": 1}.get(called)
                 if position is not None and len(node.args) > position:
                     event = node.args[position]
                     if isinstance(event, ast.Constant):
@@ -322,10 +325,6 @@ def test_the_inventory_names_events_the_code_chains() -> None:
         assert set(events) <= recorded, route
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="LP-18 and LP-19 chain the registry's writes (S6.coverage)",
-)
 def test_every_write_appends_a_chained_event() -> None:
     assert NOT_CHAINED_YET == {}
 

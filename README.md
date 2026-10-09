@@ -764,7 +764,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   never shows the card, benchmark or leaderboard a publisher uploads (they stay in the signed
   archive, unread). Every version answers two groups: `checked` (the signing key, the archive's
   SHA-256, the digest, the engine, the card rendered here, the review status) and `claimed`
-  (the publisher, the risk level it declares, the licence and summary).
+  (the publisher, the risk level it declares, the licence and summary). Every registry write
+  is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
+  namespace, key, token, version, report and review is named by its event), and a registry
+  reviewer's review records the risk level it found beside the one the publisher declared.
 - **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.

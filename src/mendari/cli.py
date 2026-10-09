@@ -1430,6 +1430,21 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_verify(args: argparse.Namespace) -> int:
+    """Check the registry's chain, read-only: every event's hash and order, and every row it
+    covers named by its event (exit 1 if not)."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(args.db, read_only=True) as store:
+        result = store.verify()
+    if result["ok"]:
+        print(f"registry chain verified: {result['events']} events")
+        return 0
+    where = f" at event {result['seq']}" if result["seq"] is not None else ""
+    print(f"registry chain broken{where}: {result['problem']}", file=sys.stderr)
+    return 1
+
+
 def _registry_client(args: argparse.Namespace) -> Any:
     from mendari.hub.client import RegistryClient, default_registry
 
@@ -2640,6 +2655,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve_registry.add_argument("--host", default="127.0.0.1")
     serve_registry.add_argument("--port", type=_port, default=8100)
     serve_registry.set_defaults(handler=cmd_registry_serve)
+    verify_registry = registry_cmd.add_parser(
+        "verify", help="check the registry's chain of events, read-only"
+    )
+    verify_registry.add_argument(
+        "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
+    )
+    verify_registry.set_defaults(handler=cmd_registry_verify)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
     monitor_cmd.add_argument(

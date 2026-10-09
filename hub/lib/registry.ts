@@ -16,14 +16,17 @@ export type Checked = {
   engine_release?: string | null; // the registry's release whose reference packs chose the engine
   card: "rendered" | "not_rendered";
   status_label: string | null;
-  review: { status: string };
+  // The newest review of this version by the registry's reviewers, if any.
+  review:
+    | { status: "unreviewed" }
+    | { status: "reviewed"; risk_level: number; matches_declared: boolean; reviewer: string; reviewed_at: string; note: string };
   publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
 };
 
 // What the publisher says about the pack, unchecked.
 export type Claimed = {
   publisher: { name: string; type: string } | null;
-  risk: { level: number; category: string; declared_by: "publisher" };
+  risk: { level: number; category: string; declared_by: "publisher"; confirmed?: boolean | null };
   license: string | null;
   summary: string | null;
 };
@@ -116,6 +119,21 @@ export const ENGINE_WORDS: Record<string, string> = {
   maintained: "The maintained engine: a copy of a reference pack of the registry's own release",
 };
 
-export const REVIEW_WORDS: Record<string, string> = {
-  unreviewed: "Not reviewed by the registry: the risk level is the publisher's own",
-};
+// What the registry's review says of a version, in a sentence.
+export function reviewWords(review: Checked["review"], declared: number): string {
+  if (review.status !== "reviewed") return "Not reviewed by the registry: the risk level is the publisher's own";
+  const day = review.reviewed_at.slice(0, 10);
+  const found = review.matches_declared
+    ? `risk level ${review.risk_level} confirmed`
+    : `risk level ${review.risk_level} found, where the publisher declared ${declared}`;
+  return `Reviewed by the registry on ${day}: ${found}${review.note ? `. ${review.note}` : ""}`;
+}
+
+// The declared risk level, with what a review found of it.
+export function riskWords(risk: Claimed["risk"], review: Checked["review"]): string {
+  if (risk.confirmed === true) return "declared by the publisher, confirmed by the registry's review";
+  if (risk.confirmed === false && review.status === "reviewed") {
+    return `declared by the publisher; the registry's review found level ${review.risk_level}`;
+  }
+  return "declared by the publisher, not confirmed by a review";
+}
