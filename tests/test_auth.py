@@ -461,8 +461,14 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
         "evaluate",
         "admin",
         "keys",
+        "curate",
     },
+    # Hidden evaluation sets (LP-11): a labeller labels (a person, memberships mode only); a
+    # grading key grades (the operator's, never a person's).
+    "labeller": {"label"},
+    "grading": {"grade"},
 }
+PEOPLE_ONLY = {"keys", "curate", "label"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {
@@ -529,6 +535,8 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
         return 401, INVALID
     if kind.startswith("ehr"):
         level, _, person = role.partition("/")
+        if kind == "ehr+user" and person not in auth_module.ROLES:
+            return expected("ehr", level, scope, method, path)  # the session gives nothing
         if path.startswith("/api/smart/"):
             if permission in EHR_PERMISSIONS[level]:
                 return 200, ""
@@ -540,7 +548,16 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
         return expected("anonymous", "", None, method, path)  # a session is no launch there
     if kind == "anonymous":
         return (302, "") if permission == "page" else (401, REALM)
-    allowed = ROLE_PERMISSIONS[role] - (set() if kind == "user" else {"keys"})
+    if kind == "user" and role not in auth_module.ROLES:
+        # Claims mode: a reserved role never comes from a claim, and a person whose claims map
+        # to no role is not signed in (`roles_from`).
+        return expected("anonymous", "", None, method, path)
+    if kind == "user":
+        allowed = ROLE_PERMISSIONS[role] - {"grade"}
+    elif role == "grading":
+        allowed = {"grade"} if scope is None else set()  # only an unscoped grading key grades
+    else:
+        allowed = ROLE_PERMISSIONS[role] - PEOPLE_ONLY - {"grade"}
     if permission != "page" and permission not in allowed:
         return 403, f'{REALM}, error="insufficient_scope"'
     if scope is not None:
@@ -633,6 +650,8 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         if role in MACHINE_ROLES:
             made = store.create_api_key(name=role, role=role, org="default", created_by="t")
             secret = made["key"]
+        elif role == "grading":  # the operator's, from the command line (LP-11)
+            secret = store.create_grading_key(org="default", created_by="t", reason="matrix")["key"]
         else:
             secret = legacy_key(tmp_path / "matrix.db", role)
         principals.append(("key", role, None, {"authorization": f"Bearer {secret}"}))
@@ -1246,7 +1265,7 @@ def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp:
 def test_new_keys_are_for_machines_only(app: TestClient, idp: FakeIdp) -> None:
     """Review and approval are a person's: a key is a viewer or a service."""
     sign_in(app, idp, roles=["admin"])
-    for role in ("reviewer", "governance", "admin"):
+    for role in ("reviewer", "governance", "admin", "grading", "labeller"):
         refused = app.post("/api/auth/keys", json={"name": "x", "role": role})
         assert refused.status_code == 422, role
         assert refused.json()["detail"][0]["loc"] == ["body", "role"]

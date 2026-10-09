@@ -6,7 +6,10 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file;
 - 11b, rater agreement (percent agreement, Cohen's kappa per pair, Krippendorff's alpha, with
   seeded bootstrap intervals), pure;
-- 11c, the evaluation-set keys and sealing (`core/evalset_keys.py`), nothing stored yet.
+- 11c, the evaluation-set keys and sealing (`core/evalset_keys.py`), nothing stored yet;
+- 11d, the permissions: `label` (the `labeller` role, memberships mode), `curate` (people;
+  administrators), and `grade`, held only by a grading key the operator mints; no route needs
+  them yet.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

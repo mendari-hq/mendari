@@ -946,8 +946,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     key and is bound to its kind, set, case and label; case and index hashes are keyed by the
     index key. The PHI policy's sealing moved into `phi.seal_with` and `phi.open_with` with its
     bytes unchanged (tokens sealed before still open). Health shows the key ids to readers.
-  - [ ] **11d** Permissions: `label` (the `labeller` role, memberships mode), `curate`
-    (people), and a machine-only grading key minted by `mendari access grader-key`.
+  - [ ] **11d** (#223; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
+    `label` (the `labeller` role, memberships mode only; a label-only member sees a page saying
+    so), `curate` (people; administrators, who hold neither `label` nor `grade`), and `grade`,
+    held only by a grading key the operator mints (`mendari access grader-key`, at most 365
+    days, chained; listed and revoked, never rotated; refused over HTTP); open mode holds none
+    of the three. ADR-0004 and ADR-0008 amended; threat model E2 and E11.
   - [ ] **11e** Store I: sealed sets and cases, the hidden-case index, `audit verify --evalsets`
     (the operator's command line only).
   - [ ] **11f** Key lifecycle: rotation with its check, reindexing, the sealed export.

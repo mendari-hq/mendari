@@ -4,7 +4,10 @@
 Proposed (2026-10-07). Built (LP-12, 12a to 12k, 2026-10-08), each default below as
 `tasks/todo.md` records it; accepted once the owner's decisions listed there (the hosted site's
 switch to memberships mode among them) confirm or change those defaults. Gate G2-3's
-prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it.
+prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. Amended by
+[ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
+`labeller` grants `label` on a membership (memberships mode only; claims mode knows no such
+role); `pack_author` still grants nothing.
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in

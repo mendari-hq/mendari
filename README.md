@@ -829,7 +829,12 @@ Every route has a permission, and anything unlisted needs admin:
 | reviewer | also decide (Try it), resolve reviews, record outcomes, give feedback |
 | service | an integration: read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys, clients, members and invitations |
+| admin | everything else: evaluations, exports, chain verification; with a signed-in person, API keys, clients, members and invitations, and hidden evaluation sets (`curate`), but neither labels nor grades them |
+| labeller | (memberships mode, a person) label the cases of hidden evaluation sets, and nothing else |
+
+A hidden evaluation set is graded only with the organization's grading key, which only the
+operator makes (`mendari access grader-key`): no person, administrator or other key may grade
+(LP-11, [ADR-0011](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0011-hidden-evaluation-sets.md)).
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

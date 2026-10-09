@@ -1,7 +1,11 @@
 # ADR-0004: Machines get scoped keys or short-lived SMART tokens; one scope language for both
 
 ## Status
-Accepted (Phase 4 of the FHIR work, 2026-10-02)
+Accepted (Phase 4 of the FHIR work, 2026-10-02). Amended by
+[ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): one key of a role outside
+the machine roles exists, an organization's grading key, which only the operator mints from the
+command line (`mendari access grader-key`); it holds `grade` and nothing else, no HTTP route
+makes one, and an administrator may list and revoke it, never rotate it.
 
 ## Context
 People sign in with the organization's identity provider (OIDC). Machines used API keys that

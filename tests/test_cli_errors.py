@@ -89,6 +89,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
         {},
     ),
     "access members": (["--org", "a", "--db", "{missing_db}"], {}),
+    "access grader-key": (["--org", "clinic-a", "--reason", "x", "--db", "{not_db}"], {}),
     "access requests": (["--db", "{not_db}"], {}),
     "access check": (["--db", "{missing_db}"], {}),
     "access keys": (["--db", "{missing_db}"], {}),

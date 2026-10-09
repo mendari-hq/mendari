@@ -147,7 +147,7 @@ def test_a_person_holding_memberships_chooses_one(page: Page, held: list[dict[st
 
 
 def test_roles_that_grant_nothing_are_said(page: Page) -> None:
-    held = [{"org": "clinic-b", "name": "Clinic B", "roles": ["labeller"]}]
+    held = [{"org": "clinic-b", "name": "Clinic B", "roles": ["pack_author"]}]
     member_of(page, held, "clinic-b", [])
     page.goto("/")
     expect(page.locator("main h1")).to_have_text("Nothing to do here yet")
@@ -156,10 +156,26 @@ def test_roles_that_grant_nothing_are_said(page: Page) -> None:
     expect(page.locator("#org-form")).to_be_hidden()  # nowhere else to go
 
 
+def test_a_member_who_only_labels_is_told_so_and_the_page_asks_for_nothing_else(
+    page: Page,
+) -> None:
+    """LP-11: a labeller and nothing else holds `label` only: no packs, no notice, no review
+    queue; told what they do, and the page reads nothing but who they are and health."""
+    held = [{"org": "clinic-b", "name": "Clinic B", "roles": ["labeller"]}]
+    seen = pins(page)
+    member_of(page, held, "clinic-b", ["labeller"])
+    page.goto("/")
+    expect(page.locator("main h1")).to_have_text("Nothing to do here yet")
+    expect(page.locator("main")).to_contain_text("You label cases for hidden evaluation sets")
+    for section in ("overview", "review", "try"):
+        expect(page.locator(f'.nav a[data-view="{section}"]')).to_be_hidden()
+    assert {path for _, path, _ in seen} <= {"/api/health"}
+
+
 def test_roles_that_grant_nothing_still_offer_the_persons_other_organizations(
     page: Page,
 ) -> None:
-    held = [{**CLINICS[0], "roles": ["labeller"]}, CLINICS[1]]
+    held = [{**CLINICS[0], "roles": ["pack_author"]}, CLINICS[1]]
     asked = member_of(page, held, "default", [])
     page.goto("/")
     expect(page.locator("main h1")).to_have_text("Nothing to do here yet")
@@ -311,7 +327,7 @@ def test_a_launch_alongside_no_chosen_organization_offers_both(page: Page) -> No
 
 
 @pytest.mark.parametrize(
-    "held", [[], [{**CLINICS[1], "roles": ["labeller"]}]], ids=["none", "nothing"]
+    "held", [[], [{**CLINICS[1], "roles": ["pack_author"]}]], ids=["none", "nothing"]
 )
 def test_a_launch_alongside_no_access_shows_the_launch(
     page: Page, held: list[dict[str, Any]]

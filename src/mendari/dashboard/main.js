@@ -50,6 +50,9 @@ async function boot() {
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
+    // A labeller and nothing else (LP-11): no packs to list, no notice, no review queue; the
+    // labelling screen comes with the routes it reads.
+    else if (me.principal.permissions.every((p) => p === "label")) state.noAccess = "label";
   }
   if (me?.signed_in && !state.noAccess) await acknowledgeNotice();
   state.smart = session?.active ? session : null;

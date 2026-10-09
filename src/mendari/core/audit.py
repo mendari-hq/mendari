@@ -515,6 +515,8 @@ _ADDED_COLUMNS = (
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
 # the release that brought expiry.
 MACHINE_ROLES = ("viewer", "service")
+# A grading key's role (LP-11): minted only by `create_grading_key`, never one of MACHINE_ROLES.
+GRADING_ROLE = "grading"
 KEY_DAYS = 90
 KEY_MAX_DAYS = 365
 # A rotated key keeps working this many hours (24 unless asked, a week at most), then expires.
@@ -2889,10 +2891,16 @@ class AuditStore:
         days: int,
         replaces: str | None = None,
         preset: str | None = None,
+        reason: str | None = None,
+        grading: bool = False,
     ) -> dict[str, Any]:
         """Store a new key (hashed) and chain `key.created` (with `replaces` for a rotation's,
-        `preset` for one made from a preset); the key with its secret, which is nowhere else."""
-        if role not in MACHINE_ROLES:
+        `preset` for one made from a preset, `reason` for the operator's); the key with its
+        secret, which is nowhere else. Role `grading` only through `create_grading_key`."""
+        if grading:
+            if role != GRADING_ROLE or scopes is not None or replaces or preset:
+                raise ValueError("a grading key is unscoped, of role grading, and new")
+        elif role not in MACHINE_ROLES:
             raise ValueError(f"a key's role is one of {MACHINE_ROLES}")
         if not 1 <= days <= KEY_MAX_DAYS:
             raise ValueError(f"a key lives 1 to {KEY_MAX_DAYS} days")
@@ -2908,6 +2916,7 @@ class AuditStore:
             "expires_at": _later(timedelta(days=days)),
             **({"replaces": replaces} if replaces else {}),
             **({"preset": preset} if preset else {}),
+            **({"reason": reason} if reason else {}),
         }
         db.all(
             "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
@@ -2927,6 +2936,31 @@ class AuditStore:
         )
         self._append(db, f"key:{key['id']}", "key.created", key)
         return {**key, "key": secret}
+
+    def create_grading_key(
+        self, *, org: str, created_by: str, reason: str, days: int = KEY_MAX_DAYS
+    ) -> dict[str, Any]:
+        """The organization's grading key (LP-11, ADR-0011): an API key of role `grading`,
+        unscoped, that holds `grade` and nothing else, the only credential that may read a
+        hidden evaluation set to grade against it (in the server, aggregates only). Minted by
+        the operator's command line only (`mendari access grader-key`), never over HTTP; at most
+        `KEY_MAX_DAYS` days; chained (`key.created`, with the role, the organization and why).
+        Administrators may list and revoke it, never rotate it (`rotate_api_key` refuses a role
+        outside `MACHINE_ROLES`)."""
+        why = break_glass_reason(reason)
+        accounts.check_org_id(org)
+        with self._db.session(exclusive=True) as db:
+            return self._insert_key(
+                db,
+                name="grading",
+                role=GRADING_ROLE,
+                org=org,
+                created_by=created_by,
+                scopes=None,
+                days=days,
+                reason=why,
+                grading=True,
+            )
 
     def rotate_api_key(
         self,
@@ -2967,6 +3001,12 @@ class AuditStore:
                 raise AuthError("this key is revoked: create a new one", 409)
             if not row["expires_at"] or row["expires_at"] <= now:
                 raise AuthError("this key has expired: create a new one", 409)
+            if row["role"] == GRADING_ROLE:
+                raise AuthError(
+                    "a grading key is not rotated: the operator makes a new one (mendari access "
+                    "grader-key), then this one is revoked",
+                    409,
+                )
             if row["role"] not in MACHINE_ROLES:
                 raise AuthError(
                     f"this key's role, {row['role']}, is not one a key holds now: create a new one",
