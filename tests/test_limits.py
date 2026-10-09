@@ -43,6 +43,8 @@ from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
     ROOT,
     encrypt_mode,
+    evalset_on,
+    evalsets_are_on,
     hosted,
     launched,
     message,
@@ -594,8 +596,10 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
 ) -> None:
     """Every route the app serves (Backend Services on): the class it counts against, from its
     permission and path, and with the default limits on, one call of each as an admin (the
-    route matrix's other half: limits never change who may call what) is never a 429."""
+    route matrix's other half: limits never change who may call what) is never a 429. Hidden
+    evaluation sets are on, so the routes they mount are classified too (LP-11g)."""
     backend_on(monkeypatch)
+    evalset_on(monkeypatch)
     client, _ = signing_in(tmp_path, monkeypatch, "on")
     limiter = Limiter(AuditStore(tmp_path / "classes.db"), limit_settings(sign_in=True))
     routes = sorted(
@@ -608,6 +612,7 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
     assert {r: c for r, c in classes.items() if c is not None} == EXPECTED_CLASSES
     admin = person(str(tmp_path / "signin.db"))
+    evalsets_are_on(client, admin)
     for method, path in routes:
         url = re.sub(r"\{[^}]+\}", "x", path)
         answer = client.request(method, url, headers=admin, follow_redirects=False)

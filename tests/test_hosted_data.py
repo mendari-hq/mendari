@@ -44,6 +44,8 @@ from tests.conftest import (
     PHI_KEY,
     ROOT,
     encrypt_mode,
+    evalset_on,
+    evalsets_are_on,
     hosted,
     message,
     security_lines,
@@ -507,7 +509,8 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     key's roles, and an EHR launch reads none of these), under `encrypt` with sign-in on, over
     decisions recorded under `off` before the switch, one sealed before 2026-10-02 (evidence and
     a resource's id in its record) and one sealed now, with notes. Each read a reader is shown is
-    chained and logged."""
+    chained and logged. Hidden evaluation sets are on, so the routes they mount are swept too
+    (LP-11g)."""
     before = AuditStore(db_target, phi=policy("off"))
     message_off = Decision(inbox_pack, store=before)(message(f"Crushing chest pain, {INPUT_MARK}"))
     before.record_feedback(message_off.id, rating="down", reporter="rn-2", note=NOTE_MARK)
@@ -524,12 +527,14 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
 
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
+    evalset_on(monkeypatch)
     app = create_app(db_path=db_target)
     client = TestClient(app, base_url="https://mendari.test")
     who: dict[str, dict[str, str]] = {
         f"person:{role}": signed_in(store, role=role)
         for role in ("viewer", "governance", "reviewer", "admin")
     }
+    evalsets_are_on(client, who["person:viewer"])
     keys: dict[str, dict[str, Any]] = {}
     for role in ("viewer", "service"):
         key = store.create_api_key(name=f"k-{role}", role=role, org="default", created_by="t")

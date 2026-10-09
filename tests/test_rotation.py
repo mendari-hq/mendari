@@ -37,6 +37,8 @@ from tests.conftest import (
     HASH_KEY_B64,
     INPUT_HASH_KEY,
     encrypt_mode,
+    evalset_on,
+    evalsets_are_on,
     message,
     security_lines,
     signed_in,
@@ -582,6 +584,7 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")  # clients' routes too
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    evalset_on(monkeypatch)  # and the routes hidden evaluation sets mount (LP-11g, conflict 37)
     app = create_app(db_path=tmp_path / "a.db")
     minting = sorted(
         path
@@ -593,6 +596,7 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
     client = TestClient(app, base_url="https://mendari.test")
     store = AuditStore(tmp_path / "a.db")
     admin = signed_in(store, role="admin")
+    evalsets_are_on(client, admin)
     key = store.create_api_key(name="k", role="viewer", org="default", created_by="a")
     registered = store.register_client(
         name="c", role="viewer", org="default", created_by="a", scopes="system/*.rs",

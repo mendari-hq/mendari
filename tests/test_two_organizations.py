@@ -3,7 +3,8 @@
 
 Two organizations on one deployment, each with every kind of principal (people of each role,
 API keys, Backend Services clients, an EHR launch), seed data through the API, with a marker in
-every free-text field (`zqalpha`, `zqbravo`). Then each calls every mounted route:
+every free-text field (`zqalpha`, `zqbravo`), and a hidden evaluation set of its own (LP-11g:
+the feature on, so the routes it mounts are called too). Then each calls every mounted route:
 
 - **with the other's live ids** (phase 1): refused as an unknown id is, nothing written;
 - **with its own** (phase 2): served, destructive calls last, on spare ids.
@@ -43,7 +44,9 @@ from mendari.core.audit import (
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
+from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.evalsets import EvalsetStore
+from mendari.core.registry import resolve_pack
 from mendari.server import presets, smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
 from mendari.server.app import create_app
@@ -51,7 +54,16 @@ from mendari.server.auth import person_id
 from mendari.server.backend_services import ASSERTION_TYPE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.search import encode_cursor
-from tests.conftest import calm_jev, encrypt_mode, member, message, signed_in
+from tests.conftest import (
+    calm_jev,
+    encrypt_mode,
+    evalset_on,
+    evalsets_are_on,
+    hand_written,
+    member,
+    message,
+    signed_in,
+)
 from tests.test_ai_guard_pack import SAFE
 from tests.test_backend_services import Signer, assertion, bearer
 from tests.test_davinci import COMPLETE, PA, package_request, request
@@ -461,6 +473,8 @@ def world(
         )
         for org in ORGS
     }
+    # Hidden evaluation sets on (LP-11g), so the routes they mount are called here too.
+    keys = EvalsetKeys(*evalset_on(monkeypatch))
     # Providers that automate the inbox (a calm Jev), so a hold's effect shows; each hold set
     # here clears the server's look-up of holds at once.
     app = create_app(db_path=db_target, providers=calm_jev(monkeypatch))
@@ -470,6 +484,8 @@ def world(
         with probing(world, monkeypatch):
             for org in orgs.values():
                 seed(world, org)
+                hidden_set(world, org, keys)
+            evalsets_are_on(orgs[ORGS[0]].people["admin"], {})
             yield world
 
 
@@ -737,6 +753,22 @@ def seed_people(world: World, org: Org) -> None:
         org, admin, ("GET", "/api/auth/access-requests"), "/api/auth/access-requests", expect=200
     ).json():
         org.made("request", found["id"])
+
+
+def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
+    """A draft hidden evaluation set of `org`'s, as the key holder makes one on the command line
+    (LP-11e), its case's text and author carrying `org`'s marker: the set's id, the case's id
+    and its keyed hash are `org`'s, which the other never sees."""
+    m = org.marker
+    hidden = EvalsetStore(world.store, keys)
+    made = hidden.create_set(org.name, resolve_pack(INBOX), f"set {m}", created_by="operator")
+    set_id = org.made("evalset", made["set"])
+    case = hand_written(f"A sore wrist since Sunday {m}", author=f"author {m}")
+    for added in hidden.add_cases(set_id, [case])["cases"]:
+        org.made("evalset case", added["case"])
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
+            org.made("evalset case", row["id"])
 
 
 def token_form(signer: Signer, client_id: str, scope: str = "system/*.rs") -> dict[str, str]:

@@ -14,7 +14,7 @@ from mendari.core.registry import SearchPath
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.backend_services import DISCOVERY_PATH
 from mendari.standards import capability, search
-from tests.conftest import encrypt_mode
+from tests.conftest import encrypt_mode, encrypted_store, evalset_on, evalsets_are_on, signed_in
 
 
 @pytest.fixture
@@ -39,14 +39,21 @@ NOT_ADVERTISED = {("GET", "/fhir/metadata"), ("GET", DISCOVERY_PATH)}
 def test_every_fhir_route_is_advertised_and_everything_advertised_is_mounted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend_services: bool
 ) -> None:
-    """Both ways, so the statement can neither claim a missing route nor forget a new one."""
+    """Both ways, so the statement can neither claim a missing route nor forget a new one. With
+    sign-in on, hidden evaluation sets are on too, so any FHIR route they mount is counted
+    (LP-11g, conflict 37)."""
     if backend_services:
         monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
         monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
         encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
         monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
         monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+        evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
+    if backend_services:
+        with encrypted_store(tmp_path / "routes.db") as served:
+            reader = signed_in(served, role="viewer")
+        evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
     mounted = {(m, p) for m, p in mounted_routes(app) if p.startswith("/fhir/")}
     assert (("GET", DISCOVERY_PATH) in mounted) is backend_services
     registry = {(c.method, c.path) for c in capability.CAPABILITIES}
