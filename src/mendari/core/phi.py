@@ -43,6 +43,7 @@ import json
 import os
 import re
 import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -131,27 +132,41 @@ class PhiPolicy:
         return tuple(k for k in (self.key, *self.read_keys) if k)
 
     def _seal(self, aad: bytes, value: Any) -> str:
-        nonce = secrets.token_bytes(12)  # fresh for every seal, re-seals included
-        plain = _canonical(value).encode()
-        sealed = base64.b64encode(nonce + AESGCM(self.key).encrypt(nonce, plain, aad)).decode()
-        return f"v2:{key_id(self.key)}:{sealed}" if self.tag_tokens else sealed
+        return seal_with(self.key, aad, value, tag=self.tag_tokens)
 
     def _open(self, aad: bytes, token: str, what: str) -> tuple[Any, str]:
-        named, raw = _parse(token, what)
-        ring = self._ring()
-        keys = ring if named is None else tuple(k for k in ring if key_id(k) == named)
-        if named is not None and not keys:
-            raise MendariError(f"{what} is sealed under key {named}, which this deployment lacks")
-        for key in keys:
-            try:
-                plain = AESGCM(key).decrypt(raw[:12], raw[12:], aad)
-            except InvalidTag:
-                continue
-            try:
-                return json.loads(plain), key_id(key)
-            except ValueError:
-                raise MendariError(f"{what} is not a stored value") from None
-        raise MendariError(f"{what} does not decrypt with this deployment's keys")
+        return open_with(self._ring(), aad, token, what)
+
+
+def seal_with(key: bytes, aad: bytes, value: Any, *, tag: bool = True) -> str:
+    """`value` (as canonical JSON) sealed with AES-256-GCM under `key`, bound to `aad`: a fresh
+    nonce for every seal, re-seals included; `v2:<key id>:<base64>`, or plain base64 (`tag`
+    False: a PHI token before the database's first rotation). Shared by the PHI policy and the
+    evaluation-set keys (`core/evalset_keys.py`), which each bind their own associated data."""
+    nonce = secrets.token_bytes(12)
+    plain = _canonical(value).encode()
+    sealed = base64.b64encode(nonce + AESGCM(key).encrypt(nonce, plain, aad)).decode()
+    return f"v2:{key_id(key)}:{sealed}" if tag else sealed
+
+
+def open_with(ring: Sequence[bytes], aad: bytes, token: str, what: str) -> tuple[Any, str]:
+    """A token `seal_with` made, opened with the key of `ring` it names (every key of the ring
+    for a token sealed before key ids): the value, and the id of the key that opened it. A
+    `MendariError` names `what`, never the token or a key."""
+    named, raw = parse_token(token, what)
+    keys = ring if named is None else tuple(k for k in ring if key_id(k) == named)
+    if named is not None and not keys:
+        raise MendariError(f"{what} is sealed under key {named}, which this deployment lacks")
+    for key in keys:
+        try:
+            plain = AESGCM(key).decrypt(raw[:12], raw[12:], aad)
+        except InvalidTag:
+            continue
+        try:
+            return json.loads(plain), key_id(key)
+        except ValueError:
+            raise MendariError(f"{what} is not a stored value") from None
+    raise MendariError(f"{what} does not decrypt with this deployment's keys")
 
 
 # A note's associated data: its kind, then its id and its decision's, NUL-separated (ids never
@@ -161,7 +176,8 @@ NOTE_AAD = b"mendari-note-v1\x00"
 DETAILS_AAD = b"mendari-details-v1\x00"
 # What the input hash's HMAC covers before the input, so the hash key signs nothing else alike.
 INPUT_HASH_PREFIX = b"mendari-input-v1\x00"
-_GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`'
+GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`'
+_GENERATE = GENERATE
 
 
 # What a sealed token is, and nothing else: `v2:<16 hex>:` then strict base64, or (sealed before
@@ -183,7 +199,7 @@ def token_key(token: str) -> str:
     """The key id a token names, `legacy` for one sealed before key ids, `invalid` for a value
     that is no sealed token. Reads the token's prefix only: nothing is opened."""
     try:
-        named, _ = _parse(token, "a token")
+        named, _ = parse_token(token, "a token")
     except MendariError:
         return "invalid"
     return LEGACY if named is None else named
@@ -202,7 +218,7 @@ def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
     return _note_aad(note_id, decision_id)
 
 
-def _parse(token: str, what: str) -> tuple[str | None, bytes]:
+def parse_token(token: str, what: str) -> tuple[str | None, bytes]:
     """A token's key id (None: sealed before key ids) and its nonce and ciphertext."""
     named = _V2.match(token)
     body = token[named.end() :] if named else token
@@ -310,14 +326,26 @@ def phi_policy() -> PhiPolicy:
 
 
 def _read_keys(listed: str, key: bytes, hash_key: bytes) -> tuple[bytes, ...]:
-    """$MENDARI_PHI_READ_KEYS, comma-separated: each 32 random bytes in base64, unlike the current
-    key, the input hash key and each other; at most `READ_KEYS_MAX`. A problem names the entry's
-    position, never its value."""
+    """$MENDARI_PHI_READ_KEYS (`read_key_ring`): unlike the current key and the input hash key."""
+    return read_key_ring(
+        "MENDARI_PHI_READ_KEYS",
+        listed,
+        (key, hash_key),
+        "the current PHI key or the input hash key",
+    )
+
+
+def read_key_ring(
+    variable: str, listed: str, against: Sequence[bytes], against_text: str
+) -> tuple[bytes, ...]:
+    """A read-key ring (`variable`, comma-separated): each 32 random bytes in base64, unlike
+    each key of `against` (`against_text` names them) and each other; at most `READ_KEYS_MAX`.
+    A problem names the entry's position, never its value."""
     if not listed:
         return ()
     entries = [entry.strip() for entry in listed.split(",")]
     if len(entries) > READ_KEYS_MAX:
-        raise MendariError(f"MENDARI_PHI_READ_KEYS holds at most {READ_KEYS_MAX} keys")
+        raise MendariError(f"{variable} holds at most {READ_KEYS_MAX} keys")
     keys: list[bytes] = []
     for position, entry in enumerate(entries, start=1):
         try:
@@ -325,15 +353,10 @@ def _read_keys(listed: str, key: bytes, hash_key: bytes) -> tuple[bytes, ...]:
         except (binascii.Error, ValueError):
             read = b""
         if len(read) != 32:
-            raise MendariError(
-                f"MENDARI_PHI_READ_KEYS entry {position} must be 32 random bytes, base64"
-            )
-        if hmac.compare_digest(read, key) or hmac.compare_digest(read, hash_key):
-            raise MendariError(
-                f"MENDARI_PHI_READ_KEYS entry {position} is the current PHI key or the input "
-                "hash key"
-            )
+            raise MendariError(f"{variable} entry {position} must be 32 random bytes, base64")
+        if any(hmac.compare_digest(read, other) for other in against if other):
+            raise MendariError(f"{variable} entry {position} is {against_text}")
         if any(hmac.compare_digest(read, other) for other in keys):
-            raise MendariError(f"MENDARI_PHI_READ_KEYS entry {position} repeats an earlier one")
+            raise MendariError(f"{variable} entry {position} repeats an earlier one")
         keys.append(read)
     return tuple(keys)

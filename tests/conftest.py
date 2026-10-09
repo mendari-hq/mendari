@@ -52,7 +52,7 @@ LIVE_SETTINGS = (
     "MENDARI_ALERT_WEBHOOK", "MENDARI_ALERT_SECRET", "MENDARI_ALERT_FORMAT",
     "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
-    "CRON_SECRET",
+    "CRON_SECRET", "MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY",
 )  # fmt: skip
 for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:
     os.environ.pop(_name, None)
@@ -141,6 +141,14 @@ def _phi_mode_chosen(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("CRON_SECRET", raising=False)
     monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_evalset_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hidden evaluation sets are off unless a test turns them on (`evalset_on`): no key from
+    the developer's shell reaches a test (LP-11)."""
+    for name in ("MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -379,6 +387,16 @@ def encrypt_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+
+
+def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
+    """Hidden evaluation sets on, with throwaway keys made for this test: (the key, the index
+    key)."""
+    key, index = secrets.token_bytes(32), secrets.token_bytes(32)
+    monkeypatch.setenv("MENDARI_EVALSET_KEY", base64.b64encode(key).decode())
+    monkeypatch.setenv("MENDARI_EVALSET_INDEX_KEY", base64.b64encode(index).decode())
+    monkeypatch.delenv("MENDARI_EVALSET_READ_KEYS", raising=False)
+    return key, index
 
 
 def encrypted_store(target: str | Path) -> AuditStore:

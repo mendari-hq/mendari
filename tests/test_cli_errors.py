@@ -33,7 +33,15 @@ def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Paths for broken inputs, and a home the commands cannot write outside of."""
     for name in ("HOME", "MENDARI_CONFIG_DIR", "MENDARI_CACHE_DIR"):
         monkeypatch.setenv(name, str(tmp_path / "home"))
-    for name in ("DATABASE_URL", "MENDARI_PROVIDERS", "MENDARI_DEBUG", "MENDARI_REGISTRY_URL"):
+    for name in (
+        "DATABASE_URL",
+        "MENDARI_PROVIDERS",
+        "MENDARI_DEBUG",
+        "MENDARI_REGISTRY_URL",
+        "MENDARI_EVALSET_KEY",
+        "MENDARI_EVALSET_READ_KEYS",
+        "MENDARI_EVALSET_INDEX_KEY",
+    ):
         monkeypatch.delenv(name, raising=False)
     not_a_database = tmp_path / "not-a-database"
     not_a_database.write_text("hello")
