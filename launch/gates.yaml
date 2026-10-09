@@ -329,7 +329,10 @@ gates:
         owner: build
         probes:
           - file: docs/operations/incident-runbook.md
-          - pending: "LP-21 (the runbook's sections and a tested restore with audit verify)"
+          - tests:
+              - tests/test_restore.py::test_a_sqlite_backup_restores_and_verifies_against_the_signed_checkpoint
+              - tests/test_restore.py::test_a_postgres_dump_restores_and_verifies_against_the_signed_checkpoint
+              - tests/test_restore.py::test_the_runbook_shows_the_commands_the_restore_test_runs
       - id: firewall-enforced
         what: "The firewall's per-address limit on /auth/ and /smart/ enforced after its week in log mode (B12)"
         owner: owner

@@ -20,7 +20,8 @@ here, in the order they landed:
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
   `CallBudget.for_evaluation`, never the decisions' quotas);
 - 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
-  `mendari usage` for the operator).
+  `mendari usage` for the operator);
+- 21m, the incident runbook (`docs/operations/incident-runbook.md`) and the restore test.
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.
@@ -128,8 +129,9 @@ Anonymous `/api/health` stays three fields with no database work.
      tries three times and exits 3 when its alerts could not be posted; the quota alert tries
      once on the decision's path (5 s), never failing the decision.
    - The server records every alert in `alert_deliveries` (its body, status, tries, last
-     status, an error code; never the URL or the secret). A failed one stays `pending` for
-     `retry_due`, five tries in all, which the scheduled monitor's route (21f) calls.
+     status, an error code; never the URL or the secret). One that may yet go through (no
+     answer, `408`, `429`, `5xx`) stays `pending` for `retry_due`, five tries in all, which the
+     scheduled monitor's route (21f) calls; any other answer is `failed` at once.
 5. **The monitor cron (21f).**
    - `GET /api/internal/monitor` is guarded by `CRON_SECRET` before any database work, as the
      retention route is.

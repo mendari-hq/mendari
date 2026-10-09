@@ -1185,7 +1185,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **21h** (#203, merged 2026-10-08) Evaluations count against their organization: `eval_jev` and `eval_llm` in
     `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
     the decisions' quotas; the quota alert says what an evaluation quota stops.
-  - [ ] **21i** (#216) `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
+  - [x] **21i** (#216, merged 2026-10-08) `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
     366, with totals by provider and purpose, a cost only where every call was priced), the
     Access view's Usage tab, and `mendari usage --days --org` for the operator.
   - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
@@ -1206,7 +1206,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     straight to the database for any organization, each with a reason chained
     (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
     `docs/operations/revoking-access.md`; the hold page's table names the command line.
-  - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
+  - [ ] **21m** (#218) `docs/operations/incident-runbook.md` (in the nav): severities tied to the
+    alerts and checks that trigger them, who is paged (the owner's), holding automation,
+    revoking access, telling people, backup and restore (SQLite `.backup`, `pg_dump` /
+    `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
+    firewall's log-only week (the owner's); `tests/test_restore.py` runs the restore on SQLite
+    and Postgres in CI; gate `incident-runbook` names its tests.
   - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
 
