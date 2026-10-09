@@ -66,12 +66,15 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
   const checked = page.getByRole("region", { name: "Checked by the registry" });
-  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Figures"]);
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Regression check"]);
   await expect(checked).toContainText("verified at publish");
   await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
   await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
   await expect(checked).toContainText("Rendered by the registry from the files the digest covers");
   await expect(checked).toContainText("Not reviewed by the registry");
+  // The registry's own check on the publisher's set, labelled: never a ranking.
+  await expect(checked).toContainText("publisher's own test set: regression check, not a ranking", { ignoreCase: true });
+  await expect(checked).toContainText(/Accuracy \d+ of \d+ \[[<\d.]+-[>\d.]+%\] on its set \w+; nothing earlier to compare with/);
 
   const claimed = page.getByRole("region", { name: "Claimed by the publisher" });
   await expect(claimed.locator("dt")).toHaveText(["Publisher", "Risk level", "Licence", "Summary"]);

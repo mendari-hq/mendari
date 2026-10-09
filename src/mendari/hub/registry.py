@@ -88,7 +88,7 @@ from mendari.evals.share import (
     summary,
     where,
 )
-from mendari.hub import archive, yank
+from mendari.hub import archive, regression, yank
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 from mendari.server.origin import is_local_host
@@ -419,6 +419,10 @@ class RegistryStore(RateBuckets):
                 # Checked on the engine its pullers run, against this release's reference packs.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 metadata = describe(pack, verified)
+                if regression.enabled():  # in a child process of its own (`hub/regression.py`)
+                    metadata["regression"] = regression.check(
+                        Path(scratch) / "pack", self._previous_check(namespace, name, version)
+                    )
             except HubError:
                 raise
             except MendariError as error:
@@ -481,6 +485,19 @@ class RegistryStore(RateBuckets):
                 ),
             )
         return self.version(namespace, name, version)
+
+    def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
+        """The regression check of the newest version before `version` that is not recalled,
+        with its version, for the gate to compare with."""
+        earlier = [
+            v
+            for v in self.versions(namespace, name)
+            if version_key(v["version"]) < version_key(version)
+            and v["yank"] is None
+            and v["deleted"] is None
+            and isinstance(v.get("regression"), dict)
+        ]
+        return {**earlier[-1]["regression"], "version": earlier[-1]["version"]} if earlier else None
 
     def versions(self, namespace: str, name: str) -> list[dict[str, Any]]:
         with self._db.session(exclusive=False) as db:
@@ -1023,7 +1040,28 @@ def _checked(
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
         "status_label": version.get("status_label"),
         "review": _review(version, review),
+        # Worked out here on the publisher's own test set (`hub/regression.py`): a regression
+        # check against the earlier version, never a ranking. None: published without it.
+        "regression": _regression(version.get("regression")),
     }
+
+
+def _regression(stored: Any) -> dict[str, Any] | None:
+    """A version's regression check as served, its accuracy as k of n (`figures.counted`)."""
+    if not isinstance(stored, dict):
+        return None
+    shown = {
+        k: stored.get(k) for k in ("label", "status", "reason", "compared_with", "regressions")
+    }
+    measured = stored.get("summary") if stored.get("status") == "measured" else None
+    if isinstance(measured, dict):
+        question = measured.get("questions", {}).get(measured.get("primary"), {})
+        shown["test_set"] = measured.get("dataset")
+        shown["accuracy"] = figures.guarded(
+            lambda: figures.counted(question.get("accuracy"), question.get("n"))
+        )
+        shown["rows"] = stored.get("rows")
+    return shown
 
 
 def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:

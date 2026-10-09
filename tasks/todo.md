@@ -1413,11 +1413,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     violation). CI's `hub-site` runs the OWASP ZAP baseline (the pinned image) over the site,
     `scripts/zap_check.py` failing on medium or high: locally 0 medium or high (2 low, 4
     informational), the Spectre isolation low fixed by COEP.
-  - [ ] **18g** The regression check: on every publish, the pack gate (`evals/gate.py`, as
-    `scripts/pack_gate.py` runs it) on the publisher's own test set, in an isolated job (a
-    subprocess with time and memory limits, local providers only), against the previous
-    version's registry-computed report; shown as "publisher's own test set: regression check,
-    not a ranking".
+  - [x] **18g** (PR open) The regression check (`hub/regression.py`): on every publish
+    (`MENDARI_REGISTRY_REGRESSION`, `on` unless set), the pack is evaluated on its own
+    `evaluation.benchmark_dataset` (a file its digest covers) in a child process (`python -I -m
+    mendari.hub.regression DIR`: an environment of five fixed variables, no credential or
+    setting of the registry's, 180 s wall clock and CPU, 2 GB of memory where the system bounds
+    it, the pack loaded from a registry on its engine, local providers only), and the pack gate
+    (`evals/gate.py`, as `scripts/pack_gate.py` runs it) compares it with the newest earlier
+    version's check that is not recalled. Stored with the version (the summary the gate reads:
+    the set's name, size and hash, the primary accuracy over n, false automation, each critical
+    label); served as `checked.regression` (label "publisher's own test set: regression check,
+    not a ranking", accuracy as k of n, what it was compared with, the regressions); shown,
+    never refused. Not run: `no_test_set`, `needs_remote` (a default provider calls a model),
+    `failed` (the error's type, never its text). The Hub says it in the checked group; it is
+    not in `figures` and nothing ranks on it. The five reference packs and the hostile example
+    measure on the seeded registry (16.6 s for the seed, with the checks).
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 

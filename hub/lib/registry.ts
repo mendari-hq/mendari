@@ -21,7 +21,38 @@ export type Checked = {
     | { status: "unreviewed" }
     | { status: "reviewed"; risk_level: number; matches_declared: boolean | null; reviewer: string; reviewed_at: string; note: string };
   publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
+  // The registry's own evaluation on the publisher's test set: a regression check, never a ranking.
+  regression?: Regression | null;
 };
+
+export type Regression = {
+  label: string;
+  status: "measured" | "no_test_set" | "needs_remote" | "failed";
+  reason?: string | null;
+  compared_with?: string | null;
+  regressions?: string[] | null;
+  test_set?: { name: string | null; n: number | null } | null;
+  accuracy?: Figure | null;
+};
+
+const REGRESSION_STATUS: Record<string, string> = {
+  no_test_set: "Not run: the pack names no test set",
+  needs_remote: "Not run: its default providers call a model, which the registry does not",
+  failed: "Not run: the check could not finish",
+};
+
+// The regression check in a sentence. Its figure is the registry's own, on the publisher's set.
+export function regressionWords(check: Regression | null | undefined, shown: (f: Figure | null | undefined) => string): string {
+  if (!check) return "None: published before the registry ran the check";
+  if (check.status !== "measured") return REGRESSION_STATUS[check.status] ?? check.status;
+  const on = check.test_set?.name ? ` on its set ${check.test_set.name}` : "";
+  const against = check.compared_with
+    ? check.regressions?.length
+      ? `; against ${check.compared_with}: ${check.regressions.join("; ")}`
+      : `; against ${check.compared_with}: no regression`
+    : "; nothing earlier to compare with";
+  return `Accuracy ${shown(check.accuracy)}${on}${against}`;
+}
 
 // What the publisher says about the pack, unchecked.
 export type Claimed = {
