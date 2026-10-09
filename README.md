@@ -218,7 +218,10 @@ the next one, in a row outside the chain. `--since-checkpoint` then reads only t
 it. A full `mendari audit verify` also checks that every checkpoint still names its event, so a
 chain rewritten from before one, or cut short of it, fails there (`reason: checkpoint`). A
 checkpoint lives in the same database, so someone who can rewrite the chain can rewrite it too:
-keep a copy of the head somewhere else as well. Run it daily, beside retention:
+keep a copy of the head somewhere else as well. With `MENDARI_CHECKPOINT_KEY` set, each day's is
+also signed (Ed25519) and a server publishes it at `GET /api/audit/checkpoint`: a copy anyone
+keeps lets `mendari audit verify --against <statement> --public-key <key>` show later whether the
+chain was rewritten from before it. Run it daily, beside retention:
 
 <!-- check: run server-db -->
 ```bash
