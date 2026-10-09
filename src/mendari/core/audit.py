@@ -46,6 +46,8 @@ from mendari.errors import (
 Rating = Literal["up", "down"]
 
 if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from mendari.core.decision import DecisionResult
     from mendari.providers.base import Metered
 
@@ -465,6 +467,11 @@ CREATE TABLE IF NOT EXISTS audit_checkpoints (
     seq         BIGINT PRIMARY KEY,
     hash        TEXT NOT NULL,
     created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS checkpoint_statements (
+    day         TEXT PRIMARY KEY,
+    seq         BIGINT NOT NULL,
+    statement   TEXT NOT NULL
 )
 """
 
@@ -4392,7 +4399,9 @@ class AuditStore:
             )
         return [json.loads(row["report"]) for row in rows]
 
-    def verify(self, *, notes: bool = False, since_checkpoint: bool = False) -> dict[str, Any]:
+    def verify(
+        self, *, notes: bool = False, since_checkpoint: bool = False, head: str | None = None
+    ) -> dict[str, Any]:
         """Recompute the hash chain and each decision record's digest, and check that an event
         naming an organization names its row's (`_attributed`): a row moved to another
         organization, or gone, breaks verification at the first such event, with
@@ -4406,16 +4415,25 @@ class AuditStore:
         With `since_checkpoint`, only what came after the last checkpoint: its event must still
         be the one it recorded, and each later event is checked as above (`events` counts
         those; `checkpoint` says when it was recorded). What came before is not read again: a
-        full verification covers it. Without a checkpoint it is a full one."""
-        if notes and since_checkpoint:
-            raise ValueError("notes are checked by a full verification only")
-        return self._verify(notes=notes, since_checkpoint=since_checkpoint)[0]
+        full verification covers it. Without a checkpoint it is a full one.
 
-    def record_checkpoint(self) -> dict[str, Any]:
+        With `head` (a signed checkpoint's, LP-21k), a full verification also requires an event
+        with that hash: a chain rewritten from before the statement, or cut short of it, has
+        none, and fails with `reason: "statement"`."""
+        if since_checkpoint and (notes or head is not None):
+            raise ValueError("notes and a signed head are checked by a full verification only")
+        return self._verify(notes=notes, since_checkpoint=since_checkpoint, head=head)[0]
+
+    def record_checkpoint(self, *, signer: Ed25519PrivateKey | None = None) -> dict[str, Any]:
         """Verify from the last checkpoint (from the start without one) and, when the chain
         holds, record its head as the next checkpoint (LP-21j): a row outside the chain, which
         later verifications start from, and every full one checks. The verification, with the
-        checkpoint recorded (`recorded`: None when the chain is broken or has nothing new)."""
+        checkpoint recorded (`recorded`: None when the chain is broken or has nothing new).
+
+        With `signer` (`MENDARI_CHECKPOINT_KEY`, LP-21k), the day's statement too, once a local
+        day: the head verified, signed (`core/checkpoint.py`), kept to publish (`signed`: the
+        day's statement, the one signed earlier that day if any; None when the chain is broken
+        or empty)."""
         status, last = self._verify(notes=False, since_checkpoint=True)
         previous = status.get("checkpoint")
         recorded = None
@@ -4427,7 +4445,64 @@ class AuditStore:
                     "ON CONFLICT (seq) DO NOTHING",
                     (recorded["seq"], recorded["hash"], recorded["created_at"]),
                 )
-        return {**status, "recorded": recorded}
+        if signer is None:
+            return {**status, "recorded": recorded}
+        signed: dict[str, Any] | None = None
+        refused: str | None = None
+        if status["ok"] and last is not None:
+            from mendari.core import checkpoint
+
+            statement = checkpoint.sign(last["hash"], clock.today(), signer)
+            with self._db.session(exclusive=True) as db:
+                db.all(
+                    "INSERT INTO checkpoint_statements (day, seq, statement) VALUES (?, ?, ?) "
+                    "ON CONFLICT (day) DO NOTHING",
+                    (statement["date"], last["seq"], _canonical(statement)),
+                )
+                row = db.one(
+                    "SELECT statement FROM checkpoint_statements WHERE day = ?",
+                    (statement["date"],),
+                )
+                stored = None if row is None else json.loads(row["statement"])
+                if isinstance(stored, dict) and stored.get("key_id") != statement["key_id"]:
+                    # Signed earlier today with another key (the key was rotated since): this
+                    # key's statement for the day replaces it.
+                    db.all(
+                        "UPDATE checkpoint_statements SET seq = ?, statement = ? WHERE day = ?",
+                        (last["seq"], _canonical(statement), statement["date"]),
+                    )
+                    stored = statement
+            # What the day's row holds must be this key's statement for today: anything else
+            # was put there by someone with the database, and is never published as signed.
+            refused = checkpoint.problem(stored, signer.public_key())
+            if refused is None and isinstance(stored, dict) and stored["date"] != statement["date"]:
+                refused = "it is another day's statement"
+            signed = dict(stored) if refused is None and isinstance(stored, dict) else None
+        checked = {**status, "recorded": recorded, "signed": signed}
+        return checked if refused is None else {**checked, "statement_refused": refused}
+
+    def statements(self, *, until: str, limit: int = 7) -> list[dict[str, Any]]:
+        """The newest signed checkpoint statements (LP-21k) of the days up to `until` (an ISO
+        date), newest first, each with the day its row is filed under: for the published one,
+        which the caller checks (`/api/audit/checkpoint`). None in a database from before them."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("checkpoint_statements"):
+                return []
+            rows = db.all(
+                "SELECT day, statement FROM checkpoint_statements WHERE day <= ? "
+                "ORDER BY day DESC LIMIT ?",
+                (until, limit),
+            )
+        return [{"day": row["day"], "statement": json.loads(row["statement"])} for row in rows]
+
+    def latest_statement(self) -> dict[str, Any] | None:
+        """The newest signed checkpoint statement (LP-21k) as stored, unchecked; None without
+        one. What is published is checked first (`statements`)."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("checkpoint_statements"):
+                return None
+            row = db.one("SELECT statement FROM checkpoint_statements ORDER BY day DESC LIMIT 1")
+        return None if row is None else dict(json.loads(row["statement"]))
 
     def checkpoints(self) -> list[dict[str, Any]]:
         """Every recorded checkpoint, oldest first (none in a database from before them)."""
@@ -4435,7 +4510,7 @@ class AuditStore:
             return _checkpoints(db)
 
     def _verify(
-        self, *, notes: bool, since_checkpoint: bool
+        self, *, notes: bool, since_checkpoint: bool, head: str | None = None
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`verify`, and the last event checked (`seq`, `hash`; None for none)."""
         with self._db.session(exclusive=False) as db:
@@ -4500,6 +4575,8 @@ class AuditStore:
         if expected:  # a checkpoint's event is gone: the chain was cut short of it
             cut = {"ok": False, "events": len(events), "broken_at": min(expected)}
             return {**cut, "reason": "checkpoint"}, None
+        if head is not None and not any(event["hash"] == head for event in events):
+            return {"ok": False, "events": len(events), "reason": "statement"}, None
         last = (
             {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
             if events

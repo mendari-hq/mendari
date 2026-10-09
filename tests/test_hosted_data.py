@@ -470,6 +470,8 @@ READERS = {"person:reviewer", "person:admin"}  # who may read inputs (`read_inpu
 NOT_SWEPT = {
     "/api/internal/retention": "the scheduled purge: its own tests, with its secret",
     "/api/internal/monitor": "the scheduled monitor: its own tests (test_monitor_cron.py)",
+    "/api/internal/checkpoint": "the scheduled checkpoint: its own tests, with its secret",
+    "/api/audit/checkpoint": "the signed checkpoint: a hash and a day (test_signed_checkpoint.py)",
     "/api/providers/jev/models": "Jev's model list: needs Jev set up",
 }
 # Ids for the routes that read one fixed resource.

@@ -1176,7 +1176,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
-  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+  - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
     decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
@@ -1188,7 +1188,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
     (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
-  - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
+  - [ ] **21k** (#209) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
+    signs the day's first checkpoint (`checkpoint_statements`; `{format, date, head, key_id,
+    signature}`, no position or count); `GET /api/audit/checkpoint` publishes the newest with
+    the public key (public, read once a minute per instance); `GET /api/internal/checkpoint`
+    (`CRON_SECRET`) records and signs, and alerts `audit.broken` on a chain that does not
+    verify or a day's stored statement that is not this key's (never published); a rotated
+    key signs the day anew; `mendari audit verify --against <statement or the route's answer>
+    --public-key <key>`. The hosted schedule waits for 21n.
   - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
     `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
     `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
