@@ -73,6 +73,7 @@ def test_a_cost_is_unknown_unless_every_call_was_priced(
     """The fake gateway prices its first answer and not its second (no `cost`), then fails:
     three calls, one priced, so the cost is unknown, never the one price nor zero."""
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")  # no built-in default (LP-10c-ii)
     answered: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -233,6 +234,7 @@ def test_figures_no_call_could_report_never_reach_the_ledger(
     """An endpoint that reports more tokens than any call holds is refused (the decision goes to
     a person, and is recorded); a cost no call costs is not believed: unknown."""
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")  # no built-in default (LP-10c-ii)
     answers: list[dict[str, Any]] = [
         {"prompt_tokens": 2**63 - 1, "completion_tokens": 1},
         {"prompt_tokens": 300, "completion_tokens": 40, "cost": 1e308},
