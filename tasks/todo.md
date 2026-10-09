@@ -1182,13 +1182,15 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
     its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
     call was priced.
-  - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
+  - [ ] **21h** (#203) Evaluations count against their organization: `eval_jev` and `eval_llm` in
+    `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
+    the decisions' quotas; the quota alert says what an evaluation quota stops.
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
   - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
     (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
-  - [ ] **21k** (#209) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
+  - [x] **21k** (#209, merged 2026-10-08) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
     signs the day's first checkpoint (`checkpoint_statements`; `{format, date, head, key_id,
     signature}`, no position or count); `GET /api/audit/checkpoint` publishes the newest with
     the public key (public, read once a minute per instance); `GET /api/internal/checkpoint`
@@ -1230,7 +1232,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
      once the owner sets the key.
 
   **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
-  paged (B36); the evaluation quota values; the alert format, secret and destination; the
+  paged (B36); the evaluation quota values, and whether evaluations get a deployment budget of
+  their own (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
+  decisions); the alert format, secret and destination; the
   checkpoint key and where its public key is published; the hosted schedule (21n); firewall
   enforcement (21o).
 

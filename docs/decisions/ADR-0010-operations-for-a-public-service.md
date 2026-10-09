@@ -16,7 +16,9 @@ here, in the order they landed:
   --since-checkpoint`; the templates run it daily);
 - 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
 - 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
-  `mendari audit verify --against`; its hosted schedule waits for 21n).
+  `mendari audit verify --against`; its hosted schedule waits for 21n);
+- 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
+  `CallBudget.for_evaluation`, never the decisions' quotas).
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.
@@ -150,8 +152,11 @@ Anonymous `/api/health` stays three fields with no database work.
    - A cost is shown as unknown unless every call was priced.
    - Rows are written in the decision's own transaction; providers never write to the database.
    - Evaluations count against the organization that runs them through their own quotas
-     (`eval_jev`, `eval_llm`), unset meaning no limit, so no live decision is lowered by an
-     evaluation.
+     (`eval_jev`, `eval_llm`; 21h), unset meaning no limit, never the decisions' quotas, so no
+     live decision is lowered through its organization's quotas by an evaluation. Evaluations
+     still spend the deployment's daily budgets, which live decisions share: the evaluation
+     quotas are to be set below them (a startup warning when one is not). Whether evaluations
+     get a deployment budget of their own is the owner's.
    - Admins see their own organization's usage on a usage screen. The operator sees the whole
      deployment from the command line.
 7. **Checkpoints (21j, 21k).**
