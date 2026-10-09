@@ -35,7 +35,17 @@ from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
-from tests.conftest import encrypt_mode, launched, message, run_async, signed_in, without_request_id
+from tests.conftest import (
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    launched,
+    message,
+    run_async,
+    signed_in,
+    without_request_id,
+)
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -600,13 +610,18 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     scopes), and EHR launches at each level, alone, with a person's session, and with a bearer
     header, valid or not. A scope only narrows, and a scoped key or a token reaches only the
     routes `ROUTE_SCOPE` names, with that scope. Only an EHR launch reaches the launch's
-    routes, and nothing else with its cookie."""
+    routes, and nothing else with its cookie. Hidden evaluation sets are on, so the routes
+    they mount are in the matrix (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
+    with encrypted_store(tmp_path / "routes.db") as served:
+        reader = signed_in(served, role="viewer")
+    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
     routes = sorted(
         (method, route.path)
         for route in app.routes

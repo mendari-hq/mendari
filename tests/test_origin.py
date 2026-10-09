@@ -32,6 +32,10 @@ from tests.conftest import (
     HASH_KEY_B64,
     INPUT_HASH_KEY,
     encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    member,
     message,
     security_lines,
     signed_in,
@@ -136,15 +140,20 @@ def passes(check: OriginCheck, method: str, path: str, headers: dict[str, str]) 
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Every route, with sign-in, SMART Backend Services and memberships mode on (the most
-    routes mounted)."""
+    """Every route, with sign-in, SMART Backend Services, memberships mode and hidden
+    evaluation sets on (the most routes mounted)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", SITE)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    return sorted(mounted_routes(create_app(db_path=tmp_path / "routes.db")))
+    evalset_on(monkeypatch)
+    app = create_app(db_path=tmp_path / "routes.db")
+    with encrypted_store(tmp_path / "routes.db") as served:
+        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+    evalsets_are_on(TestClient(app, base_url=SITE), reader)
+    return sorted(mounted_routes(app))
 
 
 def test_every_route_and_kind_of_request_gets_what_it_should(

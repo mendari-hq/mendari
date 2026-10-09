@@ -10,7 +10,7 @@ import secrets
 import shutil
 import time
 import uuid
-from collections.abc import Callable, Coroutine, Iterator
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -23,7 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
-from mendari.core.evalset_keys import EvalsetKeys
+from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -398,6 +398,17 @@ def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
     monkeypatch.setenv("MENDARI_EVALSET_INDEX_KEY", base64.b64encode(index).decode())
     monkeypatch.delenv("MENDARI_EVALSET_READ_KEYS", raising=False)
     return key, index
+
+
+def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
+    """Hidden evaluation sets are on in the server `client` talks to, as a route inventory needs
+    (LP-11g, conflict 37: with them off, their routes are not mounted and the inventory passes on
+    nothing). Until LP-11j mounts the first of their routes, that is health naming, to a reader
+    (`headers`), the ids of this environment's evaluation-set keys."""
+    keys = evalset_keys()
+    assert keys is not None, "turn them on first: evalset_on(monkeypatch)"
+    shown = client.get("/api/health", headers=dict(headers)).json()
+    assert shown.get("evalset_keys") == keys.key_ids, shown.get("evalset_keys")
 
 
 def evalset_keys_for_test() -> EvalsetKeys:

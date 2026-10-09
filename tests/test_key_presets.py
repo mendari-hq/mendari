@@ -29,7 +29,15 @@ from mendari.server.auth import (
     permission_for,
 )
 from mendari.server.scopes import parse
-from tests.conftest import ROOT, encrypt_mode, message, signed_in
+from tests.conftest import (
+    ROOT,
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    message,
+    signed_in,
+)
 from tests.test_auth import attempt, expected
 
 IDP = "https://idp.example.org"
@@ -40,11 +48,14 @@ HOOK = "/cds-services/mendari.referral-router"
 
 @pytest.fixture
 def served(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, str]]:
-    """Sign-in on (the identity provider is never called) on SQLite or Postgres."""
+    """Sign-in on (the identity provider is never called) on SQLite or Postgres, and hidden
+    evaluation sets, so every route they mount is in each preset's reach (LP-11g, conflict 37)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    evalset_on(monkeypatch)
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
+        evalsets_are_on(client, admin(db_target))
         yield client, db_target
 
 
@@ -69,11 +80,20 @@ def slug(heading: str) -> str:
 
 
 def test_each_preset_is_a_machine_key_the_role_allows_with_a_page_that_says_so(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A file, not ":memory:": nothing closes an app's store, and a file's connections close
-    # after each session.
-    routes = presets.served(create_app(db_path=tmp_path / "routes.db").routes)
+    # Sign-in and hidden evaluation sets on, so every route they mount is in the reach (LP-11g,
+    # conflict 37). A file, not ":memory:": nothing closes an app's store, and a file's
+    # connections close after each session.
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    evalset_on(monkeypatch)
+    app = create_app(db_path=tmp_path / "routes.db")
+    with encrypted_store(tmp_path / "routes.db") as store:
+        reader = signed_in(store, role="viewer")
+    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
+    routes = presets.served(app.routes)
     for preset in presets.PRESETS.values():
         assert presets.ID.fullmatch(preset.id), preset.id
         assert preset.role in MACHINE_ROLES, preset.id

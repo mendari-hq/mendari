@@ -43,7 +43,16 @@ from mendari.server.auth import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
-from tests.conftest import encrypt_mode, encrypted_store, launched, member, message, signed_in
+from tests.conftest import (
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    launched,
+    member,
+    message,
+    signed_in,
+)
 from tests.test_auth import (
     CLIENT,
     IDP,
@@ -495,17 +504,21 @@ NOBODY = Principal(
 
 @pytest.fixture
 def as_nobody(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Memberships mode with Backend Services on (the most routes), every request from a person
-    of no organization who holds every role."""
+    """Memberships mode with Backend Services and hidden evaluation sets on (the most routes,
+    LP-11g), every request from a person of no organization who holds every role."""
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    evalset_on(monkeypatch)
     app = create_app(db_path=db_target)
-    monkeypatch.setattr(Auth, "authenticate", lambda self, request: NOBODY)
     with TestClient(app, base_url=HTTPS) as client:
+        with encrypted_store(db_target) as served:
+            reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+        evalsets_are_on(client, reader)
+        monkeypatch.setattr(Auth, "authenticate", lambda self, request: NOBODY)
         yield client
 
 
@@ -762,14 +775,18 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     holding a role in `default` gets the guard's answer a person signed in by claims with that
     role gets. Only a person's own three routes differ: any person's in memberships mode (with
     an organization or none; never a key's, never anonymous), an administrator's in claims
-    mode."""
+    mode. Hidden evaluation sets are on, so the routes they mount are compared too (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
+    with encrypted_store(tmp_path / "routes.db") as served:
+        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+    evalsets_are_on(TestClient(app, base_url=HTTPS), reader)
     routes = sorted(
         (method, route.path)
         for route in app.routes

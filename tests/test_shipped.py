@@ -22,7 +22,7 @@ import mendari
 from mendari.hub.registry import create_registry_app
 from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
-from tests.conftest import encrypt_mode
+from tests.conftest import encrypt_mode, encrypted_store, evalset_on, evalsets_are_on, member
 from tests.test_spdx import COMMENTS, IDENTIFIER, NOT_OURS, VERBATIM
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -274,20 +274,24 @@ def _routes(app: FastAPI, name: str) -> set[Route]:
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
-    """Every route of every app, the engine with sign-in, Backend Services and memberships mode
-    on (its most)."""
+    """Every route of every app, the engine with sign-in, Backend Services, memberships mode and
+    hidden evaluation sets on (its most)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    evalset_on(monkeypatch)
     found: set[Route] = set()
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),
         REGISTRY: create_registry_app(tmp_path / "registry.db", admin_token="t"),
         PAYER: create_payer_app(),
     }
+    with encrypted_store(tmp_path / "engine.db") as served:
+        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+    evalsets_are_on(TestClient(apps[ENGINE], base_url="https://mendari.test"), reader)
     for name, app in apps.items():
         with TestClient(app):  # runs each app's lifespan, which closes its store
             found |= _routes(app, name)
