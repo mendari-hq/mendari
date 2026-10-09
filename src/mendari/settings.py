@@ -232,14 +232,19 @@ def daily_limits() -> dict[str, int | None]:
     return limits
 
 
-ORG_METRICS = ("decisions", "jev", "llm")
+# Decisions, the remote calls they make by provider type, and the remote calls the
+# organization's evaluations make (`eval_jev`, `eval_llm`, LP-21h).
+ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm")
 
 
 def org_daily_limits() -> dict[str, int]:
     """$MENDARI_ORG_DAILY_LIMITS: what each organization may use a day, e.g.
-    `decisions=5000,jev=2000,llm=200` (decisions, and the remote calls they make by provider
-    type; evaluations never count). Unset: no per-organization quota. Over a quota a decision
-    falls back to human review, as over a provider's daily budget."""
+    `decisions=5000,jev=2000,llm=200,eval_jev=100,eval_llm=20` (decisions, the remote calls
+    they make by provider type, and the remote calls its evaluations make: an evaluation counts
+    against `eval_*`, never its decisions' quotas, and still spends the deployment's daily
+    budgets, which live decisions share). Unset: no per-organization quota (each one left out:
+    no limit). Over a decision's quota a decision falls back to human review, as over a
+    provider's daily budget; over an evaluation's, the evaluation's remote calls fail."""
     limits: dict[str, int] = {}
     for item in os.environ.get("MENDARI_ORG_DAILY_LIMITS", "").split(","):
         if not item.strip():
@@ -247,7 +252,8 @@ def org_daily_limits() -> dict[str, int]:
         metric, sep, value = (part.strip() for part in item.partition("="))
         if not sep or metric not in ORG_METRICS or not value.isdigit() or metric in limits:
             raise MendariError(
-                "MENDARI_ORG_DAILY_LIMITS must look like decisions=5000,jev=2000,llm=200 "
+                "MENDARI_ORG_DAILY_LIMITS must look like "
+                "decisions=5000,jev=2000,llm=200,eval_jev=500 "
                 f"(each of {', '.join(ORG_METRICS)} at most once, a non-negative integer)"
             )
         limits[metric] = int(value)

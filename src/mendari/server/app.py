@@ -454,6 +454,20 @@ def create_app(
     cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
     if principal_limit is not None and cap is None:
         quota_logger.warning("MENDARI_PRINCIPAL_DAILY_LIMIT is ignored in open mode: no principals")
+    for provider_type, limit in (budget_limits or {}).items():
+        # Evaluations share the deployment's budget with live decisions (LP-21h): one
+        # organization's evaluation quota as large spends every organization's day.
+        quota = org_limits.get(f"eval_{provider_type}")
+        if limit is not None and quota is not None and quota >= limit:
+            quota_logger.warning(
+                "eval_%s=%d in MENDARI_ORG_DAILY_LIMITS is not below the deployment's daily %s "
+                "budget (%d): one organization's evaluations can use it all, and live decisions "
+                "then go to people until midnight",
+                provider_type,
+                quota,
+                provider_type,
+                limit,
+            )
     budget = (
         CallBudget(
             store,
@@ -1336,7 +1350,8 @@ def create_app(
                     f"deployment names it in its settings ({pack.id}:slot=variant), not "
                     f"{', '.join(refused)}"
                 )
-        # Provider calls count against the daily budgets, never an organization's quotas.
+        # Provider calls count against the daily budgets and the organization's evaluation
+        # quotas (`eval_jev`, `eval_llm`), never its decisions' quotas.
         decision = Decision(
             pack,
             providers={**chosen, **asked},
@@ -2600,10 +2615,12 @@ def quota_alert(alerts: AlertSettings | None, store: AuditStore) -> QuotaReached
         security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)
         if alerts is None:
             return
-        message = (
-            f"daily {metric} quota of {limit} reached; until midnight, decisions fall back to "
-            "human review"
+        then = (
+            "evaluations make no more of these calls"
+            if metric.startswith("eval_")
+            else "decisions fall back to human review"
         )
+        message = f"daily {metric} quota of {limit} reached; until midnight, {then}"
         deliver(
             alerts,
             event="quota.reached",
