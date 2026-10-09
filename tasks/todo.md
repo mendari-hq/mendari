@@ -927,7 +927,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   without both keys; the full plan, its 55 conflicts with the default each PR follows, and the
   risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
   no-leak sweep land before any evaluation-set route exists.
-  - [ ] **11a** (#220) One canonical form of a case's input (`evals/canonical.py`: the strict
+  - [x] **11a** (#220, merged 2026-10-09) One canonical form of a case's input (`evals/canonical.py`: the strict
     form and `norm/v1`, pinned byte for byte) and the coverage report (`mendari.coverage/1`,
     `mendari data coverage PACK --dataset X`, over a pack's dataset or any JSONL file: distinct
     cases and positives, the warning under 100, disagreeing duplicates, the language, source and
