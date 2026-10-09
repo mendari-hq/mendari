@@ -15,7 +15,7 @@ const EXPECTED: Record<string, string> = {
 const CSP =
   /^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9+/=]+)' 'strict-dynamic'; style-src 'self' 'nonce-\1'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'$/;
 
-const PAGES = ["/", "/?q=referral", "/packs/mendari/referral-router", "/packs/hub-test/hostile-text", "/publishers/mendari", "/packs/mendari/no-such-pack"];
+const PAGES = ["/", "/?q=referral", "/packs/mendari/referral-router", "/packs/hub-test/hostile-text", "/publishers/mendari", "/packs/mendari/no-such-pack", "/no-such-page"];
 
 test("every page and asset carries the headers, each nonce fresh", async ({ page, request }) => {
   await page.goto("/");

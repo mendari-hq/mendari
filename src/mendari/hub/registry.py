@@ -70,6 +70,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_core import from_json, to_json
+from starlette.concurrency import run_in_threadpool
 
 from mendari import __version__
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
@@ -1266,14 +1267,15 @@ def registry_limit_settings() -> LimitSettings:
     return LimitSettings(mode=cast(Literal["on", "log", "off"], mode), rates=rates)
 
 
-def _rate_class(request: Request) -> tuple[str, str]:
+def _rate_class(request: Request, known: Callable[[str], bool]) -> tuple[str, str]:
     """A request's limit and its bucket's key: reads per address; writes and reports per token
-    (by its id), or per address when it has none."""
+    (by its id) when the token is one the registry issued (or the admin's), else per address, so
+    made-up tokens share their sender's bucket."""
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return "registry_read", f"ip:{client_ip(request)}"
     header = request.headers.get("authorization", "")
     token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
-    key = f"token:{token_id(token)}" if token else f"ip:{client_ip(request)}"
+    key = f"token:{token_id(token)}" if token and known(token) else f"ip:{client_ip(request)}"
     kind = "registry_report" if _REPORTS.match(request.url.path) else "registry_write"
     return kind, key
 
@@ -1296,11 +1298,27 @@ def create_registry_app(
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan)
     limiter = Limiter(store, registry_limit_settings())
 
+    def known(token: str) -> bool:
+        """A token the registry issued, or the admin's."""
+        if admin and hmac.compare_digest(token, admin):
+            return True
+        return store.token_namespace(token) is not None
+
+    @app.exception_handler(Exception)
+    async def _unhandled(_: Request, error: Exception) -> JSONResponse:
+        """An error no handler names: a 500 with nothing of the error, and the headers every
+        answer carries (Starlette answers it outside the middleware)."""
+        return JSONResponse(
+            {"error": "InternalError", "detail": "internal error"}, 500, headers=REGISTRY_HEADERS
+        )
+
     @app.middleware("http")
     async def _limits_and_headers(request: Request, call_next: Any) -> Response:
         """The rate first (no body read, nothing stored for a refused request), then every
         answer's headers, refusals and errors included."""
-        refused = limiter.hit(*_rate_class(request)) if limiter.on else None
+        refused = None
+        if limiter.on:  # database work, off the event loop
+            refused = await run_in_threadpool(lambda: limiter.hit(*_rate_class(request, known)))
         if refused is not None:
             response: Response = JSONResponse(
                 {"error": "RateLimited", "detail": f"too many requests ({refused.limit})"},
