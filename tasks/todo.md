@@ -585,15 +585,15 @@ registry or copied into the store.
     `unevaluatedProperties` or `unevaluatedItems` below another (conflict 22). The shipped
     packs, scaffolds and fixtures: 6, 1 and 2. Packs it does not own keep B11's caps and budget,
     unchanged. Threat model D10.
-  - [ ] **16g** (PR open; PR E, last) The threat model's "Pack content" part
+  - [ ] **16g** (#219; PR E, last) The threat model's "Pack content" part
     (`docs/security/threat-model.md`, between the STRIDE table and the residual risks): what a
     pack can set (every manifest input, provider type and variant key, the wording templates,
     `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
     digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
-    24 are written there). `tests/test_threat_model.py` holds it to every input, to each provider
-    type's closed config keys, to rows and tests that exist, and to no line that reads as a row; gate a3's `what` says LP-16a–g. LP-16
-    counts as merged for LP-18 and LP-20 once 16g lands, 16e-2 with it (16c-2 is not part of
-    LP-16, above).
+    24 are written there). `tests/test_threat_model.py` holds it to every input, to each
+    provider type's closed config keys, to rows and tests that exist, and to no line that reads
+    as a row; gate a3's `what` says LP-16a–g. LP-16 counts as merged for LP-18 and LP-20 once
+    16g lands, 16e-2 with it (16c-2 is not part of LP-16, above).
 
   **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
   D (16e-2, after C); E (16g, after A to D).
