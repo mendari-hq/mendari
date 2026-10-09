@@ -332,30 +332,22 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert json.loads(capsys.readouterr().out) == []
 
 
-def test_search_lists_every_entry_whatever_its_figures(
+def test_search_shows_no_figure_a_registry_sends(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A registry entry is someone else's data: a figure that is not a share of n cases shows
-    as n/a, and the listing goes on."""
+    """A registry before LP-18 served the publisher's own benchmark beside each entry: the
+    listing never shows an uploaded number (ADR-0012), and says the risk level is declared."""
     import contextlib
 
     from mendari import cli
 
-    def entry(name: str, accuracy: object, n: object) -> dict[str, object]:
-        return {
-            "id": f"site-a/{name}", "version": "1.0.0", "risk": {"level": 1},
-            "publisher_type": "community", "summary": name,
-            "benchmark": {"dataset": "test", "accuracy": accuracy, "n": n},
-        }  # fmt: skip
-
-    found = [
-        entry("over", 1.5, 10),
-        entry("negative", 0.9, -1),
-        entry("huge", 0.5, 10**400),  # beyond any dataset (and any float)
-        entry("not-whole", 0.999, 7),  # not a share of 7 cases
-        entry("overflow", 1e308, 600),  # finite, but its k is not: it was multiplied first
-        entry("fine", 0.9, 10),
-    ]
+    found: list[dict[str, object]] = [
+        {
+            "id": "site-a/fine", "version": "1.0.0", "risk": {"level": 1},
+            "publisher_type": "community", "summary": "fine",
+            "benchmark": {"dataset": "test", "accuracy": 0.9, "n": 10},
+        }
+    ]  # fmt: skip
 
     class Registry:
         def search(self, **_: object) -> list[dict[str, object]]:
@@ -364,10 +356,8 @@ def test_search_lists_every_entry_whatever_its_figures(
     monkeypatch.setattr(cli, "_registry_client", lambda _: contextlib.nullcontext(Registry()))
     assert main(["search"]) == 0
     out = capsys.readouterr().out
-    assert "site-a/over@1.0.0  risk 1  community  benchmark n/a" in out
-    for name in ("negative", "huge", "not-whole", "overflow"):
-        assert f"site-a/{name}@1.0.0  risk 1  community  benchmark n/a" in out
-    assert "site-a/fine@1.0.0  risk 1  community  benchmark 9 of 10 [55.5-99.7%]" in out
+    assert "site-a/fine@1.0.0  risk 1 (declared)  community\n" in out
+    assert "benchmark" not in out and "9 of 10" not in out
 
 
 def test_without_a_registry_the_client_says_how_to_set_one(

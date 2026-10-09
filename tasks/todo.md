@@ -1254,6 +1254,69 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
 
+- [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
+  (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
+  changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
+  - [x] **18a** The card rendered by the registry and the two groups: `render_card(pack,
+    report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
+    pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
+    the card rendered from the digested files (`rendered_by="registry"`: no validation figures,
+    the risk row "declared by the publisher") and no benchmark or leaderboard; every read
+    answers `checked` (signature key id, archive SHA-256, digest, engine `bounded` or
+    `maintained`, `card: rendered`, the status label, `review: unreviewed`, the namespace's
+    publisher type) and `claimed` (publisher, risk level `declared_by: publisher`, licence,
+    summary); a version stored before serves no card, benchmark or leaderboard
+    (`card: not_rendered`); the reports route no longer carries the benchmark; `mendari search`
+    prints no figure and says the risk is declared. The Hub: both groups on the pack page, the
+    card through `remark-gfm` 4.0.1 with `skipHtml` (tables render; a script tag, an `onerror`
+    image and a `javascript:` link in publisher text are inert, `hub_seed.py
+    --hostile-example`, run by `hub-site`), no benchmark fact or leaderboard. Regression test:
+    AI Guard (risk 2) with an uploaded risk-1 card, a 99.9% benchmark and leaderboard shows only
+    the registry's card, everywhere. ADR-0012 and this plan.
+  - [ ] **18b** The registry's chain: every write appends a chained event (`hub_events`;
+    publish, report, namespace, publisher type, token, key), `mendari registry verify`; a
+    reviewer's review of a version (`POST …/review`, the admin token until LP-19's reviewers),
+    chained, shown in `checked.review`; `test_shipped.py`'s registry list emptied.
+  - [ ] **18c** Yank as a recall, and delete: a `mendari.yank/1` record with a reason and a
+    severity, signed (by the namespace's key through `mendari yank`, or by the registry's
+    `MENDARI_REGISTRY_SIGNING_KEY` for a recall the registry makes) and chained; a yanked
+    version is gone from latest, search and the namespace's list, still fetchable by exact
+    version with its record; delete (admin, a reason: the archive's bytes removed, a tombstone
+    kept, chained); `mendari pull` shows the record; the Hub shows it.
+  - [ ] **18d** Origin at pull and the cap: the verified marker records the registry URL,
+    namespace, publisher type, key id and any yank; a pack from a registry is capped at
+    HUMAN_REVIEW until the organization approves its digest (`registry_approvals`, chained),
+    at every risk level, and nothing in the pack lifts it. The engine's card and pack detail
+    leave out a pulled pack's uploaded benchmark and leaderboard, as the registry does.
+  - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
+    checked against their registry's yank records on a schedule, and a yanked one (or one no
+    check reached for too long) stops automating.
+  - [ ] **18f** Rate limits (the `Limiter`, on the registry's own database), security headers on
+    every registry route and every Hub page (CSP, HSTS, frame-ancestors), each asserted by
+    exact value, and a scanner baseline in the `hub-site` job.
+  - [ ] **18g** The regression check: on every publish, the pack gate (`evals/gate.py`, as
+    `scripts/pack_gate.py` runs it) on the publisher's own test set, in an isolated job (a
+    subprocess with time and memory limits, local providers only), against the previous
+    version's registry-computed report; shown as "publisher's own test set: regression check,
+    not a ranking".
+  - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
+    rows, docs.
+
+  **Defaults each PR follows** (the owner may choose otherwise):
+  1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes
+     them (18g); only LP-17 ranks.
+  2. (18a) Versions published before LP-18 keep their stored metadata (immutable) but serve no
+     uploaded card, benchmark or leaderboard; publishing a new version renders a card.
+  3. (18b) Until LP-19's reviewer accounts, a review is recorded with the admin token.
+  4. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
+     registry with its own key. A client honours every yank, verified or not (a forged yank only
+     stops automation, the safe direction), and says whether it verified.
+  5. (18d) A pulled copy of a reference pack is capped too: the cap follows the origin, not the
+     bytes. `mendari test` checks the pack's own policy and says that serving caps it.
+  6. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
+  7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
+     cannot be evaluated on its own test set with local providers says so.
+
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:

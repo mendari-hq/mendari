@@ -758,8 +758,16 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
   (`mendari.site-report/1`); the registry lists them as unverified until sites sign them.
-- **The website** (`hub/`, Next.js) searches packs and shows their cards and leaderboards. It
-  does not show site reports until sites sign what they share.
+- **What the registry shows** is only what it checked
+  ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
+  It renders each version's Decision Card itself, from the files the pack digest covers, and
+  never shows the card, benchmark or leaderboard a publisher uploads (they stay in the signed
+  archive, unread). Every version answers two groups: `checked` (the signing key, the archive's
+  SHA-256, the digest, the engine, the card rendered here, the review status) and `claimed`
+  (the publisher, the risk level it declares, the licence and summary).
+- **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
+  registry's card. It shows no figure the registry did not compute, and no site report until
+  sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the

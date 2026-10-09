@@ -1479,8 +1479,6 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    from mendari.evals import figures, render
-
     with _registry_client(args) as registry:
         found = registry.search(
             q=" ".join(args.query),
@@ -1492,17 +1490,10 @@ def cmd_search(args: argparse.Namespace) -> int:
         _print_json(found)
         return 0
     for item in found:
-        benchmark = item.get("benchmark") or {}
-        accuracy = benchmark.get("accuracy")
-        # A registry entry is someone else's data: a figure that is not a whole k of a whole n
-        # is shown as n/a (figures.counted), never a reason to stop the listing.
-        shown = (
-            ""
-            if accuracy is None
-            else f"  benchmark {render.shown(figures.counted(accuracy, benchmark.get('n')))}"
-        )
-        risk = f"risk {item['risk']['level']}"
-        print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")
+        # No figure: what a registry before LP-18 served was the publisher's own benchmark, and
+        # an uploaded number is never shown (ADR-0012). The risk level is the publisher's word.
+        risk = f"risk {item['risk']['level']} (declared)"
+        print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}")
         print(f"    {item['summary'][:110]}")
     if not found:
         print("no packs match")
