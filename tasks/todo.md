@@ -1202,7 +1202,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     straight to the database for any organization, each with a reason chained
     (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
     `docs/operations/revoking-access.md`; the hold page's table names the command line.
-  - [ ] **21m** `docs/operations/incident-runbook.md` (in the nav): severities tied to the
+  - [ ] **21m** (#218) `docs/operations/incident-runbook.md` (in the nav): severities tied to the
     alerts and checks that trigger them, who is paged (the owner's), holding automation,
     revoking access, telling people, backup and restore (SQLite `.backup`, `pg_dump` /
     `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
