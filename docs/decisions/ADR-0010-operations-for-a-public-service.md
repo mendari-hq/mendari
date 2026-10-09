@@ -148,7 +148,8 @@ Anonymous `/api/health` stays three fields with no database work.
      owner's go-ahead. Each job runs daily in an hour of its own (UTC): the purge at 08:00, the
      monitor at 09:00, the checkpoint at 10:00, two hours after the purge so the day's signed
      head covers what the purge chained. The alerts reach someone only once the owner sets
-     the alert webhook for Production (an owner decision below).
+     the alert webhook (`MENDARI_ALERT_WEBHOOK`) for Production, one of the owner decisions
+     for LP-21 in `tasks/todo.md`; until then gate `hosted-monitoring` stays pending.
 6. **Usage (21g to 21i).**
    - A `usage_ledger` per day, organization, provider type and purpose counts calls, priced
      calls, tokens and cost.

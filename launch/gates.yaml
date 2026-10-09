@@ -320,6 +320,7 @@ gates:
               - tests/test_monitor_cron.py::test_the_cron_route_refuses_a_request_without_its_secret
               - tests/test_monitor_cron.py::test_alerts_never_mix_organizations
               - tests/test_hosted_data.py::test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily
+          - pending: "owner: MENDARI_ALERT_WEBHOOK set for Production, so the scheduled monitor's alerts reach someone; then a build PR removes this line (LP-21n)"
       - id: incident-runbook
         what: "An incident runbook: severity, who is paged, holding automation, revoking access, notifying users, restore with a chain check"
         owner: build

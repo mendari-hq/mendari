@@ -39,10 +39,10 @@ Configuration comes from the environment:
 - `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY`, for Production and Preview: the PHI mode
   here is `encrypt` unless `MENDARI_PHI_MODE=hash` (which needs only the hash key); `off` is
   refused.
-- `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
-  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30). The scheduled
-  monitor (`/api/internal/monitor`) and checkpoint (`/api/internal/checkpoint`) answer the same
-  secret, once a `crons` entry names them; `MENDARI_STATUS_ORG` is the organization the monitor
+- `CRON_SECRET` (16 characters or more): turns on the daily jobs in `vercel.json` (`crons`):
+  the retention purge at 08:00 UTC (`/api/internal/retention`), the monitor at 09:00
+  (`/api/internal/monitor`) and the checkpoint at 10:00 (`/api/internal/checkpoint`);
+  `MENDARI_RETENTION_DAYS` (default 30); `MENDARI_STATUS_ORG` is the organization the monitor
   leaves out (the status checks').
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).

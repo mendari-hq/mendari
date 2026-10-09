@@ -910,8 +910,8 @@ def test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily(
 ) -> None:
     """The hosted schedule (LP-21n): each job once a day in an hour of its own, the purge two
     hours before the checkpoint, so the day's signed head covers what the purge chained even
-    when a run starts late in its hour. Each is a route of the server's that answers only
-    Vercel Cron's secret."""
+    when a run starts late in its hour. Each is a route of the server's that runs with Vercel
+    Cron's secret and refuses a request without it."""
     crons = json.loads((ROOT / "vercel.json").read_text())["crons"]
     assert crons == [
         {"path": "/api/internal/retention", "schedule": "0 8 * * *"},
@@ -923,3 +923,5 @@ def test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily(
     for cron in crons:
         assert cron["path"] in paths
         assert client.get(cron["path"]).status_code == 401  # without the secret: refused
+        ran = client.get(cron["path"], headers={"authorization": f"Bearer {CRON}"})
+        assert ran.status_code == 200  # with it: runs (a route the guard refused would not)
