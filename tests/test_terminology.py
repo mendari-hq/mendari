@@ -57,9 +57,10 @@ PINNED = {
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
         # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; in
-        # LP-11f: their keys' rotation batch and the index rebuilt; and in LP-11h: their blind
-        # labelling's (sampled, assigned, case read, labelled, measured).
-        "CodeSystem/audit-administrative-event": "0deb02ba0ee3041a",
+        # LP-11f: their keys' rotation batch and the index rebuilt; in LP-11h: their blind
+        # labelling's (sampled, assigned, case read, labelled, measured); and in LP-11i: their
+        # lifecycle's (frozen, activated, graded, retired).
+        "CodeSystem/audit-administrative-event": "3db7d358705cf26d",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }

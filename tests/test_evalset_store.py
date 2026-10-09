@@ -28,7 +28,13 @@ from mendari.cli import main
 from mendari.core import evalsets as evalsets_module
 from mendari.core.audit import EVALSET_KNOWN, EVALSET_RETIRED, HASH_EPOCH, KNOWN
 from mendari.core.evalset_keys import AAD, CASE_PREFIX, INDEX_PREFIX, EvalsetKeys
-from mendari.core.evalsets import CASE_REF_PREFIX, LABEL_REF_PREFIX, EvalsetStore, case_ref
+from mendari.core.evalsets import (
+    CASE_REF_PREFIX,
+    FREEZE_PREFIX,
+    LABEL_REF_PREFIX,
+    EvalsetStore,
+    case_ref,
+)
 from mendari.core.phi import DETAILS_AAD, INPUT_HASH_PREFIX, NOTE_AAD, PhiPolicy, key_id
 from mendari.errors import MendariError
 from mendari.evals import ledger
@@ -474,8 +480,8 @@ def test_the_index_matches_both_canonical_and_normalised_inputs(
 
 def test_index_and_commitment_prefixes_never_collide() -> None:
     """No hash or binding the deployment makes starts as another does: the index key's two
-    (case hashes, index hashes), the unkeyed commitments (a case's, a label's, a note's) and the
-    associated data of sealed values."""
+    (case hashes, index hashes), the unkeyed commitments (a case's, a label's, a frozen set's, a
+    note's) and the associated data of sealed values."""
     prefixes = [
         AAD,
         CASE_PREFIX,
@@ -483,6 +489,7 @@ def test_index_and_commitment_prefixes_never_collide() -> None:
         INDEX_PREFIX + b"text\x00",
         CASE_REF_PREFIX,
         LABEL_REF_PREFIX,
+        FREEZE_PREFIX,  # a frozen set's commitment (LP-11i)
         NOTE_AAD,
         DETAILS_AAD,
         INPUT_HASH_PREFIX,
@@ -649,6 +656,7 @@ def test_verify_holds_and_counts_the_sets(
             "unchecked": 0,
             "assignments": 0,
             "labels": 0,
+            "frozen": 0,
         },
     }
     unchecked = store.verify(evalsets=True)  # without keys: each counted, never a break
@@ -661,6 +669,7 @@ def test_verify_holds_and_counts_the_sets(
             "unchecked": 2,
             "assignments": 0,
             "labels": 0,
+            "frozen": 0,
         },
     }
     assert plain["ok"] and plain["events"] == events
@@ -729,6 +738,7 @@ def test_verify_finds_an_altered_row(
             "unchecked": 0,
             "assignments": 0,
             "labels": 0,
+            "frozen": 0,
         },
     }
 
@@ -795,6 +805,7 @@ def test_verify_counts_what_a_missing_key_sealed_as_unopenable(
         "unchecked": 0,
         "assignments": 0,
         "labels": 0,
+        "frozen": 0,
     }
 
 
@@ -901,6 +912,7 @@ def test_audit_verify_passes_after_cases_added(
         "unchecked": 0,
         "assignments": 0,
         "labels": 0,
+        "frozen": 0,
     }
     assert run(capsys, "audit", "verify", *db)[0] == 0
 
@@ -925,6 +937,7 @@ def test_the_commands_refuse_while_the_keys_are_unset(
     code, out, _ = run(capsys, "audit", "verify", "--evalsets", "--db", db)
     assert code == 0 and json.loads(out)["evalsets"] == {
         "sets": 0, "checked": 0, "removed": 0, "unchecked": 0, "assignments": 0, "labels": 0,
+ "frozen": 0,
     }  # fmt: skip
     assert Path(db).read_bytes() == before
 
