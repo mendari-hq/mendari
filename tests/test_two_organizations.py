@@ -56,7 +56,7 @@ from tests.test_backend_services import Signer, assertion, bearer
 from tests.test_davinci import COMPLETE, PA, package_request, request
 from tests.test_hold import REFILL
 from tests.test_memberships import token_of
-from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
+from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUIRED, REQUESTER
 from tests.test_prior_auth_pack import _order
 from tests.test_smart import CLIENT as SMART_CLIENT
 from tests.test_smart import DECIDE_BODY, REFERRAL, TENANTS, FakeEhr, routed, tenant
@@ -934,6 +934,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
         "order": _order("mri", "FX101"),
         "service_type": "62",
         "place_of_service": "22",
+        **REQUIRED,  # the site's X12 codes, from the request (LP-14: none ships)
     }
     refused(
         service,
@@ -1368,6 +1369,7 @@ def served(world: World, x: Org) -> None:
         "order": _order("mri", "FX101"),
         "service_type": "62",
         "place_of_service": "22",
+        **REQUIRED,  # the site's X12 codes, from the request (LP-14: none ships)
     }
     world.call(
         x,
