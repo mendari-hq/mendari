@@ -129,8 +129,12 @@ def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient
 def test_an_organization_approves_a_pulled_digest_and_can_revoke_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from mendari.server import recalls
+
+    monkeypatch.setattr(recalls, "fetch_yanks", lambda _: [])  # its registry recalls nothing
     client, digest, automated = _served(tmp_path, monkeypatch)
     with client:
+        client.app.state.recall_watch.refresh("https://hub.example.org")  # type: ignore[attr-defined]
         decide = "/api/packs/someone/visit-sorter/decide"
         assert client.post(decide, json=automated).json()["outcome"] == "HUMAN_REVIEW"
         state = client.get(
