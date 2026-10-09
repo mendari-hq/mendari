@@ -165,7 +165,7 @@ gates:
               - tests/test_hosted_data.py::test_purging_everything_is_asked_for_on_the_command_line
               - tests/test_hosted_data.py::test_retention_purges_in_batches_and_chains_a_summary
               - tests/test_hosted_data.py::test_the_scheduled_purge_runs_with_the_cron_secret_only
-              - tests/test_hosted_data.py::test_vercel_schedules_the_purge_daily
+              - tests/test_hosted_data.py::test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily
               - tests/test_rotation.py::test_a_thousand_values_rotate_in_batches_and_everything_still_opens
               - tests/test_rotation.py::test_an_interrupted_rotation_resumes
               - tests/test_rotation.py::test_a_new_input_hash_key_starts_an_epoch
@@ -324,7 +324,8 @@ gates:
               - tests/test_monitor_cron.py::test_the_cron_route_alerts_on_a_seeded_degradation
               - tests/test_monitor_cron.py::test_the_cron_route_refuses_a_request_without_its_secret
               - tests/test_monitor_cron.py::test_alerts_never_mix_organizations
-          - pending: "LP-21n (the hosted schedule in vercel.json, with the owner's go-ahead)"
+              - tests/test_hosted_data.py::test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily
+          - pending: "owner: MENDARI_ALERT_WEBHOOK set for Production, so the scheduled monitor's alerts reach someone; then a build PR removes this line (LP-21n)"
       - id: incident-runbook
         what: "An incident runbook: severity, who is paged, holding automation, revoking access, notifying users, restore with a chain check"
         owner: build

@@ -476,19 +476,19 @@ saved, or the statement alone). On a server the scheduled route `GET /api/intern
 (with `CRON_SECRET`) records and signs, as the command does. A chain that does not verify
 records and signs nothing and goes to `MENDARI_ALERT_WEBHOOK` (`audit.broken`); so does a day's
 stored statement that is not this key's for that day (someone with the database put it there),
-which is never published. On Vercel nothing calls that route until a `crons` entry names it,
-which is the owner's to add (the hosted schedule); until then run `mendari audit checkpoint`
-with the key. Keep the key as a secret: whoever holds it can sign a statement for any head. To
+which is never published. On Vercel `vercel.json` calls that route daily at 10:00 UTC, two
+hours after the purge; elsewhere schedule it, or `mendari audit checkpoint` with the key. Keep the key as a secret: whoever holds it can sign a statement for any head. To
 rotate it, set the new one and run the checkpoint: it signs the day's statement anew, and only
 statements the current key signed are published, so keep the old public key published too, for
 the statements it signed.
 
-On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
-and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
-`/api/internal/retention`, which purges as the command does and answers `401` to anything
-else. Without `CRON_SECRET` (or with one too short, or with spaces around it, which the server
-ignores with a warning rather than refusing to start) the route does not exist and nothing is
-purged; `/api/health`
+On Vercel the schedule is in `vercel.json` (`crons`, each daily in an hour of its own: the purge
+at 08:00 UTC, 4 am Eastern in summer and 3 am in winter, the monitor at 09:00 and the checkpoint
+at 10:00). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it
+as a bearer token to each route, and `/api/internal/retention` purges as the command does; each
+answers `401` to anything else. Without `CRON_SECRET` (or with one too short, or with spaces
+around it, which the server ignores with a warning rather than refusing to start) the routes do
+not exist and nothing is purged, checked or signed; `/api/health`
 shows `retention_days`, `retention_scheduled` and `last_purge` (the last summary, with when) to
 those who may read.
 
@@ -791,8 +791,8 @@ logs, at startup, each slot the Jev defaults turn on.
     pending, for 60 seconds at most (those left stay due). A Vercel function stops at 300
     seconds, so it starts no organization after 180, which leaves the last one time for its
     posts; the rest are counted and an alert names them, and each day's run starts at another
-    organization, so none is left every day. Its answer holds counts only. On Vercel this is a
-    `crons` entry in `vercel.json` (the project's own schedule is the owner's to turn on);
+    organization, so none is left every day. Its answer holds counts only. On Vercel
+    `vercel.json` runs it daily at 09:00 UTC;
   - or `mendari monitor --db "$DATABASE_URL" --each-org` (the templates in `deploy/` run it
     daily), which reads which providers ran from the deployment records the server keeps and
     records nothing (it opens the database read-only), so it never sends a pending alert

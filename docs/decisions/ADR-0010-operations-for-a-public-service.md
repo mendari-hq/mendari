@@ -21,7 +21,9 @@ here, in the order they landed:
   `CallBudget.for_evaluation`, never the decisions' quotas);
 - 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
   `mendari usage` for the operator);
-- 21m, the incident runbook (`docs/operations/incident-runbook.md`) and the restore test.
+- 21m, the incident runbook (`docs/operations/incident-runbook.md`) and the restore test;
+- 21n, the hosted schedule (`vercel.json` runs the purge, the monitor and the checkpoint daily),
+  merged with the owner's go-ahead.
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.
@@ -149,7 +151,11 @@ Anonymous `/api/health` stays three fields with no database work.
      webhook, 3 when one could not be posted. The templates run it daily; the Kubernetes job
      fails on 1 or 3 and is never re-run, which would post every alert again.
    - The hosted schedule (21n) changes the hosted site on deploy, so it merges only with the
-     owner's go-ahead.
+     owner's go-ahead. Each job runs daily in an hour of its own (UTC): the purge at 08:00, the
+     monitor at 09:00, the checkpoint at 10:00, two hours after the purge so the day's signed
+     head covers what the purge chained. The alerts reach someone only once the owner sets
+     the alert webhook (`MENDARI_ALERT_WEBHOOK`) for Production, one of the owner decisions
+     for LP-21 in `tasks/todo.md`; until then gate `hosted-monitoring` stays pending.
 6. **Usage (21g to 21i).**
    - A `usage_ledger` per day, organization, provider type and purpose counts calls, priced
      calls, tokens and cost.

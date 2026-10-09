@@ -1216,13 +1216,17 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     straight to the database for any organization, each with a reason chained
     (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
     `docs/operations/revoking-access.md`; the hold page's table names the command line.
-  - [ ] **21m** (#218) `docs/operations/incident-runbook.md` (in the nav): severities tied to the
+  - [x] **21m** (#218, merged 2026-10-08) `docs/operations/incident-runbook.md` (in the nav): severities tied to the
     alerts and checks that trigger them, who is paged (the owner's), holding automation,
     revoking access, telling people, backup and restore (SQLite `.backup`, `pg_dump` /
     `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
     firewall's log-only week (the owner's); `tests/test_restore.py` runs the restore on SQLite
     and Postgres in CI; gate `incident-runbook` names its tests.
-  - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
+  - [ ] **21n** (#217, draft) The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
+    Prepared: the purge at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily;
+    a test pins them and runs each with the secret, and gate `hosted-monitoring` names it. Its
+    alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for Production; the gate
+    stays pending until then.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
 
   **Defaults each PR follows** (the owner may choose otherwise):

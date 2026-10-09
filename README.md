@@ -1192,8 +1192,8 @@ FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.v
    (`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`), kept in
    your secret manager too. On Vercel the PHI mode is `encrypt` unless you set
    `MENDARI_PHI_MODE=hash`, and the app refuses to start without its keys or with `off`. Set
-   `CRON_SECRET` (16 random characters or more) for Production: the daily retention purge in
-   `vercel.json` runs only with it ([`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), section 3).
+   `CRON_SECRET` (16 random characters or more) for Production: the daily purge, monitor and
+   checkpoint in `vercel.json` run only with it ([`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), section 3).
 3. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL` and
    `JEV_MODEL`: the reference packs then run Mendari + Jev ([Jev](#jev)). The key is fetched at
    runtime with the deployment's OIDC identity; it is never stored in the project's environment
