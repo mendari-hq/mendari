@@ -25,15 +25,22 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+import threading
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
+
+from mendari.errors import HubError, MendariError
 
 FORMAT = "mendari.regression/1"
 LABEL = "publisher's own test set: regression check, not a ranking"
 TIMEOUT_S = 180
 MEMORY_BYTES = 2 * 1024**3
+FILE_BYTES = 64 * 1024**2  # the largest file the child may write
 MAX_OUTPUT_BYTES = 1_000_000
+# How many checks run at once in one registry process; past it a publish is told to try again.
+CONCURRENT = 2
+_SLOTS = threading.BoundedSemaphore(CONCURRENT)
 
 
 def enabled() -> bool:
@@ -41,33 +48,61 @@ def enabled() -> bool:
     the check shows none)."""
     value = os.environ.get("MENDARI_REGISTRY_REGRESSION", "on").strip().lower() or "on"
     if value not in ("on", "off"):
-        from mendari.errors import MendariError
-
         raise MendariError("MENDARI_REGISTRY_REGRESSION is on or off")
     return value == "on"
 
 
+@contextlib.contextmanager
+def slot() -> Iterator[None]:
+    """One of `CONCURRENT` checks at once, or a 503 to try again: a check holds a worker for up
+    to `TIMEOUT_S`, so a burst of publishes cannot hold them all."""
+    if not _SLOTS.acquire(blocking=False):
+        raise HubError("the registry is checking other versions: publish again shortly", 503)
+    try:
+        yield
+    finally:
+        _SLOTS.release()
+
+
 def check(pack_dir: Path, previous: Mapping[str, Any] | None) -> dict[str, Any]:
     """The check of the pack at `pack_dir`, gated against `previous` (the newest earlier
-    version's check, or None)."""
+    version's measured check, with its version and whether it is recalled, or None). The gate
+    uses the earlier check's tolerance, so a version cannot widen the margin it is held to, and
+    a test set that changed is said to, not compared."""
     measured = _isolated(pack_dir)
     if measured.get("status") != "measured":
         return {"format": FORMAT, "label": LABEL, **measured}
-    base = None
-    if isinstance(previous, Mapping) and previous.get("status") == "measured":
-        base = previous.get("summary")
-    from mendari.evals.gate import gate
-
-    rows, failures = gate(measured["summary"], base, float(measured["tolerance"]))
-    return {
+    shown: dict[str, Any] = {
         "format": FORMAT,
         "label": LABEL,
         "status": "measured",
-        "summary": measured["summary"],
-        "compared_with": None if base is None or previous is None else previous.get("version"),
-        "rows": rows,
-        "regressions": failures,
+        "summary": measured.get("summary"),
+        "tolerance": measured.get("tolerance"),
+        "compared_with": None,
+        "rows": [],
+        "regressions": [],
     }
+    if not isinstance(previous, Mapping) or previous.get("status") != "measured":
+        return shown
+    shown["compared_with"] = previous.get("version")
+    shown["compared_with_recalled"] = bool(previous.get("recalled"))
+    try:
+        before, now = previous["summary"], measured["summary"]
+        if before["dataset"].get("sha256") != now["dataset"].get("sha256"):
+            shown["regressions"] = [
+                f"the test set is not the one {previous.get('version')} was checked on: "
+                "not compared"
+            ]
+            return shown
+        tolerance = previous.get("tolerance")
+        tolerance = float(tolerance if tolerance is not None else measured["tolerance"])
+        from mendari.evals.gate import gate
+
+        shown["rows"], shown["regressions"] = gate(now, before, tolerance)
+    except (KeyError, TypeError, ValueError, AttributeError, ArithmeticError):
+        # The comparison failed on what the two checks hold: said so, never a refused publish.
+        shown["regressions"] = ["the two checks could not be compared"]
+    return shown
 
 
 def _isolated(pack_dir: Path) -> dict[str, Any]:
@@ -80,32 +115,57 @@ def _isolated(pack_dir: Path) -> dict[str, Any]:
             "LANG": "C.UTF-8",
         }
         try:
-            done = subprocess.run(
+            child = subprocess.Popen(
                 [sys.executable, "-I", "-m", "mendari.hub.regression", str(pack_dir)],
                 env=env,
                 cwd=home,
-                capture_output=True,
-                timeout=TIMEOUT_S,
-                preexec_fn=_limits if os.name == "posix" else None,
-                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
             )
-        except subprocess.TimeoutExpired:
-            return {"status": "failed", "reason": "time_limit"}
-    if done.returncode != 0 or len(done.stdout) > MAX_OUTPUT_BYTES:
+        except OSError:
+            return {"status": "failed", "reason": "the check could not start"}
+        try:
+            # Its limits are its own (`_limits`, first thing in `_main`); this bounds the wait.
+            killed = threading.Event()
+
+            def stop() -> None:
+                killed.set()
+                child.kill()
+
+            timer = threading.Timer(TIMEOUT_S, stop)
+            timer.start()
+            try:
+                assert child.stdout is not None
+                out = child.stdout.read(MAX_OUTPUT_BYTES + 1)
+                child.stdout.close()
+                code = child.wait()
+            finally:
+                timer.cancel()
+            timed_out = killed.is_set()
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    if timed_out:
+        return {"status": "failed", "reason": "time_limit"}
+    if code != 0 or len(out) > MAX_OUTPUT_BYTES:
         return {"status": "failed", "reason": "the check did not finish"}
     try:
-        found = json.loads(done.stdout)
+        found = json.loads(out)
     except ValueError:
         return {"status": "failed", "reason": "the check's answer is not JSON"}
     return found if isinstance(found, dict) else {"status": "failed", "reason": "not a check"}
 
 
 def _limits() -> None:
-    """In the child, before it runs: its CPU time, and its memory where the system bounds it."""
+    """In the child, before the pack is loaded: its CPU time, the files it may write, and its
+    memory where the system bounds it (not macOS)."""
     import resource
 
     resource.setrlimit(resource.RLIMIT_CPU, (TIMEOUT_S, TIMEOUT_S))
-    with contextlib.suppress(ValueError, OSError):  # macOS does not bound it
+    resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_BYTES, FILE_BYTES))
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
 
 
@@ -142,6 +202,8 @@ def _main(argv: list[str]) -> int:
     from mendari.core.pack import load_pack
     from mendari.evals.harness import evaluation, resolve_dataset
 
+    if os.name == "posix":
+        _limits()  # before anything of the pack is read
     try:
         pack = load_pack(Path(argv[0]), origin="hub")
         test_set = pack.manifest.evaluation.benchmark_dataset

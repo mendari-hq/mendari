@@ -409,6 +409,7 @@ class RegistryStore(RateBuckets):
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
+        self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
             f"{namespace}/{name}",
@@ -421,9 +422,10 @@ class RegistryStore(RateBuckets):
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 metadata = describe(pack, verified)
                 if regression.enabled():  # in a child process of its own (`hub/regression.py`)
-                    metadata["regression"] = regression.check(
-                        Path(scratch) / "pack", self._previous_check(namespace, name, version)
-                    )
+                    with regression.slot():  # at most a few at once; else 503, try again
+                        metadata["regression"] = regression.check(
+                            Path(scratch) / "pack", self._previous_check(namespace, name, version)
+                        )
             except HubError:
                 raise
             except MendariError as error:
@@ -487,18 +489,39 @@ class RegistryStore(RateBuckets):
             )
         return self.version(namespace, name, version)
 
+    def _refuse_existing(self, namespace: str, name: str, version: str) -> None:
+        with self._db.session(exclusive=False) as db:
+            if db.one(
+                "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
+                (namespace, name, version),
+            ):
+                raise HubError(
+                    f"{namespace}/{name}@{version} is published; versions are immutable", 409
+                )
+
     def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
-        """The regression check of the newest version before `version` that is not recalled,
-        with its version, for the gate to compare with."""
-        earlier = [
-            v
-            for v in self.versions(namespace, name)
-            if version_key(v["version"]) < version_key(version)
-            and v["yank"] is None
-            and v["deleted"] is None
-            and isinstance(v.get("regression"), dict)
-        ]
-        return {**earlier[-1]["regression"], "version": earlier[-1]["version"]} if earlier else None
+        """The measured regression check of the newest version before `version`, with its
+        version and whether it is recalled since: the gate's baseline. A recalled version stays
+        one, so recalling a good version cannot hide a later regression."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT version, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
+                (namespace, name),
+            )
+            recalls = _recalls(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+        earlier = []
+        for row in rows:
+            check = json.loads(row["metadata"]).get("regression")
+            if (
+                version_key(row["version"]) < version_key(version)
+                and isinstance(check, dict)
+                and check.get("status") == "measured"
+            ):
+                earlier.append((version_key(row["version"]), row["version"], check))
+        if not earlier:
+            return None
+        _, found, check = max(earlier, key=lambda item: item[0])
+        return {**check, "version": found, "recalled": (namespace, name, found) in recalls}
 
     def versions(self, namespace: str, name: str) -> list[dict[str, Any]]:
         with self._db.session(exclusive=False) as db:
@@ -989,16 +1012,19 @@ def _version_row(
         "version": row["version"],
         "published_at": row["created_at"],
         "archive_sha256": row["archive_sha256"],
-        **{key: value for key, value in stored.items() if key not in UPLOADED},
+        # The raw regression check is served only as `checked.regression` (its accuracy as a
+        # figure, labelled), never beside it.
+        **{k: v for k, v in stored.items() if k not in UPLOADED and k != "regression"},
         "card_markdown": stored.get("card_markdown") if rendered else None,
     }
     recall = recall or {}
+    regression_of = stored.get("regression")
     return {
         **served,
         # A recall (`hub/yank.py`): the signed record, checked when it was stored, and a deletion.
         "yank": recall.get("yank"),
         "deleted": recall.get("deleted"),
-        "checked": _checked(served, rendered, review),
+        "checked": _checked(served, rendered, review, regression_of),
         "claimed": _claimed(served, review),
     }
 
@@ -1022,7 +1048,10 @@ def _review(version: Mapping[str, Any], review: Mapping[str, Any] | None) -> dic
 
 
 def _checked(
-    version: Mapping[str, Any], rendered: bool, review: Mapping[str, Any] | None = None
+    version: Mapping[str, Any],
+    rendered: bool,
+    review: Mapping[str, Any] | None = None,
+    regression_of: Any = None,
 ) -> dict[str, Any]:
     """What the registry verified or worked out itself, at publish."""
     return {
@@ -1043,7 +1072,7 @@ def _checked(
         "review": _review(version, review),
         # Worked out here on the publisher's own test set (`hub/regression.py`): a regression
         # check against the earlier version, never a ranking. None: published without it.
-        "regression": _regression(version.get("regression")),
+        "regression": _regression(regression_of),
     }
 
 
@@ -1465,7 +1494,10 @@ def create_registry_app(
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        return store.publish(namespace, name, version, bytes(body), by=actor(request))
+        # Off the event loop: a publish runs the regression check, up to its time limit.
+        return await run_in_threadpool(
+            store.publish, namespace, name, version, bytes(body), by=actor(request)
+        )
 
     async def small_body(request: Request, model: type[Small]) -> Small:
         """A small JSON body, read only after its sender was checked and at most

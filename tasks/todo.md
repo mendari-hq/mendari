@@ -1431,7 +1431,17 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     never refused. Not run: `no_test_set`, `needs_remote` (a default provider calls a model),
     `failed` (the error's type, never its text). The Hub says it in the checked group; it is
     not in `figures` and nothing ranks on it. The five reference packs and the hostile example
-    measure on the seeded registry (16.6 s for the seed, with the checks).
+    measure on the seeded registry (16.6 s for the seed, with the checks). Adversarial review
+    (1 high, 4 medium, 6 low; with 18f's), fixed: a publish ran the check on the event loop, so
+    the registry answered nothing for up to 180 s, and a re-sent existing version ran it again
+    (now in the thread pool, at most 2 checks at once else 503, and an existing version is
+    refused before any work); the gate used the new version's own tolerance (now the earlier
+    check's); the baseline skipped recalled versions and stopped at one that measured nothing
+    (now the newest measured check, recalled or not, said so), and a changed test set read as
+    no regression (now "not compared"); a failure in the gate refused the publish (now said
+    in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
+    file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
+    accuracy) is no longer served beside `checked.regression`.
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 
