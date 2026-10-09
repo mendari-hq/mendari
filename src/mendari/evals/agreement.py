@@ -37,6 +37,11 @@ def agreement(
     if left == right:
         raise MendariError("compare two different variants")
     first, second = build_provider(pack, slot, left), build_provider(pack, slot, right)
+    # Every provider that would be asked, a composite's members included, can be: a member
+    # that cannot (an `llm` with no model, say) would leave the other to answer alone, and the
+    # report would call two variants equal when one never ran.
+    for leaf in (*first.leaves(), *second.leaves()):
+        leaf.preflight()
     differences: list[dict[str, str]] = []
     counted = 0
     for case_id, inputs in cases:

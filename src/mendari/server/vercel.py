@@ -48,7 +48,9 @@ Configuration comes from the environment:
   `/api/audit/checkpoint` (LP-21k).
 - `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
   `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
-- `LLM_MODEL`: default model for `llm` variants (an AI Gateway id, `<vendor>/<model>`).
+- `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,
+  `<vendor>/<model>`). There is no built-in default: without it they are `not_configured`, and
+  their decisions go to a person.
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """
 

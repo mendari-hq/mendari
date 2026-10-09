@@ -16,7 +16,9 @@ tells the model to classify it, not to follow it. The response contract does not
 the input, and anything outside it is an `invalid_response`.
 
 Configuration, in order of precedence:
-- model: the variant's `model`, then `LLM_MODEL`, then `anthropic/claude-sonnet-5`;
+- model: the variant's `model`, then `LLM_MODEL`. There is no default model: with neither, the
+  variant is `not_configured` before any call (in `preflight` and wherever a request is built),
+  so a decision that needs it goes to a person;
 - endpoint: `LLM_BASE_URL`, then the AI Gateway; whichever it is must be on
   `MENDARI_PROVIDER_ALLOWED_ORIGINS` when the deployment sets it (`providers/http.py`);
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
@@ -60,7 +62,6 @@ from mendari.providers.credentials import vercel_oidc_token
 from mendari.providers.http import is_local, post_json, require_secure
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
-DEFAULT_MODEL = "anthropic/claude-sonnet-5"
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
 CALIBRATION_FORMAT = "mendari.llm-calibration/1"
 MAX_QUESTIONS = 16
@@ -118,8 +119,9 @@ class LlmProvider(Provider):
             raise PackValidationError(self.pack.id, problems)
         self.settings = settings
         self._client = client
-        model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
-        if not re.match(MODEL_PATTERN, model):
+        # No default model: with none here, the provider is built, but never called.
+        model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or None
+        if model is not None and not re.match(MODEL_PATTERN, model):
             raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model"])
         self.model = model
         self.temperatures = self._load_calibration()
@@ -132,7 +134,7 @@ class LlmProvider(Provider):
         data = self.pack.read_json(self.settings.calibration)
         if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
             raise PackValidationError(self.pack.id, [f"{self.info.slot}: not a calibration file"])
-        if data.get("model") != self.model:
+        if self.model is None or data.get("model") != self.model:
             return {}
         temperatures = data.get("temperatures", {})
         if not isinstance(temperatures, dict):
@@ -195,7 +197,14 @@ class LlmProvider(Provider):
         return _base_url()
 
     def preflight(self) -> None:
+        self.configured_model()
         require_secure(self.base_url, "LLM")
+
+    def configured_model(self) -> str:
+        """The model to ask, or `not_configured` before any call is attempted or counted."""
+        if self.model is None:
+            raise ProviderError("not_configured", f"set {MODEL_ENV}; there is no default model")
+        return self.model
 
     def _token(self) -> str | None:
         if self.base_url == GATEWAY_URL:
@@ -230,6 +239,7 @@ class LlmProvider(Provider):
         batch = [provider for provider in providers if isinstance(provider, LlmProvider)]
         if len(batch) != len(providers):
             raise TypeError("an LLM batch holds only LLM providers")
+        model = self.configured_model()  # a caller that skipped preflight never sends no model
         require_secure(self.base_url, "LLM")
         refuse_if_over_quota()  # over quota: no credential fetched, no call
         deadline.refuse_if_past()  # past the decision's deadline: likewise
@@ -263,7 +273,7 @@ class LlmProvider(Provider):
         reported = raw.get("model")
         if not (isinstance(reported, str) and re.fullmatch(MODEL_PATTERN, reported)):
             reported = None
-        extra: dict[str, Any] = {"requested_model": self.model}
+        extra: dict[str, Any] = {"requested_model": model}
         if reported is not None:
             extra["effective_model"] = reported
         if len(batch) > 1:
@@ -303,7 +313,7 @@ class LlmProvider(Provider):
         self, questions: Mapping[str, Question], state: Mapping[str, Any]
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "model": self.model,
+            "model": self.configured_model(),
             "messages": [
                 {"role": "system", "content": system_prompt(questions)},
                 {"role": "user", "content": "Input:\n" + json.dumps(state, ensure_ascii=False)},
@@ -438,7 +448,9 @@ def _nonnegative(value: Any) -> bool:
 
 
 def deployment_info() -> dict[str, Any]:
-    """Where LLM calls go and how they authenticate (for health checks). Never a secret."""
+    """Where LLM calls go and how they authenticate (for health checks). Never a secret.
+    `default_model` is `LLM_MODEL`, or None: there is no built-in default, so an `llm` variant
+    that pins no model of its own is then `not_configured`."""
     base_url = _base_url()
     credentials: str | None
     if base_url == GATEWAY_URL:
@@ -450,7 +462,7 @@ def deployment_info() -> dict[str, Any]:
     return {
         "endpoint": urlparse(base_url).netloc,
         "credentials": credentials,
-        "default_model": os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL,
+        "default_model": os.environ.get(MODEL_ENV, "").strip() or None,
     }
 
 
@@ -462,10 +474,12 @@ def fit_calibration(
     provider: LlmProvider, records: list[dict[str, Any]], *, workers: int = 8
 ) -> dict[str, Any]:
     """Ask the uncalibrated model about every labelled record and fit one temperature per
-    question on its answers. Returns the calibration file's content (with provenance)."""
+    question on its answers. Returns the calibration file's content (with provenance). A
+    provider that cannot be called (no model, say) is refused before the first record."""
     from mendari.parallel import parallel_map
     from mendari.providers.calibration import fit_temperature, log_probabilities
 
+    provider.preflight()
     fitted_for, provider.temperatures = provider.temperatures, {}
     try:
 

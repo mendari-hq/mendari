@@ -373,8 +373,10 @@ def test_a_registry_packs_pinned_model_gives_way_to_the_deployments(
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     assert build_provider(hub, "reader", "llm").info.model == "example/deployment-model"
     assert build_provider(owned, "reader", "llm").info.model == "example/pinned-model"
+    # No LLM_MODEL: there is no built-in model (LP-10c-ii), and a pack from a registry never
+    # falls back to its own pinned one, so it has no model and nothing is called.
     monkeypatch.delenv("LLM_MODEL")
-    assert build_provider(hub, "reader", "llm").info.model not in (None, "example/pinned-model")
+    assert build_provider(hub, "reader", "llm").info.model is None
     # Jev without JEV_MODEL: a pack from a registry has no model, so nothing is called.
     monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
     monkeypatch.setenv("JEV_API_KEY", "k-jev")

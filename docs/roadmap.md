@@ -81,9 +81,10 @@ probabilities). The harder inbox benchmark did not ship and is an open item in
   eligible; any = unknown → review"), which the trial, PA and AI Guard packs all need; derived
   outputs. Migrate the inbox pack, with a spec migration note.
 - **LLM provider** through Vercel AI Gateway (OIDC, as the Jev connector already works): Claude
-  by default, with structured output of per-label probabilities, calibration fitted on a
-  held-out split, and strict validation with safe failure like Jev. The same provider with an
-  OpenAI-compatible `base_url` covers **local/open-source models** (Ollama, vLLM).
+  by default (removed in LP-10c: the deployment's `LLM_MODEL` names the model), with
+  structured output of per-label probabilities, calibration fitted on a held-out split, and
+  strict validation with safe failure like Jev. The same provider with an OpenAI-compatible
+  `base_url` covers **local/open-source models** (Ollama, vLLM).
 - **Composition:** add `cascade` (a cheap provider first, escalating to an expensive one only
   when uncertain) and weighted voting, next to `any_of`.
 - **Jev:** send every Jev-answered question of a decision in one call (today the router and the
