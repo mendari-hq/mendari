@@ -16,7 +16,9 @@ here, in the order they landed:
   --since-checkpoint`; the templates run it daily);
 - 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
 - 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
-  `mendari audit verify --against`; its hosted schedule waits for 21n).
+  `mendari audit verify --against`; its hosted schedule waits for 21n);
+- 21n, the hosted schedule (`vercel.json` runs the purge, the monitor and the checkpoint daily),
+  merged with the owner's go-ahead.
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.
@@ -143,7 +145,10 @@ Anonymous `/api/health` stays three fields with no database work.
      webhook, 3 when one could not be posted. The templates run it daily; the Kubernetes job
      fails on 1 or 3 and is never re-run, which would post every alert again.
    - The hosted schedule (21n) changes the hosted site on deploy, so it merges only with the
-     owner's go-ahead.
+     owner's go-ahead. Each job runs daily in an hour of its own (UTC): the purge at 08:00, the
+     monitor at 09:00, the checkpoint at 10:00, two hours after the purge so the day's signed
+     head covers what the purge chained. The alerts reach someone only once the owner sets
+     the alert webhook for Production (an owner decision below).
 6. **Usage (21g to 21i).**
    - A `usage_ledger` per day, organization, provider type and purpose counts calls, priced
      calls, tokens and cost.
