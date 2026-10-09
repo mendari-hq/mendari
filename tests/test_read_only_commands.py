@@ -21,6 +21,8 @@ from mendari.errors import MendariError
 COMMANDS = {
     "audit verify": ["audit", "verify"],
     "audit verify --notes": ["audit", "verify", "--notes"],
+    # Hidden evaluation sets (LP-11e): checked (each unchecked without keys), marking nothing.
+    "audit verify --evalsets": ["audit", "verify", "--evalsets"],
     "audit export": ["audit", "export"],
     "feedback export": ["feedback", "export", "mendari/patient-inbox-router", "--out", "{out}"],
     "monitor": ["monitor", "--pack", "mendari/patient-inbox-router"],

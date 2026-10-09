@@ -353,6 +353,12 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "sessions.ended": ("D", "Sessions ended", {}),
     "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
     "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
+    # Hidden evaluation sets (LP-11e): the set and its organization only; the case hash and
+    # commitment a case's event chains are no detail here (`_ADMINISTRATIVE_DETAILS`).
+    "evalset.created": ("C", "Hidden evaluation set created", None),
+    "evalset.case_added": ("C", "Hidden evaluation case added", None),
+    "evalset.case_removed": ("D", "Hidden evaluation case removed", None),
+    "evalset_index.epoch": ("C", "Hidden-case index key epoch", _CONFIGURATION),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (

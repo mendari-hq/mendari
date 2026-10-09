@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The keys of hidden evaluation sets (LP-11, ADR-0011): what seals a set's content, and what
-keys the hidden-case index and the chained case hashes. Nothing is stored with them yet (11c);
-the store (11e) and the routes come later.
+keys the hidden-case index and the chained case hashes. The store (`core/evalsets.py`, 11e)
+seals with them; the routes come later.
 
 - `MENDARI_EVALSET_KEY` (32 random bytes, base64) seals, with AES-256-GCM: a set's header, each
   case's input and attributes, each label, the freeze record and the stored aggregates. Each

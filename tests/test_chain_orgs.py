@@ -29,13 +29,15 @@ from mendari.core.audit import (
     PERSON_KINDS,
     SUBJECT_TABLES,
 )
+from mendari.core.evalsets import EvalsetStore
 from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from tests.conftest import encrypt_mode, message
+from tests.conftest import encrypt_mode, evalset_keys_for_test, hand_written, message
 from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
+EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
 INBOX = "mendari/patient-inbox-router"
 CLINIC = "clinic-a"
@@ -143,6 +145,11 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         org=home, email="lee@example.org", roles=["viewer"], created_by="ops"
     )
     store.revoke_invitation(invitation["id"], org=home, revoked_by="ops")
+    # A hidden evaluation set (LP-11e): made, a case added (the index key's epoch) and removed.
+    hidden = EvalsetStore(store, EVALSETS)
+    made_set = hidden.create_set(home, pack, "a hidden set", created_by="ops")["set"]
+    added = hidden.add_cases(made_set, [hand_written(f"A hidden case of {home}")])
+    hidden.remove_case(made_set, added["cases"][0]["case"])
     made.update(decisions=[first, second, third], home=home)
     return made
 
@@ -303,6 +310,11 @@ def _request(store: AuditStore, _: Pack) -> str:
     return "access:" + store.request_access(user_id=person["id"], org=CLINIC)["id"]
 
 
+def _evalset(store: AuditStore, pack: Pack) -> str:
+    made = EvalsetStore(store, EVALSETS).create_set(CLINIC, pack, "a hidden set", created_by="t")
+    return f"evalset:{made['set']}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -314,6 +326,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "memberships": ("memberships", "id", _membership),
     "invitations": ("invitations", "id", _invitation),
     "access_requests": ("access_requests", "id", _request),
+    "evalset_sets": ("evalset_sets", "id", _evalset),
 }
 
 

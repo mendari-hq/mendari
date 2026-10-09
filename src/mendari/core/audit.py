@@ -20,7 +20,7 @@ import statistics
 import time
 import uuid
 from collections import Counter
-from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,7 +30,11 @@ from mendari.core import accounts, clock, tenancy
 from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
-from mendari.core.phi import LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
+from mendari.core.evalset_keys import INDEX_ENV as EVALSET_INDEX_ENV
+from mendari.core.evalset_keys import KEY_ENV as EVALSET_KEY_ENV
+from mendari.core.evalset_keys import READ_ENV as EVALSET_READ_ENV
+from mendari.core.evalset_keys import EvalsetKeys
+from mendari.core.phi import GENERATE, LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
@@ -105,6 +109,14 @@ KNOWN = "phi_key_known:"
 HASH_EPOCH = "hash_epoch:"
 ROTATE_BATCH = 200  # values a rotation re-seals per batch (one chained event each)
 CHECK_FAILURES_SHOWN = 50
+# Hidden evaluation sets' keys (LP-11e, ADR-0011), marked as the PHI key's are: each key of the
+# evaluation-set ring a writer held (`EVALSET_KNOWN` + its id), so a row naming another was
+# altered and a stray ring is refused; each key a rotation moved values off (`EVALSET_RETIRED`
+# + its id, LP-11f), which then seals nothing more here; and each index key's epoch
+# (`EVALSET_INDEX_EPOCH` + its id: since when). None of them is a PHI key's mark, nor the reverse.
+EVALSET_KNOWN = "evalset_key_known:"
+EVALSET_RETIRED = "evalset_key_retired:"
+EVALSET_INDEX_EPOCH = "evalset_index_epoch:"
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
 # The organization in the chain (LP-12g, ADR-0008). A database a memberships-mode server opened
@@ -141,6 +153,7 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "membership": ("memberships", "id", _ROW_ORG),
     "invitation": ("invitations", "id", _ROW_ORG),
     "access": ("access_requests", "id", _ROW_ORG),
+    "evalset": ("evalset_sets", "id", _ROW_ORG),  # a hidden evaluation set (LP-11e)
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -164,6 +177,10 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "invitation.revoked": "invitation",
     "access.requested": "access",
     "access.handled": "access",
+    # A hidden evaluation set's (LP-11e): ids, keyed case hashes and commitments, never content.
+    "evalset.created": "evalset",
+    "evalset.case_added": "evalset",
+    "evalset.case_removed": "evalset",
 }
 # A person's, across organizations: the organization they acted for is in the payload, no row.
 PERSON_KINDS = frozenset({NOTICE_EVENT})
@@ -171,6 +188,7 @@ PERSON_KINDS = frozenset({NOTICE_EVENT})
 DEPLOYMENT_KINDS = frozenset(
     {
         "deployment.recorded",
+        "evalset_index.epoch",  # a new evaluation-set index key (LP-11e, `KEYS_CHAIN`)
         "input_hash.epoch",
         "phi.rotated",
         "retention.purged",
@@ -472,8 +490,49 @@ CREATE TABLE IF NOT EXISTS checkpoint_statements (
     day         TEXT PRIMARY KEY,
     seq         BIGINT NOT NULL,
     statement   TEXT NOT NULL
-)
+);
+CREATE TABLE IF NOT EXISTS evalset_sets (
+    id            TEXT PRIMARY KEY,
+    org           TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    created_by    TEXT NOT NULL,
+    header        TEXT NOT NULL,
+    frozen_at     TEXT,
+    commitment    TEXT,
+    freeze_record TEXT,
+    max_runs      INTEGER,
+    max_age_days  INTEGER,
+    retired_at    TEXT,
+    aggregates    TEXT
+);
+CREATE TABLE IF NOT EXISTS evalset_cases (
+    id          TEXT PRIMARY KEY,
+    set_id      TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    input       TEXT NOT NULL,
+    attributes  TEXT NOT NULL,
+    case_hash   TEXT NOT NULL UNIQUE,
+    status      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evalset_cases_set ON evalset_cases (set_id, created_at);
+CREATE TABLE IF NOT EXISTS evalset_index (
+    hash     TEXT NOT NULL,
+    variant  TEXT NOT NULL,
+    key_id   TEXT NOT NULL,
+    set_id   TEXT NOT NULL,
+    case_id  TEXT NOT NULL,
+    org      TEXT NOT NULL,
+    PRIMARY KEY (case_id, variant, key_id)
+);
+CREATE INDEX IF NOT EXISTS evalset_index_hash ON evalset_index (hash)
 """
+# The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
+# input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
+# rest ids, states, times and keyed hashes. The columns a set's freeze and retirement fill
+# (LP-11i) are created now, nullable, so no `_ADDED_COLUMNS` entry is needed for them; the sealed
+# freeze record is `freeze_record`, as FREEZE is a reserved word in Postgres.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -705,6 +764,30 @@ def _mark(db: _Session, name: str, value: str) -> None:
     )
 
 
+def _evalset_marked(db: _Session, ids: Iterable[str]) -> set[str]:
+    """Which of these key ids this database knows as an evaluation-set key (`EVALSET_KNOWN`) or
+    index key (`EVALSET_INDEX_EPOCH`, LP-11e): none of them is marked, or used, as a PHI key or
+    input hash key here (ADR-0011)."""
+    names = [
+        mark + key for key in sorted(set(ids)) for mark in (EVALSET_KNOWN, EVALSET_INDEX_EPOCH)
+    ]
+    if not names:
+        return set()
+    marks = ", ".join("?" for _ in names)
+    rows = db.all(f"SELECT name FROM settings WHERE name IN ({marks})", names)
+    return {str(row["name"]).rpartition(":")[2] for row in rows}
+
+
+def _evalset_key_refused(what: str, shared: str) -> MendariError:
+    """The refusal of a PHI key or input hash key (`what`) that this database knows as an
+    evaluation-set key (LP-11e): it names the key id, never the key."""
+    return MendariError(
+        f"{what} {shared} is an evaluation-set key of this database: the PHI keys "
+        "(MENDARI_PHI_KEY, MENDARI_PHI_READ_KEYS) and the input hash key (MENDARI_INPUT_HASH_KEY) "
+        f"differ from the evaluation-set keys; make a new one ({GENERATE})"
+    )
+
+
 def _later(delta: timedelta) -> str:
     """A time `delta` from now, formatted as `_now()` is (so the two compare as text)."""
     return (datetime.now(UTC) + delta).isoformat(timespec="milliseconds")
@@ -831,17 +914,20 @@ class AuditStore:
     def _protected(self, marks: bool = True, *, bind_org: bool = False) -> tuple[str | None, bool]:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
         (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
-        store under `encrypt` also marks each key it holds as known, and, with read keys (a
-        rotation under way), that tokens name their key from now on; every store that finds that
-        mark seals so. Likewise `bind_org` marks that events name their organization
-        (`ORG_BOUND`); the second value is whether the database is so marked."""
+        store under `encrypt` also marks each key it holds as known (but not one this database
+        knows as an evaluation-set key: `ready_to_keep` refuses that key, and marking it would
+        lock the evaluation sets out, LP-11e), and, with read keys (a rotation under way), that
+        tokens name their key from now on; every store that finds that mark seals so. Likewise
+        `bind_org` marks that events name their organization (`ORG_BOUND`); the second value is
+        whether the database is so marked."""
         if "settings" in self.unmigrated:
             return None, False  # an older database, read as it is: nothing marked it
         with self._db.session(exclusive=False) as db:
             if marks and self.phi.mode != "off":
                 _mark(db, PROTECTED, self.phi.mode)
             if marks and self.phi.mode == "encrypt":
-                for known in sorted(self.phi.ring_ids):
+                taken = _evalset_marked(db, self.phi.ring_ids)
+                for known in sorted(self.phi.ring_ids - taken):
                     _mark(db, KNOWN + known, _now())
                 if self.phi.read_keys:
                     _mark(db, PHI_TOKENS_V2, "1")
@@ -869,33 +955,131 @@ class AuditStore:
     def ready_to_keep(self) -> None:
         """Whether this store may keep what a decision brings: not under `off` in a protected
         database (`refuse_plaintext`), nor under `encrypt` with a key a rotation retired
-        (`_refuse_retired`). The server checks at startup; a decision before any provider
-        runs; each write again, in its own transaction."""
+        (`_refuse_retired`), nor with a PHI key or input hash key this database knows as an
+        evaluation-set key (LP-11e). The server checks at startup; a decision before any
+        provider runs; each write again, in its own transaction."""
         self.refuse_plaintext()
-        if self.phi.mode == "encrypt":
+        if self.phi.mode == "encrypt" or self.phi.hash_key:
             with self._db.session(exclusive=False) as db:
-                self._refuse_retired(db)
+                self._refuse_retired(db, evalset_keys=True)
 
-    def _refuse_retired(self, db: _Session) -> None:
+    def _refuse_retired(self, db: _Session, *, evalset_keys: bool = False) -> None:
         """Under `encrypt`, nothing is sealed with a key a rotation moved values off: a deployment
         still on the previous key, once the rotation began, refuses instead of sealing what the
-        rotation would leave behind."""
+        rotation would leave behind. With `evalset_keys`, in the same read, nor with a key of
+        the PHI ring (under `encrypt`) or an input hash key (in any mode) that this database
+        knows as an evaluation-set key (`EVALSET_KNOWN`) or index key (`EVALSET_INDEX_EPOCH`):
+        the two kinds of keys differ (ADR-0011)."""
+        encrypting = self.phi.mode == "encrypt"
         current = key_id(self.phi.key)
-        if db.one("SELECT name FROM settings WHERE name = ?", (RETIRED + current,)):
+        names = [RETIRED + current] if encrypting else []
+        held: dict[str, str] = {}  # key id -> which key it is, for the refusal
+        if evalset_keys:
+            held.update(dict.fromkeys(self.phi.ring_ids if encrypting else (), "PHI key"))
+            if self.phi.hash_key:
+                held[key_id(self.phi.hash_key)] = "Input hash key"
+            names += [
+                mark + known
+                for known in sorted(held)
+                for mark in (EVALSET_KNOWN, EVALSET_INDEX_EPOCH)
+            ]
+        if not names:
+            return
+        marks = ", ".join("?" for _ in names)
+        found = {
+            str(row["name"])
+            for row in db.all(f"SELECT name FROM settings WHERE name IN ({marks})", names)
+        }
+        if RETIRED + current in found:
             raise MendariError(
                 f"This deployment's PHI key {current} was retired by a key rotation: deploy the "
                 "current MENDARI_PHI_KEY (the retired one belongs in MENDARI_PHI_READ_KEYS)."
             )
+        for name in sorted(found):
+            shared = name.rpartition(":")[2]
+            raise _evalset_key_refused(held[shared], shared)
+
+    def evalset_ready(self, keys: EvalsetKeys) -> None:
+        """Whether a deployment with these evaluation-set keys may write hidden sets here (LP-11e,
+        ADR-0011): the server checks at startup, and `core/evalsets.py` before every write, in
+        the write's own transaction (`_evalset_ready`). Marks the ring's keys known once the
+        checks pass."""
+        with self._db.session(exclusive=True) as db:
+            self._evalset_ready(db, keys)
+
+    def _evalset_ready(self, db: _Session, keys: EvalsetKeys) -> None:
+        """Refuses, before anything is written: a current key a rotation retired (it seals
+        nothing more); any of these keys (the ring's or the index key) that this database knows
+        as a PHI key (`KNOWN`) or input hash key (`HASH_EPOCH`); a key of the ring this database
+        knows as an index key (`EVALSET_INDEX_EPOCH`), or an index key it knows as a key of the
+        ring (`EVALSET_KNOWN`), so the two roles never share a key, earlier keys included; and,
+        once a set exists, a ring that holds no key this database knows (`EVALSET_KNOWN`), a
+        stray key whose rows no reader could open beside the others. A rotation's documented
+        order passes: the next key is added as a read key first (and so becomes known), then
+        swapped in. Only then are the ring's keys marked known. Messages name variables and key
+        ids, never a key."""
+        current = key_id(keys.key)
+        index = key_id(keys.index_key)
+        read = sorted(keys.ring_ids - {current})
+        named = {current: EVALSET_KEY_ENV, index: EVALSET_INDEX_ENV}
+        named.update({key: EVALSET_READ_ENV for key in read})
+        if db.one("SELECT name FROM settings WHERE name = ?", (EVALSET_RETIRED + current,)):
+            raise MendariError(
+                f"This deployment's evaluation-set key {current} was retired by a key rotation: "
+                f"deploy the current {EVALSET_KEY_ENV} (the retired one belongs in "
+                f"{EVALSET_READ_ENV})."
+            )
+        ours = sorted(named)
+        names = [mark + key for key in ours for mark in (KNOWN, HASH_EPOCH)]
+        # The other role's marks: the ring's keys as index keys, the index key as a ring's key.
+        names += [EVALSET_INDEX_EPOCH + key for key in sorted(keys.ring_ids)]
+        names.append(EVALSET_KNOWN + index)
+        marks = ", ".join("?" for _ in names)
+        found = sorted(
+            str(row["name"])
+            for row in db.all(f"SELECT name FROM settings WHERE name IN ({marks})", names)
+        )
+        for name in found:
+            shared = name.rpartition(":")[2]
+            if name.startswith((EVALSET_KNOWN, EVALSET_INDEX_EPOCH)):
+                role = "index key" if name.startswith(EVALSET_INDEX_EPOCH) else "sealing key"
+                raise MendariError(
+                    f"{named[shared]} holds key {shared}, which this database knows as an "
+                    f"evaluation-set {role}: the sealing keys and the index key differ, also from "
+                    f"each other's earlier keys; make a new one ({GENERATE})"
+                )
+            raise MendariError(
+                f"{named[shared]} holds key {shared}, which this database knows as a PHI key or "
+                "input hash key: the evaluation-set keys differ from every PHI key; make a new "
+                f"one ({GENERATE})"
+            )
+        known = {
+            name[len(EVALSET_KNOWN) :]
+            for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (EVALSET_KNOWN + "%",))
+            if (name := str(row["name"])).startswith(EVALSET_KNOWN)
+        }
+        if known and not known & keys.ring_ids and db.one("SELECT id FROM evalset_sets LIMIT 1"):
+            raise MendariError(
+                f"none of this ring's evaluation-set keys ({', '.join(sorted(keys.ring_ids))}) "
+                f"sealed anything here; this database's are {', '.join(sorted(known))}: deploy "
+                f"its {EVALSET_KEY_ENV}, or add the new key to {EVALSET_READ_ENV} first and swap "
+                "it in afterwards (docs/operations/evalsets.md)"
+            )
+        for key in sorted(keys.ring_ids):
+            _mark(db, EVALSET_KNOWN + key, _now())
 
     def _mark_hash_epoch(self, db: _Session) -> str | None:
         """A new input hash key starts an epoch: the first record hashed under a key id this
         database has not seen chains `input_hash.epoch` (the key id), once per key, whichever
         deployments share the database. Old hashes stay as they were, under the key id each
-        names; hashes of two epochs never match, and nothing here tries. The key id, for the
-        caller to remember once its transaction commits (None: already remembered)."""
+        names; hashes of two epochs never match, and nothing here tries. A key this database
+        knows as an evaluation-set key starts none: the write is refused (LP-11e). The key id,
+        for the caller to remember once its transaction commits (None: already remembered)."""
         current = key_id(self.phi.hash_key)
         if self._hash_epoch == current:
             return None
+        if _evalset_marked(db, [current]):
+            raise _evalset_key_refused("Input hash key", current)
         added = db.all(
             "INSERT INTO settings (name, value) VALUES (?, ?) ON CONFLICT (name) DO NOTHING "
             "RETURNING name",
@@ -4466,7 +4650,12 @@ class AuditStore:
         return [json.loads(row["report"]) for row in rows]
 
     def verify(
-        self, *, notes: bool = False, since_checkpoint: bool = False, head: str | None = None
+        self,
+        *,
+        notes: bool = False,
+        since_checkpoint: bool = False,
+        head: str | None = None,
+        evalsets: EvalsetKeys | bool = False,
     ) -> dict[str, Any]:
         """Recompute the hash chain and each decision record's digest, and check that an event
         naming an organization names its row's (`_attributed`): a row moved to another
@@ -4485,10 +4674,19 @@ class AuditStore:
 
         With `head` (a signed checkpoint's, LP-21k), a full verification also requires an event
         with that hash: a chain rewritten from before the statement, or cut short of it, has
-        none, and fails with `reason: "statement"`."""
-        if since_checkpoint and (notes or head is not None):
-            raise ValueError("notes and a signed head are checked by a full verification only")
-        return self._verify(notes=notes, since_checkpoint=since_checkpoint, head=head)[0]
+        none, and fails with `reason: "statement"`.
+
+        With `evalsets` (`mendari audit verify --evalsets`, LP-11e), a full verification also
+        checks the hidden evaluation sets against their chained hashes (`_check_evalsets`):
+        their keys (`EvalsetKeys`) to open each sealed row, or True without them, when every
+        row is counted `unchecked`. Nothing is marked or written."""
+        if since_checkpoint and (notes or head is not None or evalsets is not False):
+            raise ValueError(
+                "notes, evaluation sets and a signed head are checked by a full verification only"
+            )
+        return self._verify(
+            notes=notes, since_checkpoint=since_checkpoint, head=head, evalsets=evalsets
+        )[0]
 
     def record_checkpoint(self, *, signer: Ed25519PrivateKey | None = None) -> dict[str, Any]:
         """Verify from the last checkpoint (from the start without one) and, when the chain
@@ -4576,7 +4774,12 @@ class AuditStore:
             return _checkpoints(db)
 
     def _verify(
-        self, *, notes: bool, since_checkpoint: bool, head: str | None = None
+        self,
+        *,
+        notes: bool,
+        since_checkpoint: bool,
+        head: str | None = None,
+        evalsets: EvalsetKeys | bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`verify`, and the last event checked (`seq`, `hash`; None for none)."""
         with self._db.session(exclusive=False) as db:
@@ -4609,6 +4812,9 @@ class AuditStore:
             # An older database read as it is may have no notes table: nothing kept to check.
             has_notes = notes and "notes" not in self.unmigrated
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
+            held = None
+            if evalsets is not False:
+                held = self._evalset_rows(db, int(events[-1]["seq"]) if events else 0)
         prev = GENESIS
         if start is not None:
             first = events[0] if events else None
@@ -4649,15 +4855,23 @@ class AuditStore:
             else (None if start is None else {"seq": start["seq"], "hash": start["hash"]})
         )
         since = {} if start is None else {"checkpoint": start}
-        if not notes:
-            return {"ok": True, "events": len(events), "head": prev, **since}, last
-        broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
-        if broken is not None:
-            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}, None
-        if unopenable:  # the chain holds; these notes cannot be checked with this ring
-            status = {"ok": False, "events": len(events), "notes": counts}
-            return {**status, "unopenable": unopenable}, None
-        return {"ok": True, "events": len(events), "head": prev, "notes": counts}, last
+        checked: dict[str, Any] = {}
+        if notes:
+            broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
+            if broken is not None:
+                failed = {"ok": False, "events": len(events), "broken_at": broken}
+                return {**failed, "notes": counts}, None
+            if unopenable:  # the chain holds; these notes cannot be checked with this ring
+                status = {"ok": False, "events": len(events), "notes": counts}
+                return {**status, "unopenable": unopenable}, None
+            checked["notes"] = counts
+        if held is not None:
+            refused, counts = self._check_evalsets(events, held, evalsets)
+            if refused is not None:
+                status = {"ok": False, "events": len(events), **checked}
+                return {**status, **refused, "evalsets": counts}, None
+            checked["evalsets"] = counts
+        return {"ok": True, "events": len(events), "head": prev, **since, **checked}, last
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
@@ -4712,6 +4926,159 @@ class AuditStore:
                 return event["seq"], counts, dict(unopenable)
             counts["checked"] += 1
         return None, counts, dict(unopenable)
+
+    def _evalset_rows(self, db: _Session, after: int) -> dict[str, Any]:
+        """What `_check_evalsets` reads, after the events (in `_verify`'s session): every set and
+        case row, then the set and case events chained since the last one read (`after`), and
+        the evaluation-set keys this database knows. A row is written, and a case deleted, in the
+        transaction that chains its event, so a row read here whose event came too late for the
+        events read, or a case deleted since, has that event in the later ones: a write that
+        runs beside a verification never reads as a break. A database without the tables (an
+        older one, read as it is) has no rows."""
+        cases: list[dict[str, Any]] = []
+        sets: list[dict[str, Any]] = []
+        if db.columns("evalset_sets") and db.columns("evalset_cases"):
+            sets = db.all("SELECT id, org, header FROM evalset_sets")
+            cases = db.all(
+                "SELECT id, set_id, org, input, attributes, case_hash FROM evalset_cases"
+            )
+        later = [
+            (str(row["event"]), json.loads(row["payload"]))
+            for row in db.all(
+                "SELECT event, payload FROM audit_events WHERE seq > ? AND event IN (?, ?, ?) "
+                "ORDER BY seq",
+                (after, "evalset.created", "evalset.case_added", "evalset.case_removed"),
+            )
+        ]
+        known: set[str] = set()
+        if "settings" not in self.unmigrated:  # an older database, read as it is, has none
+            known = {
+                name[len(EVALSET_KNOWN) :]
+                for row in db.all(
+                    "SELECT name FROM settings WHERE name LIKE ?", (EVALSET_KNOWN + "%",)
+                )
+                if (name := str(row["name"])).startswith(EVALSET_KNOWN)
+            }
+        return {"sets": sets, "cases": cases, "later": later, "known": known}
+
+    def _check_evalsets(
+        self, events: list[dict[str, Any]], held: Mapping[str, Any], keys: EvalsetKeys | bool
+    ) -> tuple[dict[str, Any] | None, dict[str, int]]:
+        """The hidden evaluation sets against the chain (LP-11e): why they fail (None when they
+        hold), and how many sets were found, how many cases were checked, left `unchecked`
+        (without `keys`) or removed since they were added.
+
+        Every `evalset.created` has its set and every `evalset.case_added` its case (found by
+        the keyed case hash it chained), in that set and organization, unless an
+        `evalset.case_removed` of it follows; every row has its event (`unchained`: a row
+        written without one, or kept after its removal). With `keys`, each set's header opens,
+        each case's hash is recomputed when it is under the current index key (an older one's
+        cannot be), and each case's input and attributes open and give the commitment its event
+        chained (`case_ref`). A row that fails under a key the ring holds, or names a key no one
+        here held, was altered: `broken_at` its event. A row sealed under a key this database
+        knows and the ring lacks cannot be checked: `unopenable`, by key id. Counts and ids
+        only: no value is returned."""
+        from mendari.core.evalsets import case_ref  # that module imports this one
+
+        ring = keys if isinstance(keys, EvalsetKeys) else None
+        counts = {"sets": 0, "checked": 0, "removed": 0, "unchecked": 0}
+        unopenable: Counter[str] = Counter()
+        missing = set(held["known"]) - ring.ring_ids if ring is not None else set()
+        current_index = f"hmac-sha256:{key_id(ring.index_key)}:" if ring is not None else None
+        sets = {str(row["id"]): row for row in held["sets"]}
+        cases = {str(row["case_hash"]): row for row in held["cases"]}
+        later = held["later"]
+        removed_in_chain: dict[tuple[Any, Any], int] = {}
+        for event in events:
+            if event["event"] == "evalset.case_removed":
+                payload = json.loads(event["payload"])
+                removed_in_chain[(payload.get("set"), payload.get("case"))] = int(event["seq"])
+        removed_later = {
+            (p.get("set"), p.get("case")) for k, p in later if k == "evalset.case_removed"
+        }
+        added_later = {p.get("case") for k, p in later if k == "evalset.case_added"}
+        created_later = {p.get("set") for k, p in later if k == "evalset.created"}
+
+        def opened(
+            ring: EvalsetKeys, kind: _SealedRow, token: str, set_id: str, case_id: str = ""
+        ) -> tuple[Any, bool]:
+            """The value, and whether it was opened (False: unopenable, counted); raises
+            `MendariError` for a row that was altered."""
+            try:
+                return ring.open(kind, token, set_id, case_id)[0], True
+            except MendariError:
+                named = token_key(token)
+                if named not in missing:
+                    raise
+                unopenable[named] += 1
+                return None, False
+
+        chained_sets: set[str] = set()
+        chained_cases: set[str] = set()
+        for event in events:
+            kind = event["event"]
+            if kind not in ("evalset.created", "evalset.case_added"):
+                continue
+            payload = json.loads(event["payload"])
+            broken = {"broken_at": event["seq"]}
+            set_id = str(payload.get("set"))
+            if event["decision_id"] != f"evalset:{set_id}" or set_id not in sets:
+                return broken, counts
+            if kind == "evalset.created":
+                chained_sets.add(set_id)
+                counts["sets"] += 1
+                if ring is not None:
+                    try:
+                        opened(ring, "header", str(sets[set_id]["header"]), set_id)
+                    except MendariError:
+                        return broken, counts
+                continue
+            case = payload.get("case")
+            if (set_id, case) in removed_later or removed_in_chain.get((set_id, case), 0) > int(
+                event["seq"]
+            ):
+                counts["removed"] += 1
+                continue
+            row = cases.get(str(case))
+            if row is None or str(row["set_id"]) != set_id:
+                return broken, counts
+            if str(row["org"]) != payload.get("org"):
+                return {**broken, "reason": "organization"}, counts
+            chained_cases.add(str(case))
+            if ring is None:
+                counts["unchecked"] += 1
+                continue
+            case_id = str(row["id"])
+            try:
+                under_current = bool(current_index) and str(case).startswith(str(current_index))
+                if under_current and ring.case_hash(set_id, case_id) != case:
+                    return broken, counts
+                value, value_opened = opened(ring, "input", str(row["input"]), set_id, case_id)
+                body, body_opened = opened(
+                    ring, "attributes", str(row["attributes"]), set_id, case_id
+                )
+                if not (value_opened and body_opened):
+                    continue
+                salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+                made = case_ref(salt, set_id, case_id, value, body.get("attributes"))
+            except (MendariError, ValueError, AttributeError):
+                return broken, counts
+            if made != payload.get("case_ref"):
+                return broken, counts
+            counts["checked"] += 1
+        listed = chained_sets | created_later
+        unchained = sum(
+            1
+            for hashed, row in cases.items()
+            if hashed not in chained_cases
+            and hashed not in added_later
+            and (str(row["set_id"]), hashed) not in removed_later
+        ) + sum(1 for set_id in sets if set_id not in listed)
+        if unchained:
+            return {"unchained": unchained}, counts
+        if unopenable:  # the chain holds; these rows cannot be checked with this ring
+            return {"unopenable": dict(unopenable)}, counts
+        return None, counts
 
 
 def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:
@@ -5129,6 +5496,8 @@ def _show_own_note(
 
 # Decisions a verification from a checkpoint reads per query (`_verify`).
 _VERIFY_BATCH = 500
+# The sealed values of an evaluation set's rows that `verify` opens (`_check_evalsets`).
+_SealedRow = Literal["header", "input", "attributes"]
 
 
 def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:

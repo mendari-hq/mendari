@@ -952,8 +952,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     held only by a grading key the operator mints (`mendari access grader-key`, at most 365
     days, chained; listed and revoked, never rotated; refused over HTTP); open mode holds none
     of the three. ADR-0004 and ADR-0008 amended; threat model E2 and E11.
-  - [ ] **11e** Store I: sealed sets and cases, the hidden-case index, `audit verify --evalsets`
-    (the operator's command line only).
+  - [ ] **11e** (PR open) Store I: sealed sets and cases, the hidden-case index,
+    `audit verify --evalsets` (the operator's command line only): `core/evalsets.py`,
+    `mendari evalset create|add|remove-case|list`, hand-written cases only (public cases refused
+    exactly and under `norm/v1`), each case chained as its keyed hash and a salted commitment
+    (`case_ref`), stray, retired and PHI keys refused before every write and at startup; the
+    runbook `docs/operations/evalsets.md`. The sealed freeze record's column is `freeze_record`
+    (FREEZE is reserved in Postgres).
   - [ ] **11f** Key lifecycle: rotation with its check, reindexing, the sealed export.
   - [ ] **11g** The generated no-leak sweep, before any evaluation-set route (tests only).
   - [ ] **11h** Store II: sampling, assignment, blind labelling, adjudication, agreement.

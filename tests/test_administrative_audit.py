@@ -24,10 +24,20 @@ from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS
+from mendari.core.evalsets import EvalsetStore
+from mendari.core.pack import load_pack
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure
 from mendari.standards.terminology import Terminology
-from tests.conftest import encrypt_mode, member, message, signed_in
+from tests.conftest import (
+    INBOX_DIR,
+    encrypt_mode,
+    evalset_keys_for_test,
+    hand_written,
+    member,
+    message,
+    signed_in,
+)
 from tests.test_chain_orgs import jwks
 
 IDP = "https://idp.example.org"
@@ -35,6 +45,7 @@ BASE = "https://mendari.test"
 INBOX = "mendari/patient-inbox-router"
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
 REPORT = {"created_at": "2026-10-01T00:00:00+00:00", "dataset": {"name": "local"}}
+EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
 
 
 def serving(db: str, monkeypatch: pytest.MonkeyPatch, accounts: str) -> TestClient:
@@ -82,7 +93,12 @@ def seed(store: AuditStore, org: str) -> dict[str, str]:
         org=org, email=f"lee@{marker}.example.org", roles=["viewer"], created_by="ops"
     )
     store.revoke_invitation(invitation["id"], org=org, revoked_by="ops")
+    # A hidden evaluation set (LP-11e): its name and its case are sealed, never in an event.
+    hidden = EvalsetStore(store, EVALSETS)
+    made_set = hidden.create_set(org, load_pack(INBOX_DIR), f"set {marker}", created_by="ops")
+    hidden.add_cases(made_set["set"], [hand_written(f"A hidden case {marker}", author=marker)])
     return {
+        "evalset": f"evalset:{made_set['set']}",
         "org": f"org:{org}",
         "key": f"key:{key['id']}",
         "client": f"client:{client['client_id']}",
@@ -139,7 +155,7 @@ def test_an_organization_reads_only_its_own_administrative_events(two: dict[str,
     assert set(made[alpha].values()) <= subjects
     assert {subject.split(":")[0] for subject in subjects} <= {
         "org", "key", "client", "hold", "governance", "eval", "invitation", "membership",
-        "access",
+        "access", "evalset",
     }  # fmt: skip
     text = json.dumps(items)
     assert "zqbravo" not in text and "operator drill" not in text

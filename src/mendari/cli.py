@@ -495,6 +495,15 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
     head = None
+    if args.evalsets and args.since_checkpoint:
+        raise MendariError("--evalsets needs a full verification: leave out --since-checkpoint")
+    # Hidden evaluation sets (LP-11e) are opened with the deployment's keys, read only: nothing is
+    # marked. Without them, each row is counted unchecked; a malformed key fails here.
+    evalsets: Any = False
+    if args.evalsets:
+        from mendari.core.evalset_keys import evalset_keys
+
+        evalsets = evalset_keys() or True
     if (args.against is None) != (args.public_key is None):
         raise MendariError("--against and --public-key go together: a statement and its key")
     if args.against is not None and args.since_checkpoint:
@@ -510,7 +519,12 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
             raise MendariError(f"--against: {problem}")
         head = statement["head"]
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint, head=head)
+        status = store.verify(
+            notes=args.notes,
+            since_checkpoint=args.since_checkpoint,
+            head=head,
+            evalsets=evalsets,
+        )
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -581,10 +595,12 @@ _MENDARI_TABLES = ("decisions", "deployments", "automation_holds")
 _EVERY_RELEASE = ("audit_events", "decisions")
 
 
-def _probe(target: str, tables: tuple[str, ...] = ()) -> tuple[bool, bool]:
+def _probe(
+    target: str, tables: tuple[str, ...] = (), also: tuple[str, ...] = ()
+) -> tuple[bool, bool]:
     """(the database has Mendari's `tables`, they hold anything: a decision, a deployment or a
-    hold), read without writing: nothing is created or migrated in a database that is not
-    Mendari's."""
+    hold, or a row of `also`'s tables that it has), read without writing: nothing is created or
+    migrated in a database that is not Mendari's."""
     tables = tables or _MENDARI_TABLES
     if target.startswith(("postgres://", "postgresql://")):
         import psycopg
@@ -596,9 +612,14 @@ def _probe(target: str, tables: tuple[str, ...] = ()) -> tuple[bool, bool]:
             ).fetchone()
             if not found or found[0] != len(tables):
                 return False, False
+            present = [
+                table
+                for table in also
+                if (connection.execute("SELECT to_regclass(%s)", (table,)).fetchone() or (None,))[0]
+            ]
             rows = sum(
                 (connection.execute(f"SELECT count(*) FROM {table}").fetchone() or (0,))[0]
-                for table in tables
+                for table in (*tables, *present)
             )
         return True, rows > 0
     import sqlite3
@@ -612,7 +633,7 @@ def _probe(target: str, tables: tuple[str, ...] = ()) -> tuple[bool, bool]:
         if not set(tables) <= names:
             return False, False
         rows = 0
-        for table in tables:
+        for table in (*tables, *(table for table in also if table in names)):
             counted = lite.execute(f"SELECT count(*) FROM {table}").fetchone()
             rows += counted[0] if counted else 0
         return True, rows > 0
@@ -633,15 +654,23 @@ def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str]:
     return AuditStore(target), shown
 
 
-def _servers_database(target: str, *, used: bool, tables: tuple[str, ...] | None = None) -> str:
+def _servers_database(
+    target: str,
+    *,
+    used: bool,
+    tables: tuple[str, ...] | None = None,
+    also: tuple[str, ...] = (),
+) -> str:
     """`target` as shown (no password) when it can be a server's database: it exists, has
     Mendari's tables (`tables`; read before anything is created in it) and, with `used`, holds
-    a decision, a deployment or a hold. A `MendariError` saying why when it cannot."""
+    a decision, a deployment or a hold, or a row of `also`'s tables (the evaluation-set
+    commands': a database whose only rows are hidden sets is a server's too). A `MendariError`
+    saying why when it cannot."""
     shown = _shown(target)
     if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
         raise MendariError(f"no database at {shown}: give the server's --db")
     try:
-        mendari, held = _probe(target, tables or _MENDARI_TABLES)
+        mendari, held = _probe(target, tables or _MENDARI_TABLES, also)
     except Exception as error:
         raise MendariError(f"cannot read {shown} ({type(error).__name__})") from None
     if not mendari:
@@ -1650,6 +1679,119 @@ def cmd_notes_erase(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evalset_keys() -> Any:
+    """The deployment's evaluation-set keys, which every `mendari evalset` write needs: checked
+    before anything is read or opened (a malformed or half-set key fails here, as at startup)."""
+    from mendari.core.evalset_keys import evalset_keys
+    from mendari.core.evalsets import OFF
+
+    keys = evalset_keys()
+    if keys is None:
+        raise MendariError(OFF)
+    return keys
+
+
+def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any, str]:
+    """The deployment's database for `mendari evalset` (LP-11e): given, or $DATABASE_URL. To
+    write, it must be a server's (`_servers_database`: it holds a decision, a deployment, a hold
+    or a hidden set, so a mistyped path is refused) and is opened marking nothing of PHI: the
+    store checks the evaluation-set keys against the database, and marks them, before each
+    write. Otherwise opened read-only: nothing is created, migrated or marked. Returns the
+    store (`core/evalsets.py`) and the database's name as shown (no password)."""
+    from mendari.core.evalsets import EvalsetStore
+
+    target = target or os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        raise MendariError("give --db (the server's database) or set DATABASE_URL")
+    if not writes:
+        return EvalsetStore(_read_store(target), keys), _shown(target)
+    shown = _servers_database(target, used=True, also=("evalset_sets",))
+    return EvalsetStore(AuditStore(target, marks=False), keys), shown
+
+
+def _outside_the_code(path: Path) -> None:
+    """Refuse a file of hidden cases inside the installed package or a checkout of Mendari's
+    repository (ADR-0011): hidden sets live in the deployment's database only, never where code
+    is shipped or committed. The path is not printed."""
+    resolved = path.resolve()
+    package = Path(__file__).resolve().parent
+    if resolved.is_relative_to(package) or any(_is_checkout(d) for d in resolved.parents):
+        raise MendariError(
+            "a file of hidden cases is kept outside Mendari's package and any checkout of its "
+            "repository: move it, then add it"
+        )
+
+
+def _is_checkout(directory: Path) -> bool:
+    """Whether `directory` is the root of a checkout of Mendari (its pyproject.toml names it)."""
+    project = directory / "pyproject.toml"
+    try:
+        text = project.read_text(encoding="utf-8") if project.is_file() else ""
+    except (OSError, UnicodeDecodeError):
+        return False
+    return re.search(r'(?m)^name\s*=\s*"mendari"\s*$', text) is not None
+
+
+def cmd_evalset_create(args: argparse.Namespace) -> int:
+    """A new draft hidden evaluation set of an organization for a pack (LP-11e): its header
+    (the pack's questions, labels and critical labels, and the set's name) sealed; chained. Its
+    id is printed, never its name."""
+    keys = _evalset_keys()
+    pack = resolve_pack(args.pack)
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        if store.store.organizations() and store.store.organization(args.org) is None:
+            raise MendariError(f"no organization {args.org} in {shown}: create it first")
+        made = store.create_set(args.org, pack, args.name, created_by=_command_line_actor())
+    _print_json(made)
+    print(
+        f"created in {shown}: add cases with `mendari evalset add {made['set']} FILE`",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_add(args: argparse.Namespace) -> int:
+    """Hand-written cases from a JSONL file outside the package and the repository, added to a
+    draft set, all or none (LP-11e). Prints each case's line and case hash, never its text."""
+    from mendari.core.evalsets import read_cases
+
+    keys = _evalset_keys()
+    path = Path(args.file)
+    _outside_the_code(path)
+    records = read_cases(path)
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        added = store.add_cases(
+            args.set_id, [record for _, record in records], lines=[line for line, _ in records]
+        )
+    _print_json(added)
+    print(f"{added['added']} case(s) added to {args.set_id} in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_evalset_remove_case(args: argparse.Namespace) -> int:
+    """Remove a case of a draft set, with its index rows; chained (LP-11e)."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        removed = store.remove_case(args.set_id, args.case)
+    _print_json(removed)
+    print(f"removed from {args.set_id} in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_evalset_list(args: argparse.Namespace) -> int:
+    """Every hidden set (of `--org`), with its state and number of cases: ids and counts,
+    read-only, nothing opened (the keys are not needed; a malformed one still fails)."""
+    from mendari.core.evalset_keys import evalset_keys
+
+    store, _ = _evalset_store(args.db, evalset_keys(), writes=False)
+    with store.store:
+        _print_json(store.sets(args.org))
+    return 0
+
+
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
@@ -2027,6 +2169,13 @@ def build_parser() -> argparse.ArgumentParser:
         "chain must hold (with --public-key)",
     )
     verify.add_argument("--public-key", help="the checkpoint key's public half (base64)")
+    verify.add_argument(
+        "--evalsets",
+        action="store_true",
+        help="also check the hidden evaluation sets against their chained hashes (with "
+        "$MENDARI_EVALSET_KEY and $MENDARI_EVALSET_INDEX_KEY; with neither, each is counted "
+        "unchecked)",
+    )
     verify.set_defaults(handler=cmd_audit_verify)
     checkpoint = audit.add_parser(
         "checkpoint", help="verify from the last checkpoint and record the head as the next"
@@ -2496,6 +2645,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--by", required=True, help="who erases it, as an identifier such as an email (chained)"
     )
     erase.set_defaults(handler=cmd_notes_erase)
+
+    evalset = sub.add_parser(
+        "evalset", help="hidden evaluation sets: the key holder's (LP-11)"
+    ).add_subparsers(dest="evalset_command", required=True)
+    evalset_create = evalset.add_parser(
+        "create", help="a new draft set of an organization for a pack"
+    )
+    evalset_create.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    evalset_create.add_argument("--org", required=True, help="the organization it belongs to")
+    evalset_create.add_argument("--name", required=True, help="the set's name (kept sealed)")
+    evalset_create.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_create.set_defaults(handler=cmd_evalset_create)
+    evalset_add = evalset.add_parser(
+        "add", help="add hand-written cases (a JSONL file outside the repository) to a draft set"
+    )
+    evalset_add.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_add.add_argument("file", help="the cases, one JSON record a line")
+    evalset_add.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_add.set_defaults(handler=cmd_evalset_add)
+    evalset_remove = evalset.add_parser("remove-case", help="remove a case of a draft set")
+    evalset_remove.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_remove.add_argument("case", help="the case's hash, as `mendari evalset add` printed it")
+    evalset_remove.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_remove.set_defaults(handler=cmd_evalset_remove_case)
+    evalset_list = evalset.add_parser(
+        "list", help="every set with its state and number of cases (ids and counts)"
+    )
+    evalset_list.add_argument("--org", help="only this organization's")
+    evalset_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_list.set_defaults(handler=cmd_evalset_list)
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")

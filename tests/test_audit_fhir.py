@@ -261,6 +261,11 @@ NOT_ON_A_DECISION = {
     "phi.rotated",  # a PHI key rotation's batch (`KEYS_CHAIN`)
     "input_hash.epoch",  # a new input hash key (`KEYS_CHAIN`)
     "eval.recorded",  # a stored evaluation report (`eval:<report id>`, LP-10)
+    # A hidden evaluation set's (`evalset:<set id>`, LP-11e); its index key's epoch (`KEYS_CHAIN`).
+    "evalset.created",
+    "evalset.case_added",
+    "evalset.case_removed",
+    "evalset_index.epoch",
 }
 
 

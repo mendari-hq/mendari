@@ -58,6 +58,7 @@ def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 
 
 RESOURCES = ("patient", "coverage", "insurer", "requester", "order")
+SET_ID = "00000000-0000-4000-8000-000000000000"  # an evaluation set's id, of no set
 # command -> (argv after the command, extra environment). Paths are `places` keys in braces.
 BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "list": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
@@ -152,6 +153,11 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
         ["--db", "{missing_db}", "--id", "n-1", "--reason", "request", "--by", "x"],
         {},
     ),
+    # Hidden evaluation sets with their keys unset (`places` clears them): off, nothing opened.
+    "evalset create": (["mendari/ai-guard", "--org", "a", "--name", "x", "--db", "{not_db}"], {}),
+    "evalset add": ([SET_ID, "{missing}", "--db", "{missing_db}"], {}),
+    "evalset remove-case": ([SET_ID, "c-1", "--db", "{not_db}"], {}),
+    "evalset list": (["--db", "{missing_db}"], {}),
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
     "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),

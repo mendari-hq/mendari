@@ -467,6 +467,8 @@ def create_app(
     bind_org = sign_in is not None and sign_in.accounts == "memberships"
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi, bind_org=bind_org)
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
+    if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
+        store.evalset_ready(evalsets)
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(

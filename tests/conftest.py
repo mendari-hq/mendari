@@ -23,6 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -397,6 +398,22 @@ def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
     monkeypatch.setenv("MENDARI_EVALSET_INDEX_KEY", base64.b64encode(index).decode())
     monkeypatch.delenv("MENDARI_EVALSET_READ_KEYS", raising=False)
     return key, index
+
+
+def evalset_keys_for_test() -> EvalsetKeys:
+    """Throwaway evaluation-set keys for a store made in a test (no environment)."""
+    return EvalsetKeys(secrets.token_bytes(32), secrets.token_bytes(32))
+
+
+def hand_written(body: str, **attributes: Any) -> dict[str, Any]:
+    """A hidden case as its author writes it: the inbox pack's input, hand-written, in English,
+    of the routine stratum (each overridable, or removed with None)."""
+    given: dict[str, Any] = {"author": "author-1", "language": "en", "stratum": "routine"}
+    given.update({"source": "hand_written", "template": None, **attributes})
+    return {
+        "input": {"message": {"body": body, "channel": "portal"}},
+        "attributes": {name: value for name, value in given.items() if value is not None},
+    }
 
 
 def encrypted_store(target: str | Path) -> AuditStore:

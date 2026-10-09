@@ -10,6 +10,11 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
 - 11d, the permissions: `label` (the `labeller` role, memberships mode), `curate` (people;
   administrators), and `grade`, held only by a grading key the operator mints; no route needs
   them yet.
+- 11e, the store (`core/evalsets.py`, the operator's `mendari evalset create|add|remove-case|list`):
+  sets and hand-written cases sealed in the `evalset_` tables, each case chained as its keyed hash
+  and a salted commitment of its input and attributes; the hidden-case index; the keys checked
+  against the database's marks before every write; `mendari audit verify --evalsets`. No route
+  reads the tables yet.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

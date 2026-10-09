@@ -77,6 +77,22 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, stored** (LP-11, the key holder's command line; no route yet):
+  `mendari evalset create`, `add`, `remove-case` and `list` keep an organization's sets of a
+  pack in the deployment's own database (`evalset_sets`, `evalset_cases`, `evalset_index`), never
+  in the repository. Cases are hand-written: another source, a template, a `system` or
+  `feedback` block, a missing author, language or stratum, and an input equal (exactly or under
+  `norm/v1`) to a public case (the bundled reference data and datasets, the generators' default
+  output) are refused, naming the line only, and a file inside the package or a checkout is
+  refused. Inputs, attributes and headers are sealed; the chain holds ids, keyed case hashes and
+  salted commitments (`evalset.created`, `evalset.case_added`, `evalset.case_removed`, and
+  `evalset_index.epoch` for a new index key). `mendari audit verify --evalsets` checks every
+  sealed case against them, and that each set's header opens (read-only; without the keys,
+  rows are counted unchecked). A stray, retired or PHI key, or a key the database knows in the
+  other role (sealing or index), writes nothing, and a server with the keys checks them at
+  startup; a PHI key or input hash key the database knows as an evaluation-set key stops the
+  server and is never marked a PHI key. PHI retention, erasure and rotation never touch the
+  sets.
 - **Hidden evaluation sets' permissions** (LP-11; no route needs them yet): `label`, for a person
   holding the `labeller` role on a membership (memberships mode only; one holding no other role
   sees a page saying so and nothing else); `curate`, for administrators who signed in, who no longer hold everything
