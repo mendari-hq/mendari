@@ -6,7 +6,9 @@
     }
   },
   "crons": [
-    { "path": "/api/internal/retention", "schedule": "0 8 * * *" }
+    { "path": "/api/internal/retention", "schedule": "0 8 * * *" },
+    { "path": "/api/internal/monitor", "schedule": "0 9 * * *" },
+    { "path": "/api/internal/checkpoint", "schedule": "0 10 * * *" }
   ],
   "functions": {
     "app.py": {

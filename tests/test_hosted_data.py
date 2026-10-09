@@ -905,8 +905,23 @@ def test_without_a_cron_secret_there_is_no_scheduled_purge(
         assert client.get("/api/health", headers=admin).json()["retention_scheduled"] is False
 
 
-def test_vercel_schedules_the_purge_daily(tmp_path: Path) -> None:
+def test_vercel_schedules_the_purge_the_monitor_and_the_checkpoint_daily(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hosted schedule (LP-21n): each job once a day in an hour of its own, the purge two
+    hours before the checkpoint, so the day's signed head covers what the purge chained even
+    when a run starts late in its hour. Each is a route of the server's that runs with Vercel
+    Cron's secret and refuses a request without it."""
     crons = json.loads((ROOT / "vercel.json").read_text())["crons"]
-    assert crons == [{"path": "/api/internal/retention", "schedule": "0 8 * * *"}]
-    paths = {getattr(route, "path", "") for route in create_app(db_path=tmp_path / "a.db").routes}
-    assert "/api/internal/retention" in paths
+    assert crons == [
+        {"path": "/api/internal/retention", "schedule": "0 8 * * *"},
+        {"path": "/api/internal/monitor", "schedule": "0 9 * * *"},
+        {"path": "/api/internal/checkpoint", "schedule": "0 10 * * *"},
+    ]
+    paths = {getattr(route, "path", "") for route in create_app(db_path=tmp_path / "b.db").routes}
+    client = cron_client(tmp_path, monkeypatch)
+    for cron in crons:
+        assert cron["path"] in paths
+        assert client.get(cron["path"]).status_code == 401  # without the secret: refused
+        ran = client.get(cron["path"], headers={"authorization": f"Bearer {CRON}"})
+        assert ran.status_code == 200  # with it: runs (a route the guard refused would not)

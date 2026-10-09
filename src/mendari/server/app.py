@@ -418,9 +418,9 @@ def create_app(
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
         # An optional job never stops the server: the jobs stay off, and health says so.
         phi_logger.warning(
-            "CRON_SECRET is not used, so the scheduled purge and monitor are off: it needs at "
-            "least %d random characters, with no spaces around them (Vercel Cron sends it as it "
-            "is stored)",
+            "CRON_SECRET is not used, so the scheduled purge, monitor and checkpoint are off: it "
+            "needs at least %d random characters, with no spaces around them (Vercel Cron sends "
+            "it as it is stored)",
             MIN_CRON_SECRET,
         )
         cron_secret = ""
