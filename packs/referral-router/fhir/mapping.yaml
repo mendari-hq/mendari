@@ -2,9 +2,13 @@
 # is the day of the request.
 fhir_version: R4
 focus: ServiceRequest
+# Which ServiceRequests are referrals (lab and imaging orders are ServiceRequests too): the
+# fictional referral code of the synthetic examples (https://mendari.co/fhir/CodeSystem/
+# fictional-referrals; not SNOMED CT). A site lists the code its EHR marks a referral with:
+# until it does, no real referral matches.
 focus_where:
   path: category[0].coding[0].code
-  in: ["3457005"]  # SNOMED CT: patient referral (lab and imaging orders are ServiceRequests too)
+  in: ["FR101"]
 
 resources:
   ServiceRequest:

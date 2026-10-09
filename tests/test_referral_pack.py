@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
@@ -14,13 +15,17 @@ import pytest
 from mendari import Decision
 from mendari.cli import main
 from mendari.core.policy import Outcome
+from mendari.errors import FhirError
 from mendari.sandbox import synthetic_referral
+from mendari.sandbox.fhir_records import REFERRAL
 from mendari.standards import cds_hooks
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "referral-router"
 CHECKLIST = ("recent_visit_note", "ecg_on_file", "imaging_on_file", "recent_labs", "marked_urgent")
 TODAY = date.today()
+# A lab order, as a US Core EHR categorizes one (SNOMED CT: laboratory procedure): never a referral.
+LAB = {"system": "http://snomed.info/sct", "code": "108252007"}
 
 
 @pytest.fixture(scope="module")
@@ -120,14 +125,16 @@ def _ago(days: int) -> str:
     return (TODAY - timedelta(days=days)).isoformat()
 
 
-def _order(id_: str, reason: str, category: str = "3457005", **extra: Any) -> dict[str, Any]:
+def _order(
+    id_: str, reason: str, category: dict[str, str] = REFERRAL, **extra: Any
+) -> dict[str, Any]:
     return {
         "resourceType": "ServiceRequest",
         "id": id_,
         "status": "draft",
         "intent": "order",
         "priority": "routine",
-        "category": [{"coding": [{"system": "http://snomed.info/sct", "code": category}]}],
+        "category": [{"coding": [category]}],
         "reasonCode": [{"text": reason}],
         "subject": {"reference": "Patient/p1"},
         **extra,
@@ -172,10 +179,28 @@ def test_a_fhir_referral_becomes_a_task_for_the_specialty(router: Decision) -> N
     assert task["focus"] == {"reference": "ServiceRequest/sr1"}
 
 
+def test_a_referral_under_a_site_code_is_decided_once_the_site_lists_it(
+    router: Decision, tmp_path: Path
+) -> None:
+    """The pack matches only the fictional referral code of its synthetic examples, so an EHR's
+    own referral code (a real EHR's is often SNOMED CT) decides nothing until the site lists it
+    in the FHIR mapping (owner-accepted, LP-14; a site code map is LP-23)."""
+    site = {"system": "https://ehr.example/referral-type", "code": "REF"}
+    order = _order("sr1", "Palpitations for 6 months, ECG normal. Please assess.", category=site)
+    with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
+        router.decide_fhir(_record(), focus=order)
+    copy = tmp_path / "referral-router"
+    shutil.copytree(PACK_DIR, copy)
+    mapping = copy / "fhir" / "mapping.yaml"
+    mapping.write_text(mapping.read_text().replace('in: ["FR101"]', 'in: ["FR101", "REF"]'))
+    result, _ = Decision.from_path(copy).decide_fhir(_record(), focus=order)
+    assert result.answers["specialty"].label == "cardiology"
+
+
 def test_order_sign_gives_one_card_per_referral(router: Decision) -> None:
     orders = [
         _order("sr1", "New chest tightness on exertion for 3 weeks, eases with rest. Please see."),
-        _order("lab1", "Annual bloods", category="108252007"),
+        _order("lab1", "Annual bloods", category=LAB),
         {"resourceType": "MedicationRequest", "id": "m1", "status": "draft"},
     ]
     request = {

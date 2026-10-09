@@ -300,6 +300,7 @@ EXPLICIT = (
     "subject_history",
     "administrative_events",
     "iter_administrative_events",
+    "usage_ledger",  # the usage ledger (LP-21g): an organization's rows, or the operator's all
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),

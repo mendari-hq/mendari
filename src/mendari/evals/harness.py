@@ -32,6 +32,7 @@ from mendari.evals import metrics
 from mendari.evals.ledger import Ledger
 from mendari.evals.result import FORMAT, result_from_ledger, result_sha256
 from mendari.parallel import parallel_map
+from mendari.providers.base import Metered
 
 REPORT_FORMAT = FORMAT
 
@@ -154,10 +155,12 @@ def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[
 
 @dataclass(frozen=True)
 class Evaluation:
-    """A run's report and the ledger its result is computed from."""
+    """A run's report, the ledger its result is computed from, and its remote calls by
+    provider type (for the usage ledger, `AuditStore.save_report`)."""
 
     report: dict[str, Any]
     ledger: Ledger
+    usage: dict[str, Metered] = field(default_factory=dict)
 
 
 def evaluation(decision: Decision, dataset: Dataset, *, workers: int = 1) -> Evaluation:
@@ -185,7 +188,11 @@ def build_evaluation(
     if decision.governance is not None:  # who approved it: local, never in the result
         run["governance_override"] = decision.governance.to_dict()
     report = {**found, "run": run, "result_sha256": result_sha256(found)}
-    return Evaluation(report, ledger)
+    usage: dict[str, Metered] = {}
+    for res in results:
+        for provider_type, metered in res.usage.items():
+            usage.setdefault(provider_type, Metered()).add(metered)
+    return Evaluation(report, ledger, dict(sorted(usage.items())))
 
 
 def build_report(

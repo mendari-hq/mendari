@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     from mendari.core.decision import DecisionResult
+    from mendari.providers.base import Metered
 
 GENESIS = "0" * 64
 # The events that create or change a decision's result. Each makes a new version of the
@@ -83,6 +84,8 @@ ERASE_REASONS = ("request", "error")
 PURGE_BATCH = 500
 # The chain id a purge's summary is chained under (`retention.purged`): no decision's.
 RETENTION_CHAIN = "retention"
+# What the usage ledger counts remote calls for (LP-21g): live decisions, and evaluations.
+USAGE_PURPOSES = ("decision", "evaluation")
 # The chain id the break-glass ending of sessions is chained under (`sessions.ended`, LP-21l).
 SESSIONS_CHAIN = "sessions"
 # The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
@@ -363,6 +366,18 @@ CREATE TABLE IF NOT EXISTS principal_usage (
     count       INTEGER NOT NULL,
     PRIMARY KEY (day, principal)
 );
+CREATE TABLE IF NOT EXISTS usage_ledger (
+    day            TEXT NOT NULL,
+    org            TEXT NOT NULL,
+    provider_type  TEXT NOT NULL,
+    purpose        TEXT NOT NULL,
+    calls          INTEGER NOT NULL,
+    priced_calls   INTEGER NOT NULL,
+    input_tokens   BIGINT NOT NULL,
+    output_tokens  BIGINT NOT NULL,
+    cost_usd       {real} NOT NULL,
+    PRIMARY KEY (day, org, provider_type, purpose)
+);
 CREATE TABLE IF NOT EXISTS notes (
     id          TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL,
@@ -533,6 +548,38 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _add_usage(db: _Session, org: str, purpose: str, usage: Mapping[str, Metered]) -> None:
+    """Add remote calls (`providers.base.Metered` by provider type) to today's usage ledger
+    rows of `org` and `purpose`, in the caller's transaction: providers never write."""
+    if purpose not in USAGE_PURPOSES:
+        raise ValueError(f"a usage purpose is one of {USAGE_PURPOSES}")
+    day = clock.today().isoformat()
+    for provider_type, metered in sorted(usage.items()):
+        if not metered.calls:
+            continue
+        db.all(
+            "INSERT INTO usage_ledger (day, org, provider_type, purpose, calls, priced_calls, "
+            "input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (day, org, provider_type, purpose) DO UPDATE SET "
+            "calls = usage_ledger.calls + excluded.calls, "
+            "priced_calls = usage_ledger.priced_calls + excluded.priced_calls, "
+            "input_tokens = usage_ledger.input_tokens + excluded.input_tokens, "
+            "output_tokens = usage_ledger.output_tokens + excluded.output_tokens, "
+            "cost_usd = usage_ledger.cost_usd + excluded.cost_usd",
+            (
+                day,
+                org,
+                provider_type,
+                purpose,
+                metered.calls,
+                metered.priced,
+                metered.input_tokens,
+                metered.output_tokens,
+                metered.cost_usd,
+            ),
+        )
 
 
 def break_glass_reason(reason: str) -> str:
@@ -923,6 +970,7 @@ class AuditStore:
             self._append(
                 db, result.id, "decision.created", self._bound("decision.created", created, org)
             )
+            _add_usage(db, org, "decision", result.usage)
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
                 details = {"evidence": evidence}
                 db.all(
@@ -1131,10 +1179,17 @@ class AuditStore:
             "note": note,
         }
 
-    def save_report(self, report: Mapping[str, Any], *, ledger: bytes | None = None) -> None:
+    def save_report(
+        self,
+        report: Mapping[str, Any],
+        *,
+        ledger: bytes | None = None,
+        usage: Mapping[str, Metered] | None = None,
+    ) -> None:
         """Keep an evaluation report, and the ledger its result is computed from, for the
         organization; chained as `eval.recorded` with ids and hashes only (which report, result
-        and ledger, of which pack digest and dataset)."""
+        and ledger, of which pack digest and dataset). The run's remote calls (`usage`) go to
+        the usage ledger in the same transaction, as the organization's evaluations."""
         from mendari.evals.result import normalize
 
         run = normalize(report)["run"]
@@ -1163,6 +1218,38 @@ class AuditStore:
                 ),
             )
             self._append(db, f"eval:{run['id']}", "eval.recorded", recorded)
+            _add_usage(db, org, "evaluation", usage or {})
+
+    def usage_ledger(
+        self, org: str | None = None, *, since: str | None = None, until: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The usage ledger (LP-21g): remote calls by day, organization, provider type and
+        purpose (`USAGE_PURPOSES`), of `org` if given (None: every organization), from `since`
+        to `until` (local calendar days, ISO dates, both included). Each row has its calls, the
+        calls that were priced, their tokens, and `cost_usd`: the cost, or None (unknown)
+        unless every call was priced, never a partial sum. A database from before the ledger
+        has none."""
+        where, params = ["1 = 1"], []
+        for clause, value in (("org = ?", org), ("day >= ?", since), ("day <= ?", until)):
+            if value is not None:
+                where.append(clause)
+                params.append(value)
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("usage_ledger"):
+                return []
+            rows = db.all(
+                "SELECT day, org, provider_type, purpose, calls, priced_calls, input_tokens, "
+                f"output_tokens, cost_usd FROM usage_ledger WHERE {' AND '.join(where)} "
+                "ORDER BY day, org, provider_type, purpose",
+                tuple(params),
+            )
+        return [
+            {
+                **{key: value for key, value in row.items() if key != "cost_usd"},
+                "cost_usd": row["cost_usd"] if row["priced_calls"] == row["calls"] else None,
+            }
+            for row in rows
+        ]
 
     def consume(self, provider: str, *, daily_limit: int | None) -> None:
         """Count one call to a metered provider; raise `budget_exhausted` past the daily limit
