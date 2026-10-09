@@ -857,7 +857,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     as `not_configured` (a person decides); `mendari calibrate` and the agreement run refuse up
     front instead of sending no model. The PR reads Preview's health before it merges.
 
-- [ ] **LP-11** Evaluation-set store and blind labelling. Not started.
+- [ ] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed).
   **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the
   hidden-case index live only in the hosted engine's own database (locally, a developer's SQLite or
   Postgres with synthetic sets), in tables prefixed `evalset_`; never in this repository, a pack
@@ -876,6 +876,43 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   runs use synthetic sets and throwaway keys. Owner, later: before any real set, generate the two
   keys, keep a copy off the laptop and set them; before contracting labellers, decide how they reach
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
+
+  Planned by a mapping workflow (2026-10-09) as fifteen PRs, each safe alone, the feature off
+  without both keys; the full plan, its 54 conflicts with the default each PR follows, and the
+  risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
+  no-leak sweep land before any evaluation-set route exists.
+  - [ ] **11a** (PR open) One canonical form of a case's input (`evals/canonical.py`: the strict
+    form and `norm/v1`, pinned byte for byte) and the coverage report (`mendari.coverage/1`,
+    `mendari data coverage PACK --dataset X`, over a pack's dataset or any JSONL file: distinct
+    cases and positives, the warning under 100, disagreeing duplicates, the language, source and
+    stratum mix, never a case's text); ADR-0011; this plan. AI Guard's test set: 164
+    `verdict=block`, 30 distinct (recorded; `mendari.eval/2` unchanged).
+  - [ ] **11b** Rater agreement statistics (pure): percent agreement with Clopper-Pearson,
+    Cohen's kappa per rater pair, Krippendorff's nominal alpha, seeded percentile bootstrap.
+  - [ ] **11c** Evaluation-set keys and sealing, nothing stored yet (`MENDARI_EVALSET_KEY`,
+    `MENDARI_EVALSET_READ_KEYS`, `MENDARI_EVALSET_INDEX_KEY`; off unless both are set).
+  - [ ] **11d** Permissions: `label` (the `labeller` role, memberships mode), `curate`
+    (people), and a machine-only grading key minted by `mendari access grader-key`.
+  - [ ] **11e** Store I: sealed sets and cases, the hidden-case index, `audit verify --evalsets`
+    (the operator's command line only).
+  - [ ] **11f** Key lifecycle: rotation with its check, reindexing, the sealed export.
+  - [ ] **11g** The generated no-leak sweep, before any evaluation-set route (tests only).
+  - [ ] **11h** Store II: sampling, assignment, blind labelling, adjudication, agreement.
+  - [ ] **11i** Store III: freeze and its commitment, the grading read, the rotation rule,
+    retirement.
+  - [ ] **11j** The labelling routes (`label`).
+  - [ ] **11k** The set-management routes (`curate`).
+  - [ ] **11l** The grading route and the aggregates-only result (`grade`).
+  - [ ] **11m** The labelling screen.
+  - [ ] **11n** The management screen.
+  - [ ] **11o** Close-out (gates, threat model rows, the review packet).
+
+  **Owner decisions still open** (none blocks 11a to 11i): how labellers reach the hosted site
+  (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
+  rotation numbers (maximum grading runs and age, both required at freeze); what settles a
+  three-way adjudication split; whether remote providers may grade hidden sets (LP-17); raw or
+  distinct positives in the evidence rule (LP-17); whether an administrator may also label (no,
+  by default); how a hidden case is erased (before B20).
 - [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in

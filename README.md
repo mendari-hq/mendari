@@ -1012,6 +1012,16 @@ it, nor subgroups: a closed format, `mendari.site-report/1`, of names and rounde
 pack) case by case from their ledgers: each figure in each run with its interval, the cases where
 they differ, an exact McNemar test, Holm-adjusted, and the cases that changed.
 
+`mendari data coverage PACK --dataset X` says what a labelled set covers without running the
+pack: its distinct cases (duplicates are cases whose inputs differ only in case, spacing,
+punctuation or Unicode form), the distinct positives of each critical label, with a warning
+under 100, duplicates whose labels disagree, and the mix of languages, sources and strata. It
+prints counts, never a case's text (`--ids` lists duplicate ids):
+
+```bash
+uv run mendari data coverage mendari/ai-guard --dataset test
+```
+
 `mendari leaderboard` compares provider configurations on the same records and publishes
 the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
 exist only on a deployment (such as Jev through Vercel Connect) run through the deployment's
@@ -1267,7 +1277,7 @@ src/mendari/
 ├── core/        spec, pack loading/digest, registry, runtime, policy, audit, Decision Card
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
-├── evals/       metrics, harness, local-vs-benchmark comparison, pack behaviour tests
+├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
