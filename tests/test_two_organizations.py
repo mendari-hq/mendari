@@ -43,6 +43,7 @@ from mendari.core.audit import (
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
+from mendari.core.evalsets import EvalsetStore
 from mendari.server import presets, smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
 from mendari.server.app import create_app
@@ -158,6 +159,9 @@ WRITTEN = (
     "memberships",
     "invitations",
     "access_requests",
+    "evalset_sets",  # hidden evaluation sets (LP-11e): no route writes them yet
+    "evalset_cases",
+    "evalset_index",
     "audit_events",
 )
 
@@ -301,6 +305,9 @@ EXPLICIT = (
     "administrative_events",
     "iter_administrative_events",
     "usage_ledger",  # the usage ledger (LP-21g): an organization's rows, or the operator's all
+    # Hidden evaluation sets (LP-11e): the key holder's command line only, no route.
+    "EvalsetStore.create_set",
+    "EvalsetStore.sets",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -312,7 +319,19 @@ DEPLOYMENT_READS = {
         "organization's own decisions (shown in claims mode only), never a record",
     ),
     "last_purge": ("claims memberships", "the last purge in health (its counts claims-only)"),
+    "EvalsetStore.hidden_matches": (
+        "",
+        "the hidden-case index across every organization (LP-11e): read in the store only, for "
+        "the pack store's upload check (LP-20), never during a call",
+    ),
 }
+
+
+def owner_of(name: str) -> tuple[type, str]:
+    """The class a probed method is on (`EvalsetStore.` names one of the hidden evaluation
+    sets' store), and its name."""
+    owner, _, method = name.rpartition(".")
+    return (EvalsetStore if owner == "EvalsetStore" else AuditStore), method
 
 
 @contextmanager
@@ -331,11 +350,11 @@ def probing(world: World, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(tenancy, "current", current)
 
     def explicit(name: str) -> Callable[..., Any]:
-        method = getattr(AuditStore, name)
+        method = getattr(*owner_of(name))
         signature = inspect.signature(method)
 
         @functools.wraps(method)
-        def wrapped(self: AuditStore, *args: Any, **kwargs: Any) -> Any:
+        def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
             if world.signed_in:
                 bound = signature.bind(self, *args, **kwargs)
                 bound.apply_defaults()
@@ -346,7 +365,7 @@ def probing(world: World, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         return wrapped
 
     for name in EXPLICIT:
-        monkeypatch.setattr(AuditStore, name, explicit(name))
+        monkeypatch.setattr(*owner_of(name), explicit(name))
     real_holds = AuditStore.holds
 
     def holds(self: AuditStore, org: str | None = None, *, everyone: bool = False) -> Any:
@@ -365,10 +384,10 @@ def probing(world: World, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(AuditStore, "memberships", memberships)
 
     def deployment(name: str) -> Callable[..., Any]:
-        method = getattr(AuditStore, name)
+        method = getattr(*owner_of(name))
 
         @functools.wraps(method)
-        def wrapped(self: AuditStore, *args: Any, **kwargs: Any) -> Any:
+        def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
             modes, _ = DEPLOYMENT_READS[name]
             if world.signed_in and world.accounts not in modes.split():
                 world.probed.append(f"{name}, deployment-wide, in {world.accounts} mode")
@@ -377,7 +396,7 @@ def probing(world: World, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         return wrapped
 
     for name in DEPLOYMENT_READS:
-        monkeypatch.setattr(AuditStore, name, deployment(name))
+        monkeypatch.setattr(*owner_of(name), deployment(name))
     yield
 
 
@@ -1884,4 +1903,13 @@ def test_every_store_method_that_may_read_every_organization_is_probed() -> None
         and (parameter := inspect.signature(method).parameters.get("org")) is not None
         and "None" in str(parameter.annotation)
     }
+    # The hidden evaluation sets' store (LP-11e): every method that takes an organization.
+    found |= {
+        f"EvalsetStore.{name}"
+        for name, method in inspect.getmembers(EvalsetStore, inspect.isfunction)
+        if not name.startswith("_") and "org" in inspect.signature(method).parameters
+    }
     assert found == {*EXPLICIT, "holds", "memberships"}
+    assert {name for name in DEPLOYMENT_READS if name.startswith("EvalsetStore.")} == {
+        "EvalsetStore.hidden_matches"
+    }

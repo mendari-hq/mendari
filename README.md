@@ -835,6 +835,11 @@ Every route has a permission, and anything unlisted needs admin:
 A hidden evaluation set is graded only with the organization's grading key, which only the
 operator makes (`mendari access grader-key`): no person, administrator or other key may grade
 (LP-11, [ADR-0011](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0011-hidden-evaluation-sets.md)).
+The key holder keeps the sets from the command line (`mendari evalset create`, `add`,
+`remove-case` and `list`; [the runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md)):
+hand-written cases only, sealed in the deployment's own database, with ids, keyed case hashes
+and commitments in the chain, which `mendari audit verify --evalsets` checks the sealed cases
+against. No route serves a set yet.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1307,7 +1312,8 @@ Neon API key as the `NEON_API_KEY` repository secret and the Neon project id as 
 
 ```text
 src/mendari/
-├── core/        spec, pack loading/digest, registry, runtime, policy, audit, Decision Card
+├── core/        spec, pack loading/digest, registry, runtime, policy, audit, hidden sets,
+│                Decision Card
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage
