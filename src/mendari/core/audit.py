@@ -801,6 +801,12 @@ def _later(delta: timedelta) -> str:
     return (datetime.now(UTC) + delta).isoformat(timespec="milliseconds")
 
 
+def _just_after(stamp: str) -> str:
+    """The first time after `stamp` (a `_now()` text) that `_now()` can write: 1 ms later."""
+    later = datetime.fromisoformat(stamp) + timedelta(milliseconds=1)
+    return later.isoformat(timespec="milliseconds")
+
+
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
@@ -2976,7 +2982,8 @@ class AuditStore:
         """When this environment started serving this version of its FHIR CapabilityStatement:
         the time recorded when the version first replaced another one here. A statement's
         `date` must change when its version does, and never go back, so a version served again
-        after another one gets a new time.
+        after another one gets a new time. That time is later than the one it replaces even when
+        `_now()` is not (the same millisecond, or an instance whose clock is behind).
 
         The statement is public, so anyone can make this run: the answer is kept per process
         and the version is read in a shared session. Only a changed version takes the exclusive
@@ -2995,7 +3002,8 @@ class AuditStore:
             with self._db.session(exclusive=True) as db:
                 last = db.one(latest, (environment,))
                 if last is None or last["version"] != version:
-                    last = {"version": version, "since": _now()}
+                    now = _now() if last is None else max(_now(), _just_after(last["since"]))
+                    last = {"version": version, "since": now}
                     db.all(
                         "INSERT INTO capability_versions (environment, version, since) "
                         "VALUES (?, ?, ?)",

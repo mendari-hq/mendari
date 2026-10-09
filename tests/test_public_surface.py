@@ -19,6 +19,7 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
+from mendari.core import audit as audit_module
 from mendari.core import db as db_module
 from mendari.core.audit import _CHAIN_LOCK, SESSION_PURGE_BATCH, AuditStore
 from mendari.errors import FhirError, MendariError
@@ -82,6 +83,25 @@ def test_a_new_version_is_recorded_once_and_a_later_one_gets_a_new_time(db_targe
         assert later > since
         assert one.capability_since("local", "v2") == later
         assert other.capability_since("local", "v1") > later  # served again: a new time
+
+
+def test_a_new_version_is_later_even_when_the_clock_stands_still_or_goes_back(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Versions recorded within one millisecond, or by an instance whose clock is behind, still
+    get times in order: the statement's `date` never repeats or goes back."""
+    clock = ["2026-10-09T12:00:00.000+00:00"]
+    monkeypatch.setattr(audit_module, "_now", lambda: clock[0])
+    with AuditStore(db_target) as one, AuditStore(db_target) as other:
+        times = [
+            one.capability_since("local", "v1"),
+            other.capability_since("local", "v2"),
+            other.capability_since("local", "v1"),
+        ]
+        clock[0] = "2026-10-09T11:59:59.000+00:00"
+        times.append(one.capability_since("local", "v3"))
+        assert other.capability_since("local", "v3") == times[-1]  # read, not recorded again
+    assert times == [f"2026-10-09T12:00:00.00{n}+00:00" for n in range(4)]
 
 
 def test_the_capability_statement_answers_while_the_chain_is_locked(db_target: str) -> None:
