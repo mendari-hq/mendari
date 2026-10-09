@@ -6,8 +6,8 @@ site_description: Open, auditable Decision Packs for healthcare
 # Where the docs workflow (.github/workflows/docs.yml) publishes the site: GitHub Pages by
 # default, until the owner names the host (tasks/todo.md, LP-15c); a custom domain changes this
 # line. Links inside docs/ stay relative.
-site_url: https://junebugg1214.github.io/mendari/
-repo_url: https://github.com/Junebugg1214/mendari
+site_url: https://mendari-hq.github.io/mendari/
+repo_url: https://github.com/mendari-hq/mendari
 edit_uri: edit/main/docs/
 strict: true
 
@@ -64,6 +64,7 @@ nav:
       - Revoking access: operations/revoking-access.md
       - Organizations and memberships: operations/accounts.md
       - Status checks: operations/status-checks.md
+      - Incident runbook: operations/incident-runbook.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md

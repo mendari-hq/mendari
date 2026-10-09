@@ -13,7 +13,7 @@ Run Mendari inside your organization's network or an approved cloud account:
   `MENDARI_PACKS`);
 - Postgres (not SQLite) for the audit store.
 
-[`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
+[`deploy/`](https://github.com/mendari-hq/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
 in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention, checkpoint and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
@@ -70,7 +70,7 @@ request (`rate_limits.client_ip`) and whether `X-Forwarded-For` gave it
 address. If it is the proxy's (a `172.x` or `10.x` address, say), everyone shares one sign-in
 limit and the log cannot tell people apart. Limit per address at the proxy too, on `/auth/` and
 `/smart/` only (a hospital sends everyone's traffic from one address):
-[`deploy/onprem/nginx-limits.conf`](https://github.com/Junebugg1214/mendari/blob/main/deploy/onprem/nginx-limits.conf)
+[`deploy/onprem/nginx-limits.conf`](https://github.com/mendari-hq/mendari/blob/main/deploy/onprem/nginx-limits.conf)
 is an example, at 120 a minute per address. If your people and EHRs all leave through one
 address (NAT, a Citrix farm), size both for your busiest minute of sign-ins and EHR launches:
 the proxy's rate and burst, and Mendari's own limit (§4). A proxy must not replace Mendari's
@@ -463,6 +463,26 @@ verify`, which reads everything, also checks that every checkpoint still names i
 checkpoint is in the same database as the chain, so keep a copy of the head somewhere else too,
 and run a full verification now and then.
 
+**The signed checkpoint.** Set `MENDARI_CHECKPOINT_KEY` (32 random bytes in base64,
+`openssl rand -base64 32`; an Ed25519 key's seed) and each day's first checkpoint is also signed:
+a statement `{format, date, head, key_id, signature}` that the chain's head was that hash on that
+local day, with no position and no count. The server publishes the newest at
+`GET /api/audit/checkpoint`, public, with the key's public half; publish the public key somewhere
+of your own too, and keep the statements (anyone can). Later, `mendari audit verify --against
+<statement.json> --public-key <key>` checks the signature, then the whole chain, and fails
+(`reason: statement`) if the chain no longer holds that head: rewritten from before it, or cut
+short of it, whatever the database itself says (`--against` reads the route's answer as it is
+saved, or the statement alone). On a server the scheduled route `GET /api/internal/checkpoint`
+(with `CRON_SECRET`) records and signs, as the command does. A chain that does not verify
+records and signs nothing and goes to `MENDARI_ALERT_WEBHOOK` (`audit.broken`); so does a day's
+stored statement that is not this key's for that day (someone with the database put it there),
+which is never published. On Vercel nothing calls that route until a `crons` entry names it,
+which is the owner's to add (the hosted schedule); until then run `mendari audit checkpoint`
+with the key. Keep the key as a secret: whoever holds it can sign a statement for any head. To
+rotate it, set the new one and run the checkpoint: it signs the day's statement anew, and only
+statements the current key signed are published, so keep the old public key published too, for
+the statements it signed.
+
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
 `/api/internal/retention`, which purges as the command does and answers `401` to anything
@@ -639,8 +659,14 @@ made. One request decides at most 50 (or the decide burst, if you set it lower);
 
 **Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
 caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
-there is none. Evaluations never count against them (they spend the deployment's daily budgets,
-`MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, only). Over a quota a decision is still
+there is none, and each one left out has no limit. An organization's evaluations (run on the
+server) count against their own quotas, `eval_jev` and `eval_llm`
+(`...,eval_jev=100,eval_llm=20`), never the decisions' ones. They still spend the deployment's
+daily budgets (`MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`), which live decisions share:
+once those run out, every organization's live decisions go to people (`budget_exhausted`) until
+midnight. So set each evaluation quota well below them (the server warns at startup when one is
+not), and the quotas of all organizations together below them too. Over an evaluation quota the
+evaluation's remote calls fail (`quota_exhausted`) and its report shows it. Over a quota a decision is still
 made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
 `HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
 makes anything more automatic. The first time an organization reaches a quota each day,
@@ -670,7 +696,10 @@ sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one
 $1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
 budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
 call sent that then failed, or whose answer was refused, is counted, without a price and without
-tokens. The ledger holds no case data. Providers never write to the database.
+tokens. The ledger holds no case data. Providers never write to the database. An
+organization's administrators see theirs in the dashboard's Access view (**Usage**) and at
+`GET /api/usage?days=30` (1 to 366 local days, with totals by provider and purpose); the operator
+sees every organization's with `mendari usage --db "$DATABASE_URL" --days 30` (`--org` for one).
 
 **A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
@@ -684,7 +713,7 @@ decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
 minute per address
-([`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel), with its
+([`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel), with its
 runbook). Start such a rule in log mode, read what it would have refused for 7 days, then
 enforce it. Never limit `/api` or `/fhir` per address.
 
@@ -786,8 +815,9 @@ logs, at startup, each slot the Jev defaults turn on.
   alerts and posted them; with `--each-org`, `0`); the quota alert is tried once on the
   decision's path. The server
   records each alert it sends (`alert_deliveries`: its body, status, tries, last HTTP status and
-  an error code; never the URL or the secret), so a failed one stays `pending` for another try,
-  five in all. Each run of `GET /api/internal/monitor` first sends the due ones again;
+  an error code; never the URL or the secret), so one that may yet go through (no answer, `408`,
+  `429`, `5xx`) stays `pending` for another try, five in all (any other answer is `failed` at
+  once). Each run of `GET /api/internal/monitor` first sends the due ones again;
   `mendari monitor` records nothing and sends none again, so a deployment that wants pending
   alerts tried again schedules the route, with `CRON_SECRET`.
   A receiver checks the signature over the raw body:
@@ -886,12 +916,13 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
-| `CRON_SECRET` | unset: no scheduled purge or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` and `/api/internal/monitor` (otherwise unused, with a warning: both stay off) | 3 |
+| `CRON_SECRET` | unset: no scheduled purge, checkpoint or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention`, `/api/internal/checkpoint` and `/api/internal/monitor` (otherwise unused, with a warning: they stay off) | 3 |
+| `MENDARI_CHECKPOINT_KEY` | unset: nothing signed or published | 32 random bytes in base64, the Ed25519 key that signs the daily checkpoint (`GET /api/audit/checkpoint`); a malformed one stops the server | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
-| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
+| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…`, and its evaluations' calls `eval_jev=…,eval_llm=…` | 4 |
 | `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
 | `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
 | `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |
@@ -975,6 +1006,6 @@ order:
 - [ ] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
       `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production and confirmed in
       `/api/health` signed in.
-- [ ] The firewall rule in [`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel)
+- [ ] The firewall rule in [`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel)
       added in log mode, its findings read for 7 days, then enforced.
 - [ ] Then Vercel Authentication lifted.

@@ -228,9 +228,9 @@ as achieved when every goal-area row in the scorecard above is ✅ and the v1.0 
 pass on a clean machine.
 
 <!-- The plans are project notes, kept in the repository outside the docs site. -->
-[plan-dashboard]: https://github.com/Junebugg1214/mendari/blob/main/notes/ui-ux-review.md
-[plan-v0.4]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.4-healthcare-standards.md
-[plan-v0.5]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.5-the-hub.md
-[plan-v0.6]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.6-org-readiness.md
-[plan-v0.7]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.7-later-standards.md
-[plan-v1.0]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v1.0-public-launch.md
+[plan-dashboard]: https://github.com/mendari-hq/mendari/blob/main/notes/ui-ux-review.md
+[plan-v0.4]: https://github.com/mendari-hq/mendari/blob/main/notes/plans/v0.4-healthcare-standards.md
+[plan-v0.5]: https://github.com/mendari-hq/mendari/blob/main/notes/plans/v0.5-the-hub.md
+[plan-v0.6]: https://github.com/mendari-hq/mendari/blob/main/notes/plans/v0.6-org-readiness.md
+[plan-v0.7]: https://github.com/mendari-hq/mendari/blob/main/notes/plans/v0.7-later-standards.md
+[plan-v1.0]: https://github.com/mendari-hq/mendari/blob/main/notes/plans/v1.0-public-launch.md

@@ -13,7 +13,7 @@ Two things tell people whether Mendari is working:
 
 ## The checks
 
-[`deploy/status/checks.yaml`](https://github.com/Junebugg1214/mendari/blob/main/deploy/status/checks.yaml)
+[`deploy/status/checks.yaml`](https://github.com/mendari-hq/mendari/blob/main/deploy/status/checks.yaml)
 lists them; set each up in the provider as an HTTP check:
 
 | Check | Request | Up when | Why |

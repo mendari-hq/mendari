@@ -513,6 +513,7 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/audit/verify", None),
     ("GET", "/api/audit/export/fhir", None),
     ("GET", "/api/audit/administrative", None),
+    ("GET", "/api/usage", None),
     ("GET", "/api/audit/administrative/export/fhir", None),
     ("POST", "/api/auth/invitations", {"email": "a@example.org", "roles": ["viewer"]}),
     ("GET", "/api/auth/invitations", None),
@@ -542,7 +543,7 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         "org_usage", "create_invitation", "invitations",
         "revoke_invitation", "members", "set_membership_roles", "remove_membership",
         "open_access_requests", "handle_access_request", "subject_history",
-        "replace_client_keys",
+        "replace_client_keys", "usage_ledger",
     ):  # fmt: skip
         monkeypatch.setattr(AuditStore, name, reached)
     capsys.readouterr()

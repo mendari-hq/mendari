@@ -143,7 +143,8 @@ QuotaReached = Callable[[str, str, int], None]
 class CallBudget:
     """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
     limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
-    `decisions`, and the remote calls they make by provider type, e.g. {"decisions": 5000}).
+    `decisions`, the remote calls they make by provider type, e.g. {"decisions": 5000}, and
+    the remote calls of its evaluations, `eval_<type>`, which `for_evaluation` counts).
 
     A provider over budget fails like any other provider (`budget_exhausted`). A decision over
     its organization's quota fails its remote calls (`quota_exhausted`, `providers/base.py`
@@ -159,30 +160,43 @@ class CallBudget:
         *,
         org_limits: Mapping[str, int] | None = None,
         on_quota_reached: QuotaReached | None = None,
+        evaluation: bool = False,
     ):
         self.store = store
         self.limits = dict(limits)
         self.org_limits = dict(org_limits or {})
         self.on_quota_reached = on_quota_reached
+        self.evaluation = evaluation  # its calls count against `eval_<type>`, never a decision's
 
     def acquire(self, provider_type: str) -> None:
         refused = OVER_QUOTA.get()
         if refused is not None:
             raise refused
-        if provider_type in self.org_limits:
-            self._charge_org(provider_type)
+        metric = f"eval_{provider_type}" if self.evaluation else provider_type
+        if metric in self.org_limits:
+            self._charge_org(metric)
         if provider_type in self.limits:
             self.store.consume(provider_type, daily_limit=self.limits[provider_type])
 
     def admit_decision(self) -> None:
-        """Count one decision against its organization's quota (`quota_exhausted` over it)."""
-        if "decisions" in self.org_limits:
+        """Count one decision against its organization's quota (`quota_exhausted` over it).
+        An evaluation's cases are not the organization's decisions: never counted."""
+        if "decisions" in self.org_limits and not self.evaluation:
             self._charge_org("decisions")
 
     def for_evaluation(self) -> CallBudget:
-        """The deployment's daily budgets without the organizations' quotas: an evaluation
-        spends provider calls, never an organization's decisions."""
-        return CallBudget(self.store, self.limits)
+        """The budget an evaluation spends (LP-21h): its organization's evaluation quotas
+        (`eval_jev`, `eval_llm`; unset: no limit), never the quotas of its decisions, which an
+        evaluation never uses up; and the deployment's daily budgets, which live decisions
+        share: once those run out, every organization's live decisions go to people
+        (`budget_exhausted`) until midnight, so keep the evaluation quotas below them."""
+        return CallBudget(
+            self.store,
+            self.limits,
+            org_limits=self.org_limits,
+            on_quota_reached=self.on_quota_reached,
+            evaluation=True,
+        )
 
     def _charge_org(self, metric: str) -> None:
         org = tenancy.current() or tenancy.DEFAULT_ORG

@@ -53,7 +53,7 @@ LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|AUTHORS|UNLICE
 ARCHES = ("amd64", "arm64")
 MACHINE = {"x86_64": "amd64", "aarch64": "arm64", "amd64": "amd64", "arm64": "arm64"}
 # Where Mendari's own source is (licenses/image/SOURCE.md says the same).
-REPOSITORY = "https://github.com/Junebugg1214/mendari"
+REPOSITORY = "https://github.com/mendari-hq/mendari"
 
 
 def canonical(name: str) -> str:

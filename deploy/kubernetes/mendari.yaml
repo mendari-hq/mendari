@@ -10,7 +10,7 @@
 # (the two keys differ: each 32 random bytes, base64)
 # With Jev (only under an agreement that covers PHI), add --from-literal=JEV_API_KEY='...' and
 # set JEV_API_URL and JEV_MODEL below: the reference packs then run Mendari + Jev.
-# Set `image:` (twice below) to a release image, e.g. ghcr.io/junebugg1214/mendari-engine:v0.1.0
+# Set `image:` (twice below) to a release image, e.g. ghcr.io/mendari-hq/mendari-engine:v0.1.0
 # (the tag is `v` and the package version; v0.1.0 is the first release),
 # or one pack's image (mendari-referral-router). No release is published yet: until then,
 # build and push your own (`docker build --build-arg PACK=... .`, see deploy/README.md).
@@ -64,7 +64,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: engine
-          image: ghcr.io/junebugg1214/mendari-engine:RELEASE
+          image: ghcr.io/mendari-hq/mendari-engine:RELEASE
           command: ["sh", "-c", "mendari serve --host 0.0.0.0 --port 8000 --db \"$DATABASE_URL\""]
           ports:
             - containerPort: 8000
@@ -120,7 +120,7 @@ spec:
             runAsUser: 10001
           containers:
             - name: jobs
-              image: ghcr.io/junebugg1214/mendari-engine:RELEASE
+              image: ghcr.io/mendari-hq/mendari-engine:RELEASE
               command:
                 - sh
                 - -c

@@ -6,7 +6,7 @@ Mendari routes clinical work, so security reports get priority.
 
 Please report privately, never in a public issue, pull request or discussion. The one channel
 is GitHub's **private vulnerability reporting** on this repository: the **Security** tab, then
-**Report a vulnerability** ([direct link](https://github.com/Junebugg1214/mendari/security/advisories/new)). Only you and the maintainers see the report,
+**Report a vulnerability** ([direct link](https://github.com/mendari-hq/mendari/security/advisories/new)). Only you and the maintainers see the report,
 and we can discuss it, fix it in a private fork and publish an advisory from there. The project
 has no security e-mail address.
 
@@ -155,8 +155,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
-  (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, never evaluations; over
-  one, decisions fall back to human review, and one alert goes to the webhook a day. A daily
+  (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, and the organization's
+  evaluations' remote calls under their own `eval_jev` and `eval_llm` (unset: no limit), never
+  the decisions' quotas; over a decision quota, decisions fall back to human review, over an
+  evaluation quota the evaluation's remote calls fail, and one alert goes to the webhook a day. A daily
   cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set) counts the decisions it
   asks for (a CDS Hooks order hook's draft orders each) and refuses its requests past it (`429`
   until local midnight), so one leaked key cannot spend its organization's day. At the

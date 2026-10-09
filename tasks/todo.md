@@ -441,7 +441,7 @@ behaviour.
     `github-pages` environment) from the strict build, checked for excluded paths and for the
     notice on every page: the docs site now shows the notice (`mendari.notices`, through a
     MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
-    `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
+    `docs` job). `site_url`: `https://mendari-hq.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
     upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
@@ -518,7 +518,7 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
-- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+- [x] **LP-16 build** (ADR-0009), in the PRs below (16c-2 is not part of it, below):
   - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
     `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
     not a reference pack's of the installed release, `core/reference.py`);
@@ -534,37 +534,39 @@ registry or copied into the store.
     lookahead, spelled out a letter at a time and exact on every input on both engines
     (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
     ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
-    holds.
-  - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
-    chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
+    holds. 16c-1 confirmed by the owner (2026-10-08): ai-guard 0.1.4 stays.
+  - [ ] **16c-2** (not needed for LP-16) pregnant, pancreatitis and new-lung-mass. The owner's
+    decision (Option A scoped, above) requires these rewrites only before a reference version
+    that differs from the installed one is published to a registry or copied into the store, and
+    the choice between S (a structural `not_followed_by` rules key, a format change) and D (the
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
-    writing). Until then the trial and referral packs cannot publish a version that differs from
-    the installed one: a puller refuses it, with the reason.
-  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
-    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
-    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
-    under the reference pack's name. Refused at load for origins the deployment does not own
-    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
-    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
-    one cached before is listed under `invalid` with the directory to remove, and the reference
-    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
-  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
-    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
-    that fails to build is never rebuilt (conflicts 15, 16, 23).
-  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
-    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
-    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
-    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
-    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
-    raised on before, so an unread key warns and the pack still serves (conflict 17). The
-    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
-    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
-    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
-    the hypothesis egress test, the generated JSON Schema
-    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
-    the CQL declaration search made linear, since load now runs it on registry packs
-    (conflicts 17–19, 24, 25).
-  - [ ] **16e-2** (PR open; PR D, after C) The provider egress allow-list
+    writing) is made then. Until then the trial and referral packs cannot publish a version that
+    differs from the installed one: a puller refuses it, with the reason.
+  - [x] **F** (#190, merged 2026-10-08, with 16f; found in the 16a review) A pack from a
+    registry with a reference pack's id and a version that ties its (`version_key`, now in
+    `core/spec.py`) but another digest took the reference pack's place, since the cache wins a
+    version tie: it ran bounded, under the reference pack's name. Refused at load for origins
+    the deployment does not own (`_shadow_problem`, from `core/reference.py` `reference_packs`),
+    so at publish (422), pull (before the rename), the pull's cache hit, `mendari pack verify`
+    and `Decision.from_path`; one cached before is listed under `invalid` with the directory to
+    remove, and the reference pack is served. Threat model S16; S15's and a3's tests moved to
+    9.9.9 with their names kept.
+  - [x] **16d** (#188, merged 2026-10-08) Health does no pack work in the request: every served
+    pack is built at startup and health reads that snapshot; `deployment.recorded` stays on first
+    use, and a pack that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [x] **16e-1** (#191, merged 2026-10-08; PR C, after A and B) Closed provider configs checked
+    at load (`providers.config_problems`, each provider's `config_problems`, new `FileConfig`
+    and `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for
+    owned ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the
+    `read` check), `mendari validate` refuses both. An owned pack's constructors raise only on
+    what they raised on before, so an unread key warns and the pack still serves (conflict 17).
+    The deployment's model, caps on `max_tokens`, `timeout_ms` and effort (`core/origin.py`
+    `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and jev variants and
+    members, the parity test (and an exhaustive one-change sweep beneath it), the hypothesis
+    egress test, the generated JSON Schema (`docs/spec/provider-configs.schema.json`,
+    `scripts/provider_config_schema.py --check`); the CQL declaration search made linear, since
+    load now runs it on registry packs (conflicts 17–19, 24, 25).
+  - [x] **16e-2** (#192, merged 2026-10-08; PR D, after C) The provider egress allow-list
     (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, off unless set; `providers/http.py` `require_allowed`
     in `require_secure`, Jev's model list and Vercel Connect, the AI Gateway's default included;
     a set `LLM_BASE_URL` or `JEV_API_URL` off it stops startup, `providers.provider_allow_list`;
@@ -575,15 +577,23 @@ registry or copied into the store.
     ones' prefetch and card summaries; an owned pack's Task text keeps the name check where it
     serves, and `mendari validate` holds every pack's to bare placeholders; `fill` unchanged
     (conflicts 20, 21).
-  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
-    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
-    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
-    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
-    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
-    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
-    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
-  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
-    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+  - [x] **16f** (#190, merged 2026-10-08, with F) Depth and `$ref` bounds for the input schemas
+    of packs the deployment owns (`core/input_schema.py` `expansion_problems`, over
+    `core/schema_graph.py`, the graph moved out of `core/caps.py` with each `$ref` edge marked;
+    the caps count as before): nested at most 32 deep, chains of at most 16 `$ref`s, at most
+    1,000 schema objects on one value, loops only as a recursive list or tree, and no
+    `unevaluatedProperties` or `unevaluatedItems` below another (conflict 22). The shipped
+    packs, scaffolds and fixtures: 6, 1 and 2. Packs it does not own keep B11's caps and budget,
+    unchanged. Threat model D10.
+  - [ ] **16g** (#219; PR E, last) The threat model's "Pack content" part
+    (`docs/security/threat-model.md`, between the STRIDE table and the residual risks): what a
+    pack can set (every manifest input, provider type and variant key, the wording templates,
+    `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
+    digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
+    24 are written there). `tests/test_threat_model.py` holds it to every input, to each
+    provider type's closed config keys, to rows and tests that exist, and to no line that reads
+    as a row; gate a3's `what` says LP-16a–g. LP-16 counts as merged for LP-18 and LP-20 once
+    16g lands, 16e-2 with it (16c-2 is not part of LP-16, above).
 
   **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
   D (16e-2, after C); E (16g, after A to D).
@@ -1183,26 +1193,42 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
-  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+  - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
     decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
     its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
     call was priced.
-  - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
-  - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
+  - [x] **21h** (#203, merged 2026-10-08) Evaluations count against their organization: `eval_jev` and `eval_llm` in
+    `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
+    the decisions' quotas; the quota alert says what an evaluation quota stops.
+  - [x] **21i** (#216, merged 2026-10-08) `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
+    366, with totals by provider and purpose, a cost only where every call was priced), the
+    Access view's Usage tab, and `mendari usage --days --org` for the operator.
   - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
     (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
-  - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
+  - [x] **21k** (#209, merged 2026-10-08) The signed daily checkpoint: `MENDARI_CHECKPOINT_KEY` (Ed25519 seed, base64)
+    signs the day's first checkpoint (`checkpoint_statements`; `{format, date, head, key_id,
+    signature}`, no position or count); `GET /api/audit/checkpoint` publishes the newest with
+    the public key (public, read once a minute per instance); `GET /api/internal/checkpoint`
+    (`CRON_SECRET`) records and signs, and alerts `audit.broken` on a chain that does not
+    verify or a day's stored statement that is not this key's (never published); a rotated
+    key signs the day anew; `mendari audit verify --against <statement or the route's answer>
+    --public-key <key>`. The hosted schedule waits for 21n.
   - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
     `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
     `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
     straight to the database for any organization, each with a reason chained
     (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
     `docs/operations/revoking-access.md`; the hold page's table names the command line.
-  - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
+  - [ ] **21m** (#218) `docs/operations/incident-runbook.md` (in the nav): severities tied to the
+    alerts and checks that trigger them, who is paged (the owner's), holding automation,
+    revoking access, telling people, backup and restore (SQLite `.backup`, `pg_dump` /
+    `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
+    firewall's log-only week (the owner's); `tests/test_restore.py` runs the restore on SQLite
+    and Postgres in CI; gate `incident-runbook` names its tests.
   - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
 
@@ -1230,7 +1256,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
      once the owner sets the key.
 
   **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
-  paged (B36); the evaluation quota values; the alert format, secret and destination; the
+  paged (B36); the evaluation quota values, and whether evaluations get a deployment budget of
+  their own (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
+  decisions); the alert format, secret and destination; the
   checkpoint key and where its public key is published; the hosted schedule (21n); firewall
   enforcement (21o).
 
@@ -1533,7 +1561,7 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
      ruleset shows Active with those three rules.
    - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
-     project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
+     project name `mendari`, owner `mendari-hq`, repository `mendari`, workflow
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
@@ -1559,11 +1587,11 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
-   build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
+   build needs" step passed; GitHub → the `mendari-hq` organization → Packages lists the six `mendari-*`
    images (make each public in its package settings if it is private).
 9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
    Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
-   the site opens at `https://junebugg1214.github.io/mendari/` (mkdocs.yml `site_url`; for a
+   the site opens at `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a
    custom domain, change it and add the domain in Pages), every page shows the notice, then a
    build PR points the README and `mendari new` at it and switches the install line to `pip
    install mendari`.
@@ -2004,8 +2032,15 @@ Sign-in: Google, the owner as the only admin.
 - [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
 
-## Done: the move to the mendari-hq organization (2026-10-08)
-The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private).
+## Done: the move to the `mendari-hq` organization (2026-10-08)
+The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private; the
+old name redirects, and the repository id, which Vercel's link keeps, is unchanged).
+- [x] Links to the repository, the security contact (`SECURITY.md`, `security.txt`), the docs
+  site (`https://mendari-hq.github.io/mendari/`, mkdocs.yml `site_url`) and the image names
+  (`ghcr.io/mendari-hq/…`: `release.yml` pushes to `github.repository_owner`, owner's choice)
+  name the organization; nothing published, tagged or dispatched (#211)
+- [x] Kept: `@Junebugg1214` as the code owner and maintainer (a person; the organization has no
+  teams); dated records in `notes/` (old links redirect)
 - [x] Follow-up PR (#212): packs.yml passes `github.repository_owner` as the owner. Since the move
   that is the organization, which no pull request's author is, so the owner's pull requests could
   no longer remove a community pack or change `community-packs/` with other files (failing closed).
@@ -2014,6 +2049,15 @@ The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still 
   email, several people or a symbolic link name no owner), and only for a pull request into the
   default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and the
   fork rule stays.
+- [ ] **Owner:** install the Vercel GitHub app on `mendari-hq` and reconnect `openhealth-hub`
+  (its link still names `Junebugg1214/mendari`): `vercel git connect`. `mendari-web` has no Git
+  link, so the new `security.txt` reaches mendari.co only when it is deployed by hand
+- [ ] **Owner:** `main`'s protection under the organization: the five required checks carried
+  over, but *Do not allow bypassing* (admins) is off, though `tasks/lessons.md` says it was on;
+  no ruleset requires a code owner's review (`.github/CODEOWNERS` assumes one)
+- [ ] **Owner:** Actions secrets and variables (present: `NEON_API_KEY`, `NEON_PROJECT_ID`),
+  environments (present: Vercel's `Preview` and `Production`), and that preview and production
+  deploys still start from pull requests and `main`
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**

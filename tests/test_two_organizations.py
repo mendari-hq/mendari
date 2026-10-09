@@ -109,6 +109,10 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     "organization. Not called: tests/test_hosted_data.py",
     ("GET", "/api/internal/monitor"): "the operator's cron (CRON_SECRET): each organization on "
     "its own, one alert each, counts only. Not called: tests/test_monitor_cron.py",
+    ("GET", "/api/internal/checkpoint"): "the operator's cron (CRON_SECRET): the whole chain, "
+    "the deployment's. Not called: tests/test_signed_checkpoint.py",
+    ("GET", "/api/audit/checkpoint"): "the signed checkpoint, the deployment's: a hash and a "
+    "day, no organization's data. Not called: tests/test_signed_checkpoint.py",
     ("GET", "/auth/login"): "sign-in: a redirect. Not called: tests/test_auth.py",
     ("GET", "/auth/callback"): "sign-in: a redirect and a cookie. Not called: tests/test_auth.py",
     ("POST", "/auth/logout"): "signing out. Not called: tests/test_auth.py",
@@ -1191,6 +1195,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         ),
         (admin, ("GET", "/api/auth/keys"), "/api/auth/keys", {}),
         (admin, ("GET", "/api/auth/clients"), "/api/auth/clients", {}),
+        (admin, ("GET", "/api/usage"), "/api/usage", {}),  # the organization's usage ledger
     ]
     if world.accounts == "memberships":
         for path in ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests"):
