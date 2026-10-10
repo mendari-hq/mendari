@@ -3,7 +3,7 @@
 
 import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
-import { $, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
+import { $, actionDialog, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
 
 function deriveRow(row) {
   const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
@@ -43,13 +43,19 @@ function conditionText(when) {
 
 // Whether this deployment automates at all, and when. The thresholds say when a decision may be
 // automated; the caps in core/policy.py (risk level, required providers) can rule it out entirely,
-// and at levels 2-3 only the organization's approval of this exact version lifts the risk cap.
-function automationText(d, governance) {
+// and at levels 2-3 only the organization's approval of this exact version lifts the risk cap. A
+// pack from a registry also needs its organization's approval of its digest (`registry`), and
+// never automates while a recall its last pull recorded stands (core/decision.py `_origin_holds`).
+function automationText(d, governance, registry) {
   const p = d.manifest.policy;
   const code = (v) => `<code>${esc(v)}</code>`;
   const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
   if (isCommunity(d)) return `Never: a community pack recommends, and a person confirms every decision. ${review}`;
   if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
+  if (registry?.recalled) return `Not while its registry's recall stands: a person reviews every decision. ${review}`;
+  if (registry && !registry.active) {
+    return `Not without an approval: this pack came from a registry, so a person reviews every decision until your organization approves this exact version (see Automation approval, below). ${review}`;
+  }
   if (d.risk.level >= 2 && !governance.active) {
     return `Not without an approval: at risk level ${d.risk.level} a person reviews every decision unless your organization approves automation for this version (see Automation approval, below). ${review}`;
   }
@@ -100,10 +106,11 @@ views.card = async (main, params) => {
   const m = d.manifest;
   const p = m.policy;
   const query = `pack_id=${encodeURIComponent(state.packId)}`;
-  const [governance, deployments, holds] = await Promise.all([
+  const [governance, deployments, holds, registry] = await Promise.all([
     api(`/api/governance?${query}`),
     state.accounts === "memberships" ? null : api(`/api/deployments?${query}`),
     api("/api/holds"),
+    fromRegistry(d) ? api(`/api/registry-approvals?${query}`) : null,
   ]);
   const list = (items) => `<ul>${items.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`;
   main.innerHTML = `
@@ -119,7 +126,7 @@ views.card = async (main, params) => {
         <dt>Source</dt><dd>${originBadge(d)}</dd>
         <dt>Risk level</dt><dd><span class="badge risk">${m.risk.level}</span> ${esc(m.risk.category)}</dd>
         <dt>Decides</dt><dd><code>${esc(p.primary)}</code>: ${d.labels.map((l) => `<code>${esc(l)}</code>`).join(", ")}</dd>
-        <dt>Automates</dt><dd>${automationText(d, governance)}</dd>
+        <dt>Automates</dt><dd>${automationText(d, governance, registry)}</dd>
         <dt>CDS Hooks</dt><dd>${d.cds_service ? `service <code>${esc(d.cds_service)}</code> on <code>${esc(m.cds_hooks.hook)}</code>` : "none"}</dd>
         <dt>Publisher</dt><dd>${esc(m.publisher.name)} <span class="muted">(${esc(m.publisher.type)}, self-declared)</span></dd>
         <dt>Version</dt><dd><span class="mono">${esc(m.id)}</span> v${esc(m.version)} · ${esc(m.license)}</dd>
@@ -161,7 +168,8 @@ views.card = async (main, params) => {
 
     <section class="card-section" id="card-approval" aria-labelledby="card-approval-title">
       <h2 id="card-approval-title">Automation approval</h2>
-      ${approvalSection(governance, d)}
+      ${registry ? registrySection(registry) : ""}
+      ${approvalSection(governance, d, registry)}
       ${holdSection(holds, d)}
     </section>
 
@@ -187,6 +195,7 @@ views.card = async (main, params) => {
       <details><summary>Output schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></details>
     </section>`;
   wireApproval(main);
+  if (registry) wireRegistry(main, registry, d);
   wireHolds(main);
   main.querySelector("[data-copy]").addEventListener("click", async (event) => {
     try {
@@ -201,10 +210,15 @@ views.card = async (main, params) => {
 
 // What the pack's risk level allows, the approval in force, and (for people who may approve)
 // approving or revoking. An approval is for this exact pack: a new version needs a new one.
-function approvalSection(g, d) {
+function approvalSection(g, d, registry) {
   if (isCommunity(d)) return `<p class="prose">A community pack is never automated, and no approval can change that: a person confirms every decision.</p>`;
   if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
-  if (!g.approvable) return `<p class="prose">Risk level ${g.risk_level}: automates within its thresholds. No approval is needed.</p>`;
+  if (!g.approvable) {
+    return registry
+      ? `<p class="prose">Risk level ${g.risk_level}: its risk level needs no approval besides the registry approval above.</p>`
+      : `<p class="prose">Risk level ${g.risk_level}: automates within its thresholds. No approval is needed.</p>`;
+  }
+  const heading = registry ? `<h3>Approval for risk level ${g.risk_level}</h3>` : "";
   const active = g.active
     ? `<div class="callout neutral"><b>Automation approved</b> by ${esc(g.active.approver)} (${esc(g.active.reference)}),
         until ${esc(time(g.active.expires_at))}.
@@ -219,7 +233,7 @@ function approvalSection(g, d) {
       <select id="approval-days"><option value="90">90 days</option><option value="180" selected>180 days</option><option value="365">1 year</option></select>
       <button type="submit" class="primary">Approve automation</button>
     </form>` : "";
-  return active + form;
+  return heading + active + form;
 }
 
 function wireApproval(main) {
@@ -242,6 +256,105 @@ function wireApproval(main) {
   main.querySelector("[data-revoke]")?.addEventListener("click", async (event) => {
     try {
       await api(`/api/governance/${encodeURIComponent(event.currentTarget.dataset.revoke)}`, { method: "DELETE" });
+      toast("Approval revoked: a person reviews again");
+      render();
+    } catch (error) {
+      toastError(error.message);
+    }
+  });
+}
+
+// A pack pulled from a registry (origin `hub`; LP-18d, ADR-0012 §6) never automates, and its own
+// rules never block alone, until your organization approves its exact digest
+// (GET/POST /api/registry-approvals, DELETE /api/registry-approvals/{id}). The approval is keyed
+// on the pack and its digest, so it lives on the pack's card: what is approved, by whom, when and
+// why; approving (a reference, then a dialog saying what it allows and what it never lifts) and
+// revoking for people with `approve`. A pack shown as community never automates whatever is
+// approved, so it never shows this.
+const fromRegistry = (d) => d.origin === "hub";
+
+const shortDigest = (digest) => String(digest ?? "").replace(/^sha256:/, "").slice(0, 12);
+
+function registrySection(r) {
+  const pulled = r.pulled ?? {};
+  const recorded = (value) => (value ? esc(value) : `<span class="muted">not recorded</span>`);
+  const facts = `<dl class="facts">
+      <dt>Registry</dt><dd class="break-anywhere">${recorded(pulled.registry)}</dd>
+      <dt>Namespace</dt><dd>${recorded(pulled.namespace)}</dd>
+      <dt>Signing key</dt><dd class="mono break-anywhere">${recorded(pulled.key_id)}</dd>
+      <dt>Pulled</dt><dd>${pulled.pulled_at ? `<time datetime="${esc(pulled.pulled_at)}">${esc(time(pulled.pulled_at))}</time>` : recorded(null)}</dd>
+      <dt>Digest served</dt><dd><code class="break-anywhere">${esc(r.digest)}</code></dd>
+    </dl>`;
+  const recall = r.recalled
+    ? `<div class="callout danger"><b>Recalled by its registry</b> when this version was pulled. It never automates while
+        the recall stands, approved or not.</div>`
+    : "";
+  const a = r.active;
+  const status = a
+    ? `<div class="callout neutral" id="registry-active"><b>Approved for automation</b> by ${esc(a.approver)} (${esc(a.reference)}),
+        ${esc(time(a.created_at))}, for digest <span class="mono">${esc(shortDigest(a.pack_digest))}</span>, until revoked.
+        ${may("approve") ? `<button type="button" data-registry-revoke="${esc(a.id)}">Revoke</button>` : ""}</div>`
+    : `<p class="prose"><b>Not approved here.</b> A person reviews every decision this pack's policy would automate, and every
+        case its own rules would block, until your organization approves this exact version
+        (digest <span class="mono">${esc(shortDigest(r.digest))}</span>).</p>`;
+  const form = !a && may("approve") ? `<form class="approve-form" id="registry-form">
+      <label for="registry-reference">Reference</label>
+      <input id="registry-reference" required minlength="3" maxlength="300" placeholder="e.g. AI committee minutes, 2026-10-01, item 4">
+      ${signedIn() ? "" : `<label for="registry-approver">Approver</label><input id="registry-approver" required maxlength="100" pattern="\\S+" spellcheck="false" title="An identifier, without spaces: the audit trail keeps it">`}
+      <button type="submit" class="primary">Approve this version…</button>
+    </form>` : "";
+  return `<div id="registry-approval">
+    <h3>Pack from a registry</h3>
+    ${facts}${recall}${status}${form}
+    ${registryHistory(r.approvals ?? [], r.digest)}
+  </div>`;
+}
+
+// Every approval of this pack in your organization, newest first: of this digest or another,
+// in force or revoked.
+function registryHistory(rows, digest) {
+  if (!rows.length) return "";
+  const when = (iso) => `<time datetime="${esc(iso)}" title="${esc(time(iso))}">${esc(shortTime(iso))}</time>`;
+  const status = (row) => {
+    if (row.revoked_at) return `Revoked by ${esc(row.revoked_by)}, ${when(row.revoked_at)}`;
+    return row.pack_digest === digest ? "In force" : "Another version, not served here";
+  };
+  return `<div class="panel table-wrap mt-2"><table>
+    <caption class="sr-only">Approvals of this pack from a registry, newest first</caption>
+    <thead><tr><th scope="col">Approved</th><th scope="col">Digest</th><th scope="col">By</th><th scope="col">Reference</th><th scope="col">Status</th></tr></thead>
+    <tbody>${rows.map((row) => `<tr><td class="nowrap">${when(row.created_at)}</td>
+      <td class="mono">${esc(shortDigest(row.pack_digest))}</td><td>${esc(row.approver)}</td>
+      <td>${esc(row.reference)}</td><td>${status(row)}</td></tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function wireRegistry(main, r, d) {
+  main.querySelector("#registry-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const reference = $("#registry-reference").value;
+    const approver = $("#registry-approver")?.value || null;
+    const registry = r.pulled?.registry;
+    const approved = await actionDialog({
+      title: "Approve this pack from a registry?",
+      body: `<p>Your organization approves <b>${esc(d.manifest.name)}</b> <span class="mono">${esc(r.pack_id)}</span> v${esc(d.manifest.version)},
+          digest <code class="break-anywhere">${esc(r.digest)}</code>${registry ? `, from ${esc(registry)}` : ""}, to automate under its own policy.</p>
+        <p>Once approved, what this pack's policy automates is no longer sent to a person because the pack came from a
+          registry, and its own rules' blocks take effect without a person.</p>
+        <p>It does not lift a recall by its registry, an automation hold, or its risk level's limits (levels 2 and 3 also need
+          their own approval). It covers this digest only, lasts until revoked, and is kept in the audit trail with your reference.</p>`,
+      action: "Approve",
+      run: () => api("/api/registry-approvals", {
+        method: "POST",
+        body: JSON.stringify({ pack_id: r.pack_id, pack_digest: r.digest, reference, approver }),
+      }),
+    });
+    if (!approved) return;
+    toast("Approved for this version");
+    render();
+  });
+  main.querySelector("[data-registry-revoke]")?.addEventListener("click", async (event) => {
+    try {
+      await api(`/api/registry-approvals/${encodeURIComponent(event.currentTarget.dataset.registryRevoke)}`, { method: "DELETE" });
       toast("Approval revoked: a person reviews again");
       render();
     } catch (error) {

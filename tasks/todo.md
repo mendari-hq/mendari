@@ -1031,7 +1031,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     mode; the runbook's "How a labeller labels".
   - [ ] **11k** The set-management routes (`curate`).
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
-  - [ ] **11m** The labelling screen.
+  - [ ] **11m** (PR open) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
+    11j's routes only): shown to a person holding `label` where the routes are served (main.js
+    reads their counts once to know; without the keys a labeller-only person keeps the access
+    page, now saying labelling is not switched on); a labeller and nothing else sees it alone
+    (`labelOnly`, pinned in `route()` as `launchOnly` is; no packs, no notice, no review count),
+    anyone else holding `label` gets its link in the section list. Their counts set by set (ids
+    only), then one case at a time: its input escaped by `record.js` (the generic renderer taken
+    out of `pack.js`, which imports it), the set's questions as radio groups with nothing chosen
+    (24 px targets, 44 on touch), Save → the next case with focus on its heading; an unanswered
+    question or a `422` said beside the question it names; a `404` moves on to the next; `204` the
+    empty state with "Check again". Imports only `router.js`, `ui.js` and `record.js`; nothing in
+    the browser's storage; tokens only. `tests/browser/test_labelling.py` (a real memberships
+    server with throwaway keys: labels case after case, the second labeller blind, `pins()`,
+    storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
+    phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
+    gate probe changes (11o replaces `labelling-underway`'s).
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
@@ -1491,6 +1506,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
     file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
     accuracy) is no longer served beside `checked.regression`.
+  - [x] **18d screen** (PR open) The registry approval on the Decision Card: an approval is keyed
+    on the pack and its digest (per organization), so it lives in the card's Automation approval
+    section, not in Access. For a pack served from a registry: where it came from (registry,
+    namespace, signing key, when pulled, the digest served), a recall recorded at pull, the
+    approval in force (who, reference, when, digest) and every earlier one (revoked by whom,
+    or of another version); approving takes a reference (and an approver in open mode), then a
+    dialog naming the digest and saying what it allows and what it never lifts (a recall, a
+    hold, the risk level's limits); revoking is one button; both only with `approve`. The
+    card's "Automates" says a pack from a registry waits for this approval or its recall, and
+    a level 0–1 pack from a registry no longer reads "No approval is needed". No server change.
+    `tests/browser/test_registry_approvals.py`, and axe in both themes (not approved with a
+    recall, the dialog open, approved). `GET /api/providers/jev/models` gets no screen: no
+    place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
+    names the deployed model, and the list would be a call to Jev on every card for nothing to
+    act on.
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 

@@ -885,6 +885,23 @@ dialog.confirm .error { color: var(--color-danger); font-weight: var(--weight-me
 textarea.code.sf-json { min-height: 90px; }
 .sf textarea:not(.code) { min-height: 72px; }
 
+/* The labelling screen (labelling.js): the case as its author wrote it (record.js), then one
+   group of labels per question, nothing chosen, its error beside it. */
+.case-input { margin: var(--space-3) 0 var(--space-5); max-width: 72ch; overflow-wrap: anywhere; }
+.label-form { display: grid; gap: var(--space-4); }
+.label-question {
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+}
+.label-question:has([aria-invalid="true"]) { border-color: var(--color-danger); }
+.label-question-name { padding: 0 var(--space-1); font-weight: var(--weight-semibold); }
+.label-question select { align-self: flex-start; }
+.label-options { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.label-option { display: inline-flex; align-items: center; gap: var(--space-1-5); min-height: 24px; cursor: pointer; }
+/* Each radio a 24 px target of its own (WCAG 2.5.8), its label a larger one around it. */
+.label-option input[type="radio"] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--color-accent); }
+.field-error { margin: 0; color: var(--color-danger); font-weight: var(--weight-medium); }
+
 /* Decision Card: a document with a table of contents; prose at a readable width. */
 .lead { font-size: var(--text-lg); line-height: var(--leading-lg); }
 p.prose, .prose > p, .prose > ul, .prose li, .rules p { max-width: 72ch; }
@@ -1104,6 +1121,7 @@ ol.rules p { margin: var(--space-1) 0; }
   :is(button, a.button, select, input:not([type="checkbox"]), summary, .nav a, .segmented a, .toc a) { min-height: 44px; }
   :is(.icon-button, .segmented button) { min-width: 44px; }
   th button.sort { min-height: 44px; }
+  .label-option { min-height: 44px; }  /* the label is the radio's target too */
   .toc a, .segmented a { display: inline-flex; align-items: center; }
 }
 

@@ -303,10 +303,12 @@ export function storageSet(key, value) {
 // memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
 // `backendServices`: `{token_endpoint}` when SMART Backend Services is on (`/api/health`, signed
 // in), else null. `checkpointKey`: the id of the key that signs the daily checkpoint (`/api/health`),
-// else null: the audit trail then asks for no checkpoint.
+// else null: the audit trail then asks for no checkpoint. `labelling`: the person holds `label` and
+// the deployment serves the labelling routes (labelling.js); `labelOnly`: and holds nothing else,
+// so the labelling screen is all they see.
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
-  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null,
+  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, labelOnly: false,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
