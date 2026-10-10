@@ -5,7 +5,7 @@ import { wireCharts } from "./charts.js";
 import { closeDrawer } from "./drawer.js";
 import { skeleton } from "./skeleton.js";
 import { wireTables } from "./table.js";
-import { $, api, esc, focusHeading, state } from "./ui.js";
+import { $, api, esc, focusHeading, packLoaded, state } from "./ui.js";
 
 export const views = {};
 
@@ -66,6 +66,7 @@ async function paint({ navigated = false } = {}) {
   main.innerHTML = skeleton(view);
   let target = null;
   try {
+    if (!views[view].packless) await packLoaded(); // the skeleton shows meanwhile
     target = await views[view](main, params);
   } catch (error) {
     main.innerHTML = `<div class="panel error-state" role="alert"><h1>Could not load this view</h1>

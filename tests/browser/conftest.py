@@ -18,12 +18,24 @@ from typing import Any, Literal
 import httpx
 import pytest
 import uvicorn
+from fastapi.dependencies import models as fastapi_models
 from playwright.sync_api import Browser, Page
 
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
 
 INBOX = "mendari/patient-inbox-router"
+
+
+def _forget_endpoints() -> None:
+    """Lets stopped servers' apps go. FastAPI caches what each endpoint is in module-level LRU
+    caches (4,096 entries) keyed by the endpoint, and every Mendari endpoint is a closure over its
+    app: about 47 apps (their stores, packs and models) stayed alive at once, and the suite's
+    memory and full garbage collections grew with every test that serves one. Production builds
+    one app, so only tests need this."""
+    for cached in vars(fastapi_models).values():
+        if callable(getattr(cached, "cache_clear", None)):
+            cached.cache_clear()
 
 
 def _free_port() -> int:
@@ -75,6 +87,7 @@ def serving(app: Any) -> Iterator[int]:
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+        _forget_endpoints()
 
 
 @pytest.fixture(scope="session")

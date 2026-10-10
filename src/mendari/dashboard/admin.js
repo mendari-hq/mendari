@@ -72,6 +72,10 @@ views.admin.update = (params) => {
 
 views.admin.available = () => ADMIN_TABS.some((t) => t.shown());
 
+// An organization's people and credentials, not a pack's: shown without waiting for the pack's
+// details (router.js).
+views.admin.packless = true;
+
 // The link leaves the page with the view: an open dialog (a link or a key shown once among them)
 // closes, but one whose request is running (`data-busy`, ui.js actionDialog) closes with its
 // answer, so what follows it (a reload after changing your own roles) still happens.
