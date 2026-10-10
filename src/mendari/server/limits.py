@@ -63,6 +63,7 @@ from fastapi import Request
 
 from mendari.core import clock
 from mendari.core.audit import AuditStore
+from mendari.core.rate_buckets import RateBuckets
 from mendari.errors import MendariError
 from mendari.server import security_log
 
@@ -295,7 +296,7 @@ class DailyCap:
 class Limiter:
     """Counts requests per class and key in the store; see the module docstring."""
 
-    def __init__(self, store: AuditStore, settings: LimitSettings):
+    def __init__(self, store: RateBuckets, settings: LimitSettings):
         self.store = store
         self.mode = settings.mode
         self.rates = settings.rates

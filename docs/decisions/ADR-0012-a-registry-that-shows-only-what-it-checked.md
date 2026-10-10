@@ -7,7 +7,8 @@ here, in the order they landed:
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
 - 18d, origin at pull and the cap on a pulled pack (`registry_approvals`);
-- 18e, a running server honours its registries' recalls (`server/recalls.py`).
+- 18e, a running server honours its registries' recalls (`server/recalls.py`);
+- 18f, rate limits and security headers on the registry and the Hub.
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -104,7 +105,12 @@ Nothing on a pack's page comes from the uploader unchecked.
    (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or not recorded
    beside the pack. A recall is honoured whether or not its signature can be checked here: it
    only lowers automation.
-8. **Versions published before.** They keep their stored metadata (versions are immutable),
+8. **Limits and headers (18f).** The registry limits reads per address and writes and site
+   reports per token, in its own database (the engine's `Limiter` and buckets), refusing before
+   a body is read. Every registry answer carries a CSP that loads nothing, and the Hub's pages
+   a CSP with a fresh nonce; both refuse framing and send HSTS but on this machine. CI scans
+   the Hub with OWASP ZAP's baseline.
+9. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.

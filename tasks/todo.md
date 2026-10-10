@@ -1409,7 +1409,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     memberships preflight counts registry approvals; one live approval a digest (409); the ADR
     says approvals do not expire and library callers are capped; tests for cross-organization
     approvals, risk 4 and the permission.
-  - [x] **18e** (PR open) A running server honours a recall (`server/recalls.py`
+  - [x] **18e** (#236, merged 2026-10-10) A running server honours a recall (`server/recalls.py`
     `RecallWatch`): for each registry its served packs came from (the marker's URL), it reads
     `GET /v1/yanks` every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set) in a thread of
     its own, https only (http to this machine), 5 s timeout, 5 MB at most; a pack it lists (id
@@ -1428,9 +1428,26 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     serverless host or `mendari decide` sees (the recall known at the last pull) and that
     these reads are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`; tests for every answer
     `fetch_yanks` refuses, the single read in flight and the settings.
-  - [ ] **18f** Rate limits (the `Limiter`, on the registry's own database), security headers on
-    every registry route and every Hub page (CSP, HSTS, frame-ancestors), each asserted by
-    exact value, and a scanner baseline in the `hub-site` job.
+  - [x] **18f** (PR open) Rate limits and headers. The `Limiter` runs on the registry's own
+    database (`core/rate_buckets.py` `RateBuckets`, moved out of `AuditStore`, which now uses it
+    too: the same statements): reads per address (600/min, burst 200), writes per token or
+    address (120/h, 30), site reports per token (60/h, 10), `MENDARI_REGISTRY_RATE_LIMITS`
+    (`on` unless set, `log`, `off`, then overrides; a bad value stops the registry); a refusal
+    is `429` with `Retry-After` before the body is read, nothing stored. Every registry answer:
+    the engine's security headers, `default-src 'none'; frame-ancestors 'none'; base-uri 'none';
+    form-action 'none'`, COEP `require-corp`, `Cache-Control: no-store`, and HSTS but on this
+    machine (`tests/test_registry_limits.py` checks every route and method by value). The Hub
+    (`hub/proxy.ts`): a CSP with a fresh nonce per page (`script-src 'self' 'nonce-…'
+    'strict-dynamic'`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'none'`), the
+    same headers and COEP, HSTS but on this machine (`hub/tests/headers.spec.ts`: every page,
+    the 404 and assets by value, each nonce fresh, the inline scripts carrying it, no
+    violation). CI's `hub-site` runs the OWASP ZAP baseline (the pinned image) over the site,
+    `scripts/zap_check.py` failing on medium or high: locally 0 medium or high (2 low, 4
+    informational), the Spectre isolation low fixed by COEP. Adversarial review (with 18g's):
+    made-up bearer tokens each had a bucket, so writes were never limited (now a token the
+    registry did not issue counts against its sender's address); the limit's database work ran
+    on the event loop (now in the thread pool); an unhandled error's 500 had no headers (now a
+    bare 500 with them); the Hub's tests cover an unmatched page too.
   - [ ] **18g** The regression check: on every publish, the pack gate (`evals/gate.py`, as
     `scripts/pack_gate.py` runs it) on the publisher's own test set, in an isolated job (a
     subprocess with time and memory limits, local providers only), against the previous
