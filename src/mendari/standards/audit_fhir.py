@@ -364,6 +364,21 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     # Their keys' lifecycle (LP-11f), the deployment's: key ids and counts only.
     "evalset.rotated": ("U", "Evaluation-set key rotation batch", _CONFIGURATION),
     "evalset_index.rebuilt": ("U", "Hidden-case index rebuilt", _CONFIGURATION),
+    # Their blind labelling (LP-11h): the set and its organization; a labeller's read and label
+    # name the labeller (a user id) as the agent. The case hash, the assignment, the label's
+    # commitment, the round and the counts are no detail here (`_ADMINISTRATIVE_DETAILS`).
+    "evalset.sampled": ("U", "Hidden evaluation set sampled", None),
+    "evalset.assigned": ("C", "Hidden evaluation case assigned to a labeller", None),
+    "evalset.case_read": ("R", "Hidden evaluation case read by its labeller", None),
+    "evalset.labelled": ("C", "Hidden evaluation case labelled", None),
+    "evalset.measured": ("E", "Hidden evaluation set's agreement and coverage measured", None),
+    # Their lifecycle (LP-11i): the set and its organization, and the pack's digest a grading
+    # read is for; a grading read names its grading key as the agent. The commitment, the limits,
+    # the size and the run's number are no detail here (`_ADMINISTRATIVE_DETAILS`).
+    "evalset.frozen": ("U", "Hidden evaluation set frozen", None),
+    "evalset.activated": ("U", "Hidden evaluation set activated by its first grading read", None),
+    "evalset.graded": ("R", "Hidden evaluation set read to grade a pack", None),
+    "evalset.retired": ("U", "Hidden evaluation set retired", None),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (
@@ -381,8 +396,15 @@ _ACTORS = (
     "user",
 )
 # A kind whose actor is under a key that means something else elsewhere (`replaced_by` is the
-# replacement key's id on `key.rotated`): its agent, never one of its details.
-_ACTOR_KEY = {"client.keys_replaced": "replaced_by"}
+# replacement key's id on `key.rotated`; `labeller` is who was assigned on `evalset.assigned`), or
+# under a key of its own (`grader`, the grading key a grading read was for, LP-11i): its agent,
+# never one of its details.
+_ACTOR_KEY = {
+    "client.keys_replaced": "replaced_by",
+    "evalset.case_read": "labeller",
+    "evalset.labelled": "labeller",
+    "evalset.graded": "grader",
+}
 # What a payload says, as ids and codes (never `name`, `reason`, `reference` or `providers`).
 _ADMINISTRATIVE_DETAILS = (
     "id",

@@ -977,9 +977,40 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_origin`, `test_shipped`, `test_limits`, and after review `test_landing`,
     `test_key_presets`, `test_rotation`, `test_capability`) run with the feature on and assert
     it; threat model I13.
-  - [ ] **11h** Store II: sampling, assignment, blind labelling, adjudication, agreement.
-  - [ ] **11i** Store III: freeze and its commitment, the grading read, the rotation rule,
-    retirement.
+  - [ ] **11h** (PR open) Store II: sampling, assignment, blind labelling, adjudication,
+    agreement (the store and the key holder's command line; no route, so no person labels yet):
+    `mendari evalset sample` (seeded within strata, each drawn case's weight sealed),
+    `assign` and `adjudicate` (two labellers a case, balanced across labellers and pairs, and a
+    third for a disputed one; never an administrator of the set's organization; an assignment
+    whose membership ended moves on), `progress` (counts, no case named, no key), and
+    `agreement` and `coverage` (measured, sealed as the set's aggregates, chained); in the store,
+    `next_case` (the input and the questions only, the read chained first) and `record_label`
+    (one sealed label per assignment, bound to its id, chained as a salted commitment; agreed,
+    disputed, resolved or unresolved). Tables `evalset_assignments` and `evalset_labels`; five
+    new events; `audit verify --evalsets` recomputes labels; `SEALED_COLUMNS` covers labels;
+    the 11g sweep plants labels and labellers with and without assignments (`evalset agreement`
+    and `evalset coverage`, which count by label, are the only commands that may name a label
+    word); the runbook's "Labelling a set".
+  - [ ] **11i** (PR open) Store III: freeze and its commitment, the grading read, the rotation
+    rule, retirement (the store and the key holder's command line; no route, so nothing grades
+    yet): every write refuses a set that is not a draft, in its own exclusive transaction;
+    `mendari evalset freeze --max-runs N --max-age-days D [--drop-unsampled]` (every drawn case
+    agreed or resolved, an undrawn one removed and chained; the content `mendari.evalset/1`
+    hashed with the derived labels, the rule and its freeze time; the salt, the content hash
+    and the derived labels sealed as the freeze record, the final labels' coverage and agreement
+    as the aggregates; only the salted commitment chained, `evalset.frozen`; each critical
+    label's distinct positives printed, a warning under 100), `retire` (the content checked once
+    more, `evalset.retired`, nothing published) and `show` (state, commitment, runs used and
+    left, the stored aggregates; read-only, no key needed); in the store, `grade_read` (a live
+    grading key of the set's organization, the rule by chained runs and age with an injectable
+    clock, the content recomputed, a frozen set activated, `evalset.activated`, and each read
+    chained, `evalset.graded`, in one exclusive transaction before the in-process run receives
+    the cases; only the run's answer returned, nothing stored). `audit verify --evalsets` and
+    `rotate --check` recompute every set the chain froze against its commitment, and `verify`
+    checks its states against their events; four new events; the 11g sweep gains frozen,
+    active and retired sets (`evalset freeze` and `evalset show` join the commands that may
+    name a label word, conflict 57 amended); threat model T6; the runbook's freezing, rotation
+    rule, grading, retiring and second lifecycle.
   - [ ] **11j** The labelling routes (`label`).
   - [ ] **11k** The set-management routes (`curate`).
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
@@ -1296,7 +1327,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
     still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
     alerts, not a figure shown as checked).
-  - [x] **18b** (PR open) The registry's chain: every write appends a chained event in its transaction
+  - [x] **18b** (#229, merged 2026-10-09) The registry's chain: every write appends a chained event in its transaction
     (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
     `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
     SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
@@ -1323,7 +1354,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     who acted. Left: a review note is chained for good (an administrator's words about a pack;
     the route says never case text). A signed head, as the audit chain has (LP-21k), is
     for later.
-  - [x] **18c** (PR open) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
+  - [x] **18c** (#232, merged 2026-10-09) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
     record (pack, version, digest, archive, a one-line printable reason of at most 300, a
     severity `low` to `critical`, the signer, its key id, a UTC time) signed over its canonical
     JSON, by a namespace key (`mendari yank ns/name@version --reason --severity --key`,
@@ -1354,7 +1385,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
     /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
     `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
-  - [x] **18d** (PR open) Origin at pull and the cap: the verified marker (`.mendari-verified`)
+  - [x] **18d** (#234, merged 2026-10-10) Origin at pull and the cap: the verified marker (`.mendari-verified`)
     is now `mendari.origin/1` JSON (registry URL, namespace, publisher type, key id, archive,
     digest, when, the recall served then), rewritten on every pull, a cached one too; one from
     before (the archive's SHA-256 alone) still reads (`core/origin.py` `pulled_record`,

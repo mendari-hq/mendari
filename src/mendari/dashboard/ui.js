@@ -338,12 +338,27 @@ export function docsLink(doc) {
 export const packPath = () => `/api/packs/${state.packId}`;
 
 // A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
-export async function loadPack(packId) {
+// The load in flight is kept: a view that reads the pack waits for it (`packLoaded`, router.js),
+// one that reads none (the Access view) does not.
+let packLoad = Promise.resolve();
+let packFailed = false;
+
+export function loadPack(packId) {
   state.packId = packId;
-  if (state.launchOnly) return; // a launch reads no pack's details (the patient view needs none)
-  const detail = await api(`/api/packs/${packId}`);
-  if (state.packId === packId) state.detail = detail;
+  packFailed = false;
+  if (state.launchOnly) return (packLoad = Promise.resolve()); // a launch reads no pack's details (the patient view needs none)
+  const load = api(`/api/packs/${packId}`).then((detail) => {
+    if (state.packId === packId) state.detail = detail;
+  });
+  // Said by the view that waits for it, not as an unhandled rejection.
+  load.catch(() => { if (packLoad === load) packFailed = true; });
+  packLoad = load;
+  return load;
 }
+
+// The chosen pack's details, loaded. Once they failed (and the view said so), the next view
+// shown, or its "Try again", asks for them again.
+export const packLoaded = () => (packFailed ? loadPack(state.packId) : packLoad);
 
 export function watchEdges(el) {
   const edges = () => {
