@@ -4,8 +4,9 @@
 // (the server keeps the choice for this browser). Holding none, they see who they are signed in
 // as and may ask to join an organization by its id: the server answers the same whether or not
 // it exists, and this page never lists organizations. Holding one whose roles grant nothing yet
-// (a reserved role), they are told so; one who only labels hidden evaluation sets is told what
-// they do. Reached only through `state.noAccess` (router.js).
+// (a reserved role), they are told so; one who only labels hidden evaluation sets, where the
+// deployment serves no labelling route, is told what they do (where it does, they see the
+// labelling screen instead, labelling.js). Reached only through `state.noAccess` (router.js).
 
 import { views } from "./router.js";
 import { api, emptyState, esc, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
@@ -21,7 +22,7 @@ views.access = async (main, [reason = "none"]) => {
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
       icon: "shield-check",
       title: "You label cases for hidden evaluation sets",
-      text: "There is nothing to label yet. Cases to label will be listed here once an administrator assigns them.",
+      text: "Labelling is not switched on here yet. Once it is, the cases assigned to you are shown here.",
     })}${accountButtons()}`;
     wireAccount(main);
     return;

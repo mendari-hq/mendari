@@ -22,6 +22,8 @@ export function route() {
   if (state.launchOnly && (name !== "patient" || !named.length)) {
     return { view: "patient", params: state.launchPin ? [state.launchPin] : [] };
   }
+  // A labeller and nothing else (LP-11m): the labelling screen, whatever the address says.
+  if (state.labelOnly) return { view: "labelling", params: [] };
   // A view someone may not use (`available()` says no: the administrators' Access view in open
   // mode, or for anyone but an administrator who signed in) is not there: the overview, with no
   // request.
@@ -105,7 +107,7 @@ export const wire = (root) => {
 };
 
 export async function refreshReviewCount() {
-  if (state.launchOnly || state.noAccess) return; // no review queue for a launch, or no access
+  if (state.launchOnly || state.noAccess || state.labelOnly) return; // no review queue for these
   try {
     const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
     $("#review-count").textContent = pending.length || "";

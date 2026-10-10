@@ -1031,7 +1031,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     mode; the runbook's "How a labeller labels".
   - [ ] **11k** The set-management routes (`curate`).
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
-  - [ ] **11m** The labelling screen.
+  - [ ] **11m** (PR open) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
+    11j's routes only): shown to a person holding `label` where the routes are served (main.js
+    reads their counts once to know; without the keys a labeller-only person keeps the access
+    page, now saying labelling is not switched on); a labeller and nothing else sees it alone
+    (`labelOnly`, pinned in `route()` as `launchOnly` is; no packs, no notice, no review count),
+    anyone else holding `label` gets its link in the section list. Their counts set by set (ids
+    only), then one case at a time: its input escaped by `record.js` (the generic renderer taken
+    out of `pack.js`, which imports it), the set's questions as radio groups with nothing chosen
+    (24 px targets, 44 on touch), Save → the next case with focus on its heading; an unanswered
+    question or a `422` said beside the question it names; a `404` moves on to the next; `204` the
+    empty state with "Check again". Imports only `router.js`, `ui.js` and `record.js`; nothing in
+    the browser's storage; tokens only. `tests/browser/test_labelling.py` (a real memberships
+    server with throwaway keys: labels case after case, the second labeller blind, `pins()`,
+    storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
+    phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
+    gate probe changes (11o replaces `labelling-underway`'s).
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
