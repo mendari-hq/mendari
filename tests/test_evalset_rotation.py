@@ -605,10 +605,10 @@ def test_every_sealed_evalset_column_is_rotated_checked_verified_and_exported(
 ) -> None:
     """Each column of an `evalset_` table is sealed (`SEALED_COLUMNS`) or in the clear
     (`CLEAR_COLUMNS`), never both and never neither. Every sealed column, each filled (a frozen
-    set's freeze record and aggregates included, as a later step fills them, and each label's
-    body, LP-11h), is re-sealed by a rotation in every state, counted and opened by its check,
-    opened by `verify` (a value moved to another row breaks it), and copied by the export as
-    stored."""
+    set's freeze record and aggregates included, as freezing fills them, LP-11i, and each
+    label's body, LP-11h), is re-sealed by a rotation in every state (one set frozen, the other
+    active), counted and opened by its check, opened by `verify` (a value moved to another row
+    breaks it), and copied by the export as stored."""
     with store._db.session(exclusive=False) as db:
         columns = {table: db.columns(table) for table in evalset_tables()}
     assert set(SEALED_COLUMNS) <= set(columns) == set(CLEAR_COLUMNS)
@@ -627,16 +627,10 @@ def test_every_sealed_evalset_column_is_rotated_checked_verified_and_exported(
         people = labellers(store, 2, org=org)
         hidden.assign(set_id, people)
         label_all(hidden, people, org=org)
-        tamper(  # frozen, as a later step freezes a set (LP-11i), its sealed columns filled
-            store,
-            "UPDATE evalset_sets SET state = ?, freeze_record = ?, aggregates = ? WHERE id = ?",
-            (
-                "frozen",
-                before.seal("freeze", {"commitment": "c"}, set_id),
-                before.seal("aggregates", {"n": 2}, set_id),
-                set_id,
-            ),
-        )
+        # Frozen (LP-11i), its freeze record and aggregates sealed; the second set graded once.
+        hidden.freeze(set_id, max_runs=3, max_age_days=30, resamples=50)
+    grading = store.create_grading_key(org="clinic-b", created_by="ops", reason="the pin")
+    hidden.grade_read(sets[1], f"key:{grading['id']}", "sha256:" + "d" * 64, lambda _: None)
     filled = tokens(store)
     assert {(table, column) for table, column, _ in filled} == {
         (table, column) for table, sealed in SEALED_COLUMNS.items() for column in sealed.columns

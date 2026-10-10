@@ -77,6 +77,31 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, frozen, graded in the process and retired** (LP-11, the key holder's
+  command line and the store; no route yet, so nothing grades until the grading route): every write
+  refuses a set that is no longer a draft, in its own exclusive transaction, writing and chaining
+  nothing. `mendari evalset freeze <set> --max-runs N --max-age-days D [--drop-unsampled]
+  [--pack P]` freezes a set whose drawn cases are all agreed or resolved (an undrawn one is refused,
+  or removed and chained with `--drop-unsampled`; both limits of the rotation rule are required,
+  with no default): its content (`mendari.evalset/1`: the header, the rule and when it froze, and
+  every case by id with its input, final and derived labels, status and attributes) is hashed, the
+  salt, the hash and the derived labels sealed as its freeze record, the final labels' coverage and
+  agreement as its aggregates, and only the salted commitment chained (`evalset.frozen`); it prints
+  the commitment and each critical label's distinct positives, warning under 100. In the store, the
+  grading read (for the grading route, LP-11l) serves a live grading key of the set's organization
+  while the rotation rule holds (fewer chained reads than `--max-runs`, younger than
+  `--max-age-days`), recomputes the content against the commitment (refusing, naming no case, when
+  it changed), activates a frozen set (`evalset.activated`) and chains the read (`evalset.graded`:
+  the grading key, the pack's digest, the run's number) in one exclusive transaction before its run
+  receives the cases in memory; only the run's answer comes back, nothing is stored.
+  `mendari evalset retire` checks the content once more and chains `evalset.retired`, publishing
+  nothing; `mendari evalset show` reads a set's state, commitment, runs used and left and its stored
+  aggregates (no key needed but for those). `mendari audit verify --evalsets` and `rotate --check`
+  recompute every set the chain froze against its commitment, whatever its row's state now, and
+  `verify` checks each set's state against its events (frozen, activated and retired once, no
+  draft's write after the freeze, no read after the retirement; counted `frozen`); a retired set's
+  state edited back grades nothing, since the read checks the chain's retirement. Runbook:
+  `docs/operations/evalsets.md`, Freezing a set.
 - **Hidden evaluation sets, labelled blind** (LP-11, the key holder's command line and the
   store; no route yet, so no person labels until the labelling screen): `mendari evalset sample`
   draws a draft set's cases, seeded, within each stratum (`--per-stratum N` or `--cases N`),

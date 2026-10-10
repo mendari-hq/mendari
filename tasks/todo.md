@@ -991,8 +991,26 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the 11g sweep plants labels and labellers with and without assignments (`evalset agreement`
     and `evalset coverage`, which count by label, are the only commands that may name a label
     word); the runbook's "Labelling a set".
-  - [ ] **11i** Store III: freeze and its commitment, the grading read, the rotation rule,
-    retirement.
+  - [ ] **11i** (PR open) Store III: freeze and its commitment, the grading read, the rotation
+    rule, retirement (the store and the key holder's command line; no route, so nothing grades
+    yet): every write refuses a set that is not a draft, in its own exclusive transaction;
+    `mendari evalset freeze --max-runs N --max-age-days D [--drop-unsampled]` (every drawn case
+    agreed or resolved, an undrawn one removed and chained; the content `mendari.evalset/1`
+    hashed with the derived labels, the rule and its freeze time; the salt, the content hash
+    and the derived labels sealed as the freeze record, the final labels' coverage and agreement
+    as the aggregates; only the salted commitment chained, `evalset.frozen`; each critical
+    label's distinct positives printed, a warning under 100), `retire` (the content checked once
+    more, `evalset.retired`, nothing published) and `show` (state, commitment, runs used and
+    left, the stored aggregates; read-only, no key needed); in the store, `grade_read` (a live
+    grading key of the set's organization, the rule by chained runs and age with an injectable
+    clock, the content recomputed, a frozen set activated, `evalset.activated`, and each read
+    chained, `evalset.graded`, in one exclusive transaction before the in-process run receives
+    the cases; only the run's answer returned, nothing stored). `audit verify --evalsets` and
+    `rotate --check` recompute every set the chain froze against its commitment, and `verify`
+    checks its states against their events; four new events; the 11g sweep gains frozen,
+    active and retired sets (`evalset freeze` and `evalset show` join the commands that may
+    name a label word, conflict 57 amended); threat model T6; the runbook's freezing, rotation
+    rule, grading, retiring and second lifecycle.
   - [ ] **11j** The labelling routes (`label`).
   - [ ] **11k** The set-management routes (`curate`).
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).

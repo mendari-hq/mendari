@@ -76,7 +76,36 @@ route lets a person label yet):
 Every opening of a case's input, attributes or labels is chained (sampling, a labeller's read,
 labelling, measuring); opening a set's header is not. A case's status is `draft` until drawn,
 then `sampled`, `agreed`, `disputed`, `resolved` or `unresolved`. Removing a case removes its
-assignments and labels with it."""
+assignments and labels with it.
+
+The lifecycle (LP-11i): `draft`, then `frozen`, `active` and `retired`. Every write above
+refuses a set that is not a draft, in its own exclusive transaction; a rotation and a reindex
+change ciphertext and keyed hashes only, so they run in every state (conflict 31).
+- `freeze` fixes a draft set, the key holder's command line only (conflict 49). Every case is
+  drawn (or, with `drop_unsampled`, an undrawn one is removed, each removal chained) and settled,
+  agreed or resolved; then its content (`CONTENT_FORMAT`: the header's pack id, questions with
+  their labels, derived questions and critical labels, the rotation rule's two limits and when
+  it froze, and each case by id with its input, its final labels, the members' and those the
+  pack derives from them, its status and its source, stratum, weight, language, author and
+  template) is hashed (`content_hash`) and committed to with a 32-byte salt
+  (`freeze_commitment`). The salt, the content hash and the derived labels are sealed as the
+  set's freeze record, and the coverage and agreement of its final labels as its aggregates.
+  Chained: `evalset.frozen {set, org, commitment, n, max_runs, max_age_days}`; the unsalted
+  content hash never leaves the sealed record (conflict 44).
+- `grade_read` is the one read of a frozen or active set's cases, in the process only (LP-11l
+  calls it): for a live grading key of the set's organization, while the rotation rule holds
+  (fewer chained `evalset.graded` than `max_runs`, and less than `max_age_days` since
+  `frozen_at`), and the set's rows still give the content its commitment covers (a set whose
+  chain holds its `evalset.retired` is retired, whatever its row says). In one exclusive
+  transaction it checks all that, activates a frozen set (`evalset.activated`) and
+  chains `evalset.graded {set, org, commitment, grader, pack_digest, n, run}`; only then does
+  `run` receive the cases, in memory, and only what `run` returns comes back. Nothing is stored.
+- `retire` ends a frozen or active set's use, once, its content checked once more:
+  `evalset.retired {set, org, commitment}`. Nothing is published.
+- `show` reads a set's state, commitment, runs used and left, and its stored aggregates.
+`mendari audit verify --evalsets` and `check` recompute each frozen set's content against the
+commitment its `evalset.frozen` chained (`check`: each set the chain froze, whatever its row's
+state now)."""
 
 from __future__ import annotations
 
@@ -89,19 +118,22 @@ import re
 import secrets
 import uuid
 from collections import Counter
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
 from mendari.core import accounts
 from mendari.core.audit import (
     CHECK_FAILURES_SHOWN,
     EVALSET_INDEX_EPOCH,
     EVALSET_INDEX_RETIRED,
+    EVALSET_KNOWN,
     EVALSET_RETIRED,
     EVALSET_TARGET,
+    GRADING_ROLE,
     KEYS_CHAIN,
     ROTATE_BATCH,
     AuditStore,
@@ -117,6 +149,9 @@ from mendari.evals.canonical import canonical_input, normalised_input
 
 if TYPE_CHECKING:
     from mendari.core.spec import PackManifest
+    from mendari.evals.harness import Dataset
+
+T = TypeVar("T")
 
 # A case's commitment (`case_ref`): unkeyed, hiding through its salt (kept only sealed in the
 # case's attributes) and binding through SHA-256. No prefix of another of the deployment's
@@ -124,9 +159,26 @@ if TYPE_CHECKING:
 CASE_REF_PREFIX = b"mendari-evalset-case-ref-v1\x00"
 # A label's commitment (`label_ref`), as a case's: its salt is sealed only in the label's body.
 LABEL_REF_PREFIX = b"mendari-evalset-label-ref-v1\x00"
+# A frozen set's commitment (`freeze_commitment`, LP-11i): its salt and its content hash are
+# sealed only in the set's freeze record (conflict 44: committed, never signed, in LP-11).
+FREEZE_PREFIX = b"mendari-evalset-freeze-v1\x00"
+# What a frozen set's content hash is over (`content_hash`).
+CONTENT_FORMAT = "mendari.evalset/1"
 DRAFT = "draft"
-# What a set's state may be: `draft` until LP-11i freezes it, then `frozen`, `active`, `retired`.
-STATES = (DRAFT, "frozen", "active", "retired")
+FROZEN, ACTIVE, RETIRED = "frozen", "active", "retired"
+# What a set's state may be: `draft` until it is frozen (LP-11i), then `frozen`; `active` from
+# its first grading read; `retired` once the key holder retires it.
+STATES = (DRAFT, FROZEN, ACTIVE, RETIRED)
+GRADED = (FROZEN, ACTIVE)  # the states a grading read serves, and that a set retires from
+# The rotation rule's limits (conflict 47: both required at freeze, no default): whole numbers,
+# at most these, so a mistyped one is refused rather than kept (and fits an INTEGER column).
+RUNS_CAP = 100_000
+DAYS_CAP = 3_650
+# A grader, as the chain names it: a grading key's principal (`key:` and the id the store mints).
+_GRADER = re.compile(r"^key:[0-9a-f]{12}$")
+_PACK_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+# What a frozen set's content holds of each case's attributes (the store's own, `ADDED`, never).
+FROZEN_ATTRIBUTES = ("source", "stratum", "language", "author", "template")
 # What a case's status may be (LP-11h): `draft` until a draw takes it, then `sampled`; once both
 # first-pass labels are in, `agreed` or `disputed`; once a disputed case's adjudicator answers,
 # `resolved` (a majority on every question) or `unresolved` (a three-way split on one).
@@ -138,6 +190,8 @@ SAMPLED, AGREED, DISPUTED, RESOLVED, UNRESOLVED = (
     "unresolved",
 )
 CASE_STATUSES = (DRAFT, SAMPLED, AGREED, DISPUTED, RESOLVED, UNRESOLVED)
+# A drawn case's statuses once its labels settle it (LP-11i): a set freezes with these only.
+SETTLED = (AGREED, RESOLVED)
 # An assignment's round: a case's two blind first passes, then a disputed case's third label.
 FIRST, ADJUDICATION = "first", "adjudication"
 ROUNDS = (FIRST, ADJUDICATION)
@@ -230,6 +284,19 @@ def label_ref(
     return hashlib.sha256(LABEL_REF_PREFIX + salt + canonical_input(body).encode()).hexdigest()
 
 
+def content_hash(content: Any) -> str:
+    """A frozen set's content hash (LP-11i): the SHA-256 of its content (`CONTENT_FORMAT`) in
+    canonical JSON (`canonical_input`). Kept only sealed, in the set's freeze record."""
+    return hashlib.sha256(canonical_input(content).encode()).hexdigest()
+
+
+def freeze_commitment(salt: bytes, hashed: str) -> str:
+    """A frozen set's commitment, as `evalset.frozen` chains it: the SHA-256 of
+    `FREEZE_PREFIX`, the salt and the content hash's 32 bytes. The salt keeps a guessed content
+    from being confirmed against it."""
+    return hashlib.sha256(FREEZE_PREFIX + salt + bytes.fromhex(hashed)).hexdigest()
+
+
 def read_cases(path: Path) -> list[tuple[int, Any]]:
     """The records of a JSONL file of cases, each with its line number (blank lines skipped). A
     line that is not UTF-8 or not JSON is a `MendariError` naming its line, never its text."""
@@ -255,17 +322,29 @@ def read_cases(path: Path) -> list[tuple[int, Any]]:
 class EvalsetStore:
     """Hidden evaluation sets over an `AuditStore` (its database, chain and marks), with the
     deployment's evaluation-set keys. Without keys (the feature off) it lists sets and counts
-    their labelling's progress only: nothing sealed is opened."""
+    their labelling's progress only: nothing sealed is opened. `clock` (UTC, the current time
+    by default) is when a set freezes or retires and how old a frozen set is: a test moves it."""
 
-    def __init__(self, store: AuditStore, keys: EvalsetKeys | None = None) -> None:
+    def __init__(
+        self,
+        store: AuditStore,
+        keys: EvalsetKeys | None = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self.store = store
         self.keys = keys
+        self.clock = clock or (lambda: datetime.now(UTC))
         self._index_epoch: str | None = None  # the index key id this store last recorded under
 
     def _ring(self) -> EvalsetKeys:
         if self.keys is None:
             raise MendariError(OFF)
         return self.keys
+
+    def _stamp(self) -> str:
+        """The clock's time as the store writes times (`_now`'s form)."""
+        return self.clock().astimezone(UTC).isoformat(timespec="milliseconds")
 
     # -- writes ---------------------------------------------------------------------------
 
@@ -895,6 +974,291 @@ class EvalsetStore:
             self.store._append(db, f"evalset:{set_id}", "evalset.measured", chained)
         return aggregates
 
+    # -- the lifecycle (LP-11i) ----------------------------------------------------------------
+
+    def freeze(
+        self,
+        set_id: str,
+        *,
+        max_runs: int,
+        max_age_days: int,
+        drop_unsampled: bool = False,
+        pack: Pack | None = None,
+        seed: int = 0,
+        resamples: int = 2000,
+    ) -> dict[str, Any]:
+        """Freeze a draft set (`mendari evalset freeze`, the key holder's only): its content and
+        its rotation rule fixed, committed to and chained. Refused while a case is not drawn
+        (unless `drop_unsampled`: each such case is removed, with its index rows, and
+        `evalset.case_removed` chained for it), or a drawn one is unlabelled, disputed or
+        unresolved; and without both limits (`max_runs` grading runs, `max_age_days` days from
+        now, by `clock`, which time the content holds: no default, conflict 47). The pack is
+        the set's, as `measure` finds it, for the labels it derives from the final member labels
+        (`derive_answer`). Inputs, attributes and labels are opened, the content hashed
+        (`content_hash`, `_frozen_content`) and the aggregates computed (the coverage of the
+        final labels and the first-pass agreement, as `measure` stores them) outside the
+        chain's lock; then, in one transaction, if the set's cases and labels are still those
+        that were read, the set becomes `frozen`: its freeze record (the salt, the content hash
+        and the derived labels) and aggregates sealed, its commitment, limits and time kept,
+        and `evalset.frozen` chained. The set's id, state, time, commitment, how
+        many cases it holds and how many were dropped, its limits, and the distinct positives
+        of each critical label (`critical`, which names the pack's label words: conflict 48,
+        never chained) with the coverage report's warnings; a critical label under
+        `result.MIN_POSITIVES` warns, never refuses. Never the content hash or the salt."""
+        keys = self._ring()
+        _check_set_id(set_id)
+        _check_limits(max_runs, max_age_days)
+        if not isinstance(resamples, int) or isinstance(resamples, bool) or resamples < 1:
+            raise MendariError("a bootstrap takes 1 resample or more")
+        with self.store._db.session(exclusive=False) as db:
+            head = _draft(
+                set_id, db.one("SELECT state, header FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            rows = db.all(
+                "SELECT id, case_hash, status, input, attributes FROM evalset_cases "
+                "WHERE set_id = ? ORDER BY id",
+                (set_id,),
+            )
+            labelled = db.all(
+                "SELECT l.id, l.case_id, l.body, a.user_id, a.round FROM evalset_labels l "
+                "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.set_id = ? "
+                "ORDER BY l.id",
+                (set_id,),
+            )
+        header, _ = keys.open("header", str(head["header"]), set_id)
+        if pack is None:
+            from mendari.core.registry import resolve_pack
+
+            pack = resolve_pack(str(header["pack"]))
+        problem = _pack_problem(pack, header)
+        if problem is not None:
+            raise MendariError(problem)
+        undrawn = [row for row in rows if row["status"] == DRAFT]
+        if undrawn and not drop_unsampled:
+            raise MendariError(
+                f"evaluation set {set_id} has {len(undrawn)} case(s) not drawn: draw and label "
+                "them (`mendari evalset sample`), or leave them out of the frozen set "
+                "(--drop-unsampled removes them)"
+            )
+        kept = [row for row in rows if row["status"] != DRAFT]
+        if not kept:
+            raise MendariError(f"evaluation set {set_id} has no drawn case to freeze")
+        waiting = Counter(str(row["status"]) for row in kept if row["status"] not in SETTLED)
+        if waiting:
+            raise MendariError(_unsettled(set_id, waiting))
+        frozen_at = self._stamp()
+        limits = (max_runs, max_age_days, frozen_at)
+        derived = _derived(keys, pack, set_id, kept, labelled)
+        content, _ = _frozen_content(keys, set_id, header, limits, kept, labelled, derived)
+        hashed = content_hash(content)
+        salt = secrets.token_bytes(32)
+        commitment = freeze_commitment(salt, hashed)
+        record = {
+            "salt": base64.b64encode(salt).decode(),
+            "content_hash": hashed,
+            "derived": derived,
+        }
+        aggregates = _aggregates(keys, pack, set_id, kept, labelled, seed, resamples)
+        read = _measured_rows(rows, labelled)
+        dropped = [str(row["id"]) for row in undrawn]
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            again = _draft(
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            org = str(again["org"])
+            now_rows = db.all(
+                "SELECT id, status FROM evalset_cases WHERE set_id = ? ORDER BY id", (set_id,)
+            )
+            now_labels = db.all(
+                "SELECT id FROM evalset_labels WHERE set_id = ? ORDER BY id", (set_id,)
+            )
+            if _measured_rows(now_rows, now_labels) != read:
+                raise MendariError(
+                    f"evaluation set {set_id} changed while it was frozen: run it again"
+                )
+            for start in range(0, len(dropped), _INSERT_BATCH):
+                batch = dropped[start : start + _INSERT_BATCH]
+                marks = ", ".join("?" for _ in batch)
+                for table, column in (
+                    ("evalset_index", "case_id"),
+                    ("evalset_labels", "case_id"),
+                    ("evalset_assignments", "case_id"),
+                    ("evalset_cases", "id"),
+                ):
+                    db.all(f"DELETE FROM {table} WHERE {column} IN ({marks})", batch)
+            removed = [
+                (
+                    f"evalset:{set_id}",
+                    self.store._bound(
+                        "evalset.case_removed", {"set": set_id, "case": str(row["case_hash"])}, org
+                    ),
+                )
+                for row in undrawn
+            ]
+            self.store._append_many(db, "evalset.case_removed", removed)
+            db.all(
+                "UPDATE evalset_sets SET state = ?, frozen_at = ?, commitment = ?, "
+                "freeze_record = ?, max_runs = ?, max_age_days = ?, aggregates = ? "
+                "WHERE id = ? AND state = ?",
+                (
+                    FROZEN,
+                    frozen_at,
+                    commitment,
+                    keys.seal("freeze", record, set_id),
+                    max_runs,
+                    max_age_days,
+                    keys.seal("aggregates", aggregates, set_id),
+                    set_id,
+                    DRAFT,
+                ),
+            )
+            payload = {
+                "set": set_id,
+                "commitment": commitment,
+                "n": len(kept),
+                "max_runs": max_runs,
+                "max_age_days": max_age_days,
+            }
+            chained = self.store._bound("evalset.frozen", payload, org)
+            self.store._append(db, f"evalset:{set_id}", "evalset.frozen", chained)
+        covered = aggregates["coverage"]
+        return {
+            "set": set_id,
+            "state": FROZEN,
+            "frozen_at": frozen_at,
+            "commitment": commitment,
+            "n": len(kept),
+            "dropped": len(dropped),
+            "max_runs": max_runs,
+            "max_age_days": max_age_days,
+            "critical": covered["critical"],
+            "warnings": covered["warnings"],
+        }
+
+    def grade_read(
+        self, set_id: str, grader: str, pack_digest: str, run: Callable[[Dataset], T]
+    ) -> T:
+        """The one read of a frozen or active set's cases (LP-11l's grading run calls it, in the
+        process; no route or command does in LP-11i). `grader` is the grading key's principal
+        (`key:<id>`): a live key of role `grading` of the set's organization, or the set is
+        named as unknown (another organization's, a revoked or expired key, any other key).
+        In one exclusive transaction: the set is frozen or active, and its chain holds no
+        `evalset.retired` (a row edited back from `retired` grades nothing); the rotation rule
+        holds (fewer chained `evalset.graded` than its `max_runs`, and less than `max_age_days`
+        since `frozen_at`, by `clock`); its rows still give the content its commitment covers
+        (else it is refused naming no case, or naming the keys it lacks when a value is sealed
+        under a key this database knows and the ring does not hold); a frozen set becomes
+        `active`, `evalset.activated`
+        chained; and `evalset.graded {set, org, commitment, grader, pack_digest, n, run}` is
+        chained. Only once that transaction commits does `run` receive the cases, as an
+        in-memory dataset (each case by its keyed hash, with its input, final labels and frozen
+        attributes; its own random case key, no file, no digest), so concurrent reads never
+        exceed `max_runs` and a run whose read was not chained never sees a case. Only what
+        `run` returns comes back; nothing is stored. A run that fails still counts."""
+        keys = self._ring()
+        _check_set_id(set_id)
+        if not (isinstance(grader, str) and _GRADER.fullmatch(grader)):
+            raise MendariError("a grader is a grading key, named key: and its id")
+        if not (isinstance(pack_digest, str) and _PACK_DIGEST.fullmatch(pack_digest)):
+            raise MendariError("a pack digest is sha256: and 64 hex digits")
+        from mendari.evals.harness import Dataset
+
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            head = db.one(f"SELECT {_FROZEN_COLUMNS} FROM evalset_sets WHERE id = ?", (set_id,))
+            key = db.one(
+                "SELECT org FROM api_keys WHERE id = ? AND role = ? AND revoked_at IS NULL "
+                "AND expires_at > ?",
+                (grader.removeprefix("key:"), GRADING_ROLE, _now()),
+            )
+            if head is None or key is None or str(key["org"]) != str(head["org"]):
+                raise MendariError(f"no evaluation set {set_id} is graded with {grader}")
+            org, state = str(head["org"]), str(head["state"])
+            if _retired(db, set_id):
+                state = RETIRED  # the chain's word, whatever the row says
+            if state not in GRADED:
+                raise MendariError(
+                    f"evaluation set {set_id} is {state}: only a frozen or active set is graded"
+                )
+            max_runs, max_age_days, frozen_at = _rule(set_id, head)
+            used = _runs(db, set_id)
+            if used >= max_runs:
+                raise MendariError(
+                    f"evaluation set {set_id} has had its {max_runs} grading run(s): retire it "
+                    "(`mendari evalset retire`) and freeze another"
+                )
+            if self.clock() - frozen_at >= timedelta(days=max_age_days):
+                raise MendariError(
+                    f"evaluation set {set_id} was frozen {max_age_days} day(s) ago or more: "
+                    "retire it (`mendari evalset retire`) and freeze another"
+                )
+            records = _intact(db, keys, set_id, head)
+            if state == FROZEN:
+                db.all(
+                    "UPDATE evalset_sets SET state = ? WHERE id = ? AND state = ?",
+                    (ACTIVE, set_id, FROZEN),
+                )
+                chained = self.store._bound("evalset.activated", {"set": set_id}, org)
+                self.store._append(db, f"evalset:{set_id}", "evalset.activated", chained)
+            payload = {
+                "set": set_id,
+                "commitment": str(head["commitment"]),
+                "grader": grader,
+                "pack_digest": pack_digest,
+                "n": len(records),
+                "run": used + 1,
+            }
+            chained = self.store._bound("evalset.graded", payload, org)
+            self.store._append(db, f"evalset:{set_id}", "evalset.graded", chained)
+        dataset = Dataset(
+            name=set_id,
+            path=Path(set_id),
+            records=records,
+            sha256="",  # no hash of the hidden cases, keyed or not
+            case_key=secrets.token_bytes(32),
+        )
+        return run(dataset)
+
+    def retire(self, set_id: str) -> dict[str, Any]:
+        """Retire a frozen or active set (`mendari evalset retire`, the key holder's only): its
+        rows checked once more against its commitment (refused, naming no case, when they no
+        longer give it), its state `retired` and its time kept, and `evalset.retired {set,
+        org, commitment}` chained, in one exclusive transaction. It grades nothing more, whatever
+        its row says later (the chain's retirement is read too), and it retires once; nothing is
+        published. The set's id, state, time, commitment and runs used."""
+        keys = self._ring()
+        _check_set_id(set_id)
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            head = db.one(f"SELECT {_FROZEN_COLUMNS} FROM evalset_sets WHERE id = ?", (set_id,))
+            if head is None:
+                raise MendariError(f"no evaluation set {set_id}")
+            org, state = str(head["org"]), str(head["state"])
+            if _retired(db, set_id):
+                state = RETIRED  # the chain's word, whatever the row says
+            if state not in GRADED:
+                raise MendariError(
+                    f"evaluation set {set_id} is {state}: only a frozen or active set is retired"
+                )
+            _intact(db, keys, set_id, head)
+            retired_at = self._stamp()
+            used = _runs(db, set_id)
+            db.all(
+                "UPDATE evalset_sets SET state = ?, retired_at = ? WHERE id = ? AND state = ?",
+                (RETIRED, retired_at, set_id, state),
+            )
+            payload = {"set": set_id, "commitment": str(head["commitment"])}
+            chained = self.store._bound("evalset.retired", payload, org)
+            self.store._append(db, f"evalset:{set_id}", "evalset.retired", chained)
+        return {
+            "set": set_id,
+            "state": RETIRED,
+            "retired_at": retired_at,
+            "commitment": str(head["commitment"]),
+            "runs": used,
+        }
+
     # -- the keys' lifecycle (LP-11f) ----------------------------------------------------------
 
     def rotate(self, *, to: str, batch: int = ROTATE_BATCH) -> dict[str, Any]:
@@ -1036,9 +1400,13 @@ class EvalsetStore:
         `evalset.case_added` chained (`case_ref`), its keyed hash when it is under the current
         index key, and its two index rows under the current index key (the current epoch's: a
         case without them waits for `reindex`); for each label (LP-11h), the commitment its
-        `evalset.labelled` chained (`label_ref`). Counts the index rows by key id. A failure
-        names the value's kind (`case` for a case's checks, `label` for a label's), its set, a
-        case by its hash or a label by its id, and the key it names or what did not match
+        `evalset.labelled` chained (`label_ref`); for each set the chain froze, whatever its
+        row's state now, and each set row in a state of the lifecycle (LP-11i), the content its
+        first `evalset.frozen` committed to, recomputed from its rows (`frozen_holds`), with the
+        limits it chained (a set whose row is gone, a draft again, or holds no freeze record,
+        fails). Counts the index rows by key id. A failure names the value's kind
+        (`case` for a case's checks, `label` for a label's, `set` for a frozen set's), its set,
+        a case by its hash or a label by its id, and the key it names or what did not match
         (`commitment`, `case_hash`, `index`). `ready`
         only when everything opened and matched and the current key is not retired. Nothing is
         chained, marked or written."""
@@ -1067,6 +1435,22 @@ class EvalsetStore:
                 if isinstance(payload := json.loads(row["payload"]), Mapping)
                 and isinstance(ref := payload.get("label_ref"), Mapping)
             }
+            # Each set's first `evalset.frozen` (a set freezes once: a later one is no commitment).
+            freezes: dict[str, Mapping[str, Any]] = {}
+            for row in db.all(
+                "SELECT payload FROM audit_events WHERE event = ? ORDER BY seq",
+                ("evalset.frozen",),
+            ):
+                if isinstance(payload := json.loads(row["payload"]), Mapping):
+                    freezes.setdefault(str(payload.get("set")), payload)
+            sets = (
+                {
+                    str(row["id"]): row
+                    for row in db.all(f"SELECT {_FROZEN_COLUMNS} FROM evalset_sets ORDER BY id")
+                }
+                if "evalset_sets" in present
+                else {}
+            )
             if "settings" not in self.store.unmigrated:  # an older database, read as it is
                 retired = {
                     name[len(EVALSET_RETIRED) :]
@@ -1130,6 +1514,33 @@ class EvalsetStore:
                         failures.append(
                             {"kind": "label", **_named(sealed, row), "key": "commitment"}
                         )
+        # Each set the chain froze, whatever its row's state now, and each row in a state of the
+        # lifecycle (LP-11i): its row is still there, no draft, and keeps the commitment and the
+        # limits its first `evalset.frozen` chained, and its rows, opened with the current key
+        # alone, still give the content that commitment covers.
+        lifecycle = {set_id for set_id, head in sets.items() if head["state"] != DRAFT}
+        for set_id in sorted(set(freezes) | lifecycle):
+            head, chained = sets.get(set_id), freezes.get(set_id)
+            if head is None or chained is None or head["state"] == DRAFT:
+                failures.append({"kind": "set", "set": set_id, "key": "commitment"})
+                continue
+            with self.store._db.session(exclusive=False) as db:
+                kept, labelled = _frozen_rows(db, set_id)
+            try:
+                held = (
+                    kept_as_chained(head, chained)
+                    and frozen_holds(alone, set_id, head, kept, labelled, chained["commitment"])[0]
+                )
+            except MendariError:
+                # A value the current key alone does not open is listed above, by its set; one
+                # that is not there (a freeze record removed) was not.
+                if any(failure.get("set") == set_id for failure in failures):
+                    continue
+                held = False
+            except (ValueError, KeyError, TypeError, AttributeError):
+                held = False
+            if not held:
+                failures.append({"kind": "set", "set": set_id, "key": "commitment"})
         read = sorted(keys.ring_ids - {current})
         return {
             "current": current,
@@ -1320,6 +1731,55 @@ class EvalsetStore:
             "cases": sum(statuses.values()),
             "statuses": statuses,
             "labellers": dict(sorted(labellers.items())),
+        }
+
+    def show(self, set_id: str) -> dict[str, Any]:
+        """A set as the key holder reads it (`mendari evalset show`, LP-11i): its state, how many
+        cases it holds, when it froze, its commitment, its rotation rule with the runs used
+        (the chained `evalset.graded`) and left and until when it grades, when it retired, and
+        its stored aggregates (opened with the keys, None without them or before any measure:
+        counts and coefficients by label, and the strata and languages, naming no case).
+        Opening the aggregates is not chained (conflict 39); nothing is written."""
+        _check_set_id(set_id)
+        with self.store._db.session(exclusive=False) as db:
+            head = (
+                db.one(
+                    "SELECT org, state, created_at, frozen_at, commitment, max_runs, "
+                    "max_age_days, retired_at, aggregates FROM evalset_sets WHERE id = ?",
+                    (set_id,),
+                )
+                if db.columns("evalset_sets")
+                else None
+            )
+            if head is None:
+                raise MendariError(f"no evaluation set {set_id}")
+            counted = db.one("SELECT count(*) AS n FROM evalset_cases WHERE set_id = ?", (set_id,))
+            used = _runs(db, set_id)
+        aggregates = None
+        if head["aggregates"] is not None and self.keys is not None:
+            aggregates, _ = self.keys.open("aggregates", str(head["aggregates"]), set_id)
+        max_runs, max_age_days = head["max_runs"], head["max_age_days"]
+        until = None
+        if head["frozen_at"] is not None and max_age_days is not None:
+            ends = datetime.fromisoformat(str(head["frozen_at"])) + timedelta(days=max_age_days)
+            until = ends.isoformat(timespec="milliseconds")
+        return {
+            "set": set_id,
+            "org": head["org"],
+            "state": head["state"],
+            "created_at": head["created_at"],
+            "cases": int(counted["n"]) if counted else 0,
+            "frozen_at": head["frozen_at"],
+            "commitment": head["commitment"],
+            "max_runs": max_runs,
+            "max_age_days": max_age_days,
+            "runs": {
+                "used": used,
+                "left": None if max_runs is None else max(int(max_runs) - used, 0),
+            },
+            "graded_until": until,
+            "retired_at": head["retired_at"],
+            "aggregates": aggregates,
         }
 
     def hidden_matches(self, value: Any) -> list[dict[str, str]]:
@@ -1913,3 +2373,302 @@ def _aggregates(
         "coverage": covered,
         "agreement": agreement(manifest, rated, pack=pack.id, seed=seed, resamples=resamples),
     }
+
+
+# -- the lifecycle's helpers (LP-11i) ------------------------------------------------------------
+
+# What the lifecycle reads of a set's row: its organization and state, its sealed header and
+# freeze record, its commitment, its rotation rule's limits and when it froze.
+_FROZEN_COLUMNS = (
+    "id, org, state, header, freeze_record, commitment, max_runs, max_age_days, frozen_at"
+)
+# What a drawn case is called, by its status, while it keeps its set from freezing.
+_WAITING = {SAMPLED: "unlabelled", DISPUTED: "disputed", UNRESOLVED: "unresolved"}
+
+
+def _check_limits(max_runs: Any, max_age_days: Any) -> None:
+    """The rotation rule's two limits, each a whole number from 1 to its cap: both are given,
+    and there is no default (conflict 47)."""
+    for flag, value, cap in (
+        ("--max-runs", max_runs, RUNS_CAP),
+        ("--max-age-days", max_age_days, DAYS_CAP),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= cap:
+            raise MendariError(
+                f"{flag} is a whole number from 1 to {cap}: a frozen set's rotation rule has "
+                "no default"
+            )
+
+
+def _unsettled(set_id: str, waiting: Mapping[str, int]) -> str:
+    """Why a set does not freeze yet: how many of its drawn cases wait, by why (no case named)."""
+    listed = ", ".join(
+        f"{waiting[status]} {name}" for status, name in _WAITING.items() if waiting.get(status)
+    )
+    return (
+        f"evaluation set {set_id} has drawn cases not settled ({listed}): each is agreed or "
+        "resolved before it freezes (label it, adjudicate a disputed one, and remove an "
+        "unresolved one with `mendari evalset remove-case`)"
+    )
+
+
+def _final_labels(
+    keys: EvalsetKeys,
+    set_id: str,
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, str]]:
+    """Each case's final member labels, by its id (`_settled`, from its labels opened here): an
+    agreed case's, a resolved case's majority; none for a case of any other status."""
+    given: dict[str, tuple[list[dict[str, str]], list[dict[str, str]]]] = {}
+    for row, values in _opened_labels(keys, set_id, labels):
+        first, third = given.setdefault(str(row["case_id"]), ([], []))
+        (first if row["round"] == FIRST else third).append(values)
+    return {
+        str(row["id"]): _settled(str(row["status"]), *given.get(str(row["id"]), ([], [])))
+        for row in cases
+    }
+
+
+def _derived(
+    keys: EvalsetKeys,
+    pack: Pack,
+    set_id: str,
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, str]]:
+    """The labels the pack derives from each case's final member labels (its decision tables,
+    `derive_answer`), by case id: what a frozen set's freeze record keeps, so its content is
+    recomputed later without the pack (a later version of it grades the set too)."""
+    from mendari.evals.rater_agreement import with_derived
+
+    derived: dict[str, dict[str, str]] = {}
+    for case_id, settled in _final_labels(keys, set_id, cases, labels).items():
+        whole = with_derived(pack.manifest, settled)
+        derived[case_id] = {q: label for q, label in whole.items() if q not in settled}
+    return derived
+
+
+def _frozen_content(
+    keys: EvalsetKeys,
+    set_id: str,
+    header: Mapping[str, Any],
+    limits: tuple[int, int, str],
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+    derived: Mapping[str, Mapping[str, str]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """A frozen set's content (`CONTENT_FORMAT`), from its rows opened with `keys`: its header
+    (the pack's id, its questions with their labels, its derived questions and critical
+    labels) with the rotation rule (`limits`: the most grading runs, the most days, and when
+    the days count from); then each case, in id order whatever order its rows come in, with its
+    input, its final labels (the members' settled ones and the pack's derived ones, `derived`),
+    its status (agreed or resolved: conflict 45, every case field) and its source, stratum,
+    weight, language, author and template. The set's name is not in it. And the same cases as
+    a dataset's records, each named by its keyed hash, never its id (and without its status)."""
+    max_runs, max_age_days, frozen_at = limits
+    finals = _final_labels(keys, set_id, cases, labels)
+    entries: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
+    for row in sorted(cases, key=lambda row: str(row["id"])):
+        case_id = str(row["id"])
+        value, _ = keys.open("input", str(row["input"]), set_id, case_id)
+        body, _ = keys.open("attributes", str(row["attributes"]), set_id, case_id)
+        own = body.get("attributes") or {}
+        described = {name: own.get(name) for name in FROZEN_ATTRIBUTES}
+        described["weight"] = body.get("weight")
+        final = {**finals[case_id], **derived.get(case_id, {})}
+        entries.append(
+            {
+                "id": case_id,
+                "input": value,
+                "labels": final,
+                "status": str(row["status"]),
+                **described,
+            }
+        )
+        records.append(
+            {
+                "id": str(row["case_hash"]),
+                "input": value,
+                "labels": dict(final),
+                "attributes": dict(described),
+            }
+        )
+    content = {
+        "format": CONTENT_FORMAT,
+        "header": {
+            "pack": header.get("pack"),
+            "questions": header.get("questions"),
+            "derived": header.get("derived"),
+            "critical": header.get("critical"),
+            "max_runs": max_runs,
+            "max_age_days": max_age_days,
+            "frozen_at": frozen_at,
+        },
+        "cases": entries,
+    }
+    return content, records
+
+
+def frozen_holds(
+    keys: EvalsetKeys,
+    set_id: str,
+    row: Mapping[str, Any],
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+    commitment: str,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Whether a frozen set's rows still give the content `commitment` covers (LP-11i): its
+    freeze record, opened with `keys`, holds a salt and a content hash that give the
+    commitment (`freeze_commitment`), and the content recomputed from its set row (`row`, its
+    header, limits and time), its cases and their labels (`_frozen_content`) hashes to that
+    content hash. With the cases as a dataset's records when it holds. A value `keys` does not
+    open raises `MendariError`; a freeze record of another shape, `ValueError`, `KeyError`,
+    `TypeError` or `AttributeError`."""
+    header, _ = keys.open("header", str(row["header"]), set_id)
+    record, _ = keys.open("freeze", str(row["freeze_record"]), set_id)
+    salt = base64.b64decode(str(record["salt"]), validate=True)
+    hashed = str(record["content_hash"])
+    if freeze_commitment(salt, hashed) != commitment:
+        return False, []
+    limits = (int(row["max_runs"]), int(row["max_age_days"]), str(row["frozen_at"]))
+    content, records = _frozen_content(
+        keys, set_id, header, limits, cases, labels, record["derived"]
+    )
+    if content_hash(content) != hashed:
+        return False, []
+    return True, records
+
+
+def kept_as_chained(row: Mapping[str, Any], chained: Mapping[str, Any]) -> bool:
+    """Whether a frozen set's row keeps the commitment and the limits its `evalset.frozen`
+    chained."""
+    return (row["commitment"], row["max_runs"], row["max_age_days"]) == (
+        chained.get("commitment"),
+        chained.get("max_runs"),
+        chained.get("max_age_days"),
+    )
+
+
+def _frozen_rows(db: Session, set_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """A set's cases and labels, each label with its round, as `frozen_holds` reads them."""
+    cases = db.all(
+        "SELECT id, case_hash, status, input, attributes FROM evalset_cases WHERE set_id = ? "
+        "ORDER BY id",
+        (set_id,),
+    )
+    labels = db.all(
+        "SELECT l.id, l.case_id, l.body, a.round FROM evalset_labels l "
+        "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.set_id = ? ORDER BY l.id",
+        (set_id,),
+    )
+    return cases, labels
+
+
+def _frozen_payload(db: Session, set_id: str) -> Mapping[str, Any] | None:
+    """What a set's `evalset.frozen` chained (None: it was never frozen)."""
+    row = db.one(
+        "SELECT payload FROM audit_events WHERE decision_id = ? AND event = ? ORDER BY seq LIMIT 1",
+        (f"evalset:{set_id}", "evalset.frozen"),
+    )
+    payload = json.loads(row["payload"]) if row else None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _runs(db: Session, set_id: str) -> int:
+    """How many grading runs a set has had: its chained `evalset.graded` (conflict 47)."""
+    row = db.one(
+        "SELECT count(*) AS n FROM audit_events WHERE decision_id = ? AND event = ?",
+        (f"evalset:{set_id}", "evalset.graded"),
+    )
+    return int(row["n"]) if row else 0
+
+
+def _retired(db: Session, set_id: str) -> bool:
+    """Whether a set's chain holds its `evalset.retired`: then it is retired, whatever its row
+    says (a state edited back grades nothing, and retires nothing again)."""
+    return (
+        db.one(
+            "SELECT 1 AS n FROM audit_events WHERE decision_id = ? AND event = ? LIMIT 1",
+            (f"evalset:{set_id}", "evalset.retired"),
+        )
+        is not None
+    )
+
+
+def _lacking(
+    db: Session,
+    keys: EvalsetKeys,
+    head: Mapping[str, Any],
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """The key ids a frozen set's sealed values name (its header and freeze record, its cases'
+    inputs and attributes, its labels) that `keys` does not hold and this database knows
+    (`EVALSET_KNOWN`): values `keys` cannot open, though no one altered them (a rotation's read
+    key not deployed), as `verify` counts them `unopenable`. A key id this database never knew
+    is not among them: such a value was altered."""
+    tokens = [head["header"], head["freeze_record"]]
+    tokens += [row[column] for row in cases for column in ("input", "attributes")]
+    tokens += [label["body"] for label in labels]
+    absent = sorted(
+        {token_key(str(token)) for token in tokens if token is not None} - keys.ring_ids
+    )
+    if not absent:
+        return []
+    names = [EVALSET_KNOWN + key for key in absent]
+    marks = ", ".join("?" for _ in names)
+    found = db.all(f"SELECT name FROM settings WHERE name IN ({marks})", names)
+    return sorted(str(row["name"])[len(EVALSET_KNOWN) :] for row in found)
+
+
+def _changed(set_id: str) -> MendariError:
+    """The refusal of a set whose rows no longer give what it was frozen with: the set alone is
+    named, never a case (LP-11l answers it `set_changed`)."""
+    return MendariError(
+        f"evaluation set {set_id} does not hold what it was frozen with: nothing was read or "
+        "changed; run `mendari audit verify --evalsets`"
+    )
+
+
+def _rule(set_id: str, head: Mapping[str, Any]) -> tuple[int, int, datetime]:
+    """A frozen set's rotation rule as its row keeps it: the most runs, the most days, and when
+    it froze (a row that lost them was edited: `_changed`)."""
+    try:
+        frozen_at = datetime.fromisoformat(str(head["frozen_at"]))
+        if frozen_at.tzinfo is None:
+            raise ValueError("a time without its offset")
+        return int(head["max_runs"]), int(head["max_age_days"]), frozen_at
+    except (TypeError, ValueError):
+        raise _changed(set_id) from None
+
+
+def _intact(
+    db: Session, keys: EvalsetKeys, set_id: str, head: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """A frozen or active set's cases as a dataset's records, read in the caller's transaction,
+    when its row keeps what its `evalset.frozen` chained and its rows still give the content
+    that commitment covers (`frozen_holds`); else `_changed`, naming the set only. A set holding
+    a value sealed under a key this database knows and `keys` lacks (`_lacking`) is refused
+    first, naming the set and those key ids: it cannot be checked here, which is not a change."""
+    chained = _frozen_payload(db, set_id)
+    cases, labels = _frozen_rows(db, set_id)
+    lacking = _lacking(db, keys, head, cases, labels)
+    if lacking:
+        raise MendariError(
+            f"evaluation set {set_id} holds values sealed under key(s) {', '.join(lacking)}, "
+            f"which this deployment lacks: nothing was read or changed; deploy them in {READ_ENV} "
+            "or run `mendari evalset rotate --check`"
+        )
+    try:
+        held, records = (
+            frozen_holds(keys, set_id, head, cases, labels, str(chained["commitment"]))
+            if chained is not None and kept_as_chained(head, chained)
+            else (False, [])
+        )
+    except (MendariError, ValueError, KeyError, TypeError, AttributeError):
+        held, records = False, []
+    if not held:
+        raise _changed(set_id)
+    return records

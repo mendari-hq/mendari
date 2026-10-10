@@ -698,6 +698,7 @@ def test_audit_verify_recomputes_each_label_and_finds_it_altered(world: World) -
     checked = store.verify(evalsets=keys)
     assert checked["ok"] and checked["evalsets"] == {
         "sets": 1, "checked": 3, "removed": 0, "unchecked": 0, "assignments": 8, "labels": 8,
+        "frozen": 0,
     }  # fmt: skip
     without = store.verify(evalsets=True)
     assert without["ok"] and without["evalsets"]["unchecked"] == 3 + 8
@@ -836,6 +837,7 @@ def test_audit_verify_passes_after_labelling_and_adjudication(
     assert code == 0 and status["ok"]
     assert status["evalsets"] == {
         "sets": 1, "checked": 3, "removed": 0, "unchecked": 0, "assignments": 8, "labels": 8,
+        "frozen": 0,
     }  # fmt: skip
     assert LABEL_WORD.search(out) is None
     assert run(capsys, "audit", "verify", *db)[0] == 0

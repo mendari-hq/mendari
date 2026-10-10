@@ -277,6 +277,11 @@ NOT_ON_A_DECISION = {
     "evalset.case_read",
     "evalset.labelled",
     "evalset.measured",
+    # Its lifecycle (`evalset:<set id>`, LP-11i): frozen, activated, each grading read, retired.
+    "evalset.frozen",
+    "evalset.activated",
+    "evalset.graded",
+    "evalset.retired",
 }
 
 

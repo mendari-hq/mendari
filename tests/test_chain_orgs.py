@@ -180,6 +180,12 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
             labels = {"destination": destination, "urgency": "routine"}
             swapped.record_label(served["assignment"], labeller, labels, org=home)
     swapped.measure(made_set, resamples=50)
+    # Its lifecycle (LP-11i), each event the set's organization's: frozen, read to grade with
+    # the organization's grading key (the first read activates it), and retired.
+    swapped.freeze(made_set, max_runs=2, max_age_days=30, pack=pack, resamples=50)
+    grading = store.create_grading_key(org=home, created_by="ops", reason="a grading run")
+    swapped.grade_read(made_set, f"key:{grading['id']}", "sha256:" + "d" * 64, lambda _: None)
+    swapped.retire(made_set)
     made.update(decisions=[first, second, third], home=home)
     return made
 
