@@ -952,8 +952,9 @@ def create_app(
         remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
         counts are), the rate limits (where the caller's address is read, and the address seen
         on this request), the session policy, the organization's daily quotas with what it used
-        today, and whether SMART Backend Services is on (`backend_services`: its token endpoint,
-        or null).
+        today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
+        or null), and the id of the key that signs the daily checkpoint (`checkpoint_key`, or
+        null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
         be built, the problems an owned pack loads with, `pack_warnings`) is
@@ -1010,6 +1011,11 @@ def create_app(
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
             "retention_scheduled": bool(cron_secret),
+            # The id of the key that signs the daily checkpoint (MENDARI_CHECKPOINT_KEY, LP-21k;
+            # never the key), or None when it is not set: the dashboard then asks for none.
+            "checkpoint_key": (
+                key_id(checkpoint_signer.public_key()) if checkpoint_signer is not None else None
+            ),
             # When, how many, and by what (None: never); in memberships mode not how many, a
             # total of every organization's (the operator's, ADR-0008).
             "last_purge": purged(store.last_purge()),

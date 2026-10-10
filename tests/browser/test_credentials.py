@@ -687,7 +687,7 @@ def test_the_clients_tab_is_absent_without_backend_services(without_clients: Sit
     page.on("request", lambda request: asked.append(urllib.parse.urlsplit(request.url).path))
     access(page, "keys")
     expect(page.locator(".tabs a")).to_have_text(
-        ["Members", "Invitations", "Requests to join", "API keys", "Usage"]
+        ["Members", "Invitations", "Requests to join", "API keys", "Usage", "Activity"]
     )
     page.goto("about:blank")
     page.goto("/#admin/clients")  # the first tab instead
@@ -703,7 +703,7 @@ def test_claims_mode_shows_keys_and_clients_but_not_people(claims_site: Site) ->
     expect(link).to_be_visible()
     link.click()
     expect(page.locator("main h1")).to_have_text("Access")
-    expect(page.locator(".tabs a")).to_have_text(["API keys", "Clients", "Usage"])
+    expect(page.locator(".tabs a")).to_have_text(["API keys", "Clients", "Usage", "Activity"])
     expect(page.locator("main")).to_contain_text(
         "API keys and Backend Services clients: the credentials machines use here."
     )
@@ -875,9 +875,11 @@ def test_the_credential_tabs_fit_a_phone(site: Site) -> None:
     make_client(site)
     page = admin(site, viewport=PHONE, has_touch=True, is_mobile=True)
     wide = "document.documentElement.scrollWidth <= window.innerWidth"
-    for tab in ("keys", "clients", "usage"):
+    for tab in ("keys", "clients", "usage", "activity"):
         access(page, tab)
-        expect(page.locator(".tabs a")).to_have_count(6)
+        expect(page.locator(".tabs a")).to_have_count(7)
+        if tab == "activity":
+            expect(row(page, "activity", "API key created")).to_have_count(1)
         assert page.evaluate(wide), tab
         assert page.evaluate(SMALL_TARGETS) == [], tab
     access(page, "keys")

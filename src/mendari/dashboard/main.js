@@ -31,6 +31,7 @@ async function boot() {
   const health = await api("/api/health").catch(() => null);
   state.phiMode = health?.phi_mode ?? "off";
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
+  state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);

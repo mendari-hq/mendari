@@ -2548,6 +2548,15 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   dropdowns and date pickers, editable tables for lists, JSON for anything else), with the JSON
   one click away; every behaviour-test example of the four record packs round-trips unchanged
 - [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
+- [ ] (PR open) The audit routes on screen: the Audit trail shows the signed daily checkpoint
+  (21k; day, head, key id, "Save a copy" of the route's answer; "not set up" without a key,
+  "none signed yet" before the first) and, for administrators, "Export as FHIR" (the pack's
+  trail, `audit-<pack>-<day>.ndjson`, fetched to carry the organization); the Access view's
+  Activity tab (12g-ii, administrators signed in): the organization's administrative events of
+  the last 90 days, newest first, in words (event, about what, by whom, when), asked for each
+  time it is shown, and their FHIR export. One server addition: `/api/health` names the
+  checkpoint key's id (`checkpoint_key`, or null), so the dashboard asks for no checkpoint, and
+  logs no 404, where none is set (tests/browser/test_audit_activity.py)
 - [x] `$decide` references resolve: the Task's `for`/`focus` and the `subject`s are the absolute
   `fullUrl` the input gives the resource, else `Type/id` (stated as relative to the client's
   server); a `urn:uuid` input reference becomes `Type/id`. The `/api/…/fhir/decide` Task is
