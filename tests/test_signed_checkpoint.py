@@ -366,3 +366,22 @@ def test_a_malformed_key_stops_the_server(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv(KEY_ENV, "not a key")
     with pytest.raises(MendariError, match=KEY_ENV):
         create_app(db_path=tmp_path / "a.db")
+
+
+def test_health_names_the_signing_key_s_id_to_those_who_may_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dashboard asks for the checkpoint only when a key is set (`checkpoint_key`): its id,
+    never the key, and not in the public answer."""
+    from fastapi.testclient import TestClient
+
+    from mendari.server.app import create_app
+
+    monkeypatch.delenv(KEY_ENV, raising=False)
+    off = TestClient(create_app(db_path=tmp_path / "a.db"))  # open mode: it may read
+    assert off.get("/api/health").json()["checkpoint_key"] is None
+    monkeypatch.setenv(KEY_ENV, base64.b64encode(SEED).decode())
+    on = TestClient(create_app(db_path=tmp_path / "b.db"))
+    assert on.get("/api/health").json()["checkpoint_key"] == checkpoint.key_id(key().public_key())
+    signed_out = serving(tmp_path, monkeypatch)  # sign-in on, no one signed in
+    assert "checkpoint_key" not in signed_out.get("/api/health").json()

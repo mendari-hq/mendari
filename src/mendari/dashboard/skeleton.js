@@ -19,6 +19,7 @@ const SHAPES = {
   patient: () => `${bar("toolbar")}${repeat(3, bar("card"))}`,
   access: () => `${bar("form")}`,
   admin: () => `${bar("tabs")}${bar("toolbar")}${rows(5)}`,
+  labelling: () => `${rows(2)}${bar("form")}`,
 };
 
 export function skeleton(view) {

@@ -952,7 +952,26 @@ def test_only_administrators_are_offered_the_chain_verification(page: Page) -> N
     show(page, "audit")
     expect(page.locator("#audit-table")).to_be_visible()
     expect(page.locator("#verify")).to_have_count(0)
+    expect(page.locator("#export-fhir")).to_have_count(0)  # the export is administrators' too
     assert asked == []
+
+
+def test_the_audit_trail_exports_as_fhir_and_says_the_checkpoint_is_not_set_up(
+    page: Page,
+) -> None:
+    """Open mode, no MENDARI_CHECKPOINT_KEY: the checkpoint is one quiet line, and the pack's
+    trail downloads as FHIR NDJSON named for the pack and the deployment's day."""
+    open_pack(page, INBOX, "audit")
+    expect(page.locator("#checkpoint")).to_have_text(
+        "Signed daily checkpoint: not set up on this deployment."
+    )
+    with page.expect_download() as saved:
+        page.get_by_role("button", name="Export as FHIR").click()
+    day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    assert saved.value.suggested_filename == f"audit-mendari-patient-inbox-router-{day}.ndjson"
+    exported = [json.loads(line) for line in saved.value.path().read_text().splitlines()]
+    assert {"AuditEvent", "Provenance"} >= {r["resourceType"] for r in exported}
+    assert any(r["resourceType"] == "AuditEvent" for r in exported)
 
 
 def test_a_pack_without_decisions_says_what_to_do(page: Page) -> None:

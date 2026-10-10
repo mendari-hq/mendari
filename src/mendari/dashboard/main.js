@@ -13,6 +13,7 @@ import "./card.js";
 import "./try.js";
 import "./patient.js";
 import "./admin.js";
+import "./labelling.js";
 import { defaultPack, packOptions } from "./pack.js";
 import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
@@ -31,6 +32,7 @@ async function boot() {
   const health = await api("/api/health").catch(() => null);
   state.phiMode = health?.phi_mode ?? "off";
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
+  state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -50,22 +52,32 @@ async function boot() {
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
-    // A labeller and nothing else (LP-11): no packs to list, no notice, no review queue; the
-    // labelling screen comes with the routes it reads.
+    // A labeller and nothing else (LP-11): no packs to list, no notice, no review queue.
     else if (me.principal.permissions.every((p) => p === "label")) state.noAccess = "label";
   }
-  if (me?.signed_in && !state.noAccess) await acknowledgeNotice();
+  // Holding `label`, they label here where the deployment serves the labelling routes
+  // (memberships mode with the evaluation-set keys, LP-11j): their counts say whether it does,
+  // read once (they open no case). A labeller and nothing else then sees the labelling screen
+  // alone (labelling.js); without the routes, the access page says labelling is not on here.
+  state.labelling = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
+    && await api("/api/labelling").then(() => true, () => false);
+  if (state.noAccess === "label" && state.labelling) [state.noAccess, state.labelOnly] = [null, true];
+  if (me?.signed_in && !state.noAccess && !state.labelOnly) await acknowledgeNotice(); // labelling is not notice-gated
   state.smart = session?.active ? session : null;
-  // An EHR launch in a browser whose person may do nothing here (no organization, or roles that
-  // grant nothing): the launch's view, and, holding memberships, choosing one of them.
-  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess));
+  // An EHR launch in a browser whose person may do nothing here (no organization, roles that
+  // grant nothing, or labelling alone): the launch's view, and, holding memberships, choosing
+  // one of them.
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess || state.labelOnly));
   if (state.launchOnly && state.noAccess !== "choose") state.noAccess = null;
+  if (state.launchOnly) state.labelOnly = false;
   showLaunch();
   showOrganization();
   showAdministration();
-  if (state.noAccess && !state.launchOnly) {
+  showLabelling();
+  if ((state.noAccess || state.labelOnly) && !state.launchOnly) {
     $(".pack-picker").hidden = true;
-    document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = true)); // the docs stay
+    // The docs stay; a labeller and nothing else keeps the labelling screen's link.
+    document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !(state.labelOnly && a.dataset.view === "labelling")));
     window.addEventListener("hashchange", onHashChange);
     render();
     return;
@@ -177,6 +189,11 @@ function showOrganization() {
 // Backend Services clients and, in memberships mode, its people (admin.js). Never in open mode.
 function showAdministration() {
   $('.nav a[data-view="admin"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.admin.available();
+}
+
+// Someone holding `label` where the labelling routes are served (LP-11m): the labelling screen.
+function showLabelling() {
+  $('.nav a[data-view="labelling"]').hidden = Boolean(state.noAccess) || !views.labelling.available();
 }
 
 boot().catch((error) => {
