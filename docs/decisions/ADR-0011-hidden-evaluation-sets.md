@@ -47,6 +47,16 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   chains each read in the same exclusive transaction, before its run receives the cases;
   retiring checks the content once more and publishes nothing; `audit verify --evalsets` and
   `rotate --check` recompute every set the chain froze against its commitment. Threat model T6.
+- 11j, a labeller's routes (`GET /api/labelling`, `GET /api/labelling/next`,
+  `POST /api/labelling/{assignment_id}`), mounted only in memberships mode with both keys (the
+  hosted site, in claims mode without the keys, mounts none; owner decision 1 stays open): only
+  a person holding `label` passes the guard (never a key, a token, an administrator or open
+  mode), and whoever also manages the organization's sets is served nothing; the next case is
+  its input and the set's questions only, its read chained before it is sent; a label answers
+  `{remaining}`; an assignment that is unknown, another's or closed is one `404`, and a `422`
+  names the question, never the value; closed answer models; a `label` rate limit per labeller;
+  not gated by the notice; the security log names set ids only. The 11g sweep labels through
+  them and allows a case's input only in a labeller's own next case.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

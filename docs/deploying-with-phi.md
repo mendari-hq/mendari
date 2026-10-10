@@ -626,10 +626,10 @@ still hold the note until they expire or you delete them.
 ## 4. Limits and quotas
 
 **Rate limits.** With sign-in on, Mendari limits what costs something, counted in the database
-so every replica shares the count. Reads are not limited. Over a limit the answer is a `429`
-with `Retry-After` (seconds), before any body is read, model called or record written: JSON on
-`/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's `temporarily_unavailable` at
-the token endpoint.
+so every replica shares the count. Reads are not limited, but for a labeller's. Over a limit the
+answer is a `429` with `Retry-After` (seconds), before any body is read, model called or record
+written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's
+`temporarily_unavailable` at the token endpoint.
 
 | What | Counted per | Default |
 |---|---|---|
@@ -640,6 +640,7 @@ the token endpoint.
 | The AI guard (an LLM call) | API key, client or person | 60 a minute |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
+| A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained) | person | 60 a minute, 30 at once |
 
 `MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
 refused, refuse nothing) or `off` (the default in open mode), optionally followed by overrides:
@@ -891,7 +892,9 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
   still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,
-  `input.erased`,
+  `evalset.case.read` and `evalset.labelled` (in memberships mode with the evaluation-set keys:
+  a labeller shown their next hidden case, and their label, each with the set's id only; a label
+  refused as `no_assignment`, with no id), `input.erased`,
   `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
   the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack

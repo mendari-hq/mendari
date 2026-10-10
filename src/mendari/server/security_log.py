@@ -11,7 +11,8 @@ client or an approval) is in the hash chain already; this is for incident respon
 template, `/api/audit/{decision_id}`: never the raw path or its query), `status`, `actor` (a
 `Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `ehr:<hash>` (an EHR launch), `open`
 or `anonymous`), `org`, `ip`,
-`ids` (decision, key, client or approval ids), `count`, `latency_ms`, and for an unhandled
+`ids` (decision, key, client or approval ids; a hidden evaluation set's id only, never a
+case's, an assignment's or a label's), `count`, `latency_ms`, and for an unhandled
 exception its `error` type and `frames` (file, line, function). Never a credential, a token, an
 assertion, a query value, a body, a header, an exception's message or case text: none of them is
 a field. Values are JSON-escaped, so a newline in a claim cannot start a forged line.
@@ -44,8 +45,10 @@ daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
 `admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`, `eval.run`,
-`export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count) and
-`error.unhandled`.
+`export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
+`evalset.case.read` (a labeller shown their next case of a hidden evaluation set, LP-11j: the
+set's id) and `evalset.labelled` (their label recorded: the set's id; or refused as
+`no_assignment`, with no id), and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

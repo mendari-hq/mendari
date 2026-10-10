@@ -39,6 +39,12 @@ TAGS = [
         "description": "Who is calling, API keys for machines, and (memberships mode) members "
         "and invitations.",
     },
+    {
+        "name": "Labelling",
+        "description": "Hidden evaluation sets, labelled blind (memberships mode): a labeller's "
+        "next case, their label and their own counts. A labeller sees a case's input and the "
+        "questions, never another label, the case's attributes or a model's output.",
+    },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
 ]
@@ -198,8 +204,9 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
         f"decides is one, at most 50 a request), the AI guard {rates['guard']}, evaluations "
-        f"{rates['evaluate']} and exports {rates['export']}; signing in {rates['signin']} and "
-        f"the token endpoint {rates['token']} per address. Reads are not limited here. Over a "
+        f"{rates['evaluate']}, exports {rates['export']} and a labeller's calls "
+        f"{rates['label']}; signing in {rates['signin']} and the token endpoint "
+        f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "
         "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
         "no-store`: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's "
         "`temporarily_unavailable` at the token endpoint. A daily budget or an organization's "
@@ -423,6 +430,14 @@ def _secure(
         needed = (
             "a person who signed in, with an organization or none (never a key, a token or an "
             "EHR launch)"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
+    if permission == "label":  # people only, a labeller's membership (server/auth.py)
+        operation["security"] = [{"session": []}]
+        needed = (
+            "a person who signed in holding the labeller role (memberships mode; never a key, a "
+            "token or an administrator)"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

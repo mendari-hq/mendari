@@ -38,7 +38,7 @@ from fastapi.responses import (
 )
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -58,6 +58,7 @@ from mendari.core.card import benchmark, render_card
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
+from mendari.core.evalsets import EvalsetStore
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy, require_protection
@@ -70,7 +71,9 @@ from mendari.errors import (
     FhirError,
     FhirStructureError,
     InvitationRefused,
+    LabelError,
     MendariError,
+    NoAssignment,
     NoteError,
     NoticeNotAcknowledged,
     PackNotFoundError,
@@ -150,6 +153,8 @@ _STATUS = {
     PasError: 422,
     ScopeError: 422,
     ClientError: 422,
+    NoAssignment: 404,  # unknown, another's or closed: one answer (LP-11j)
+    LabelError: 422,  # names the question, never the value
     CdsHooksError: 400,
     RateLimited: 429,
 }
@@ -361,6 +366,44 @@ class HoldRequest(BaseModel):
     pack_id: str | None = Field(default=None, max_length=200)
     pack_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     reason: str = Field(min_length=1, max_length=200)
+
+
+# A labeller's routes (LP-11j): what they send, and closed answers (`extra="forbid"`), so a field
+# the store might one day add to what it returns fails the answer rather than reaching a labeller.
+class LabelRequest(BaseModel):
+    labels: dict[str, str] = Field(
+        description="each question the case asks, with one of its labels (as the case gave them)",
+        examples=[{"destination": "nurse", "urgency": "routine"}],
+    )
+
+
+class LabellingCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignment: str = Field(description="what to send your label to")
+    questions: dict[str, list[str]] = Field(description="each question, with its labels")
+    input: Any = Field(description="the case, as the pack reads it")
+
+
+class LabelledSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set: str
+    open: int = Field(description="your cases waiting in this set")
+    labelled: int = Field(description="your cases labelled in this set")
+
+
+class LabellingCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sets: list[LabelledSet]
+    remaining: int = Field(description="your cases waiting, in all")
+
+
+class LabelRecorded(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remaining: int = Field(description="your cases still waiting")
 
 
 # What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
@@ -2457,6 +2500,12 @@ def create_app(
             headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
             return HTMLResponse(invite_page, headers=headers)
 
+    # A labeller's routes over hidden evaluation sets (LP-11j): memberships mode (so sign-in, which
+    # the keys need anyway) with both evaluation-set keys, as the invitation page is memberships
+    # mode's; the hosted site (claims mode, no keys) mounts none of them (owner decision 1 open).
+    if auth.memberships and evalsets is not None:
+        add_labelling_routes(app, auth, EvalsetStore(store, evalsets))
+
     # The status page (LP-21b): public and static, the same for everyone; it reads readiness
     # (`/api/health/ready`) in the browser, so serving it does no database work. Its own policy
     # allows its inline scripts (the theme, the import map) and no inline style.
@@ -2518,6 +2567,74 @@ def create_app(
 
     app.mount("/static", _Static(directory=DASHBOARD_DIR), name="static")
     return app
+
+
+def add_labelling_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
+    """A labeller's routes over hidden evaluation sets (LP-11j, ADR-0011): their own counts,
+    their next case and their label. Mounted only in memberships mode with both evaluation-set
+    keys (`create_app`). The guard lets through only a person whose membership holds the
+    `labeller` role (`label`: never a key, a token, an EHR launch, an administrator or open
+    mode), and each route acts for that person and the organization they act for, never one a
+    body, a query or a path names; the store refuses anyone who also manages the organization's
+    sets. Not gated by the notice (conflict 20). The security log names set ids only (conflict
+    50); the access line names the route's template, never an assignment's id."""
+
+    def labeller(request: Request) -> tuple[str, str]:
+        """The person the guard let through (their user id), and the organization they act
+        for."""
+        principal = auth.acting(request)
+        if principal.kind != "user":  # the guard lets people only through: fail closed
+            raise AuthError("only a person who signed in may do this", 403)
+        return principal.id, org_of(principal)
+
+    @app.get("/api/labelling", tags=["Labelling"], summary="Your labelling, set by set")
+    def labelling(request: Request) -> LabellingCounts:
+        """Your cases in each hidden evaluation set you label for this organization: how many
+        wait (`open`) and how many you labelled, by the set's id; and how many wait in all
+        (`remaining`). Counts only: no case is named or opened, and nothing is recorded."""
+        user, org = labeller(request)
+        return LabellingCounts.model_validate(hidden.labelling(user, org=org))
+
+    @app.get(
+        "/api/labelling/next",
+        tags=["Labelling"],
+        summary="Your next case to label",
+        response_model=LabellingCase,
+        responses={204: {"description": "Nothing waits for you"}},
+    )
+    def next_case(request: Request) -> Response | LabellingCase:
+        """Your oldest open case, in a set still being labelled: its input, and the set's
+        questions with their labels; nothing else (no attribute of the case, no intended label,
+        no one's label, no model's output). Each time it is shown, the audit chain records that
+        you read it (`evalset.case_read`) before it is sent. `204` when nothing waits for you.
+        Answer it with `POST /api/labelling/{assignment}`."""
+        user, org = labeller(request)
+        shown = hidden.next_case(user, org=org)
+        if shown is None:
+            return Response(status_code=204)
+        set_id = hidden.assignment_set(str(shown["assignment"]), user, org=org)
+        log_event(request, "evalset.case.read", ids=[set_id] if set_id else None)
+        return LabellingCase.model_validate(shown)
+
+    @app.post("/api/labelling/{assignment_id}", tags=["Labelling"], summary="Label your case")
+    def label(request: Request, assignment_id: str, body: LabelRequest) -> LabelRecorded:
+        """Your answer to the case `GET /api/labelling/next` gave you (its `assignment`): every
+        question of the set's, each with one of its labels. One answer per case, kept sealed and
+        never changed; the audit chain records a salted commitment to it (`evalset.labelled`),
+        never the label. The answer is how many of your cases still wait, never how yours
+        compares with anyone's. An assignment that is unknown, someone else's, another
+        organization's or no longer open (answered, withdrawn, or in a set no longer being
+        labelled) is one answer: `404`. A label that does not answer each question with one of
+        its labels is a `422` naming the question, never the value."""
+        user, org = labeller(request)
+        try:
+            recorded = hidden.record_label(assignment_id, user, body.labels, org=org)
+        except NoAssignment:
+            log_event(request, "evalset.labelled", outcome="refused", reason="no_assignment")
+            raise
+        set_id = hidden.assignment_set(assignment_id, user, org=org)
+        log_event(request, "evalset.labelled", ids=[set_id] if set_id else None)
+        return LabelRecorded.model_validate(recorded)
 
 
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:

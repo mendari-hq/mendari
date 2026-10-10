@@ -47,6 +47,7 @@ from tests.conftest import (
     evalsets_are_on,
     hosted,
     launched,
+    member,
     message,
     security_lines,
     signed_in,
@@ -115,6 +116,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         "guard": "60/min",
         "evaluate": "6/h",
         "export": "10/h",
+        "label": "60/min:30",
     }
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "log, decide=1200/min:200, evaluate=20/h")
     chosen = limit_settings(sign_in=False)
@@ -589,17 +591,30 @@ EXPECTED_CLASSES = {
     ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
 }
+# What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
+# signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j).
+MEMBERSHIPS_CLASSES = {
+    ("POST", "/api/auth/organization"): "signin",
+    ("POST", "/api/auth/access-requests"): "signin",
+    ("POST", "/api/auth/invitations/accept"): "signin",
+    ("GET", "/api/labelling"): "label",
+    ("GET", "/api/labelling/next"): "label",
+    ("POST", "/api/labelling/{assignment_id}"): "label",
+}
 
 
+@pytest.mark.parametrize("accounts", ["claims", "memberships"])
 def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, accounts: str
 ) -> None:
-    """Every route the app serves (Backend Services on): the class it counts against, from its
-    permission and path, and with the default limits on, one call of each as an admin (the
-    route matrix's other half: limits never change who may call what) is never a 429. Hidden
-    evaluation sets are on, so the routes they mount are classified too (LP-11g)."""
+    """Every route the app serves (Backend Services on), in each account mode: the class it
+    counts against, from its permission and path, and with the default limits on, one call of
+    each as an admin (the route matrix's other half: limits never change who may call what) is
+    never a 429. Hidden evaluation sets are on, so the routes they mount are classified too
+    (LP-11g; a labeller's, in memberships mode, LP-11j)."""
     backend_on(monkeypatch)
     evalset_on(monkeypatch)
+    monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
     client, _ = signing_in(tmp_path, monkeypatch, "on")
     limiter = Limiter(AuditStore(tmp_path / "classes.db"), limit_settings(sign_in=True))
     routes = sorted(
@@ -610,8 +625,13 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
         if method != "HEAD"
     )
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
-    assert {r: c for r, c in classes.items() if c is not None} == EXPECTED_CLASSES
-    admin = person(str(tmp_path / "signin.db"))
+    added = MEMBERSHIPS_CLASSES if accounts == "memberships" else {}
+    assert {r: c for r, c in classes.items() if c is not None} == EXPECTED_CLASSES | added
+    if accounts == "memberships":
+        with AuditStore(tmp_path / "signin.db") as store:
+            admin = member(store, org="default", roles=["admin"], sub="lead")
+    else:
+        admin = person(str(tmp_path / "signin.db"))
     evalsets_are_on(client, admin)
     for method, path in routes:
         url = re.sub(r"\{[^}]+\}", "x", path)
@@ -860,6 +880,30 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
     schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=reader).json()
     assert "Rate limits" not in schema["info"]["description"]
     assert "429" not in schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]["responses"]
+
+
+def in_words(rate: Rate) -> str:
+    """A rate as the operator's guide words it: `300 a minute, 120 at once`, `10 in 10 minutes`."""
+    windows = {60: "a minute", 3600: "an hour"}
+    window = windows.get(rate.seconds, f"in {rate.seconds // 60} minutes")
+    burst = f", {rate.burst} at once" if rate.burst != rate.count else ""
+    return f"{rate.count} {window}{burst}"
+
+
+def test_the_operator_guide_lists_every_default_limit() -> None:
+    """The deploy guide's table of limits (§4) has a row for each default rate, as it words it:
+    a class added to `DEFAULT_RATES` fails here until the guide lists it (a labeller's, LP-11j).
+    That class counts reads, so wherever the guide and SECURITY.md say reads are not limited,
+    they name it."""
+    guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()
+    part = guide[guide.index("## 4. Limits and quotas") :]
+    part = part[: part.index("\n## ")]
+    table = part[part.index("| What | Counted per | Default |") :].split("\n\n", 1)[0]
+    defaults = [line.strip("| ").rsplit(" | ", 1)[-1] for line in table.splitlines()[2:]]
+    assert sorted(defaults) == sorted(in_words(rate) for rate in DEFAULT_RATES.values())
+    for text in (part, (ROOT / "SECURITY.md").read_text()):
+        said = re.findall(r"Reads are not limited[^.]*\.", " ".join(text.split()))
+        assert said and all("but for a labeller's" in sentence for sentence in said), said
 
 
 def test_the_firewall_rule_starts_in_log_mode_on_signed_out_routes_only() -> None:

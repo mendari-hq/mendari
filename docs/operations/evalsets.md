@@ -8,8 +8,9 @@ a set, adding and removing its cases, drawing them for labelling, assigning them
 following the labelling, adjudicating disputes and measuring agreement and coverage, freezing a
 set under its rotation rule, reading it, retiring it, listing sets and verifying them, rotating
 the keys, rebuilding the hidden-case index and the sealed export, all from the key holder's
-command line. No route serves a set yet, so no person can label and nothing grades against a
-set: the labellers' screen and the grading route come in later steps of LP-11.
+command line; and how a labeller labels, through their own routes (LP-11j). Nothing grades
+against a set yet, and labellers have no screen yet: the grading route and the labelling screen
+come in later steps of LP-11.
 
 ## Where sets live
 
@@ -133,9 +134,10 @@ Labelling is blind: each drawn case is labelled by two clinicians who never see 
 answer, the case's attributes, its author's intended label or a model's output; a case they
 disagree on goes to a third, who works from the input alone, and the majority on each question
 settles it. The key holder draws the cases, assigns them and adjudicates disputes from the
-command line; the labellers label through a screen that a later step of LP-11 adds (no route
-serves a case yet). Each command takes the server's database from `--db` or `$DATABASE_URL`,
-works on a draft set only, and prints ids, case hashes, user ids and counts.
+command line; the labellers label through their own routes ([How a labeller
+labels](#how-a-labeller-labels); the screen over them comes in a later step of LP-11). Each
+command takes the server's database from `--db` or `$DATABASE_URL`, works on a draft set only,
+and prints ids, case hashes, user ids and counts.
 
 **Who labels.** A labeller is a person with the `labeller` role on a membership of the set's
 organization (memberships mode, [accounts](accounts.md)), named by their user id
@@ -227,6 +229,33 @@ while it is measured is refused: run it again.
 assign again (`assign`): only the new draws get labellers, and the first round's cases keep
 theirs, even while their labels are still coming in. Then follow, adjudicate and measure as
 above. `mendari audit verify --evalsets` holds between every step.
+
+### How a labeller labels
+
+A labeller labels through three routes of the server (LP-11j). They are mounted only on a server
+in memberships mode ([accounts](accounts.md)) with both evaluation-set keys set: the hosted site
+runs claims mode without the keys, so it mounts none of them, and how labellers will reach it is
+the owner's decision still open. Only a person who signed in, acting for the set's organization
+with the `labeller` role, reaches them: never a key, a token, an EHR launch or an administrator
+(and the keys refuse a server without sign-in), and someone who also manages the organization's
+sets (an administrator, whatever other role they hold) is served nothing. Each acts for the
+labeller and the organization they act for, never one a body, a query or a path names.
+
+| Route | What it does |
+|---|---|
+| `GET /api/labelling` | Their own work, set by set: `{"sets": [{"set", "open", "labelled"}], "remaining"}`: how many of their cases wait in each set and how many they labelled. Counts only: nothing is opened or recorded. |
+| `GET /api/labelling/next` | Their oldest open case in a set still a draft: `{"assignment", "questions", "input"}`, the case's input and the set's questions with their labels, never its attributes, its author's intended label, anyone's label or a model's output. Each time a case is shown, the chain records the read (`evalset.case_read`) before it is sent. `204` when nothing waits for them. |
+| `POST /api/labelling/{assignment}` | Their label: `{"labels": {"<question>": "<label>", ...}}`, every question answered with one of its labels. The answer is `{"remaining"}`, how many of their cases still wait, never how their label compares. One answer per case, sealed and never changed (`evalset.labelled`). |
+
+An assignment that is unknown, someone else's, another organization's, withdrawn, already
+answered, or in a set that is no longer a draft is one answer, `404`, so the routes never tell
+whose a case is. A label that leaves a question out, names one the set does not ask, or answers
+one with a word not among its labels is a `422` naming the question, never the value; nothing is
+written, and the case still waits. The notice does not gate labelling. A labeller's calls count
+against the `label` rate limit, for each labeller (60 a minute, a burst of 30, unless
+`MENDARI_RATE_LIMITS` sets it). The security log says `evalset.case.read` and `evalset.labelled`
+with the set's id only (a refused label: `evalset.labelled`, `no_assignment`, with no id), and
+the access line names the route's template, never an assignment's id.
 
 ## Freezing a set
 

@@ -25,13 +25,31 @@ from mendari import AuditStore
 from mendari import alerts as alerts_module
 from mendari.alerts import AlertSettings
 from mendari.core.decision import Decision
+from mendari.core.evalset_keys import EvalsetKeys
+from mendari.core.evalsets import EvalsetStore
+from mendari.core.registry import resolve_pack
 from mendari.server import app as app_module
 from mendari.server import security_log, smart_routes
 from mendari.server.app import create_app, quota_alert
+from mendari.server.auth import person_id
 from mendari.server.security_log import FIELDS, InternalError
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import HASH_KEY_B64, encrypt_mode, hosted, message, security_lines, signed_in
+from tests.conftest import (
+    HASH_KEY_B64,
+    ROOT,
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    hosted,
+    member,
+    message,
+    security_lines,
+    signed_in,
+)
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
+from tests.test_evalset_labelling import ROUTINE
+from tests.test_evalset_labelling import cases as evalset_cases
+from tests.test_evalset_store import CLINIC, MARKS, a_set
 from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
 INBOX = "mendari/patient-inbox-router"
@@ -350,6 +368,55 @@ def test_a_note_read_without_its_input_is_logged_as_the_chain_has_it(
     assert reads[-1]["payload"]["reader"] == "reviewer@default.example.org"
     [line] = [e for e in logged(capsys) if e["event"] == "phi.inputs.read"]
     assert (line["ids"], line["count"]) == ([decided["id"]], 1)
+
+
+def test_labelling_is_logged_by_set_id_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A labeller shown their next hidden case, their label, and a label refused (LP-11j): the
+    events name the hidden set by its id and nothing else of it (no case, assignment, label,
+    input or attribute), and the access lines the routes' templates. The operator's guide lists
+    each event among the security events (docs/deploying-with-phi.md, §7)."""
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)
+    keys = EvalsetKeys(*evalset_on(monkeypatch))
+    db = tmp_path / "a.db"
+    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
+    with encrypted_store(db) as store:
+        hidden = EvalsetStore(store, keys)
+        set_id = a_set(hidden, resolve_pack(INBOX))
+        hidden.add_cases(set_id, evalset_cases(1))
+        hidden.sample(set_id, cases=1)
+        heads = [
+            member(store, org=CLINIC, roles=["labeller"], sub=f"labeller-{n}") for n in range(2)
+        ]
+        users = [person_id("https://idp.example.org", f"labeller-{n}") for n in range(2)]
+        hidden.assign(set_id, users)
+    capsys.readouterr()
+    shown = client.get("/api/labelling/next", headers=heads[0]).json()
+    url = f"/api/labelling/{shown['assignment']}"
+    assert client.post(url, json={"labels": ROUTINE}, headers=heads[0]).is_success
+    assert client.post(url, json={"labels": ROUTINE}, headers=heads[1]).status_code == 404
+    lines = logged(capsys)
+    events = [
+        (e["event"], e.get("ids"), e["outcome"], e.get("reason"), e["actor"])
+        for e in lines
+        if e["event"] != "request"
+    ]
+    assert events == [
+        ("evalset.case.read", [set_id], "ok", None, users[0]),
+        ("evalset.labelled", [set_id], "ok", None, users[0]),
+        ("evalset.labelled", None, "refused", "no_assignment", users[1]),
+    ]
+    routes = {e["route"] for e in lines if e["event"] == "request"}
+    assert routes == {"/api/labelling/next", "/api/labelling/{assignment_id}"}
+    guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()
+    assert [event for event, *_ in events if f"`{event}`" not in guide] == []
+    written = json.dumps(lines)
+    for private in (shown["assignment"], MARKS["input"], MARKS["author"], "routine", "nurse"):
+        assert private not in written, private
 
 
 def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(

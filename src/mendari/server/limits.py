@@ -17,9 +17,11 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
 | `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
+| `label` | a labeller's routes (LP-11j; each case read is chained) | principal | 60/min, burst 30 |
 
-Reads are not limited here (the edge covers floods, and a read writes nothing permanent). An EHR
-launch's decisions count against its `ehr` principal, like anyone's.
+Reads are not limited here (the edge covers floods, and a read writes nothing permanent), but for
+a labeller's, which chain each case they are shown. An EHR launch's decisions count against its
+`ehr` principal, like anyone's.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
@@ -109,6 +111,7 @@ DEFAULT_RATES: dict[str, Rate] = {
     "guard": Rate(60, 60, 60),
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
+    "label": Rate(60, 60, 30),
 }
 
 _GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
@@ -337,6 +340,8 @@ class Limiter:
             return "evaluate"
         if method == "GET" and _EXPORTS.match(path):
             return "export"
+        if permission == "label":  # a labeller's routes: a person's pace, each case read chained
+            return "label"
         return None
 
     def check(self, request: Request, permission: str, principal_id: str) -> RateLimited | None:

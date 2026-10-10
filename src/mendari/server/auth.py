@@ -192,10 +192,11 @@ PERSON = "person"
 ORG_PIN = "x-mendari-org"
 auth_logger = logging.getLogger("mendari.auth")
 
-# Memberships mode's own paths: a person's own routes and an organization's people. Not mounted
-# in claims mode, where they read as any route no rule lists, `admin` (`Auth.permission`).
+# Memberships mode's own paths: a person's own routes, an organization's people, and a labeller's
+# routes (LP-11j, mounted with the evaluation-set keys too). Not mounted in claims mode, where
+# they read as any route no rule lists, `admin` (`Auth.permission`).
 _MEMBERSHIPS_ONLY = re.compile(
-    r"^/api/auth/(organization|access-requests|invitations|members)(/|$)"
+    r"^/api/(auth/(organization|access-requests|invitations|members)|labelling)(/|$)"
 )
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
@@ -271,6 +272,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
+        # Hidden evaluation sets (LP-11j; memberships mode with the evaluation-set keys, not
+        # mounted otherwise): a labeller's own counts, next case and label, people only. Every
+        # method and path under it, before the reads below: the next case is a hidden case.
+        ("*", r"^/api/labelling(/|$)", "label"),
         # The whole chain, read or exported, and an organization's administrative events (its
         # keys, clients, people, approvals and holds): administrators only.
         ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
@@ -774,10 +779,10 @@ class Auth:
 
     def permission(self, method: str, path: str) -> str:
         """The permission a request needs here: the route rules' (`permission_for`), except that
-        in claims mode memberships mode's own routes (a person's own, `person`, and an
-        organization's people, `keys`: none mounted there) read as any route no rule lists,
-        `admin`. The guard, the notice check and the rate limits all ask this, so they never
-        disagree about a request."""
+        in claims mode memberships mode's own routes (a person's own, `person`, an
+        organization's people, `keys`, and a labeller's, `label`: none mounted there) read as
+        any route no rule lists, `admin`. The guard, the notice check and the rate limits all
+        ask this, so they never disagree about a request."""
         permission = permission_for(method, path)
         if not self.memberships and (permission == PERSON or _MEMBERSHIPS_ONLY.match(path)):
             return "admin"

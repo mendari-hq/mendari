@@ -26,7 +26,8 @@ from fastapi.testclient import TestClient
 from starlette.routing import Route
 
 from mendari import AuditStore, Decision, Pack
-from mendari.core import tenancy
+from mendari.core import accounts, tenancy
+from mendari.core.evalsets import EvalsetStore
 from mendari.errors import AuthError, MendariError, NoOrganization
 from mendari.server import auth as auth_module
 from mendari.server import sessions
@@ -44,6 +45,7 @@ from mendari.server.auth import (
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
+    ROOT,
     encrypt_mode,
     encrypted_store,
     evalset_on,
@@ -70,6 +72,12 @@ PUBLIC_HEALTH = {"status", "version", "sign_in"}
 ACCEPT = "/api/auth/invitations/accept"
 # A person's own routes, with an organization or none (`person`).
 OWN_ROUTES = ("/api/auth/organization", "/api/auth/access-requests", ACCEPT)
+# A labeller's routes (`label`, LP-11j): memberships mode with the evaluation-set keys only.
+LABELLING_ROUTES = {
+    ("GET", "/api/labelling"),
+    ("GET", "/api/labelling/next"),
+    ("POST", "/api/labelling/{assignment_id}"),
+}
 # What an organization's administrators read of its people: addresses, for `keys` only.
 PEOPLE_LISTS = ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests")
 
@@ -454,6 +462,27 @@ def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> N
     assert granted == {"label", "read", "discover"}
 
 
+def test_the_runbook_says_where_each_reserved_role_reaches() -> None:
+    """docs/operations/accounts.md on each reserved role a membership may hold: one whose
+    permissions no route rule needs grants nothing yet (`pack_author`); one a rule needs names
+    the paths that rule covers and never says no route needs it yet (`labeller`'s `label`,
+    `/api/labelling` since LP-11j)."""
+    runbook = " ".join((ROOT / "docs" / "operations" / "accounts.md").read_text().split())
+    for role in sorted(set(accounts.MEMBERSHIP_ROLES) - set(ROLES)):
+        said = re.search(rf"`{role}`, which (.*?)\.(\s|$)", runbook)
+        assert said is not None, role
+        granted = auth_module.PERMISSIONS.get(role, frozenset())
+        reached = {
+            re.sub(r"\(.*", "", pattern.pattern).lstrip("^")
+            for _, pattern, permission in auth_module._RULES
+            if permission in granted
+        }
+        if reached:
+            assert "yet" not in said[1] and all(path in said[1] for path in reached), said[1]
+        else:
+            assert said[1].startswith("grants nothing yet"), said[1]
+
+
 def test_the_session_row_is_sealed_and_holds_no_roles(
     members: TestClient, store: AuditStore, idp: FakeIdp
 ) -> None:
@@ -549,6 +578,10 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("DELETE", "/api/auth/members/m1", None),
     ("GET", "/api/auth/access-requests", None),
     ("POST", "/api/auth/access-requests/r1", {"outcome": "refused"}),
+    # A labeller's (LP-11j): their own counts, next case and label, in their organization.
+    ("GET", "/api/labelling", None),
+    ("GET", "/api/labelling/next", None),
+    ("POST", "/api/labelling/a1", {"labels": {"urgency": "routine"}}),
 ]
 
 
@@ -572,6 +605,8 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         "replace_client_keys", "usage_ledger",
     ):  # fmt: skip
         monkeypatch.setattr(AuditStore, name, reached)
+    for name in ("labelling", "next_case", "record_label", "assignment_set"):
+        monkeypatch.setattr(EvalsetStore, name, reached)
     capsys.readouterr()
     for method, path, body in ORG_ROUTES:
         answer = as_nobody.request(method, path, json=body)
@@ -775,7 +810,10 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     holding a role in `default` gets the guard's answer a person signed in by claims with that
     role gets. Only a person's own three routes differ: any person's in memberships mode (with
     an organization or none; never a key's, never anonymous), an administrator's in claims
-    mode. Hidden evaluation sets are on, so the routes they mount are compared too (LP-11g)."""
+    mode; and a labeller's three (LP-11j), which only a labeller passes in memberships mode
+    (every role here is refused them, administrators included) and which read as an
+    administrator's in claims mode, where they are not mounted. Hidden evaluation sets are on,
+    so the routes they mount are compared too (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -799,6 +837,9 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     by_records = Auth(settings, store)
     own = {r for r in routes if permission_for(*r) == "person"}
     assert own == {("POST", path) for path in OWN_ROUTES}
+    labelling = {r for r in routes if permission_for(*r) == "label"}
+    assert labelling == LABELLING_ROUTES
+    labeller = member(store, org="default", roles=["labeller"], sub="member-labeller")
     differ = []
     for role in ROLES:
         as_member = member(store, org="default", roles=[role], sub=f"member-{role}")
@@ -808,6 +849,12 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
                 assert attempt(by_records, method, path, as_member)[0] == 200
                 claims_answer = attempt(by_claims, method, path, as_person)[0]
                 assert claims_answer == (200 if role == "admin" else 403)
+                continue
+            if (method, path) in labelling:
+                assert attempt(by_records, method, path, as_member)[0] == 403, (role, path)
+                assert attempt(by_records, method, path, labeller)[0] == 200, path
+                claims_answer = attempt(by_claims, method, path, as_person)[0]
+                assert claims_answer == (200 if role == "admin" else 403), (role, path)
                 continue
             if attempt(by_records, method, path, as_member) != attempt(
                 by_claims, method, path, as_person

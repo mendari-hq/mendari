@@ -510,7 +510,9 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     decisions recorded under `off` before the switch, one sealed before 2026-10-02 (evidence and
     a resource's id in its record) and one sealed now, with notes. Each read a reader is shown is
     chained and logged. Hidden evaluation sets are on, so the routes they mount are swept too
-    (LP-11g)."""
+    (LP-11g); a labeller's (LP-11j) are memberships mode's and take no placeholder a GET here
+    fills: their hidden cases are swept in tests/test_evalset_leaks.py, their chained reads
+    checked in tests/test_labelling_routes.py."""
     before = AuditStore(db_target, phi=policy("off"))
     message_off = Decision(inbox_pack, store=before)(message(f"Crushing chest pain, {INPUT_MARK}"))
     before.record_feedback(message_off.id, rating="down", reporter="rn-2", note=NOTE_MARK)

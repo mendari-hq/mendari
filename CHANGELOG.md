@@ -77,6 +77,20 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, labelled through a labeller's own routes** (LP-11, memberships mode
+  with both evaluation-set keys only: the hosted site, in claims mode without them, mounts none).
+  `GET /api/labelling` gives a labeller their own counts, set by set; `GET /api/labelling/next`
+  their oldest open case, its input and the set's questions with their labels and nothing else,
+  the read chained (`evalset.case_read`) before it is sent, or `204`; `POST /api/labelling/{id}`
+  takes `{"labels": {...}}` and answers `{"remaining"}`, never how the label compares. Only a
+  person holding `label` (a labeller's membership) passes: never a key, a token, an administrator
+  or open mode, and whoever also manages the organization's sets is served nothing. An unknown,
+  another labeller's, another organization's, withdrawn or answered assignment, or one in a set
+  no longer a draft, is one `404`; a label missing a question or with a word not among its labels
+  is a `422` naming the question, never the value. A new rate-limit class, `label` (60/min, burst
+  30, per labeller: `MENDARI_RATE_LIMITS=on,label=…`); not gated by the notice; security-log
+  events `evalset.case.read` and `evalset.labelled`, naming the set's id only. Runbook:
+  `docs/operations/evalsets.md`, How a labeller labels.
 - **Hidden evaluation sets, frozen, graded in the process and retired** (LP-11, the key holder's
   command line and the store; no route yet, so nothing grades until the grading route): every write
   refuses a set that is no longer a draft, in its own exclusive transaction, writing and chaining
@@ -103,7 +117,7 @@ The first release (not yet published).
   state edited back grades nothing, since the read checks the chain's retirement. Runbook:
   `docs/operations/evalsets.md`, Freezing a set.
 - **Hidden evaluation sets, labelled blind** (LP-11, the key holder's command line and the
-  store; no route yet, so no person labels until the labelling screen): `mendari evalset sample`
+  store; a labeller labels through their own routes, above): `mendari evalset sample`
   draws a draft set's cases, seeded, within each stratum (`--per-stratum N` or `--cases N`),
   each drawn case's weight (N_h / n_h) sealed beside its attributes; `mendari evalset assign`
   gives each drawn case two different labellers, balanced across labellers and pairs, and

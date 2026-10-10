@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Blind labelling of hidden evaluation sets, in the store (LP-11h, `core/evalsets.py`,
 ADR-0011): sampling, assignment, a labeller's read and label, adjudication, progress and the
-measured agreement and coverage. No route serves any of it yet, so a person cannot label: the
-labeller's two calls (`next_case`, `record_label`) are tested here, at the store.
+measured agreement and coverage. The labeller's two calls (`next_case`, `record_label`) are
+tested here, at the store; the routes over them, in tests/test_labelling_routes.py (LP-11j).
 
 - A labeller is shown a case's input and the set's questions, never another label, an attribute,
   the intended label or a model's output; the second labeller's view is the same before and
