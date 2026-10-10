@@ -863,8 +863,12 @@ and `mendari evalset export` copies the sealed sets as stored, needing no key. I
 labelled blind: `mendari evalset sample` draws them, seeded, within strata; `assign` gives each
 to two of the organization's labellers (never an administrator), `adjudicate` a disputed one to
 a third; `progress` counts them by status and labeller; and `agreement` and `coverage` measure
-the set (rater agreement, and what its settled labels cover) and keep the result sealed. No
-route serves a set yet, so no one labels from the dashboard until a later step.
+the set (rater agreement, and what its settled labels cover) and keep the result sealed. Once
+every drawn case is settled, `mendari evalset freeze` fixes the set under its rotation rule
+(`--max-runs` and `--max-age-days`, both required) and chains only a salted commitment to its
+content; `show` reads its state, commitment, runs left and aggregates, and `retire` ends its use,
+publishing nothing. No route serves a set yet, so no one labels from the dashboard and nothing
+grades against a set until later steps.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

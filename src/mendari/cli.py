@@ -2003,6 +2003,79 @@ def cmd_evalset_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_evalset_freeze(args: argparse.Namespace) -> int:
+    """Freeze a draft set (LP-11i): every drawn case settled (an undrawn one removed with
+    `--drop-unsampled`, each removal chained), its content committed to with a salt and its
+    rotation rule fixed (both limits required: no default); chained. Prints the commitment and
+    each critical label's distinct positives, and warns, without refusing, under
+    `MIN_POSITIVES` (conflict 48: the key holder's aggregates, which name label words, never
+    chained). Never the content hash or a case."""
+    from mendari.evals.result import MIN_POSITIVES
+
+    keys = _evalset_keys()
+    pack = resolve_pack(args.pack) if args.pack else None
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        frozen = store.freeze(
+            args.set_id,
+            max_runs=args.max_runs,
+            max_age_days=args.max_age_days,
+            drop_unsampled=args.drop_unsampled,
+            pack=pack,
+        )
+    _print_json(frozen)
+    for item in frozen["critical"]:
+        if item["insufficient"]:
+            print(
+                f"warning: {item['question']}={item['label']} has {item['distinct']} distinct "
+                f"positive(s), under {MIN_POSITIVES}: too few to measure it (the set is frozen)",
+                file=sys.stderr,
+            )
+    print(
+        f"{frozen['n']} case(s) of {args.set_id} frozen in {shown} ({frozen['dropped']} not "
+        f"drawn left out): it grades at most {frozen['max_runs']} time(s) within "
+        f"{frozen['max_age_days']} day(s); keep its commitment",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_retire(args: argparse.Namespace) -> int:
+    """Retire a frozen or active set (LP-11i): checked against its commitment once more, then it
+    grades nothing more; chained. Nothing is published. Prints its id, state, commitment and
+    runs used."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        retired = store.retire(args.set_id)
+    _print_json(retired)
+    print(
+        f"{args.set_id} retired in {shown} after {retired['runs']} grading run(s): it grades "
+        "nothing more, and nothing is published",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_show(args: argparse.Namespace) -> int:
+    """A set's state, commitment, runs used and left, and its stored aggregates (LP-11i):
+    read-only, nothing chained (conflict 39). The aggregates are opened with the keys, which
+    show alone does not need (a malformed one still fails): without them they are left out."""
+    from mendari.core.evalset_keys import evalset_keys
+
+    keys = evalset_keys()
+    store, _ = _evalset_store(args.db, keys, writes=False)
+    with store.store:
+        shown = store.show(args.set_id)
+    _print_json(shown)
+    if keys is None and shown["aggregates"] is None and shown["state"] != "draft":
+        print(
+            "its aggregates are sealed: run with the evaluation-set keys to read them",
+            file=sys.stderr,
+        )
+    return 0
+
+
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
@@ -2982,6 +3055,41 @@ def build_parser() -> argparse.ArgumentParser:
     evalset_agreement.add_argument(
         "--resamples", type=int, default=2000, help="the bootstrap's resamples (default 2000)"
     )
+    evalset_freeze = evalset.add_parser(
+        "freeze", help="freeze a draft set: its commitment and rotation rule fixed (LP-11i)"
+    )
+    evalset_freeze.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_freeze.add_argument(
+        "--max-runs", type=int, required=True, help="the most grading runs it serves (no default)"
+    )
+    evalset_freeze.add_argument(
+        "--max-age-days",
+        type=int,
+        required=True,
+        help="the most days from freezing it serves (no default)",
+    )
+    evalset_freeze.add_argument(
+        "--drop-unsampled",
+        action="store_true",
+        help="remove the cases never drawn (each removal chained) instead of refusing",
+    )
+    evalset_freeze.add_argument(
+        "--pack", help="the set's pack (id or directory), if its id does not resolve here"
+    )
+    evalset_freeze.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_freeze.set_defaults(handler=cmd_evalset_freeze)
+    evalset_retire = evalset.add_parser(
+        "retire", help="retire a frozen or active set: it grades nothing more (LP-11i)"
+    )
+    evalset_retire.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_retire.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_retire.set_defaults(handler=cmd_evalset_retire)
+    evalset_show = evalset.add_parser(
+        "show", help="a set's state, commitment, runs used and left, and its aggregates"
+    )
+    evalset_show.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_show.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_show.set_defaults(handler=cmd_evalset_show)
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")
