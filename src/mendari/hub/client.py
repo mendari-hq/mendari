@@ -37,19 +37,20 @@ import os
 import shutil
 import tempfile
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.origin import MARKER, ORIGIN_FORMAT, pulled_record
 from mendari.core.pack import Pack, load_pack
 from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import HubError, MendariError
 from mendari.hub import archive
 
 TIMEOUT = 60.0
-_MARKER = ".mendari-verified"
 
 
 def config_dir() -> Path:
@@ -263,11 +264,11 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
             f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
     _registry_key(client)  # pinned on first contact, before any recall it signs is read
-    if (target / _MARKER).is_file() and (target / _MARKER).read_text().strip() == meta[
-        "archive_sha256"
-    ]:
+    if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
         pack = load_pack(target, origin="hub")
         if pack.digest == meta["digest"]:
+            # Cached: what the registry says of it now (a recall since) is written beside it.
+            _write_origin(target, client, namespace, meta)
             return pack
     keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
     data = client.archive(namespace, name, version)
@@ -281,11 +282,43 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
         staged = Path(scratch) / "pack"
         # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
         pack = archive.extract(verified, staged, origin="hub")
-        (staged / _MARKER).write_text(verified.sha256 + "\n")
+        _write_origin(staged, client, namespace, {**meta, "archive_sha256": verified.sha256})
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
     return load_pack(target, origin="hub")
+
+
+def _write_origin(
+    root: Path, client: RegistryClient, namespace: str, meta: Mapping[str, Any]
+) -> None:
+    """The verified marker (`core/origin.py` `pulled_record`): where the pack came from, and the
+    recall the registry served for it at this pull, if any. Written whole, then moved in."""
+    record = {
+        "format": ORIGIN_FORMAT,
+        "registry": _shown_url(client.url),
+        "namespace": namespace,
+        "publisher_type": meta.get("publisher_type"),
+        "key_id": meta.get("key_id"),
+        "archive_sha256": meta.get("archive_sha256"),
+        "digest": meta.get("digest"),
+        "pulled_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "yank": meta.get("yank") if isinstance(meta.get("yank"), Mapping) else None,
+    }
+    staged = root / f"{MARKER}.new"
+    staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    staged.replace(root / MARKER)
+
+
+def _shown_url(url: str) -> str:
+    """A registry's URL as the marker records it: scheme, host, port and path, never a user,
+    password, query or fragment."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    netloc = f"{host}:{parts.port}" if parts.port else host
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> dict[str, Any] | None:

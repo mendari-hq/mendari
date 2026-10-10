@@ -183,6 +183,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/delete"): ("pack.deleted",),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
+    (ENGINE, "POST", "/api/registry-approvals"): ("registry_pack.approved",),
+    (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_pack.revoked",),
     (ENGINE, "DELETE", "/api/governance/{approval_id}"): ("governance.revoked",),
     (ENGINE, "POST", "/api/holds"): ("automation.held",),
     (ENGINE, "DELETE", "/api/holds/{hold_id}"): ("automation.lifted",),

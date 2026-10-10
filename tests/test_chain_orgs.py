@@ -307,6 +307,13 @@ def _approval(store: AuditStore, _: Pack) -> str:
     return f"governance:{made['id']}"
 
 
+def _registry_approval(store: AuditStore, _: Pack) -> str:
+    made = store.approve_registry_pack(
+        pack_id="someone/pulled", pack_digest="d" * 64, registry="x", approver="cmo", reference="r"
+    )
+    return f"registry_approval:{made['id']}"
+
+
 def _hold(store: AuditStore, _: Pack) -> str:
     made = store.hold_automation(
         org=CLINIC, pack_id=None, pack_digest=None, reason="drill", set_by="ops"
@@ -356,6 +363,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "api_keys": ("api_keys", "id", _key),
     "oauth_clients": ("oauth_clients", "client_id", _client),
     "governance_approvals": ("governance_approvals", "id", _approval),
+    "registry_approvals": ("registry_approvals", "id", _registry_approval),
     "automation_holds": ("automation_holds", "id", _hold),
     "eval_reports": ("eval_reports", "id", _report),
     "organizations": ("organizations", "id", _organization),

@@ -748,7 +748,12 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
   input and a CPU budget per decision, after which a person decides. A copy of a reference pack
   of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
-  of its files, never by its manifest or the registry
+  of its files, never by its manifest or the registry. Served, a pulled pack never automates
+  until your organization approves its exact digest (`POST /api/registry-approvals`, chained;
+  `DELETE` revokes it), at any risk level, and never while the registry recalled it; nothing
+  in the pack lifts that. `mendari test` and `mendari eval` check the pack's own policy. The
+  verified marker beside a pulled pack records the registry, namespace, publisher type and
+  key it came from
   ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means

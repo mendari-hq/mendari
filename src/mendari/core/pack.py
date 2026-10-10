@@ -27,6 +27,7 @@ from mendari.core.origin import (
     RESERVED_NAMESPACES,
     Origin,
     is_community,
+    pulled_record,
     shown_origin,
 )
 from mendari.core.origin import bounded as origin_bounded
@@ -107,6 +108,12 @@ class Pack:
         input limits and a CPU budget per decision (`core/origin.py` `bounded`, ADR-0009). Read
         from where the pack was found and the digest `load_pack` hashed, never its manifest."""
         return origin_bounded(self.id, self.origin, self.digest)
+
+    @property
+    def pulled(self) -> dict[str, Any]:
+        """For a pack from a registry, what its verified marker records of where it came from
+        (`core/origin.py` `pulled_record`); for any other pack, nothing."""
+        return pulled_record(self.root) if self.origin == "hub" else {}
 
     @property
     def shown_origin(self) -> Origin:

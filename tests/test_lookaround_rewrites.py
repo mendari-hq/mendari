@@ -260,7 +260,7 @@ def test_ai_guard_runs_on_the_community_engine(tmp_path: Path, rewritten_guard: 
     version) loads from a registry on RE2, which the lookahead kept it from, and decides every
     shipped input as the reference pack does on `re`."""
     root = copied(tmp_path, "ai-guard", version="9.9.9", edit=one_more_line(GUARD[1]))
-    hub = Decision(load_pack(root, origin="hub"))
+    hub = Decision(load_pack(root, origin="hub"), origin_cap=False)  # the engine, not the cap
     assert hub.pack.bounded and hub.pack.digest != rewritten_guard.digest
     rules: Any = hub.providers["screen"]
     compiled = [

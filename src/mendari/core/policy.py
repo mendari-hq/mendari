@@ -58,12 +58,14 @@ def apply_policy(
     *,
     community: bool = False,
     hold: str | None = None,
+    blocks_to_person: str | None = None,
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
     (`core/origin.py`) recommends and never automates, whatever its rules or confidence. A
     `hold` (why automation is stopped: an operator's hold, a used-up quota) turns AUTO into
-    HUMAN_REVIEW and changes nothing else."""
+    HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why a pack from a registry may
+    not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well."""
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -109,6 +111,11 @@ def apply_policy(
                     f"{policy.thresholds.review:.2f}"
                 )
 
+    if blocks_to_person and rule_name is not None and outcome is Outcome.BLOCK:
+        # A pack from a registry not approved here, or recalled (`core/decision.py`): its own
+        # rule's BLOCK, final at once and seen by nobody, goes to a person too.
+        reasons.append(f"{blocks_to_person}: a person decides instead of its rule's BLOCK")
+        outcome = Outcome.HUMAN_REVIEW
     if community and rule_name is not None and outcome is Outcome.BLOCK:
         # A block is final at once and no person sees it; a community pack's rule never decides
         # alone (its load refuses such a rule; this covers a pack loaded by path).

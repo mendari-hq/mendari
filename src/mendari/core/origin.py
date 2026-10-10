@@ -43,8 +43,10 @@ limits wherever it was loaded from (`is_community`).
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import TypeAdapter, ValidationError
@@ -103,6 +105,33 @@ ORIGIN_LABELS: Mapping[Origin, str] = {
 }
 # What a community pack does with a decision, wherever it says so.
 COMMUNITY_AUTOMATION = "Never: a community pack recommends, and a person confirms every decision."
+
+
+# Beside a pulled pack in the registry cache: where it came from (LP-18d, `hub/client.py`
+# writes it after verifying the archive). Hidden, so outside the pack's digest.
+MARKER = ".mendari-verified"
+ORIGIN_FORMAT = "mendari.origin/1"
+# Why automation is held for a pack from a registry until its organization approves its digest
+# (`core/decision.py`): no field in the pack lifts it.
+UNAPPROVED = "a pack from a registry, not approved for automation by this organization"
+
+
+def pulled_record(root: Path) -> dict[str, Any]:
+    """What the verified marker beside a pulled pack records: the registry's URL, namespace,
+    publisher type, signing key id, archive SHA-256, digest, when it was pulled and the recall
+    the registry served then, if any. A marker from before LP-18d holds only the archive's
+    SHA-256; a missing or unreadable one, nothing."""
+    try:
+        text = (root / MARKER).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return {}
+    if not text.startswith("{"):
+        return {"archive_sha256": text}
+    try:
+        found = json.loads(text)
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) and found.get("format") == ORIGIN_FORMAT else {}
 
 
 def is_community(pack_id: str, origin: Origin) -> bool:

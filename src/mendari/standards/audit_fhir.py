@@ -332,6 +332,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "client.keys_replaced": ("U", "Backend Services client's key set replaced", _CREDENTIALS),
     "governance.approved": ("C", "Automation approved", None),
     "governance.revoked": ("U", "Automation approval revoked", None),
+    "registry_pack.approved": ("C", "Pack from a registry approved", None),
+    "registry_pack.revoked": ("U", "Pack from a registry approval revoked", None),
     "automation.held": ("C", "Automation held", None),
     "automation.lifted": ("U", "Automation hold lifted", None),
     "eval.recorded": ("C", "Evaluation report recorded", None),
