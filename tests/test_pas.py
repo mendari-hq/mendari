@@ -416,6 +416,13 @@ def test_the_api_takes_x12_codes_from_the_request_else_the_settings_and_never_fi
     assert refused.status_code == 422 and "MENDARI_PAS_PAYER_ENTITY" in refused.text
 
 
+def test_a_pack_says_which_decisions_make_a_pas_request(tmp_path: Path) -> None:
+    """The dashboard offers to build the request only where the route can build one."""
+    client = TestClient(create_app(db_path=tmp_path / "x.db"))
+    assert client.get(f"/api/packs/{PA}").json()["pas_ready"] == pas.READY
+    assert client.get("/api/packs/mendari/patient-inbox-router").json()["pas_ready"] is None
+
+
 @pytest.mark.usefixtures("no_site_settings")
 def test_pas_build_takes_flags_else_the_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

@@ -166,10 +166,15 @@ function refusal(path, response, body) {
   }
 }
 
-// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); everything else has a detail.
-export const refusalText = (body) => (Array.isArray(body?.detail)
-  ? body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ")
-  : body?.detail || body?.error || "");
+// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); a FHIR route's is an
+// OperationOutcome (each issue's diagnostics, after where it is); everything else has a detail.
+export const refusalText = (body) => {
+  if (Array.isArray(body?.detail)) return body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ");
+  if (body?.resourceType === "OperationOutcome") {
+    return (body.issue ?? []).map((i) => [i?.expression?.join(", "), i?.diagnostics].filter(Boolean).join(": ")).join("; ");
+  }
+  return body?.detail || body?.error || "";
+};
 
 // Memberships mode: a file to save, fetched so it carries the window's organization as every other
 // request does (a link cannot send a header), and refused, saying so, once that organization is
@@ -179,15 +184,20 @@ export async function download(path) {
     const response = await fetch(path, { headers: orgPin() });
     if (!response.ok) refusal(path, response, await response.json().catch(() => null));
     const named = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "");
-    const url = URL.createObjectURL(await response.blob());
-    const link = Object.assign(document.createElement("a"), { href: url, download: named?.[1] ?? "download" });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    saveFile(await response.blob(), named?.[1] ?? "download");
   } catch (error) {
     toastError(error.message);
   }
+}
+
+// A file made in the page (a Blob), saved under `name`.
+export function saveFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 // A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or

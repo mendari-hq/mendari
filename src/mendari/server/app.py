@@ -1121,12 +1121,16 @@ def create_app(
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
         """A pack's manifest, input and output JSON Schemas, active providers, benchmark,
-        leaderboard and Decision Card (Markdown)."""
+        leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation for which a
+        decision of this pack can be built into a Da Vinci PAS request (`POST …/pas`), or null
+        when its main question has none."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
         decision = decision_for(pack_id)
+        summary = _summary(pack)
         return {
-            **_summary(pack),
+            **summary,
+            "pas_ready": pas.READY if pas.READY in summary["labels"] else None,
             "manifest": pack.manifest.model_dump(mode="json", by_alias=True),
             "active_providers": {
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
@@ -1242,8 +1246,10 @@ def create_app(
     )
     def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
-        `blocked` (send nothing; follow `fallback`). Audited like any decision."""
-        return {**guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict(), **NOTICE}
+        `blocked` (send nothing; follow `fallback`). Audited like any decision; `decision` is the
+        whole decision, as `…/decide` answers it."""
+        result = guard.check(decision_for(f"{namespace}/{name}"), payload)
+        return {**result.to_dict(), "decision": result.decision.to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/fhir/decide",
