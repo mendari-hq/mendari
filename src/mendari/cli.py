@@ -170,7 +170,10 @@ def cmd_decide(args: argparse.Namespace) -> int:
     if store is not None:  # a pack from a registry, approved in that deployment's trail
 
         def approved(pack: Pack) -> bool:
-            return store.registry_approval(pack.id, pack.digest, tenancy.DEFAULT_ORG) is not None
+            return (
+                store.registry_approval(pack.id, pack.digest, in_org=tenancy.DEFAULT_ORG)
+                is not None
+            )
 
     decision = _decision(args, store=store, hold_source=held, origin_approval=approved)
     if args.text is not None:

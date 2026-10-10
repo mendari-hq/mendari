@@ -3043,10 +3043,11 @@ class AuditStore:
             )
 
     def registry_approval(
-        self, pack_id: str, pack_digest: str, org: str | None = None
+        self, pack_id: str, pack_digest: str, in_org: str | None = None
     ) -> dict[str, Any] | None:
-        """This organization's approval in force for exactly this pulled pack, or None."""
-        org = org or tenancy.current() or tenancy.DEFAULT_ORG
+        """The approval in force for exactly this pulled pack in one organization (`in_org`;
+        None: this request's, never every one's), or None."""
+        org = in_org or tenancy.current() or tenancy.DEFAULT_ORG
         with self._db.session(exclusive=False) as db:
             return db.one(
                 "SELECT * FROM registry_approvals WHERE org = ? AND pack_id = ? "

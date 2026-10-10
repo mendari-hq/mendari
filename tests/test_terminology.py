@@ -58,8 +58,9 @@ PINNED = {
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
         # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; in
         # LP-11f: their keys' rotation batch and the index rebuilt; and in LP-11h: their blind
-        # labelling's (sampled, assigned, case read, labelled, measured).
-        "CodeSystem/audit-administrative-event": "0deb02ba0ee3041a",
+        # labelling's (sampled, assigned, case read, labelled, measured); in LP-18d: a pulled
+        # pack's approval and its revocation.
+        "CodeSystem/audit-administrative-event": "9a64ca68f3e2fd14",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
