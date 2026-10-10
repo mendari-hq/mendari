@@ -170,7 +170,10 @@ def cmd_decide(args: argparse.Namespace) -> int:
     if store is not None:  # a pack from a registry, approved in that deployment's trail
 
         def approved(pack: Pack) -> bool:
-            return store.registry_approval(pack.id, pack.digest, tenancy.DEFAULT_ORG) is not None
+            return (
+                store.registry_approval(pack.id, pack.digest, in_org=tenancy.DEFAULT_ORG)
+                is not None
+            )
 
     decision = _decision(args, store=store, hold_source=held, origin_approval=approved)
     if args.text is not None:
@@ -1930,6 +1933,163 @@ def cmd_evalset_list(args: argparse.Namespace) -> int:
     return 0
 
 
+# A bootstrap's resamples on the command line: enough for any interval, never a run for hours.
+MAX_RESAMPLES = 100_000
+
+
+def cmd_evalset_sample(args: argparse.Namespace) -> int:
+    """Draw cases of a draft set to label (LP-11h): seeded, within each stratum, a number per
+    stratum or in all; each drawn case's weight sealed with it; chained. Prints how many were
+    drawn, now and in all, and the seed: never a stratum or a case."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        drawn = store.sample(
+            args.set_id, per_stratum=args.per_stratum, cases=args.cases, seed=args.seed
+        )
+    _print_json(drawn)
+    print(
+        f"{drawn['drawn']} case(s) drawn from {args.set_id} in {shown}: give them labellers with "
+        "`mendari evalset assign`",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_assign(args: argparse.Namespace) -> int:
+    """Give each sampled case of a draft set two blind labellers, by user id, balanced; or
+    (`adjudicate`) each disputed case a third (LP-11h). Each a labeller of the set's
+    organization who does not manage its sets; chained. Prints each assignment: the case's
+    hash, its id, its labeller and its round."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        if args.evalset_command == "adjudicate":
+            made = store.adjudicate(args.set_id, args.labeller, seed=args.seed)
+        else:
+            made = store.assign(args.set_id, args.labeller, seed=args.seed)
+    _print_json(made)
+    print(
+        f"{made['assigned']} assignment(s) made and {made['withdrawn']} withdrawn in {shown}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_progress(args: argparse.Namespace) -> int:
+    """How a set's labelling stands (LP-11h): its cases by status and each labeller's
+    assignments, by user id; read-only, nothing opened (the keys are not needed; a malformed
+    one still fails)."""
+    from mendari.core.evalset_keys import evalset_keys
+
+    store, _ = _evalset_store(args.db, evalset_keys(), writes=False)
+    with store.store:
+        _print_json(store.progress(args.set_id))
+    return 0
+
+
+def cmd_evalset_measure(args: argparse.Namespace) -> int:
+    """A draft set's rater agreement (`agreement`) or coverage (`coverage`), computed from its
+    labels and stored sealed as its aggregates, chained (LP-11h): counts and coefficients by
+    question and label, raters by user id, never a case. Text, or `--json`."""
+    from mendari.evals.coverage import coverage_text
+    from mendari.evals.rater_agreement import agreement_text
+
+    agreeing = args.evalset_command == "agreement"
+    seed, resamples = (args.seed, args.resamples) if agreeing else (0, 2000)
+    if not 1 <= resamples <= MAX_RESAMPLES:
+        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
+    keys = _evalset_keys()
+    pack = resolve_pack(args.pack) if args.pack else None
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        measured = store.measure(args.set_id, pack=pack, seed=seed, resamples=resamples)
+    report = measured["agreement" if agreeing else "coverage"]
+    if args.json:
+        _print_json(report)
+    else:
+        print(agreement_text(report) if agreeing else coverage_text(report))
+    print(
+        f"{measured['n']} case(s) of {args.set_id} measured in {shown}; their agreement and "
+        "coverage are stored sealed as the set's aggregates",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_freeze(args: argparse.Namespace) -> int:
+    """Freeze a draft set (LP-11i): every drawn case settled (an undrawn one removed with
+    `--drop-unsampled`, each removal chained), its content committed to with a salt and its
+    rotation rule fixed (both limits required: no default); chained. Prints the commitment and
+    each critical label's distinct positives, and warns, without refusing, under
+    `MIN_POSITIVES` (conflict 48: the key holder's aggregates, which name label words, never
+    chained). Never the content hash or a case."""
+    from mendari.evals.result import MIN_POSITIVES
+
+    keys = _evalset_keys()
+    pack = resolve_pack(args.pack) if args.pack else None
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        frozen = store.freeze(
+            args.set_id,
+            max_runs=args.max_runs,
+            max_age_days=args.max_age_days,
+            drop_unsampled=args.drop_unsampled,
+            pack=pack,
+        )
+    _print_json(frozen)
+    for item in frozen["critical"]:
+        if item["insufficient"]:
+            print(
+                f"warning: {item['question']}={item['label']} has {item['distinct']} distinct "
+                f"positive(s), under {MIN_POSITIVES}: too few to measure it (the set is frozen)",
+                file=sys.stderr,
+            )
+    print(
+        f"{frozen['n']} case(s) of {args.set_id} frozen in {shown} ({frozen['dropped']} not "
+        f"drawn left out): it grades at most {frozen['max_runs']} time(s) within "
+        f"{frozen['max_age_days']} day(s); keep its commitment",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_retire(args: argparse.Namespace) -> int:
+    """Retire a frozen or active set (LP-11i): checked against its commitment once more, then it
+    grades nothing more; chained. Nothing is published. Prints its id, state, commitment and
+    runs used."""
+    keys = _evalset_keys()
+    store, shown = _evalset_store(args.db, keys, writes=True)
+    with store.store:
+        retired = store.retire(args.set_id)
+    _print_json(retired)
+    print(
+        f"{args.set_id} retired in {shown} after {retired['runs']} grading run(s): it grades "
+        "nothing more, and nothing is published",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_evalset_show(args: argparse.Namespace) -> int:
+    """A set's state, commitment, runs used and left, and its stored aggregates (LP-11i):
+    read-only, nothing chained (conflict 39). The aggregates are opened with the keys, which
+    show alone does not need (a malformed one still fails): without them they are left out."""
+    from mendari.core.evalset_keys import evalset_keys
+
+    keys = evalset_keys()
+    store, _ = _evalset_store(args.db, keys, writes=False)
+    with store.store:
+        shown = store.show(args.set_id)
+    _print_json(shown)
+    if keys is None and shown["aggregates"] is None and shown["state"] != "draft":
+        print(
+            "its aggregates are sealed: run with the evaluation-set keys to read them",
+            file=sys.stderr,
+        )
+    return 0
+
+
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
@@ -2858,6 +3018,92 @@ def build_parser() -> argparse.ArgumentParser:
     evalset_export.add_argument("--out", required=True, help="a new file to write")
     evalset_export.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     evalset_export.set_defaults(handler=cmd_evalset_export)
+    evalset_sample = evalset.add_parser(
+        "sample", help="draw cases of a draft set to label, seeded, within each stratum"
+    )
+    evalset_sample.add_argument("set_id", metavar="SET", help="the set's id")
+    drawn = evalset_sample.add_mutually_exclusive_group(required=True)
+    drawn.add_argument("--per-stratum", type=int, help="how many more to draw from each stratum")
+    drawn.add_argument("--cases", type=int, help="how many more to draw in all, by stratum size")
+    evalset_sample.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
+    evalset_sample.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_sample.set_defaults(handler=cmd_evalset_sample)
+    for name, what in (
+        ("assign", "give each sampled case two blind labellers, balanced"),
+        ("adjudicate", "give each disputed case a third blind labeller"),
+    ):
+        assigning = evalset.add_parser(name, help=what)
+        assigning.add_argument("set_id", metavar="SET", help="the set's id")
+        assigning.add_argument(
+            "--labeller",
+            action="append",
+            required=True,
+            help="a labeller's user id (user:...), once for each; never one who manages sets",
+        )
+        assigning.add_argument("--seed", type=int, default=0, help="the seed (default 0)")
+        assigning.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        assigning.set_defaults(handler=cmd_evalset_assign)
+    evalset_progress = evalset.add_parser(
+        "progress", help="a set's cases by status and each labeller's assignments (counts)"
+    )
+    evalset_progress.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_progress.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_progress.set_defaults(handler=cmd_evalset_progress)
+    evalset_agreement = evalset.add_parser(
+        "agreement", help="the raters' agreement on a draft set, stored sealed (aggregates)"
+    )
+    evalset_coverage = evalset.add_parser(
+        "coverage", help="what a draft set's drawn cases cover, stored sealed (aggregates)"
+    )
+    for measuring in (evalset_agreement, evalset_coverage):
+        measuring.add_argument("set_id", metavar="SET", help="the set's id")
+        measuring.add_argument(
+            "--pack", help="the set's pack (id or directory), if its id does not resolve here"
+        )
+        measuring.add_argument("--json", action="store_true", help="the report as JSON")
+        measuring.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        measuring.set_defaults(handler=cmd_evalset_measure)
+    evalset_agreement.add_argument(
+        "--seed", type=int, default=0, help="the bootstrap's seed (default 0)"
+    )
+    evalset_agreement.add_argument(
+        "--resamples", type=int, default=2000, help="the bootstrap's resamples (default 2000)"
+    )
+    evalset_freeze = evalset.add_parser(
+        "freeze", help="freeze a draft set: its commitment and rotation rule fixed (LP-11i)"
+    )
+    evalset_freeze.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_freeze.add_argument(
+        "--max-runs", type=int, required=True, help="the most grading runs it serves (no default)"
+    )
+    evalset_freeze.add_argument(
+        "--max-age-days",
+        type=int,
+        required=True,
+        help="the most days from freezing it serves (no default)",
+    )
+    evalset_freeze.add_argument(
+        "--drop-unsampled",
+        action="store_true",
+        help="remove the cases never drawn (each removal chained) instead of refusing",
+    )
+    evalset_freeze.add_argument(
+        "--pack", help="the set's pack (id or directory), if its id does not resolve here"
+    )
+    evalset_freeze.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_freeze.set_defaults(handler=cmd_evalset_freeze)
+    evalset_retire = evalset.add_parser(
+        "retire", help="retire a frozen or active set: it grades nothing more (LP-11i)"
+    )
+    evalset_retire.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_retire.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_retire.set_defaults(handler=cmd_evalset_retire)
+    evalset_show = evalset.add_parser(
+        "show", help="a set's state, commitment, runs used and left, and its aggregates"
+    )
+    evalset_show.add_argument("set_id", metavar="SET", help="the set's id")
+    evalset_show.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    evalset_show.set_defaults(handler=cmd_evalset_show)
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")

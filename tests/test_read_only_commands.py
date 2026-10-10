@@ -27,6 +27,10 @@ COMMANDS = {
     # sealed export (no key needed).
     "evalset rotate --check": ["evalset", "rotate", "--check"],
     "evalset export": ["evalset", "export", "--out", "{out}"],
+    # A set's labelling progress (LP-11h): counts, no key needed (a set not there is refused).
+    "evalset progress": ["evalset", "progress", "6b1c4f0e-2d6a-4c41-9a8e-3f1d2c5b7a90"],
+    # A set's state, commitment, runs and stored aggregates (LP-11i): no key needed.
+    "evalset show": ["evalset", "show", "6b1c4f0e-2d6a-4c41-9a8e-3f1d2c5b7a90"],
     "audit export": ["audit", "export"],
     "feedback export": ["feedback", "export", "mendari/patient-inbox-router", "--out", "{out}"],
     "monitor": ["monitor", "--pack", "mendari/patient-inbox-router"],

@@ -40,6 +40,7 @@ from mendari.core.phi import PhiPolicy, key_id
 from mendari.errors import MendariError
 from mendari.standards import audit_fhir, fhir_structure
 from tests.conftest import evalset_keys_for_test, evalset_on, hand_written, message
+from tests.test_evalset_labelling import label_all, labellers
 from tests.test_evalset_store import (
     CLINIC,
     INBOX,
@@ -60,6 +61,8 @@ EVERY_TABLE = (
     "evalset_sets",
     "evalset_cases",
     "evalset_index",
+    "evalset_assignments",
+    "evalset_labels",
     "audit_events",
     "settings",
     "decisions",
@@ -84,6 +87,20 @@ CLEAR_COLUMNS = {
     },
     "evalset_cases": {"id", "set_id", "org", "case_hash", "status", "created_at"},
     "evalset_index": {"hash", "variant", "key_id", "set_id", "case_id", "org"},
+    # Blind labelling (LP-11h): who labels which case, in which round, and when; a label's ids
+    # and time (its values are its sealed `body`).
+    "evalset_assignments": {
+        "id",
+        "org",
+        "set_id",
+        "case_id",
+        "user_id",
+        "membership_id",
+        "round",
+        "created_at",
+        "ended_at",
+    },
+    "evalset_labels": {"id", "org", "set_id", "case_id", "assignment_id", "created_at"},
 }
 
 
@@ -216,7 +233,7 @@ def test_rotation_works_in_batches_and_chains_key_ids_and_counts_only(
     store.evalset_ready(ring(old, index, new))
     hidden = EvalsetStore(store, ring(new, index, old))
     rotated = hidden.rotate(to=key_id(new), batch=2)
-    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 5}
+    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 5, "evalset_labels": 0}
     assert rotated["from"] == {key_id(old): 11}  # a header, 5 inputs, 5 attributes
     assert rotated["batches"] == 4  # the set; then the cases, two by two
     batches = [e for e in chained(store) if e["event"] == "evalset.rotated"]
@@ -265,12 +282,12 @@ def test_an_interrupted_rotation_resumes(
         hidden.rotate(to=key_id(new), batch=3)
     done = events(store, "evalset.rotated")
     assert [e["payload"]["counts"] for e in done] == [
-        {"evalset_sets": 1, "evalset_cases": 0},
-        {"evalset_sets": 0, "evalset_cases": 3},
+        {"evalset_sets": 1, "evalset_cases": 0, "evalset_labels": 0},
+        {"evalset_sets": 0, "evalset_cases": 3, "evalset_labels": 0},
     ]  # two batches stayed
     monkeypatch.setattr(EvalsetStore, "_apply_rotation", original)
     resumed = hidden.rotate(to=key_id(new), batch=3)
-    assert resumed["counts"] == {"evalset_sets": 0, "evalset_cases": 4}
+    assert resumed["counts"] == {"evalset_sets": 0, "evalset_cases": 4, "evalset_labels": 0}
     assert EvalsetStore(store, ring(new, index)).check()["ready"]
     assert store.verify(evalsets=ring(new, index))["ok"]
 
@@ -304,13 +321,21 @@ def test_a_row_changed_while_it_was_re_sealed_is_left_alone(
         apply(self, table, *args)
 
     monkeypatch.setattr(EvalsetStore, "_apply_rotation", change_two_first)
-    assert hidden.rotate(to=key_id(new))["counts"] == {"evalset_sets": 1, "evalset_cases": 1}
+    assert hidden.rotate(to=key_id(new))["counts"] == {
+        "evalset_sets": 1,
+        "evalset_cases": 1,
+        "evalset_labels": 0,
+    }
     monkeypatch.setattr(EvalsetStore, "_apply_rotation", apply)
     rows = {row["id"]: row for row in cases_of(store)}
     assert gone not in {row["case_hash"] for row in rows.values()}  # not written back
     assert rows[changed["id"]]["attributes"] == elsewhere  # not overwritten
     assert rows[changed["id"]]["input"].startswith(f"v2:{key_id(old)}:")  # left as it was
-    assert hidden.rotate(to=key_id(new))["counts"] == {"evalset_sets": 0, "evalset_cases": 1}
+    assert hidden.rotate(to=key_id(new))["counts"] == {
+        "evalset_sets": 0,
+        "evalset_cases": 1,
+        "evalset_labels": 0,
+    }
     assert named_keys(store) == {key_id(new)}
     assert store.verify(evalsets=ring(new, index))["ok"]
 
@@ -338,7 +363,7 @@ def test_each_batch_checks_the_keys_again(
     with pytest.raises(MendariError, match=f"evaluation-set key {key_id(new)} was retired"):
         hidden.rotate(to=key_id(new), batch=2)
     assert [e["payload"]["counts"] for e in events(store, "evalset.rotated")] == [
-        {"evalset_sets": 1, "evalset_cases": 0}
+        {"evalset_sets": 1, "evalset_cases": 0, "evalset_labels": 0}
     ]
 
 
@@ -371,7 +396,7 @@ def test_a_value_no_key_opens_is_listed_and_the_rest_rotates(
             "key": key_id(lost),
         }
     ]
-    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 2}
+    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 2, "evalset_labels": 0}
     assert stray["id"] not in out + err  # a case is named by its hash, never its id
     code, out, _ = run(capsys, "evalset", "rotate", "--check", "--db", db_target)
     checked = json.loads(out)
@@ -526,16 +551,22 @@ def test_the_export_file_holds_no_mark(
     )
     set_id = json.loads(out)["set"]
     run(capsys, "evalset", "add", set_id, str(cases_file(tmp_path, planted(3))), *db)
+    with AuditStore(db_target) as store:  # labelled blind, at the store (LP-11h)
+        hidden = EvalsetStore(store, EvalsetKeys(key, index))
+        hidden.sample(set_id, per_stratum=3)
+        people = labellers(store, 2)
+        hidden.assign(set_id, people)
+        assert label_all(hidden, people) == 6
     for name in ("MENDARI_EVALSET_KEY", "MENDARI_EVALSET_INDEX_KEY"):
         monkeypatch.delenv(name)  # the export needs no key
     path = tmp_path / "backup" / "evalsets.jsonl"
     path.parent.mkdir()
     code, out, err = run(capsys, "evalset", "export", "--out", str(path), *db)
-    assert code == 0 and "4 row(s) written" in err
+    assert code == 0 and "10 row(s) written" in err
     header = json.loads(out)
     assert header["format"] == EXPORT_FORMAT
-    assert header["rows"] == {"evalset_sets": 1, "evalset_cases": 3}
-    assert header["key_ids"] == {key_id(key): 7}  # a header, 3 inputs, 3 attributes
+    assert header["rows"] == {"evalset_sets": 1, "evalset_cases": 3, "evalset_labels": 6}
+    assert header["key_ids"] == {key_id(key): 13}  # a header, 3 inputs, 3 attributes, 6 labels
     raw = path.read_bytes()
     for secret in (*MARKS.values(), b64(key), b64(index)):
         assert secret.encode() not in raw
@@ -574,9 +605,10 @@ def test_every_sealed_evalset_column_is_rotated_checked_verified_and_exported(
 ) -> None:
     """Each column of an `evalset_` table is sealed (`SEALED_COLUMNS`) or in the clear
     (`CLEAR_COLUMNS`), never both and never neither. Every sealed column, each filled (a frozen
-    set's freeze record and aggregates included, as a later step fills them), is re-sealed by a
-    rotation in every state, counted and opened by its check, opened by `verify` (a value moved
-    to another row breaks it), and copied by the export as stored."""
+    set's freeze record and aggregates included, as freezing fills them, LP-11i, and each
+    label's body, LP-11h), is re-sealed by a rotation in every state (one set frozen, the other
+    active), counted and opened by its check, opened by `verify` (a value moved to another row
+    breaks it), and copied by the export as stored."""
     with store._db.session(exclusive=False) as db:
         columns = {table: db.columns(table) for table in evalset_tables()}
     assert set(SEALED_COLUMNS) <= set(columns) == set(CLEAR_COLUMNS)
@@ -588,18 +620,17 @@ def test_every_sealed_evalset_column_is_rotated_checked_verified_and_exported(
     before = ring(old, index)
     hidden = EvalsetStore(store, before)
     sets = [a_set(hidden, inbox_pack), a_set(hidden, inbox_pack, org="clinic-b")]
-    for set_id in sets:
+    for set_id, org in zip(sets, (CLINIC, "clinic-b"), strict=True):
         hidden.add_cases(set_id, planted(2))
-        tamper(  # frozen, as a later step freezes a set (LP-11i), its sealed columns filled
-            store,
-            "UPDATE evalset_sets SET state = ?, freeze_record = ?, aggregates = ? WHERE id = ?",
-            (
-                "frozen",
-                before.seal("freeze", {"commitment": "c"}, set_id),
-                before.seal("aggregates", {"n": 2}, set_id),
-                set_id,
-            ),
-        )
+        # Labelled blind (LP-11h), each case by two labellers of its organization.
+        hidden.sample(set_id, per_stratum=2)
+        people = labellers(store, 2, org=org)
+        hidden.assign(set_id, people)
+        label_all(hidden, people, org=org)
+        # Frozen (LP-11i), its freeze record and aggregates sealed; the second set graded once.
+        hidden.freeze(set_id, max_runs=3, max_age_days=30, resamples=50)
+    grading = store.create_grading_key(org="clinic-b", created_by="ops", reason="the pin")
+    hidden.grade_read(sets[1], f"key:{grading['id']}", "sha256:" + "d" * 64, lambda _: None)
     filled = tokens(store)
     assert {(table, column) for table, column, _ in filled} == {
         (table, column) for table, sealed in SEALED_COLUMNS.items() for column in sealed.columns
@@ -900,7 +931,7 @@ def test_the_key_holder_rotates_checks_reindexes_and_exports_from_the_command_li
     assert code == 1 and f"is key {key_id(nxt)}, not {key_id(key)}" in err
     code, rotated, err = ran("evalset", "rotate", "--to", key_id(nxt), "--batch", "2")
     assert code == 0 and "run `mendari evalset rotate --check`" in err
-    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 3}
+    assert rotated["counts"] == {"evalset_sets": 1, "evalset_cases": 3, "evalset_labels": 0}
     code, checked, err = ran("evalset", "rotate", "--check")
     assert code == 0 and checked["ready"] and checked["read_not_retired"] == []
     assert "ready: everything opens with the current key alone" in err
@@ -936,7 +967,11 @@ def test_the_commands_refuse_without_the_keys_and_the_export_needs_none(
         assert code == 1 and err.startswith("error: hidden evaluation sets are off"), err
     out = tmp_path / "export.jsonl"
     code, printed, _ = run(capsys, "evalset", "export", "--out", str(out), "--db", db)
-    assert code == 0 and json.loads(printed)["rows"] == {"evalset_sets": 0, "evalset_cases": 0}
+    assert code == 0 and json.loads(printed)["rows"] == {
+        "evalset_sets": 0,
+        "evalset_cases": 0,
+        "evalset_labels": 0,
+    }
     assert Path(db).read_bytes() == before
     assert os.path.getsize(out) > 0
 

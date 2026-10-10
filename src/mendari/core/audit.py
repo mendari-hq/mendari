@@ -189,6 +189,20 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "evalset.created": "evalset",
     "evalset.case_added": "evalset",
     "evalset.case_removed": "evalset",
+    # Its blind labelling (LP-11h): counts and the seed, assignments, each labeller's read of a
+    # case, each label as a salted commitment, the measured aggregates' size; labellers by user id.
+    "evalset.sampled": "evalset",
+    "evalset.assigned": "evalset",
+    "evalset.case_read": "evalset",
+    "evalset.labelled": "evalset",
+    "evalset.measured": "evalset",
+    # Its lifecycle (LP-11i): frozen (its salted commitment, size and rotation rule), activated
+    # by its first grading read, each grading read (the grading key, the pack's digest, the run's
+    # number), and retired; never the content hash, a case or a label.
+    "evalset.frozen": "evalset",
+    "evalset.activated": "evalset",
+    "evalset.graded": "evalset",
+    "evalset.retired": "evalset",
 }
 # A person's, across organizations: the organization they acted for is in the payload, no row.
 PERSON_KINDS = frozenset({NOTICE_EVENT})
@@ -550,13 +564,42 @@ CREATE TABLE IF NOT EXISTS evalset_index (
     org      TEXT NOT NULL,
     PRIMARY KEY (case_id, variant, key_id)
 );
-CREATE INDEX IF NOT EXISTS evalset_index_hash ON evalset_index (hash)
+CREATE INDEX IF NOT EXISTS evalset_index_hash ON evalset_index (hash);
+CREATE TABLE IF NOT EXISTS evalset_assignments (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    set_id         TEXT NOT NULL,
+    case_id        TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
+    membership_id  TEXT NOT NULL,
+    round          TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    ended_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS evalset_assignments_set ON evalset_assignments (set_id, case_id);
+CREATE INDEX IF NOT EXISTS evalset_assignments_user
+    ON evalset_assignments (user_id, org, created_at);
+CREATE TABLE IF NOT EXISTS evalset_labels (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    set_id         TEXT NOT NULL,
+    case_id        TEXT NOT NULL,
+    assignment_id  TEXT NOT NULL UNIQUE,
+    body           TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evalset_labels_set ON evalset_labels (set_id, case_id)
 """
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
 # input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
 # rest ids, states, times and keyed hashes. The columns a set's freeze and retirement fill
 # (LP-11i) are created now, nullable, so no `_ADDED_COLUMNS` entry is needed for them; the sealed
-# freeze record is `freeze_record`, as FREEZE is a reserved word in Postgres.
+# freeze record is `freeze_record`, as FREEZE is a reserved word in Postgres. Blind labelling
+# (LP-11h) adds two: `evalset_assignments` (who labels which case, in which round: `first` or
+# `adjudication`; ended when labelled, or withdrawn when its membership no longer holds), all in
+# the clear, ids and times; and `evalset_labels` (one per assignment, its values sealed in
+# `body`, bound to the label's id). A database from before them (read-only) lacks both, and is
+# read as having none.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -2961,10 +3004,11 @@ class AuditStore(RateBuckets):
             )
 
     def registry_approval(
-        self, pack_id: str, pack_digest: str, org: str | None = None
+        self, pack_id: str, pack_digest: str, in_org: str | None = None
     ) -> dict[str, Any] | None:
-        """This organization's approval in force for exactly this pulled pack, or None."""
-        org = org or tenancy.current() or tenancy.DEFAULT_ORG
+        """The approval in force for exactly this pulled pack in one organization (`in_org`;
+        None: this request's, never every one's), or None."""
+        org = in_org or tenancy.current() or tenancy.DEFAULT_ORG
         with self._db.session(exclusive=False) as db:
             return db.one(
                 "SELECT * FROM registry_approvals WHERE org = ? AND pack_id = ? "
@@ -5000,30 +5044,53 @@ class AuditStore(RateBuckets):
         return None, counts, dict(unopenable)
 
     def _evalset_rows(self, db: _Session, after: int) -> dict[str, Any]:
-        """What `_check_evalsets` reads, after the events (in `_verify`'s session): every set and
-        case row, then the set and case events chained since the last one read (`after`), and
-        the evaluation-set keys this database knows. A row is written, and a case deleted, in the
-        transaction that chains its event, so a row read here whose event came too late for the
-        events read, or a case deleted since, has that event in the later ones: a write that
-        runs beside a verification never reads as a break. A database without the tables (an
-        older one, read as it is) has no rows. Each row's sealed values are its table's
-        `SEALED_COLUMNS` (LP-11f), so a sealed column added later is verified too."""
+        """What `_check_evalsets` reads, after the events (in `_verify`'s session): every set
+        (with its lifecycle's state, commitment, rotation rule and freeze time, LP-11i) and case
+        row, then every assignment and label row (LP-11h), then the set, case, assignment, label
+        and lifecycle events chained since the last one read (`after`), and the evaluation-set
+        keys this database knows. A row is written, and a case deleted with its assignments and
+        labels, in the transaction that chains its event, so a row read here whose event came
+        too late for the events read, or a case deleted since, has that event in the later ones:
+        a write that runs beside a verification never reads as a break. A database without the
+        tables (an older one, read as it is) has no rows. Each row's sealed values are its
+        table's `SEALED_COLUMNS` (LP-11f), so a sealed column added later is verified too."""
         from mendari.core.evalsets import SEALED_COLUMNS  # that module imports this one
 
         cases: list[dict[str, Any]] = []
         sets: list[dict[str, Any]] = []
+        assignments: list[dict[str, Any]] = []
+        labels: list[dict[str, Any]] = []
         if db.columns("evalset_sets") and db.columns("evalset_cases"):
-            of_sets = ", ".join(("id", "org", *SEALED_COLUMNS["evalset_sets"].columns))
+            # A set's lifecycle (LP-11i): its state, commitment, rotation rule and when it froze.
+            lifecycle = ("state", "commitment", "max_runs", "max_age_days", "frozen_at")
+            of_sets = ", ".join(("id", "org", *lifecycle, *SEALED_COLUMNS["evalset_sets"].columns))
             sets = db.all(f"SELECT {of_sets} FROM evalset_sets")
             sealed = SEALED_COLUMNS["evalset_cases"].columns
-            of_cases = ", ".join(("id", "set_id", "org", "case_hash", *sealed))
+            of_cases = ", ".join(("id", "set_id", "org", "case_hash", "status", *sealed))
             cases = db.all(f"SELECT {of_cases} FROM evalset_cases")
+        if db.columns("evalset_assignments") and db.columns("evalset_labels"):
+            assignments = db.all(
+                "SELECT id, org, set_id, case_id, user_id, round FROM evalset_assignments"
+            )
+            sealed = SEALED_COLUMNS["evalset_labels"].columns
+            of_labels = ", ".join(("id", "org", "set_id", "case_id", "assignment_id", *sealed))
+            labels = db.all(f"SELECT {of_labels} FROM evalset_labels")
         later = [
             (str(row["event"]), json.loads(row["payload"]))
             for row in db.all(
-                "SELECT event, payload FROM audit_events WHERE seq > ? AND event IN (?, ?, ?) "
-                "ORDER BY seq",
-                (after, "evalset.created", "evalset.case_added", "evalset.case_removed"),
+                "SELECT event, payload FROM audit_events WHERE seq > ? AND event IN "
+                "(?, ?, ?, ?, ?, ?, ?, ?) ORDER BY seq",
+                (
+                    after,
+                    "evalset.created",
+                    "evalset.case_added",
+                    "evalset.case_removed",
+                    "evalset.assigned",
+                    "evalset.labelled",
+                    "evalset.frozen",
+                    "evalset.activated",
+                    "evalset.retired",
+                ),
             )
         ]
         known: set[str] = set()
@@ -5035,36 +5102,79 @@ class AuditStore(RateBuckets):
                 )
                 if (name := str(row["name"])).startswith(EVALSET_KNOWN)
             }
-        return {"sets": sets, "cases": cases, "later": later, "known": known}
+        return {
+            "sets": sets,
+            "cases": cases,
+            "assignments": assignments,
+            "labels": labels,
+            "later": later,
+            "known": known,
+        }
 
     def _check_evalsets(
         self, events: list[dict[str, Any]], held: Mapping[str, Any], keys: EvalsetKeys | bool
     ) -> tuple[dict[str, Any] | None, dict[str, int]]:
-        """The hidden evaluation sets against the chain (LP-11e): why they fail (None when they
-        hold), and how many sets were found, how many cases were checked, left `unchecked`
-        (without `keys`) or removed since they were added.
+        """The hidden evaluation sets against the chain (LP-11e, LP-11h): why they fail (None
+        when they hold), and how many sets were found, how many cases were checked, left
+        `unchecked` (without `keys`; labels too) or removed since they were added, and how many
+        assignments and labels were checked.
 
         Every `evalset.created` has its set and every `evalset.case_added` its case (found by
         the keyed case hash it chained), in that set and organization, unless an
         `evalset.case_removed` of it follows; every row has its event (`unchained`: a row
         written without one, or kept after its removal). With `keys`, each set's sealed values
-        open under its own set (its header; its freeze record and aggregates once a freeze fills
-        them, LP-11i), each case's hash is recomputed when it is under the current index key (an
-        older one's cannot be), and each case's sealed values open, its input and attributes
-        giving the commitment its event chained (`case_ref`). Which values are sealed is
+        open under its own set (its header; its freeze record and aggregates once a freeze or a
+        measure fills them), each case's hash is recomputed when it is under the current index
+        key (an older one's cannot be), and each case's sealed values open, its input and
+        attributes giving the commitment its event chained (`case_ref`).
+
+        Every `evalset.assigned` has its assignment (its set, case, organization, labeller and
+        round), and every `evalset.labelled` its label (its set, case and organization, and the
+        assignment it answers: that labeller's, in that round), unless its case was removed
+        since, when they went with it; every assignment and label row has its event. With
+        `keys`, each label opens under its own set, case and label id, its salt and values giving
+        the commitment its event chained (`label_ref`). Which values are sealed is
         `SEALED_COLUMNS` (LP-11f). A row that fails under a key the ring holds, or names a key no
         one here held, was altered: `broken_at` its event. A row sealed under a key this
-        database knows and the ring lacks cannot be checked: `unopenable`, by key id. Counts and
-        ids only: no value is returned."""
-        from mendari.core.evalsets import SEALED_COLUMNS, case_ref  # that module imports this one
+        database knows and the ring lacks cannot be checked: `unopenable`, by key id.
+
+        A set's lifecycle (LP-11i): a set is frozen once, and from its `evalset.frozen` on its
+        row is never a draft again and keeps the commitment and limits chained, and no write
+        only a draft takes (`_DRAFT_WRITES`) is chained for it; it is activated once and
+        retired once, `active` only after its `evalset.activated` (which comes before its first
+        `evalset.graded`) and `retired` only after its `evalset.retired`, never `frozen` again
+        once activated, and nothing activates or grades it after its `evalset.retired`. A
+        state, or a commitment, without its event is counted `unchained`. With `keys`, each
+        frozen set's rows, opened, still give the content its commitment covers
+        (`frozen_holds`): its header, limits and freeze time, each case's input, final labels,
+        status and attributes (a weight re-sealed, a status changed, a case added, each break
+        it at its `evalset.frozen`; an input or a label changed breaks it earlier, at that
+        case's or label's own event); counted `frozen`, or `unchecked` without keys. Counts
+        and ids only: no value is returned."""
+        from mendari.core.evalsets import (  # that module imports this one
+            SEALED_COLUMNS,
+            case_ref,
+            label_ref,
+        )
 
         ring = keys if isinstance(keys, EvalsetKeys) else None
-        counts = {"sets": 0, "checked": 0, "removed": 0, "unchecked": 0}
+        counts = {
+            "sets": 0,
+            "checked": 0,
+            "removed": 0,
+            "unchecked": 0,
+            "assignments": 0,
+            "labels": 0,
+            "frozen": 0,
+        }
         unopenable: Counter[str] = Counter()
+        unopenable_sets: set[str] = set()  # sets a value of which this ring cannot open
         missing = set(held["known"]) - ring.ring_ids if ring is not None else set()
         current_index = f"hmac-sha256:{key_id(ring.index_key)}:" if ring is not None else None
         sets = {str(row["id"]): row for row in held["sets"]}
         cases = {str(row["case_hash"]): row for row in held["cases"]}
+        assignments = {str(row["id"]): row for row in held["assignments"]}
+        labels = {str(row["id"]): row for row in held["labels"]}
         later = held["later"]
         removed_in_chain: dict[tuple[Any, Any], int] = {}
         for event in events:
@@ -5076,23 +5186,28 @@ class AuditStore(RateBuckets):
         }
         added_later = {p.get("case") for k, p in later if k == "evalset.case_added"}
         created_later = {p.get("set") for k, p in later if k == "evalset.created"}
+        assigned_later = {p.get("assignment") for k, p in later if k == "evalset.assigned"}
+        labelled_later = {
+            p["label_ref"].get("id")
+            for k, p in later
+            if k == "evalset.labelled" and isinstance(p.get("label_ref"), Mapping)
+        }
 
-        def opened(
-            ring: EvalsetKeys, kind: Kind, token: str, set_id: str, case_id: str = ""
-        ) -> tuple[Any, bool]:
+        def opened(ring: EvalsetKeys, kind: Kind, token: str, *bound: str) -> tuple[Any, bool]:
             """The value, and whether it was opened (False: unopenable, counted); raises
             `MendariError` for a row that was altered."""
             try:
-                return ring.open(kind, token, set_id, case_id)[0], True
+                return ring.open(kind, token, *bound)[0], True
             except MendariError:
                 named = token_key(token)
                 if named not in missing:
                     raise
                 unopenable[named] += 1
+                unopenable_sets.add(bound[0])
                 return None, False
 
         def opened_row(
-            ring: EvalsetKeys, table: str, row: Mapping[str, Any], set_id: str, case_id: str = ""
+            ring: EvalsetKeys, table: str, row: Mapping[str, Any], *bound: str
         ) -> dict[str, Any] | None:
             """Each sealed value a row holds, by column (None: one was unopenable, counted);
             raises `MendariError` for a row that was altered."""
@@ -5100,23 +5215,43 @@ class AuditStore(RateBuckets):
             every = True
             for column, sealed_as in SEALED_COLUMNS[table].columns.items():
                 if row[column] is not None:
-                    values[column], was_opened = opened(
-                        ring, sealed_as, str(row[column]), set_id, case_id
-                    )
+                    values[column], was_opened = opened(ring, sealed_as, str(row[column]), *bound)
                     every = every and was_opened
             return values if every else None
 
         chained_sets: set[str] = set()
         chained_cases: set[str] = set()
+        chained_assignments: set[str] = set()
+        chained_labels: set[str] = set()
+        # A set's lifecycle (LP-11i), each kind's events by set, and a draft's writes
+        # (`_DRAFT_WRITES`): (seq, payload), in chain order.
+        stages: dict[str, dict[str, list[tuple[int, Mapping[str, Any]]]]] = {}
+        lifecycle = ("evalset.frozen", "evalset.activated", "evalset.graded", "evalset.retired")
+        checked_kinds = (
+            "evalset.created",
+            "evalset.case_added",
+            "evalset.assigned",
+            "evalset.labelled",
+            *lifecycle,
+        )
         for event in events:
             kind = event["event"]
-            if kind not in ("evalset.created", "evalset.case_added"):
+            if kind not in checked_kinds and kind not in _DRAFT_WRITES:
                 continue
             payload = json.loads(event["payload"])
             broken = {"broken_at": event["seq"]}
             set_id = str(payload.get("set"))
+            if kind in _DRAFT_WRITES:  # staged too: none follows the set's `evalset.frozen`
+                staged = stages.setdefault(set_id, {}).setdefault(kind, [])
+                staged.append((int(event["seq"]), payload))
+                if kind not in checked_kinds:
+                    continue
             if event["decision_id"] != f"evalset:{set_id}" or set_id not in sets:
                 return broken, counts
+            if kind in lifecycle:
+                staged = stages.setdefault(set_id, {}).setdefault(kind, [])
+                staged.append((int(event["seq"]), payload))
+                continue
             if kind == "evalset.created":
                 chained_sets.add(set_id)
                 counts["sets"] += 1
@@ -5130,18 +5265,78 @@ class AuditStore(RateBuckets):
             if (set_id, case) in removed_later or removed_in_chain.get((set_id, case), 0) > int(
                 event["seq"]
             ):
-                counts["removed"] += 1
+                # Its case was removed since: its assignments and labels went with it.
+                if kind == "evalset.case_added":
+                    counts["removed"] += 1
                 continue
             row = cases.get(str(case))
             if row is None or str(row["set_id"]) != set_id:
                 return broken, counts
             if str(row["org"]) != payload.get("org"):
                 return {**broken, "reason": "organization"}, counts
+            case_id = str(row["id"])
+            if kind == "evalset.assigned":
+                found = assignments.get(str(payload.get("assignment")))
+                if found is None or (
+                    str(found["set_id"]),
+                    str(found["case_id"]),
+                    str(found["user_id"]),
+                    str(found["round"]),
+                ) != (set_id, case_id, payload.get("labeller"), payload.get("round")):
+                    return broken, counts
+                if str(found["org"]) != payload.get("org"):
+                    return {**broken, "reason": "organization"}, counts
+                chained_assignments.add(str(found["id"]))
+                counts["assignments"] += 1
+                continue
+            if kind == "evalset.labelled":
+                ref = payload.get("label_ref")
+                label_id = str(ref.get("id")) if isinstance(ref, Mapping) else ""
+                label = labels.get(label_id)
+                answered = assignments.get(str(label["assignment_id"])) if label else None
+                if (
+                    ref is None
+                    or label is None
+                    or answered is None
+                    or (str(label["set_id"]), str(label["case_id"])) != (set_id, case_id)
+                    or (
+                        str(answered["case_id"]),
+                        str(answered["user_id"]),
+                        str(answered["round"]),
+                    )
+                    != (case_id, payload.get("labeller"), payload.get("round"))
+                ):
+                    return broken, counts
+                if str(label["org"]) != payload.get("org"):
+                    return {**broken, "reason": "organization"}, counts
+                chained_labels.add(label_id)
+                if ring is None:
+                    counts["unchecked"] += 1
+                    continue
+                try:
+                    values = opened_row(ring, "evalset_labels", label, set_id, case_id, label_id)
+                    if values is None:
+                        continue
+                    body = values["body"]
+                    salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+                    made = label_ref(
+                        salt,
+                        set_id,
+                        case_id,
+                        label_id,
+                        str(label["assignment_id"]),
+                        body.get("values"),
+                    )
+                except (MendariError, ValueError, AttributeError):
+                    return broken, counts
+                if made != ref.get("sha256"):
+                    return broken, counts
+                counts["labels"] += 1
+                continue
             chained_cases.add(str(case))
             if ring is None:
                 counts["unchecked"] += 1
                 continue
-            case_id = str(row["id"])
             try:
                 under_current = bool(current_index) and str(case).startswith(str(current_index))
                 if under_current and ring.case_hash(set_id, case_id) != case:
@@ -5157,19 +5352,145 @@ class AuditStore(RateBuckets):
             if made != payload.get("case_ref"):
                 return broken, counts
             counts["checked"] += 1
+        refused, unchained_states = _check_frozen(held, stages, ring, unopenable_sets, counts)
+        if refused is not None:
+            return refused, counts
         listed = chained_sets | created_later
-        unchained = sum(
-            1
-            for hashed, row in cases.items()
-            if hashed not in chained_cases
-            and hashed not in added_later
-            and (str(row["set_id"]), hashed) not in removed_later
-        ) + sum(1 for set_id in sets if set_id not in listed)
+        unchained = (
+            unchained_states
+            + sum(
+                1
+                for hashed, row in cases.items()
+                if hashed not in chained_cases
+                and hashed not in added_later
+                and (str(row["set_id"]), hashed) not in removed_later
+            )
+            + sum(1 for set_id in sets if set_id not in listed)
+            + sum(
+                1
+                for found in assignments
+                if found not in chained_assignments and found not in assigned_later
+            )
+            + sum(
+                1 for found in labels if found not in chained_labels and found not in labelled_later
+            )
+        )
         if unchained:
             return {"unchained": unchained}, counts
         if unopenable:  # the chain holds; these rows cannot be checked with this ring
             return {"unopenable": dict(unopenable)}, counts
         return None, counts
+
+
+# The writes only a draft set takes (LP-11i): none of a set's is chained after its
+# `evalset.frozen` (`freeze`'s own removals, with `drop_unsampled`, come before it).
+_DRAFT_WRITES = (
+    "evalset.case_added",
+    "evalset.case_removed",
+    "evalset.sampled",
+    "evalset.assigned",
+    "evalset.case_read",
+    "evalset.labelled",
+    "evalset.measured",
+)
+
+
+def _check_frozen(
+    held: Mapping[str, Any],
+    stages: Mapping[str, Mapping[str, list[tuple[int, Mapping[str, Any]]]]],
+    ring: EvalsetKeys | None,
+    unopenable_sets: set[str],
+    counts: dict[str, int],
+) -> tuple[dict[str, Any] | None, int]:
+    """Each set's lifecycle against its events (`_check_evalsets`, LP-11i): why it fails (None
+    when it holds), and how many sets hold a state or a commitment without its event. `stages`
+    is each set's lifecycle events and draft writes (`_DRAFT_WRITES`) chained among those read,
+    by kind; the events chained since (`held["later"]`) excuse a state written after them. With
+    `ring`, a frozen set's rows are recomputed against its commitment (`frozen_holds`), unless
+    one of its values is unopenable here (counted already); `counts` gains `frozen` (or
+    `unchecked`, without a ring)."""
+    from mendari.core.evalsets import (  # that module imports this one
+        ACTIVE,
+        DRAFT,
+        FROZEN,
+        RETIRED,
+        frozen_holds,
+        kept_as_chained,
+    )
+
+    later = held["later"]
+    frozen_later = {p.get("set") for k, p in later if k == "evalset.frozen"}
+    activated_later = {p.get("set") for k, p in later if k == "evalset.activated"}
+    retired_later = {p.get("set") for k, p in later if k == "evalset.retired"}
+    rounds = {str(found["id"]): found["round"] for found in held["assignments"]}
+    cases: dict[str, list[Mapping[str, Any]]] = {}
+    for row in held["cases"]:
+        cases.setdefault(str(row["set_id"]), []).append(row)
+    labels: dict[str, list[Mapping[str, Any]]] = {}
+    for label in held["labels"]:
+        found = {**label, "round": rounds.get(str(label["assignment_id"]))}
+        labels.setdefault(str(label["set_id"]), []).append(found)
+    unchained = 0
+    for row in sorted(held["sets"], key=lambda row: str(row["id"])):
+        set_id, state = str(row["id"]), str(row["state"])
+        staged = stages.get(set_id, {})
+        frozen = staged.get("evalset.frozen", [])
+        if not frozen:
+            # A state, or a commitment, written without its event (unless it came after them).
+            if (state != DRAFT or row["commitment"] is not None) and set_id not in frozen_later:
+                unchained += 1
+            continue
+        (seq, chained), *again = frozen
+        if again:  # a set freezes once
+            return {"broken_at": again[0][0]}, unchained
+        if state == DRAFT or not kept_as_chained(row, chained):
+            return {"broken_at": seq}, unchained
+        # A draft's write after the freeze: the set was a draft again, whatever its state now.
+        written = [at for kind in _DRAFT_WRITES for at, _ in staged.get(kind, []) if at > seq]
+        if written:
+            return {"broken_at": min(written)}, unchained
+        activated = staged.get("evalset.activated", [])
+        retired = staged.get("evalset.retired", [])
+        graded = staged.get("evalset.graded", [])
+        if len(activated) > 1:  # a set activates once
+            return {"broken_at": activated[1][0]}, unchained
+        if len(retired) > 1:  # and retires once
+            return {"broken_at": retired[1][0]}, unchained
+        if retired:  # a retired set is never read, nor activated, again
+            after = [at for at, _ in (*activated, *graded) if at > retired[0][0]]
+            if after:
+                return {"broken_at": min(after)}, unchained
+        if activated and state == FROZEN:
+            return {"broken_at": activated[0][0]}, unchained
+        if retired and state != RETIRED:
+            return {"broken_at": retired[0][0]}, unchained
+        if graded and (not activated or graded[0][0] < activated[0][0]):
+            return {"broken_at": graded[0][0]}, unchained  # the first read activates it first
+        if (state == ACTIVE and not activated and set_id not in activated_later) or (
+            state == RETIRED and not retired and set_id not in retired_later
+        ):
+            unchained += 1
+            continue
+        if ring is None:
+            counts["unchecked"] += 1
+            continue
+        if set_id in unopenable_sets:
+            continue  # counted by key id: this ring cannot recompute it
+        try:
+            holds, _ = frozen_holds(
+                ring,
+                set_id,
+                row,
+                cases.get(set_id, []),
+                labels.get(set_id, []),
+                str(chained.get("commitment")),
+            )
+        except (MendariError, ValueError, KeyError, TypeError, AttributeError):
+            holds = False
+        if not holds:
+            return {"broken_at": seq}, unchained
+        counts["frozen"] += 1
+    return None, unchained
 
 
 def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:

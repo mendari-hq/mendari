@@ -82,7 +82,7 @@ async function boot() {
   const known = (id) => state.packs.some((p) => p.id === id);
   const first = defaultPack(state.packs);
   const saved = storageGet("oh.pack", first);
-  await switchPack([packInAddress(), saved].find(known) ?? first);
+  switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
   select.addEventListener("change", async () => {
     await switchPack(select.value);
     render();
@@ -104,11 +104,11 @@ async function boot() {
 // list. Without one, the pack last chosen here. Hash links keep the query, so no link builds it.
 const packInAddress = () => new URLSearchParams(location.search).get("pack");
 
-async function switchPack(packId) {
+function switchPack(packId) {
   $("#pack-select").value = packId;
   storageSet("oh.pack", packId);
   history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
-  await loadPack(packId);
+  return loadPack(packId);
 }
 
 // The patient view's link names the launch the window shows ("#patient/<launch id>"): the one in

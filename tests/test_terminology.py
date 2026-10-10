@@ -56,9 +56,12 @@ PINNED = {
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
-        # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; and in
-        # LP-11f: their keys' rotation batch and the index rebuilt.
-        "CodeSystem/audit-administrative-event": "09676a7f9891b667",
+        # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; in
+        # LP-11f: their keys' rotation batch and the index rebuilt; in LP-11h: their blind
+        # labelling's (sampled, assigned, case read, labelled, measured); in LP-11i: their
+        # lifecycle's (frozen, activated, graded, retired); and in LP-18d: a pulled pack's
+        # approval and its revocation.
+        "CodeSystem/audit-administrative-event": "303726a13ca18e96",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
