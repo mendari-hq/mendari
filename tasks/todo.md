@@ -1029,14 +1029,33 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_landing` and the 11g sweep, which labels through the routes and allows a case's input
     only in a labeller's own next case; `evalsets_are_on` asserts the routes in memberships
     mode; the runbook's "How a labeller labels".
-  - [ ] **11k** The set-management routes (`curate`).
+  - [ ] **11k** (PR open) The set-management routes (`curate`, mounted as 11j's: memberships
+    mode with both keys): `GET /api/evalsets` (the organization's sets: id, name, pack, state,
+    when made, cases), `GET /api/evalsets/{set_id}` (name, pack and questions; state,
+    commitment, rule, runs used and left; cases by status and each labeller's work by user id;
+    the stored aggregates with `measured_at`, null before `evalset agreement`/`coverage` or
+    freeze) and `POST /api/evalsets/{set_id}/sample`, `/assignments` and `/adjudication`
+    (`evalset.sampled`, `evalset.assigned`; counts only); another organization's set, an
+    unknown and a malformed id are one `404` (`NoEvalset`, `NO_SET`, naming no id), decided in
+    the store (`org` on `sample`, `assign`, `adjudicate`, `show` and `progress`; new
+    `named_sets` and `summary`); closed answer models pinned field by field down to the
+    aggregates; one `*` rule under `/api/evalsets` before the catch-all, its paths `admin` in
+    claims mode; no rate-limit class (an administrator's writes); security-log events
+    `evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned` with set ids only
+    (`no_set` refusals with none); the `Evaluation sets` OpenAPI tag and the `/docs` `curate`
+    row. Registered in `test_auth`, `test_shipped`, `test_two_organizations` (each
+    administrator refused the other's set and labellers, served its own), `test_memberships`,
+    `test_limits`, `test_security_log`, `test_landing`, `test_hosted_data` and the 11g sweep,
+    whose administrators draw, assign, adjudicate and read through the routes (conflict 57
+    amended: a set's answer to its curators may name label words); threat model I13 and E11;
+    the runbook's "Curating from the dashboard API".
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
   - [ ] **11m** The labelling screen.
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
-  **Owner decisions still open** (none blocks 11a to 11j; the hosted site mounts no labelling
-  route until the first is settled): how labellers reach the hosted site
+  **Owner decisions still open** (none blocks 11a to 11k; the hosted site mounts no labelling
+  or curating route until the first is settled): how labellers reach the hosted site
   (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
   rotation numbers (maximum grading runs and age, both required at freeze); what settles a
   three-way adjudication split; whether remote providers may grade hidden sets (LP-17); raw or

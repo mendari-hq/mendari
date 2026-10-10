@@ -402,12 +402,18 @@ def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
     return key, index
 
 
-# The routes hidden evaluation sets mount in memberships mode (LP-11j: a labeller's).
+# The routes hidden evaluation sets mount in memberships mode (LP-11j: a labeller's; LP-11k: an
+# organization's curators').
 EVALSET_MEMBERSHIPS_ROUTES = frozenset(
     {
         ("GET", "/api/labelling"),
         ("GET", "/api/labelling/next"),
         ("POST", "/api/labelling/{assignment_id}"),
+        ("GET", "/api/evalsets"),
+        ("GET", "/api/evalsets/{set_id}"),
+        ("POST", "/api/evalsets/{set_id}/sample"),
+        ("POST", "/api/evalsets/{set_id}/assignments"),
+        ("POST", "/api/evalsets/{set_id}/adjudication"),
     }
 )
 
@@ -417,7 +423,8 @@ def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
     (LP-11g, conflict 37: with them off, their routes are not mounted and the inventory passes on
     nothing): health names, to a reader (`headers`), the ids of this environment's
     evaluation-set keys; and in memberships mode the routes they mount there are mounted (LP-11j:
-    a labeller's). Claims mode mounts none of them until the grading route (LP-11l)."""
+    a labeller's; LP-11k: its curators'). Claims mode mounts none of them until the grading
+    route (LP-11l)."""
     keys = evalset_keys()
     assert keys is not None, "turn them on first: evalset_on(monkeypatch)"
     shown = client.get("/api/health", headers=dict(headers)).json()
@@ -430,7 +437,7 @@ def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
             if isinstance(route, APIRoute)
             for method in route.methods or ()
         }
-        assert mounted >= EVALSET_MEMBERSHIPS_ROUTES, "memberships mode mounts a labeller's routes"
+        assert mounted >= EVALSET_MEMBERSHIPS_ROUTES, "memberships mode mounts the sets' routes"
 
 
 def evalset_keys_for_test() -> EvalsetKeys:

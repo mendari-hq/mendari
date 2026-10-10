@@ -49,7 +49,10 @@ replacement), `auth.key.replaced_used` (a rotated key used during its overlap, o
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
 `evalset.case.read` (a labeller shown their next case of a hidden evaluation set, LP-11j: the
 set's id) and `evalset.labelled` (their label recorded: the set's id; or refused as
-`no_assignment`, with no id), and `error.unhandled`.
+`no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
+`evalset.adjudication.assigned` (an organization's curator drawing a set's cases, assigning them
+and adjudicating disputes, LP-11k: the set's id and how many were drawn or assigned; or refused
+as `no_set`, an unknown set or another organization's, with no id), and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

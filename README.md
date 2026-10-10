@@ -875,8 +875,14 @@ content; `show` reads its state, commitment, runs left and aggregates, and `reti
 publishing nothing. A labeller labels through their own routes, mounted only in memberships mode
 with both keys (`GET /api/labelling` for their counts, `GET /api/labelling/next` for their next
 case, its input and the questions only, each read chained, and `POST /api/labelling/{id}` for
-their label); an administrator never labels, and no key or token reaches them. The dashboard's
-labelling screen and the grading route come in later steps.
+their label); an administrator never labels, and no key or token reaches them. The
+organization's administrators follow and run the labelling through their own routes, mounted
+likewise: `GET /api/evalsets` lists its sets, `GET /api/evalsets/{id}` reads one (its state,
+commitment and runs left, its cases by status, each labeller's work by user id, and the
+aggregates the key holder stored; never a case), and `POST /api/evalsets/{id}/sample`,
+`/assignments` and `/adjudication` draw, assign and adjudicate as the commands do; another
+organization's set is a `404` like an unknown one, and no route measures, freezes or retires.
+The dashboard's labelling and management screens and the grading route come in later steps.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

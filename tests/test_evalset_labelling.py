@@ -510,7 +510,9 @@ def test_sampling_is_seeded_within_strata_and_records_weights(world: World) -> N
         ({"cases": 0}, "1 case or more"),
     ):
         with pytest.raises(MendariError, match=reason):
-            hidden.sample(world.set_id, **given)
+            hidden.sample(
+                world.set_id, per_stratum=given.get("per_stratum"), cases=given.get("cases")
+            )
     # The weights sit beside the attributes, outside each case's commitment.
     assert store.verify(evalsets=world.keys)["ok"]
     text = json.dumps([e["payload"] for e in events(store, "evalset.sampled")])

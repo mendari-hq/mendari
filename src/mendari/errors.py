@@ -78,6 +78,12 @@ class LabelError(MendariError):
     question, never a value given (a `422` on the labelling route, LP-11j)."""
 
 
+class NoEvalset(MendariError):
+    """A hidden evaluation set that is unknown, or another organization's to a route acting for
+    one: one refusal for both (`core/evalsets.py` `NO_SET`, naming no id), a `404` on the
+    set-management routes (LP-11k), as an id that names nothing is."""
+
+
 class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when

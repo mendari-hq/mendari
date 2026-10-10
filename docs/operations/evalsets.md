@@ -8,9 +8,11 @@ a set, adding and removing its cases, drawing them for labelling, assigning them
 following the labelling, adjudicating disputes and measuring agreement and coverage, freezing a
 set under its rotation rule, reading it, retiring it, listing sets and verifying them, rotating
 the keys, rebuilding the hidden-case index and the sealed export, all from the key holder's
-command line; and how a labeller labels, through their own routes (LP-11j). Nothing grades
-against a set yet, and labellers have no screen yet: the grading route and the labelling screen
-come in later steps of LP-11.
+command line; how a labeller labels, through their own routes (LP-11j); and how an
+organization's administrators list and read its sets and draw, assign and adjudicate their
+cases through theirs (LP-11k). Nothing grades against a set yet, and there is no screen over
+these routes yet: the grading route and the labelling and management screens come in later
+steps of LP-11.
 
 ## Where sets live
 
@@ -134,16 +136,18 @@ Labelling is blind: each drawn case is labelled by two clinicians who never see 
 answer, the case's attributes, its author's intended label or a model's output; a case they
 disagree on goes to a third, who works from the input alone, and the majority on each question
 settles it. The key holder draws the cases, assigns them and adjudicates disputes from the
-command line; the labellers label through their own routes ([How a labeller
-labels](#how-a-labeller-labels); the screen over them comes in a later step of LP-11). Each
-command takes the server's database from `--db` or `$DATABASE_URL`, works on a draft set only,
-and prints ids, case hashes, user ids and counts.
+command line, or the set organization's administrators do through their routes ([Curating from
+the dashboard API](#curating-from-the-dashboard-api)); the labellers label through their own
+routes ([How a labeller labels](#how-a-labeller-labels); the screens over both come in later
+steps of LP-11). Each command takes the server's database from `--db` or `$DATABASE_URL`, works
+on a draft set only, and prints ids, case hashes, user ids and counts.
 
 **Who labels.** A labeller is a person with the `labeller` role on a membership of the set's
 organization (memberships mode, [accounts](accounts.md)), named by their user id
 (`user:` and 16 hex digits, as the members list shows it). No one who manages the
 organization's hidden sets (an administrator) is ever assigned a case: separation of duties.
-Agreement and coverage are shown to the key holder only, never to a labeller.
+Agreement and coverage are shown to the key holder and to the set organization's administrators
+(`GET /api/evalsets/{set}`), never to a labeller.
 
 **1. Draw the cases.** A seeded draw within each stratum (the cases' `attributes.stratum`):
 
@@ -256,6 +260,38 @@ against the `label` rate limit, for each labeller (60 a minute, a burst of 30, u
 `MENDARI_RATE_LIMITS` sets it). The security log says `evalset.case.read` and `evalset.labelled`
 with the set's id only (a refused label: `evalset.labelled`, `no_assignment`, with no id), and
 the access line names the route's template, never an assignment's id.
+
+### Curating from the dashboard API
+
+An organization's administrators follow and run its sets' labelling through five routes of the
+server (LP-11k), mounted as a labeller's are: only on a server in memberships mode with both
+evaluation-set keys (the hosted site mounts none of them). Only a person who signed in as an
+administrator of the organization they act for (`curate`) reaches them: never a key, a token,
+an EHR launch, a labeller or another role. Each acts for that organization, never one a body, a
+query or a path names: another organization's set, an unknown id and a malformed one are one
+answer, `404`, naming no id, and nothing is written. Making a set, adding or removing its cases,
+measuring agreement and coverage, freezing and retiring stay the key holder's commands above: no
+route computes statistics, freezes or retires.
+
+| Route | What it does |
+|---|---|
+| `GET /api/evalsets` | The organization's sets, oldest first: `[{"set", "name", "pack", "state", "created_at", "cases"}]`. Nothing is recorded. |
+| `GET /api/evalsets/{set}` | One set: its `name`, `pack` and `questions` (with their labels); its `state`, `created_at`, `frozen_at`, `commitment`, `max_runs`, `max_age_days`, `runs` (`used`, `left`), `graded_until` and `retired_at`; its `cases` and their `statuses`; each labeller's assignments by user id (`labellers`: in each round, assigned, labelled, open and withdrawn); and its `aggregates`, the coverage and agreement the key holder last stored (`agreement` or `coverage`, or at freeze) with when they were measured (`measured_at`), or null before, each pair of labellers' kappa without the pair's label counts (where a pair shares few cases, those are what each answered; the key holder's commands keep them). Never a case, an input, a label given, an attribute or a case id. |
+| `POST /api/evalsets/{set}/sample` | Step 1 above: `{"per_stratum": N}` or `{"cases": N}`, and `"seed"` (0 unless given). The answer: `{"set", "drawn", "sampled", "seed"}`. Chained: `evalset.sampled`. |
+| `POST /api/evalsets/{set}/assignments` | Step 2: `{"labellers": ["user:…", ...], "seed": 0}`. The answer: `{"set", "round", "assigned", "withdrawn"}`, counts only. Chained: `evalset.assigned`, one per assignment. |
+| `POST /api/evalsets/{set}/adjudication` | Step 4: the same body and answer, for each disputed case's third labeller. |
+
+Each write works on a draft set only (a frozen, active or retired one is refused, `400`), with the
+same refusals as its command: a labeller who does not hold the labeller role in the organization,
+or who is one of its administrators (the caller too: an administrator is never assigned), refuses
+the whole run (`400`, naming the user id), as does a case left without enough labellers who qualify
+(`400`, naming no case), and nothing is written. The aggregates name the pack's labels, strata and
+languages beside counts and coefficients, never a case: keep what the set's answer shows as you
+would the set. The notice does not gate these routes: they take no data in and mint no credential.
+Like an administrator's other writes, they have no rate-limit class. The security log says
+`evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned` with the set's id and how
+many (a set refused as another organization's or unknown: `no_set`, with no id), and the access
+line names the route's template.
 
 ## Freezing a set
 
