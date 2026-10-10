@@ -73,9 +73,9 @@ clinical resources.
 
 A pack with a `guard` section, such as the AI Guard reference pack, checks a model's draft before
 a patient reads it. `POST /api/packs/{id}/guard` answers `{status, reply, outcome, recommendation,
-reasons, fallback, decision_id}`: the draft is `released` only when the decision is automated with
-a release recommendation; otherwise it is `held_for_review` or `blocked`. Never send a blocked
-draft: act on `fallback`. Here a dose above the daily maximum is blocked:
+reasons, fallback, decision_id}` and the whole `decision`: the draft is `released` only when the
+decision is automated with a release recommendation; otherwise it is `held_for_review` or
+`blocked`. Never send a blocked draft: act on `fallback`. Here a dose above the daily maximum is blocked:
 
 <!-- check: include guard.sh -->
 ```bash

@@ -166,10 +166,15 @@ function refusal(path, response, body) {
   }
 }
 
-// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); everything else has a detail.
-export const refusalText = (body) => (Array.isArray(body?.detail)
-  ? body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ")
-  : body?.detail || body?.error || "");
+// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); a FHIR route's is an
+// OperationOutcome (each issue's diagnostics, after where it is); everything else has a detail.
+export const refusalText = (body) => {
+  if (Array.isArray(body?.detail)) return body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ");
+  if (body?.resourceType === "OperationOutcome") {
+    return (body.issue ?? []).map((i) => [i?.expression?.join(", "), i?.diagnostics].filter(Boolean).join(": ")).join("; ");
+  }
+  return body?.detail || body?.error || "";
+};
 
 // Memberships mode: a file to save, fetched so it carries the window's organization as every other
 // request does (a link cannot send a header), and refused, saying so, once that organization is

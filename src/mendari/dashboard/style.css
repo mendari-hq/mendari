@@ -860,6 +860,8 @@ dialog.confirm .error { color: var(--color-danger); font-weight: var(--weight-me
 /* Try it on record packs: a form generated from the pack's input schema (form.js), or the JSON. */
 .try-mode { justify-content: space-between; margin-bottom: var(--space-2); }
 .try-mode-label { font-weight: var(--weight-semibold); }
+/* A refusal said where it happened: under the FHIR input, above the PAS request's button. */
+:is(.sf-field, .panel) > .error { margin: var(--space-2) 0 0; color: var(--color-danger); font-weight: var(--weight-medium); }
 .sf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3) var(--space-4); }
 .sf-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .sf-field.wide, .sf-fieldset, .sf-group { grid-column: 1 / -1; }

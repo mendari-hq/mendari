@@ -79,6 +79,9 @@ def test_the_guard_endpoint_is_audited(db_target: str) -> None:
     assert blocked["fallback"].startswith("Do not send the draft")
     held = client.post(url, json=SAFE).json()
     assert (held["status"], held["recommendation"]) == ("held_for_review", "pass")
+    # The whole decision too, as …/decide answers it (the dashboard shows it in words).
+    assert held["decision"]["id"] == held["decision_id"] and held["decision"]["answers"]
+    assert held["decision"]["outcome"] == held["outcome"]
     audited = {r["id"] for r in client.get("/api/audit?limit=10").json()}
     assert {blocked["decision_id"], held["decision_id"]} <= audited
     no_guard = client.post("/api/packs/mendari-test/trial-mini/guard", json={})

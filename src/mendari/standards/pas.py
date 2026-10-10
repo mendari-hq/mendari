@@ -66,6 +66,8 @@ X12_CODE = re.compile(r"[A-Z0-9]{1,3}")
 # The codes the chain keeps: R4's ClaimResponse.outcome, and a review action shaped as X12's.
 OUTCOMES = frozenset({"queued", "complete", "error", "partial"})
 REVIEW_ACTION = X12_CODE
+# The recommendation that makes a decision a complete request, the only one PAS sends.
+READY = "submit_ready"
 # The X12 codes a site sends, by name, and the setting that supplies each (`settings.pas_codes`).
 X12_SETTINGS = {
     # Required by PAS: given with the request, else the setting.
@@ -106,8 +108,8 @@ def request_bundle(
     `site_codes` are the site's X12 codes by name (`X12_SETTINGS`, from `settings.pas_codes`):
     what the request and the order do not give."""
     now = now or datetime.now(UTC)
-    if decision.get("recommendation") != "submit_ready":
-        raise PasError("only a complete request (submit_ready) is sent for prior authorization")
+    if decision.get("recommendation") != READY:
+        raise PasError(f"only a complete request ({READY}) is sent for prior authorization")
     site = site_codes or {}
     request_type = request_type or site.get("request_type")
     certification_type = certification_type or site.get("certification_type")

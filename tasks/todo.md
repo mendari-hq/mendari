@@ -2577,6 +2577,17 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,
   dropdowns and date pickers, editable tables for lists, JSON for anything else), with the JSON
   one click away; every behaviour-test example of the four record packs round-trips unchanged
+- [x] (PR open) Try it reaches the three pack routes it had no screen for, each only where the
+  pack takes it: "Check the AI reply" (`…/guard`, a pack with a `guard` section; the answer now
+  carries the whole `decision`, so the result reads as a decision does, headed by what to do
+  with the reply); an input switch "Form | (JSON |) FHIR" (`…/fhir/decide`, a pack with a FHIR
+  mapping; pasted JSON checked to parse first, an OperationOutcome said in words under it);
+  and under a complete prior-auth request (`pas_ready` in the pack detail, `pas.READY`) the PAS
+  request built from pasted resources (prefilled from FHIR input), a refusal naming a
+  `MENDARI_PAS_` setting opening the fields the route takes, the Bundle to copy or download.
+  No X12 value in the dashboard. Tests: `tests/browser/test_try_modes.py` (with axe, both themes)
+- [ ] Try it's FHIR input starts empty: no pack ships a FHIR example of its own (the API
+  reference's is the inbox router's, in `server/api_docs.py`); a `…/fhir/example` would prefill it
 - [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
 - [ ] (PR open) The audit routes on screen: the Audit trail shows the signed daily checkpoint
   (21k; day, head, key id, "Save a copy" of the route's answer; "not set up" without a key,
