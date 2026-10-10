@@ -1409,7 +1409,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     memberships preflight counts registry approvals; one live approval a digest (409); the ADR
     says approvals do not expire and library callers are capped; tests for cross-organization
     approvals, risk 4 and the permission.
-  - [x] **18e** (PR open) A running server honours a recall (`server/recalls.py`
+  - [x] **18e** (#236, merged 2026-10-10) A running server honours a recall (`server/recalls.py`
     `RecallWatch`): for each registry its served packs came from (the marker's URL), it reads
     `GET /v1/yanks` every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set) in a thread of
     its own, https only (http to this machine), 5 s timeout, 5 MB at most; a pack it lists (id
