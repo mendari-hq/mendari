@@ -1385,7 +1385,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
     /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
     `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
-  - [x] **18d** (PR open) Origin at pull and the cap: the verified marker (`.mendari-verified`)
+  - [x] **18d** (#234, merged 2026-10-10) Origin at pull and the cap: the verified marker (`.mendari-verified`)
     is now `mendari.origin/1` JSON (registry URL, namespace, publisher type, key id, archive,
     digest, when, the recall served then), rewritten on every pull, a cached one too; one from
     before (the archive's SHA-256 alone) still reads (`core/origin.py` `pulled_record`,
