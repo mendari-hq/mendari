@@ -2,6 +2,7 @@
 // Pack-generic rendering: inputs, criteria tables, providers and what labels lead to.
 
 import { chartHtml } from "./charts.js";
+import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
 // Where a pack comes from (`origin`, from /api/packs): set by where the deployment found it, never
@@ -151,31 +152,7 @@ export function inputView(input, { restricted = false } = {}) {
     const why = state.phiMode === "off" ? "the pack keeps only its hash (audit.store_input)" : "PHI mode keeps only its hash";
     return `<div class="message muted">Input not stored: ${why}.</div>`;
   }
-  if (input.message) {
-    const m = input.message;
-    return `${m.subject ? `<div class="mt-2"><b>${esc(m.subject)}</b></div>` : ""}<div class="message">${esc(m.body ?? "")}</div>`;
-  }
-  const fields = [], texts = [], lists = [];
-  const shown = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
-  for (const [key, value] of Object.entries(input)) {
-    if (Array.isArray(value)) lists.push([key, value]);
-    else if (value !== null && typeof value === "object") Object.entries(value).forEach(([k, v]) => fields.push([`${key}.${k}`, shown(v)]));
-    else if (typeof value === "string" && value.length > 60) texts.push([key, value]);
-    else fields.push([key, shown(value)]);
-  }
-  const listView = ([key, items]) => {
-    if (!items.length) return `<div class="list-name">${esc(key)} <span class="muted">none</span></div>`;
-    if (!items.every((i) => i !== null && typeof i === "object")) return `<div class="list-name">${esc(key)} <span>${items.map((i) => esc(shown(i))).join(", ")}</span></div>`;
-    const columns = [...new Set(items.flatMap((i) => Object.keys(i)))];
-    return `<div class="list-name">${esc(key)} <span class="muted">${items.length}</span></div><div class="table-wrap"><table class="compact">
-      <tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
-      ${items.map((i) => `<tr>${columns.map((c) => `<td>${esc(i[c] === undefined ? "" : shown(i[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`;
-  };
-  return `<div class="record">
-    ${fields.length ? `<div class="chips">${fields.map(([k, v]) => `<span class="chip">${esc(k)} = ${esc(v)}</span>`).join("")}</div>` : ""}
-    ${lists.map(listView).join("")}
-    ${texts.map(([k, v]) => `<div class="list-name">${esc(k)}</div><div class="message">${esc(v)}</div>`).join("")}
-  </div>`;
+  return recordHtml(input);
 }
 
 const TONE_BADGE = { block: "o-BLOCK", review: "o-HUMAN_REVIEW", neutral: "o-ABSTAIN" };
