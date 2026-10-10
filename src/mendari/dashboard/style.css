@@ -418,6 +418,10 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 /* Controls above content sit on the page, not in a box: boxes are for objects (tables, charts,
    review items). */
 .toolbar, .report-meta { margin-top: var(--space-4); }
+/* The audit trail's signed daily checkpoint (audit.js): one line under the toolbar, its key id
+   wrapping on a phone rather than widening the page. */
+.checkpoint { margin: var(--space-3) 0; overflow-wrap: anywhere; }
+.checkpoint button { margin-left: var(--space-2); }
 
 /* Loading skeletons (skeleton.js): blocks the size of what is coming, with a slow sheen that stops
    under reduced motion. The title block matches the h1's line, so nothing moves when it arrives. */
