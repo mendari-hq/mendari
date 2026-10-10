@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from "next/link";
-import { shown } from "@/lib/figures";
 import { RISK_WORDS, search, type PackSummary } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +14,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
     <>
       <h1>Decision Packs</h1>
       <p className="lead">
-        Healthcare decisions packaged with their evidence: a Decision Card, a benchmark, a provider
-        leaderboard and a signed archive you can validate on your own data.
+        Healthcare decisions packaged as signed archives, each with a Decision Card the registry
+        rendered from the pack&apos;s own files. Validate a pack on your own data before you rely on it.
       </p>
       <form className="search" role="search" action="/">
         <label>
@@ -69,16 +68,14 @@ function PackCard({ item }: { item: PackSummary }) {
         <h3><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h3>
         <span className="mono muted">{item.id}@{item.version}</span>
         <span className="grow" />
-        {item.publisher_type ? <span className={`badge ${item.publisher_type}`}>{item.publisher_type}</span> : null}
-        <span className={`badge risk-${item.risk.level}`} title={RISK_WORDS[item.risk.level]}>Risk {item.risk.level}</span>
+        {item.checked.publisher_type ? <span className={`badge ${item.checked.publisher_type}`}>{item.checked.publisher_type}</span> : null}
+        <span className={`badge risk-${item.claimed.risk.level}`} title={`${RISK_WORDS[item.claimed.risk.level]}, declared by the publisher`}>
+          Risk {item.claimed.risk.level} (declared)
+        </span>
       </div>
       <p>{item.summary}</p>
       <div className="row">
         {item.standards.map((standard) => <span className="chip" key={standard}>{standard}</span>)}
-        <span className="grow" />
-        {item.figures?.benchmark ? (
-          <span className="muted">Benchmark accuracy {shown(item.figures.benchmark)}</span>
-        ) : null}
       </div>
     </li>
   );

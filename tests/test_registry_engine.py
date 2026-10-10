@@ -159,7 +159,10 @@ def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
     test split and the local-site example, the hub copy (a new version, so not the reference)
     decides with the same outcome, recommendation, priority, answers, evidence and reasons."""
     reference = Decision(load_pack(PACKS / name, origin="maintained"))
-    hub = Decision(load_pack(copied(tmp_path, name, version="9.9.9"), origin="hub"))
+    # The engine compared, not the origin cap (LP-18d): the pack's own policy on both.
+    hub = Decision(
+        load_pack(copied(tmp_path, name, version="9.9.9"), origin="hub"), origin_cap=False
+    )
     assert hub.pack.bounded and not reference.pack.bounded
     inputs = [case["input"] for case in load_cases(reference.pack)]
     inputs += jsonl(PACKS / name / "data" / "test.jsonl") + jsonl(DATASETS / local_site)
@@ -530,18 +533,19 @@ def test_a_registry_pack_is_never_a_community_pack(
 ) -> None:
     """It runs on the community engine and nothing more: it automates under its own policy and
     its own BLOCK rule blocks; it is labelled as from a registry. Like every pack the deployment
-    does not own (LP-16e), its pinned model gives way to the deployment's."""
+    does not own (LP-16e), its pinned model gives way to the deployment's. It automates only once
+    its organization approves its digest (LP-18d): approved here."""
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     pack = outside_sorter(tmp_path / "plain")
     assert pack.bounded and not pack.community and pack.shown_origin == "hub"
-    assert Decision(pack).decide(BILL).outcome is Outcome.AUTO
+    assert Decision(pack, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.AUTO
     assert build_provider(pack, "reader", "llm").info.model == "example/deployment-model"
 
     def blocks(manifest: dict[str, Any]) -> None:
         manifest["policy"]["rules"] = [BLOCK_RULE]
 
     blocking = outside_sorter(tmp_path / "blocking", manifest=blocks)
-    assert Decision(blocking).decide(BILL).outcome is Outcome.BLOCK
+    assert Decision(blocking, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.BLOCK
 
 
 def test_discover_lists_a_refused_registry_pack_and_serves_the_others(tmp_path: Path) -> None:

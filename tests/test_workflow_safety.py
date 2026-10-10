@@ -45,6 +45,7 @@ ALLOWED_WRITES = {
 GUARDED = {"publish-pypi", "publish-testpypi", "publish-images"}
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.(\w+)")
+EXPRESSION = re.compile(r"\$\{\{[^}]*\}\}")
 SAME_REPOSITORY = "github.event.pull_request.head.repo.full_name == github.repository"
 
 
@@ -218,7 +219,10 @@ def test_ci_checks_the_images_licences() -> None:
     # its own pull request (the generator and builder are release.yml's: test_supply_chain).
     sbom = jobs["image-sbom"]
     assert not sbom.get("if") and not _writes(sbom.get("permissions"))
-    assert not any("continue-on-error" in step or "if" in step for step in sbom["steps"])
+    # Only the Docker Hub sign-in may be skipped (a fork's pull request pulls anonymously).
+    checked = [s for s in sbom["steps"] if not s.get("uses", "").startswith("docker/login-action@")]
+    assert len(checked) == len(sbom["steps"]) - 1
+    assert not any("continue-on-error" in step or "if" in step for step in checked)
     scanned = "\n".join(step.get("run", "") for step in sbom["steps"])
     for command in (
         '--attest "type=sbom,generator=',
@@ -282,15 +286,41 @@ def test_no_expression_is_pasted_into_a_shell_script(path: Path) -> None:
             assert "${{" not in step.get("run", ""), f"{path.name}: {step.get('name', step)}"
 
 
+def _unguarded_secrets(job: dict[str, Any]) -> set[str]:
+    # A job may use a secret if the job runs only for this repository's own pull requests, or if
+    # each use is guarded where it is made: by its step's `if`, or inside the expression itself
+    # (a service's credentials, which have no `if`). The rest of the job still runs for a fork.
+    if SAME_REPOSITORY in str(job.get("if", "")):
+        return set()
+    steps = [s for s in job.get("steps", []) if SAME_REPOSITORY not in str(s.get("if", ""))]
+    used: set[str] = set()
+    for expression in EXPRESSION.findall(yaml.safe_dump(dict(job, steps=steps), width=10_000)):
+        if SAME_REPOSITORY not in expression:
+            used |= set(SECRET.findall(expression)) - {"GITHUB_TOKEN"}
+    return used
+
+
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
 def test_secrets_never_reach_a_fork_pull_request(path: Path) -> None:
     workflow = _workflow(path)
     if "pull_request" not in _triggers(workflow):
         return
     for name, job in workflow["jobs"].items():
-        used = set(SECRET.findall(yaml.safe_dump(job, width=10_000))) - {"GITHUB_TOKEN"}
-        if used:
-            assert SAME_REPOSITORY in str(job.get("if", "")), f"{path.name}:{name}"
+        assert not _unguarded_secrets(job), f"{path.name}:{name}"
+
+
+def test_the_secret_guard_catches_an_unguarded_use() -> None:
+    secret = "${{ secrets.DOCKERHUB_TOKEN }}"
+    guarded = f"${{{{ {SAME_REPOSITORY} && secrets.DOCKERHUB_TOKEN || '' }}}}"
+    assert _unguarded_secrets({"steps": [{"with": {"password": secret}}]})
+    assert _unguarded_secrets({"services": {"db": {"credentials": {"password": secret}}}})
+    assert not _unguarded_secrets(
+        {"steps": [{"if": SAME_REPOSITORY, "with": {"password": secret}}]}
+    )
+    assert not _unguarded_secrets({"services": {"db": {"credentials": {"password": guarded}}}})
+    assert not _unguarded_secrets(
+        {"if": SAME_REPOSITORY, "steps": [{"with": {"password": secret}}]}
+    )
 
 
 def test_every_file_has_a_code_owner() -> None:

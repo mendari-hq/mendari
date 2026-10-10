@@ -21,6 +21,7 @@ from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import (
     MAX_COMMUNITY_TEXT_CHARS,
+    UNAPPROVED,
     bounded_reader,
     long_text,
     shape_problem,
@@ -219,6 +220,8 @@ class Decision:
         governance: GovernanceOverride | None = None,
         governance_source: Callable[[Pack], GovernanceOverride | None] | None = None,
         hold_source: Callable[[Pack], str | None] | None = None,
+        origin_approval: Callable[[Pack], bool] | None = None,
+        origin_cap: bool = True,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
@@ -228,7 +231,13 @@ class Decision:
         for each decision instead (a deployment's recorded approvals, per organization).
         `deadline_s` is how long each decision's remote calls may take together (default: the
         deployment's `MENDARI_DECISION_DEADLINE_S`, `providers/deadline.py`); each decision
-        starts its own clock, which is never kept here (one Decision serves every thread)."""
+        starts its own clock, which is never kept here (one Decision serves every thread).
+
+        A pack from a registry never automates until its organization approves its digest
+        (`origin_approval`, the deployment's `registry_approvals`; without one, never), nor while
+        the registry recalled it (LP-18d, ADR-0012): AUTO becomes HUMAN_REVIEW, as under a hold.
+        Nothing in the pack lifts it. `origin_cap=False` is only for checking the pack's own
+        policy (`mendari test`, `mendari eval`), never for serving."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
@@ -238,6 +247,8 @@ class Decision:
         self.governance_source = governance_source
         # Why automation is held for this pack now (an operator's automation hold), or None.
         self.hold_source = hold_source
+        self.origin_approval = origin_approval
+        self.origin_cap = origin_cap
         self.store = store
         self.budget = budget
         self.fhir_validation = fhir_validation
@@ -258,6 +269,22 @@ class Decision:
             from mendari.core.caps import patterns_on_keys
 
             self._count_keys = patterns_on_keys(pack.input_schema)
+
+    def _origin_holds(self) -> list[str]:
+        """Why a pack from a registry may not automate now: not approved by this organization
+        for its digest, or recalled when it was pulled (its verified marker records the recall
+        the registry served then)."""
+        if not self.origin_cap or self.pack.origin != "hub":
+            return []
+        held = []
+        if self.origin_approval is None or not self.origin_approval(self.pack):
+            held.append(UNAPPROVED)
+        recall = self.pack.pulled.get("yank")
+        if isinstance(recall, Mapping):
+            severity = recall.get("severity")
+            known = severity if severity in ("low", "medium", "high", "critical") else "unknown"
+            held.append(f"recalled by its registry ({known})")
+        return held
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
@@ -449,6 +476,8 @@ class Decision:
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None
+                origin_holds = self._origin_holds()
+                hold = "; ".join(filter(None, [*origin_holds, hold])) or None
                 if over_quota is not None:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
@@ -461,6 +490,7 @@ class Decision:
                     variants,
                     community=self.pack.community,
                     hold=hold,
+                    blocks_to_person="; ".join(origin_holds) or None,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:

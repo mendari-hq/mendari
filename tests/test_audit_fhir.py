@@ -234,6 +234,8 @@ def test_reads_and_purges_of_encrypted_inputs_are_exported(
 NOT_ON_A_DECISION = {
     "governance.approved",
     "governance.revoked",
+    "registry_pack.approved",
+    "registry_pack.revoked",
     "deployment.recorded",
     "key.created",
     "key.revoked",

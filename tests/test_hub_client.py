@@ -109,6 +109,32 @@ def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     assert resolve_pack("site-a/inbox").digest == pack.digest  # the cache is on the search path
 
 
+def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
+    hub: Hub, tmp_path: Path
+) -> None:
+    """The LP-18a review: the registry shows no uploaded benchmark or leaderboard, but the
+    engine's pack detail and `mendari card` did, once the pack was pulled. A pack from a registry
+    is shown as the registry renders it (ADR-0012); the same pack of one's own keeps its own."""
+    from fastapi.testclient import TestClient
+
+    from mendari.core.card import card_of
+    from mendari.server.app import create_app
+
+    token, key = hub.namespace("site-a")
+    pack = copy_pack(tmp_path, "site-a/inbox")
+    assert (pack.root / "evals" / "benchmark.json").is_file()
+    hub.client(token).push(pack, key)
+    pulled = pull("site-a/inbox", hub.client())
+    card = card_of(pulled)
+    assert "The registry shows no figure it did not compute itself" in card
+    assert "## Provider comparison" not in card and "## Provider comparison" in card_of(pack)
+    with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
+        detail = engine.get("/api/packs/site-a/inbox").json()
+    assert detail["origin"] == "hub"
+    assert detail["benchmark"] is None and detail["leaderboard"] is None
+    assert detail["card_markdown"] == card
+
+
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -332,30 +358,22 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert json.loads(capsys.readouterr().out) == []
 
 
-def test_search_lists_every_entry_whatever_its_figures(
+def test_search_shows_no_figure_a_registry_sends(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A registry entry is someone else's data: a figure that is not a share of n cases shows
-    as n/a, and the listing goes on."""
+    """A registry before LP-18 served the publisher's own benchmark beside each entry: the
+    listing never shows an uploaded number (ADR-0012), and says the risk level is declared."""
     import contextlib
 
     from mendari import cli
 
-    def entry(name: str, accuracy: object, n: object) -> dict[str, object]:
-        return {
-            "id": f"site-a/{name}", "version": "1.0.0", "risk": {"level": 1},
-            "publisher_type": "community", "summary": name,
-            "benchmark": {"dataset": "test", "accuracy": accuracy, "n": n},
-        }  # fmt: skip
-
-    found = [
-        entry("over", 1.5, 10),
-        entry("negative", 0.9, -1),
-        entry("huge", 0.5, 10**400),  # beyond any dataset (and any float)
-        entry("not-whole", 0.999, 7),  # not a share of 7 cases
-        entry("overflow", 1e308, 600),  # finite, but its k is not: it was multiplied first
-        entry("fine", 0.9, 10),
-    ]
+    found: list[dict[str, object]] = [
+        {
+            "id": "site-a/fine", "version": "1.0.0", "risk": {"level": 1},
+            "publisher_type": "community", "summary": "fine",
+            "benchmark": {"dataset": "test", "accuracy": 0.9, "n": 10},
+        }
+    ]  # fmt: skip
 
     class Registry:
         def search(self, **_: object) -> list[dict[str, object]]:
@@ -364,10 +382,8 @@ def test_search_lists_every_entry_whatever_its_figures(
     monkeypatch.setattr(cli, "_registry_client", lambda _: contextlib.nullcontext(Registry()))
     assert main(["search"]) == 0
     out = capsys.readouterr().out
-    assert "site-a/over@1.0.0  risk 1  community  benchmark n/a" in out
-    for name in ("negative", "huge", "not-whole", "overflow"):
-        assert f"site-a/{name}@1.0.0  risk 1  community  benchmark n/a" in out
-    assert "site-a/fine@1.0.0  risk 1  community  benchmark 9 of 10 [55.5-99.7%]" in out
+    assert "site-a/fine@1.0.0  risk 1 (declared)  community\n" in out
+    assert "benchmark" not in out and "9 of 10" not in out
 
 
 def test_without_a_registry_the_client_says_how_to_set_one(

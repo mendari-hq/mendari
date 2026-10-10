@@ -731,6 +731,7 @@ mendari keys register --namespace my-site --public-key keys/publisher.pub
 mendari push packs/my-pack --key keys/publisher.key          # build, sign, publish
 
 mendari pull mendari/referral-router                         # anyone, from that registry
+mendari yank my-site/my-pack@1.0.0 --reason "misroutes refills" --severity high --key keys/publisher.key
 mendari search referral --standard "CDS Hooks"
 mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 ```
@@ -747,7 +748,12 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
   input and a CPU budget per decision, after which a person decides. A copy of a reference pack
   of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
-  of its files, never by its manifest or the registry
+  of its files, never by its manifest or the registry. Served, a pulled pack never automates
+  until your organization approves its exact digest (`POST /api/registry-approvals`, chained;
+  `DELETE` revokes it), at any risk level, and never while the registry recalled it; nothing
+  in the pack lifts that. `mendari test` and `mendari eval` check the pack's own policy. The
+  verified marker beside a pulled pack records the registry, namespace, publisher type and
+  key it came from
   ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
@@ -758,8 +764,25 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
   (`mendari.site-report/1`); the registry lists them as unverified until sites sign them.
-- **The website** (`hub/`, Next.js) searches packs and shows their cards and leaderboards. It
-  does not show site reports until sites sign what they share.
+- **What the registry shows** is only what it checked
+  ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
+  It renders each version's Decision Card itself, from the files the pack digest covers, and
+  never shows the card, benchmark or leaderboard a publisher uploads (they stay in the signed
+  archive, unread). Every version answers two groups: `checked` (the signing key, the archive's
+  SHA-256, the digest, the engine, the card rendered here, the review status) and `claimed`
+  (the publisher, the risk level it declares, the licence and summary). Every registry write
+  is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
+  namespace, key, token, version, report and review is named by its event), and a registry
+  reviewer's review records the risk level it found beside the one the publisher declared.
+- **A recall** (`mendari yank`) is a signed record with a reason and a severity: the
+  publisher signs it with a namespace key, or the registry with its own
+  (`MENDARI_REGISTRY_SIGNING_KEY`). A recalled version is never the latest and is not
+  searched, and is still pulled by its exact version, with the record shown and its signature
+  checked against the keys you pinned. An administrator can also delete a version that must
+  not be served: its archive's bytes go, and a tombstone stays.
+- **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
+  registry's card. It shows no figure the registry did not compute, and no site report until
+  sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the

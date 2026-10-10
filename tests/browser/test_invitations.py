@@ -556,6 +556,46 @@ def test_a_request_to_join_is_refused(site: Site) -> None:
     assert site.store.open_access_requests("clinic-a") == []
 
 
+PACK_DETAIL = "**/api/packs/*/*"  # one pack's details, not its datasets, examples or evaluations
+
+
+def test_the_access_view_does_not_wait_for_the_packs_details(site: Site) -> None:
+    """The Access view reads no pack: it shows while the pack's details are still on their way (a
+    slow answer once kept it on "Loading…" past its test's wait). A view that reads the pack
+    waits for them."""
+    admin = site.window(lead(site))
+    held: list[Route] = []
+    admin.route(PACK_DETAIL, lambda route: held.append(route))  # asked for, not answered yet
+    access(admin, "members")
+    expect(row(admin, "members", "lead@example.org")).to_contain_text("Administrator")
+    assert len(held) == 1
+    admin.locator('.nav a[data-view="overview"]').click()
+    expect(admin.locator("#view")).to_have_attribute("aria-busy", "true")
+    held[0].continue_()
+    expect(admin.locator("main h1")).to_have_text("AI Guard")
+    expect(admin.locator("#view")).not_to_have_attribute("aria-busy", "true")
+
+
+def test_a_pack_that_did_not_load_is_asked_for_again(site: Site) -> None:
+    admin = site.window(lead(site))
+    asked: list[str] = []
+
+    def once_down(route: Route) -> None:
+        asked.append(route.request.url)
+        if len(asked) == 1:
+            route.fulfill(status=503, json={"detail": "down for a moment"})
+        else:
+            route.continue_()
+
+    admin.route(PACK_DETAIL, once_down)
+    admin.goto("/#overview")
+    expect(admin.locator("main h1")).to_have_text("Could not load this view")
+    expect(admin.locator("main")).to_contain_text("down for a moment")
+    admin.get_by_role("button", name="Try again").click()
+    expect(admin.locator("main h1")).to_have_text("AI Guard")
+    assert len(asked) == 2
+
+
 def test_names_and_addresses_render_as_text(site: Site) -> None:
     """A person's name (their identity provider's claim), an organization's name and an address
     can hold markup: shown as text everywhere, in a browser that would run it (no CSP)."""

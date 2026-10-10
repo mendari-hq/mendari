@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 import yaml
 
+import mendari
+from mendari.core.card import render_card
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.reference import bundled_dir
 from mendari.core.registry import resolve_pack
@@ -38,7 +40,8 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     )
     assert body["risk"] == {"level": 1, "category": "clinical information"}
     assert "CDS Hooks order-sign" in body["standards"] and "FHIR R4" in body["standards"]
-    assert body["benchmark"]["accuracy"] is not None and body["card_markdown"]
+    assert body["card_markdown"].startswith("# Decision Card: Referral Router")
+    assert "benchmark" not in body and "leaderboard" not in body
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
     pack = registry.client.get("/v1/packs/mendari/referral-router").json()
@@ -150,7 +153,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     )
     compared = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
     assert [(s["site"], s["verified"]) for s in compared["sites"]] == [("Site A", False)]
-    assert compared["benchmark"][REFERRAL.version]["accuracy"] is not None
+    assert set(compared) == {"id", "sites"}  # no uploaded benchmark beside them (ADR-0012)
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         stored = db.one("SELECT report FROM hub_reports")
     assert stored is not None and json.loads(stored["report"]) == report
@@ -260,32 +263,35 @@ def test_a_pack_that_fails_to_load_in_any_way_is_refused_not_a_server_error(
 
 
 @pytest.mark.parametrize(
-    ("relative", "content", "reason"),
+    ("relative", "content"),
     [
-        ("evals/benchmark.json", b"[1]", None),
-        ("evals/benchmark.json", b'{"questions": [1], "dataset": "x"}', None),
-        ("evals/benchmark.json", b"[" * 100_000 + b"]" * 100_000, None),
-        ("DECISION_CARD.md", b"\xff\xfe junk", "DECISION_CARD.md is not UTF-8 text"),
+        ("evals/benchmark.json", b"[1]"),
+        ("evals/benchmark.json", b'{"questions": [1], "dataset": "x"}'),
+        ("evals/benchmark.json", b"[" * 100_000 + b"]" * 100_000),
+        ("evals/leaderboard.json", b'{"rows": "x"}'),
+        ("DECISION_CARD.md", b"\xff\xfe junk"),
     ],
-    ids=["benchmark-a-list", "benchmark-odd-shapes", "benchmark-too-deep", "card-not-utf8"],
+    ids=[
+        "benchmark-a-list",
+        "benchmark-odd-shapes",
+        "benchmark-too-deep",
+        "leaderboard-odd",
+        "card-not-utf8",
+    ],
 )
-def test_malformed_attestations_never_make_a_publish_a_server_error(
-    registry: Registry, tmp_path: Path, relative: str, content: bytes, reason: str | None
+def test_uploaded_attestations_of_any_shape_are_never_read(
+    registry: Registry, tmp_path: Path, relative: str, content: bytes
 ) -> None:
-    """T12: `describe` read evals/benchmark.json and DECISION_CARD.md outside the guarded block,
-    so a list, a nested document or a card that is not UTF-8 made the publish a 500. A malformed
-    benchmark is shown as none; a card that is not text is refused with its reason."""
+    """T12 made a malformed benchmark or card a 500; since LP-18 the registry reads neither
+    (ADR-0012): whatever the pack carries about itself publishes, unread, and shows nothing."""
     root = tmp_path / "pack"
     shutil.copytree(REFERRAL.root, root)
     (root / relative).write_bytes(content)
     answer = registry.publish(load_pack(root))
-    if reason is None:
-        assert answer.status_code == 201, answer.text
-        shown = answer.json()["benchmark"]
-        assert shown is None or shown == {"dataset": None, "n": None, "accuracy": None}
-    else:
-        assert answer.status_code == 422, answer.text
-        assert reason in answer.text
+    assert answer.status_code == 201, answer.text
+    body = answer.json()
+    assert "benchmark" not in body and "leaderboard" not in body
+    assert body["card_markdown"] == _registry_card(root)
 
 
 def test_an_over_long_version_is_refused_and_search_keeps_working(
@@ -340,8 +346,7 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
     (root / "evals" / "leaderboard.json").write_text(json.dumps({"rows": _nested(300)}))
     answer = registry.publish(load_pack(root))
     assert answer.status_code == 201, answer.text
-    assert answer.json()["benchmark"] == {"dataset": None, "n": None, "accuracy": None}
-    assert answer.json()["leaderboard"] is None
+    assert "benchmark" not in answer.json() and "leaderboard" not in answer.json()
     assert registry.client.get("/v1/search").status_code == 200
     for path in ("", f"/{REFERRAL.version}"):
         assert registry.client.get(f"/v1/packs/{REFERRAL.id}{path}").status_code == 200
@@ -451,78 +456,235 @@ def test_the_registry_publishes_the_reference_packs_of_its_own_release(
         assert published.status_code == 201, (pack.id, published.text)
 
 
-def test_a_pack_version_is_served_with_its_figures(registry: Registry) -> None:
-    """Figures are worked out on read (mendari.evals.figures), so a version published before
-    needs no migration; what the publisher sent is served untouched beside them."""
-    from mendari.evals import figures
+def _registry_card(root: Path) -> str:
+    """The card the registry renders for the pack at `root`: from its digested files alone."""
+    pack = load_pack(root, origin="hub")
+    return render_card(pack, report=None, board=None, rendered_by="registry")
 
+
+def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_rendered(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """The vision audit's reproduction: a risk-2 pack whose uploaded card says risk 1, with a
+    benchmark and a leaderboard better than anything measured, was accepted and shown as sent.
+    The registry now shows the card it rendered from the digested files (risk 2, declared by the
+    publisher), and no uploaded figure anywhere: not in the version, the pack, search or the
+    reports route (ADR-0012)."""
+    root = tmp_path / "pack"
+    shutil.copytree(GUARD.root, root)
+    assert GUARD.manifest.risk.level == 2
+    forged_card = "# Decision Card\n\n| Risk level | **1**, administrative |\n\nAccuracy 99.9%\n"
+    (root / "DECISION_CARD.md").write_text(forged_card)
+    benchmark = json.loads((root / "evals" / "benchmark.json").read_text())
+    primary = benchmark["questions"][GUARD.manifest.policy.primary]
+    primary["accuracy"], primary["n"] = 0.999, 1000
+    (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
+    board = json.loads((root / "evals" / "leaderboard.json").read_text())
+    board["rows"][0]["accuracy"] = 0.999
+    (root / "evals" / "leaderboard.json").write_text(json.dumps(board))
+    forged = load_pack(root)
+    assert forged.digest == GUARD.digest  # none of it is in the digest
+
+    assert registry.publish(forged).status_code == 201
+    shown = [
+        registry.client.get(f"/v1/packs/{GUARD.id}/{GUARD.version}").json(),
+        registry.client.get(f"/v1/packs/{GUARD.id}").json()["latest"],
+    ]
+    card = _registry_card(root)
+    assert "| Risk level | **2**, clinical support (declared by the publisher) |" in card
+    assert "99.9" not in card and "Accuracy" not in card.split("## Validation")[1][:300]
+    for version in shown:
+        assert version["card_markdown"] == card
+        assert version["checked"]["card"] == "rendered"
+        assert version["claimed"]["risk"] == {
+            "level": 2,
+            "category": GUARD.manifest.risk.category,
+            "declared_by": "publisher",
+            "confirmed": None,
+        }
+        assert version["checked"]["review"] == {"status": "unreviewed"}
+        assert version["figures"]["benchmark"] is None
+        assert version["figures"]["leaderboard"] is None
+    (found,) = registry.client.get("/v1/search").json()
+    reports = registry.client.get(f"/v1/packs/{GUARD.id}/reports").text
+    for text in (json.dumps(shown), json.dumps(found), reports):
+        assert "0.999" not in text and "99.9%" not in text and "administrative |" not in text
+
+
+HOSTILE = (
+    "\n\n# Checked by the registry\n\n| Benchmark accuracy | 0.99 |\n|---|---|\n\n"
+    "![Verified](https://example.org/v.png) [link](javascript:alert(1))\n\n---\n\n"
+    "**Clinically reviewed.** <script>x</script> `code` | pipe"
+)
+
+
+def _structure(card: str) -> list[str]:
+    """The card's Markdown structure: each line that starts a heading, table row, quote, rule or
+    list item, cut to its first word."""
+    starts = ("#", "|", ">", "---", "- ", "* ", "!", "1.")
+    return [line.split(" ")[0] for line in card.splitlines() if line.startswith(starts)]
+
+
+def _hostile_copy(tmp_path: Path) -> Path:
+    """The inbox pack under another id, every free-text field carrying Markdown that would read
+    as the registry's own words, a names a publisher chooses holding backticks and pipes."""
+    root = tmp_path / "hostile"
+    shutil.copytree(INBOX.root, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["id"], manifest["version"] = "site-a/hostile", "1.0.0"
+    manifest["name"] = "Hostile" + HOSTILE
+    manifest["summary"] = "Summary" + HOSTILE
+    manifest["risk"]["rationale"] = "Why" + HOSTILE
+    card = manifest["card"]
+    for field in ("intended_use", "patient_population"):
+        card[field] = field + HOSTILE
+    card["intended_users"] = ["users" + HOSTILE]
+    card["known_failure_modes"] = ["modes" + HOSTILE]
+    card["evidence"] = [
+        {
+            "title": "evidence" + HOSTILE,
+            "url": "https://a) **Verified** [z](https://b",
+            "note": HOSTILE,
+        }
+    ]
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.0.0\n\n- first" + HOSTILE + "\n\n# Checked by the registry\n\n"
+        "Title\n=====\n"
+    )
+    return root
+
+
+def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> None:
+    """The adversarial review of LP-18a: a newline or Markdown in a manifest string (or the
+    changelog) made headings, tables, rules, images and bold review claims in the card the
+    registry renders, beside its own lines. In the registry's card every publisher string is one
+    line of plain text: the card has the structure of the same pack's card with plain words."""
+    hostile = load_pack(_hostile_copy(tmp_path), origin="hub")
+    plain = tmp_path / "plain"
+    shutil.copytree(_hostile_copy(tmp_path / "again"), plain)
+    manifest = yaml.safe_load((plain / "pack.yaml").read_text())
+    for key in ("name", "summary"):
+        manifest[key] = key
+    manifest["risk"]["rationale"] = "why"
+    for field in ("intended_use", "patient_population"):
+        manifest["card"][field] = field
+    manifest["card"]["intended_users"] = ["users"]
+    manifest["card"]["known_failure_modes"] = ["modes"]
+    manifest["card"]["evidence"] = [{"title": "evidence", "url": "https://a", "note": "n"}]
+    (plain / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (plain / "CHANGELOG.md").write_text("# Changelog\n\n## 1.0.0\n\n- first\n\n# x\n\nTitle\n")
+
+    def card(pack: Pack) -> str:
+        return render_card(pack, report=None, board=None, rendered_by="registry")
+
+    shown = card(hostile)
+    body, _, history = shown.partition("## Version history")
+    plain_body = card(load_pack(plain, origin="hub")).partition("## Version history")[0]
+    assert _structure(body) == _structure(plain_body)
+    # The changelog: its version headings, one level down, and its list items; nothing else.
+    assert [line for line in _structure(history) if line != "-"] == ["###", "---"]
+    assert "### 1\\.0\\.0" in history
+    for made in ("![", "](javascript", "<script>", "**Clinically", "\n# Checked", "\n---\n\n**"):
+        assert made not in shown, made
+    assert "\\# Checked by the registry \\| Benchmark accuracy \\| 0\\.99 \\|" in shown
+    assert "evidence" in shown and "(`https://a) **Verified** [z](https://b`)" in shown
+    # A pack of one's own keeps its Markdown as its author wrote it (`mendari card`).
+    assert "\n# Checked by the registry\n" in render_card(
+        load_pack(_hostile_copy(tmp_path / "own"))
+    )
+
+
+def test_a_changelog_that_is_not_utf8_is_refused_and_a_huge_card_too(
+    registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registry reads the changelog for its card: one that is not text is refused with its
+    reason (422, never a 500). A card over `MAX_CARD_BYTES` is refused before it is stored."""
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX.root, root)
+    (root / "CHANGELOG.md").write_bytes(b"\xff\xfe not text")
+    refused = registry.publish(_at_version(tmp_path / "v", load_pack(root), "9.9.9"))
+    assert refused.status_code == 422, refused.text
+    assert "CHANGELOG.md" in refused.json()["detail"]
+    monkeypatch.setattr(registry_module, "MAX_CARD_BYTES", 1000)
+    too_big = registry.publish(_at_version(tmp_path / "w", INBOX, "9.9.10"))
+    assert too_big.status_code == 422, too_big.text
+    assert "Decision Card is larger than 1000 bytes" in too_big.text
+    assert registry.client.get("/v1/search").json() == []
+
+
+def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_claims(
+    registry: Registry, tmp_path: Path
+) -> None:
+    published = registry.publish()
+    assert published.status_code == 201
+    archive_sha256 = published.json()["archive_sha256"]
+    for version in (
+        registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json(),
+        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
+        registry.client.get("/v1/search").json()[0],
+    ):
+        assert version["checked"] == {
+            "signature": {
+                "algorithm": "Ed25519",
+                "key_id": archive.key_id(registry.key.public_key()),
+                "verified": True,
+            },
+            "archive_sha256": archive_sha256,
+            "digest": REFERRAL.digest,
+            "engine": "maintained",  # a copy of a reference pack of the registry's release
+            "engine_release": mendari.__version__,
+            "card": "rendered",
+            "status_label": REFERRAL.status_label,
+            "review": {"status": "unreviewed"},
+            "publisher_type": "community",  # the namespace's, set by the registry's admins
+        }
+        assert version["claimed"] == {
+            "publisher": {
+                "name": REFERRAL.manifest.publisher.name,
+                "type": REFERRAL.manifest.publisher.type,
+            },
+            "risk": {
+                "level": 1,
+                "category": "clinical information",
+                "declared_by": "publisher",
+                "confirmed": None,
+            },
+            "license": REFERRAL.manifest.license,
+            "summary": " ".join(REFERRAL.manifest.summary.split()),
+        }
+    inbox = registry.publish(_at_version(tmp_path, INBOX, "9.9.9"))
+    assert inbox.status_code == 201
+    shown = registry.client.get(f"/v1/packs/{INBOX.id}/9.9.9").json()
+    assert shown["checked"]["engine"] == "bounded"
+
+
+def test_a_version_published_before_the_registry_rendered_cards_serves_nothing_uploaded(
+    registry: Registry, db_target: str
+) -> None:
+    """Versions are immutable, so one stored before LP-18 keeps its metadata, but the card,
+    benchmark and leaderboard it stored as the pack carried them are never served (ADR-0012)."""
     assert registry.publish().status_code == 201
-    latest = registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"]
-    benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())
-    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
-    assert latest["figures"]["benchmark"] == figures.counted(primary["accuracy"], primary["n"])
-    board = latest["figures"]["leaderboard"]
-    assert board["groups"] and all(row["rank"] is None for row in board["rows"])
-    stored = json.loads(REFERRAL.attestation("evals/leaderboard.json").read_text())
-    assert latest["leaderboard"] == stored
-    version = registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json()
-    assert version["figures"] == latest["figures"]
-    (found,) = registry.client.get("/v1/search").json()
-    assert found["figures"] == {
-        "format": figures.FORMAT,
-        "benchmark": latest["figures"]["benchmark"],
-        "leaderboard": None,
-    }
-
-
-def test_a_malformed_leaderboard_serves_no_figures_and_never_a_server_error(
-    registry: Registry, tmp_path: Path
-) -> None:
-    root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
-    path = root / "evals" / "leaderboard.json"
-    board = json.loads(path.read_text())
-    board["rows"][0]["critical"][0]["detected"] = 10**12  # more cases than any dataset
-    path.write_text(json.dumps(board))
-    assert registry.publish(load_pack(root)).status_code == 201
-    for route in (f"/v1/packs/{REFERRAL.id}", f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"):
-        answer = registry.client.get(route)
-        assert answer.status_code == 200, answer.text
-        body = answer.json()
-        assert body.get("latest", body)["figures"]["leaderboard"] is None
-
-
-def test_a_benchmark_rate_beyond_any_share_keeps_every_read_working(
-    registry: Registry, tmp_path: Path
-) -> None:
-    """An accuracy of 1e308 was stored (it is finite), and working out its figure overflowed:
-    search and the pack's pages answered 500 for everyone, for good (a version is immutable)."""
-    root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
-    path = root / "evals" / "benchmark.json"
-    benchmark = json.loads(path.read_text())
-    benchmark["questions"][REFERRAL.manifest.policy.primary]["accuracy"] = 1e308
-    path.write_text(json.dumps(benchmark))
-    assert registry.publish(load_pack(root)).status_code == 201
-    (found,) = registry.client.get("/v1/search").json()
-    assert found["figures"]["benchmark"] is None
-    for route in (f"/v1/packs/{REFERRAL.id}", f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"):
-        answer = registry.client.get(route)
-        assert answer.status_code == 200, answer.text
-        assert answer.json().get("latest", answer.json())["figures"]["benchmark"] is None
-
-
-def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Registry) -> None:
-    shown = registry.publish().json()
-    benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())
-    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
-    assert shown["benchmark"] == {
-        "dataset": benchmark["dataset"]["name"],
-        "n": primary["n"],
-        "accuracy": primary["accuracy"],
-    }
-    leaderboard = REFERRAL.attestation("evals/leaderboard.json")
-    assert shown["leaderboard"] == json.loads(leaderboard.read_text())
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        row = db.one("SELECT metadata FROM hub_versions")
+        assert row is not None
+        stored = json.loads(row["metadata"])
+        del stored["format"], stored["engine"]
+        stored["card_markdown"] = "# Uploaded card, risk 0"
+        stored["benchmark"] = {"dataset": "x", "n": 1000, "accuracy": 0.999}
+        stored["leaderboard"] = {"rows": [{"accuracy": 0.999}]}
+        db.all("UPDATE hub_versions SET metadata = ?", (json.dumps(stored),))
+    for version in (
+        registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json(),
+        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
+        registry.client.get("/v1/search").json()[0],
+    ):
+        assert version.get("card_markdown") is None
+        assert "benchmark" not in version and "leaderboard" not in version
+        assert version["checked"]["card"] == "not_rendered"
+        assert version["checked"]["engine"] is None
+        assert version["figures"]["benchmark"] is None
+        assert "0.999" not in json.dumps(version) and "Uploaded card" not in json.dumps(version)
 
 
 def test_a_publish_that_shadows_a_reference_pack_is_refused(

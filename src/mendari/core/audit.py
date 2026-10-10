@@ -151,6 +151,7 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "key": ("api_keys", "id", _ROW_ORG),
     "client": ("oauth_clients", "client_id", _ROW_ORG),
     "governance": ("governance_approvals", "id", _ROW_ORG),
+    "registry_approval": ("registry_approvals", "id", _ROW_ORG),  # a pulled pack (LP-18d)
     "hold": ("automation_holds", "id", "org"),
     "eval": ("eval_reports", "id", _ROW_ORG),
     "org": ("organizations", "id", "id"),  # an organization is its own
@@ -168,6 +169,8 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "client.keys_replaced": "client",  # a client's JWK Set replaced (LP-12h)
     "governance.approved": "governance",
     "governance.revoked": "governance",
+    "registry_pack.approved": "registry_approval",  # a pulled pack's digest (LP-18d)
+    "registry_pack.revoked": "registry_approval",
     "automation.held": "hold",
     "automation.lifted": "hold",
     "eval.recorded": "eval",
@@ -312,6 +315,18 @@ CREATE TABLE IF NOT EXISTS governance_approvals (
     reference    TEXT NOT NULL,
     created_at   TEXT NOT NULL,
     expires_at   TEXT NOT NULL,
+    revoked_at   TEXT,
+    revoked_by   TEXT
+);
+CREATE TABLE IF NOT EXISTS registry_approvals (
+    id           TEXT PRIMARY KEY,
+    org          TEXT NOT NULL,
+    pack_id      TEXT NOT NULL,
+    pack_digest  TEXT NOT NULL,
+    registry     TEXT NOT NULL,
+    approver     TEXT NOT NULL,
+    reference    TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
     revoked_at   TEXT,
     revoked_by   TEXT
 );
@@ -842,6 +857,12 @@ def _evalset_key_refused(what: str, shared: str) -> MendariError:
 def _later(delta: timedelta) -> str:
     """A time `delta` from now, formatted as `_now()` is (so the two compare as text)."""
     return (datetime.now(UTC) + delta).isoformat(timespec="milliseconds")
+
+
+def _just_after(stamp: str) -> str:
+    """The first time after `stamp` (a `_now()` text) that `_now()` can write: 1 ms later."""
+    later = datetime.fromisoformat(stamp) + timedelta(milliseconds=1)
+    return later.isoformat(timespec="milliseconds")
 
 
 def _canonical(value: Any) -> str:
@@ -2960,6 +2981,87 @@ class AuditStore:
                 (org, *packs[1]),
             )
 
+    # -- packs from a registry (LP-18d) ---------------------------------------------------------
+    # A pulled pack never automates until its organization approves its exact digest here, at
+    # any risk level (`core/decision.py`); a risk level 2 or 3 pack needs its governance approval
+    # too. Each approval and revocation is chained under `registry_approval:<id>`.
+
+    def approve_registry_pack(
+        self, *, pack_id: str, pack_digest: str, registry: str, approver: str, reference: str
+    ) -> dict[str, Any]:
+        if not approver.strip() or not reference.strip():
+            raise ReviewError("an approval needs an approver and a reference")
+        approval = {
+            "id": secrets.token_hex(8),
+            "org": tenancy.current() or tenancy.DEFAULT_ORG,
+            "pack_id": pack_id,
+            "pack_digest": pack_digest,
+            "registry": registry,
+            "approver": approver.strip(),
+            "reference": reference.strip(),
+            "created_at": _now(),
+        }
+        with self._db.session(exclusive=True) as db:
+            if db.one(
+                "SELECT id FROM registry_approvals WHERE org = ? AND pack_id = ? "
+                "AND pack_digest = ? AND revoked_at IS NULL",
+                (approval["org"], pack_id, pack_digest),
+            ):
+                # One live approval a digest, so revoking it stops automation at once.
+                raise ReviewError("this digest is approved already: revoke that approval first")
+            db.all(
+                "INSERT INTO registry_approvals (id, org, pack_id, pack_digest, registry, "
+                "approver, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(approval.values()),
+            )
+            self._append(
+                db, f"registry_approval:{approval['id']}", "registry_pack.approved", approval
+            )
+        return approval
+
+    def revoke_registry_approval(self, approval_id: str, *, revoked_by: str) -> bool:
+        """Revoke this organization's approval of a pulled pack: it stops automating at once."""
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT id FROM registry_approvals WHERE id = ? AND org = ? AND revoked_at IS NULL",
+                (approval_id, org),
+            )
+            if row is None:
+                return False
+            db.all(
+                "UPDATE registry_approvals SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                (_now(), revoked_by, approval_id),
+            )
+            payload = self._bound(
+                "registry_pack.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
+            )
+            self._append(db, f"registry_approval:{approval_id}", "registry_pack.revoked", payload)
+        return True
+
+    def registry_approvals(self, pack_id: str | None = None) -> list[dict[str, Any]]:
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                f"SELECT * FROM registry_approvals WHERE org = ? {packs[0]} "
+                "ORDER BY created_at DESC",
+                (org, *packs[1]),
+            )
+
+    def registry_approval(
+        self, pack_id: str, pack_digest: str, in_org: str | None = None
+    ) -> dict[str, Any] | None:
+        """The approval in force for exactly this pulled pack in one organization (`in_org`;
+        None: this request's, never every one's), or None."""
+        org = in_org or tenancy.current() or tenancy.DEFAULT_ORG
+        with self._db.session(exclusive=False) as db:
+            return db.one(
+                "SELECT * FROM registry_approvals WHERE org = ? AND pack_id = ? "
+                "AND pack_digest = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+                (org, pack_id, pack_digest),
+            )
+
     def active_approval(self, pack_id: str, pack_digest: str) -> dict[str, Any] | None:
         """The approval in force for exactly this pack, for this request's organization."""
         org = tenancy.current() or tenancy.DEFAULT_ORG
@@ -3019,7 +3121,8 @@ class AuditStore:
         """When this environment started serving this version of its FHIR CapabilityStatement:
         the time recorded when the version first replaced another one here. A statement's
         `date` must change when its version does, and never go back, so a version served again
-        after another one gets a new time.
+        after another one gets a new time. That time is later than the one it replaces even when
+        `_now()` is not (the same millisecond, or an instance whose clock is behind).
 
         The statement is public, so anyone can make this run: the answer is kept per process
         and the version is read in a shared session. Only a changed version takes the exclusive
@@ -3038,7 +3141,8 @@ class AuditStore:
             with self._db.session(exclusive=True) as db:
                 last = db.one(latest, (environment,))
                 if last is None or last["version"] != version:
-                    last = {"version": version, "since": _now()}
+                    now = _now() if last is None else max(_now(), _just_after(last["since"]))
+                    last = {"version": version, "since": now}
                     db.all(
                         "INSERT INTO capability_versions (environment, version, since) "
                         "VALUES (?, ?, ?)",
@@ -4401,6 +4505,7 @@ class AuditStore:
             ("api_keys", "org", "revoked_at IS NULL"),
             ("oauth_clients", "org", "revoked_at IS NULL"),
             ("governance_approvals", "org", "revoked_at IS NULL"),
+            ("registry_approvals", "org", "revoked_at IS NULL"),
             ("automation_holds", "org", "lifted_at IS NULL"),
             ("decisions", default, "1 = 1"),
             ("eval_reports", default, "1 = 1"),

@@ -44,7 +44,8 @@ like, server/smart_routes.py), `ratelimit.hit` (once per bucket until it has roo
 daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
-`admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`, `eval.run`,
+`admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`,
+`registry_pack.approved|revoked`, `eval.run`,
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
 `evalset.case.read` (a labeller shown their next case of a hidden evaluation set, LP-11j: the
 set's id) and `evalset.labelled` (their label recorded: the set's id; or refused as

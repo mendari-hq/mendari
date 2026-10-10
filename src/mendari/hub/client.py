@@ -14,6 +14,12 @@ must be a pack id and a semantic version before any cache path is built, the pat
 inside the cache, and the signed manifest must name that id and version. A compromised registry
 can refuse service, never delete or write outside the cache.
 
+A recalled version (a signed `mendari.yank/1` record, `hub/yank.py`) is never the latest: a
+pull names it by its exact version, and `recall_of` says what its record says and whether its
+signature holds with a key this machine pinned (the namespace's, or the registry's own, pinned
+on first use like them). A record that does not verify is still a recall: it only stops
+automation, the safe direction.
+
 Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
 is refused, unless the user accepts the new key, the way SSH treats a changed host key.
 
@@ -31,19 +37,20 @@ import os
 import shutil
 import tempfile
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.origin import MARKER, ORIGIN_FORMAT, pulled_record
 from mendari.core.pack import Pack, load_pack
 from mendari.core.spec import is_pack_id, is_version
-from mendari.errors import HubError
+from mendari.errors import HubError, MendariError
 from mendari.hub import archive
 
 TIMEOUT = 60.0
-_MARKER = ".mendari-verified"
 
 
 def config_dir() -> Path:
@@ -135,7 +142,7 @@ class RegistryClient:
                 detail = None
             status = response.status_code
             message = f"the registry answered HTTP {status}" + (f": {detail}" if detail else "")
-            raise HubError(message, status if status in (404, 409) else 422)
+            raise HubError(message, status if status in (404, 409, 410) else 422)
         return response.json()
 
     def health(self) -> dict[str, Any]:
@@ -152,7 +159,51 @@ class RegistryClient:
     def version(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
         if version:
             return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}"))
-        return dict(self._get(f"/v1/packs/{namespace}/{name}")["latest"])
+        latest = self._get(f"/v1/packs/{namespace}/{name}").get("latest")
+        if not isinstance(latest, dict):
+            raise HubError(
+                f"every version of {namespace}/{name} is recalled: pull an exact version to "
+                "read why",
+                404,
+            )
+        return dict(latest)
+
+    def registry_key(self) -> dict[str, Any] | None:
+        """The registry's own public key (which signs the recalls it makes), or None."""
+        response = self._http.get("/v1/registry-key")
+        if response.status_code == 404:
+            return None
+        return dict(self._json(response))
+
+    def yank(
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        *,
+        reason: str,
+        severity: str,
+        key: Ed25519PrivateKey,
+    ) -> dict[str, Any]:
+        """Recall a version this namespace published, signed with one of its keys."""
+        from mendari.hub import yank
+
+        meta = self.version(namespace, name, version)
+        record = yank.sign(
+            pack=f"{namespace}/{name}",
+            version=version,
+            digest=str(meta["digest"]),
+            archive_sha256=str(meta["archive_sha256"]),
+            reason=reason,
+            severity=severity,
+            signer="publisher",
+            key=key,
+            key_id=archive.key_id(key.public_key()),
+        )
+        response = self._http.post(
+            f"/v1/packs/{namespace}/{name}/{version}/yank", json={"record": record}
+        )
+        return dict(self._json(response))
 
     def archive(self, namespace: str, name: str, version: str) -> bytes:
         response = self._http.get(f"/v1/packs/{namespace}/{name}/{version}/archive")
@@ -204,11 +255,20 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     target = cache / namespace / name / version
     if not target.resolve().is_relative_to(cache / namespace / name):
         raise HubError(f"the registry answered a version that is not one of {pack_id}")
-    if (target / _MARKER).is_file() and (target / _MARKER).read_text().strip() == meta[
-        "archive_sha256"
-    ]:
+    deleted = meta.get("deleted")
+    if isinstance(deleted, Mapping):
+        # Deleted by the registry: never served, and a copy cached before is removed.
+        if target.exists():
+            shutil.rmtree(target)
+        raise HubError(
+            f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
+        )
+    _registry_key(client)  # pinned on first contact, before any recall it signs is read
+    if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
         pack = load_pack(target, origin="hub")
         if pack.digest == meta["digest"]:
+            # Cached: what the registry says of it now (a recall since) is written beside it.
+            _write_origin(target, client, namespace, meta)
             return pack
     keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
     data = client.archive(namespace, name, version)
@@ -222,11 +282,123 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
         staged = Path(scratch) / "pack"
         # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
         pack = archive.extract(verified, staged, origin="hub")
-        (staged / _MARKER).write_text(verified.sha256 + "\n")
+        _write_origin(staged, client, namespace, {**meta, "archive_sha256": verified.sha256})
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
     return load_pack(target, origin="hub")
+
+
+def _write_origin(
+    root: Path, client: RegistryClient, namespace: str, meta: Mapping[str, Any]
+) -> None:
+    """The verified marker (`core/origin.py` `pulled_record`): where the pack came from, and the
+    recall the registry served for it at this pull, if any. Written whole, then moved in."""
+    record = {
+        "format": ORIGIN_FORMAT,
+        "registry": _shown_url(client.url),
+        "namespace": namespace,
+        "publisher_type": meta.get("publisher_type"),
+        "key_id": meta.get("key_id"),
+        "archive_sha256": meta.get("archive_sha256"),
+        "digest": meta.get("digest"),
+        "pulled_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "yank": meta.get("yank") if isinstance(meta.get("yank"), Mapping) else None,
+    }
+    staged = root / f"{MARKER}.new"
+    staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    staged.replace(root / MARKER)
+
+
+def _shown_url(url: str) -> str:
+    """A registry's URL as the marker records it: scheme, host, port and path, never a user,
+    password, query or fragment."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    netloc = f"{host}:{parts.port}" if parts.port else host
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
+def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> dict[str, Any] | None:
+    """What the registry says recalls `pack` (None: nothing): its yank's severity, reason, signer
+    and time, and whether the record's signature holds with a key this machine pinned and names
+    exactly this pack, version and digest (`verified`, and `problem` when it does not); or that
+    the version was deleted. A record that does not verify is still a recall: it only stops
+    automation."""
+    from mendari.hub import yank
+
+    record = meta.get("yank")
+    deleted = meta.get("deleted")
+    if not isinstance(record, Mapping):
+        if isinstance(deleted, Mapping):
+            reason = str(deleted.get("reason", ""))
+            return {
+                "severity": "critical",
+                "reason": reason,
+                "signer": "registry",
+                "at": deleted.get("at"),
+                "verified": False,
+                "problem": "the version was deleted (no signed record)",
+                "deleted": True,
+            }
+        return None
+    shown = {name: record.get(name) for name in ("severity", "reason", "signer", "at")}
+    problem = yank.shape_problem(record)
+    if problem is None and (record["pack"], record["version"], record["digest"]) != (
+        pack.id,
+        pack.version,
+        pack.digest,
+    ):
+        problem = "it is about another pack, version or build"
+    if problem is None:
+        try:
+            if record["signer"] == "publisher":
+                namespace = pack.id.split("/")[0]
+                keys = _trusted_keys(client, namespace, str(record["key_id"]), accept_new_key=False)
+                key = keys.get(str(record["key_id"]))
+            else:
+                key = _registry_key(client)
+        except HubError as error:  # a key this machine has not pinned, say
+            key, problem = None, str(error)
+        if problem is None:
+            problem = (
+                "it is signed by a key this machine does not trust"
+                if key is None
+                else yank.problem(record, key, str(record["key_id"]))
+            )
+    return {**shown, "verified": problem is None, "problem": problem,
+            "deleted": isinstance(deleted, Mapping)}  # fmt: skip
+
+
+def _registry_key(client: RegistryClient) -> Ed25519PublicKey | None:
+    """The registry's own key, pinned on first use (as namespace keys are); None when it has
+    none or it changed since it was pinned."""
+    from mendari.core.checkpoint import key_id as raw_key_id
+    from mendari.core.checkpoint import load_public
+
+    published = client.registry_key()
+    if published is None:
+        return None
+    try:
+        key = load_public(str(published.get("public_key", "")))
+    except MendariError:
+        return None
+    if raw_key_id(key) != published.get("key_id"):
+        return None
+    path = config_dir() / "trusted_keys.json"
+    pins = _read(path)
+    pinned = pins.setdefault(client.url, {}).get(_REGISTRY_PIN)
+    if pinned is None:
+        pins[client.url][_REGISTRY_PIN] = published["key_id"]
+        _write_private(path, pins)
+    elif pinned != published["key_id"]:
+        return None
+    return key
+
+
+_REGISTRY_PIN = "@registry"  # never a namespace (a namespace is letters, digits and dashes)
 
 
 def _trusted_keys(

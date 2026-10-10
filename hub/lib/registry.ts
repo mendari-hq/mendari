@@ -7,40 +7,33 @@ export type Risk = { level: number; category: string };
 
 import type { Figure } from "./figures";
 
-export type Benchmark = { dataset: string | null; n: number | null; accuracy: number | null } | null;
-
-// A leaderboard as the registry serves it beside a version (mendari.figures/1): ranked against the
-// version's own digest, by set of records, each row with its figures. Null when malformed.
-export type ServedRow = {
-  config: string;
-  dataset: string;
-  n: number;
-  pack_version: string;
-  macro_f1?: number | null;
-  ece?: number | null;
-  latency_p50_ms?: number | null;
-  cost_per_decision_usd?: number | null;
-  rank: number | null;
-  standing: string;
-  standing_text: string | null;
-  group: number;
-  figures: {
-    accuracy: Figure | null;
-    false_automation: Figure | null;
-    automation: Figure | null;
-    critical: { question: string; label: string; detected: Figure; auto_missed: number; insufficient_evidence: boolean }[];
-    critical_named?: boolean; // the pack has several critical labels: name each, as the card does
-  };
+// What the registry checked itself at publish (ADR-0012), beside every version.
+export type Checked = {
+  signature: { algorithm: string; key_id: string; verified: boolean };
+  archive_sha256: string;
+  digest: string;
+  engine: "bounded" | "maintained" | null; // null: published before the registry recorded it
+  engine_release?: string | null; // the registry's release whose reference packs chose the engine
+  card: "rendered" | "not_rendered";
+  status_label: string | null;
+  // The newest review of this version by the registry's reviewers, if any.
+  review:
+    | { status: "unreviewed" }
+    | { status: "reviewed"; risk_level: number; matches_declared: boolean | null; reviewer: string; reviewed_at: string; note: string };
+  publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
 };
 
-export type BoardFigures = {
-  ranking: { method: string; min_positives: number };
-  groups: { dataset: string; sha256: string | null; n: number; about: string[]; label: string }[];
-  rows: ServedRow[];
+// What the publisher says about the pack, unchecked.
+export type Claimed = {
+  publisher: { name: string; type: string } | null;
+  risk: { level: number; category: string; declared_by: "publisher"; confirmed?: boolean | null };
+  license: string | null;
+  summary: string | null;
 };
 
-// What the registry works out on read beside a version; absent from an older registry.
-export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: BoardFigures | null };
+// What the registry works out on read beside a version (mendari.figures/1). It shows no figure
+// it did not compute itself, so these stay null until it computes one.
+export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: null };
 
 export type PackSummary = {
   id: string;
@@ -60,18 +53,32 @@ export type PackSummary = {
   archive_sha256: string;
   publisher_type: string | null;
   claimed_publisher: { name: string; type: string };
-  // Derived by the registry from the manifest's card.provenance; absent on versions published before it.
   status_label?: string;
-  benchmark: Benchmark;
+  checked: Checked;
+  claimed: Claimed;
   figures?: VersionFigures;
 };
 
-export type PackVersion = PackSummary & {
-  card_markdown: string | null;
-  leaderboard: Record<string, unknown> | null; // as the publisher sent it; the Hub shows figures.leaderboard
+// A recall: the signed record (hub/yank.py), checked by the registry before it stored it, and a
+// deletion, if the version's archive was removed.
+export type Yank = {
+  format: string;
+  pack: string;
+  version: string;
+  reason: string;
+  severity: "low" | "medium" | "high" | "critical";
+  signer: "publisher" | "registry";
+  key_id: string;
+  at: string;
 };
+export type Deleted = { reason: string; at: string };
+export type Recalled = { version: string; yank: Yank | null; deleted: Deleted | null };
 
-export type PackDetail = { id: string; versions: string[]; latest: PackVersion };
+// The card the registry rendered from the pack's own files; null for a version published before.
+export type PackVersion = PackSummary & { card_markdown: string | null; yank?: Yank | null; deleted?: Deleted | null };
+
+// `latest` is the newest version that is not recalled: null when every version is.
+export type PackDetail = { id: string; versions: string[]; recalled?: Recalled[]; latest: PackVersion | null };
 
 export type Namespace = {
   name: string;
@@ -122,3 +129,30 @@ export const RISK_WORDS: Record<number, string> = {
   3: "Clinical support, governance needed to automate",
   4: "Never automated",
 };
+
+export const ENGINE_WORDS: Record<string, string> = {
+  bounded: "The engine for packs from a registry: RE2 patterns, input limits and a 1 s CPU budget per decision",
+  maintained: "The maintained engine: a copy of a reference pack of the registry's own release",
+};
+
+// What the registry's review says of a version, in a sentence.
+export function reviewWords(review: Checked["review"], declared: number): string {
+  if (review.status !== "reviewed") return "Not reviewed by the registry: the risk level is the publisher's own";
+  const day = review.reviewed_at.slice(0, 10);
+  const found =
+    review.matches_declared === true
+      ? `risk level ${review.risk_level} confirmed`
+      : review.matches_declared === false
+        ? `risk level ${review.risk_level} found, where the publisher declared ${declared}`
+        : `risk level ${review.risk_level} found`;
+  return `Reviewed by the registry on ${day}: ${found}${review.note ? `. ${review.note}` : ""}`;
+}
+
+// The declared risk level, with what a review found of it.
+export function riskWords(risk: Claimed["risk"], review: Checked["review"]): string {
+  if (risk.confirmed === true) return "declared by the publisher, confirmed by the registry's review";
+  if (risk.confirmed === false && review.status === "reviewed") {
+    return `declared by the publisher; the registry's review found level ${review.risk_level}`;
+  }
+  return "declared by the publisher, not confirmed by a review";
+}

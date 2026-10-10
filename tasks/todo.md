@@ -1312,6 +1312,150 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
 
+- [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
+  (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
+  changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
+  - [x] **18a** (#228, merged 2026-10-09) The card rendered by the registry and the two groups: `render_card(pack,
+    report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
+    pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
+    the card rendered from the digested files (`rendered_by="registry"`: no validation figures,
+    the risk row "declared by the publisher") and no benchmark or leaderboard; every read
+    answers `checked` (signature key id, archive SHA-256, digest, engine `bounded` or
+    `maintained`, `card: rendered`, the status label, `review: unreviewed`, the namespace's
+    publisher type) and `claimed` (publisher, risk level `declared_by: publisher`, licence,
+    summary); a version stored before serves no card, benchmark or leaderboard
+    (`card: not_rendered`); the reports route no longer carries the benchmark; `mendari search`
+    prints no figure and says the risk is declared. The Hub: both groups on the pack page, the
+    card through `remark-gfm` 4.0.1 with `skipHtml` (tables render; a script tag, an `onerror`
+    image and a `javascript:` link in publisher text are inert, `hub_seed.py
+    --hostile-example`, run by `hub-site`), no benchmark fact or leaderboard. Regression test:
+    AI Guard (risk 2) with an uploaded risk-1 card, a 99.9% benchmark and leaderboard shows only
+    the registry's card, everywhere. ADR-0012 and this plan. Adversarial review (1 high, 2
+    medium, 4 low), all fixed: publisher text (a newline or Markdown in the name, summary, card
+    fields, rationale, evidence, criteria, names, or the changelog) made headings, tables,
+    rules, images and "Clinically reviewed" claims in the registry's card; in that card every
+    publisher string is now one line with Markdown's punctuation escaped (`_t`), every name a
+    code span its own backticks and pipes cannot break (`_c`), an evidence link only an http(s)
+    address with nothing Markdown reads, and the changelog's `## ` versions its only headings
+    (`mendari card` on a pack of one's own is unchanged, byte for byte); a pulled pack's
+    uploaded benchmark and leaderboard were still shown by the engine's pack detail and
+    `mendari card` (`card_of`: a pack from a registry as the registry renders it); the Hub
+    renders no image; a card over 1 MB is refused; `checked.engine_release` names the release
+    the engine was chosen against, and the Hub says the publisher type is the namespace's as it
+    stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
+    still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
+    alerts, not a figure shown as checked).
+  - [x] **18b** (#229, merged 2026-10-09) The registry's chain: every write appends a chained event in its transaction
+    (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
+    `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
+    SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
+    `pack.reviewed`), each naming who acted (`admin` or `token:<id>`); `mendari registry verify
+    --db` (read-only; exit 1 when broken) checks every hash and the order, and that every
+    namespace, key, token, version (with its published digest and archive), report and review
+    is named by its event, so a row written past the API is found; a registry with rows from
+    before the chain records them once (`registry.chain_started`). A review (`POST
+    …/{version}/review`, the admin token until LP-19's reviewers: the risk level found and a
+    one-line note) shows in `checked.review` (`reviewed`, the level, whether it matches) and
+    `claimed.risk.confirmed`; the newest is shown; the Hub says it in words, and `hub_seed.py
+    --hostile-example` records one that found a higher level. `test_shipped.py`: the registry's
+    seven writes chained, `NOT_CHAINED_YET` empty and its strict xfail gone. Adversarial
+    review (2 high, 3 medium, 6 low), all fixed but one low left as is: emptying the chain and
+    reopening the registry whitelisted planted rows (now `hub_meta` marks a registry once, and
+    an emptied chain is reported); `verify` checked only that rows were named, so a changed
+    publisher type, version metadata, review, report, token namespace or key, a removed row
+    and an archive's bytes went unseen (each event now holds its row's hash, rows must equal
+    their newest event's both ways, archives are re-hashed and keys' ids recomputed); the
+    unkeyed chain's limit is in ADR-0012, with its head published (`GET /v1/chain/head`,
+    printed by `verify`); the pre-chain record hashes reviews too; reviews ordered by a stored
+    ordinal; `matches_declared` null without a declared level; a note of printable characters
+    only (no C1, bidirectional or separator characters), 300 at most; `report.shared` names
+    who acted. Left: a review note is chained for good (an administrator's words about a pack;
+    the route says never case text). A signed head, as the audit chain has (LP-21k), is
+    for later.
+  - [x] **18c** (#232, merged 2026-10-09) Yank as a recall, and delete (`hub/yank.py`): a `mendari.yank/1`
+    record (pack, version, digest, archive, a one-line printable reason of at most 300, a
+    severity `low` to `critical`, the signer, its key id, a UTC time) signed over its canonical
+    JSON, by a namespace key (`mendari yank ns/name@version --reason --severity --key`,
+    `RegistryClient.yank`) or, for an administrator's recall (`POST …/yank` with a reason and a
+    severity), by the registry's `MENDARI_REGISTRY_SIGNING_KEY` (32 bytes base64; `GET
+    /v1/registry-key`; without it 409). Stored only if it names exactly that version, is within
+    10 minutes of now and its signature holds with that key; once per version (409); chained
+    `pack.yanked` (`hub_yanks`, row-hashed). A recalled version leaves latest, search and the
+    namespace's list (`latest` is null when every version is), stays served by exact version
+    with `yank`, and `GET /v1/yanks` lists every recall; its archive is never deleted by a yank.
+    Delete (`POST …/delete`, administrators, a reason): the archive answers 410 with the reason,
+    its bytes go when no version that is not deleted needs them, row and tombstone kept
+    (`hub_deletions`, `pack.deleted`), the version never published again; `verify` allows a
+    deleted version's missing archive. `mendari pull` of a recalled exact version prints the
+    record and whether its signature holds with a pinned key (`recall_of`; the registry's own
+    key pinned on first use as `@registry`); latest with every version recalled is an error.
+    The Hub lists recalled versions apart (severity, who signed, when, the reason as text), and
+    a pack with every version recalled says so. `hub_seed.py --hostile-example` recalls an
+    earlier version. Adversarial review (3 medium, 4 low), fixed: a version deleted after it
+    was pulled was still served from the cache with no word (a pull now refuses it and removes
+    the copy; `recall_of` treats a deletion as a recall); the yank, delete and review routes
+    parsed any body before checking the token (5 MB: about 120 MB of memory; now the sender
+    first, then at most 16 KB); `recall_of` took the namespace and pack from the record and
+    compared with a second answer (now the record must name the pulled pack, version and
+    digest), and a key this machine had not pinned aborted the pull and hid the recall (now
+    `verified: false` with why); the registry's key is pinned at a pull's first contact, not
+    only when its first recall is read. Left for 18d and 18e, as planned: a server, and
+    `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
+    /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
+    `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
+  - [x] **18d** (PR open) Origin at pull and the cap: the verified marker (`.mendari-verified`)
+    is now `mendari.origin/1` JSON (registry URL, namespace, publisher type, key id, archive,
+    digest, when, the recall served then), rewritten on every pull, a cached one too; one from
+    before (the archive's SHA-256 alone) still reads (`core/origin.py` `pulled_record`,
+    `Pack.pulled`). A pack from a registry never automates until its organization approves its
+    exact digest, at every risk level (2 and 3 need their governance approval too), nor while
+    its marker records a recall: `Decision._origin_holds` adds to the hold, so AUTO becomes
+    HUMAN_REVIEW with the same recommendation and the reason; no field of the pack lifts it,
+    and a pulled copy of a reference pack is capped too (default 5). `registry_approvals`
+    (`AuditStore.approve_registry_pack`, `revoke_registry_approval`, `registry_approval`),
+    `GET/POST /api/registry-approvals` and `DELETE …/{id}` (`approve`; a served pack from a
+    registry and the digest it serves only), chained `registry_pack.approved` and `.revoked`
+    (administrative kinds, FHIR AuditEvent, security log). `mendari decide --db` honours the
+    trail's approvals and is capped without one; `mendari test`, `eval` and `leaderboard --run`
+    check the pack's own policy (`origin_cap=False`), and `mendari pull` says what serving it
+    needs. Adversarial review (3 medium, 7 low), fixed: an unapproved or recalled pack's own
+    rule's BLOCK still acted alone (now `apply_policy(blocks_to_person=…)` sends it to a person,
+    as for community packs); the server's evaluation route measured the capped pack, the CLI the
+    pack's own policy (now both the pack's own); a recall issued after the last pull reaches a
+    server only in 18e (the ADR says so); the recall's severity in reasons is one of the four
+    (else `unknown`); the marker keeps the registry's URL without user, password or query; the
+    memberships preflight counts registry approvals; one live approval a digest (409); the ADR
+    says approvals do not expire and library callers are capped; tests for cross-organization
+    approvals, risk 4 and the permission.
+  - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
+    checked against their registry's yank records on a schedule, and a yanked one (or one no
+    check reached for too long) stops automating.
+  - [ ] **18f** Rate limits (the `Limiter`, on the registry's own database), security headers on
+    every registry route and every Hub page (CSP, HSTS, frame-ancestors), each asserted by
+    exact value, and a scanner baseline in the `hub-site` job.
+  - [ ] **18g** The regression check: on every publish, the pack gate (`evals/gate.py`, as
+    `scripts/pack_gate.py` runs it) on the publisher's own test set, in an isolated job (a
+    subprocess with time and memory limits, local providers only), against the previous
+    version's registry-computed report; shown as "publisher's own test set: regression check,
+    not a ranking".
+  - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
+    rows, docs.
+
+  **Defaults each PR follows** (the owner may choose otherwise):
+  1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes
+     them (18g); only LP-17 ranks.
+  2. (18a) Versions published before LP-18 keep their stored metadata (immutable) but serve no
+     uploaded card, benchmark or leaderboard; publishing a new version renders a card.
+  3. (18b) Until LP-19's reviewer accounts, a review is recorded with the admin token.
+  4. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
+     registry with its own key. A client honours every yank, verified or not (a forged yank only
+     stops automation, the safe direction), and says whether it verified.
+  5. (18d) A pulled copy of a reference pack is capped too: the cap follows the origin, not the
+     bytes. `mendari test` checks the pack's own policy and says that serving caps it.
+  6. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
+  7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
+     cannot be evaluated on its own test set with local providers says so.
+
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:

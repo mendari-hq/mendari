@@ -351,6 +351,10 @@ COUNTS_ROUTE: Route = ("GET", "/api/labelling")
 # Routes no principal here is answered on with a 2xx or 3xx, in either mode, each with why: they
 # are still called and scanned. (A write the sweep sends an empty body is answered by `served`.)
 NOT_ANSWERED: dict[Route, str] = {
+    ("POST", "/api/registry-approvals"): "approves only a pack served from a registry; none is "
+    "served here, so it is refused (tests/test_registry_origin.py answers it)",
+    ("DELETE", "/api/registry-approvals/{approval_id}"): "revokes such an approval; none exists "
+    "here (tests/test_registry_origin.py answers it)",
     ("GET", "/auth/callback"): "a sign-in's return: needs the identity provider's code "
     "(tests/test_auth.py)",
     ("GET", "/smart/callback"): "a launch's return: needs the EHR's code (tests/test_smart.py)",
@@ -1188,6 +1192,11 @@ def served(world: World, org: Org) -> None:
     ok(governance, ("DELETE", "/api/holds/{hold_id}"), url, 204)
     url = f"/api/governance/{approval.json()['id']}"
     ok(governance, ("DELETE", "/api/governance/{approval_id}"), url, 204)
+    # A pulled pack's approval (LP-18d): no pack is served from a registry here.
+    pulled = {"pack_id": GUARD, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"}
+    ok(governance, ("POST", "/api/registry-approvals"), "/api/registry-approvals", 422, json=pulled)
+    url = "/api/registry-approvals/0123456789abcdef"
+    ok(governance, ("DELETE", "/api/registry-approvals/{approval_id}"), url, 404)
     url = f"/api/auth/members/{joined['removed']}"
     ok(admin, ("DELETE", "/api/auth/members/{membership_id}"), url, 204)
     url = f"/api/auth/invitations/{invited['spare']['id']}"

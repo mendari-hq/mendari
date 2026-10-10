@@ -137,7 +137,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     from mendari.evals import run_pack_tests
 
-    decision = _decision(args)
+    decision = _decision(args, origin_cap=False)  # the pack's own policy, as its tests say
     outcomes = run_pack_tests(decision)
     if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
         where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in pack.yaml)"
@@ -166,7 +166,16 @@ def cmd_decide(args: argparse.Namespace) -> int:
             hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
             return None if hold is None else f"hold {hold['id']}"
 
-    decision = _decision(args, store=store, hold_source=held)
+    approved = None
+    if store is not None:  # a pack from a registry, approved in that deployment's trail
+
+        def approved(pack: Pack) -> bool:
+            return (
+                store.registry_approval(pack.id, pack.digest, in_org=tenancy.DEFAULT_ORG)
+                is not None
+            )
+
+    decision = _decision(args, store=store, hold_source=held, origin_approval=approved)
     if args.text is not None:
         payload: Any = {"message": {"body": args.text}}
     else:
@@ -185,7 +194,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
 
-    decision = _decision(args)
+    decision = _decision(args, origin_cap=False)  # measures the pack's own policy
     pack = decision.pack
     dataset = resolve_dataset(pack, args.dataset)
     if args.limit:
@@ -371,7 +380,8 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, name)
         datasets.append(dataset.head(args.limit) if args.limit else dataset)
     for run in args.run:
-        decision = Decision(pack, providers=_providers(pack, parse_providers(run.split(","))))
+        providers = _providers(pack, parse_providers(run.split(",")))
+        decision = Decision(pack, providers=providers, origin_cap=False)  # the pack's policy
         workers = args.workers or (8 if decision.is_remote else 1)
         for dataset in datasets:
             report = evaluate(decision, dataset, workers=workers)
@@ -410,10 +420,10 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
 
 
 def cmd_card(args: argparse.Namespace) -> int:
-    from mendari.core.card import render_card
+    from mendari.core.card import card_of
 
     pack = resolve_pack(args.pack)
-    card = render_card(pack)
+    card = card_of(pack)
     if args.write:
         target = pack.root / "DECISION_CARD.md"
         if target.is_symlink():  # the write would land wherever the link points
@@ -1430,6 +1440,21 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_verify(args: argparse.Namespace) -> int:
+    """Check the registry's chain, read-only: every event's hash and order, and every row it
+    covers named by its event (exit 1 if not)."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(args.db, read_only=True) as store:
+        result = store.verify()
+    if result["ok"]:
+        print(f"registry chain verified: {result['events']} events, head {result['head']}")
+        return 0
+    where = f" at event {result['seq']}" if result["seq"] is not None else ""
+    print(f"registry chain broken{where}: {result['problem']}", file=sys.stderr)
+    return 1
+
+
 def _registry_client(args: argparse.Namespace) -> Any:
     from mendari.hub.client import RegistryClient, default_registry
 
@@ -1466,21 +1491,55 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
-    from mendari.hub.client import pull
+    from mendari.hub.client import pull, recall_of
 
     with _registry_client(args) as registry:
         pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
+        namespace, name = pack.id.split("/")
+        recall = recall_of(registry.version(namespace, name, pack.version), registry, pack)
     print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
+    if recall is not None:
+        by = "its publisher" if recall["signer"] == "publisher" else "the registry"
+        signed = (
+            "the record's signature holds"
+            if recall["verified"]
+            else f"the record does not verify: {recall['problem']}"
+        )
+        print(
+            f"  RECALLED ({recall['severity']}) by {by} at {recall['at']}: {recall['reason']}\n"
+            f"  {signed}; do not automate with this version",
+            file=sys.stderr,
+        )
     if pack.bounded:
         print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
     else:
         print("  runs on the maintained engine: a copy of the reference pack in this release")
+    print(
+        "  served, it never automates until your organization approves this digest "
+        "(POST /api/registry-approvals); `mendari test` and `eval` check its own policy"
+    )
+    return 0
+
+
+def cmd_yank(args: argparse.Namespace) -> int:
+    """Recall a version your namespace published, signed with its key (`hub/yank.py`)."""
+    from mendari.core.spec import is_pack_id, is_version
+    from mendari.hub import archive
+
+    pack_id, _, version = args.ref.partition("@")
+    if not is_pack_id(pack_id) or not is_version(version):
+        raise MendariError(f"{args.ref!r} is not namespace/name@version: name the exact version")
+    key = archive.load_private_key(Path(args.key).read_bytes())
+    namespace, name = pack_id.split("/")
+    with _registry_client(args) as registry:
+        recalled = registry.yank(
+            namespace, name, version, reason=args.reason, severity=args.severity, key=key
+        )
+    print(f"recalled {recalled['id']}@{recalled['version']} ({args.severity})")
     return 0
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    from mendari.evals import figures, render
-
     with _registry_client(args) as registry:
         found = registry.search(
             q=" ".join(args.query),
@@ -1492,17 +1551,10 @@ def cmd_search(args: argparse.Namespace) -> int:
         _print_json(found)
         return 0
     for item in found:
-        benchmark = item.get("benchmark") or {}
-        accuracy = benchmark.get("accuracy")
-        # A registry entry is someone else's data: a figure that is not a whole k of a whole n
-        # is shown as n/a (figures.counted), never a reason to stop the listing.
-        shown = (
-            ""
-            if accuracy is None
-            else f"  benchmark {render.shown(figures.counted(accuracy, benchmark.get('n')))}"
-        )
-        risk = f"risk {item['risk']['level']}"
-        print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")
+        # No figure: what a registry before LP-18 served was the publisher's own benchmark, and
+        # an uploaded number is never shown (ADR-0012). The risk level is the publisher's word.
+        risk = f"risk {item['risk']['level']} (declared)"
+        print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}")
         print(f"    {item['summary'][:110]}")
     if not found:
         print("no packs match")
@@ -2771,6 +2823,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--accept-new-key", action="store_true", help="trust a key the namespace rotated to"
     )
     pull_cmd.set_defaults(handler=cmd_pull)
+    yank_cmd = sub.add_parser(
+        "yank", help="recall a version your namespace published (signed with its key)"
+    )
+    yank_cmd.add_argument("ref", help="namespace/name@version")
+    yank_cmd.add_argument("--reason", required=True, help="why, in one line (it is public)")
+    yank_cmd.add_argument(
+        "--severity", required=True, choices=("low", "medium", "high", "critical")
+    )
+    yank_cmd.add_argument("--key", required=True, help="publisher private key (PEM)")
+    yank_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    yank_cmd.set_defaults(handler=cmd_yank)
     search_cmd = sub.add_parser("search", help="search the registry")
     search_cmd.add_argument("query", nargs="*")
     search_cmd.add_argument("--risk", type=int, help="risk level 0-4")
@@ -2806,6 +2869,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve_registry.add_argument("--host", default="127.0.0.1")
     serve_registry.add_argument("--port", type=_port, default=8100)
     serve_registry.set_defaults(handler=cmd_registry_serve)
+    verify_registry = registry_cmd.add_parser(
+        "verify", help="check the registry's chain of events, read-only"
+    )
+    verify_registry.add_argument(
+        "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
+    )
+    verify_registry.set_defaults(handler=cmd_registry_verify)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
     monitor_cmd.add_argument(

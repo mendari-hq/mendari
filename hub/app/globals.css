@@ -146,6 +146,24 @@ summary { cursor: pointer; padding: var(--space-2) 0; min-height: 32px; }
   * { transition: none !important; animation: none !important; }
 }
 
+/* A version's two groups (ADR-0012): what the registry checked, and what the publisher claims. */
+.group { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; }
+.group h2 { margin-top: var(--space-2); }
+.group.checked { border-left: 4px solid var(--color-ok-text); }
+.group.claimed { border-left: 4px solid var(--color-warning-text); }
+.group dl { margin: 0; display: grid; gap: var(--space-2); }
+.group .item { display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: var(--space-3); }
+.group dt { color: var(--color-muted); font-weight: 600; font-size: var(--text-sm); }
+.group dd { margin: 0; min-width: 0; }
+.break { overflow-wrap: anywhere; }
+.group.recalled { border-left: 4px solid var(--color-danger-text); }
+.group.recalled li { overflow-wrap: anywhere; }
+.badge.severity-high, .badge.severity-critical { background: var(--color-danger-soft); color: var(--color-danger-text); }
+.badge.severity-medium { background: var(--color-warning-soft); color: var(--color-warning-text); }
+@media (max-width: 760px) {
+  .group .item { grid-template-columns: 1fr; gap: 0; }
+}
+
 /* A figure's evidence rule and a leaderboard row's standing (mendari.figures/1), quieter than the figure. */
 .evidence-mark,
 .standing {

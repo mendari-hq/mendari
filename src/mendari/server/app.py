@@ -54,7 +54,7 @@ from mendari.core.audit import (
     AuditStore,
     usage_totals,
 )
-from mendari.core.card import benchmark, render_card
+from mendari.core.card import benchmark, card_of
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
@@ -184,6 +184,19 @@ _ISSUE_TYPE = {
     502: "transient",
     503: "not-supported",
 }
+
+
+class RegistryApprovalRequest(BaseModel):
+    pack_id: str = Field(min_length=3, max_length=200)
+    # The digest the approver reviewed: the approval names exactly it.
+    pack_digest: str = Field(min_length=8, max_length=100)
+    reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
+    approver: str | None = Field(
+        default=None,
+        max_length=200,
+        description="open mode only, an identifier (no spaces, at most 100 characters); with "
+        "sign-in on, the approval is recorded for whoever is signed in",
+    )
 
 
 class ApprovalRequest(BaseModel):
@@ -653,6 +666,7 @@ def create_app(
                 fhir_validation=validation,
                 governance_source=approved_override,
                 hold_source=held,
+                origin_approval=registry_approved,
                 deadline_s=deadline_s,
             )
         except MendariError:
@@ -715,6 +729,10 @@ def create_app(
         if generation == hold_generation[0]:  # no hold set or lifted here while it was read
             hold_cache[key] = (now, reason)
         return reason
+
+    def registry_approved(pack: Pack) -> bool:
+        """Whether the caller's organization approved exactly this pulled pack (LP-18d)."""
+        return store.registry_approval(pack.id, pack.digest) is not None
 
     def approved_override(pack: Pack) -> GovernanceOverride | None:
         """The organization's approval in force for exactly this pack, as the runtime override."""
@@ -1111,11 +1129,13 @@ def create_app(
             ),
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
+            # A pack from a registry: what it carries about itself (its benchmark and
+            # leaderboard) is its publisher's, never shown, as the registry shows none (ADR-0012).
             "benchmark": None
-            if (published := benchmark(pack)) is None
+            if pack.origin == "hub" or (published := benchmark(pack)) is None
             else _with_figures(published),
-            "leaderboard": leaderboard.load(pack),
-            "card_markdown": render_card(pack),
+            "leaderboard": None if pack.origin == "hub" else leaderboard.load(pack),
+            "card_markdown": card_of(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
 
@@ -1337,6 +1357,69 @@ def create_app(
         log_event(request, "governance.revoked", ids=[approval_id])
         return Response(status_code=204)
 
+    @app.get(
+        "/api/registry-approvals",
+        tags=["Governance"],
+        summary="List approvals of packs from a registry",
+    )
+    def registry_approvals(pack_id: str | None = None) -> dict[str, Any]:
+        """A pack pulled from a registry never automates until your organization approves its
+        exact digest, at every risk level (a risk level 2 or 3 pack needs its governance
+        approval too). Your organization's approvals, and for `pack_id` where it came from."""
+        found = store.registry_approvals(pack_id)
+        if pack_id is None:
+            return {"approvals": found}
+        pack = pack_or_404(pack_id)
+        return {
+            "pack_id": pack.id,
+            "digest": pack.digest,
+            "origin": pack.origin,
+            "pulled": {k: v for k, v in pack.pulled.items() if k != "yank"},
+            "recalled": pack.pulled.get("yank") is not None,
+            "active": store.registry_approval(pack.id, pack.digest),
+            "approvals": found,
+        }
+
+    @app.post(
+        "/api/registry-approvals",
+        status_code=201,
+        tags=["Governance"],
+        summary="Approve a pack from a registry",
+    )
+    def approve_registry_pack(request: Request, body: RegistryApprovalRequest) -> dict[str, Any]:
+        """Record that your organization approves exactly this pulled pack (its digest) to
+        automate under its policy: chained `registry_pack.approved`. It applies to the digest
+        served now, a reference (e.g. the review's minutes) names why, and it lasts until
+        revoked. It never lifts a recall, a hold or a risk level's cap."""
+        pack = pack_or_404(body.pack_id)
+        if pack.origin != "hub":
+            raise HTTPException(422, "only a pack pulled from a registry needs this approval")
+        if body.pack_digest != pack.digest:
+            raise HTTPException(422, "pack_digest is not the digest this deployment serves")
+        approver = acting_as(request, body.approver, "approver")
+        approval = store.approve_registry_pack(
+            pack_id=pack.id,
+            pack_digest=pack.digest,
+            registry=str(pack.pulled.get("registry") or "unknown"),
+            approver=approver or "",
+            reference=body.reference,
+        )
+        log_event(request, "registry_pack.approved", ids=[str(approval["id"])])
+        return approval
+
+    @app.delete(
+        "/api/registry-approvals/{approval_id}",
+        status_code=204,
+        tags=["Governance"],
+        summary="Revoke an approval of a pack from a registry",
+    )
+    def revoke_registry_pack(request: Request, approval_id: str) -> Response:
+        """Revoke it: the pulled pack stops automating at once."""
+        if not store.revoke_registry_approval(approval_id, revoked_by=principal_of(request).actor):
+            raise HTTPException(404, "no such approval")
+        log_event(request, "registry_pack.revoked", ids=[approval_id])
+        return Response(status_code=204)
+
     @app.get("/api/holds", tags=["Governance"], summary="Automation holds in force")
     def list_holds(request: Request) -> list[dict[str, Any]]:
         """The automation holds in force for your organization: its own and the deployment's
@@ -1433,6 +1516,9 @@ def create_app(
             providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
             deadline_s=deadline_s,  # each of its decisions has the deployment's deadline
+            # An evaluation measures the pack's own policy, as `mendari eval` does: a pack from
+            # a registry is capped only where it is served (LP-18d).
+            origin_cap=False,
         )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:

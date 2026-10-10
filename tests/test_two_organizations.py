@@ -701,6 +701,25 @@ def seed(world: World, org: Org) -> None:
             expect=201,
         ).json()
         org.made("hold", hold["id"])
+        # A pulled pack's approval (LP-18d): none is served here, so made in the store.
+        with tenancy.acting_for(org.name):
+            pulled = world.store.approve_registry_pack(
+                pack_id="someone/pulled",
+                pack_digest=f"sha256:{len(org.ids.get('registry_approval', []))}{'0' * 63}",
+                registry="https://hub.example.org",
+                approver="cmo",
+                reference=f"pulled minutes {m}",
+            )
+        org.made("registry_approval", pulled["id"])
+    # Only a pack served from a registry is approved this way.
+    world.call(
+        org,
+        governance,
+        ("POST", "/api/registry-approvals"),
+        "/api/registry-approvals",
+        json={"pack_id": GUARD, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"},
+        expect=422,
+    )
     run = world.call(
         org,
         admin,
@@ -1126,6 +1145,14 @@ def refusals(world: World, x: Org, o: Org) -> None:
             approval,
             404,
         )
+    for approval in o.ids["registry_approval"]:
+        refused(
+            x.people["governance"],
+            ("DELETE", "/api/registry-approvals/{approval_id}"),
+            f"/api/registry-approvals/{approval}",
+            approval,
+            404,
+        )
     # Their administrative events, by subject or by cursor.
     theirs = f"key:{o.one('key')}"
     listed = world.call(
@@ -1273,6 +1300,13 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": GUARD}),
+        (viewer, ("GET", "/api/registry-approvals"), "/api/registry-approvals", {}),
+        (
+            viewer,
+            ("GET", "/api/registry-approvals"),
+            "/api/registry-approvals",
+            {"pack_id": GUARD},
+        ),
         (viewer, ("GET", "/api/evals"), "/api/evals", {}),
         (viewer, ("GET", "/api/evals"), "/api/evals", pack),
         (viewer, ("GET", "/api/stats"), "/api/stats", pack),
@@ -1555,6 +1589,13 @@ def served(world: World, x: Org) -> None:
         governance,
         ("DELETE", "/api/governance/{approval_id}"),
         f"/api/governance/{x.one('approval', 1)}",
+        expect=204,
+    )
+    world.call(
+        x,
+        governance,
+        ("DELETE", "/api/registry-approvals/{approval_id}"),
+        f"/api/registry-approvals/{x.one('registry_approval', 1)}",
         expect=204,
     )
     if world.accounts == "memberships":
