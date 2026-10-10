@@ -1385,7 +1385,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `Decision.from_hub` from the cache, do not yet ask the registry (18e checks `GET
     /v1/yanks`); the registry's own key has no rotation path yet (a key history, later);
     `GET /v1/yanks` is not paged (only token holders and administrators make recalls).
-  - [x] **18d** (PR open) Origin at pull and the cap: the verified marker (`.mendari-verified`)
+  - [x] **18d** (#234, merged 2026-10-10) Origin at pull and the cap: the verified marker (`.mendari-verified`)
     is now `mendari.origin/1` JSON (registry URL, namespace, publisher type, key id, archive,
     digest, when, the recall served then), rewritten on every pull, a cached one too; one from
     before (the archive's SHA-256 alone) still reads (`core/origin.py` `pulled_record`,
@@ -1409,9 +1409,25 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     memberships preflight counts registry approvals; one live approval a digest (409); the ADR
     says approvals do not expire and library callers are capped; tests for cross-organization
     approvals, risk 4 and the permission.
-  - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
-    checked against their registry's yank records on a schedule, and a yanked one (or one no
-    check reached for too long) stops automating.
+  - [x] **18e** (PR open) A running server honours a recall (`server/recalls.py`
+    `RecallWatch`): for each registry its served packs came from (the marker's URL), it reads
+    `GET /v1/yanks` every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set) in a thread of
+    its own, https only (http to this machine), 5 s timeout, 5 MB at most; a pack it lists (id
+    and version: recalled with its severity, or deleted), one whose registry was not read in
+    `MENDARI_REGISTRY_RECALL_STALE_S` (24 h unless set), one never read since start, and one
+    whose marker names no registry are held: AUTO becomes HUMAN_REVIEW and its own BLOCK goes
+    to a person (`Decision(recall_source=)`, with the approval cap). A failed read keeps what
+    was known until stale. Health (past the read check) shows `registry_recalls`: each
+    registry's last read's age, how many it recalls and the error type while reads fail.
+    Adversarial review (2 medium, 5 low), fixed: a read had no total time limit (a registry
+    sending a byte a second held it for good, and no other read started), now the whole answer
+    within 20 s and a read in flight over 60 s is taken as lost; the answer was buffered whole
+    before its 5 MB cap, now refused by its length or as it streams; a thread that cannot start
+    no longer fails the decision; a failed read is logged once a change of state (its type);
+    the stale time must be at least twice the check time; the settings table says what a
+    serverless host or `mendari decide` sees (the recall known at the last pull) and that
+    these reads are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`; tests for every answer
+    `fetch_yanks` refuses, the single read in flight and the settings.
   - [ ] **18f** Rate limits (the `Limiter`, on the registry's own database), security headers on
     every registry route and every Hub page (CSP, HSTS, frame-ancestors), each asserted by
     exact value, and a scanner baseline in the `hub-site` job.

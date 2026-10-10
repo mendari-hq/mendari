@@ -6,7 +6,8 @@ here, in the order they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
-- 18d, origin at pull and the cap on a pulled pack (`registry_approvals`).
+- 18d, origin at pull and the cap on a pulled pack (`registry_approvals`);
+- 18e, a running server honours its registries' recalls (`server/recalls.py`).
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -96,7 +97,14 @@ Nothing on a pack's page comes from the uploader unchecked.
    the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
    `mendari decide` never do. A library caller (`Decision.from_hub`) is capped unless it passes
    `origin_approval`.
-7. **Versions published before.** They keep their stored metadata (versions are immutable),
+7. **A running server honours recalls (18e).** For each registry its served packs came from,
+   a server reads `GET /v1/yanks` every five minutes (`MENDARI_REGISTRY_RECALL_CHECK_S`) in a
+   thread of its own, over https. A pack it lists is held as an unapproved one is. What cannot
+   be checked is treated the same: a registry not read in a day
+   (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or not recorded
+   beside the pack. A recall is honoured whether or not its signature can be checked here: it
+   only lowers automation.
+8. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.
