@@ -8,7 +8,8 @@ here, in the order they landed:
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
 - 18d, origin at pull and the cap on a pulled pack (`registry_approvals`);
 - 18e, a running server honours its registries' recalls (`server/recalls.py`);
-- 18f, rate limits and security headers on the registry and the Hub.
+- 18f, rate limits and security headers on the registry and the Hub;
+- 18g, the regression check on the publisher's own test set (`hub/regression.py`).
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -110,7 +111,13 @@ Nothing on a pack's page comes from the uploader unchecked.
    a body is read. Every registry answer carries a CSP that loads nothing, and the Hub's pages
    a CSP with a fresh nonce; both refuse framing and send HSTS but on this machine. CI scans
    the Hub with OWASP ZAP's baseline.
-9. **Versions published before.** They keep their stored metadata (versions are immutable),
+9. **The regression check (18g).** On every publish the registry evaluates the version on
+   the test set its manifest names, in a child process with no credential, a time limit and
+   local providers only, and runs the pack gate against the newest earlier version's check. It
+   is shown, labelled "publisher's own test set: regression check, not a ranking", and never
+   refuses a version: the set is the publisher's choice, so it can show a regression, never
+   rank. A pack whose default providers call a model is not run.
+10. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.

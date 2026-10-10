@@ -4,7 +4,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ENGINE_WORDS, pack, type Recalled, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
+import { shown } from "@/lib/figures";
+import { ENGINE_WORDS, pack, type Recalled, regressionWords, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,10 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
               : "Not shown: published before the registry rendered cards"}
           </Item>
           <Item term="Review">{reviewWords(checked.review, risk.level)}</Item>
-          <Item term="Figures">None yet: the registry shows no figure it did not compute itself</Item>
+          <Item term="Regression check">
+            <span className="regression-label">{checked.regression?.label ?? "publisher's own test set: regression check, not a ranking"}</span>
+            {" "}{regressionWords(checked.regression, shown)}
+          </Item>
         </dl>
       </section>
 

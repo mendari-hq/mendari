@@ -89,7 +89,7 @@ from mendari.evals.share import (
     summary,
     where,
 )
-from mendari.hub import archive, yank
+from mendari.hub import archive, regression, yank
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 from mendari.server.origin import is_local_host
@@ -409,6 +409,7 @@ class RegistryStore(RateBuckets):
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
+        self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
             f"{namespace}/{name}",
@@ -420,6 +421,11 @@ class RegistryStore(RateBuckets):
                 # Checked on the engine its pullers run, against this release's reference packs.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 metadata = describe(pack, verified)
+                if regression.enabled():  # in a child process of its own (`hub/regression.py`)
+                    with regression.slot():  # at most a few at once; else 503, try again
+                        metadata["regression"] = regression.check(
+                            Path(scratch) / "pack", self._previous_check(namespace, name, version)
+                        )
             except HubError:
                 raise
             except MendariError as error:
@@ -482,6 +488,40 @@ class RegistryStore(RateBuckets):
                 ),
             )
         return self.version(namespace, name, version)
+
+    def _refuse_existing(self, namespace: str, name: str, version: str) -> None:
+        with self._db.session(exclusive=False) as db:
+            if db.one(
+                "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
+                (namespace, name, version),
+            ):
+                raise HubError(
+                    f"{namespace}/{name}@{version} is published; versions are immutable", 409
+                )
+
+    def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
+        """The measured regression check of the newest version before `version`, with its
+        version and whether it is recalled since: the gate's baseline. A recalled version stays
+        one, so recalling a good version cannot hide a later regression."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT version, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
+                (namespace, name),
+            )
+            recalls = _recalls(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+        earlier = []
+        for row in rows:
+            check = json.loads(row["metadata"]).get("regression")
+            if (
+                version_key(row["version"]) < version_key(version)
+                and isinstance(check, dict)
+                and check.get("status") == "measured"
+            ):
+                earlier.append((version_key(row["version"]), row["version"], check))
+        if not earlier:
+            return None
+        _, found, check = max(earlier, key=lambda item: item[0])
+        return {**check, "version": found, "recalled": (namespace, name, found) in recalls}
 
     def versions(self, namespace: str, name: str) -> list[dict[str, Any]]:
         with self._db.session(exclusive=False) as db:
@@ -972,16 +1012,19 @@ def _version_row(
         "version": row["version"],
         "published_at": row["created_at"],
         "archive_sha256": row["archive_sha256"],
-        **{key: value for key, value in stored.items() if key not in UPLOADED},
+        # The raw regression check is served only as `checked.regression` (its accuracy as a
+        # figure, labelled), never beside it.
+        **{k: v for k, v in stored.items() if k not in UPLOADED and k != "regression"},
         "card_markdown": stored.get("card_markdown") if rendered else None,
     }
     recall = recall or {}
+    regression_of = stored.get("regression")
     return {
         **served,
         # A recall (`hub/yank.py`): the signed record, checked when it was stored, and a deletion.
         "yank": recall.get("yank"),
         "deleted": recall.get("deleted"),
-        "checked": _checked(served, rendered, review),
+        "checked": _checked(served, rendered, review, regression_of),
         "claimed": _claimed(served, review),
     }
 
@@ -1005,7 +1048,10 @@ def _review(version: Mapping[str, Any], review: Mapping[str, Any] | None) -> dic
 
 
 def _checked(
-    version: Mapping[str, Any], rendered: bool, review: Mapping[str, Any] | None = None
+    version: Mapping[str, Any],
+    rendered: bool,
+    review: Mapping[str, Any] | None = None,
+    regression_of: Any = None,
 ) -> dict[str, Any]:
     """What the registry verified or worked out itself, at publish."""
     return {
@@ -1024,7 +1070,28 @@ def _checked(
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
         "status_label": version.get("status_label"),
         "review": _review(version, review),
+        # Worked out here on the publisher's own test set (`hub/regression.py`): a regression
+        # check against the earlier version, never a ranking. None: published without it.
+        "regression": _regression(regression_of),
     }
+
+
+def _regression(stored: Any) -> dict[str, Any] | None:
+    """A version's regression check as served, its accuracy as k of n (`figures.counted`)."""
+    if not isinstance(stored, dict):
+        return None
+    shown = {
+        k: stored.get(k) for k in ("label", "status", "reason", "compared_with", "regressions")
+    }
+    measured = stored.get("summary") if stored.get("status") == "measured" else None
+    if isinstance(measured, dict):
+        question = measured.get("questions", {}).get(measured.get("primary"), {})
+        shown["test_set"] = measured.get("dataset")
+        shown["accuracy"] = figures.guarded(
+            lambda: figures.counted(question.get("accuracy"), question.get("n"))
+        )
+        shown["rows"] = stored.get("rows")
+    return shown
 
 
 def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -1427,7 +1494,10 @@ def create_registry_app(
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        return store.publish(namespace, name, version, bytes(body), by=actor(request))
+        # Off the event loop: a publish runs the regression check, up to its time limit.
+        return await run_in_threadpool(
+            store.publish, namespace, name, version, bytes(body), by=actor(request)
+        )
 
     async def small_body(request: Request, model: type[Small]) -> Small:
         """A small JSON body, read only after its sender was checked and at most

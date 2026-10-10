@@ -781,6 +781,11 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   searched, and is still pulled by its exact version, with the record shown and its signature
   checked against the keys you pinned. An administrator can also delete a version that must
   not be served: its archive's bytes go, and a tombstone stays.
+- **The regression check.** On every publish the registry evaluates the version on its own
+  test set, in an isolated child process with local providers only, and compares it with the
+  earlier version (the pack gate); it shows the result as "publisher's own test set:
+  regression check, not a ranking" and never refuses a version for it
+  (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
 - **Limits and headers.** The registry limits reads per address and writes per token
   (`MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then overrides such as
   `registry_write=240/h:40`), and both it and the Hub send a strict CSP, refuse framing and send

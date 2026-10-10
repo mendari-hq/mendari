@@ -1428,7 +1428,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     serverless host or `mendari decide` sees (the recall known at the last pull) and that
     these reads are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`; tests for every answer
     `fetch_yanks` refuses, the single read in flight and the settings.
-  - [x] **18f** (PR open) Rate limits and headers. The `Limiter` runs on the registry's own
+  - [x] **18f** (#237, merged 2026-10-10) Rate limits and headers. The `Limiter` runs on the registry's own
     database (`core/rate_buckets.py` `RateBuckets`, moved out of `AuditStore`, which now uses it
     too: the same statements): reads per address (600/min, burst 200), writes per token or
     address (120/h, 30), site reports per token (60/h, 10), `MENDARI_REGISTRY_RATE_LIMITS`
@@ -1448,11 +1448,31 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     registry did not issue counts against its sender's address); the limit's database work ran
     on the event loop (now in the thread pool); an unhandled error's 500 had no headers (now a
     bare 500 with them); the Hub's tests cover an unmatched page too.
-  - [ ] **18g** The regression check: on every publish, the pack gate (`evals/gate.py`, as
-    `scripts/pack_gate.py` runs it) on the publisher's own test set, in an isolated job (a
-    subprocess with time and memory limits, local providers only), against the previous
-    version's registry-computed report; shown as "publisher's own test set: regression check,
-    not a ranking".
+  - [x] **18g** (PR open) The regression check (`hub/regression.py`): on every publish
+    (`MENDARI_REGISTRY_REGRESSION`, `on` unless set), the pack is evaluated on its own
+    `evaluation.benchmark_dataset` (a file its digest covers) in a child process (`python -I -m
+    mendari.hub.regression DIR`: an environment of five fixed variables, no credential or
+    setting of the registry's, 180 s wall clock and CPU, 2 GB of memory where the system bounds
+    it, the pack loaded from a registry on its engine, local providers only), and the pack gate
+    (`evals/gate.py`, as `scripts/pack_gate.py` runs it) compares it with the newest earlier
+    version's check that is not recalled. Stored with the version (the summary the gate reads:
+    the set's name, size and hash, the primary accuracy over n, false automation, each critical
+    label); served as `checked.regression` (label "publisher's own test set: regression check,
+    not a ranking", accuracy as k of n, what it was compared with, the regressions); shown,
+    never refused. Not run: `no_test_set`, `needs_remote` (a default provider calls a model),
+    `failed` (the error's type, never its text). The Hub says it in the checked group; it is
+    not in `figures` and nothing ranks on it. The five reference packs and the hostile example
+    measure on the seeded registry (16.6 s for the seed, with the checks). Adversarial review
+    (1 high, 4 medium, 6 low; with 18f's), fixed: a publish ran the check on the event loop, so
+    the registry answered nothing for up to 180 s, and a re-sent existing version ran it again
+    (now in the thread pool, at most 2 checks at once else 503, and an existing version is
+    refused before any work); the gate used the new version's own tolerance (now the earlier
+    check's); the baseline skipped recalled versions and stopped at one that measured nothing
+    (now the newest measured check, recalled or not, said so), and a changed test set read as
+    no regression (now "not compared"); a failure in the gate refused the publish (now said
+    in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
+    file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
+    accuracy) is no longer served beside `checked.regression`.
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 
