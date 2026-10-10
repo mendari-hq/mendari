@@ -221,6 +221,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "membership.created",
     ),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
+    # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
+    (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
@@ -235,6 +237,8 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
     (ENGINE, "GET", "/api/packs/{namespace}/{name}/feedback/export"): ("input.read",),
+    # A labeller shown their next hidden case, each time, before it is sent (LP-11j).
+    (ENGINE, "GET", "/api/labelling/next"): ("evalset.case_read",),
 }
 NOT_CHAINED: dict[Route, str] = {
     (ENGINE, "POST", "/auth/logout"): "sign-out: ends a session (security log: auth.logout)",

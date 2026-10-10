@@ -41,6 +41,7 @@ from tests.conftest import (
     evalset_on,
     evalsets_are_on,
     launched,
+    member,
     message,
     run_async,
     signed_in,
@@ -450,6 +451,81 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         ("POST", "/api/smart/decide"),
     }
     assert permission_for("POST", "/api/smart/decide") == "launch_decide"
+    # A labeller's routes (LP-11j: memberships mode with the evaluation-set keys, not mounted
+    # here): `label`, people only, for every method and path under theirs.
+    for (method, path), permission in EVALSET_ROUTES.items():
+        assert permission_for(method, re.sub(r"\{[^}]+\}", "x1", path)) == permission
+    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+        for path in ("/api/labelling", "/api/labelling/", "/api/labelling/a1/x"):
+            assert permission_for(method, path) == "label", (method, path)
+    assert permission_for("GET", "/api/labellings") == "read"  # another path: not theirs
+
+
+# Every route hidden evaluation sets mount (LP-11j and later), with the permission it needs, and
+# what names one: a permission of theirs, or a path about them (as tests/test_evalset_leaks.py).
+EVALSET_ROUTES = {
+    ("GET", "/api/labelling"): "label",
+    ("GET", "/api/labelling/next"): "label",
+    ("POST", "/api/labelling/{assignment_id}"): "label",
+}
+EVALSET_PERMISSIONS = {"label", "curate", "grade"}
+EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
+
+
+def test_no_evaluation_set_route_resolves_to_read_or_discover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The catch-all (`GET ^/api/`, `read`) gives every viewer and key any GET route no rule
+    lists. Every route hidden evaluation sets mount (memberships mode, both keys and Backend
+    Services: the most) is pinned here with its permission, named by a rule of its own before
+    the catch-all, and needs one of theirs (`label`, `curate` or `grade`), never `read` or
+    `discover`; so does every other method and path under a labeller's (plan risk 1, conflict
+    50). In claims mode, which mounts none of a labeller's, their paths read as any route no rule
+    lists, `admin`."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    evalset_on(monkeypatch)
+    app = create_app(db_path=tmp_path / "routes.db")
+    with encrypted_store(tmp_path / "routes.db") as served:
+        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
+    routes = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or ()
+    }
+    hidden = {
+        (method, path)
+        for method, path in routes
+        if permission_for(method, path) in EVALSET_PERMISSIONS or EVALSET_PATH.search(path)
+    }
+    assert {route: permission_for(*route) for route in hidden} == EVALSET_ROUTES
+    rules = auth_module._RULES
+    catch_all = next(n for n, (m, p, _) in enumerate(rules) if (m, p.pattern) == ("GET", "^/api/"))
+    probes = {(m, re.sub(r"\{[^}]+\}", "x1", p)) for m, p in hidden}
+    probes |= {
+        (method, path)
+        for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+        for path in ("/api/labelling", "/api/labelling/next", "/api/labelling/x1/y")
+    }
+    for method, path in probes:
+        first = next(n for n, (m, p, _) in enumerate(rules) if m in ("*", method) and p.match(path))
+        assert first < catch_all, (method, path)
+        assert permission_for(method, path) in EVALSET_PERMISSIONS, (method, path)
+    settings = AuthSettings(IDP, CLIENT, None, "roles", {}, None, None)
+    with AuditStore(tmp_path / "modes.db") as store:
+        claims = Auth(settings, store)
+        members = Auth(
+            AuthSettings(IDP, CLIENT, None, "roles", {}, None, None, accounts="memberships"), store
+        )
+        for method, path in probes:
+            assert claims.permission(method, path) == "admin", (method, path)
+            assert members.permission(method, path) in EVALSET_PERMISSIONS, (method, path)
 
 
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------

@@ -7,8 +7,9 @@ of hand-written cases the key holder made on the command line, every content fie
 a mark of its own (`zq<field>mark<organization>`: the input, the author, the stratum, a language
 code, a custom attribute, the author's id and the set's name). The key holder draws the cases,
 assigns them to two of the organization's labellers and has the disputed one adjudicated by a
-third; the labellers label at the store (LP-11h: no route lets a person label yet), one of them
-leaving an assignment open; and the set's agreement and coverage are measured and sealed. Each
+third; one labeller labels through their routes (LP-11j: shown their next case, then labelling
+it) and leaves an assignment open, the others label at the store; and the set's agreement and
+coverage are measured and sealed. Each
 organization also holds a set in each state of the lifecycle (LP-11i), made, labelled and
 frozen the same way: one left frozen, one made active by a grading read at the store (no route
 grades yet), one retired, each read with `evalset show`. What the store makes of all this is a
@@ -42,9 +43,11 @@ No mark appears anywhere but where conflicts 38, 55 and 56 of notes/lp11-plan.md
 narrowly as it says (`allowed`): a set's name to its organization's curators and in the key
 holder's `evalset` commands, its stratum and language to those curators and in `evalset
 coverage` and `evalset show` (no curator route exists yet), and case ids and sealed tokens in
-the sealed export file. No word of the pack's labels is in a log, in an `evalset` command's
-output or in `audit verify --evalsets` (conflict 36: the planted cases' intended label is one,
-and so is every label given), but in the four commands that give the key holder aggregates by
+the sealed export file; and a case's input, the labeller's own next case (LP-11j), only in
+`GET /api/labelling/next` answered to a labeller of the case's organization. No word of the
+pack's labels is in a log, in an `evalset` command's output or in `audit verify --evalsets`
+(conflict 36: the planted cases' intended label is one, and so is every label given), but in
+the four commands that give the key holder aggregates by
 label, `evalset agreement`, `evalset coverage`, `evalset freeze` (each critical label's distinct
 positives, conflict 48) and `evalset show` (the stored aggregates) (`AGGREGATES`, conflict 57 as
 amended in LP-11i: counts and coefficients, naming no case); each evaluation-set event's payload
@@ -53,8 +56,9 @@ scanner is shown to see: each mark is found where it lives (the export file, the
 tables, what the key holder's own store opens), so a scanner that finds nothing fails. Every
 principal is the one it is meant to be (`/api/auth/me`), every URL answers someone with a 2xx or
 3xx but the pins of `NOT_ANSWERED`, each with its reason, and every evaluation-set route is
-swept: until LP-11j mounts the first there is none, and one that appears without being listed
-here fails. SQLite and Postgres; keys are made per test, cases are synthetic."""
+swept, in each mode that mounts it (`EVALSET_ROUTES`: a labeller's three, memberships mode
+only), the labeller with an open assignment shown it; one that appears without being listed
+fails. SQLite and Postgres; keys are made per test, cases are synthetic."""
 
 from __future__ import annotations
 
@@ -165,6 +169,8 @@ class Surface:
     command: str = ""  # cli: `evalset create`, `audit export`, ...
     curate_of: str = ""  # http: the organization a `curate` route answered for (none yet)
     table: str = ""
+    # http: the organization whose labeller `GET /api/labelling/next` answered (LP-11j)
+    own_case_of: str = ""
 
 
 def allowed(mark: Mark, surface: Surface) -> bool:
@@ -184,6 +190,8 @@ def allowed(mark: Mark, surface: Surface) -> bool:
         }
     if surface.kind == "export file":  # 56: the rows as stored, the ciphertext bound to the ids
         return mark.kind in ("case_id", "token")
+    if mark.kind == "input":  # LP-11j: a labeller shown their own next case, and nowhere else
+        return bool(mark.org and surface.own_case_of == mark.org)
     if mark.kind == "name":  # 38: curator metadata
         return bool(mark.org and surface.curate_of == mark.org) or (
             surface.kind == "cli" and surface.command.startswith("evalset ")
@@ -325,11 +333,21 @@ EVALSET_KINDS = ("evalset.", "evalset_index.")
 # -- the routes ----------------------------------------------------------------------------------
 
 # Evaluation-set routes: those needing `label`, `curate` or `grade`, or under a path that names
-# hidden sets. LP-11j and later add theirs here, each with the ids its placeholders are filled
-# with (`fill`); one mounted and not listed fails. None is mounted yet.
+# hidden sets, each with the account modes that mount it (with the keys); its placeholders are
+# filled in `fill`. One mounted and not listed fails, and so does one listed and not mounted.
 EVALSET_PERMISSIONS = {"label", "curate", "grade"}
 EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
-EVALSET_ROUTES: dict[Route, str] = {}
+EVALSET_ROUTES: dict[Route, tuple[str, ...]] = {
+    # A labeller's own counts, next case and label (LP-11j).
+    ("GET", "/api/labelling"): ("memberships",),
+    ("GET", "/api/labelling/next"): ("memberships",),
+    ("POST", "/api/labelling/{assignment_id}"): ("memberships",),
+}
+# Where a labeller is shown their own next case (LP-11j): the one answer a case's input may be
+# in, to a labeller of the case's organization (`allowed`).
+OWN_CASE: Route = ("GET", "/api/labelling/next")
+LABEL_ROUTE: Route = ("POST", "/api/labelling/{assignment_id}")
+COUNTS_ROUTE: Route = ("GET", "/api/labelling")
 # Routes no principal here is answered on with a 2xx or 3xx, in either mode, each with why: they
 # are still called and scanned. (A write the sweep sends an empty body is answered by `served`.)
 NOT_ANSWERED: dict[Route, str] = {
@@ -398,6 +416,7 @@ class World:
     requests: int = 0
     commands: set[str] = field(default_factory=set)
     swept: set[tuple[str, Route]] = field(default_factory=set)  # (principal, route) called
+    statuses: dict[tuple[str, Route], int] = field(default_factory=dict)  # what the sweep got
     complete: bool = False  # every mark made (`marked`)
     early: list[tuple[Surface, str]] = field(default_factory=list)  # seen before that
     _seen: dict[tuple[int, int, int], list[Mark]] = field(default_factory=dict)
@@ -450,6 +469,7 @@ class World:
         route: Route | None = None,
         name: str = "",
         curate_of: str = "",
+        own_case_of: str = "",
         **options: Any,
     ) -> Any:  # TestClient's response
         """One request as the principal whose headers are `credential`, with no cookie of an
@@ -462,7 +482,8 @@ class World:
         self.requests += 1
         label = f"{method} {url} as {name or 'seed'} ({answer.status_code})"
         headers = "\n".join(f"{k}: {unquote(v)}" for k, v in answer.headers.multi_items())
-        self.scan(Surface("http", label, curate_of=curate_of), answer.text + "\n" + headers)
+        shown = Surface("http", label, curate_of=curate_of, own_case_of=own_case_of)
+        self.scan(shown, answer.text + "\n" + headers)
         self.drain(label)
         if route is not None:
             self.called.add(route)
@@ -646,8 +667,13 @@ def hidden_sets(world: World, monkeypatch: pytest.MonkeyPatch) -> Path:
         assert code == 0
         assert world.run("evalset", "list", "--org", org.name)[0] == 0
     assert world.run("evalset", "list")[0] == 0
-    for org in world.orgs.values():
-        labelled(world, org)
+    # A labeller labels through their routes (LP-11j), on the deployment started with the keys
+    # as they are now; the others at the store.
+    with TestClient(create_app(db_path=world.db), base_url=APP) as client:
+        world.client = client
+        for org in world.orgs.values():
+            labelled(world, org)
+    world.client = None
     for org in world.orgs.values():
         lifecycle(world, org)
     made(world, before_rotation=True)  # the labels, re-sealed attributes, aggregates, freezes
@@ -692,11 +718,12 @@ def hidden_sets(world: World, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def labelled(world: World, org: Org) -> None:
     """`org`'s set labelled blind (LP-11h): its cases drawn and given to two labellers by the
-    key holder's commands; at the store (no route yet), the first labels every case and the
-    second all but one, which stays open, disagreeing on one; the key holder has that one
-    adjudicated by the third, who splits it three ways (it stays unresolved); then the set's
-    progress, agreement and coverage, as text and JSON. Every output is scanned; none names a
-    case."""
+    key holder's commands; the first labels every case at the store, and the second all but
+    one through their routes (LP-11j: shown each case, then labelling it; their counts read),
+    disagreeing on one, the case left open filling the routes' assignment placeholder; the key
+    holder has that one adjudicated by the third, who splits it three ways at the store (it
+    stays unresolved); then the set's progress, agreement and coverage, as text and JSON. Every
+    output and answer is scanned; none but the second's own cases names a case."""
     first, second, third = org.labellers
     code, out, _ = world.run("evalset", "sample", org.set_id, "--per-stratum", str(CASES))
     assert code == 0 and json.loads(out)["drawn"] == CASES - 1
@@ -715,9 +742,22 @@ def labelled(world: World, org: Org) -> None:
 
     for _ in range(CASES - 1):
         answer(first, "nurse")
+    who = member(world.store, org=org.name, roles=["labeller"], sub=f"labeller-1-{org.name}")
+    name = f"{org.name} labelling through the routes"
     for destination in ("nurse", "physician"):
-        answer(second, destination)
-    assert hidden.next_case(second, org=org.name) is not None  # one assignment left open
+        shown = world.call(who, *OWN_CASE, route=OWN_CASE, name=name, own_case_of=org.name)
+        assert shown.status_code == 200
+        assert set(shown.json()) == {"assignment", "questions", "input"}
+        assert org.marks["input"] in shown.json()["input"]["message"]["body"]
+        labels = {"destination": destination, "urgency": "routine"}
+        url = f"/api/labelling/{shown.json()['assignment']}"
+        told = world.call(who, "POST", url, route=LABEL_ROUTE, name=name, json={"labels": labels})
+        assert told.status_code == 200 and set(told.json()) == {"remaining"}
+    counts = world.call(who, *COUNTS_ROUTE, route=COUNTS_ROUTE, name=name).json()
+    assert [(item["open"], item["labelled"]) for item in counts["sets"]] == [(1, 2)]
+    left = hidden.next_case(second, org=org.name)  # one assignment left open
+    assert left is not None
+    org.ids["assignment"] = left["assignment"]
     code, out, _ = world.run("evalset", "adjudicate", org.set_id, "--labeller", third)
     assert code == 0 and json.loads(out)["assigned"] == 1
     answer(third, "billing")
@@ -915,9 +955,11 @@ def fill(method: str, path: str, org: Org) -> str:
                 ("request_id", "request"),
                 ("approval_id", "approval"),
                 ("hold_id", "hold"),
+                # Evaluation-set placeholders: a labeller's open assignment (LP-11j), sent an
+                # empty body, which no one gets past.
+                ("assignment_id", "assignment"),
             )
         },
-        # Evaluation-set placeholders (none yet: LP-11j and later fill theirs here).
     }
     url = re.sub(r"\{(\w+)\}", lambda match: fills.get(match[1]) or match[0], path)
     assert "{" not in url, f"{method} {path}: a placeholder no rule here fills"
@@ -960,13 +1002,15 @@ def sweep(
     *,
     anonymous: set[str],
     curators: set[str],
+    labellers: set[str],
 ) -> None:
     """Every route as every caller (each on its organization's ids); the calls that end a
     session last. Each caller is first shown to be who it is meant to be: those named in
     `anonymous` hold no principal and every other one does (so a credential that falls back to
     no one fails), and those holding `curate` are `curators`. A `curate` route's answer to a
     principal who holds it (an administrator who signed in) is its organization's curators'
-    (conflicts 38 and 55)."""
+    (conflicts 38 and 55); `GET /api/labelling/next` answered to `labellers` is their own next
+    case (LP-11j). What each call got is kept (`World.statuses`)."""
     held = {
         name: world.call(headers, "GET", "/api/auth/me", name=name).json().get("principal", {})
         for _, name, headers in called
@@ -975,20 +1019,25 @@ def sweep(
     assert {
         name for name, principal in held.items() if "curate" in principal.get("permissions", ())
     } == curators
+    assert {
+        name for name, principal in held.items() if "label" in principal.get("permissions", ())
+    } == labellers
     ordered = [r for r in routes if r not in LAST] + [r for r in routes if r in LAST]
     for method, path in ordered:
         curate = permission_for(method, path) == "curate"
         for org, name, headers in called:
-            world.call(
+            answer = world.call(
                 headers,
                 method,
                 fill(method, path, org),
                 route=(method, path),
                 name=name,
                 curate_of=org.name if curate and name in curators else "",
+                own_case_of=org.name if (method, path) == OWN_CASE and name in labellers else "",
                 **options(method, path),
             )
             world.swept.add((name, (method, path)))
+            world.statuses[(name, (method, path))] = answer.status_code
 
 
 def served(world: World, org: Org) -> None:
@@ -1154,6 +1203,11 @@ def served(world: World, org: Org) -> None:
     ok(admin, ("DELETE", "/api/auth/invitations/{invitation_id}"), url, 204)
 
 
+def mounted_in(mode: str) -> set[Route]:
+    """The evaluation-set routes a deployment in `mode` mounts, with the keys."""
+    return {route for route, modes in EVALSET_ROUTES.items() if mode in modes}
+
+
 def evalset_routes(routes: Iterable[Route]) -> set[Route]:
     """The evaluation-set routes among `routes` (`EVALSET_PERMISSIONS`, `EVALSET_PATH`)."""
     return {
@@ -1252,7 +1306,7 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
             served(world, org)
         world.call({"authorization": f"Bearer {CRON}"}, "GET", "/api/internal/checkpoint")
         mounted = {*mounted_routes(app), ("GET", "/openapi.json")}
-        assert evalset_routes(mounted) == set(EVALSET_ROUTES), "sweep the new evaluation-set route"
+        assert evalset_routes(mounted) == mounted_in("memberships"), "sweep the new route"
         members = callers(
             world,
             "memberships mode",
@@ -1269,7 +1323,15 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
             members,
             anonymous={name for _, name, _ in members[:2]} | alone,
             curators={f"{org} member admin" for org in ORGS},
+            labellers={
+                f"{org} member labeller{assigned}"
+                for org in ORGS
+                for assigned in ("", " with assignments")
+            },
         )
+        for each in ORGS:  # the labeller with an open assignment was shown it; the other, none
+            labellers = (f"{each} member labeller with assignments", f"{each} member labeller")
+            assert [world.statuses[(name, OWN_CASE)] for name in labellers] == [200, 204]
     world.drain("the sweep")
     # The deployment started again in claims mode (the default, ADR-0008), as its people of each
     # claims role: answered too on what memberships mode keeps for the operator.
@@ -1281,15 +1343,14 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
         reader = next(headers for _, name, headers in people if name.endswith("claims viewer"))
         evalsets_are_on(client, reader)
         in_claims = {*mounted_routes(by_claims), ("GET", "/openapi.json")}
-        assert evalset_routes(in_claims) == set(EVALSET_ROUTES), (
-            "sweep the new evaluation-set route"
-        )
+        assert evalset_routes(in_claims) == mounted_in("claims"), "sweep the new route"
         sweep(
             world,
             sorted(in_claims),
             people,
             anonymous={name for _, name, _ in people[:2]},
             curators={f"{org} claims admin" for org in ORGS},
+            labellers=set(),
         )
     world.drain("the sweep in claims mode")
 
@@ -1425,8 +1486,9 @@ def test_each_exception_is_as_narrow_as_its_conflict() -> None:
     """Conflict 56: case ids and sealed tokens in the sealed export file, nothing else there.
     Conflict 38: a set's name to its own organization's curators and in the key holder's
     `evalset` commands. Conflict 55: its stratum and language to those curators and in `evalset
-    coverage` and `evalset show`. No mark anywhere else: no answer, log, other command or file,
-    and never the chain."""
+    coverage` and `evalset show`. LP-11j: a case's input to a labeller of its organization, in
+    their next case. No mark anywhere else: no answer, log, other command or file, and never
+    the chain."""
     every = (*CONTENT, *MADE)
 
     def shown(surface: Surface, org: str = "clinic-a") -> set[str]:
@@ -1436,6 +1498,9 @@ def test_each_exception_is_as_narrow_as_its_conflict() -> None:
         return Surface("cli", name, command=name)
 
     curators = Surface("http", "a curate route", curate_of="clinic-a")
+    labeller = Surface("http", "a labeller's next case", own_case_of="clinic-a")
+    assert shown(labeller) == {"input"}  # LP-11j: their own case, nothing else of it
+    assert shown(labeller, org="clinic-b") == set()  # another organization's case
     assert shown(Surface("export file", "the sealed export")) == {"case_id", "token"}
     assert shown(curators) == {"name", "stratum", "language"}
     assert shown(curators, org="clinic-b") == set()  # another organization's curators

@@ -882,8 +882,11 @@ the set (rater agreement, and what its settled labels cover) and keep the result
 every drawn case is settled, `mendari evalset freeze` fixes the set under its rotation rule
 (`--max-runs` and `--max-age-days`, both required) and chains only a salted commitment to its
 content; `show` reads its state, commitment, runs left and aggregates, and `retire` ends its use,
-publishing nothing. No route serves a set yet, so no one labels from the dashboard and nothing
-grades against a set until later steps.
+publishing nothing. A labeller labels through their own routes, mounted only in memberships mode
+with both keys (`GET /api/labelling` for their counts, `GET /api/labelling/next` for their next
+case, its input and the questions only, each read chained, and `POST /api/labelling/{id}` for
+their label); an administrator never labels, and no key or token reaches them. The dashboard's
+labelling screen and the grading route come in later steps.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

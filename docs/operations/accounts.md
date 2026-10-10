@@ -25,8 +25,9 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
   `admin`), and may also hold `pack_author`, which grants nothing yet, and `labeller`, which
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
-  only, and no route needs it yet). A member who only labels sees a page saying so, and no
-  packs or review queue. `grading` is a machine's and is never held by a membership: an
+  only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
+  [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
+  so, and no packs or review queue. `grading` is a machine's and is never held by a membership: an
   organization's grading key is made by the operator, `mendari access grader-key --org <org>
   --reason <why> [--days N]` (at most 365 days; its secret printed once), holds `grade` and
   nothing else, and an administrator lists and revokes it in the Access view, never rotates it. An organization always keeps an

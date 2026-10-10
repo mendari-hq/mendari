@@ -150,8 +150,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
   runs in the guard after the sign-in check: a refused request reads no body, calls no provider
   and writes nothing to the chain. A `429` carries `Retry-After` and `no-store`. Buckets are
   named by class and an opaque id (`key:<id>`, `user:<hash>`, `ehr:<hash>`, `ip:<address>`), never a
-  credential. Reads are not limited in the app. The client address is Vercel's
-  `X-Forwarded-For`, or, self-hosted, the connection's unless the proxy is trusted
+  credential. Reads are not limited in the app, but for a labeller's (60 a minute, bursts of 30,
+  per person: each case shown is chained). The client address is Vercel's `X-Forwarded-For`,
+  or, self-hosted, the connection's unless the proxy is trusted
   (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas

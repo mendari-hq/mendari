@@ -66,6 +66,18 @@ class NoteError(MendariError):
     `off`). A `422`: the request is well formed, but not here."""
 
 
+class NoAssignment(MendariError):
+    """A label for an assignment that is unknown, another labeller's, another organization's or
+    closed (answered, withdrawn, in a set no longer a draft, or on a membership no longer a
+    labeller's): one refusal for them all (`core/evalsets.py` `NO_ASSIGNMENT`), a `404` on the
+    labelling route, as an id that names nothing is (LP-11j)."""
+
+
+class LabelError(MendariError):
+    """A label that does not answer its set's questions, each with one of its labels: names the
+    question, never a value given (a `422` on the labelling route, LP-11j)."""
+
+
 class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when

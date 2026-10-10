@@ -23,6 +23,7 @@ from tests.conftest import (
     encrypted_store,
     evalset_on,
     evalsets_are_on,
+    member,
     signed_in,
 )
 from tests.test_backend_services import PUBLIC_URL
@@ -165,23 +166,30 @@ def _table(text: str) -> dict[tuple[str, str], str]:
     return shown
 
 
-@pytest.mark.parametrize("mode", ["open", "sign-in", "backend services"])
+@pytest.mark.parametrize("mode", ["open", "sign-in", "backend services", "memberships"])
 def test_the_table_of_what_each_call_needs_is_the_route_rules(
     mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With sign-in on, hidden evaluation sets are on too, so the routes they mount are in the
-    table (LP-11g, conflict 37); open mode cannot have them."""
-    if mode == "sign-in":
+    table (LP-11g, conflict 37); open mode cannot have them. In memberships mode a labeller's
+    routes are listed under `label`, a person's only (LP-11j)."""
+    if mode in ("sign-in", "memberships"):
         _sign_in_on(monkeypatch)
     if mode == "backend services":
         backend_services_on(monkeypatch)
+    if mode == "memberships":
+        monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     if mode != "open":
         evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "a.db")
     client = TestClient(app, base_url=PUBLIC_URL)
     if mode != "open":
         with encrypted_store(tmp_path / "a.db") as served:
-            reader = signed_in(served, role="viewer")
+            reader = (
+                member(served, org="default", roles=["viewer"], sub="evalsets-reader")
+                if mode == "memberships"
+                else signed_in(served, role="viewer")
+            )
         evalsets_are_on(client, reader)
     text = client.get("/docs").text
     expected = {(m, p): permission_for(m, p) for m, p in mounted_routes(app)}
@@ -192,6 +200,17 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
     launch = re.search(r'<tr data-permission="launch_decide">(.*?)</tr>', text, re.S)
     assert launch and "registered here to decide" in launch[1]
     assert "<code>POST /api/smart/decide</code></li>" in launch[1]
+    labelling = re.search(r'<tr data-permission="label">(.*?)</tr>', text, re.S)
+    if mode == "memberships":
+        assert labelling and "labeller role" in labelling[1] and "never a key" in labelling[1]
+        assert {route for route, permission in expected.items() if permission == "label"} == {
+            ("GET", "/api/labelling"),
+            ("GET", "/api/labelling/next"),
+            ("POST", "/api/labelling/{assignment_id}"),
+        }
+        assert "docs-scope" not in labelling[1]  # no scope reaches them
+    else:
+        assert labelling is None
     if mode == "backend services":
         assert ("POST", "/auth/token") in expected
         assert f"<code>POST {PUBLIC_URL}/auth/token</code>" in text

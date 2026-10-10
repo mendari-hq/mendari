@@ -42,8 +42,9 @@ The keys' lifecycle (LP-11f), on the sealed columns `SEALED_COLUMNS` lists:
 - `export` copies the sealed rows as they are stored, ciphertext and ids, opening nothing.
 Each prints ids, case hashes, key ids and counts only, and only `rotate` and `reindex` chain.
 
-Blind labelling (LP-11h), on a draft set, the key holder's command line and the store only (no
-route lets a person label yet):
+Blind labelling (LP-11h), on a draft set: the key holder's command line, and a labeller's three
+routes (LP-11j, `server/app.py` `add_labelling_routes`: `next_case`, `record_label` and their own
+counts, `labelling`):
 - `sample` draws, seeded, within each stratum of the set's cases (a number per stratum, or a
   number in all shared out by the strata's sizes); each drawn case's status becomes `sampled`
   and its sealed attributes gain its weight, N_h / n_h (the stratum's cases over those drawn
@@ -68,7 +69,11 @@ route lets a person label yet):
   assignment, values}` (`label_ref`). A case's second first-pass label settles it `agreed` or
   `disputed`; its adjudicator's, by the majority on each question, `resolved`, or `unresolved`
   where any question has none (a three-way split). The labeller is told how many cases are left,
-  never how their label compares.
+  never how their label compares. A refused label is a `NoAssignment` (one refusal for every
+  assignment not theirs to answer now) or a `LabelError` (naming the question, never a value).
+- `labelling` counts a labeller's own assignments, set by set: how many wait and how many they
+  labelled; `assignment_set` names the set of one of their assignments (what the security log
+  says of a labelling route: set ids only).
 - `progress` counts a set's cases by status and each labeller's assignments; `measure` computes
   the coverage report (`mendari.coverage/1`, over the drawn cases and their settled labels) and
   rater agreement (`mendari.agreement/1`, over the first-pass labels of the cases both labellers
@@ -144,7 +149,7 @@ from mendari.core.db import Session
 from mendari.core.evalset_keys import INDEX_ENV, KEY_ENV, READ_ENV, EvalsetKeys, Kind
 from mendari.core.pack import Pack, not_json
 from mendari.core.phi import key_id, token_key
-from mendari.errors import MendariError
+from mendari.errors import LabelError, MendariError, NoAssignment
 from mendari.evals.canonical import canonical_input, normalised_input
 
 if TYPE_CHECKING:
@@ -770,7 +775,7 @@ class EvalsetStore:
         }
 
     def next_case(self, user_id: str, *, org: str) -> dict[str, Any] | None:
-        """What a labeller labels next (no route yet: LP-11j serves it): their oldest open
+        """What a labeller labels next (`GET /api/labelling/next`, LP-11j): their oldest open
         assignment in a draft set of `org`, the organization they act for, while the membership
         it was made on is in force and holds the `labeller` role and no role that manages hidden
         sets. Only the case's input is opened, and `evalset.case_read` is chained in the same
@@ -814,12 +819,12 @@ class EvalsetStore:
     def record_label(
         self, assignment_id: str, user_id: str, values: Mapping[str, Any], *, org: str
     ) -> dict[str, Any]:
-        """A labeller's answer to one assignment (no route yet: LP-11j takes it), for `org`,
-        the organization they act for. Refused with one message (`NO_ASSIGNMENT`) whether the
-        assignment is unknown, another labeller's, another organization's, closed (answered, or
-        withdrawn), in a set no longer a draft, or on a membership no longer in force as a
-        labeller's; then every question of the set must be answered with
-        one of its labels (a problem names the question, never the value). One submission per
+        """A labeller's answer to one assignment (`POST /api/labelling/{id}`, LP-11j), for `org`,
+        the organization they act for. Refused with one message (`NoAssignment`, `NO_ASSIGNMENT`)
+        whether the assignment is unknown, another labeller's, another organization's, closed
+        (answered, or withdrawn), in a set no longer a draft, or on a membership no longer in
+        force as a labeller's; then every question of the set must be answered with one of its
+        labels (a `LabelError` names the question, never the value). One submission per
         assignment, never changed: the values are sealed with a 32-byte salt, bound to the
         label's own id, and `evalset.labelled` is chained with the label's commitment. A case's
         second first-pass label settles it `agreed` or `disputed`; its adjudicator's label,
@@ -831,7 +836,7 @@ class EvalsetStore:
             and isinstance(user_id, str)
             and accounts.USER_ID.fullmatch(user_id)
         ):
-            raise MendariError(NO_ASSIGNMENT)
+            raise NoAssignment(NO_ASSIGNMENT)
         with self.store._db.session(exclusive=True) as db:
             self.store._evalset_ready(db, keys)
             row = db.one(
@@ -849,15 +854,15 @@ class EvalsetStore:
                 or row["state"] != DRAFT
                 or db.one("SELECT id FROM evalset_labels WHERE assignment_id = ?", (assignment_id,))
             ):
-                raise MendariError(NO_ASSIGNMENT)
+                raise NoAssignment(NO_ASSIGNMENT)
             org, set_id, case_id = str(row["org"]), str(row["set_id"]), str(row["case_id"])
             membership = _labeller_membership(db, org, user_id)
             if membership is None or str(membership["id"]) != row["membership_id"]:
-                raise MendariError(NO_ASSIGNMENT)
+                raise NoAssignment(NO_ASSIGNMENT)
             header, _ = keys.open("header", str(row["header"]), set_id)
             problem = _label_problem(values, header["questions"])
             if problem is not None:
-                raise MendariError(problem)
+                raise LabelError(problem)
             answered = {question: values[question] for question in header["questions"]}
             label_id = str(uuid.uuid4())
             salt = secrets.token_bytes(32)
@@ -895,6 +900,53 @@ class EvalsetStore:
                 (user_id, org, str(membership["id"]), DRAFT),
             )
         return {"remaining": int(remaining["n"]) if remaining else 0}
+
+    def labelling(self, user_id: str, *, org: str) -> dict[str, Any]:
+        """A labeller's own work in `org`, the organization they act for (`GET /api/labelling`,
+        LP-11j): each set they hold an assignment in, oldest first, with how many of their cases
+        wait there (`open`: as `next_case` serves them, on the labeller's membership in force,
+        in a set still a draft) and how many they labelled; and how many wait in all
+        (`remaining`, as `record_label` answers). Nothing for anyone who labels nothing in `org`
+        now (no labeller's membership in force there, or one that manages its sets). Ids and
+        counts only: nothing sealed is opened, so nothing is chained and no key is needed."""
+        _check_user_id(user_id)
+        with self.store._db.session(exclusive=False) as db:
+            membership = _labeller_membership(db, org, user_id)
+            if membership is None:
+                return {"sets": [], "remaining": 0}
+            rows = db.all(
+                "SELECT a.set_id, a.membership_id, a.ended_at, s.state, l.id AS label "
+                "FROM evalset_assignments a JOIN evalset_sets s ON s.id = a.set_id "
+                "LEFT JOIN evalset_labels l ON l.assignment_id = a.id "
+                "WHERE a.user_id = ? AND a.org = ? AND s.org = a.org ORDER BY a.created_at, a.id",
+                (user_id, org),
+            )
+        counted: dict[str, dict[str, int]] = {}
+        for row in rows:
+            held = counted.setdefault(str(row["set_id"]), {"open": 0, "labelled": 0})
+            if row["label"] is not None:
+                held["labelled"] += 1
+            elif (
+                row["ended_at"] is None
+                and row["state"] == DRAFT
+                and str(row["membership_id"]) == str(membership["id"])
+            ):
+                held["open"] += 1
+        sets = [{"set": set_id, **held} for set_id, held in counted.items() if any(held.values())]
+        return {"sets": sets, "remaining": sum(held["open"] for held in sets)}
+
+    def assignment_set(self, assignment_id: str, user_id: str, *, org: str) -> str | None:
+        """The set of one of `user_id`'s own assignments in `org`, open or answered: what the
+        security log names of a labelling route's work (set ids only, LP-11j). None for an id
+        that is unknown, another labeller's or another organization's. Ids only."""
+        if not _is_uuid(assignment_id):
+            return None
+        with self.store._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT set_id FROM evalset_assignments WHERE id = ? AND user_id = ? AND org = ?",
+                (assignment_id, user_id, org),
+            )
+        return None if row is None else str(row["set_id"])
 
     def measure(
         self,
