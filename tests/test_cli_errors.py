@@ -170,6 +170,13 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "evalset progress": ([SET_ID, "--db", "{missing_db}"], {}),
     "evalset agreement": ([SET_ID, "--db", "{not_db}"], {}),
     "evalset coverage": ([SET_ID, "--db", "{not_db}"], {}),
+    # The lifecycle (LP-11i): off without the keys; show reads a missing database.
+    "evalset freeze": (
+        [SET_ID, "--max-runs", "1", "--max-age-days", "1", "--db", "{not_db}"],
+        {},
+    ),
+    "evalset retire": ([SET_ID, "--db", "{not_db}"], {}),
+    "evalset show": ([SET_ID, "--db", "{missing_db}"], {}),
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
     "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),

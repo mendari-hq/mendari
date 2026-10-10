@@ -34,6 +34,19 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   chained as a salted commitment, settling the case agreed, disputed, resolved or unresolved;
   agreement and coverage measured and sealed as the set's aggregates; `audit verify --evalsets`
   recomputes each label. No route yet, so no person labels.
+- 11i, the lifecycle in the store and on the key holder's command line (`mendari evalset
+  freeze|retire|show`): every write refuses a set that is not a draft, in its own exclusive
+  transaction; freezing (every drawn case agreed or resolved, an undrawn one removed with
+  `--drop-unsampled`, both limits of the rotation rule required) hashes the content
+  (`mendari.evalset/1`: the header, the rule and its freeze time, and every case by id with its
+  input, final and derived labels, status and attributes), seals the salt, the content hash and the
+  derived labels as the freeze record and the final labels' coverage and agreement as the
+  aggregates, and chains only the salted commitment (`evalset.frozen`); the in-process grading
+  read (`grade_read`, no route or command calls it until 11l) serves a live grading key of the
+  set's organization while the rule holds, recomputes the content, activates a frozen set and
+  chains each read in the same exclusive transaction, before its run receives the cases;
+  retiring checks the content once more and publishes nothing; `audit verify --evalsets` and
+  `rotate --check` recompute every set the chain froze against its commitment. Threat model T6.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
@@ -75,10 +88,12 @@ return the case input only, never another label, a model output, the author's in
 the case's attributes, and labelling never reuses the review queue's screens.
 
 **Lifecycle.** A set is `draft` (mutable), `frozen` (immutable: a content hash over each case's
-id, canonical input and final labels, and the set's header, chained as a salted commitment at
-freeze), `active` (frozen and in use for grading) or `retired`. Only frozen or active sets
-grade. A set stops grading after a maximum number of grading runs or a maximum age, whichever
-comes first, both fixed at freeze; the key holder then retires it. A signature on the commitment waits for LP-17's grading-key
+id, canonical input, final labels, status and attributes, and the set's header with its rotation
+rule, chained as a salted commitment at freeze), `active` (frozen and in use for grading, from its
+first grading read) or `retired`. Only frozen or active sets grade. A set stops grading after a
+maximum number of grading runs or a maximum age, whichever comes first, both fixed at freeze
+with no default; the key holder then retires it, which publishes nothing. The content hash never
+leaves the sealed freeze record. A signature on the commitment waits for LP-17's grading-key
 decision.
 
 **The chain.** Each label event chains a keyed hash of the case id and a salted commitment of
