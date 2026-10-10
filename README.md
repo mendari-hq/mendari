@@ -865,8 +865,12 @@ hand-written cases only, sealed in the deployment's own database, with ids, keye
 and commitments in the chain, which `mendari audit verify --evalsets` checks the sealed cases
 against. Their key rotates as the PHI key does (`mendari evalset rotate`, then
 `rotate --check`), a new index key rebuilds the hidden-case index (`mendari evalset reindex`),
-and `mendari evalset export` copies the sealed sets as stored, needing no key. No route serves a
-set yet.
+and `mendari evalset export` copies the sealed sets as stored, needing no key. Its cases are
+labelled blind: `mendari evalset sample` draws them, seeded, within strata; `assign` gives each
+to two of the organization's labellers (never an administrator), `adjudicate` a disputed one to
+a third; `progress` counts them by status and labeller; and `agreement` and `coverage` measure
+the set (rater agreement, and what its settled labels cover) and keep the result sealed. No
+route serves a set yet, so no one labels from the dashboard until a later step.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

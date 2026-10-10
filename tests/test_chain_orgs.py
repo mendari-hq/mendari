@@ -160,6 +160,26 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         store, EvalsetKeys(NEXT_EVALSET_KEY, EVALSETS.index_key, (EVALSETS.key,))
     )
     swapped.rotate(to=key_id(NEXT_EVALSET_KEY))
+    # Its blind labelling (LP-11h), each event the set's organization's: cases drawn, two
+    # labellers of `home` assigned, each reading and labelling (they disagree), a third
+    # adjudicating, and the set measured.
+    people = []
+    for n in range(3):
+        person = store.record_user(
+            issuer="https://idp.example.org", subject=f"labeller-{home}-{n}", email=None, name=None
+        )
+        store.add_membership(org=home, roles=["labeller"], created_by="ops", user_id=person["id"])
+        people.append(str(person["id"]))
+    swapped.add_cases(made_set, [hand_written(f"A labelled case {n} of {home}") for n in range(2)])
+    swapped.sample(made_set, cases=2)
+    swapped.assign(made_set, people[:2])
+    for labeller, destination in zip(people, ("nurse", "physician", "nurse"), strict=True):
+        if labeller == people[2]:
+            swapped.adjudicate(made_set, [labeller])
+        while (served := swapped.next_case(labeller, org=home)) is not None:
+            labels = {"destination": destination, "urgency": "routine"}
+            swapped.record_label(served["assignment"], labeller, labels, org=home)
+    swapped.measure(made_set, resamples=50)
     made.update(decisions=[first, second, third], home=home)
     return made
 
@@ -281,6 +301,13 @@ def _approval(store: AuditStore, _: Pack) -> str:
     return f"governance:{made['id']}"
 
 
+def _registry_approval(store: AuditStore, _: Pack) -> str:
+    made = store.approve_registry_pack(
+        pack_id="someone/pulled", pack_digest="d" * 64, registry="x", approver="cmo", reference="r"
+    )
+    return f"registry_approval:{made['id']}"
+
+
 def _hold(store: AuditStore, _: Pack) -> str:
     made = store.hold_automation(
         org=CLINIC, pack_id=None, pack_digest=None, reason="drill", set_by="ops"
@@ -330,6 +357,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "api_keys": ("api_keys", "id", _key),
     "oauth_clients": ("oauth_clients", "client_id", _client),
     "governance_approvals": ("governance_approvals", "id", _approval),
+    "registry_approvals": ("registry_approvals", "id", _registry_approval),
     "automation_holds": ("automation_holds", "id", _hold),
     "eval_reports": ("eval_reports", "id", _report),
     "organizations": ("organizations", "id", _organization),

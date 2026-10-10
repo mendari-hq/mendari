@@ -174,6 +174,8 @@ WRITTEN = (
     "evalset_sets",  # hidden evaluation sets (LP-11e): no route writes them yet
     "evalset_cases",
     "evalset_index",
+    "evalset_assignments",  # their blind labelling (LP-11h): the store only, no route yet
+    "evalset_labels",
     "audit_events",
 )
 
@@ -320,6 +322,9 @@ EXPLICIT = (
     # Hidden evaluation sets (LP-11e): the key holder's command line only, no route.
     "EvalsetStore.create_set",
     "EvalsetStore.sets",
+    # A labeller's next case and label (LP-11h): their organization's only, no route yet.
+    "EvalsetStore.next_case",
+    "EvalsetStore.record_label",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -688,6 +693,25 @@ def seed(world: World, org: Org) -> None:
             expect=201,
         ).json()
         org.made("hold", hold["id"])
+        # A pulled pack's approval (LP-18d): none is served here, so made in the store.
+        with tenancy.acting_for(org.name):
+            pulled = world.store.approve_registry_pack(
+                pack_id="someone/pulled",
+                pack_digest=f"sha256:{len(org.ids.get('registry_approval', []))}{'0' * 63}",
+                registry="https://hub.example.org",
+                approver="cmo",
+                reference=f"pulled minutes {m}",
+            )
+        org.made("registry_approval", pulled["id"])
+    # Only a pack served from a registry is approved this way.
+    world.call(
+        org,
+        governance,
+        ("POST", "/api/registry-approvals"),
+        "/api/registry-approvals",
+        json={"pack_id": GUARD, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"},
+        expect=422,
+    )
     run = world.call(
         org,
         admin,
@@ -758,7 +782,9 @@ def seed_people(world: World, org: Org) -> None:
 def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     """A draft hidden evaluation set of `org`'s, as the key holder makes one on the command line
     (LP-11e), its case's text and author carrying `org`'s marker: the set's id, the case's id
-    and its keyed hash are `org`'s, which the other never sees."""
+    and its keyed hash are `org`'s, which the other never sees. In memberships mode its case is
+    drawn and labelled blind by two of `org`'s labellers, at the store (LP-11h): their user
+    ids, the assignments' and the labels' ids are `org`'s too."""
     m = org.marker
     hidden = EvalsetStore(world.store, keys)
     made = hidden.create_set(org.name, resolve_pack(INBOX), f"set {m}", created_by="operator")
@@ -769,6 +795,24 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     with world.store._db.session(exclusive=False) as db:
         for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
             org.made("evalset case", row["id"])
+    if world.accounts != "memberships":  # a labeller labels in memberships mode only
+        return
+    hidden.sample(set_id, cases=1)
+    people = []
+    for n in range(2):
+        sub = f"labeller-{n}-{m}"
+        member(world.store, org=org.name, roles=["labeller"], sub=sub)
+        people.append(org.made("person", person_id(IDP, sub)))
+    for assigned in hidden.assign(set_id, people)["assignments"]:
+        org.made("evalset assignment", assigned["assignment"])
+    for user in people:
+        shown = hidden.next_case(user, org=org.name)
+        assert shown is not None
+        labels = {"destination": "nurse", "urgency": "routine"}
+        hidden.record_label(shown["assignment"], user, labels, org=org.name)
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
+            org.made("evalset label", row["id"])
 
 
 def token_form(signer: Signer, client_id: str, scope: str = "system/*.rs") -> dict[str, str]:
@@ -1092,6 +1136,14 @@ def refusals(world: World, x: Org, o: Org) -> None:
             approval,
             404,
         )
+    for approval in o.ids["registry_approval"]:
+        refused(
+            x.people["governance"],
+            ("DELETE", "/api/registry-approvals/{approval_id}"),
+            f"/api/registry-approvals/{approval}",
+            approval,
+            404,
+        )
     # Their administrative events, by subject or by cursor.
     theirs = f"key:{o.one('key')}"
     listed = world.call(
@@ -1229,6 +1281,13 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": GUARD}),
+        (viewer, ("GET", "/api/registry-approvals"), "/api/registry-approvals", {}),
+        (
+            viewer,
+            ("GET", "/api/registry-approvals"),
+            "/api/registry-approvals",
+            {"pack_id": GUARD},
+        ),
         (viewer, ("GET", "/api/evals"), "/api/evals", {}),
         (viewer, ("GET", "/api/evals"), "/api/evals", pack),
         (viewer, ("GET", "/api/stats"), "/api/stats", pack),
@@ -1509,6 +1568,13 @@ def served(world: World, x: Org) -> None:
         governance,
         ("DELETE", "/api/governance/{approval_id}"),
         f"/api/governance/{x.one('approval', 1)}",
+        expect=204,
+    )
+    world.call(
+        x,
+        governance,
+        ("DELETE", "/api/registry-approvals/{approval_id}"),
+        f"/api/registry-approvals/{x.one('registry_approval', 1)}",
         expect=204,
     )
     if world.accounts == "memberships":

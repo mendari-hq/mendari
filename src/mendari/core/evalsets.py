@@ -40,7 +40,43 @@ The keys' lifecycle (LP-11f), on the sealed columns `SEALED_COLUMNS` lists:
   more here; chained case hashes keep the key id they were made under, and the commitments
   carry the binding across index keys.
 - `export` copies the sealed rows as they are stored, ciphertext and ids, opening nothing.
-Each prints ids, case hashes, key ids and counts only, and only `rotate` and `reindex` chain."""
+Each prints ids, case hashes, key ids and counts only, and only `rotate` and `reindex` chain.
+
+Blind labelling (LP-11h), on a draft set, the key holder's command line and the store only (no
+route lets a person label yet):
+- `sample` draws, seeded, within each stratum of the set's cases (a number per stratum, or a
+  number in all shared out by the strata's sizes); each drawn case's status becomes `sampled`
+  and its sealed attributes gain its weight, N_h / n_h (the stratum's cases over those drawn
+  from it, for every drawn case of the stratum, at each draw). Chained: `evalset.sampled {set,
+  org, n, seed}`, counts only, never a stratum.
+- `assign` gives each sampled case two different labellers, balanced across pairs (within one
+  case of each other) and across labellers (within two), from the user ids it is given,
+  deterministically for a seed; `adjudicate` gives each disputed case a third who is neither of
+  its first two. Each refuses anyone who does not hold the `labeller` role on a membership in
+  force in the set's organization, and anyone who manages hidden sets there (`curate`: an
+  administrator, separation of duties); an open assignment whose membership no longer holds is
+  withdrawn, and its case given to another, on the next run. Chained: `evalset.assigned {set,
+  org, case, assignment, labeller, round}`.
+- `next_case` serves a labeller, while their membership holds, their oldest open assignment in
+  a draft set: the case's input and the set's questions with their labels, nothing else (no
+  attribute, intended label, other label or model output). Chained in the same transaction,
+  before it returns: `evalset.case_read {set, org, case, assignment, labeller}`.
+- `record_label` takes one submission per assignment, every question answered, and never
+  changes it: the values sealed with a 32-byte salt, bound to the label's own id. Chained:
+  `evalset.labelled {set, org, case, label_ref, labeller, round}`, with `label_ref` the label's
+  id and the SHA-256 of `LABEL_REF_PREFIX`, the salt and the canonical `{set, case, label,
+  assignment, values}` (`label_ref`). A case's second first-pass label settles it `agreed` or
+  `disputed`; its adjudicator's, by the majority on each question, `resolved`, or `unresolved`
+  where any question has none (a three-way split). The labeller is told how many cases are left,
+  never how their label compares.
+- `progress` counts a set's cases by status and each labeller's assignments; `measure` computes
+  the coverage report (`mendari.coverage/1`, over the drawn cases and their settled labels) and
+  rater agreement (`mendari.agreement/1`, over the first-pass labels of the cases both labellers
+  answered), seals them as the set's aggregates and chains `evalset.measured {set, org, n}`.
+Every opening of a case's input, attributes or labels is chained (sampling, a labeller's read,
+labelling, measuring); opening a set's header is not. A case's status is `draft` until drawn,
+then `sampled`, `agreed`, `disputed`, `resolved` or `unresolved`. Removing a case removes its
+assignments and labels with it."""
 
 from __future__ import annotations
 
@@ -48,13 +84,16 @@ import base64
 import functools
 import hashlib
 import json
+import random
 import re
 import secrets
 import uuid
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
+from fractions import Fraction
+from itertools import combinations
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from mendari.core import accounts
 from mendari.core.audit import (
@@ -76,13 +115,36 @@ from mendari.core.phi import key_id, token_key
 from mendari.errors import MendariError
 from mendari.evals.canonical import canonical_input, normalised_input
 
+if TYPE_CHECKING:
+    from mendari.core.spec import PackManifest
+
 # A case's commitment (`case_ref`): unkeyed, hiding through its salt (kept only sealed in the
 # case's attributes) and binding through SHA-256. No prefix of another of the deployment's
 # hashes, keyed or not, nor of a sealed value's associated data.
 CASE_REF_PREFIX = b"mendari-evalset-case-ref-v1\x00"
+# A label's commitment (`label_ref`), as a case's: its salt is sealed only in the label's body.
+LABEL_REF_PREFIX = b"mendari-evalset-label-ref-v1\x00"
 DRAFT = "draft"
 # What a set's state may be: `draft` until LP-11i freezes it, then `frozen`, `active`, `retired`.
 STATES = (DRAFT, "frozen", "active", "retired")
+# What a case's status may be (LP-11h): `draft` until a draw takes it, then `sampled`; once both
+# first-pass labels are in, `agreed` or `disputed`; once a disputed case's adjudicator answers,
+# `resolved` (a majority on every question) or `unresolved` (a three-way split on one).
+SAMPLED, AGREED, DISPUTED, RESOLVED, UNRESOLVED = (
+    "sampled",
+    "agreed",
+    "disputed",
+    "resolved",
+    "unresolved",
+)
+CASE_STATUSES = (DRAFT, SAMPLED, AGREED, DISPUTED, RESOLVED, UNRESOLVED)
+# An assignment's round: a case's two blind first passes, then a disputed case's third label.
+FIRST, ADJUDICATION = "first", "adjudication"
+ROUNDS = (FIRST, ADJUDICATION)
+# What `measure` seals as a set's aggregates: its coverage and its raters' agreement.
+AGGREGATES_FORMAT = "mendari.evalset_aggregates/1"
+# The one answer to an assignment that is unknown, another labeller's or closed (LP-11j: one 404).
+NO_ASSIGNMENT = "no open assignment of this labeller has that id"
 SOURCE = "hand_written"  # the only source until B20 brings de-identified cases
 REQUIRED = ("author", "language", "stratum")
 # The attributes the store adds to a case's own: the id its author gave it, its intended labels.
@@ -103,13 +165,15 @@ EXPORT_FORMAT = "mendari.evalset_export/1"
 
 class SealedTable(NamedTuple):
     """An `evalset_` table's sealed values: each sealed column with the kind it is sealed as,
-    the columns holding the ids each value is bound to, and the column naming a row in what is
-    printed beside its set (None: the set's id alone; never a case's id)."""
+    the columns holding the ids each value is bound to (a label's own id too), and the column
+    naming a row in what is printed beside its set (None: the set's id alone, or a label's id;
+    never a case's id)."""
 
     columns: Mapping[str, Kind]
     set_id: str
     case_id: str | None
     shown: str | None
+    label_id: str | None = None
 
 
 # Every sealed column of the `evalset_` tables, by table (LP-11f): a rotation re-seals, its check
@@ -117,7 +181,8 @@ class SealedTable(NamedTuple):
 # table is in the clear (ids, organizations, states, times, keyed hashes, commitments), and a
 # test pins each column to one list or the other, so a sealed column a later step adds is never
 # left out. Each table here has an `id` (its primary key, which a rotation pages by), an `org`
-# and a `created_at`.
+# and a `created_at`. A label's body (LP-11h) is bound to its set, its case and its own id.
+# (`evalset_assignments` holds nothing sealed: ids, a round and times.)
 SEALED_COLUMNS: dict[str, SealedTable] = {
     "evalset_sets": SealedTable(
         {"header": "header", "freeze_record": "freeze", "aggregates": "aggregates"},
@@ -131,6 +196,13 @@ SEALED_COLUMNS: dict[str, SealedTable] = {
         case_id="id",
         shown="case_hash",
     ),
+    "evalset_labels": SealedTable(
+        {"body": "label"},
+        set_id="set_id",
+        case_id="case_id",
+        shown=None,
+        label_id="id",
+    ),
 }
 
 
@@ -140,6 +212,22 @@ def case_ref(salt: bytes, set_id: str, case_id: str, value: Any, attributes: Any
     (its own, with what the store added, without the salt)."""
     body = {"set": set_id, "case": case_id, "input": value, "attributes": attributes}
     return hashlib.sha256(CASE_REF_PREFIX + salt + canonical_input(body).encode()).hexdigest()
+
+
+def label_ref(
+    salt: bytes, set_id: str, case_id: str, label_id: str, assignment_id: str, values: Any
+) -> str:
+    """A label's commitment, as `evalset.labelled` chains it (`label_ref.sha256`): SHA-256 of
+    `LABEL_REF_PREFIX`, the salt and the canonical JSON of the label's set, case, own id,
+    assignment and values. The salt keeps a value a guess could not confirm."""
+    body = {
+        "set": set_id,
+        "case": case_id,
+        "label": label_id,
+        "assignment": assignment_id,
+        "values": values,
+    }
+    return hashlib.sha256(LABEL_REF_PREFIX + salt + canonical_input(body).encode()).hexdigest()
 
 
 def read_cases(path: Path) -> list[tuple[int, Any]]:
@@ -166,7 +254,8 @@ def read_cases(path: Path) -> list[tuple[int, Any]]:
 
 class EvalsetStore:
     """Hidden evaluation sets over an `AuditStore` (its database, chain and marks), with the
-    deployment's evaluation-set keys. Without keys (the feature off) it lists sets only."""
+    deployment's evaluation-set keys. Without keys (the feature off) it lists sets and counts
+    their labelling's progress only: nothing sealed is opened."""
 
     def __init__(self, store: AuditStore, keys: EvalsetKeys | None = None) -> None:
         self.store = store
@@ -302,7 +391,8 @@ class EvalsetStore:
 
     def remove_case(self, set_id: str, case: str) -> dict[str, Any]:
         """Remove a case of a draft set (named by its case hash, as `add_cases` gave it, or by
-        its id), with its index rows; `evalset.case_removed` is chained."""
+        its id), with its index rows, and its assignments and labels (LP-11h: an unresolved case
+        is removed so its set can freeze); `evalset.case_removed` is chained."""
         keys = self._ring()
         _check_set_id(set_id)
         if not (_CASE_HASH.fullmatch(case) or _is_uuid(case)):
@@ -320,6 +410,8 @@ class EvalsetStore:
             if row is None:
                 raise MendariError(f"no case {case} in evaluation set {set_id}")
             db.all("DELETE FROM evalset_index WHERE case_id = ?", (row["id"],))
+            db.all("DELETE FROM evalset_labels WHERE case_id = ?", (row["id"],))
+            db.all("DELETE FROM evalset_assignments WHERE case_id = ?", (row["id"],))
             db.all("DELETE FROM evalset_cases WHERE id = ?", (row["id"],))
             payload = {"set": set_id, "case": str(row["case_hash"])}
             chained = self.store._bound("evalset.case_removed", payload, str(head["org"]))
@@ -342,6 +434,466 @@ class EvalsetStore:
         if added:
             self.store._append(db, KEYS_CHAIN, "evalset_index.epoch", {"key_id": current})
         return current
+
+    # -- blind labelling (LP-11h) --------------------------------------------------------------
+
+    def sample(
+        self,
+        set_id: str,
+        *,
+        per_stratum: int | None = None,
+        cases: int | None = None,
+        seed: int = 0,
+    ) -> dict[str, Any]:
+        """Draw cases of a draft set to label (`mendari evalset sample`): `per_stratum` more from
+        each stratum (all that are left of a smaller one), or `cases` more in all, shared out
+        among the strata in proportion to the cases left in each (largest remainders, ties by
+        stratum). The draw is seeded (`seed`) and runs over the cases in id order, the strata in
+        name order, so the same set and seed draw the same cases. Each drawn case becomes
+        `sampled`, and every drawn case of a stratum is re-sealed with its weight N_h / n_h (the
+        stratum's cases over those drawn from it so far), beside its attributes, outside what
+        its commitment covers. `evalset.sampled` is chained with how many were drawn and the
+        seed: counts only, never a stratum. The set's id, how many were drawn now and in all,
+        and the seed."""
+        keys = self._ring()
+        _check_set_id(set_id)
+        if (per_stratum is None) == (cases is None):
+            raise MendariError(
+                "give how many cases to draw from each stratum, or how many in all: one of the two"
+            )
+        count = per_stratum if per_stratum is not None else cases
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise MendariError("a draw is of 1 case or more")
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            raise MendariError("a seed is a whole number")
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            head = _draft(
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            rows = db.all(
+                "SELECT id, status, attributes FROM evalset_cases WHERE set_id = ? ORDER BY id",
+                (set_id,),
+            )
+            if not rows:
+                raise MendariError(f"evaluation set {set_id} holds no case to draw")
+            bodies = {
+                str(row["id"]): keys.open(
+                    "attributes", str(row["attributes"]), set_id, str(row["id"])
+                )[0]
+                for row in rows
+            }
+            drawn_before = {str(row["id"]) for row in rows if row["status"] != DRAFT}
+            strata: dict[str, list[str]] = {}
+            for row in rows:
+                stratum = str(bodies[str(row["id"])]["attributes"]["stratum"])
+                strata.setdefault(stratum, []).append(str(row["id"]))
+            left = {
+                h: [c for c in ids if c not in drawn_before] for h, ids in sorted(strata.items())
+            }
+            if per_stratum is not None:
+                take = {h: min(per_stratum, len(ids)) for h, ids in left.items()}
+            else:
+                available = sum(len(ids) for ids in left.values())
+                if count > available:
+                    raise MendariError(
+                        f"evaluation set {set_id} has {available} case(s) left to draw, not {count}"
+                    )
+                take = _shared_out(count, {h: len(ids) for h, ids in left.items()})
+            rng = random.Random(seed)
+            drawn = [case for h, ids in left.items() for case in rng.sample(ids, take[h])]
+            if not drawn:
+                raise MendariError(f"every case of evaluation set {set_id} is drawn already")
+            for start in range(0, len(drawn), _INSERT_BATCH):
+                batch = drawn[start : start + _INSERT_BATCH]
+                marks = ", ".join("?" for _ in batch)
+                db.all(
+                    f"UPDATE evalset_cases SET status = ? WHERE id IN ({marks})",
+                    (SAMPLED, *batch),
+                )
+            every = drawn_before | set(drawn)
+            for ids in strata.values():
+                chosen = [case for case in ids if case in every]
+                if not chosen:
+                    continue
+                weight = len(ids) / len(chosen)
+                for case in chosen:
+                    body = bodies[case]
+                    if body.get("weight") == weight:
+                        continue
+                    resealed = keys.seal("attributes", {**body, "weight": weight}, set_id, case)
+                    db.all("UPDATE evalset_cases SET attributes = ? WHERE id = ?", (resealed, case))
+            payload = {"set": set_id, "n": len(drawn), "seed": seed}
+            chained = self.store._bound("evalset.sampled", payload, str(head["org"]))
+            self.store._append(db, f"evalset:{set_id}", "evalset.sampled", chained)
+        return {"set": set_id, "drawn": len(drawn), "sampled": len(every), "seed": seed}
+
+    def assign(self, set_id: str, labellers: Sequence[str], *, seed: int = 0) -> dict[str, Any]:
+        """Give each sampled case of a draft set its two blind first-pass labellers
+        (`mendari evalset assign`), from `labellers` (user ids): two different people a case,
+        the pair of them that has shared the fewest cases, then the one whose busier member has
+        the fewest, counting the assignments the set already has (while the same labellers are
+        named, pairs differ by one case at most and labellers by two); deterministic for a
+        seed. Each labeller must hold the `labeller` role on a membership in force in the set's
+        organization, and none may manage hidden sets there (`accounts.CURATING`): either
+        refuses the run. An open assignment whose membership no longer holds (ended, or no
+        longer a labeller's) is withdrawn first, and its case given to another labeller here.
+        `evalset.assigned` is chained for each. The set's id, how many were assigned and
+        withdrawn, and each new assignment: its case by its hash, its id, its labeller and its
+        round."""
+        return self._assign(set_id, labellers, seed, FIRST)
+
+    def adjudicate(self, set_id: str, labellers: Sequence[str], *, seed: int = 0) -> dict[str, Any]:
+        """Give each disputed case of a draft set a third, blind labeller who is neither of its
+        first two (`mendari evalset adjudicate`), as `assign` does: the same refusals, the same
+        withdrawals, balanced across `labellers`. The adjudicator labels from the input alone,
+        and the majority on each question settles the case."""
+        return self._assign(set_id, labellers, seed, ADJUDICATION)
+
+    def _assign(
+        self, set_id: str, labellers: Sequence[str], seed: int, round_: str
+    ) -> dict[str, Any]:
+        keys = self._ring()
+        _check_set_id(set_id)
+        users = _user_ids(labellers, at_least=2 if round_ == FIRST else 1)
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            raise MendariError("a seed is a whole number")
+        waiting = SAMPLED if round_ == FIRST else DISPUTED
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            head = _draft(
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            org = str(head["org"])
+            pool = {user: _labeller_in(db, org, user) for user in users}
+            withdrawn = _withdraw(db, set_id, org, round_)
+            if not db.one(
+                "SELECT id FROM evalset_cases WHERE set_id = ? AND status <> ? LIMIT 1",
+                (set_id, DRAFT),
+            ):
+                raise MendariError(
+                    f"no case of evaluation set {set_id} is drawn: draw them first "
+                    "(`mendari evalset sample`)"
+                )
+            cases = db.all(
+                "SELECT id, case_hash FROM evalset_cases WHERE set_id = ? AND status = ? "
+                "ORDER BY id",
+                (set_id, waiting),
+            )
+            held = _held(db, set_id)
+            rng = random.Random(seed)
+            rank = {user: place for place, user in enumerate(rng.sample(users, len(users)))}
+            order = list(cases)
+            rng.shuffle(order)
+            load: Counter[str] = Counter()  # every round's assignments held, by labeller
+            load_here: Counter[str] = Counter()  # this round's
+            pairs: Counter[tuple[str, str]] = Counter()
+            for (_, round_held), people in held.items():
+                load.update(people)
+                if round_held == round_:
+                    load_here.update(people)
+                if round_held == FIRST and len(people) == 2:
+                    pairs[_pair(*people)] += 1
+            made: list[tuple[str, str, str, str]] = []  # assignment, case, its hash, labeller
+            for row in order:
+                case_id = str(row["id"])
+                first = held.get((case_id, FIRST), [])
+                have = held.get((case_id, round_), [])
+                need = (2 if round_ == FIRST else 1) - len(have)
+                if need <= 0:
+                    continue
+                barred = set(have) | (set(first) if round_ == ADJUDICATION else set())
+                candidates = [user for user in users if user not in barred]
+                if len(candidates) < need:
+                    who = "two different labellers" if round_ == FIRST else "a third labeller"
+                    raise MendariError(
+                        f"case {row['case_hash']} needs {who}, neither of those it has: give "
+                        "more labellers"
+                    )
+                if need == 2:
+                    # The pair that has shared the fewest cases first (pairs stay within one
+                    # case of each other), then the one whose busier member has the fewest
+                    # (labellers within two): the other way round, a pool of six or more
+                    # gives the same pair case after case while others share none.
+                    chosen: tuple[str, ...] = min(
+                        combinations(candidates, 2),
+                        key=lambda p: (
+                            pairs[_pair(*p)],
+                            max(load_here[p[0]], load_here[p[1]]),
+                            load_here[p[0]] + load_here[p[1]],
+                            sorted((rank[p[0]], rank[p[1]])),
+                        ),
+                    )
+                else:
+                    other = have[0] if round_ == FIRST else None
+                    chosen = (
+                        min(
+                            candidates,
+                            key=lambda u: (
+                                load_here[u],
+                                pairs[_pair(other, u)] if other else 0,
+                                load[u],
+                                rank[u],
+                            ),
+                        ),
+                    )
+                for user in chosen:
+                    made.append((str(uuid.uuid4()), case_id, str(row["case_hash"]), user))
+                    load[user] += 1
+                    load_here[user] += 1
+                    have = [*have, user]
+                held[(case_id, round_)] = have
+                if round_ == FIRST and len(have) == 2:
+                    pairs[_pair(*have)] += 1
+            now = _now()
+            _insert(
+                db,
+                "evalset_assignments",
+                (
+                    "id",
+                    "org",
+                    "set_id",
+                    "case_id",
+                    "user_id",
+                    "membership_id",
+                    "round",
+                    "created_at",
+                ),
+                [(a, org, set_id, c, u, pool[u], round_, now) for a, c, _, u in made],
+            )
+            entries = [
+                (
+                    f"evalset:{set_id}",
+                    self.store._bound(
+                        "evalset.assigned",
+                        {
+                            "set": set_id,
+                            "case": hashed,
+                            "assignment": assignment,
+                            "labeller": user,
+                            "round": round_,
+                        },
+                        org,
+                    ),
+                )
+                for assignment, _, hashed, user in made
+            ]
+            self.store._append_many(db, "evalset.assigned", entries)
+        return {
+            "set": set_id,
+            "round": round_,
+            "assigned": len(made),
+            "withdrawn": withdrawn,
+            "assignments": [
+                {"case": hashed, "assignment": assignment, "labeller": user, "round": round_}
+                for assignment, _, hashed, user in made
+            ],
+        }
+
+    def next_case(self, user_id: str, *, org: str) -> dict[str, Any] | None:
+        """What a labeller labels next (no route yet: LP-11j serves it): their oldest open
+        assignment in a draft set of `org`, the organization they act for, while the membership
+        it was made on is in force and holds the `labeller` role and no role that manages hidden
+        sets. Only the case's input is opened, and `evalset.case_read` is chained in the same
+        transaction, before anything is returned: the assignment's id, the set's questions with
+        their labels (from its header, which is not a case's) and the input. Never an
+        attribute, the intended label, another label or a model's output. None: nothing waits
+        for them."""
+        keys = self._ring()
+        _check_user_id(user_id)
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            membership = _labeller_membership(db, org, user_id)
+            if membership is None:
+                return None
+            row = db.one(
+                "SELECT a.id, a.set_id, a.case_id, s.header, c.case_hash, c.input "
+                "FROM evalset_assignments a JOIN evalset_sets s ON s.id = a.set_id "
+                "JOIN evalset_cases c ON c.id = a.case_id "
+                "WHERE a.user_id = ? AND a.org = ? AND a.membership_id = ? "
+                "AND a.ended_at IS NULL AND s.state = ? AND s.org = a.org "
+                "AND c.set_id = a.set_id "
+                "AND NOT EXISTS (SELECT 1 FROM evalset_labels l WHERE l.assignment_id = a.id) "
+                "ORDER BY a.created_at, a.id LIMIT 1",
+                (user_id, org, str(membership["id"]), DRAFT),
+            )
+            if row is None:
+                return None
+            set_id, case_id = str(row["set_id"]), str(row["case_id"])
+            header, _ = keys.open("header", str(row["header"]), set_id)
+            value, _ = keys.open("input", str(row["input"]), set_id, case_id)
+            payload = {
+                "set": set_id,
+                "case": str(row["case_hash"]),
+                "assignment": str(row["id"]),
+                "labeller": user_id,
+            }
+            chained = self.store._bound("evalset.case_read", payload, org)
+            self.store._append(db, f"evalset:{set_id}", "evalset.case_read", chained)
+        return {"assignment": str(row["id"]), "questions": header["questions"], "input": value}
+
+    def record_label(
+        self, assignment_id: str, user_id: str, values: Mapping[str, Any], *, org: str
+    ) -> dict[str, Any]:
+        """A labeller's answer to one assignment (no route yet: LP-11j takes it), for `org`,
+        the organization they act for. Refused with one message (`NO_ASSIGNMENT`) whether the
+        assignment is unknown, another labeller's, another organization's, closed (answered, or
+        withdrawn), in a set no longer a draft, or on a membership no longer in force as a
+        labeller's; then every question of the set must be answered with
+        one of its labels (a problem names the question, never the value). One submission per
+        assignment, never changed: the values are sealed with a 32-byte salt, bound to the
+        label's own id, and `evalset.labelled` is chained with the label's commitment. A case's
+        second first-pass label settles it `agreed` or `disputed`; its adjudicator's label,
+        `resolved` or `unresolved` (`_settle`). The answer is how many cases are left for the
+        labeller, never how their label compares."""
+        keys = self._ring()
+        if not (
+            _is_uuid(assignment_id)
+            and isinstance(user_id, str)
+            and accounts.USER_ID.fullmatch(user_id)
+        ):
+            raise MendariError(NO_ASSIGNMENT)
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            row = db.one(
+                "SELECT a.id, a.org, a.set_id, a.case_id, a.user_id, a.membership_id, a.round, "
+                "a.ended_at, s.state, s.header, c.case_hash FROM evalset_assignments a "
+                "JOIN evalset_sets s ON s.id = a.set_id "
+                "JOIN evalset_cases c ON c.id = a.case_id WHERE a.id = ?",
+                (assignment_id,),
+            )
+            if (
+                row is None
+                or row["user_id"] != user_id
+                or row["org"] != org
+                or row["ended_at"] is not None
+                or row["state"] != DRAFT
+                or db.one("SELECT id FROM evalset_labels WHERE assignment_id = ?", (assignment_id,))
+            ):
+                raise MendariError(NO_ASSIGNMENT)
+            org, set_id, case_id = str(row["org"]), str(row["set_id"]), str(row["case_id"])
+            membership = _labeller_membership(db, org, user_id)
+            if membership is None or str(membership["id"]) != row["membership_id"]:
+                raise MendariError(NO_ASSIGNMENT)
+            header, _ = keys.open("header", str(row["header"]), set_id)
+            problem = _label_problem(values, header["questions"])
+            if problem is not None:
+                raise MendariError(problem)
+            answered = {question: values[question] for question in header["questions"]}
+            label_id = str(uuid.uuid4())
+            salt = secrets.token_bytes(32)
+            body = {"salt": base64.b64encode(salt).decode(), "values": answered}
+            now = _now()
+            db.all(
+                "INSERT INTO evalset_labels (id, org, set_id, case_id, assignment_id, body, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    label_id,
+                    org,
+                    set_id,
+                    case_id,
+                    assignment_id,
+                    keys.seal("label", body, set_id, case_id, label_id),
+                    now,
+                ),
+            )
+            db.all("UPDATE evalset_assignments SET ended_at = ? WHERE id = ?", (now, assignment_id))
+            ref = label_ref(salt, set_id, case_id, label_id, assignment_id, answered)
+            payload = {
+                "set": set_id,
+                "case": str(row["case_hash"]),
+                "label_ref": {"id": label_id, "sha256": ref},
+                "labeller": user_id,
+                "round": str(row["round"]),
+            }
+            chained = self.store._bound("evalset.labelled", payload, org)
+            self.store._append(db, f"evalset:{set_id}", "evalset.labelled", chained)
+            _settle(db, keys, set_id, case_id)
+            remaining = db.one(
+                "SELECT count(*) AS n FROM evalset_assignments a "
+                "JOIN evalset_sets s ON s.id = a.set_id WHERE a.user_id = ? AND a.org = ? "
+                "AND a.membership_id = ? AND a.ended_at IS NULL AND s.state = ?",
+                (user_id, org, str(membership["id"]), DRAFT),
+            )
+        return {"remaining": int(remaining["n"]) if remaining else 0}
+
+    def measure(
+        self,
+        set_id: str,
+        *,
+        pack: Pack | None = None,
+        seed: int = 0,
+        resamples: int = 2000,
+    ) -> dict[str, Any]:
+        """The aggregates of a draft set's labelling (`mendari evalset agreement` and
+        `coverage`): the coverage report (`evals/coverage.py`) of its drawn cases, each with its
+        settled labels (an agreed case's, or a resolved one's majority; none while it waits)
+        and those its pack derives from them; and its raters' agreement
+        (`evals/rater_agreement.py`, seeded) over the first-pass labels of the cases both
+        labellers answered, raters by user id. The pack is the set's (its header's id, resolved
+        here) unless `pack` is given; one whose questions, labels or critical labels differ
+        from the header's is refused. Inputs, attributes and labels are opened and the
+        statistics computed outside the chain's lock; then, in one transaction, if the set's
+        drawn cases and labels are still those that were read, the aggregates are sealed as the
+        set's and `evalset.measured` is chained (how many cases). The aggregates: counts and
+        coefficients by question and label, the mix of languages, sources and strata, never a
+        case."""
+        keys = self._ring()
+        _check_set_id(set_id)
+        if not isinstance(resamples, int) or isinstance(resamples, bool) or resamples < 1:
+            raise MendariError("a bootstrap takes 1 resample or more")
+        with self.store._db.session(exclusive=False) as db:
+            head = _draft(
+                set_id, db.one("SELECT state, header FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            rows = db.all(
+                "SELECT id, case_hash, status, input, attributes FROM evalset_cases "
+                "WHERE set_id = ? AND status <> ? ORDER BY id",
+                (set_id, DRAFT),
+            )
+            labelled = db.all(
+                "SELECT l.id, l.case_id, l.body, a.user_id, a.round FROM evalset_labels l "
+                "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.set_id = ? "
+                "ORDER BY l.id",
+                (set_id,),
+            )
+        header, _ = keys.open("header", str(head["header"]), set_id)
+        if pack is None:
+            from mendari.core.registry import resolve_pack
+
+            pack = resolve_pack(str(header["pack"]))
+        problem = _pack_problem(pack, header)
+        if problem is not None:
+            raise MendariError(problem)
+        if not rows:
+            raise MendariError(
+                f"no case of evaluation set {set_id} is drawn: draw them first "
+                "(`mendari evalset sample`)"
+            )
+        read = _measured_rows(rows, labelled)
+        aggregates = _aggregates(keys, pack, set_id, rows, labelled, seed, resamples)
+        with self.store._db.session(exclusive=True) as db:
+            self.store._evalset_ready(db, keys)
+            again = _draft(
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+            )
+            now_rows = db.all(
+                "SELECT id, status FROM evalset_cases WHERE set_id = ? AND status <> ? ORDER BY id",
+                (set_id, DRAFT),
+            )
+            now_labels = db.all(
+                "SELECT id FROM evalset_labels WHERE set_id = ? ORDER BY id", (set_id,)
+            )
+            if _measured_rows(now_rows, now_labels) != read:
+                raise MendariError(
+                    f"evaluation set {set_id} changed while it was measured: run it again"
+                )
+            sealed = keys.seal("aggregates", aggregates, set_id)
+            db.all("UPDATE evalset_sets SET aggregates = ? WHERE id = ?", (sealed, set_id))
+            payload = {"set": set_id, "n": len(rows)}
+            chained = self.store._bound("evalset.measured", payload, str(again["org"]))
+            self.store._append(db, f"evalset:{set_id}", "evalset.measured", chained)
+        return aggregates
 
     # -- the keys' lifecycle (LP-11f) ----------------------------------------------------------
 
@@ -414,7 +966,7 @@ class EvalsetStore:
             after = rows[-1]["id"]
             changes = []
             for row in rows:
-                set_id, case_id = _bound_to(sealed, row)
+                bound = _bound_to(sealed, row)
                 resealed: dict[str, str] = {}
                 froms: list[str] = []
                 failed = None
@@ -423,11 +975,11 @@ class EvalsetStore:
                     if token is None or str(token).startswith(prefix):
                         continue
                     try:
-                        value, opened = keys.open(kind, str(token), set_id, case_id)
+                        value, opened = keys.open(kind, str(token), *bound)
                     except MendariError:
                         failed = {**_named(sealed, row), "kind": kind, "key": token_key(str(token))}
                         break
-                    resealed[column] = keys.seal(kind, value, set_id, case_id)
+                    resealed[column] = keys.seal(kind, value, *bound)
                     froms.append(opened)
                 if failed is not None:
                     summary["unopenable"].append(failed)
@@ -483,9 +1035,11 @@ class EvalsetStore:
         key only (`current_only`); for each case, recomputes the commitment its
         `evalset.case_added` chained (`case_ref`), its keyed hash when it is under the current
         index key, and its two index rows under the current index key (the current epoch's: a
-        case without them waits for `reindex`). Counts the index rows by key id. A failure
-        names the value's kind (`case` for a case's checks), its set, a case by its hash, and
-        the key it names or what did not match (`commitment`, `case_hash`, `index`). `ready`
+        case without them waits for `reindex`); for each label (LP-11h), the commitment its
+        `evalset.labelled` chained (`label_ref`). Counts the index rows by key id. A failure
+        names the value's kind (`case` for a case's checks, `label` for a label's), its set, a
+        case by its hash or a label by its id, and the key it names or what did not match
+        (`commitment`, `case_hash`, `index`). `ready`
         only when everything opened and matched and the current key is not retired. Nothing is
         chained, marked or written."""
         keys = self._ring()
@@ -504,6 +1058,14 @@ class EvalsetStore:
                     "SELECT payload FROM audit_events WHERE event = ?", ("evalset.case_added",)
                 )
                 if isinstance(payload := json.loads(row["payload"]), Mapping)
+            }
+            label_refs = {
+                str(ref.get("id")): ref.get("sha256")
+                for row in db.all(
+                    "SELECT payload FROM audit_events WHERE event = ?", ("evalset.labelled",)
+                )
+                if isinstance(payload := json.loads(row["payload"]), Mapping)
+                and isinstance(ref := payload.get("label_ref"), Mapping)
             }
             if "settings" not in self.store.unmigrated:  # an older database, read as it is
                 retired = {
@@ -525,12 +1087,14 @@ class EvalsetStore:
             )
         for table in present:
             sealed = SEALED_COLUMNS[table]
+            # What a label's commitment binds besides its values: the assignment it answers.
+            answers = ", assignment_id" if table == "evalset_labels" else ""
             after = ""
             while True:
                 with self.store._db.session(exclusive=False) as db:
                     rows = db.all(
-                        f"SELECT {_selected(sealed)}, org, created_at FROM {table} WHERE id > ? "
-                        "ORDER BY id LIMIT ?",
+                        f"SELECT {_selected(sealed)}, org, created_at{answers} FROM {table} "
+                        "WHERE id > ? ORDER BY id LIMIT ?",
                         (after, batch),
                     )
                     cases = [str(row["id"]) for row in rows] if table == "evalset_cases" else []
@@ -539,7 +1103,7 @@ class EvalsetStore:
                     break
                 after = rows[-1]["id"]
                 for row in rows:
-                    set_id, case_id = _bound_to(sealed, row)
+                    bound = _bound_to(sealed, row)
                     values: dict[str, Any] = {}
                     for column, kind in sealed.columns.items():
                         token = row[column]
@@ -550,7 +1114,7 @@ class EvalsetStore:
                         if named != current:
                             newest[named] = max(newest.get(named, ""), str(row["created_at"]))
                         try:
-                            values[column] = alone.open(kind, str(token), set_id, case_id)[0]
+                            values[column] = alone.open(kind, str(token), *bound)[0]
                         except MendariError:
                             failures.append({"kind": kind, **_named(sealed, row), "key": named})
                     if table == "evalset_cases" and len(values) == len(sealed.columns):
@@ -558,6 +1122,14 @@ class EvalsetStore:
                             {"kind": "case", **_named(sealed, row), "key": problem}
                             for problem in _case_problems(keys, row, values, refs, indexed)
                         ]
+                    if (
+                        table == "evalset_labels"
+                        and values
+                        and _label_ref_of(row, values["body"]) != label_refs.get(str(row["id"]))
+                    ):
+                        failures.append(
+                            {"kind": "label", **_named(sealed, row), "key": "commitment"}
+                        )
         read = sorted(keys.ring_ids - {current})
         return {
             "current": current,
@@ -645,8 +1217,9 @@ class EvalsetStore:
         each key id sealed, the keys a restore needs), then every row of each table holding
         sealed values (`SEALED_COLUMNS`) as stored: each sealed value its ciphertext, the rest
         ids, organizations, states, times and keyed case hashes. The hidden-case index is left
-        out: `reindex` rebuilds it from the sealed inputs. Cases are read before sets, so every
-        case's set is in it (a set is never deleted). Nothing is chained or marked."""
+        out: `reindex` rebuilds it from the sealed inputs, and so are assignments (LP-11h), which
+        hold nothing sealed. Labels are read before cases and cases before sets, so every case's
+        set is in it (a set is never deleted). Nothing is chained or marked."""
         tables: dict[str, list[dict[str, Any]]] = {}
         with self.store._db.session(exclusive=False) as db:
             for table in reversed(SEALED_COLUMNS):
@@ -692,6 +1265,62 @@ class EvalsetStore:
             }
             for row in rows
         ]
+
+    def progress(self, set_id: str) -> dict[str, Any]:
+        """How a set's labelling stands (`mendari evalset progress`, LP-11h): its cases counted
+        by status, and each labeller's assignments (by user id) in each round, counted as
+        assigned, labelled, open and withdrawn. Ids and counts only: no case is named and
+        nothing sealed is opened, so no key is needed; a database from before labelling (read
+        as it is) has no assignment."""
+        _check_set_id(set_id)
+        with self.store._db.session(exclusive=False) as db:
+            head = (
+                db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+                if db.columns("evalset_sets")
+                else None
+            )
+            if head is None:
+                raise MendariError(f"no evaluation set {set_id}")
+            statuses = dict.fromkeys(CASE_STATUSES, 0)
+            for row in db.all(
+                "SELECT status, count(*) AS n FROM evalset_cases WHERE set_id = ? GROUP BY status",
+                (set_id,),
+            ):
+                statuses[str(row["status"])] = int(row["n"])
+            rows = (
+                db.all(
+                    "SELECT a.user_id, a.round, a.ended_at, l.id AS label FROM "
+                    "evalset_assignments a LEFT JOIN evalset_labels l ON l.assignment_id = a.id "
+                    "WHERE a.set_id = ?",
+                    (set_id,),
+                )
+                if db.columns("evalset_assignments") and db.columns("evalset_labels")
+                else []
+            )
+        labellers: dict[str, dict[str, dict[str, int]]] = {}
+        for row in rows:
+            counted = labellers.setdefault(
+                str(row["user_id"]),
+                {
+                    round_: {"assigned": 0, "labelled": 0, "open": 0, "withdrawn": 0}
+                    for round_ in ROUNDS
+                },
+            )[str(row["round"])]
+            counted["assigned"] += 1
+            if row["label"] is not None:
+                counted["labelled"] += 1
+            elif row["ended_at"] is None:
+                counted["open"] += 1
+            else:
+                counted["withdrawn"] += 1
+        return {
+            "set": set_id,
+            "org": head["org"],
+            "state": head["state"],
+            "cases": sum(statuses.values()),
+            "statuses": statuses,
+            "labellers": dict(sorted(labellers.items())),
+        }
 
     def hidden_matches(self, value: Any) -> list[dict[str, str]]:
         """The cases, of every organization's sets, whose input equals `value` exactly or under
@@ -787,23 +1416,44 @@ def _problem(record: Any, header: Mapping[str, Any]) -> str | None:
 def _selected(sealed: SealedTable) -> str:
     """The columns a rotation or its check reads of a table: its id, the ids its values are
     bound to, the column that names it, and its sealed columns."""
-    named = (sealed.set_id, sealed.case_id, sealed.shown)
+    named = (sealed.set_id, sealed.case_id, sealed.shown, sealed.label_id)
     return ", ".join(dict.fromkeys(("id", *filter(None, named), *sealed.columns)))
 
 
-def _bound_to(sealed: SealedTable, row: Mapping[str, Any]) -> tuple[str, str]:
-    """The set and case ids a row's sealed values are bound to (an empty case id: the set's)."""
+def _bound_to(sealed: SealedTable, row: Mapping[str, Any]) -> tuple[str, str, str]:
+    """The set, case and label ids a row's sealed values are bound to (an empty case id: the
+    set's; an empty label id: no label's)."""
     case_id = "" if sealed.case_id is None else str(row[sealed.case_id])
-    return str(row[sealed.set_id]), case_id
+    label_id = "" if sealed.label_id is None else str(row[sealed.label_id])
+    return str(row[sealed.set_id]), case_id, label_id
 
 
 def _named(sealed: SealedTable, row: Mapping[str, Any]) -> dict[str, str]:
     """A row as printed: its set's id and, for a case's values, the case's keyed hash (never
-    its id)."""
+    its id); for a label, the label's id (LP-11h)."""
     named = {"set": str(row[sealed.set_id])}
     if sealed.shown is not None:
         named["case"] = str(row[sealed.shown])
+    if sealed.label_id is not None:
+        named["label"] = str(row[sealed.label_id])
     return named
+
+
+def _label_ref_of(row: Mapping[str, Any], body: Any) -> str | None:
+    """The commitment a label row's opened body gives (`label_ref`); None for a body that is
+    not a label's."""
+    try:
+        salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+        return label_ref(
+            salt,
+            str(row["set_id"]),
+            str(row["case_id"]),
+            str(row["id"]),
+            str(row["assignment_id"]),
+            body.get("values"),
+        )
+    except (MendariError, ValueError, AttributeError):
+        return None
 
 
 def _refuse_an_older_index_key(db: Session, index_key: str) -> None:
@@ -978,3 +1628,288 @@ def _inputs_of(path: Path) -> Iterator[Any]:
             continue
         if isinstance(record, dict) and isinstance(record.get("input"), dict):
             yield record["input"]
+
+
+# -- blind labelling's helpers (LP-11h) ----------------------------------------------------------
+
+
+def _check_user_id(user: Any) -> str:
+    """`user` when it is a person's user id (`accounts.person_id`); a `MendariError` that never
+    repeats what was given otherwise."""
+    if not (isinstance(user, str) and accounts.USER_ID.fullmatch(user)):
+        raise MendariError(
+            "a labeller is named by their user id (user: and 16 hex digits), as the members "
+            "list shows it"
+        )
+    return user
+
+
+def _user_ids(labellers: Sequence[str], *, at_least: int) -> list[str]:
+    """The labellers given, each a user id, sorted and each once; at least `at_least` of them."""
+    if isinstance(labellers, str):
+        labellers = [labellers]
+    users = sorted({_check_user_id(user) for user in labellers})
+    if len(users) < at_least:
+        raise MendariError(f"give at least {at_least} different labellers (their user ids)")
+    return users
+
+
+def _labeller_membership(db: Session, org: str, user_id: str) -> Mapping[str, Any] | None:
+    """`user_id`'s membership of `org` in force when it holds the `labeller` role and no role
+    that manages hidden sets (`accounts.CURATING`); None otherwise."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user_id),
+    )
+    if row is None:
+        return None
+    roles = set(json.loads(row["roles"]))
+    if accounts.LABELLER not in roles or roles & set(accounts.CURATING):
+        return None
+    return row
+
+
+def _labeller_in(db: Session, org: str, user: str) -> str:
+    """The id of the membership `user` labels `org`'s sets on; a `MendariError` saying why not:
+    they manage hidden sets there (separation of duties), or hold no labeller role there."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user),
+    )
+    roles = set(json.loads(row["roles"])) if row is not None else set()
+    if roles & set(accounts.CURATING):
+        raise MendariError(
+            f"{user} manages hidden sets in {org}: who curates a set is never assigned its cases"
+        )
+    if row is None or accounts.LABELLER not in roles:
+        raise MendariError(f"{user} holds no labeller role on a membership in force in {org}")
+    return str(row["id"])
+
+
+def _withdraw(db: Session, set_id: str, org: str, round_: str) -> int:
+    """End the open assignments of a set's round whose membership no longer holds (ended,
+    replaced by a new one, or no longer a labeller's without a curating role): their cases are
+    then given to others. How many."""
+    stale = [
+        str(row["id"])
+        for row in db.all(
+            "SELECT id, user_id, membership_id FROM evalset_assignments "
+            "WHERE set_id = ? AND round = ? AND ended_at IS NULL",
+            (set_id, round_),
+        )
+        if (held := _labeller_membership(db, org, str(row["user_id"]))) is None
+        or str(held["id"]) != row["membership_id"]
+    ]
+    now = _now()
+    for start in range(0, len(stale), _INSERT_BATCH):
+        batch = stale[start : start + _INSERT_BATCH]
+        marks = ", ".join("?" for _ in batch)
+        db.all(f"UPDATE evalset_assignments SET ended_at = ? WHERE id IN ({marks})", (now, *batch))
+    return len(stale)
+
+
+def _held(db: Session, set_id: str) -> dict[tuple[str, str], list[str]]:
+    """Who holds each case of a set in each round, by (case id, round): the labellers of its
+    open and answered assignments, never a withdrawn one's."""
+    held: dict[tuple[str, str], list[str]] = {}
+    for row in db.all(
+        "SELECT a.case_id, a.round, a.user_id FROM evalset_assignments a WHERE a.set_id = ? "
+        "AND (a.ended_at IS NULL OR EXISTS "
+        "(SELECT 1 FROM evalset_labels l WHERE l.assignment_id = a.id)) "
+        "ORDER BY a.created_at, a.id",
+        (set_id,),
+    ):
+        held.setdefault((str(row["case_id"]), str(row["round"])), []).append(str(row["user_id"]))
+    return held
+
+
+def _pair(first: str, second: str) -> tuple[str, str]:
+    one, other = sorted((first, second))
+    return one, other
+
+
+def _label_problem(values: Any, questions: Mapping[str, Sequence[str]]) -> str | None:
+    """Why `values` is not a label of a set asking `questions` (each with its labels): a
+    question it does not ask, one unanswered, or an answer not among a question's labels. It
+    names questions (the pack's own words), never a value given."""
+    if not isinstance(values, Mapping):
+        return "labels are a mapping of each question to one of its labels"
+    if any(question not in questions for question in values):
+        return "labels name a question this set does not ask"
+    unanswered = [question for question in questions if question not in values]
+    if unanswered:
+        return f"labels answer every question: {', '.join(unanswered)} unanswered"
+    for question, labels in questions.items():
+        given = values[question]
+        if not isinstance(given, str) or given not in labels:
+            return f"labels.{question} is not one of its labels"
+    return None
+
+
+def _majority(labels: Sequence[Mapping[str, str]]) -> dict[str, str] | None:
+    """Each question's label that more than half of `labels` give; None when a question has
+    none (with three labels, a three-way split)."""
+    settled: dict[str, str] = {}
+    for question in sorted({question for label in labels for question in label}):
+        counted = Counter(label[question] for label in labels if question in label)
+        chosen, votes = counted.most_common(1)[0]
+        if votes * 2 <= len(labels):
+            return None
+        settled[question] = chosen
+    return settled
+
+
+def _opened_labels(
+    keys: EvalsetKeys, set_id: str, rows: Sequence[Mapping[str, Any]]
+) -> list[tuple[Mapping[str, Any], dict[str, str]]]:
+    """Each label row with its values, opened (bound to its set, case and own id)."""
+    return [
+        (
+            row,
+            keys.open("label", str(row["body"]), set_id, str(row["case_id"]), str(row["id"]))[0][
+                "values"
+            ],
+        )
+        for row in rows
+    ]
+
+
+def _settle(db: Session, keys: EvalsetKeys, set_id: str, case_id: str) -> None:
+    """A case's status once its labels are in, in the labelling's transaction: with its two
+    first-pass labels, `agreed` when they are the same on every question, else `disputed`;
+    with its adjudicator's too, `resolved` when every question has a majority of the three,
+    else `unresolved` (a three-way split, which keeps the set from freezing until the case is
+    removed). One label alone settles nothing."""
+    rows = db.all(
+        "SELECT l.id, l.case_id, l.body, a.round FROM evalset_labels l "
+        "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.case_id = ? "
+        "ORDER BY l.created_at, l.id",
+        (case_id,),
+    )
+    opened = _opened_labels(keys, set_id, rows)
+    first = [values for row, values in opened if row["round"] == FIRST]
+    third = [values for row, values in opened if row["round"] == ADJUDICATION]
+    if third:
+        status = RESOLVED if _majority([*first, *third]) is not None else UNRESOLVED
+    elif len(first) >= 2:
+        status = AGREED if first[0] == first[1] else DISPUTED
+    else:
+        return
+    db.all("UPDATE evalset_cases SET status = ? WHERE id = ?", (status, case_id))
+
+
+def _settled(
+    status: str, first: Sequence[Mapping[str, str]], third: Sequence[Mapping[str, str]]
+) -> dict[str, str]:
+    """A case's final member labels: an agreed case's, a resolved case's majority; none while
+    it waits, is disputed or is unresolved."""
+    if status == AGREED and first:
+        return dict(first[0])
+    if status == RESOLVED:
+        return _majority([*first, *third]) or {}
+    return {}
+
+
+def _shared_out(total: int, sizes: Mapping[str, int]) -> dict[str, int]:
+    """`total` cases shared out among strata in proportion to `sizes` (the cases each has left),
+    by largest remainders, ties by stratum: each stratum gets at most its size."""
+    pool = sum(sizes.values())
+    quotas = {name: Fraction(total * size, pool) for name, size in sizes.items()}
+    shares = {name: int(quota) for name, quota in quotas.items()}
+    left = total - sum(shares.values())
+    for name in sorted(sizes, key=lambda name: (-(quotas[name] - shares[name]), name))[:left]:
+        shares[name] += 1
+    return shares
+
+
+def _pack_problem(pack: Pack, header: Mapping[str, Any]) -> str | None:
+    """Why `pack` is not the set's (its header's pack id, questions with their labels, derived
+    questions and critical labels); None when it is."""
+    manifest = pack.manifest
+    derived = manifest.derived
+    made = {
+        "pack": pack.id,
+        "questions": {q: list(manifest.labels(q)) for q in manifest.questions if q not in derived},
+        "derived": {q: list(manifest.labels(q)) for q in derived},
+        "critical": [
+            {"question": item.question, "label": item.label}
+            for item in manifest.evaluation.critical
+        ],
+    }
+    if all(made[name] == header.get(name) for name in made):
+        return None
+    return (
+        f"pack {pack.id} does not ask the set's questions with their labels and critical "
+        "labels: give the pack the set was made for (--pack)"
+    )
+
+
+def _measured_rows(
+    cases: Sequence[Mapping[str, Any]], labels: Sequence[Mapping[str, Any]]
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """What a measure read (the drawn cases with their statuses, and the labels' ids), to find
+    it unchanged when its aggregates are written."""
+    return (
+        tuple((str(row["id"]), str(row["status"])) for row in cases),
+        tuple(sorted(str(row["id"]) for row in labels)),
+    )
+
+
+def _aggregates(
+    keys: EvalsetKeys,
+    pack: Pack,
+    set_id: str,
+    cases: Sequence[Mapping[str, Any]],
+    labels: Sequence[Mapping[str, Any]],
+    seed: int,
+    resamples: int,
+) -> dict[str, Any]:
+    """A set's aggregates (`AGGREGATES_FORMAT`), from its drawn cases and their labels, opened
+    here: the coverage report of the cases with their settled labels (and those the pack derives
+    from them), named by the set and its case hashes, never an id; and the agreement of the
+    first-pass labels of each case both its labellers answered (conflict 41), raters by user
+    id. Counts and coefficients only."""
+    from mendari.evals.coverage import coverage
+    from mendari.evals.harness import Dataset
+    from mendari.evals.rater_agreement import agreement, with_derived
+
+    manifest: PackManifest = pack.manifest
+    given: dict[str, list[tuple[str, str, dict[str, str]]]] = {}
+    for row, values in _opened_labels(keys, set_id, labels):
+        given.setdefault(str(row["case_id"]), []).append(
+            (str(row["user_id"]), str(row["round"]), values)
+        )
+    records: list[dict[str, Any]] = []
+    rated: list[dict[str, dict[str, str]]] = []
+    for row in cases:
+        case_id = str(row["id"])
+        value, _ = keys.open("input", str(row["input"]), set_id, case_id)
+        body, _ = keys.open("attributes", str(row["attributes"]), set_id, case_id)
+        mine = given.get(case_id, [])
+        first = {user: values for user, round_, values in mine if round_ == FIRST}
+        if len(first) >= 2:
+            rated.append(first)
+        settled = _settled(
+            str(row["status"]),
+            [values for _, round_, values in mine if round_ == FIRST],
+            [values for _, round_, values in mine if round_ == ADJUDICATION],
+        )
+        records.append(
+            {
+                "id": str(row["case_hash"]),
+                "input": value,
+                "labels": with_derived(manifest, settled) if settled else {},
+                "attributes": dict(body["attributes"]),
+            }
+        )
+    dataset = Dataset(name=set_id, path=Path(set_id), records=records, sha256="")
+    covered = coverage(manifest, dataset, pack=pack.id)
+    covered["dataset"] = {"name": set_id}  # no hash of the hidden cases, keyed or not
+    return {
+        "format": AGGREGATES_FORMAT,
+        "set": set_id,
+        "measured_at": _now(),
+        "n": len(cases),
+        "coverage": covered,
+        "agreement": agreement(manifest, rated, pack=pack.id, seed=seed, resamples=resamples),
+    }
