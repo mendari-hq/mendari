@@ -1428,7 +1428,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     serverless host or `mendari decide` sees (the recall known at the last pull) and that
     these reads are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`; tests for every answer
     `fetch_yanks` refuses, the single read in flight and the settings.
-  - [x] **18f** (PR open) Rate limits and headers. The `Limiter` runs on the registry's own
+  - [x] **18f** (#237, merged 2026-10-10) Rate limits and headers. The `Limiter` runs on the registry's own
     database (`core/rate_buckets.py` `RateBuckets`, moved out of `AuditStore`, which now uses it
     too: the same statements): reads per address (600/min, burst 200), writes per token or
     address (120/h, 30), site reports per token (60/h, 10), `MENDARI_REGISTRY_RATE_LIMITS`
