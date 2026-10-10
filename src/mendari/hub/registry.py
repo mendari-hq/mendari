@@ -35,6 +35,13 @@
   version with the record. An administrator may delete a version, with a reason: its archive's
   bytes are removed (no version still needing them), its row and a tombstone are kept, and it
   is never served or published again. Both are chained.
+- **Limits and headers** (LP-18f). Every request counts against a rate in the registry's own
+  database (`Limiter`, `MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then
+  overrides such as `registry_write=240/h:40`): reads per address, writes per token (or
+  address), site reports per token. A refused one is `429` with `Retry-After`, before its body
+  is read. Every answer carries the security headers, a CSP that loads nothing
+  (`default-src 'none'; frame-ancestors 'none'`), `Cache-Control: no-store`, and HSTS but on
+  this machine.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
 
@@ -56,18 +63,21 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_core import from_json, to_json
+from starlette.concurrency import run_in_threadpool
 
 from mendari import __version__
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
+from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
+from mendari.core.rate_buckets import RateBuckets
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
@@ -79,7 +89,10 @@ from mendari.evals.share import (
     summary,
     where,
 )
-from mendari.hub import archive, yank
+from mendari.hub import archive, regression, yank
+from mendari.server.app import HSTS, SECURITY_HEADERS
+from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
+from mendari.server.origin import is_local_host
 
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -94,7 +107,8 @@ UPLOADED = ("benchmark", "leaderboard", "card_markdown")
 MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
-SCHEMA = """
+SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS hub_namespaces (
     name            TEXT PRIMARY KEY,
     publisher_type  TEXT NOT NULL,
@@ -176,8 +190,10 @@ CREATE TABLE IF NOT EXISTS hub_deletions (
 CREATE TABLE IF NOT EXISTS hub_meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
-)
+);
 """
+    + RATE_SCHEMA
+)
 
 
 def _now() -> str:
@@ -257,7 +273,7 @@ def _pack_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
 
 
-class RegistryStore:
+class RegistryStore(RateBuckets):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
     ):
@@ -393,6 +409,7 @@ class RegistryStore:
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
+        self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
             f"{namespace}/{name}",
@@ -404,6 +421,11 @@ class RegistryStore:
                 # Checked on the engine its pullers run, against this release's reference packs.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 metadata = describe(pack, verified)
+                if regression.enabled():  # in a child process of its own (`hub/regression.py`)
+                    with regression.slot():  # at most a few at once; else 503, try again
+                        metadata["regression"] = regression.check(
+                            Path(scratch) / "pack", self._previous_check(namespace, name, version)
+                        )
             except HubError:
                 raise
             except MendariError as error:
@@ -466,6 +488,40 @@ class RegistryStore:
                 ),
             )
         return self.version(namespace, name, version)
+
+    def _refuse_existing(self, namespace: str, name: str, version: str) -> None:
+        with self._db.session(exclusive=False) as db:
+            if db.one(
+                "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
+                (namespace, name, version),
+            ):
+                raise HubError(
+                    f"{namespace}/{name}@{version} is published; versions are immutable", 409
+                )
+
+    def _previous_check(self, namespace: str, name: str, version: str) -> dict[str, Any] | None:
+        """The measured regression check of the newest version before `version`, with its
+        version and whether it is recalled since: the gate's baseline. A recalled version stays
+        one, so recalling a good version cannot hide a later regression."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT version, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
+                (namespace, name),
+            )
+            recalls = _recalls(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+        earlier = []
+        for row in rows:
+            check = json.loads(row["metadata"]).get("regression")
+            if (
+                version_key(row["version"]) < version_key(version)
+                and isinstance(check, dict)
+                and check.get("status") == "measured"
+            ):
+                earlier.append((version_key(row["version"]), row["version"], check))
+        if not earlier:
+            return None
+        _, found, check = max(earlier, key=lambda item: item[0])
+        return {**check, "version": found, "recalled": (namespace, name, found) in recalls}
 
     def versions(self, namespace: str, name: str) -> list[dict[str, Any]]:
         with self._db.session(exclusive=False) as db:
@@ -956,16 +1012,19 @@ def _version_row(
         "version": row["version"],
         "published_at": row["created_at"],
         "archive_sha256": row["archive_sha256"],
-        **{key: value for key, value in stored.items() if key not in UPLOADED},
+        # The raw regression check is served only as `checked.regression` (its accuracy as a
+        # figure, labelled), never beside it.
+        **{k: v for k, v in stored.items() if k not in UPLOADED and k != "regression"},
         "card_markdown": stored.get("card_markdown") if rendered else None,
     }
     recall = recall or {}
+    regression_of = stored.get("regression")
     return {
         **served,
         # A recall (`hub/yank.py`): the signed record, checked when it was stored, and a deletion.
         "yank": recall.get("yank"),
         "deleted": recall.get("deleted"),
-        "checked": _checked(served, rendered, review),
+        "checked": _checked(served, rendered, review, regression_of),
         "claimed": _claimed(served, review),
     }
 
@@ -989,7 +1048,10 @@ def _review(version: Mapping[str, Any], review: Mapping[str, Any] | None) -> dic
 
 
 def _checked(
-    version: Mapping[str, Any], rendered: bool, review: Mapping[str, Any] | None = None
+    version: Mapping[str, Any],
+    rendered: bool,
+    review: Mapping[str, Any] | None = None,
+    regression_of: Any = None,
 ) -> dict[str, Any]:
     """What the registry verified or worked out itself, at publish."""
     return {
@@ -1008,7 +1070,28 @@ def _checked(
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
         "status_label": version.get("status_label"),
         "review": _review(version, review),
+        # Worked out here on the publisher's own test set (`hub/regression.py`): a regression
+        # check against the earlier version, never a ranking. None: published without it.
+        "regression": _regression(regression_of),
     }
+
+
+def _regression(stored: Any) -> dict[str, Any] | None:
+    """A version's regression check as served, its accuracy as k of n (`figures.counted`)."""
+    if not isinstance(stored, dict):
+        return None
+    shown = {
+        k: stored.get(k) for k in ("label", "status", "reason", "compared_with", "regressions")
+    }
+    measured = stored.get("summary") if stored.get("status") == "measured" else None
+    if isinstance(measured, dict):
+        question = measured.get("questions", {}).get(measured.get("primary"), {})
+        shown["test_set"] = measured.get("dataset")
+        shown["accuracy"] = figures.guarded(
+            lambda: figures.counted(question.get("accuracy"), question.get("n"))
+        )
+        shown["rows"] = stored.get("rows")
+    return shown
 
 
 def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -1210,6 +1293,60 @@ class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
 
+# The registry answers JSON and archives, never a page: its CSP loads nothing and no one frames
+# it. With the engine's own (`server/app.py` `SECURITY_HEADERS`).
+REGISTRY_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+REGISTRY_HEADERS = {
+    **SECURITY_HEADERS,
+    "Content-Security-Policy": REGISTRY_CSP,
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cache-Control": "no-store",
+}
+REGISTRY_RATES: dict[str, Rate] = {
+    "registry_read": Rate(600, 60, 200),  # per address
+    "registry_write": Rate(120, 3600, 30),  # per token, or address without one
+    "registry_report": Rate(60, 3600, 10),  # a site's report, per token
+}
+_REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
+
+
+def registry_limit_settings() -> LimitSettings:
+    """From `MENDARI_REGISTRY_RATE_LIMITS`: a mode (`on` unless set, `log`, `off`), then
+    overrides of `REGISTRY_RATES` in the engine's syntax (`registry_read=1200/min:300`)."""
+    raw = os.environ.get("MENDARI_REGISTRY_RATE_LIMITS", "").strip()
+    mode, rates = "on", dict(REGISTRY_RATES)
+    for item in (part.strip() for part in raw.split(",") if part.strip()):
+        name, sep, value = item.partition("=")
+        if not sep and item.lower() in ("on", "log", "off"):
+            mode = item.lower()
+        elif sep and name.strip() in REGISTRY_RATES:
+            try:
+                rates[name.strip()] = parse_rate(value.strip(), name.strip())
+            except MendariError as error:
+                raise MendariError(
+                    str(error).replace("MENDARI_RATE_LIMITS", "MENDARI_REGISTRY_RATE_LIMITS")
+                ) from None
+        else:
+            raise MendariError(
+                "MENDARI_REGISTRY_RATE_LIMITS: a mode (on, log or off), then overrides of "
+                f"{', '.join(REGISTRY_RATES)} such as registry_write=240/h:40"
+            )
+    return LimitSettings(mode=cast(Literal["on", "log", "off"], mode), rates=rates)
+
+
+def _rate_class(request: Request, known: Callable[[str], bool]) -> tuple[str, str]:
+    """A request's limit and its bucket's key: reads per address; writes and reports per token
+    (by its id) when the token is one the registry issued (or the admin's), else per address, so
+    made-up tokens share their sender's bucket."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return "registry_read", f"ip:{client_ip(request)}"
+    header = request.headers.get("authorization", "")
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+    key = f"token:{token_id(token)}" if token and known(token) else f"ip:{client_ip(request)}"
+    kind = "registry_report" if _REPORTS.match(request.url.path) else "registry_write"
+    return kind, key
+
+
 def create_registry_app(
     target: str | Path, *, admin_token: str | None = None, migrate_url: str | None = None
 ) -> FastAPI:
@@ -1226,6 +1363,42 @@ def create_registry_app(
         store.close()  # the Postgres pool, closed with the app rather than by the collector
 
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan)
+    limiter = Limiter(store, registry_limit_settings())
+
+    def known(token: str) -> bool:
+        """A token the registry issued, or the admin's."""
+        if admin and hmac.compare_digest(token, admin):
+            return True
+        return store.token_namespace(token) is not None
+
+    @app.exception_handler(Exception)
+    async def _unhandled(_: Request, error: Exception) -> JSONResponse:
+        """An error no handler names: a 500 with nothing of the error, and the headers every
+        answer carries (Starlette answers it outside the middleware)."""
+        return JSONResponse(
+            {"error": "InternalError", "detail": "internal error"}, 500, headers=REGISTRY_HEADERS
+        )
+
+    @app.middleware("http")
+    async def _limits_and_headers(request: Request, call_next: Any) -> Response:
+        """The rate first (no body read, nothing stored for a refused request), then every
+        answer's headers, refusals and errors included."""
+        refused = None
+        if limiter.on:  # database work, off the event loop
+            refused = await run_in_threadpool(lambda: limiter.hit(*_rate_class(request, known)))
+        if refused is not None:
+            response: Response = JSONResponse(
+                {"error": "RateLimited", "detail": f"too many requests ({refused.limit})"},
+                429,
+                headers={"Retry-After": str(refused.retry_after)},
+            )
+        else:
+            response = await call_next(request)
+        for name, value in REGISTRY_HEADERS.items():
+            response.headers[name] = value
+        if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
+            response.headers["Strict-Transport-Security"] = HSTS
+        return response
 
     @app.exception_handler(HubError)
     async def _hub_error(_: Request, error: HubError) -> JSONResponse:
@@ -1321,7 +1494,10 @@ def create_registry_app(
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        return store.publish(namespace, name, version, bytes(body), by=actor(request))
+        # Off the event loop: a publish runs the regression check, up to its time limit.
+        return await run_in_threadpool(
+            store.publish, namespace, name, version, bytes(body), by=actor(request)
+        )
 
     async def small_body(request: Request, model: type[Small]) -> Small:
         """A small JSON body, read only after its sender was checked and at most

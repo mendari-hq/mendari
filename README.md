@@ -751,7 +751,8 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   of its files, never by its manifest or the registry. Served, a pulled pack never automates
   until your organization approves its exact digest (`POST /api/registry-approvals`, chained;
   `DELETE` revokes it), at any risk level, and never while the registry recalled it; nothing
-  in the pack lifts that. `mendari test` and `mendari eval` check the pack's own policy. The
+  in the pack lifts that. A running server reads its registries' recalls every five minutes
+  and holds a recalled pack the same way, and one whose registry it could not read for a day. `mendari test` and `mendari eval` check the pack's own policy. The
   verified marker beside a pulled pack records the registry, namespace, publisher type and
   key it came from
   ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
@@ -780,6 +781,15 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   searched, and is still pulled by its exact version, with the record shown and its signature
   checked against the keys you pinned. An administrator can also delete a version that must
   not be served: its archive's bytes go, and a tombstone stays.
+- **The regression check.** On every publish the registry evaluates the version on its own
+  test set, in an isolated child process with local providers only, and compares it with the
+  earlier version (the pack gate); it shows the result as "publisher's own test set:
+  regression check, not a ranking" and never refuses a version for it
+  (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
+- **Limits and headers.** The registry limits reads per address and writes per token
+  (`MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then overrides such as
+  `registry_write=240/h:40`), and both it and the Hub send a strict CSP, refuse framing and send
+  HSTS.
 - **The website** (`hub/`, Next.js) searches packs and shows those two groups apart, with the
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.

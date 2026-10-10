@@ -221,6 +221,7 @@ class Decision:
         governance_source: Callable[[Pack], GovernanceOverride | None] | None = None,
         hold_source: Callable[[Pack], str | None] | None = None,
         origin_approval: Callable[[Pack], bool] | None = None,
+        recall_source: Callable[[Pack], str | None] | None = None,
         origin_cap: bool = True,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
@@ -248,6 +249,8 @@ class Decision:
         # Why automation is held for this pack now (an operator's automation hold), or None.
         self.hold_source = hold_source
         self.origin_approval = origin_approval
+        # Why its registry recalls this pack now (a server's `RecallWatch`, LP-18e), or None.
+        self.recall_source = recall_source
         self.origin_cap = origin_cap
         self.store = store
         self.budget = budget
@@ -284,6 +287,10 @@ class Decision:
             severity = recall.get("severity")
             known = severity if severity in ("low", "medium", "high", "critical") else "unknown"
             held.append(f"recalled by its registry ({known})")
+        if self.recall_source is not None:
+            now = self.recall_source(self.pack)
+            if now:
+                held.append(now)
         return held
 
     @classmethod

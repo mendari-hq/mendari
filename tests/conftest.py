@@ -122,6 +122,9 @@ def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     on (tests/test_limits.py), and no organization has a quota, nor any principal a daily cap,
     unless a test gives it one."""
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "off")
+    monkeypatch.setenv("MENDARI_REGISTRY_RATE_LIMITS", "off")  # the registry's too (LP-18f)
+    # The regression check runs a child process per publish: on only where a test turns it on.
+    monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "off")
     monkeypatch.delenv("MENDARI_ORG_DAILY_LIMITS", raising=False)
     monkeypatch.delenv("MENDARI_PRINCIPAL_DAILY_LIMIT", raising=False)
     monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)

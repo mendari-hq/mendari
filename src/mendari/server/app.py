@@ -120,6 +120,7 @@ from mendari.server.backend_services import (
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
+from mendari.server.recalls import RecallWatch
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, applies_to, providers_for
 from mendari.standards import (
@@ -936,6 +937,7 @@ def create_app(
                 governance_source=approved_override,
                 hold_source=held,
                 origin_approval=registry_approved,
+                recall_source=recall_watch.held,
                 deadline_s=deadline_s,
             )
         except MendariError:
@@ -978,6 +980,8 @@ def create_app(
     # Automation holds (`AuditStore.hold_automation`), read per decision and kept a few seconds:
     # a hold set on another instance takes effect within HOLD_SECONDS, one set here at once.
     hold_cache: dict[tuple[str, str, str], tuple[float, str | None]] = {}
+    # The recalls of the registries the served packs came from, read in the background (LP-18e).
+    recall_watch = RecallWatch(packs.values())
     hold_generation = [0]  # bumped by every hold set or lifted here: older look-ups are not kept
 
     def forget_holds() -> None:
@@ -1106,6 +1110,7 @@ def create_app(
         swagger_ui_oauth2_redirect_url=None,
     )
     app.state.provider_settings_not_taken = not_taken  # `mendari serve --provider`
+    app.state.recall_watch = recall_watch  # read by tests and the readiness of recalls
 
     def limit_class(method: str, path: str) -> str | None:
         return limiter.classify(method, path, auth.permission(method, path))
@@ -1247,6 +1252,9 @@ def create_app(
             # The origins remote providers (Jev, LLMs, Vercel Connect) may be called at
             # (MENDARI_PROVIDER_ALLOWED_ORIGINS), read at start-up; null: no list is set.
             "provider_allowed_origins": provider_origins,
+            # Each registry a served pack came from: its last recall check's age, and how many
+            # versions it recalls (LP-18e).
+            "registry_recalls": recall_watch.status(),
             "smart_launch": smart_options is not None,
             # SMART Backend Services: its token endpoint when it is on (public in discovery
             # too), None when off. The dashboard's Clients tab is shown only when it is on.
