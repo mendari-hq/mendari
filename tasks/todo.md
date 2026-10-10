@@ -1491,6 +1491,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
     file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
     accuracy) is no longer served beside `checked.regression`.
+  - [x] **18d screen** (PR open) The registry approval on the Decision Card: an approval is keyed
+    on the pack and its digest (per organization), so it lives in the card's Automation approval
+    section, not in Access. For a pack served from a registry: where it came from (registry,
+    namespace, signing key, when pulled, the digest served), a recall recorded at pull, the
+    approval in force (who, reference, when, digest) and every earlier one (revoked by whom,
+    or of another version); approving takes a reference (and an approver in open mode), then a
+    dialog naming the digest and saying what it allows and what it never lifts (a recall, a
+    hold, the risk level's limits); revoking is one button; both only with `approve`. The
+    card's "Automates" says a pack from a registry waits for this approval or its recall, and
+    a level 0–1 pack from a registry no longer reads "No approval is needed". No server change.
+    `tests/browser/test_registry_approvals.py`, and axe in both themes (not approved with a
+    recall, the dialog open, approved). `GET /api/providers/jev/models` gets no screen: no
+    place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
+    names the deployed model, and the list would be a call to Jev on every card for nothing to
+    act on.
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 

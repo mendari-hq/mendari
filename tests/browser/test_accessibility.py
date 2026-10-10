@@ -19,6 +19,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.browser.test_dashboard import INBOX, PACKS, VIEWS, open_pack, show
+from tests.browser.test_registry_approvals import APPROVAL, from_registry, registry_approvals
 
 pytestmark = pytest.mark.browser
 
@@ -61,6 +62,27 @@ def test_an_open_drawer_passes_axe(axe_page: Page) -> None:
     open_pack(axe_page, INBOX, "audit")
     axe_page.locator("button.open-record").first.click()
     expect(axe_page.locator(".drawer")).to_be_visible()
+    assert violations(axe_page) == []
+
+
+@pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)
+def test_a_pack_from_a_registry_passes_axe(axe_page: Page) -> None:
+    """The card's registry approval: not approved (facts, recall, form, history), its dialog
+    open, and approved."""
+    from_registry(axe_page)
+    registry_approvals(axe_page, [], recalled=True)
+    open_pack(axe_page, INBOX, "card")
+    assert violations(axe_page) == []
+    section = axe_page.locator("#registry-approval")
+    section.get_by_label("Reference").fill("minutes 5")
+    section.get_by_label("Approver").fill("dr-a")
+    section.get_by_role("button", name="Approve this version…").click()
+    expect(axe_page.get_by_role("dialog")).to_be_visible()
+    assert violations(axe_page) == []
+    axe_page.get_by_role("dialog").get_by_role("button", name="Cancel").click()
+    registry_approvals(axe_page, [], active=APPROVAL)
+    open_pack(axe_page, INBOX, "card")
+    expect(axe_page.locator("#registry-active")).to_be_visible()
     assert violations(axe_page) == []
 
 
