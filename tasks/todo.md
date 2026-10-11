@@ -524,8 +524,6 @@ behaviour.
     `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
     LP-10); the registry's six writes (publish and reports, LP-18; claims, approval, tokens and
     keys, LP-19).
-  - `web/index.html` and `web/style.css` (the mendari.co page) have no licence line: it goes in
-    with the owner's next change there, so a comment alone does not redeploy the public site.
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
@@ -2460,6 +2458,27 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
   rewritten
 - [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
   mendari.ai and the www names redirect to it
+- [x] The mendari.co redesign (2026-10-11, this branch: `claude/mendari-co-redesign`), built,
+  not deployed: one identity ("cobalt on paper": the faceted decision-diamond mark, cobalt plus
+  the four outcome colours, Newsreader, Public Sans and IBM Plex Mono self-hosted in
+  `web/fonts/` and listed in `NOTICE`; CSP gains `font-src 'self'` only). The page replaces the
+  coming-soon page: the four outcomes, the Inbox Router provider scoreboard, the five reference
+  packs with their benchmark results, the three audiences, the standards and the quickstart.
+  `web/index.html` and `web/style.css` now carry their licence line, so `LICENCE_LATER` left
+  `tests/test_shipped.py`. A pre-launch review (security policy, accessibility at 320 to 1440 px in
+  both themes, every claim against the repository, the diff) found 31 issues; the build's are
+  fixed, and the owner's are below.
+  - [ ] **Owner, before `cd web && vercel deploy --prod`:** gate G1-2 (`patent-decision`): the
+    provisional-patent decision with counsel comes before any public disclosure, and this page
+    discloses more than the coming-soon page did.
+  - [ ] **Owner:** the scoreboard names Jev (TypeSafe), Claude and gpt-oss results: confirm each
+    provider's benchmark-publication terms, and state any commercial relationship (or none) next
+    to it (the vision audit's LIC.benchmark-terms).
+  - [ ] **Owner:** `web/.well-known/security.txt` (already in `web/`) names the private reporting
+    form, which the public cannot reach while the repository is private: keep it, or leave
+    `.well-known` out of the deploy until the repository is public.
+  - [ ] Later: the page's figures are typed in, not read from `packs/*/evals/*.json`; a test that
+    ties them together would catch drift when the evaluations change.
 - [ ] DNS for mendari.co pointed at Vercel (the owner's)
 
 ## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../notes/plans/v1.0-public-launch.md))

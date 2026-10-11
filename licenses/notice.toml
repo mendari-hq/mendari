@@ -107,3 +107,28 @@ where = "a few X12 code values as test and sandbox configuration, the settings a
 licence = "X12's terms; X12's written answer on this use is asked for (tasks/todo.md, LP-14)"
 distributed = false
 notice = "X12 is a registered trademark of X12."
+
+# The mendari.co page's typefaces, served from web/fonts/ beside their licences (not in any package).
+[[material]]
+name = "Newsreader"
+where = "web/fonts/newsreader.woff2: the mendari.co page's display face (its Latin subset, as Google Fonts serves it)"
+licence = "SIL Open Font License 1.1"
+distributed = false
+notice = "Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader)"
+also = "The licence in full: web/fonts/OFL-newsreader.txt."
+
+[[material]]
+name = "Public Sans"
+where = "web/fonts/public-sans.woff2: the mendari.co page's text face (its Latin subset, as Google Fonts serves it)"
+licence = "SIL Open Font License 1.1"
+distributed = false
+notice = "Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)"
+also = "The licence in full: web/fonts/OFL-public-sans.txt."
+
+[[material]]
+name = "IBM Plex Mono"
+where = "web/fonts/ibm-plex-mono-400.woff2 and ibm-plex-mono-500.woff2: the mendari.co page's monospace face (IBM's own Latin-1 web files from @ibm/plex-mono 2.5.0, unmodified)"
+licence = "SIL Open Font License 1.1"
+distributed = false
+notice = "Copyright © 2017 IBM Corp. with Reserved Font Name \"Plex\""
+also = "The licence in full: web/fonts/OFL-ibm-plex-mono.txt."

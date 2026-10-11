@@ -1,35 +1,251 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mendari</title>
-  <meta name="description" content="Mendari packages everyday healthcare decisions as Decision Packs: versioned, evaluated on data, and built to hand the hard cases to a person. Coming soon.">
+  <title>Mendari: healthcare decisions you can test, trust and share</title>
+  <meta name="description" content="Mendari packages everyday healthcare decisions as Decision Packs: versioned, evaluated on data, and built to hand the hard cases to a person. A research preview on synthetic data.">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#fbf7f1" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1a1714" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e131a" media="(prefers-color-scheme: dark)">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://mendari.co/">
   <meta property="og:title" content="Mendari">
-  <meta property="og:description" content="Healthcare decisions you can test, trust and share. Coming soon.">
+  <meta property="og:description" content="Healthcare decisions you can test, trust and share.">
+  <meta property="og:image" content="https://mendari.co/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Mendari: healthcare decisions you can test, trust and share. AUTO, HUMAN_REVIEW, ABSTAIN, BLOCK.">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="canonical" href="https://mendari.co/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/public-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main>
-    <p class="brand">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M16 7 25 16 16 25 7 16Z"/></svg>
+  <a class="skip" href="#main">Skip to content</a>
+  <p class="notice">Research preview. Not a medical device. Not for emergencies: patients should call 911.</p>
+
+  <header class="top wrap">
+    <a class="brand" href="/" aria-label="Mendari, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 7.25 20 11.25 16 15.25 12 11.25Z"/><path class="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z"/><path class="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z"/><path class="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z"/></svg>
       <span>Mendari</span>
-    </p>
-    <h1>Healthcare decisions you can test, trust and share.</h1>
-    <p class="lede">
-      Mendari packages everyday decisions in care, like routing a patient’s message or checking a
-      referral, as <strong>Decision Packs</strong>: versioned, evaluated on data, and built to hand
-      the hard cases to a person.
-    </p>
-    <p class="status"><span class="dot" aria-hidden="true"></span>Coming soon</p>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#scores">Scores</a>
+      <a href="#packs">Packs</a>
+      <a href="#teams">For teams</a>
+      <a class="button" href="#start">Get started</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="eyebrow">Apache-2.0 · Research preview</p>
+        <h1>Healthcare decisions you can test, trust and share.</h1>
+        <p class="lede">Mendari packages everyday decisions in care, like routing a patient’s message or checking a referral, as <strong>Decision Packs</strong>: versioned, evaluated on data, and built to hand the hard cases to a person.</p>
+        <p class="actions">
+          <a class="button button-lg" href="#packs">See the packs</a>
+          <a class="button button-lg button-ghost" href="#how">How it works</a>
+        </p>
+      </div>
+
+      <figure class="decision" aria-label="An example decision on a synthetic message">
+        <div class="decision-input">
+          <p class="decision-meta"><span>Patient portal · Scheduling</span><span>Synthetic message</span></p>
+          <blockquote>“I need to make an appointment for my annual physical. Any openings next week? Thanks so much”</blockquote>
+        </div>
+        <div class="decision-answers">
+          <p class="decision-pack">
+            <svg class="mark mark-sm" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 6.5 25.5 16 16 25.5 6.5 16Z"/></svg>
+            <span>mendari/patient-inbox-router 0.4.2 · rules + naive Bayes</span>
+          </p>
+          <p class="synthetic">Synthetic example. Not clinically reviewed. Not for patient care.</p>
+          <dl class="answers">
+            <div><dt>Destination</dt><dd>front_desk</dd></div>
+            <div><dt>Urgency</dt><dd>routine</dd></div>
+          </dl>
+        </div>
+        <figcaption class="decision-outcome">
+          <span class="outcome-line"><span class="chip chip-review">HUMAN_REVIEW</span> Suggested: front desk</span>
+          <span class="decision-reason">Confident (1.00), but this pack automates only with a model in its safety screen, so a person confirms. Recorded in the audit trail.</span>
+        </figcaption>
+      </figure>
+    </section>
+
+    <section id="how" class="band">
+      <div class="wrap stack-lg">
+        <div class="intro">
+          <h2>Every decision ends in one of four outcomes.</h2>
+          <p>A pack answers its questions with rules, classical models, Jev or a language model. Its policy turns the answers into an outcome, and the outcome says what to do. Policy can only lower automation, never raise it.</p>
+        </div>
+        <ul class="outcomes">
+          <li class="outcome outcome-auto"><span class="chip chip-solid">AUTO</span><h3>Automated</h3><p>Acted on without a person, within the pack’s policy.</p></li>
+          <li class="outcome outcome-review"><span class="chip chip-solid">HUMAN_REVIEW</span><h3>Human review</h3><p>A person decides, with the pack’s recommendation.</p></li>
+          <li class="outcome outcome-abstain"><span class="chip chip-solid">ABSTAIN</span><h3>Abstained</h3><p>Not confident enough to say.</p></li>
+          <li class="outcome outcome-block"><span class="chip chip-solid">BLOCK</span><h3>Blocked</h3><p>The input or a safety rule stops it.</p></li>
+        </ul>
+        <p class="muted small">Every decision is written to an append-only, hash-chained audit trail. One that needs a person waits in the review queue, and each can be read as a FHIR Task.</p>
+      </div>
+    </section>
+
+    <section id="scores" class="wrap scores">
+      <div class="intro">
+        <h2>Scored before it ships. Same cases, each model.</h2>
+        <p>Each reference pack is compared across providers on the same labelled cases, so you can see what a model adds before you pay for it. Mendari doesn’t depend on any one model: swap rules, naive Bayes, Jev, a hosted LLM or one you run yourself.</p>
+        <p class="muted small">Unsafe: a case the pack automated and got wrong. Only configurations with a model in the safety screen may automate.</p>
+      </div>
+      <div class="board">
+        <div class="board-head">
+          <h3>Patient Inbox Router</h3>
+          <span class="muted small">Synthetic test set · 100 cases · pack 0.3–0.4</span>
+          <p class="synthetic">Synthetic example. Not clinically reviewed. Not for patient care.</p>
+        </div>
+        <div class="scroll" role="region" aria-label="Scores for the Patient Inbox Router" tabindex="0">
+          <table>
+            <thead>
+              <tr><th scope="col">Configuration</th><th scope="col" class="num">Correct</th><th scope="col" class="num"><span class="full">Automated</span><span class="abbr" aria-hidden="true">Auto</span></th><th scope="col" class="num">Unsafe</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Mendari alone <span>rules + naive Bayes</span></th><td class="num">100%</td><td class="num">0%</td><td class="num">0</td></tr>
+              <tr class="best"><th scope="row">Mendari + Jev <span>rules + Jev 1.13</span></th><td class="num">99%</td><td class="num strong">91%</td><td class="num">0</td></tr>
+              <tr><th scope="row">Mendari + LLM <span>rules + Claude Haiku 4.5</span></th><td class="num">99%</td><td class="num">84%</td><td class="num">0</td></tr>
+              <tr><th scope="row">Mendari + LLM <span>rules + Claude Sonnet 5</span></th><td class="num">98%</td><td class="num">40%</td><td class="num">0</td></tr>
+              <tr><th scope="row">Mendari + LLM <span>rules + gpt-oss-120b</span></th><td class="num">95%</td><td class="num">47%</td><td class="num">2</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="packs" class="band">
+      <div class="wrap stack-lg">
+        <div class="packs-head">
+          <h2>Five reference packs to start from.</h2>
+          <p class="caution">Synthetic examples. Not clinically reviewed. Not for patient care.</p>
+        </div>
+        <ul class="packs">
+          <li class="pack">
+            <div class="pack-head"><h3>Patient Inbox Router</h3><span class="risk">Risk 0</span></div>
+            <p>Which team reads a patient’s portal or SMS message first, with possible emergencies sent to a nurse.</p>
+            <p class="score"><span class="k">596 / 600</span> <span class="muted">routed correctly · 95% CI 98.3–99.8%</span></p>
+          </li>
+          <li class="pack">
+            <div class="pack-head"><h3>Referral Router</h3><span class="risk">Risk 1</span></div>
+            <p>Which specialty takes a referral, and whether it should be seen within two weeks.</p>
+            <p class="score"><span class="k">597 / 600</span> <span class="muted">right next step · 95% CI 98.5–99.9%</span></p>
+          </li>
+          <li class="pack">
+            <div class="pack-head"><h3>Prior Authorization Preflight</h3><span class="risk">Risk 1</span></div>
+            <p>Whether a payer needs prior authorization for an order, and whether the record has what the request needs.</p>
+            <p class="score"><span class="k">600 / 600</span> <span class="muted">right next step · 95% CI 99.4–100%</span></p>
+          </li>
+          <li class="pack">
+            <div class="pack-head"><h3>Clinical Trial Prescreener</h3><span class="risk">Risk 2</span></div>
+            <p>Whether a patient’s record meets a study’s eligibility criteria. Every case goes to a person.</p>
+            <p class="score"><span class="k">298 / 300</span> <span class="muted">eligibility right · 95% CI 97.6–99.9%</span></p>
+          </li>
+          <li class="pack">
+            <div class="pack-head"><h3>AI Guard</h3><span class="risk">Risk 2</span></div>
+            <p>Checks a language model’s draft reply before a patient reads it: blocks unsafe drafts, holds risky ones for a clinician, and passes clean ones for one-step clinician approval.</p>
+            <p class="score"><span class="k">586 / 600</span> <span class="muted">right verdict · 95% CI 96.1–98.7%</span></p>
+          </li>
+          <li class="pack pack-yours">
+            <h3>Your pack</h3>
+            <p>A pack is a folder of plain-text files. Write one without programming and test it on synthetic data.</p>
+            <p><code>mendari new refill-router --id my-clinic/refill-router</code></p>
+          </li>
+        </ul>
+        <p class="muted small">Benchmark results on each pack’s synthetic test set. Template-generated data overstates real-world accuracy: validate on your own labelled cases before any use.</p>
+      </div>
+    </section>
+
+    <section id="teams" class="wrap stack-lg teams-section">
+      <h2>One pack, read three ways.</h2>
+      <div class="teams">
+        <div class="team">
+          <h3>Developers</h3>
+          <p class="team-line">Build a pack, test it, and see what each model adds.</p>
+          <ul>
+            <li>Scaffold, test and evaluate with <code>mendari new</code>, <code>test</code> and <code>eval</code></li>
+            <li>Compare providers on the same cases with <code>mendari leaderboard</code></li>
+            <li>OpenAI-compatible models with structured output, including ones you run yourself</li>
+          </ul>
+        </div>
+        <div class="team">
+          <h3>Health professionals</h3>
+          <p class="team-line">Know what a pack is for, how it scored, and when it hands off.</p>
+          <ul>
+            <li>A Decision Card for every pack: intended use, population, out of scope, results as k of n</li>
+            <li>Uncertain cases wait for a person in a queue sorted by priority</li>
+            <li>Reviewers mark any decision right or wrong, with the right answer</li>
+          </ul>
+        </div>
+        <div class="team">
+          <h3>IT &amp; informatics</h3>
+          <p class="team-line">Check it on your data, govern what runs, and audit every call.</p>
+          <ul>
+            <li>Validate on your own labelled cases; fail the run if results degrade</li>
+            <li>Risk-level limits enforced at runtime; sign-in with roles</li>
+            <li>Hash-chained audit trail, checked with <code>mendari audit verify</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="standards">
+      <div class="wrap standards-row">
+        <h2>Fits the systems you already run.</h2>
+        <ul class="tags">
+          <li>FHIR R4</li>
+          <li>US Core 6.1.0</li>
+          <li>CDS Hooks 2.0</li>
+          <li>SMART App Launch</li>
+          <li>SMART Backend Services</li>
+          <li>Bulk Data</li>
+          <li>Da Vinci CRD · DTR · PAS</li>
+          <li>CQL</li>
+          <li>OMOP CDM 5.4</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="start" class="start">
+      <div class="wrap split">
+        <div class="intro">
+          <h2>Try every pack on synthetic data.</h2>
+          <p>The demo runs the Patient Inbox Router end to end, including the message above: decisions, the review queue, the audit-chain check and local validation. Then <code>mendari serve</code> opens the API and the dashboard with every reference pack, its scores and its Decision Card.</p>
+          <p class="small">The source opens to the public at launch. Until then, cloning needs access to the repository.</p>
+        </div>
+        <div class="terminal">
+          <p class="terminal-bar"><span>Terminal</span><span>Python 3.11+, uv</span></p>
+          <pre><code><span class="prompt" aria-hidden="true">$ </span>git clone https://github.com/mendari-hq/mendari.git
+<span class="prompt" aria-hidden="true">$ </span>cd mendari
+<span class="prompt" aria-hidden="true">$ </span>uv sync
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari demo
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari serve   <span class="comment"># http://127.0.0.1:8000</span></code></pre>
+        </div>
+      </div>
+    </section>
   </main>
-  <footer>© 2026 Mendari</footer>
+
+  <footer class="foot wrap">
+    <div class="foot-brand">
+      <p class="brand brand-sm">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 7.25 20 11.25 16 15.25 12 11.25Z"/><path class="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z"/><path class="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z"/><path class="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z"/></svg>
+        <span>Mendari</span>
+      </p>
+      <p>Research preview on synthetic data. Not a medical device. Not for emergencies: patients should call 911.</p>
+    </div>
+    <div class="foot-meta">
+      <p>Apache-2.0 · Research preview</p>
+      <p>© 2026 The Mendari authors</p>
+    </div>
+  </footer>
 </body>
 </html>
