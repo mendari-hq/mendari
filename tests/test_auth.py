@@ -64,6 +64,7 @@ class FakeIdp:
         self.claims: dict[str, Any] = {}
         self.token_url = token_url  # Google's, for one, are not on the issuer's host
         self.jwks_url = jwks_url
+        self.authorize_url = f"{IDP}/authorize"  # may carry a query of its own (RFC 6749 3.1)
         self.discovered = 0  # fetches of the OpenID configuration
 
     def authorize(self, url: str, **claims: Any) -> str:
@@ -80,7 +81,7 @@ class FakeIdp:
                 200,
                 json={
                     "issuer": IDP,
-                    "authorization_endpoint": f"{IDP}/authorize",
+                    "authorization_endpoint": self.authorize_url,
                     "token_endpoint": self.token_url,
                     "jwks_uri": self.jwks_url,
                 },
@@ -1538,3 +1539,64 @@ def test_keys_from_before_phase_4_expire_30_days_after_the_start(
         == 200
     )
     assert app.get("/api/auth/keys", headers=reviewer).status_code == 403
+
+
+def test_an_authorization_endpoint_with_a_query_keeps_it(app: TestClient, idp: FakeIdp) -> None:
+    """An endpoint published as `…/authorize?tenant=x` got a second `?` before Mendari's
+    parameters, and the provider misread them; the query is extended instead."""
+    idp.authorize_url = f"{IDP}/authorize?tenant=x"
+    started = app.get("/auth/login", follow_redirects=False)
+    location = urlsplit(started.headers["location"])
+    assert location.path == "/authorize" and location.query.count("?") == 0
+    params = parse_qs(location.query)
+    assert params["tenant"] == ["x"] and params["response_type"] == ["code"] and "state" in params
+    assert sign_in(app, idp, roles=["viewer"]).status_code == 302  # and the sign-in completes
+
+
+def test_a_scoped_credential_gets_the_public_health_only(app: TestClient, idp: FakeIdp) -> None:
+    """A key scoped to deciding reaches only the routes its scope names; `/api/health` gave it
+    the deployment's settings (allow-lists, key ids, quotas, holds) as it gives a reader."""
+    sign_in(app, idp, roles=["admin"])
+    made = app.post("/api/auth/keys", json={"name": "ehr", "role": "service", "scope": DECIDE})
+    full = app.get("/api/health").json()
+    assert "packs" in full and "retention_days" in full
+    app.cookies.clear()
+    scoped = app.get("/api/health", headers={"authorization": f"Bearer {made.json()['key']}"})
+    assert scoped.status_code == 200
+    assert set(scoped.json()) == {"status", "version", "sign_in"}
+    unscoped = app.get("/api/health", headers={"authorization": f"Bearer {key_for(app, idp)}"})
+    assert "packs" in unscoped.json()  # a key with its role's reach still reads it
+
+
+def test_head_needs_what_get_needs(app: TestClient, idp: FakeIdp) -> None:
+    """The rules name GET, so HEAD resolved to `admin`: the static files, which serve HEAD as
+    GET, refused an anonymous `HEAD /static/main.js` (link checkers, uptime tools) with 401, and
+    `HEAD /` was a 401 instead of the sign-in redirect."""
+    assert permission_for("HEAD", "/api/packs") == permission_for("GET", "/api/packs") == "discover"
+    assert permission_for("HEAD", "/api/audit") == permission_for("GET", "/api/audit") == "read"
+    assert permission_for("HEAD", "/static/main.js") == "public"
+    assert permission_for("HEAD", "/api/auth/keys") == permission_for("GET", "/api/auth/keys")
+    assert app.head("/static/main.js").status_code == 200
+    assert app.head("/", follow_redirects=False).status_code == 302
+    assert app.head("/api/packs").status_code == 401  # still a credential's route
+    sign_in(app, idp, roles=["viewer"])
+    assert app.head("/api/packs").status_code == 405  # past the guard; the route serves GET only
+
+
+def test_signing_in_again_ends_the_browsers_earlier_session(app: TestClient, idp: FakeIdp) -> None:
+    """Claims mode kept the earlier session's row live after a new sign-in in the same browser,
+    for up to its idle time; memberships mode already ended it ("one browser, one person")."""
+    assert sign_in(app, idp, roles=["viewer"]).status_code == 302
+    first = dict(app.cookies)
+    assert first and app.get("/api/packs").status_code == 200
+    # The same browser, cookie still held, signs in again (`sign_in` would clear it first).
+    started = app.get("/auth/login", params={"next": "/"}, follow_redirects=False)
+    code = idp.authorize(started.headers["location"], roles=["viewer"])
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    again = app.get("/auth/callback", params={"code": code, "state": state}, follow_redirects=False)
+    assert again.status_code == 302
+    assert app.get("/api/packs").status_code == 200  # the new session
+    app.cookies.clear()
+    for name, value in first.items():
+        app.cookies.set(name, value)
+    assert app.get("/api/packs").status_code == 401  # the earlier one is gone

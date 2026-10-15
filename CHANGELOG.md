@@ -250,6 +250,26 @@ The first release (not yet published).
   beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
   image that fails; CI runs the same SBOM scan on every change. The image still builds with
   Docker's classic builder.
+- **Fixes from the bug audit of 2026-10-15.** A provider or adapter failure that escaped as a
+  500 with no audit record is now a refusal the caller can read: a dose "every 0 hours", a
+  non-ASCII `base64Binary` attachment, an allow-list check on a URL whose port is not a number,
+  a CDS Hooks request whose `context`, `prefetch` or `fhirAuthorization` is not an object, a
+  Jev model list that is not JSON, a token lifetime of `Infinity`, an identity provider whose
+  `issuer` is not a string; a CQL definition the engine never evaluated is an invalid response,
+  not a confident `unknown`; a vote weight must be finite. Server: a negative `limit` on
+  `/api/audit`, `/api/review`, `/api/feedback` and `/api/deployments` is 0, never "no limit"
+  (SQLite) or a 500 (Postgres); a scoped key or token gets the public `/api/health` only; `HEAD`
+  needs what `GET` needs; an authorization endpoint with a query of its own is extended, not
+  given a second `?`; in claims mode a new sign-in ends the browser's earlier session, as in
+  memberships mode. The eval gate fails a change that stops measuring a critical label `main`
+  measured, or whose primary accuracy can no longer be measured. JSON Lines readers split at
+  `\n` only (a U+2028 inside a case's text is not a line end). A daily limit of 0 counts
+  nothing. The community check scans the files the manifest names as datasets or tests for PHI
+  lookalikes (not only `data/` and `tests/`), and spots `(212)555-1234` and `123 45 6789`. The
+  card lists a boolean property schema. Dashboard: a slow record reply never replaces a newer
+  drawer or a changed outcome filter; a pack whose details fail to load shows the error view
+  with Try again instead of the previous pack's data; an evaluation run that finishes after
+  the tab is left no longer throws; a numeric enum reads back as a number.
 - **The command line:** every error is one line per problem and exit 1, never a traceback
   (`--debug` or `MENDARI_DEBUG=1` shows one); a usage error is one line too, exit 1 (argparse's
   was 2); `--version`. `mendari test` refuses a behaviour test whose `expect` is missing,

@@ -87,3 +87,13 @@ def test_configuration_is_checked(tmp_path: Path) -> None:
     (root / "logic" / "doses.yaml").write_text(yaml.safe_dump(table))
     with pytest.raises(PackValidationError, match="max_daily_mg"):
         Decision.from_path(root)
+
+
+@pytest.mark.parametrize("sentence", ["take 500 mg every 0 hours", "500 mg q0h", "every 0-6 hours"])
+def test_a_zero_interval_is_no_frequency(sentence: str) -> None:
+    """ "Every 0 hours" divided by zero and the whole decision failed with no audit record; a
+    zero interval is skipped, so the sentence has no frequency (or the other bound's)."""
+    from mendari.providers.dosing import _times_per_day
+
+    assert _times_per_day(sentence) in (None, 4.0)
+    assert _times_per_day("every 0-6 hours") == 4.0

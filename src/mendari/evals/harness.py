@@ -71,7 +71,9 @@ def load_dataset(
         number = raw.count(b"\n", 0, error.start) + 1
         raise MendariError(f"{where}:{number}: not UTF-8 text") from None
     records = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    # Lines end at "\n" only: str.splitlines would also break one at U+2028, U+2029 or U+0085,
+    # which a writer with ensure_ascii=False leaves raw inside a JSON string.
+    for number, line in enumerate(text.split("\n"), start=1):
         if not line.strip():
             continue
         try:

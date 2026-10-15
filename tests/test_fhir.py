@@ -140,3 +140,12 @@ def test_cds_discovery_and_card(router: Decision) -> None:
 def test_cds_requires_prefetch(router: Decision) -> None:
     with pytest.raises(FhirError, match="prefetch required"):
         cds_hooks.invoke(router, {"hook": "mendari-message-received", "prefetch": {}})
+
+
+@pytest.mark.parametrize("data", ["héllo", "not base64!", "QUJD", "", None, 12])
+def test_a_base64_attachment_that_is_not_base64_maps_to_nothing(data: Any) -> None:
+    """Non-ASCII text made `b64decode` raise a plain ValueError (not binascii.Error), which escaped
+    the adapter as a 500; every bad value is now None, and good base64 still decodes."""
+    from mendari.standards.fhir import _decode
+
+    assert _decode(data) == ("ABC" if data == "QUJD" else None)

@@ -965,6 +965,8 @@ def create_app(
         principal = auth.principal(request)  # no credential: no lookup
         if principal is None or principal.org is None or not principal.may("read"):
             return public  # a person of no organization (memberships mode) too
+        if principal.grant is not None:
+            return public  # a scoped key or token reaches only the routes its scope names
         return {
             **public,
             "packs": len(packs),
@@ -1316,7 +1318,7 @@ def create_app(
             raise HTTPException(404, "the deployment's records are its operator's")
         if pack_id is not None:
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
-        return store.deployments(pack_id, limit=min(limit, 200))
+        return store.deployments(pack_id, limit=min(max(limit, 0), 200))
 
     @app.get(
         "/api/governance",
@@ -1577,7 +1579,8 @@ def create_app(
         request: Request, pack_id: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
-        queue = store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
+        queue = store.pending_reviews(pack_id, limit=limit, reader=input_reader(request))
         logged_reads(request, queue)
         return queue
 
@@ -1615,7 +1618,7 @@ def create_app(
             pack_id=pack_id,
             outcome=outcome,
             review_status=review_status,
-            limit=min(limit, 500),
+            limit=min(max(limit, 0), 500),
             offset=max(offset, 0),
         )
         return store.withhold_inputs(listed)
@@ -2043,7 +2046,10 @@ def create_app(
     ) -> list[dict[str, Any]]:
         """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
         ratings = store.feedback(
-            pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
+            pack_id=pack_id,
+            rating=rating,
+            limit=min(max(limit, 0), 500),
+            reader=input_reader(request),
         )
         logged_reads(request, ratings, id_key="decision_id")
         return ratings

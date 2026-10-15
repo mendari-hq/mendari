@@ -96,7 +96,7 @@ async function boot() {
   const saved = storageGet("oh.pack", first);
   switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
   select.addEventListener("change", async () => {
-    await switchPack(select.value);
+    await switchPack(select.value).catch(() => null); // the view says it (router.js), with Try again
     render();
   });
   // Back and Forward can cross a pack change. The address then names another pack than the one
@@ -104,7 +104,7 @@ async function boot() {
   window.addEventListener("popstate", async () => {
     const wanted = packInAddress();
     if (wanted === state.packId || !known(wanted)) return;
-    await switchPack(wanted);
+    await switchPack(wanted).catch(() => null);
     render({ navigated: true });
   });
   window.addEventListener("hashchange", onHashChange);

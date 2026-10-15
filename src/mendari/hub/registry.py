@@ -1708,7 +1708,7 @@ def create_registry_app(
             ).lower()
             if words and not all(word in text for word in words):
                 continue
-            if risk is not None and item["risk"]["level"] != risk:
+            if risk is not None and (item.get("risk") or {}).get("level") != risk:
                 continue
             if standard and not any(standard.lower() in s.lower() for s in item["standards"]):
                 continue

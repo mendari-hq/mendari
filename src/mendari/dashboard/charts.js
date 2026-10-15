@@ -71,6 +71,7 @@ function makeAxis(kind, values, { format, from } = {}) {
   }
   if (kind === "log") {
     const positive = known.filter((v) => v > 0);
+    if (!positive.length) return { min: 1, max: 10, ticks: [1, 10], format, kind, free: true }; // one decade, nothing to place
     const lo = 10 ** Math.floor(Math.log10(Math.min(...positive)));
     let hi = 10 ** Math.ceil(Math.log10(Math.max(...positive)));
     if (hi <= lo) hi = lo * 10;

@@ -304,7 +304,11 @@ def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:
         raise ProviderError("credential_unavailable")
     if not response.is_success:
         raise ProviderError("provider_unavailable", f"HTTP {response.status_code}")
-    models = response.json().get("models")
+    try:
+        body = response.json()
+    except ValueError:
+        raise ProviderError("invalid_response", "the model list is not JSON") from None
+    models = body.get("models") if isinstance(body, dict) else None
     if not isinstance(models, list):
         raise ProviderError("invalid_response", "models must be a list")
     return [

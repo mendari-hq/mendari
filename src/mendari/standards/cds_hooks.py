@@ -93,7 +93,7 @@ def invoke(
     if hooks.hook in ORDER_HOOKS:
         # One decision per draft order the pack is about (e.g. each referral, not the lab
         # orders signed with it), each with the prefetched record.
-        context = request.get("context") or {}
+        context = _object(request, "context")
         orders = FhirAdapter.for_pack(decision.pack).focus_resources(context.get("draftOrders"))
         if len(orders) > most:
             raise CdsHooksError(
@@ -101,7 +101,7 @@ def invoke(
             )
     if charge is not None:
         charge(len(orders) if hooks.hook in ORDER_HOOKS else 1)
-    prefetch = dict(request.get("prefetch") or {})
+    prefetch = dict(_object(request, "prefetch"))
     missing = [key for key in hooks.prefetch if not prefetch.get(key)]
     if missing:
         prefetch.update(fetch(hooks.prefetch, missing, request))
@@ -148,14 +148,27 @@ def fetch(
         raise FhirError(
             f"prefetch required for: {', '.join(keys)} (and no fhirServer to fetch from)"
         )
-    authorization = request.get("fhirAuthorization") or {}
+    authorization = _object(request, "fhirAuthorization")
     token = authorization.get("access_token")
+    if token is not None and not isinstance(token, str):
+        raise FhirError("fhirAuthorization.access_token must be a string")
     if token and str(authorization.get("token_type", "Bearer")).lower() != "bearer":
         raise FhirError("fhirAuthorization must be a Bearer token")
-    context = request.get("context") or {}
+    context = _object(request, "context")
     queries = {key: fill_template(templates[key], context) for key in keys}
     with FhirClient(str(server), token=token) as client:
         return {key: client.read(query) for key, query in queries.items()}
+
+
+def _object(request: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """The request's `key`, an object (absent or null: empty); anything else is refused, as a
+    client error, never a crash."""
+    value = request.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise FhirError(f"{key} must be an object")
+    return value
 
 
 def fill_template(template: str, context: Mapping[str, Any]) -> str:

@@ -1545,6 +1545,8 @@ class AuditStore(RateBuckets):
     def consume(self, provider: str, *, daily_limit: int | None) -> None:
         """Count one call to a metered provider; raise `budget_exhausted` past the daily limit
         (None: count without a limit). Days are local calendar days (`core.clock`)."""
+        if daily_limit is not None and daily_limit < 1:  # admits nothing, and writes nothing
+            raise ProviderError("budget_exhausted", f"daily {provider} limit of {daily_limit}")
         day = clock.today().isoformat()
         cap = ""
         params: list[Any] = [day, provider]
@@ -1565,6 +1567,8 @@ class AuditStore(RateBuckets):
         """Count one `metric` (decisions, or a provider type's calls) for `org` today; the count
         it reached, or None when the organization's daily limit was already reached (nothing
         counted). One statement, so instances never count past the limit together."""
+        if daily_limit < 1:  # admits nothing, and writes nothing (the INSERT would count one)
+            return None
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "INSERT INTO org_usage (day, org, metric, count) VALUES (?, ?, ?, 1) "

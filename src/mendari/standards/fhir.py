@@ -14,7 +14,6 @@ Bundles; all of them are flattened, and resources are de-duplicated by type and 
 from __future__ import annotations
 
 import base64
-import binascii
 import html
 import re
 from collections.abc import Iterator, Mapping, Sequence
@@ -432,5 +431,5 @@ def _put(result: dict[str, Any], target: str, value: Any) -> None:
 def _decode(value: Any) -> str | None:
     try:
         return base64.b64decode(str(value), validate=True).decode("utf-8").strip() or None
-    except (binascii.Error, UnicodeDecodeError):
+    except ValueError:  # binascii.Error, UnicodeDecodeError, or non-ASCII text
         return None

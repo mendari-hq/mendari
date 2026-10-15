@@ -408,3 +408,25 @@ def test_a_library_of_blank_lines_is_checked_at_load_in_linear_time(tmp_path: Pa
         )
         assert time.perf_counter() - started < 0.05
         assert problems == ["logic/criteria.cql: needs a `library Name version '...'` declaration"]
+
+
+def test_an_expression_the_engine_did_not_evaluate_is_not_unknown(
+    trial: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A definition missing from the engine's Parameters (a wrong library bound, a renamed
+    declaration) was read as null, a confident `unknown`; it is an invalid response."""
+    case = pack_cases(trial, [])[0][1]
+    fake = FakeEngine(trial)
+
+    def dropping(request: httpx.Request) -> httpx.Response:
+        response = fake(request)
+        if request.method != "PUT":
+            body = response.json()
+            body["parameter"] = body["parameter"][1:]  # the first definition never comes back
+            return httpx.Response(200, json=body)
+        return response
+
+    use(dropping, monkeypatch)
+    with pytest.raises(ProviderError, match="was not evaluated") as raised:
+        build_provider(trial, "structured", "cql").answer(case)
+    assert raised.value.code == "invalid_response"
