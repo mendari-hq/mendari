@@ -56,7 +56,8 @@ def chain_item() -> dict[str, Any]:
         "priority": "routine",
         "confidence": 0.58,
         "review_status": "resolved",
-        # record_outcome overwrote the reviewer's label: the Task must not read this column.
+        # A row from before `observed_label`, where an outcome overwrote the reviewer's label:
+        # the Task reads the chain, never this column.
         "final_label": "front_desk",
         "human_override": True,
         "reviewer": "rn-1",

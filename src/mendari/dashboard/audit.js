@@ -122,7 +122,9 @@ export function ratingCell(r) {
 }
 
 function auditTable(rows) {
-  const review = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
+  const reviewed = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
+  // The reviewer's label, and what a downstream system then saw happen ("nurse · observed physician").
+  const review = (r) => (r.observed_label ? `${reviewed(r)} · observed ${r.observed_label}` : reviewed(r));
   return tableHtml({
     id: "audit",
     caption: `<span class="sr-only">Decisions, newest first. Open one to see its record.</span>`,

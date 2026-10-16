@@ -256,7 +256,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     resolved_at     TEXT,
     org             TEXT,
     refused         INTEGER,
-    provider_errors INTEGER
+    provider_errors INTEGER,
+    observed_label  TEXT
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
@@ -621,6 +622,10 @@ _ADDED_COLUMNS = (
     # they feed), for monitoring's provider error share (LP-21d): a count, outside the chain;
     # NULL on rows from before it, which monitoring leaves out of the share.
     ("decisions", "provider_errors", "INTEGER"),
+    # What a downstream system saw happen (`record_outcome`), apart from a reviewer's
+    # `final_label`, which it used to overwrite; `_split_observed_labels` moves older rows'
+    # outcome labels here from the chain.
+    ("decisions", "observed_label", "TEXT"),
     # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
     # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
     ("api_keys", "scopes", "TEXT"),
@@ -880,6 +885,8 @@ def _migrate(db: _Session) -> None:
             added.add(column)
     if "superseded_by" in added:
         _supersede_earlier_ratings(db)
+    if "observed_label" in added:
+        _split_observed_labels(db)
     _expire_legacy_keys(db)
 
 
@@ -892,6 +899,33 @@ def _expire_legacy_keys(db: _Session) -> None:
         "UPDATE api_keys SET expires_at = ? WHERE expires_at IS NULL",
         (_later(timedelta(days=LEGACY_KEY_DAYS)),),
     )
+
+
+def _split_observed_labels(db: _Session) -> None:
+    """Databases from before `observed_label`: `record_outcome` wrote the outcome's label into
+    `final_label`, over a reviewer's when there was one. The chain holds both, so each goes back
+    where it belongs: a decision's `final_label` is its `review.resolved` label (none when it was
+    never reviewed), its `observed_label` the latest `outcome.recorded` one. The chain is
+    untouched."""
+    rows = db.all(
+        "SELECT decision_id, event, payload FROM audit_events "
+        "WHERE event IN ('review.resolved', 'outcome.recorded') ORDER BY seq"
+    )
+    reviewed: dict[str, str] = {}
+    observed: dict[str, str] = {}
+    for row in rows:
+        try:
+            label = json.loads(row["payload"]).get("final_label")
+        except (ValueError, AttributeError):
+            continue
+        if isinstance(label, str):
+            kept = reviewed if row["event"] == "review.resolved" else observed
+            kept[row["decision_id"]] = label
+    for decision_id, label in observed.items():
+        db.all("UPDATE decisions SET observed_label = ? WHERE id = ?", (label, decision_id))
+    for decision_id, label in reviewed.items():
+        db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (label, decision_id))
+    db.all("UPDATE decisions SET final_label = NULL WHERE review_status <> 'resolved'")
 
 
 def _supersede_earlier_ratings(db: _Session) -> None:
@@ -1337,8 +1371,13 @@ class AuditStore(RateBuckets):
         recorded_by: str,
         labels: QuestionLabels | None = None,
     ) -> None:
-        """Downstream ground truth for a decision that was not reviewed (e.g. staff re-routed an
-        AUTO message). Feeds live accuracy and drift monitoring.
+        """What really happened downstream (e.g. staff re-routed an AUTO message, or where a
+        reviewed message was finally handled), kept as the decision's `observed_label`: a
+        reviewer's `final_label`, `human_override`, `reviewer` and `resolved_at` never change
+        after the review. A later outcome replaces an earlier one; the chain keeps every one.
+        Observed accuracy (`stats`, monitoring) measures the recommendation against the outcome
+        when there is one, else against the reviewer's label. A decision still awaiting review
+        is resolved first.
 
         `final_label` is one of the labels of the decision's primary question (`_check_label`),
         `source` the reporting system as an identifier (`SYSTEM_ID`), and `recorded_by` who
@@ -1359,7 +1398,9 @@ class AuditStore(RateBuckets):
             if row["review_status"] == "pending":
                 raise ReviewError("resolve the pending review instead of recording an outcome")
             _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
-            db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id))
+            db.all(
+                "UPDATE decisions SET observed_label = ? WHERE id = ?", (final_label, decision_id)
+            )
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
             chained = self._bound("outcome.recorded", payload, _org_of(row["org"]))
             self._append(db, decision_id, "outcome.recorded", chained)
@@ -4608,7 +4649,8 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
-                f"d.final_label, d.human_override, d.cost_usd, {_REFUSED} AS refused, "
+                "d.final_label, d.observed_label, d.human_override, d.cost_usd, "
+                f"{_REFUSED} AS refused, "
                 "d.review_status, d.latency_ms, d.provider_errors, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
@@ -4654,8 +4696,9 @@ class AuditStore(RateBuckets):
         params = (*scoped, *packs[1])
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT outcome, recommendation, final_label, human_override, review_status, "
-                f"latency_ms, cost_usd, created_at FROM decisions d WHERE {scope} {packs[0]}",
+                "SELECT outcome, recommendation, final_label, observed_label, human_override, "
+                f"review_status, latency_ms, cost_usd, created_at FROM decisions d "
+                f"WHERE {scope} {packs[0]}",
                 params,
             )
             # Each person's current rating: a changed rating counts once, as its latest value.
@@ -4670,7 +4713,7 @@ class AuditStore(RateBuckets):
         for row in rows:
             outcomes[row["outcome"]] += 1
         reviewed = [r for r in rows if r["human_override"] is not None]
-        labelled = [r for r in rows if r["final_label"] and r["recommendation"]]
+        labelled = [r for r in rows if truth_label(r) and r["recommendation"]]
         latencies = sorted(r["latency_ms"] for r in rows)
         costs = [r["cost_usd"] for r in rows]
         daily: dict[str, dict[str, int]] = {}
@@ -4686,9 +4729,9 @@ class AuditStore(RateBuckets):
             if row["human_override"] is not None:
                 day["reviewed"] += 1
                 day["overridden"] += bool(row["human_override"])
-            if row["final_label"] and row["recommendation"]:
+            if truth_label(row) and row["recommendation"]:
                 day["labelled"] += 1
-                day["agreed"] += row["final_label"] == row["recommendation"]
+                day["agreed"] += truth_label(row) == row["recommendation"]
         return {
             "decisions": total,
             "outcomes": outcomes,
@@ -4698,11 +4741,11 @@ class AuditStore(RateBuckets):
                 sum(r["human_override"] for r in reviewed) / len(reviewed) if reviewed else None
             ),
             "observed_accuracy": (
-                sum(r["final_label"] == r["recommendation"] for r in labelled) / len(labelled)
+                sum(truth_label(r) == r["recommendation"] for r in labelled) / len(labelled)
                 if labelled
                 else None
             ),
-            "labelled": len(labelled),  # decisions with a final human label: accuracy's n
+            "labelled": len(labelled),  # decisions with an outcome or a reviewer's label: its n
             "latency_ms": {
                 "p50": _percentile(latencies, 50),
                 "p95": _percentile(latencies, 95),
@@ -5621,6 +5664,13 @@ def _page(db: _Session, sql: str, params: Sequence[Any], limit: int) -> list[dic
 def _total(db: _Session, sql: str, params: Sequence[Any]) -> int:
     row = db.one(sql, params)
     return int(row["n"]) if row else 0
+
+
+def truth_label(row: Mapping[str, Any]) -> str | None:
+    """What a decision's recommendation is measured against: the downstream outcome
+    (`observed_label`, what really happened) when one was recorded, else the reviewer's
+    `final_label`; None when neither is known."""
+    return row.get("observed_label") or row.get("final_label") or None
 
 
 def _row(row: Mapping[str, Any]) -> dict[str, Any]:
