@@ -939,27 +939,27 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`stats.bootstrap_defined` counts the resamples it drops); derived questions through the
     pack's table over each rater's member labels. Checked against Krippendorff (2011) exactly,
     statsmodels and scipy on the same index matrix.
-  - [ ] **11c** (#222) Evaluation-set keys and sealing, nothing stored yet
+  - [x] **11c** (#222, merged 2026-10-09) Evaluation-set keys and sealing, nothing stored yet
     (`core/evalset_keys.py`: `MENDARI_EVALSET_KEY`, `MENDARI_EVALSET_READ_KEYS`,
     `MENDARI_EVALSET_INDEX_KEY`; off unless both are set, malformed, half-set or reused keys
     stop the server, which then needs sign-in and, on Vercel, Production). Every token names its
     key and is bound to its kind, set, case and label; case and index hashes are keyed by the
     index key. The PHI policy's sealing moved into `phi.seal_with` and `phi.open_with` with its
     bytes unchanged (tokens sealed before still open). Health shows the key ids to readers.
-  - [ ] **11d** (#223; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
+  - [x] **11d** (#223, merged 2026-10-09; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
     `label` (the `labeller` role, memberships mode only; a label-only member sees a page saying
     so), `curate` (people; administrators, who hold neither `label` nor `grade`), and `grade`,
     held only by a grading key the operator mints (`mendari access grader-key`, at most 365
     days, chained; listed and revoked, never rotated; refused over HTTP); open mode holds none
     of the three. ADR-0004 and ADR-0008 amended; threat model E2 and E11.
-  - [ ] **11e** (#224) Store I: sealed sets and cases, the hidden-case index,
+  - [x] **11e** (#224, merged 2026-10-09) Store I: sealed sets and cases, the hidden-case index,
     `audit verify --evalsets` (the operator's command line only): `core/evalsets.py`,
     `mendari evalset create|add|remove-case|list`, hand-written cases only (public cases refused
     exactly and under `norm/v1`), each case chained as its keyed hash and a salted commitment
     (`case_ref`), stray, retired and PHI keys refused before every write and at startup; the
     runbook `docs/operations/evalsets.md`. The sealed freeze record's column is `freeze_record`
     (FREEZE is reserved in Postgres).
-  - [ ] **11f** (PR open) Key lifecycle: rotation with its check, reindexing, the sealed export:
+  - [x] **11f** (#225, merged 2026-10-09) Key lifecycle: rotation with its check, reindexing, the sealed export:
     `mendari evalset rotate --to <id> [--batch N] [--check]` (copied from `phi rotate`: chained
     `evalset.rotated` batches, compare-and-set, retired keys seal nothing, every set state; the
     check reads only), `mendari evalset reindex` (the whole index under the current index key,
@@ -967,7 +967,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     export` (the rows as stored: ciphertext, ids and key ids, no key, nothing chained; 11g allows
     its case ids and sealed tokens, conflict 56); `SEALED_COLUMNS` and its pin; the runbook's
     "Rotating the evaluation-set key".
-  - [ ] **11g** (PR open) The generated no-leak sweep, before any evaluation-set route (tests
+  - [x] **11g** (#227, merged 2026-10-09) The generated no-leak sweep, before any evaluation-set route (tests
     only): `tests/test_evalset_leaks.py` plants a mark in every field of two organizations' draft
     sets and calls every mounted route and method as every kind of principal, scanning answers,
     headers, NDJSON, logs, every `mendari evalset` command, the audit and feedback exports, the
@@ -977,7 +977,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_origin`, `test_shipped`, `test_limits`, and after review `test_landing`,
     `test_key_presets`, `test_rotation`, `test_capability`) run with the feature on and assert
     it; threat model I13.
-  - [ ] **11h** (PR open) Store II: sampling, assignment, blind labelling, adjudication,
+  - [x] **11h** (#231, merged 2026-10-09) Store II: sampling, assignment, blind labelling, adjudication,
     agreement (the store and the key holder's command line; no route, so no person labels yet):
     `mendari evalset sample` (seeded within strata, each drawn case's weight sealed),
     `assign` and `adjudicate` (two labellers a case, balanced across labellers and pairs, and a
@@ -991,7 +991,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the 11g sweep plants labels and labellers with and without assignments (`evalset agreement`
     and `evalset coverage`, which count by label, are the only commands that may name a label
     word); the runbook's "Labelling a set".
-  - [ ] **11i** (PR open) Store III: freeze and its commitment, the grading read, the rotation
+  - [x] **11i** (#233, merged 2026-10-09) Store III: freeze and its commitment, the grading read, the rotation
     rule, retirement (the store and the key holder's command line; no route, so nothing grades
     yet): every write refuses a set that is not a draft, in its own exclusive transaction;
     `mendari evalset freeze --max-runs N --max-age-days D [--drop-unsampled]` (every drawn case
@@ -1011,7 +1011,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     active and retired sets (`evalset freeze` and `evalset show` join the commands that may
     name a label word, conflict 57 amended); threat model T6; the runbook's freezing, rotation
     rule, grading, retiring and second lifecycle.
-  - [ ] **11j** (PR open) The labelling routes (`label`, memberships mode with both keys; the
+  - [x] **11j** (#238, merged 2026-10-10) The labelling routes (`label`, memberships mode with both keys; the
     hosted site, claims mode without the keys, mounts none): `GET /api/labelling` (the
     labeller's own counts, set by set), `GET /api/labelling/next` (their oldest open case: the
     input and the set's questions only, the read chained first; `204` when nothing waits) and
@@ -1050,7 +1050,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     amended: a set's answer to its curators may name label words); threat model I13 and E11;
     the runbook's "Curating from the dashboard API".
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
-  - [ ] **11m** (PR open) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
+  - [x] **11m** (#241, merged 2026-10-10) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
     11j's routes only): shown to a person holding `label` where the routes are served (main.js
     reads their counts once to know; without the keys a labeller-only person keeps the access
     page, now saying labelling is not switched on); a labeller and nothing else sees it alone
