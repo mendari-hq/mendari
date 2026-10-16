@@ -250,6 +250,17 @@ The first release (not yet published).
   beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
   image that fails; CI runs the same SBOM scan on every change. The image still builds with
   Docker's classic builder.
+- **A downstream outcome no longer overwrites a reviewer's label.** `POST
+  /api/audit/{decision_id}/outcome` kept what really happened in the decision's `final_label`,
+  over a reviewer's when the decision had been reviewed, while `human_override`, `reviewer` and
+  `resolved_at` still described the reviewer's choice. The outcome is now the decision's
+  `observed_label` (a later one replaces it; the chain keeps every one), and the review's
+  columns never change after the review. Observed accuracy (`/api/stats`, monitoring) measures
+  the recommendation against the outcome when there is one, else against the reviewer's label.
+  The dashboard's audit trail shows both ("nurse · observed physician"); the FHIR Task already
+  carried both from the chain. A database from before this release gains the column at the
+  next start, and its rows are put right from the chain (the reviewer's label back, the latest
+  outcome's moved).
 - **Fixes from the bug audit of 2026-10-15.** A provider or adapter failure that escaped as a
   500 with no audit record is now a refusal the caller can read: a dose "every 0 hours", a
   non-ASCII `base64Binary` attachment, an allow-list check on a URL whose port is not a number,

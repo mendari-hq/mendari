@@ -2003,10 +2003,12 @@ def create_app(
         summary="Record what really happened",
     )
     def record_outcome(decision_id: str, request: OutcomeRequest, http: Request) -> dict[str, str]:
-        """Record the final label from a downstream system (e.g. where the message was really
-        handled), for monitoring: one of the labels of the decision's question. `source` names
-        that system as an identifier; who recorded it is the caller (the signed-in person or API
-        key), whatever the body says."""
+        """Record what really happened, from a downstream system (e.g. where the message was
+        really handled), for monitoring: one of the labels of the decision's question, kept as
+        its `observed_label` beside a reviewer's `final_label`, which it never changes (a
+        decision still awaiting review is resolved first, `422`). `source` names that system as
+        an identifier; who recorded it is the caller (the signed-in person or API key),
+        whatever the body says."""
         recorded_by = principal_of(http).actor
         store.record_outcome(
             decision_id,
