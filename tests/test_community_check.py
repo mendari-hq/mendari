@@ -11,6 +11,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType
@@ -1031,6 +1032,71 @@ def test_phi_heuristics_find(text: str, kind: str) -> None:
 )
 def test_phi_heuristics_leave_synthetic_text_alone(text: str) -> None:
     assert phi_scan.scan(text) == []
+
+
+PHONE, BIRTH = "a phone number", "a date of birth next to a name"
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("Phone: 6175552368", PHONE),
+        ("call me on +16175552368 after 5", PHONE),
+        ("Cell 16175552368", PHONE),
+        ("fax it to 6175552368, please", PHONE),
+        ("Emergency contacts: 6175552368", PHONE),
+        ("faxed to 6175552368", PHONE),
+        ("DOB January 2, 1980", BIRTH),
+        ("born Jan. 2 1980 in Boston", BIRTH),
+        ("Birthday: 2 January 1980", BIRTH),
+        ("D.O.B. 2nd Sept 1980", BIRTH),
+        ("date of birth: Mar 14th, 1962", BIRTH),
+        ("Born: January 2,1980", BIRTH),
+    ],
+)
+def test_bare_phones_and_written_birth_dates_are_found_beside_their_word(
+    text: str, kind: str
+) -> None:
+    """Ten digits run together are a phone next to a word for one, in any of its forms; a date
+    in words is a date of birth next to a word for birth."""
+    assert [hit.kind.split(" (")[0] for hit in phi_scan.scan(text)] == [kind]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Patient ID 6175552368",  # a record number or an id, as often as a phone
+        "Order 1234567890 shipped",
+        "Call about 6175550123",  # the fictional range, run together
+        "Please call the front desk tomorrow morning about the form, ref 6175552368",  # too far
+        "Phone 61755523689",  # eleven digits, not a country code: not a phone
+        "My appointment is on January 2, 2027 with Dr Smith",  # an ordinary date, and a name
+        "The letter of 2 January 1980 is in the binder",
+        "I was born in a small town far away from here, and on Jan 2 1980 the clinic opened",
+        # A longer word that a word for a phone or a birth begins or ends, at the window's edge.
+        "Order 1234567890 placed for wound care follow-up of cellulitis on the left leg",
+        "The newborn unit held an open day for staff on January 2, 1980",
+        "WBC 1500000000 cells",  # a lab's unit, not a cellphone
+    ],
+)
+def test_bare_numbers_and_written_dates_without_their_word_stay_unflagged(text: str) -> None:
+    assert phi_scan.scan(text) == []
+
+
+def test_the_phi_patterns_take_a_long_line_in_one_pass() -> None:
+    """Lines an author never meant (a digit run, words that almost make a date): each costs a
+    pass, never a backtracking search."""
+    lines = [
+        "1" * 200_000,
+        "phone " + "6175552368 " * 20_000,
+        "January 2, " * 40_000 + "born",
+        "born " + "2 Jan " * 40_000,
+        "D.O.B. " * 30_000,
+    ]
+    started = time.perf_counter()
+    hits = phi_scan.scan("\n".join(lines))
+    assert time.perf_counter() - started < 5
+    assert [hit.line for hit in hits] == [2]
 
 
 # -- the command line and CI ---------------------------------------------------------------------

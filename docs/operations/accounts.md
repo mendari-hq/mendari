@@ -168,8 +168,8 @@ Then:
 
 Its administrators read the chained events of what it owns, its keys, clients, record,
 memberships, invitations, requests to join, automation approvals and holds, and evaluation
-reports, at `GET /api/audit/administrative` (paged, oldest first; `kind`, `subject`, `since`,
-`until`), and export them as FHIR AuditEvents of ids and codes at
+reports, at `GET /api/audit/administrative` (paged, oldest first or, with `order=desc`, newest
+first; `kind`, `subject`, `since`, `until`), and export them as FHIR AuditEvents of ids and codes at
 `GET /api/audit/administrative/export/fhir` (a key's or client's name, a hold's reason and an
 approval's reference stay out). Each event is attributed through the row it is about, never
 by its chain id alone; neither shows its number in the deployment's chain (`seq`), another

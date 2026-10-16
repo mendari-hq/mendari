@@ -55,6 +55,7 @@ from mendari.server.backend_services import ASSERTION_TYPE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.search import encode_cursor
 from tests.conftest import (
+    DASHBOARD,
     calm_jev,
     encrypt_mode,
     evalset_on,
@@ -571,8 +572,8 @@ def seed(world: World, org: Org) -> None:
                 expect=200,
             )
             org.tokens[name] = client_of(world.app, bearer(answer.json()["access_token"]))
-    # An EHR launch, from this organization's own EHR tenant.
-    org.launch = client_of(world.app)
+    # An EHR launch, from this organization's own EHR tenant: the dashboard window it opens.
+    org.launch = client_of(world.app, DASHBOARD)
     started = world.call(
         org,
         org.launch,

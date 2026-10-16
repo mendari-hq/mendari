@@ -36,9 +36,9 @@ views.feedback = async (main) => {
       text: "Rate a decision right or wrong in Try it, or in a record of the audit trail.",
       action: { href: "#try", label: "Try a decision" },
     })}`;
-  // Memberships mode: fetched with the window's organization (claims mode: the browser saves it).
+  // Fetched, not followed, so it carries Mendari's own header and the window's organization
+  // (`download`, ui.js): a plain link is refused to a browser without Fetch Metadata.
   $("#feedback-export").addEventListener("click", (event) => {
-    if (state.accounts !== "memberships") return;
     event.preventDefault();
     download(event.currentTarget.getAttribute("href"));
   });

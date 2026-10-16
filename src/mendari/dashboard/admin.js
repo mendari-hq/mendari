@@ -1176,8 +1176,9 @@ function showUsage() {
 // The organization's administrative events (its keys, clients, approvals, holds, evaluation
 // reports, record, people and hidden evaluation sets) of the last ACTIVITY_DAYS days, newest
 // first: what happened in words, about what, by whom, when. Never a payload's other values (a
-// hold's reason, an approval's reference). The route pages oldest first: every page of the window
-// is asked for, up to ACTIVITY_PAGES. The export is every event, FHIR AuditEvents of ids and codes.
+// hold's reason, an approval's reference). Asked for newest first (`order=desc`), page by page up
+// to ACTIVITY_PAGES, so a window with more events than that shows its newest, and says so. The
+// export is every event, FHIR AuditEvents of ids and codes.
 
 const ACTIVITY_DAYS = 90;
 const ACTIVITY_PAGE = 500;
@@ -1267,7 +1268,7 @@ async function activityEvents() {
   const events = [];
   let after = null;
   for (let page = 0; page < ACTIVITY_PAGES; page++) {
-    const query = new URLSearchParams({ since, limit: ACTIVITY_PAGE });
+    const query = new URLSearchParams({ since, limit: ACTIVITY_PAGE, order: "desc" });
     if (after) query.set("after", after);
     const found = await api(`/api/audit/administrative?${query}`);
     events.push(...found.items);
@@ -1281,10 +1282,12 @@ function activityTable({ events, more }) {
   if (!events.length) {
     return emptyState({ icon: "history", title: "No activity", text: `Nothing changed${inOrg()} in the last ${ACTIVITY_DAYS} days.` });
   }
-  const cut = more ? `<p class="muted">The first ${whole(events.length)} events of these ${ACTIVITY_DAYS} days; the export has every one.</p>` : "";
+  const cut = more ? `<p class="muted">The newest ${whole(events.length)} events of these ${ACTIVITY_DAYS} days; the export has every one.</p>` : "";
   return cut + tableHtml({
     id: "activity",
-    caption: `Administrative events${ofOrg()}, newest first`,
+    caption: more
+      ? `The newest ${whole(events.length)} administrative events${ofOrg()} of the last ${ACTIVITY_DAYS} days, newest first`
+      : `Administrative events${ofOrg()}, newest first`,
     limitHeight: true,
     columns: [
       {
@@ -1295,7 +1298,7 @@ function activityTable({ events, more }) {
       { key: "about", label: "About", cell: subjectHtml, sort: (e) => e.subject },
       { key: "by", label: "By", cell: actorHtml, sort: (e) => actorOf(e) ?? "" },
     ],
-    rows: [...events].reverse(), // chain order is oldest first
+    rows: events, // asked for newest first
   });
 }
 

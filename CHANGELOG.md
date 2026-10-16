@@ -250,6 +250,37 @@ The first release (not yet published).
   beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
   image that fails; CI runs the same SBOM scan on every change. The image still builds with
   Docker's classic builder.
+- **Lifting an automation hold asks first.** The Decision Card's Lift opens the confirmation
+  dialog every other change that takes a safeguard away uses, saying the pack then decides on
+  its own again (another hold, a recall, an approval it still needs and its risk level's limits
+  keep applying); Cancel keeps the hold. Holding stays one click.
+- **The Access view's Activity tab shows the newest events.** `GET /api/audit/administrative`
+  takes `order=desc`, newest first (`next` is the following page's `after`, in the same order),
+  on SQLite and Postgres; the default order, its cursor and the FHIR export are unchanged. The
+  tab asks newest first, so a 90-day window past its 5,000-event cap shows its newest events,
+  not its oldest, and its note and caption say which.
+- **A read with a session cookie and no Fetch Metadata needs Mendari's own header (security).**
+  A browser without Fetch Metadata (Safari before 16.4) following another site's link sends
+  neither `Sec-Fetch-Site` nor `Origin`, so the origin check read it as a script, and the link
+  read an API route in the person's name. Such a read (a Mendari cookie, GET or HEAD, no
+  `Authorization`, neither header) now reaches more than the public routes and pages only with
+  `X-Mendari-Request`, which Mendari's own pages send on every request and another site cannot
+  add without a CORS preflight; without it, a `403` logged as `auth.origin.refused`
+  (`no_fetch_metadata`). The dashboard's downloads (the wrong cases' JSONL in claims mode too)
+  and the links to the OpenAPI document, on the landing and in the API reference, are fetched,
+  not followed, and the API reference's own requests send it. Scripts that read with a session
+  cookie send `X-Mendari-Request: 1` (the pilot check, the sandbox's EHR launch and the ZAP scan
+  do), as the landing and the API reference's introduction now say. Requests with Fetch
+  Metadata, an `Authorization` header or no Mendari cookie, and unsafe methods, are checked as
+  before.
+- **The community check's PHI warnings read two more shapes, beside their word.** Ten digits run
+  together (`6175552368`, or with `+1`) warn as a phone number next to a word such as phone,
+  call, cell, fax or contact, in its forms ("contacted", "faxed"); a date in words ("January 2,
+  1980", "Jan. 2 1980", "2 January 1980") warns as a date of birth next to born, DOB, D.O.B.,
+  date of birth, birthday or birthdate. Without that word a record-number-like run of digits
+  and an ordinary date stay unflagged. A word counts only whole, for the numeric dates' check
+  too: the "cell" of "cellulitis" or the "born" of "newborn" at the edge of the 40 characters
+  read beside a number or a date no longer counts. Warnings still never quote the text.
 - **A downstream outcome no longer overwrites a reviewer's label.** `POST
   /api/audit/{decision_id}/outcome` kept what really happened in the decision's `final_label`,
   over a reviewer's when the decision had been reviewed, while `human_override`, `reviewer` and

@@ -17,17 +17,22 @@ request comes from:
 - Without it (an older browser), an `Origin` that is `null` or another site's counts as
   cross-site. This site is the request's own host, `MENDARI_PUBLIC_URL` and
   `MENDARI_TRUSTED_ORIGINS` (aliases).
-- With neither, the request is not from a browser (curl, ZAP, pilot-check) and passes: a page
-  cannot take `Origin` off an unsafe request.
+- With neither, an unsafe method passes: a page cannot take `Origin` off an unsafe request, so
+  it is not from a browser (curl, ZAP, pilot-check). A read with a Mendari cookie may be an
+  older browser (Safari before 16.4) following another site's link, which sends neither: it
+  reaches the routes beyond `public` and `page` only with `X-Mendari-Request` (any value; the
+  pages send `1`), a header only Mendari's own pages send. Another site cannot add it without a
+  CORS preflight, which Mendari never grants. So a script that reads with a session cookie sends
+  it too, and in such a browser an API route typed into the address bar is refused like a link.
 
 It applies to a request without an `Authorization` header (a bearer credential decides alone,
-and another site cannot attach one without a CORS preflight, which Mendari never grants) that
-carries a Mendari cookie or uses an unsafe method (POST, PUT, PATCH, DELETE), and in open mode to
-every request, since there none needs a credential. Unsafe methods are checked with no cookie
-too: the session cookie is SameSite=Lax, so a browser leaves it off another site's form POST,
-yet the answer can still clear it (a form on another site posting to `/auth/logout` would sign
-the person out). Machines send neither header, so curl, EHR servers, CDS clients and the token
-endpoint's backend clients are not affected.
+and another site cannot attach one without a CORS preflight either) that carries a Mendari
+cookie or uses an unsafe method (POST, PUT, PATCH, DELETE), and in open mode to every request,
+since there none needs a credential. Unsafe methods are checked with no cookie too: the session
+cookie is SameSite=Lax, so a browser leaves it off another site's form POST, yet the answer can
+still clear it (a form on another site posting to `/auth/logout` would sign the person out).
+Machines send no cookie, so curl, EHR servers, CDS clients and the token endpoint's backend
+clients are not affected.
 
 A refusal is a `403` with the request's id, and one `auth.origin.refused` line in the security
 log (server/security_log.py) whose reason is a fixed code, never the header's value.
@@ -49,6 +54,9 @@ from mendari.server.auth import permission_for
 SAFE_METHODS = frozenset({"GET", "HEAD"})
 REACHABLE = frozenset({"public", "page"})  # what another site's request may reach, to read
 REFUSED = "cross-site request refused"
+# Sent by every request Mendari's own pages make (dashboard/ui.js `OWN_REQUEST`): a read with a
+# Mendari cookie and no Fetch Metadata or `Origin` needs it to reach more than a page.
+OWN_REQUEST = "x-mendari-request"
 # The security log's reason for a refusal, by `Sec-Fetch-Site` (anything else: `unknown_site`).
 _REASONS = {"cross-site": "cross_site", "same-site": "same_site", "none": "unsafe_navigation"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -63,24 +71,32 @@ class OriginCheck:
         """Returns when the request may go on; an `AuthError` (403) when another site started
         it and it asks for more than to read a public route or a page. Reads headers only."""
         safe = request.method in SAFE_METHODS
-        if not self.open_mode and (
-            "authorization" in request.headers or (safe and not _has_mendari_cookie(request))
-        ):
+        bearer = "authorization" in request.headers
+        cookie = _has_mendari_cookie(request)
+        if not self.open_mode and (bearer or (safe and not cookie)):
             return
         site = request.headers.get("sec-fetch-site", "").strip().lower()
         if site == "same-origin" or (site == "none" and safe):
             return
+        origin = request.headers.get("origin")
         if not site:
-            origin = request.headers.get("origin")
-            if origin is None or self._is_this_site(origin, request):
+            if origin is not None and self._is_this_site(origin, request):
+                return
+            # Neither header: a script, or an older browser. Only a cookie's read without a
+            # credential could be another site's link, and Mendari's own pages say it is not.
+            if origin is None and (
+                not (safe and cookie and not bearer) or OWN_REQUEST in request.headers
+            ):
                 return
         # Another site started it (or the address bar sent an unsafe method): a page, to read.
         if safe and permission_for("GET", request.url.path) in REACHABLE:
             return
         if site:
             reason = _REASONS.get(site, "unknown_site")
+        elif origin is None:
+            reason = "no_fetch_metadata"
         else:
-            reason = "null_origin" if request.headers.get("origin") == "null" else "foreign_origin"
+            reason = "null_origin" if origin == "null" else "foreign_origin"
         security_log.event("auth.origin.refused", outcome="refused", reason=reason)
         raise AuthError(REFUSED, 403)
 

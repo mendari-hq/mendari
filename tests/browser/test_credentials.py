@@ -40,7 +40,7 @@ from tests.browser.access_site import (
 from tests.browser.test_access import member_of, pins
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import INBOX, PHONE, SMALL_TARGETS, open_pack
-from tests.conftest import encrypt_mode, security_lines, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, security_lines, signed_in
 from tests.test_auth import CLIENT, IDP
 from tests.test_backend_services import EC_KEY, RSA_KEY, Signer
 
@@ -198,7 +198,8 @@ def test_a_key_is_made_from_each_kind_of_preset(site: Site, preset: str) -> None
     """The whole role (`rest`), a scoped service key, a viewer's, and one made by hand."""
     page = admin(site)
     access(page, "keys")
-    served = {p["id"]: p for p in page.request.get("/api/auth/keys/presets").json()}
+    presets = page.request.get("/api/auth/keys/presets", headers=DASHBOARD)  # as its pages ask
+    served = {p["id"]: p for p in presets.json()}
     expected: tuple[str, str | None, str | None]
     if preset == "custom":
         page.select_option("#key-preset", label="Custom")

@@ -97,7 +97,10 @@ who can reach the server can call every operation, and the `Authorization` heade
 **With sign-in on:**
 
 - People sign in at `/auth/login` with their organization's identity provider; the dashboard and
-  the API reference use that session.
+  the API reference use that session. A script that reads with a person's session cookie sends
+  `X-Mendari-Request: 1` too, as Mendari's own pages do: a read with the cookie and neither
+  `Sec-Fetch-Site` nor `Origin` is otherwise refused, as another site's link in an older
+  browser would be.
 - Machines send `Authorization: Bearer ohk_…`, an API key a signed-in administrator creates with
   `POST /api/auth/keys` and rotates with `POST /api/auth/keys/{id}/rotate` (the old key works
   for an overlap, 24 hours unless asked). A key has one role, `viewer` or `service`, expires (90
@@ -123,8 +126,9 @@ who can reach the server can call every operation, and the `Authorization` heade
 
 An organization's administrators read the chained events of what it owns (its keys, clients,
 people, automation approvals and holds, evaluation reports) at `GET /api/audit/administrative`,
-oldest first and paged (`next` is the following page's `after`; `kind`, `subject` such as
-`key:<id>`, and `since` / `until` as instants with their offset narrow it), and export them as
+oldest first, or newest first with `order=desc`, and paged (`next` is the following page's
+`after`, in the same order; `kind`, `subject` such as `key:<id>`, and `since` / `until` as
+instants with their offset narrow it), and export them as
 FHIR AuditEvents of ids and codes at `GET /api/audit/administrative/export/fhir`. A decision's
 own trail is `GET /api/audit/{id}`.
 

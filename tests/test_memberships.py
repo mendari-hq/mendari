@@ -45,6 +45,7 @@ from mendari.server.auth import (
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
+    DASHBOARD,
     ROOT,
     encrypt_mode,
     encrypted_store,
@@ -88,7 +89,8 @@ def idp() -> FakeIdp:
 
 
 def memberships_app(db: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """A server in memberships mode whose sign-in uses `idp`."""
+    """A server in memberships mode whose sign-in uses `idp`, called as the dashboard's browser
+    calls it (Mendari's own request header)."""
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
@@ -97,7 +99,7 @@ def memberships_app(db: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> T
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
-    return TestClient(create_app(db_path=db), base_url=HTTPS)
+    return TestClient(create_app(db_path=db), base_url=HTTPS, headers=DASHBOARD)
 
 
 @pytest.fixture

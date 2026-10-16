@@ -30,7 +30,8 @@ since when; its reason and who set it are the operator's.
 Everyone who can read the pack sees the holds in force on its Decision Card, and the overview
 says when one covers the pack. People who may approve automation (signed in with the
 `governance` or `admin` role) can hold the pack there with a reason and lift their
-organization's holds. API keys and clients cannot hold or lift (their roles never approve); they
+organization's holds. Holding is one click; lifting asks first, in a dialog that says the pack
+then decides on its own again. API keys and clients cannot hold or lift (their roles never approve); they
 can read `GET /api/holds`. The routes are `POST /api/holds` (`pack_id`, optional `pack_digest`
 of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
 
