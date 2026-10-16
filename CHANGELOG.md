@@ -77,6 +77,24 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, managed by the organization's administrators** (LP-11, mounted as a
+  labeller's routes are: memberships mode with both evaluation-set keys only).
+  `GET /api/evalsets` lists the organization's sets (id, name, pack, state, when made, cases);
+  `GET /api/evalsets/{id}` reads one: its name, pack and questions, state, commitment, rotation
+  rule and runs used and left, its cases by status and each labeller's assignments by user id,
+  and the coverage and rater agreement the key holder last stored, with when they were measured
+  (null before `mendari evalset agreement` or `coverage`, or freezing; each rater pair's kappa
+  without the pair's label counts, which the key holder's commands keep);
+  `POST /api/evalsets/{id}/sample`, `/assignments` and `/adjudication` draw, assign and
+  adjudicate as the commands do (chained alike), answering counts only. Only a person holding
+  `curate` (an administrator who signed in) passes: never a key, a token, a labeller or open
+  mode; another organization's set, an unknown one and a malformed id are one `404` naming no
+  id; no administrator is ever assigned, the caller included. No route measures, freezes or
+  retires, and the answers are closed models that carry no input, label given, attribute or
+  case id. Not gated by the notice: they take no data in and mint no credential. Like an
+  administrator's other writes, they have no rate-limit class. Security-log events
+  `evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned`, naming the set's id
+  only. Runbook: `docs/operations/evalsets.md`, Curating from the dashboard API.
 - **Hidden evaluation sets, labelled through a labeller's own routes** (LP-11, memberships mode
   with both evaluation-set keys only: the hosted site, in claims mode without them, mounts none).
   `GET /api/labelling` gives a labeller their own counts, set by set; `GET /api/labelling/next`

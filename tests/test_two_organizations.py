@@ -44,7 +44,7 @@ from mendari.core.audit import (
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
-from mendari.core.evalset_keys import EvalsetKeys
+from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.registry import resolve_pack
 from mendari.server import presets, smart_routes
@@ -159,6 +159,12 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/labelling"),
     ("GET", "/api/labelling/next"),
     ("POST", "/api/labelling/{assignment_id}"),
+    # And an organization's curators' (LP-11k), likewise.
+    ("GET", "/api/evalsets"),
+    ("GET", "/api/evalsets/{set_id}"),
+    ("POST", "/api/evalsets/{set_id}/sample"),
+    ("POST", "/api/evalsets/{set_id}/assignments"),
+    ("POST", "/api/evalsets/{set_id}/adjudication"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -175,11 +181,11 @@ WRITTEN = (
     "memberships",
     "invitations",
     "access_requests",
-    "evalset_sets",  # hidden evaluation sets (LP-11e): no route writes them yet
-    "evalset_cases",
+    "evalset_sets",  # hidden evaluation sets (LP-11e): no route makes or freezes one
+    "evalset_cases",  # drawn by a curator (LP-11k)
     "evalset_index",
-    "evalset_assignments",  # their blind labelling (LP-11h), a labeller's label (LP-11j)
-    "evalset_labels",
+    "evalset_assignments",  # their blind labelling (LP-11h): a curator's (LP-11k)
+    "evalset_labels",  # a labeller's label (LP-11j)
     "audit_events",
 )
 
@@ -333,6 +339,15 @@ EXPLICIT = (
     "EvalsetStore.record_label",
     "EvalsetStore.labelling",
     "EvalsetStore.assignment_set",
+    # An organization's curators' reads and writes (LP-11k): its own sets only; the key
+    # holder's command line gives none (every organization's, or the set's own).
+    "EvalsetStore.named_sets",
+    "EvalsetStore.summary",
+    "EvalsetStore.show",
+    "EvalsetStore.progress",
+    "EvalsetStore.sample",
+    "EvalsetStore.assign",
+    "EvalsetStore.adjudicate",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -793,13 +808,16 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     and its keyed hash are `org`'s, which the other never sees. In memberships mode its case is
     drawn and labelled blind by two of `org`'s labellers, at the store (LP-11h): their user
     ids, the assignments' and the labels' ids are `org`'s too. The first labels at the store; the
-    second's assignment stays open, for phase 2 to label through the routes (LP-11j)."""
+    second's assignment stays open, for phase 2 to label through the routes (LP-11j). Its second
+    case stays undrawn, and a third labeller waits, for phase 2's curator to draw, assign and
+    adjudicate through theirs (LP-11k)."""
     m = org.marker
     hidden = EvalsetStore(world.store, keys)
     made = hidden.create_set(org.name, resolve_pack(INBOX), f"set {m}", created_by="operator")
     set_id = org.made("evalset", made["set"])
     case = hand_written(f"A sore wrist since Sunday {m}", author=f"author {m}")
-    for added in hidden.add_cases(set_id, [case])["cases"]:
+    later = hand_written(f"A cough since Monday {m}", author=f"author {m}")
+    for added in hidden.add_cases(set_id, [case, later])["cases"]:
         org.made("evalset case", added["case"])
     with world.store._db.session(exclusive=False) as db:
         for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
@@ -808,10 +826,12 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
         return
     hidden.sample(set_id, cases=1)
     people = []
-    for n in range(2):
+    for n in range(3):
         sub = f"labeller-{n}-{m}"
         member(world.store, org=org.name, roles=["labeller"], sub=sub)
+        org.made("labeller", person_id(IDP, sub))
         people.append(org.made("person", person_id(IDP, sub)))
+    people = people[:2]  # the third adjudicates in phase 2
     for assigned in hidden.assign(set_id, people)["assignments"]:
         org.made("evalset assignment", assigned["assignment"])
     shown = hidden.next_case(people[0], org=org.name)
@@ -1201,6 +1221,40 @@ def refusals(world: World, x: Org, o: Org) -> None:
                 404,
                 json={"labels": {"destination": "nurse", "urgency": "routine"}},
             )
+        refused_curating(world, x, o, refused)
+
+
+def refused_curating(world: World, x: Org, o: Org, refused: Callable[..., Any]) -> None:
+    """Memberships mode: `x`'s administrator on `o`'s set (LP-11k), read, drawn, assigned and
+    adjudicated: the `404` an unknown set gets, nothing written; and `o`'s labellers named for
+    `x`'s own set: the refusal an unknown person gets, nothing written."""
+    admin, theirs = x.people["admin"], o.one("evalset")
+    pool = {"labellers": x.ids["labeller"][:2]}
+    for route, sent in (
+        (("GET", "/api/evalsets/{set_id}"), {}),
+        (("POST", "/api/evalsets/{set_id}/sample"), {"json": {"cases": 1}}),
+        (("POST", "/api/evalsets/{set_id}/assignments"), {"json": pool}),
+        (("POST", "/api/evalsets/{set_id}/adjudication"), {"json": pool}),
+    ):
+        refused(admin, route, route[1].replace("{set_id}", theirs), theirs, 404, **sent)
+    assign, own = ("POST", "/api/evalsets/{set_id}/assignments"), x.one("evalset")
+    nobody = f"user:{'0' * 16}"  # a person's id that names no one (`unknown_like` would not)
+    for labeller in o.ids["labeller"]:
+        told = []
+        for named in (labeller, nobody):
+            before = written(world.store)
+            answer = world.call(
+                x,
+                admin,
+                assign,
+                f"/api/evalsets/{own}/assignments",
+                json={"labellers": [named, x.one("labeller")]},
+                expect=400,
+                sent=(named,),
+            )
+            assert written(world.store) == before, named
+            told.append(same(answer.text, named))
+        assert told[0] == told[1], told
 
 
 def refused_people(world: World, x: Org, o: Org, refused: Callable[..., Any]) -> None:
@@ -1337,6 +1391,10 @@ def reads(world: World, x: Org) -> dict[str, str]:
             asked.append((admin, ("GET", path), path, {}))
         assert x.labeller is not None  # a labeller's own counts (LP-11j)
         asked.append((x.labeller, ("GET", "/api/labelling"), "/api/labelling", {}))
+        # Its curators' list and set (LP-11k): its state, labelling by user id, aggregates.
+        asked.append((admin, ("GET", "/api/evalsets"), "/api/evalsets", {}))
+        own = f"/api/evalsets/{x.one('evalset')}"
+        asked.append((admin, ("GET", "/api/evalsets/{set_id}"), own, {}))
     answers = {}
     for who, route, url, params in asked:
         key = f"{id(who)}{url}?{json.dumps(params)}"
@@ -1601,6 +1659,7 @@ def served(world: World, x: Org) -> None:
     if world.accounts == "memberships":
         served_people(world, x)
         served_labelling(world, x)
+        served_curating(world, x)
 
 
 def served_labelling(world: World, x: Org) -> None:
@@ -1615,6 +1674,64 @@ def served_labelling(world: World, x: Org) -> None:
     told = world.call(x, x.labeller, label, url, json=body, expect=200)
     assert told.json() == {"remaining": 0}
     world.call(x, x.labeller, nxt, nxt[1], expect=204)
+
+
+def served_curating(world: World, x: Org) -> None:
+    """Memberships mode: `x`'s administrator draws its set's second case, assigns it to its two
+    labellers, who disagree on it at the store, and has a third adjudicate it (LP-11k); the set
+    then counts each labeller's work by user id, and nothing of `o`'s."""
+    admin, set_id = x.people["admin"], x.one("evalset")
+    first, second, third = x.ids["labeller"]
+    drawn = world.call(
+        x,
+        admin,
+        ("POST", "/api/evalsets/{set_id}/sample"),
+        f"/api/evalsets/{set_id}/sample",
+        json={"cases": 1},
+        expect=200,
+    ).json()
+    assert (drawn["drawn"], drawn["sampled"]) == (1, 2)
+    assigned = world.call(
+        x,
+        admin,
+        ("POST", "/api/evalsets/{set_id}/assignments"),
+        f"/api/evalsets/{set_id}/assignments",
+        json={"labellers": [first, second]},
+        expect=200,
+    ).json()
+    assert assigned["assigned"] == 2
+    keys = evalset_keys()
+    assert keys is not None
+    hidden = EvalsetStore(world.store, keys)
+    for user, destination in ((first, "nurse"), (second, "physician")):
+        shown = hidden.next_case(user, org=x.name)
+        assert shown is not None
+        x.made("evalset assignment", shown["assignment"])
+        labels = {"destination": destination, "urgency": "routine"}
+        hidden.record_label(shown["assignment"], user, labels, org=x.name)
+    adjudicated = world.call(
+        x,
+        admin,
+        ("POST", "/api/evalsets/{set_id}/adjudication"),
+        f"/api/evalsets/{set_id}/adjudication",
+        json={"labellers": [third]},
+        expect=200,
+    ).json()
+    assert adjudicated["assigned"] == 1
+    shown = world.call(
+        x,
+        admin,
+        ("GET", "/api/evalsets/{set_id}"),
+        f"/api/evalsets/{set_id}",
+        expect=200,
+    ).json()
+    assert {k: v for k, v in shown["statuses"].items() if v} == {"agreed": 1, "disputed": 1}
+    assert set(shown["labellers"]) == {first, second, third}
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all("SELECT id FROM evalset_assignments WHERE set_id = ?", (set_id,)):
+            x.made("evalset assignment", row["id"])
+        for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
+            x.made("evalset label", row["id"])
 
 
 def served_people(world: World, x: Org) -> None:

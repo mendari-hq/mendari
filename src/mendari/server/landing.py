@@ -102,6 +102,8 @@ _WHO = {
     "launch_decide": "an EHR launch from an EHR registered here to decide",
     "discover": "every role, and a key or token scoped to decide (the lists of the packs it may "
     "decide with): never an EHR launch",
+    "curate": "an administrator of the organization (memberships mode), signed in as a person: "
+    "never a key, a token or a labeller",
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
     "a token",
     "grade": "the organization's grading key, which only the operator makes: never a person, an "

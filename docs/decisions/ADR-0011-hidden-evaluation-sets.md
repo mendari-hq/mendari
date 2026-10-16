@@ -57,6 +57,23 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   names the question, never the value; closed answer models; a `label` rate limit per labeller;
   not gated by the notice; the security log names set ids only. The 11g sweep labels through
   them and allows a case's input only in a labeller's own next case.
+- 11k, an organization's curators' routes (`GET /api/evalsets`, `GET /api/evalsets/{set_id}`,
+  `POST /api/evalsets/{set_id}/sample`, `/assignments` and `/adjudication`), mounted as 11j's are
+  (memberships mode with both keys only): only a person holding `curate` (an administrator of the
+  organization they act for: never a key, a token, a labeller or open mode) passes the guard,
+  under one rule before the `GET` catch-all; each acts for that organization, so another
+  organization's set, an unknown one and a malformed id are one `404` naming no id, decided in the
+  store's own transaction (`org` given to every store call); answers are closed models of ids,
+  counts, user ids, the commitment and the stored aggregates with when they were measured (each
+  rater pair's kappa without the pair's label counts, which would show what each answered where a
+  pair shares few cases), never an input, a label given, an attribute or a case id; draws and
+  assignments are chained as the commands chain them and logged with set ids only; a curator is
+  never assigned, nor any administrator; no route computes statistics, freezes or retires
+  (conflicts 43 and 49); not gated by the notice, as they take no data in and mint no credential,
+  and, like an administrator's other writes, no rate-limit class. Conflict 57 amended: a set's
+  answer to its organization's curators may name label words (its questions and aggregates), and
+  the 11g sweep allows them there only, its curators drawing, assigning and adjudicating through
+  the routes.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

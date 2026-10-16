@@ -223,6 +223,10 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
     # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
     (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
+    # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
+    (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
+    (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
+    (ENGINE, "POST", "/api/evalsets/{set_id}/adjudication"): ("evalset.assigned",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py

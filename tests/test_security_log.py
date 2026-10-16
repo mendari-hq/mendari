@@ -419,6 +419,62 @@ def test_labelling_is_logged_by_set_id_only(
         assert private not in written, private
 
 
+def test_curating_is_logged_by_set_id_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An organization's administrator drawing a hidden set's cases, assigning them, and an
+    adjudication refused for another organization's set (LP-11k): the events name the set by
+    its id and how many, a refusal (`no_set`) no id at all, and the access lines the routes'
+    templates; never a case, an assignment, a stratum, an input or a label word. The
+    operator's guide lists each event among the security events (docs/deploying-with-phi.md,
+    §7)."""
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)
+    keys = EvalsetKeys(*evalset_on(monkeypatch))
+    db = tmp_path / "a.db"
+    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
+    with encrypted_store(db) as store:
+        hidden = EvalsetStore(store, keys)
+        set_id = a_set(hidden, resolve_pack(INBOX))
+        theirs = a_set(hidden, resolve_pack(INBOX), "clinic-b")
+        hidden.add_cases(set_id, evalset_cases(2))
+        for n in range(2):
+            member(store, org=CLINIC, roles=["labeller"], sub=f"labeller-{n}")
+        users = [person_id("https://idp.example.org", f"labeller-{n}") for n in range(2)]
+        admin = member(store, org=CLINIC, roles=["admin"], sub="curator")
+    capsys.readouterr()
+    base = f"/api/evalsets/{set_id}"
+    assert client.post(f"{base}/sample", json={"cases": 2}, headers=admin).is_success
+    told = client.post(f"{base}/assignments", json={"labellers": users}, headers=admin)
+    assert told.is_success
+    other = f"/api/evalsets/{theirs}/adjudication"
+    assert client.post(other, json={"labellers": users}, headers=admin).status_code == 404
+    lines = logged(capsys)
+    events = [
+        (e["event"], e.get("ids"), e.get("count"), e["outcome"], e.get("reason"))
+        for e in lines
+        if e["event"] != "request"
+    ]
+    assert events == [
+        ("evalset.sampled", [set_id], 2, "ok", None),
+        ("evalset.assigned", [set_id], 4, "ok", None),
+        ("evalset.adjudication.assigned", None, None, "refused", "no_set"),
+    ]
+    routes = {e["route"] for e in lines if e["event"] == "request"}
+    assert routes == {
+        "/api/evalsets/{set_id}/sample",
+        "/api/evalsets/{set_id}/assignments",
+        "/api/evalsets/{set_id}/adjudication",
+    }
+    guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()
+    assert [event for event, *_ in events if f"`{event}`" not in guide] == []
+    written = json.dumps(lines)
+    for private in (theirs, MARKS["input"], MARKS["stratum"], MARKS["name"], "routine"):
+        assert private not in written, private
+
+
 def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

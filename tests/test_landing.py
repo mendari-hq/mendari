@@ -172,7 +172,8 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
 ) -> None:
     """With sign-in on, hidden evaluation sets are on too, so the routes they mount are in the
     table (LP-11g, conflict 37); open mode cannot have them. In memberships mode a labeller's
-    routes are listed under `label`, a person's only (LP-11j)."""
+    routes are listed under `label`, a person's only (LP-11j), and an organization's curators'
+    under `curate`, an administrator's who signed in (LP-11k)."""
     if mode in ("sign-in", "memberships"):
         _sign_in_on(monkeypatch)
     if mode == "backend services":
@@ -209,8 +210,20 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
             ("POST", "/api/labelling/{assignment_id}"),
         }
         assert "docs-scope" not in labelling[1]  # no scope reaches them
+        curating = re.search(r'<tr data-permission="curate">(.*?)</tr>', text, re.S)
+        assert curating and "an administrator of the organization" in curating[1]
+        assert "never a key, a token or a labeller" in curating[1]
+        assert {route for route, permission in expected.items() if permission == "curate"} == {
+            ("GET", "/api/evalsets"),
+            ("GET", "/api/evalsets/{set_id}"),
+            ("POST", "/api/evalsets/{set_id}/sample"),
+            ("POST", "/api/evalsets/{set_id}/assignments"),
+            ("POST", "/api/evalsets/{set_id}/adjudication"),
+        }
+        assert "docs-scope" not in curating[1]
     else:
         assert labelling is None
+        assert '<tr data-permission="curate">' not in text
     if mode == "backend services":
         assert ("POST", "/auth/token") in expected
         assert f"<code>POST {PUBLIC_URL}/auth/token</code>" in text

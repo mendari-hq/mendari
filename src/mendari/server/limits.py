@@ -21,7 +21,8 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent), but for
 a labeller's, which chain each case they are shown. An EHR launch's decisions count against its
-`ehr` principal, like anyone's.
+`ehr` principal, like anyone's. An administrator's writes (keys, clients, people, and a hidden
+set's draws and assignments, LP-11k) have no class: a person's pace, chained, as every write.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
