@@ -96,20 +96,25 @@ async function showRunTab(body, empty) {
     const button = e.currentTarget;
     const dataset = datasets.find((d) => d.name === $("#dataset").value);
     if (remote.length && !(await confirmRun(dataset, remote))) return button.focus();
-    const stopProgress = runProgress($("#run-report"), dataset);
-    $("#dataset").disabled = true;
+    // Held, not looked up again: a run may finish after the person has left this tab, when
+    // these elements are gone from the page (the History tab still lists the report).
+    const box = $("#run-report");
+    const picker = $("#dataset");
+    const stopProgress = runProgress(box, dataset);
+    picker.disabled = true;
     await whileBusy(button, "Running…", async () => {
       try {
         const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
         evalsState.reports.unshift(report);
-        $("#run-report").innerHTML = reportView(report);
-        wire($("#run-report"));
+        if (!box.isConnected) return;
+        box.innerHTML = reportView(report);
+        wire(box);
       } catch (error) {
-        $("#run-report").innerHTML = empty("The run did not finish. Choose a dataset and try again.");
+        if (box.isConnected) box.innerHTML = empty("The run did not finish. Choose a dataset and try again.");
         toastError(error.message);
       } finally {
         stopProgress();
-        $("#dataset").disabled = false;
+        picker.disabled = false;
       }
     });
   });

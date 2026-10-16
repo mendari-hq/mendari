@@ -1050,7 +1050,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     amended: a set's answer to its curators may name label words); threat model I13 and E11;
     the runbook's "Curating from the dashboard API".
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
-  - [ ] **11m** The labelling screen.
+  - [ ] **11m** (PR open) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
+    11j's routes only): shown to a person holding `label` where the routes are served (main.js
+    reads their counts once to know; without the keys a labeller-only person keeps the access
+    page, now saying labelling is not switched on); a labeller and nothing else sees it alone
+    (`labelOnly`, pinned in `route()` as `launchOnly` is; no packs, no notice, no review count),
+    anyone else holding `label` gets its link in the section list. Their counts set by set (ids
+    only), then one case at a time: its input escaped by `record.js` (the generic renderer taken
+    out of `pack.js`, which imports it), the set's questions as radio groups with nothing chosen
+    (24 px targets, 44 on touch), Save → the next case with focus on its heading; an unanswered
+    question or a `422` said beside the question it names; a `404` moves on to the next; `204` the
+    empty state with "Check again". Imports only `router.js`, `ui.js` and `record.js`; nothing in
+    the browser's storage; tokens only. `tests/browser/test_labelling.py` (a real memberships
+    server with throwaway keys: labels case after case, the second labeller blind, `pins()`,
+    storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
+    phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
+    gate probe changes (11o replaces `labelling-underway`'s).
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
@@ -1510,6 +1525,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
     file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
     accuracy) is no longer served beside `checked.regression`.
+  - [x] **18d screen** (PR open) The registry approval on the Decision Card: an approval is keyed
+    on the pack and its digest (per organization), so it lives in the card's Automation approval
+    section, not in Access. For a pack served from a registry: where it came from (registry,
+    namespace, signing key, when pulled, the digest served), a recall recorded at pull, the
+    approval in force (who, reference, when, digest) and every earlier one (revoked by whom,
+    or of another version); approving takes a reference (and an approver in open mode), then a
+    dialog naming the digest and saying what it allows and what it never lifts (a recall, a
+    hold, the risk level's limits); revoking is one button; both only with `approve`. The
+    card's "Automates" says a pack from a registry waits for this approval or its recall, and
+    a level 0–1 pack from a registry no longer reads "No approval is needed". No server change.
+    `tests/browser/test_registry_approvals.py`, and axe in both themes (not approved with a
+    recall, the dialog open, approved). `GET /api/providers/jev/models` gets no screen: no
+    place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
+    names the deployed model, and the list would be a call to Jev on every card for nothing to
+    act on.
   - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
     rows, docs.
 
@@ -2566,7 +2596,27 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,
   dropdowns and date pickers, editable tables for lists, JSON for anything else), with the JSON
   one click away; every behaviour-test example of the four record packs round-trips unchanged
+- [x] (PR open) Try it reaches the three pack routes it had no screen for, each only where the
+  pack takes it: "Check the AI reply" (`…/guard`, a pack with a `guard` section; the answer now
+  carries the whole `decision`, so the result reads as a decision does, headed by what to do
+  with the reply); an input switch "Form | (JSON |) FHIR" (`…/fhir/decide`, a pack with a FHIR
+  mapping; pasted JSON checked to parse first, an OperationOutcome said in words under it);
+  and under a complete prior-auth request (`pas_ready` in the pack detail, `pas.READY`) the PAS
+  request built from pasted resources (prefilled from FHIR input), a refusal naming a
+  `MENDARI_PAS_` setting opening the fields the route takes, the Bundle to copy or download.
+  No X12 value in the dashboard. Tests: `tests/browser/test_try_modes.py` (with axe, both themes)
+- [ ] Try it's FHIR input starts empty: no pack ships a FHIR example of its own (the API
+  reference's is the inbox router's, in `server/api_docs.py`); a `…/fhir/example` would prefill it
 - [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
+- [ ] (PR open) The audit routes on screen: the Audit trail shows the signed daily checkpoint
+  (21k; day, head, key id, "Save a copy" of the route's answer; "not set up" without a key,
+  "none signed yet" before the first) and, for administrators, "Export as FHIR" (the pack's
+  trail, `audit-<pack>-<day>.ndjson`, fetched to carry the organization); the Access view's
+  Activity tab (12g-ii, administrators signed in): the organization's administrative events of
+  the last 90 days, newest first, in words (event, about what, by whom, when), asked for each
+  time it is shown, and their FHIR export. One server addition: `/api/health` names the
+  checkpoint key's id (`checkpoint_key`, or null), so the dashboard asks for no checkpoint, and
+  logs no 404, where none is set (tests/browser/test_audit_activity.py)
 - [x] `$decide` references resolve: the Task's `for`/`focus` and the `subject`s are the absolute
   `fullUrl` the input gives the resource, else `Type/id` (stated as relative to the client's
   server); a `urn:uuid` input reference becomes `Type/id`. The `/api/…/fhir/decide` Task is

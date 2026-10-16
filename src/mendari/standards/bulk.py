@@ -188,7 +188,7 @@ def _diagnostics(body: bytes) -> str:
 
 def read_ndjson(directory: Path) -> Iterator[dict[str, Any]]:
     for path in sorted(directory.glob("*.ndjson")):
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), start=1):
             if not line.strip():
                 continue
             try:
@@ -238,7 +238,7 @@ def load_labels(path: Path) -> dict[str, dict[str, str]]:
     """Labels by case id from a JSONL file of `{"id": ..., "labels": {...}}` (an evaluation dataset
     works as it is; its inputs are ignored)."""
     labels = {}
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), start=1):
         if not line.strip():
             continue
         try:

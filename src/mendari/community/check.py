@@ -1398,6 +1398,29 @@ def _model_files(ctx: _Context) -> set[str]:
     return found
 
 
+def _phi_files(ctx: _Context) -> list[Path]:
+    """The files whose text must be synthetic: everything under `data/` and `tests/`, and the
+    files the manifest names as datasets or tests, which are free-form paths and may lie
+    elsewhere in the pack (a dataset in `cases/` would otherwise never be looked at)."""
+    found = {
+        path
+        for folder in ("data", "tests")
+        for path in (ctx.root / folder).rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    named: list[str] = []
+    if ctx.pack is not None:
+        named += list(ctx.pack.manifest.evaluation.datasets.values())
+        if ctx.pack.manifest.tests:
+            named.append(ctx.pack.manifest.tests)
+    root = ctx.root.resolve()
+    for relative in named:
+        path = ctx.root / relative
+        if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root):
+            found.add(path)
+    return sorted(found)
+
+
 def _is_text(path: Path) -> bool:
     data = path.read_bytes()
     if b"\0" in data:
@@ -1491,14 +1514,13 @@ def _phi(ctx: _Context) -> None:
                 f"{relative}: vocabulary word {hit.line} looks like {hit.kind}. A model learns "
                 "from its data, which must be synthetic: train it on the pack's data only",
             )
-    for folder in ("data", "tests"):
-        for path in sorted((ctx.root / folder).rglob("*")):
-            if not path.is_file() or path.is_symlink() or not _is_text(path):
-                continue
-            relative = path.relative_to(ctx.root).as_posix()
-            for hit in phi_scan.scan(path.read_text(encoding="utf-8")):
-                ctx.report.warn(
-                    "phi",
-                    f"{relative} line {hit.line} looks like {hit.kind}. Data must be synthetic: "
-                    "change it, or say in the pull request why it is made up",
-                )
+    for path in _phi_files(ctx):
+        if not _is_text(path):
+            continue
+        relative = path.relative_to(ctx.root).as_posix()
+        for hit in phi_scan.scan(path.read_text(encoding="utf-8")):
+            ctx.report.warn(
+                "phi",
+                f"{relative} line {hit.line} looks like {hit.kind}. Data must be synthetic: "
+                "change it, or say in the pull request why it is made up",
+            )

@@ -184,6 +184,14 @@ def test_vote_records_the_models_that_answered(
             {"type": "vote", "weights": {"nb": 1, "jev": 0}, "members": {"nb": NB, "jev": JEV}},
             "positive",
         ),
+        (  # YAML's .inf: every probability would be inf/inf, NaN
+            {
+                "type": "vote",
+                "weights": {"nb": 1, "jev": float("inf")},
+                "members": {"nb": NB, "jev": JEV},
+            },
+            "finite",
+        ),
         ({"type": "vote", "members": {"nb": NB}}, "members"),
         ({"type": "cascade", "accept_at": 0, "members": {"nb": NB, "jev": JEV}}, "accept_at"),
         (

@@ -220,3 +220,89 @@ def test_the_recorder_is_the_agent_and_the_source_is_not(
     provenance = [r for r in resources if r["resourceType"] == "Provenance"][-1]
     assert provenance["agent"][0]["who"] == {"display": "rn-9"}
     assert "ehr" not in json.dumps(provenance["agent"])
+
+
+def test_an_outcome_after_a_review_keeps_the_reviewers_label(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    """`record_outcome` wrote the outcome into `final_label`, over a reviewer's: the row then
+    said the reviewer chose a label they never did (`human_override` still theirs). The outcome
+    is the decision's `observed_label`; the review's columns never change after the review."""
+    from mendari.standards import task_fhir
+
+    decide = Decision(inbox_pack, providers=SCREENED, store=store)
+    result = decide(message(EMERGENCY))
+    store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
+    reviewed = store.get(result.id)
+    assert reviewed is not None and reviewed["review_status"] == "resolved"
+    store.record_outcome(result.id, final_label="physician", source="ehr", recorded_by="rn-9")
+    item = store.get(result.id)
+    assert item is not None
+    for key in ("final_label", "human_override", "reviewer", "resolved_at", "review_status"):
+        assert item[key] == reviewed[key], key
+    assert item["final_label"] == "nurse" and item["observed_label"] == "physician"
+    assert [e["event"] for e in item["events"]] == [
+        "decision.created",
+        "review.resolved",
+        "outcome.recorded",
+    ]
+    # Observed accuracy measures the recommendation against what really happened.
+    stats = store.stats()
+    assert stats["labelled"] == 1 and stats["observed_accuracy"] == 0.0
+    assert stats["reviews_resolved"] == 1 and stats["human_override_rate"] == 0.0
+    # The Task's third version carries both labels, as before.
+    *_, task = task_fhir.task_versions(item, BASE)
+    outputs = {o["type"]["text"]: o for o in task["output"]}
+    assert outputs["final-label"]["valueCoding"]["code"] == "nurse"
+    assert outputs["observed-label"]["valueCoding"]["code"] == "physician"
+    assert task["meta"]["versionId"] == "3"
+
+
+def test_a_later_outcome_replaces_the_earlier_and_the_chain_keeps_both(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    result = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+    store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="rn-9")
+    store.record_outcome(result.id, final_label="front_desk", source="ehr", recorded_by="rn-9")
+    item = store.get(result.id)
+    assert item is not None
+    assert item["observed_label"] == "front_desk" and item["final_label"] is None
+    assert [e["payload"]["final_label"] for e in item["events"] if e["event"] == "outcome.recorded"]
+    assert store.stats()["labelled"] == 1
+
+
+def test_an_older_databases_outcome_labels_move_to_their_own_column(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    """Before `observed_label`, an outcome's label sat in `final_label`, over a reviewer's when
+    there was one. The migration reads the chain: the reviewer's label goes back, the latest
+    outcome's moves, and a decision never reviewed keeps no `final_label`."""
+    from mendari.core.audit import _split_observed_labels
+
+    decide = Decision(inbox_pack, providers=SCREENED, store=store)
+    overwritten, reviewed_only, automated, untouched = (
+        decide(message(EMERGENCY)),
+        decide(message(EMERGENCY)),
+        decide(message(ROUTINE)),
+        decide(message(ROUTINE)),
+    )
+    store.resolve_review(overwritten.id, final_label="nurse", reviewer="rn-1")
+    store.record_outcome(overwritten.id, final_label="physician", source="ehr", recorded_by="x")
+    store.record_outcome(overwritten.id, final_label="billing", source="ehr", recorded_by="x")
+    store.resolve_review(reviewed_only.id, final_label="physician", reviewer="rn-1")
+    store.record_outcome(automated.id, final_label="front_desk", source="ehr", recorded_by="x")
+    # The rows as the release before this one left them: the chain is the same.
+    with store._db.session(exclusive=True) as db:
+        db.all("UPDATE decisions SET observed_label = NULL")
+        db.all("UPDATE decisions SET final_label = 'billing' WHERE id = ?", (overwritten.id,))
+        db.all("UPDATE decisions SET final_label = 'front_desk' WHERE id = ?", (automated.id,))
+    for _ in range(2):  # idempotent
+        with store._db.session(exclusive=True) as db:
+            _split_observed_labels(db)
+        labels = {r["id"]: (r["final_label"], r["observed_label"]) for r in store.query(limit=10)}
+        assert labels == {
+            overwritten.id: ("nurse", "billing"),
+            reviewed_only.id: ("physician", None),
+            automated.id: (None, "front_desk"),
+            untouched.id: (None, None),
+        }

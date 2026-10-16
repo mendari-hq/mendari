@@ -18,8 +18,8 @@ submissions stay in the chain and make no version. The ordinal, not the global `
 version number says nothing about how busy the rest of the deployment is.
 
 **From the chain, not the row.** The outputs come from event payloads: the reviewer's label from
-`review.resolved`, the observed label from the latest `outcome.recorded`. `record_outcome`
-overwrites `decisions.final_label`, so that column would rewrite version 2.
+`review.resolved`, the observed label from the latest `outcome.recorded`: the same two labels
+the decisions row keeps (`final_label`, `observed_label`), but as of each version.
 
 **What a Task never carries:** input text, subject identifiers (no `for`, no `focus`), review or
 feedback notes. `note` holds the decision's reasons, except for a refused input: records made

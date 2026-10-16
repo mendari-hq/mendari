@@ -33,6 +33,7 @@ launch's, never the server's.
 from __future__ import annotations
 
 import base64
+import math
 import os
 import re
 import secrets
@@ -262,7 +263,11 @@ def complete(
                 reason="user_type",
             )
     expires_in = token.get("expires_in")
-    lifetime = int(expires_in) if isinstance(expires_in, int | float) and expires_in > 0 else 3600
+    lifetime = (
+        int(expires_in)
+        if isinstance(expires_in, int | float) and math.isfinite(expires_in) and expires_in > 0
+        else 3600
+    )
     session = {
         "iss": pending["iss"],
         "access_token": access,

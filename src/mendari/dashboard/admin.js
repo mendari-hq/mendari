@@ -8,7 +8,9 @@
 // shown once; rotate, revoke, history) and, with SMART Backend Services on, its clients
 // (register with a public key, replace its key set, revoke, history), in either accounts mode;
 // and its usage (the usage ledger, LP-21g): the remote model calls its decisions and evaluations
-// made over the last 30 days and what they cost, never a cost where a call was not priced.
+// made over the last 30 days and what they cost, never a cost where a call was not priced; and
+// its activity (12g-ii, administrators): its administrative events of the last 90 days, newest
+// first, asked for each time the tab is shown, and all of them exported as FHIR.
 // Open mode has no view: its API acts for every organization. Someone who may use none of the
 // tabs never sees the view: the router asks `available()`, and no list is fetched. Every request
 // names the window's organization (`api`, ui.js). Names, addresses, organization names, scopes,
@@ -16,7 +18,7 @@
 
 import { views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, actionDialog, api, docsLink, emptyState, esc, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, money, roleName, signedIn, state, time, toast, toastError, whileBusy } from "./ui.js";
+import { $, actionDialog, api, docsLink, download, emptyState, esc, fileSlug, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, money, roleName, signedIn, state, time, toast, toastError, today, whileBusy } from "./ui.js";
 
 // An organization's people: memberships mode, an administrator who signed in. All three checks:
 // open mode's principal may do everything, `keys` included.
@@ -31,6 +33,8 @@ export const ADMIN_TABS = [
   { key: "keys", label: "API keys", shown: credentials, load: loadKeys, show: showKeys },
   { key: "clients", label: "Clients", shown: () => credentials() && Boolean(state.backendServices), load: loadClients, show: showClients },
   { key: "usage", label: "Usage", shown: () => credentials() && may("admin"), load: () => api(`/api/usage?days=${USAGE_DAYS}`), show: showUsage },
+  // Asked for when shown (`showActivity`), so it includes what the other tabs just changed.
+  { key: "activity", label: "Activity", shown: () => signedIn() && may("admin"), load: () => null, show: showActivity },
 ];
 const USAGE_DAYS = 30;
 
@@ -1166,4 +1170,167 @@ function showUsage() {
     defaultCompare: (a, b) => b.day.localeCompare(a.day),
   });
   return intro + totals + days;
+}
+
+// -- activity (12g-ii) ---------------------------------------------------------------------------
+// The organization's administrative events (its keys, clients, approvals, holds, evaluation
+// reports, record, people and hidden evaluation sets) of the last ACTIVITY_DAYS days, newest
+// first: what happened in words, about what, by whom, when. Never a payload's other values (a
+// hold's reason, an approval's reference). The route pages oldest first: every page of the window
+// is asked for, up to ACTIVITY_PAGES. The export is every event, FHIR AuditEvents of ids and codes.
+
+const ACTIVITY_DAYS = 90;
+const ACTIVITY_PAGE = 500;
+const ACTIVITY_PAGES = 10;
+const inOrg = () => (people() ? ` in ${esc(orgName())}` : ""); // claims mode: the one organization
+
+// Each kind in words (as the export's displays, standards/audit_fhir.py); an unknown one is named.
+const ACTIVITY_TEXT = {
+  "key.created": "API key created",
+  "key.rotated": "API key rotated",
+  "key.revoked": "API key revoked",
+  "client.registered": "Client registered",
+  "client.revoked": "Client revoked",
+  "client.keys_replaced": "Client's key set replaced",
+  "governance.approved": "Automation approved",
+  "governance.revoked": "Automation approval revoked",
+  "registry_pack.approved": "Pack from a registry approved",
+  "registry_pack.revoked": "Pack from a registry no longer approved",
+  "automation.held": "Automation held",
+  "automation.lifted": "Automation hold lifted",
+  "eval.recorded": "Evaluation report recorded",
+  "organization.created": "Organization created",
+  "membership.created": "Member added",
+  "membership.roles_changed": "Member's roles changed",
+  "membership.removed": "Member removed",
+  "membership.bound": "Member signed in for the first time",
+  "invitation.created": "Invitation made",
+  "invitation.accepted": "Invitation accepted",
+  "invitation.revoked": "Invitation revoked",
+  "access.requested": "Asked to join",
+  "access.handled": "Request to join answered",
+  "evalset.created": "Hidden evaluation set created",
+  "evalset.case_added": "Hidden evaluation case added",
+  "evalset.case_removed": "Hidden evaluation case removed",
+  "evalset.sampled": "Hidden evaluation set sampled",
+  "evalset.assigned": "Hidden evaluation case assigned",
+  "evalset.case_read": "Hidden evaluation case read by its labeller",
+  "evalset.labelled": "Hidden evaluation case labelled",
+  "evalset.measured": "Labellers' agreement measured",
+  "evalset.frozen": "Hidden evaluation set frozen",
+  "evalset.activated": "Hidden evaluation set activated",
+  "evalset.graded": "Hidden evaluation set read to grade a pack",
+  "evalset.retired": "Hidden evaluation set retired",
+};
+
+// What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).
+const SUBJECT_TEXT = {
+  key: "API key", client: "Client", governance: "Automation approval", registry_approval: "Registry approval",
+  hold: "Automation hold", eval: "Evaluation report", org: "Organization", membership: "Member",
+  invitation: "Invitation", access: "Request to join", evalset: "Hidden evaluation set",
+};
+
+// Who acted: the first of these a payload has, or a kind's own (standards/audit_fhir.py _ACTORS).
+const ACTOR_KEYS = ["created_by", "rotated_by", "revoked_by", "set_by", "lifted_by", "approver", "changed_by", "removed_by", "handled_by", "ended_by", "actor", "user"];
+const ACTOR_KEY = { "client.keys_replaced": "replaced_by", "evalset.case_read": "labeller", "evalset.labelled": "labeller", "evalset.graded": "grader" };
+
+let activityAsked = 0; // the latest request: an older answer, arriving after it, is dropped
+
+function showActivity() {
+  const asked = ++activityAsked;
+  fillActivity(asked);
+  // Once showTab has put this in the page (a microtask runs when the current task's code returns).
+  queueMicrotask(() => $("#activity-export")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Exporting…", () => download(
+    "/api/audit/administrative/export/fhir", `activity-${fileSlug(state.me?.org)}-${today()}.ndjson`,
+  ))));
+  return `<p class="muted">What changed${inOrg()} in the last ${ACTIVITY_DAYS} days, from the audit chain: credentials, people, approvals and holds. The export is all of it, as FHIR AuditEvents of ids and codes.</p>
+    <div class="row toolbar"><span class="grow"></span><button type="button" id="activity-export">${icon("download")} Export as FHIR</button></div>
+    <div id="activity" aria-busy="true"><div class="skeleton" aria-hidden="true"><div class="sk-rows">${'<div class="sk sk-row"></div>'.repeat(5)}</div></div><p class="sr-only">Loading…</p></div>`;
+}
+
+async function fillActivity(asked) {
+  let html;
+  try {
+    html = activityTable(await activityEvents());
+  } catch (error) {
+    html = `<p class="error">${esc(error.message)}</p>`;
+  }
+  const box = $("#activity");
+  if (!box || asked !== activityAsked) return; // another tab, or a newer request, meanwhile
+  box.innerHTML = html;
+  box.removeAttribute("aria-busy");
+  wire(box);
+}
+
+async function activityEvents() {
+  const since = new Date(Date.now() - ACTIVITY_DAYS * 86_400_000).toISOString();
+  const events = [];
+  let after = null;
+  for (let page = 0; page < ACTIVITY_PAGES; page++) {
+    const query = new URLSearchParams({ since, limit: ACTIVITY_PAGE });
+    if (after) query.set("after", after);
+    const found = await api(`/api/audit/administrative?${query}`);
+    events.push(...found.items);
+    after = found.next;
+    if (!after) return { events, more: false };
+  }
+  return { events, more: true };
+}
+
+function activityTable({ events, more }) {
+  if (!events.length) {
+    return emptyState({ icon: "history", title: "No activity", text: `Nothing changed${inOrg()} in the last ${ACTIVITY_DAYS} days.` });
+  }
+  const cut = more ? `<p class="muted">The first ${whole(events.length)} events of these ${ACTIVITY_DAYS} days; the export has every one.</p>` : "";
+  return cut + tableHtml({
+    id: "activity",
+    caption: `Administrative events${ofOrg()}, newest first`,
+    limitHeight: true,
+    columns: [
+      {
+        key: "time", label: "Time", className: "nowrap", sort: (e) => e.created_at, firstDir: "descending",
+        cell: (e) => `<time datetime="${esc(e.created_at)}">${esc(time(e.created_at))}</time>`,
+      },
+      { key: "event", label: "Event", cell: (e) => `<span title="${esc(e.event)}">${esc(eventText(e))}</span>`, sort: eventText },
+      { key: "about", label: "About", cell: subjectHtml, sort: (e) => e.subject },
+      { key: "by", label: "By", cell: actorHtml, sort: (e) => actorOf(e) ?? "" },
+    ],
+    rows: [...events].reverse(), // chain order is oldest first
+  });
+}
+
+const eventText = (e) => ACTIVITY_TEXT[e.event] ?? e.event;
+
+// The kind of row, and its name where this page knows it (else its id).
+function subjectHtml({ subject, payload }) {
+  const [prefix, ...rest] = subject.split(":");
+  const id = rest.join(":");
+  const name = subjectName(prefix, id, payload ?? {});
+  return `${esc(SUBJECT_TEXT[prefix] ?? prefix)} ${name ? esc(name) : `<span class="mono">${esc(id)}</span>`}`;
+}
+
+function subjectName(prefix, id, payload) {
+  const named = (list, key = "id") => adminState[list].find((row) => String(row[key]) === id);
+  if (prefix === "key") return named("keys")?.name ?? payload.name;
+  if (prefix === "client") return named("clients", "client_id")?.name ?? payload.name;
+  if (prefix === "membership") {
+    const member = named("members");
+    return member ? personName(member) : null;
+  }
+  if (prefix === "invitation") return named("invitations")?.email;
+  if (prefix === "org" && id === state.me?.org) return orgName();
+  return null;
+}
+
+function actorOf({ event, payload }) {
+  const p = payload ?? {};
+  const found = ACTOR_KEY[event] ? p[ACTOR_KEY[event]] : ACTOR_KEYS.map((key) => p[key]).find(Boolean);
+  return found ? String(found) : null;
+}
+
+// A member or an invitation by `who`, anyone else as the chain records them (`byActor`).
+function actorHtml(event) {
+  const actor = actorOf(event);
+  if (!actor) return '<span class="muted">not recorded</span>';
+  return adminState.names.has(actor) || /^(user|invitation):/.test(actor) ? who(actor) : byActor(actor);
 }

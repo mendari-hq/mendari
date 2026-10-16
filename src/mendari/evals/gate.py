@@ -59,6 +59,8 @@ def gate(
     )
     if main is not None and rows[-1]["worse_by"] is not None and rows[-1]["worse_by"] > tolerance:
         failures.append(f"{primary} accuracy fell by more than {tolerance:.0%}")
+    if main is not None and old_q.get("accuracy") is not None and new_q.get("accuracy") is None:
+        failures.append(f"{primary} accuracy can no longer be measured")
 
     new_auto = report["decisions"]["automation"]
     old_auto = (main or {}).get("decisions", {}).get("automation", {})
@@ -94,6 +96,21 @@ def gate(
             failures.append(f"{name}: fewer critical cases found")
         if item.get("auto_missed", 0) > before.get("auto_missed", 0):
             failures.append(f"critical {key[0]}={key[1]}: a critical case was automated")
+    # A critical label main measured that this change does not (dropped from
+    # `evaluation.critical`, or without a labelled case left) is a regression, not a pass.
+    measured = {(c["question"], c["label"]) for c in report["decisions"].get("critical", [])}
+    for key, before in old_critical.items():
+        if key in measured:
+            continue
+        name = f"critical {key[0]}={key[1]} detected"
+        metric(
+            name,
+            None,
+            before.get("detection_rate"),
+            higher_is_better=True,
+            of=(before.get("n"), None),
+        )
+        failures.append(f"{name}: no longer measured")
     return rows, failures
 
 

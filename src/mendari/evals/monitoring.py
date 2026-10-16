@@ -61,7 +61,7 @@ from mendari.alerts import (
     check_webhook,  # noqa: F401 - where it was, for its callers
     deliver,
 )
-from mendari.core.audit import AuditStore
+from mendari.core.audit import AuditStore, truth_label
 from mendari.core.card import benchmark
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
@@ -377,8 +377,8 @@ def _rate(part: int, whole: Sequence[Row]) -> float | None:
 def _summary(rows: Sequence[Row]) -> dict[str, Any]:
     made = [r for r in rows if not r["refused"]]  # a refused input decided nothing
     reviewed = [r for r in made if r["human_override"] is not None]
-    labelled = [r for r in made if r["final_label"] and r["recommendation"]]
-    agreed = sum(r["final_label"] == r["recommendation"] for r in labelled)
+    labelled = [r for r in made if truth_label(r) and r["recommendation"]]
+    agreed = sum(truth_label(r) == r["recommendation"] for r in labelled)
     automated = sum(r["outcome"] == "AUTO" for r in made)
     overridden = sum(bool(r["human_override"]) for r in reviewed)
     # The strata the benchmark measures: decisions sent to a person, kept or changed there, and
@@ -386,7 +386,7 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
     sent = [r for r in reviewed if r["outcome"] == "HUMAN_REVIEW"]
     kept = sum(not r["human_override"] for r in sent)
     auto_labelled = [r for r in labelled if r["outcome"] == "AUTO"]
-    auto_right = sum(r["final_label"] == r["recommendation"] for r in auto_labelled)
+    auto_right = sum(truth_label(r) == r["recommendation"] for r in auto_labelled)
     costs = [r["cost_usd"] for r in made]
     unknown = sum(cost is None for cost in costs)
     # Operational health: decisions whose providers failed (rows from before the count, NULL,

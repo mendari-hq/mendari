@@ -812,7 +812,7 @@ def test_an_administrator_sees_the_access_view(page: Page) -> None:
     expect(page.locator("main")).to_contain_text("Who can use Clinic A and with which roles.")
     # Backend Services is off on the test server (its health says so): no Clients tab.
     expect(page.locator(".tabs a")).to_have_text(
-        ["Members", "Invitations", "Requests to join", "API keys", "Usage"]
+        ["Members", "Invitations", "Requests to join", "API keys", "Usage", "Activity"]
     )
     expect(row(page, "members", "Bo")).to_contain_text("You")  # who added Bo
 

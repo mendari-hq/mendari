@@ -70,9 +70,11 @@
 5. The `DecisionResult` is returned. With a store attached, the record is written and
    `decision.created` is chained (with sign-in on, naming who asked: `requested_by`).
    `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.
-6. A reviewer resolves the item (`review.resolved`, with the override flag), or a downstream
-   system reports the final label (`outcome.recorded`). Both feed the override rate and the
-   observed accuracy.
+6. A reviewer resolves the item (`review.resolved`, with the override flag), and a downstream
+   system may report what really happened (`outcome.recorded`), before or after a review:
+   the decision keeps both (`final_label`, `observed_label`). Reviews feed the override rate;
+   the observed accuracy measures the recommendation against the outcome when there is one,
+   else against the reviewer's label.
 
 ## Trust boundaries
 

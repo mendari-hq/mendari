@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// Audit trail: the decisions table and each record in the drawer.
+// Audit trail: the decisions table and each record in the drawer; the signed daily checkpoint
+// (LP-21k, public) and, for administrators, the pack's trail exported as FHIR NDJSON.
 
 import { closeDrawer, showDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
 import { answerChart, communityNotice, criteriaTable, derivedPrimary, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, api, esc, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, shortTime, state, storageGet, storageSet, time, toastError, zoneShort } from "./ui.js";
+import { $, api, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -40,16 +41,21 @@ views.audit = async (main, params) => {
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
       <span class="grow"></span>
+      ${may("admin") ? `<button type="button" id="export-fhir">${icon("download")} Export as FHIR</button>` : ""}
       ${may("admin") && state.accounts !== "memberships" ? `<button id="verify">Verify chain</button>
       <span id="verify-result"></span>` : ""}
     </div>
+    <p class="muted checkpoint" id="checkpoint"></p>
     <div class="panel" id="audit-table"></div>`;
   const load = async () => {
     const filter = $("#outcome-filter").value;
     storageSet("oh.audit.outcome", filter);
     const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-    $("#audit-table").innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
-    wire($("#audit-table"));
+    const table = $("#audit-table");
+    // Another filter chosen meanwhile, or the view left: this answer is stale.
+    if (!table || $("#outcome-filter")?.value !== filter) return;
+    table.innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
+    wire(table);
   };
   // Rows open their record (the first cell's button does the same from the keyboard).
   $("#audit-table").addEventListener("click", (event) => {
@@ -63,9 +69,46 @@ views.audit = async (main, params) => {
       ? `<span class="badge s-ok">verified · ${result.events} events</span>`
       : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
   });
+  // Fetched, not linked, so the request carries the window's organization (`download`, ui.js).
+  $("#export-fhir")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Exporting…", () => download(
+    `/api/audit/export/fhir?pack_id=${encodeURIComponent(state.packId)}`,
+    `audit-${fileSlug(state.packId)}-${today()}.ndjson`,
+  )));
+  showCheckpoint(); // not waited for: the table does not depend on it
   await load();
   if (params[0]) openRecord(params[0]);
 };
+
+// The newest signed daily checkpoint (LP-21k, public): the whole chain's head on a day, signed
+// with the deployment's Ed25519 key, which a copy kept elsewhere later checks the chain against
+// (`mendari audit verify --against`). Without a key, or before the first signing, one quiet line.
+// Without a key (`/api/health` says so) nothing is asked: the route would only say 404.
+async function showCheckpoint() {
+  let found = null;
+  let missing = "not set up on this deployment";
+  if (state.checkpointKey) {
+    try {
+      found = await api("/api/audit/checkpoint");
+    } catch (error) {
+      missing = error.status === 404 ? "none signed yet" : "could not be read";
+    }
+  }
+  const line = $("#checkpoint");
+  if (!line) return; // the view was left meanwhile
+  if (!found) {
+    line.textContent = `Signed daily checkpoint: ${missing}.`;
+    return;
+  }
+  const s = found.statement;
+  line.innerHTML = `${icon("shield-check")} Signed daily checkpoint for <b>${esc(s.date)}</b>: the whole chain up to
+    <span class="mono" title="${esc(s.head)}">${esc(s.head.slice(0, 12))}…</span>, signed with key
+    <span class="mono" title="public key ${esc(found.public_key)}">${esc(found.key_id)}</span>.
+    <button type="button" id="checkpoint-save">${icon("download")} Save a copy</button>`;
+  $("#checkpoint-save").addEventListener("click", () => saveFile(
+    new Blob([JSON.stringify(found, null, 2)], { type: "application/json" }),
+    `checkpoint-${fileSlug(s.date)}.json`,
+  ));
+}
 
 views.audit.update = (params) => (params[0] ? openRecord(params[0]) : closeDrawer());
 
@@ -79,7 +122,9 @@ export function ratingCell(r) {
 }
 
 function auditTable(rows) {
-  const review = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
+  const reviewed = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
+  // The reviewer's label, and what a downstream system then saw happen ("nurse · observed physician").
+  const review = (r) => (r.observed_label ? `${reviewed(r)} · observed ${r.observed_label}` : reviewed(r));
   return tableHtml({
     id: "audit",
     caption: `<span class="sr-only">Decisions, newest first. Open one to see its record.</span>`,
@@ -106,16 +151,23 @@ function auditTable(rows) {
   });
 }
 
+let recordAsked = 0; // the latest record asked for: an older answer, arriving after it, is dropped
+
 async function openRecord(id) {
   const opener = document.querySelector(`button.open-record[data-id="${CSS.escape(id)}"]`) ?? document.activeElement;
+  const asked = ++recordAsked;
   let found;
   try {
     found = await api(`/api/audit/${encodeURIComponent(id)}`);
   } catch (error) {
+    if (asked !== recordAsked) return;
     toastError(error.message);
     location.hash = "#audit";
     return;
   }
+  // A record opened after this one was asked for, or the drawer closed meanwhile: the address
+  // names what is shown, so a slow answer never replaces a newer drawer.
+  if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
   const shown = showDrawer({
     // What happened, in words ("Human review · nurse"); the id is in the body.

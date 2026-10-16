@@ -1007,7 +1007,9 @@ def test_phi_lookalikes_are_warnings_that_never_quote_the_text(new_pack: Path) -
     ("text", "kind"),
     [
         ("SSN 123-45-6789", "a Social Security number"),
+        ("SSN 123 45 6789", "a Social Security number"),
         ("Call me at (617) 555-2368", "a phone number"),
+        ("Call me at (617)555-2368", "a phone number"),
         ("MRN: 00482913", "a medical record number"),
         ("Jane Smith, DOB 03/14/1962", "a date of birth next to a name"),
         ("born 1962-03-14", "a date of birth next to a name"),
@@ -1251,3 +1253,30 @@ def test_a_submodule_inside_a_pack_fails(new_pack: Path, repo: Path) -> None:
         repo, "update-index", "--add", "--cacheinfo", f"160000,{head},community-packs/{NAME}/vendor"
     )
     assert has(run(new_pack, base=None), "hygiene", f"community-packs/{NAME}/vendor")
+
+
+def test_phi_hits_count_lines_as_jsonl_does() -> None:
+    """A U+2028 inside a case's text is not a line end: the hit names the file's second line,
+    the line an editor and the dataset loader agree on."""
+    text = "first line\u2028still the first\nSSN 123-45-6789\n"
+    assert phi_scan.scan(text) == [phi_scan.Hit(2, "a Social Security number")]
+
+
+def test_phi_is_looked_for_in_the_files_the_manifest_names(new_pack: Path) -> None:
+    """A dataset the manifest names outside `data/` (paths are free-form) was never scanned, so
+    the same text that warns in `data/` merged into public history without a word."""
+    cases = new_pack / "cases"
+    cases.mkdir()
+    row = {
+        "id": "phi",
+        "input": {"message": {"body": "SSN 123-45-6789"}},
+        "labels": {"request": "other", "urgent_symptoms": "no"},
+    }
+    (cases / "extra.jsonl").write_text(json.dumps(row) + "\n")
+    edit_manifest(new_pack, lambda m: m["evaluation"]["datasets"].update(extra="cases/extra.jsonl"))
+    regenerate(new_pack)
+    report = run(new_pack, base=None)
+    assert report.passed, report.text()
+    kinds = " ".join(f.message for f in report.warnings)
+    assert "cases/extra.jsonl line 1 looks like a Social Security number" in kinds
+    assert "123-45-6789" not in kinds

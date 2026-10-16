@@ -952,3 +952,57 @@ def test_a_malformed_or_unlisted_registration_fails_at_startup(
         smart_ehrs()
     with pytest.raises(MendariError, match=message_part):
         create_app(db_path=tmp_path / "a.db")
+
+
+@pytest.mark.parametrize("expires_in", [float("inf"), float("nan"), -1, "3600", None])
+def test_a_token_lifetime_that_is_not_a_finite_number_falls_back(expires_in: Any) -> None:
+    """JSON's `Infinity` passed the number check and `int(inf)` raised OverflowError on the
+    callback; anything but a positive finite number means the default hour."""
+    from mendari.standards import smart
+
+    class Http:
+        def post_form(self, url: str, data: Any, headers: Any = None) -> dict[str, Any]:
+            return {
+                "access_token": "tok",
+                "token_type": "Bearer",
+                "patient": "p",
+                "expires_in": expires_in,
+            }
+
+    pending = {
+        "redirect_uri": "r",
+        "verifier": "v",
+        "token_endpoint": "t",
+        "iss": "i",
+        "scopes": "launch",
+    }
+    settings = smart.SmartSettings(
+        client_id="c", client_secret=None, scopes="launch", public_url=None
+    )
+    before = int(time.time())
+    session = smart.complete(pending, "code", settings=settings, http=Http())  # type: ignore[arg-type]
+    assert before + 3600 <= session["expires_at"] <= before + 3601
+
+
+def test_a_configuration_whose_issuer_is_not_a_string_is_refused() -> None:
+    """`null` or a number as the identity provider's `issuer` raised AttributeError on sign-in."""
+    from mendari.errors import AuthError
+    from mendari.standards import oidc
+
+    class Http:
+        def __init__(self, issuer: Any) -> None:
+            self.issuer = issuer
+
+        def get_json(self, url: str, headers: Any = None) -> dict[str, Any]:
+            return {
+                k: "https://idp.test/x"
+                for k in ("authorization_endpoint", "token_endpoint", "jwks_uri")
+            } | {"issuer": self.issuer}
+
+        def check(self, url: str) -> None:
+            pass
+
+    for issuer in (None, 7, "https://other.test"):
+        with pytest.raises(AuthError, match="another issuer"):
+            oidc.discover("https://idp.test", Http(issuer))  # type: ignore[arg-type]
+    assert oidc.discover("https://idp.test", Http("https://idp.test/"))["issuer"]  # type: ignore[arg-type]

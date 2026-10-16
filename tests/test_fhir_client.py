@@ -331,3 +331,40 @@ def test_a_non_bearer_authorization_is_refused(monkeypatch: pytest.MonkeyPatch) 
     request["fhirAuthorization"]["token_type"] = "Basic"
     with pytest.raises(FhirError, match="Bearer"):
         cds_hooks.fetch({"patient": "Patient/{{context.patientId}}"}, ["patient"], request)
+
+
+def test_a_port_that_is_not_a_number_is_refused_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`urlsplit(url).port` raises ValueError for `https://host:abc`; the allow-list check (every
+    server-supplied link, token or JWKS endpoint, CDS `fhirServer`) answered 500 for such a URL."""
+    http = fhir_client.GuardedHttp(allowed={"https://ehr.test"})
+    with pytest.raises(FhirError, match="allow-list"):
+        http.check("https://ehr.test:abc/fhir/Patient/1")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.test:abc")
+    with pytest.raises(MendariError, match="must be an origin"):
+        allowed_servers()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "said"),
+    [
+        ("fhirAuthorization", "a-token", "fhirAuthorization must be an object"),
+        ("fhirAuthorization", {"access_token": 7}, "access_token must be a string"),
+        ("context", [], "context must be an object"),
+        ("prefetch", "x", "prefetch must be an object"),
+    ],
+)
+def test_a_malformed_cds_request_is_a_client_error(
+    tmp_path: Path, field: str, value: Any, said: str
+) -> None:
+    """The route takes any JSON object; a nested field of the wrong shape raised AttributeError
+    or ValueError inside the service (a 500, after the rate limit was charged)."""
+    request, _, _, seen = referral_ehr()
+    request[field] = value
+    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
+        "/cds-services/mendari.referral-router", json=request
+    )
+    assert response.status_code == 422, response.text
+    assert said in response.text
+    assert seen == []

@@ -1221,8 +1221,9 @@ def create_app(
         remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
         counts are), the rate limits (where the caller's address is read, and the address seen
         on this request), the session policy, the organization's daily quotas with what it used
-        today, and whether SMART Backend Services is on (`backend_services`: its token endpoint,
-        or null).
+        today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
+        or null), and the id of the key that signs the daily checkpoint (`checkpoint_key`, or
+        null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
         be built, the problems an owned pack loads with, `pack_warnings`) is
@@ -1233,6 +1234,8 @@ def create_app(
         principal = auth.principal(request)  # no credential: no lookup
         if principal is None or principal.org is None or not principal.may("read"):
             return public  # a person of no organization (memberships mode) too
+        if principal.grant is not None:
+            return public  # a scoped key or token reaches only the routes its scope names
         return {
             **public,
             "packs": len(packs),
@@ -1279,6 +1282,11 @@ def create_app(
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
             "retention_scheduled": bool(cron_secret),
+            # The id of the key that signs the daily checkpoint (MENDARI_CHECKPOINT_KEY, LP-21k;
+            # never the key), or None when it is not set: the dashboard then asks for none.
+            "checkpoint_key": (
+                key_id(checkpoint_signer.public_key()) if checkpoint_signer is not None else None
+            ),
             # When, how many, and by what (None: never); in memberships mode not how many, a
             # total of every organization's (the operator's, ADR-0008).
             "last_purge": purged(store.last_purge()),
@@ -1390,12 +1398,16 @@ def create_app(
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
         """A pack's manifest, input and output JSON Schemas, active providers, benchmark,
-        leaderboard and Decision Card (Markdown)."""
+        leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation for which a
+        decision of this pack can be built into a Da Vinci PAS request (`POST …/pas`), or null
+        when its main question has none."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
         decision = decision_for(pack_id)
+        summary = _summary(pack)
         return {
-            **_summary(pack),
+            **summary,
+            "pas_ready": pas.READY if pas.READY in summary["labels"] else None,
             "manifest": pack.manifest.model_dump(mode="json", by_alias=True),
             "active_providers": {
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
@@ -1511,8 +1523,10 @@ def create_app(
     )
     def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
-        `blocked` (send nothing; follow `fallback`). Audited like any decision."""
-        return {**guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict(), **NOTICE}
+        `blocked` (send nothing; follow `fallback`). Audited like any decision; `decision` is the
+        whole decision, as `…/decide` answers it."""
+        result = guard.check(decision_for(f"{namespace}/{name}"), payload)
+        return {**result.to_dict(), "decision": result.decision.to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/fhir/decide",
@@ -1573,7 +1587,7 @@ def create_app(
             raise HTTPException(404, "the deployment's records are its operator's")
         if pack_id is not None:
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
-        return store.deployments(pack_id, limit=min(limit, 200))
+        return store.deployments(pack_id, limit=min(max(limit, 0), 200))
 
     @app.get(
         "/api/governance",
@@ -1834,7 +1848,8 @@ def create_app(
         request: Request, pack_id: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
-        queue = store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
+        queue = store.pending_reviews(pack_id, limit=limit, reader=input_reader(request))
         logged_reads(request, queue)
         return queue
 
@@ -1872,7 +1887,7 @@ def create_app(
             pack_id=pack_id,
             outcome=outcome,
             review_status=review_status,
-            limit=min(limit, 500),
+            limit=min(max(limit, 0), 500),
             offset=max(offset, 0),
         )
         return store.withhold_inputs(listed)
@@ -2257,10 +2272,12 @@ def create_app(
         summary="Record what really happened",
     )
     def record_outcome(decision_id: str, request: OutcomeRequest, http: Request) -> dict[str, str]:
-        """Record the final label from a downstream system (e.g. where the message was really
-        handled), for monitoring: one of the labels of the decision's question. `source` names
-        that system as an identifier; who recorded it is the caller (the signed-in person or API
-        key), whatever the body says."""
+        """Record what really happened, from a downstream system (e.g. where the message was
+        really handled), for monitoring: one of the labels of the decision's question, kept as
+        its `observed_label` beside a reviewer's `final_label`, which it never changes (a
+        decision still awaiting review is resolved first, `422`). `source` names that system as
+        an identifier; who recorded it is the caller (the signed-in person or API key),
+        whatever the body says."""
         recorded_by = principal_of(http).actor
         store.record_outcome(
             decision_id,
@@ -2300,7 +2317,10 @@ def create_app(
     ) -> list[dict[str, Any]]:
         """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
         ratings = store.feedback(
-            pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
+            pack_id=pack_id,
+            rating=rating,
+            limit=min(max(limit, 0), 500),
+            reader=input_reader(request),
         )
         logged_reads(request, ratings, id_key="decision_id")
         return ratings

@@ -166,29 +166,49 @@ function refusal(path, response, body) {
   }
 }
 
-// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); everything else has a detail.
-export const refusalText = (body) => (Array.isArray(body?.detail)
-  ? body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ")
-  : body?.detail || body?.error || "");
+// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); a FHIR route's is an
+// OperationOutcome (each issue's diagnostics, after where it is); everything else has a detail.
+export const refusalText = (body) => {
+  if (Array.isArray(body?.detail)) return body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ");
+  if (body?.resourceType === "OperationOutcome") {
+    return (body.issue ?? []).map((i) => [i?.expression?.join(", "), i?.diagnostics].filter(Boolean).join(": ")).join("; ");
+  }
+  return body?.detail || body?.error || "";
+};
 
 // Memberships mode: a file to save, fetched so it carries the window's organization as every other
 // request does (a link cannot send a header), and refused, saying so, once that organization is
-// not the chosen one any more. Saved under the name the server gives it.
-export async function download(path) {
+// not the chosen one any more. Saved under the name the server gives it, else `name`.
+export async function download(path, name = "download") {
   try {
     const response = await fetch(path, { headers: orgPin() });
     if (!response.ok) refusal(path, response, await response.json().catch(() => null));
     const named = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "");
-    const url = URL.createObjectURL(await response.blob());
-    const link = Object.assign(document.createElement("a"), { href: url, download: named?.[1] ?? "download" });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    saveFile(await response.blob(), named?.[1] ?? name);
   } catch (error) {
     toastError(error.message);
   }
 }
+
+// A Blob saved as a file called `name`, as a download link saves it.
+export function saveFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// Today in the deployment's time zone ("2026-10-08"): the date in a saved file's name.
+export function today() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type) => parts.find((p) => p.type === type).value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+// A file name's part from an id ("mendari/patient-inbox-router" → "mendari-patient-inbox-router").
+export const fileSlug = (id) => String(id ?? "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "all";
 
 // A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or
 // signed out elsewhere). Say so where it stays on screen, with the way back to this same view.
@@ -287,10 +307,13 @@ export function storageSet(key, value) {
 // `accounts`: "claims" or "memberships" (`/api/auth/me`); `memberships`: the person's own, in
 // memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
 // `backendServices`: `{token_endpoint}` when SMART Backend Services is on (`/api/health`, signed
-// in), else null.
+// in), else null. `checkpointKey`: the id of the key that signs the daily checkpoint (`/api/health`),
+// else null: the audit trail then asks for no checkpoint. `labelling`: the person holds `label` and
+// the deployment serves the labelling routes (labelling.js); `labelOnly`: and holds nothing else,
+// so the labelling screen is all they see.
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
-  accounts: "claims", memberships: [], noAccess: null, backendServices: null,
+  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, labelOnly: false,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 

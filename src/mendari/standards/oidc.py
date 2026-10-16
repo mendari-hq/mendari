@@ -37,7 +37,8 @@ def discover(issuer: str, http: GuardedHttp) -> dict[str, Any]:
         if not isinstance(config.get(key), str):
             raise AuthError(f"the identity provider's configuration has no {key}")
         http.check(config[key])
-    if config.get("issuer", issuer).rstrip("/") != issuer.rstrip("/"):
+    named = config.get("issuer", issuer)
+    if not isinstance(named, str) or named.rstrip("/") != issuer.rstrip("/"):
         raise AuthError("the identity provider's configuration names another issuer")
     return config
 

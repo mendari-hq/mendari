@@ -306,8 +306,9 @@ def _is_daily(after: str) -> bool:
 def _times_per_day(sentence: str) -> float | None:
     counts = []
     for m in _EVERY.finditer(sentence):
-        hours = [_number(h) for h in (m[1], m[2], m[3]) if h]
-        counts.append(24 / min(hours))  # "every 4-6 hours" allows every 4
+        hours = [_number(h) for h in (m[1], m[2], m[3]) if h and _number(h) > 0]
+        if hours:  # "every 0 hours" is no frequency; "every 4-6 hours" allows every 4
+            counts.append(24 / min(hours))
     if _EVERY_HOUR.search(sentence):
         counts.append(24.0)
     counts += [_number(m[1]) for m in _TIMES.finditer(sentence)]

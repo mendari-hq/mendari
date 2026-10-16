@@ -15,6 +15,7 @@ of the others are renormalised) and recorded as a failure, so the decision is no
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
@@ -44,8 +45,8 @@ class VoteProvider(CompositeProvider):
         problems = []
         if set(weights) != set(vote.members):
             problems.append(f"{where}: weights must name exactly the members")
-        if any(not w > 0 for w in weights.values()):
-            problems.append(f"{where}: weights must be positive")
+        if any(not (math.isfinite(w) and w > 0) for w in weights.values()):
+            problems.append(f"{where}: weights must be positive and finite")
         return problems
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:

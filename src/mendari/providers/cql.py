@@ -255,7 +255,9 @@ class CqlProvider(Provider):
         values = _results(result)
         answers = {}
         for question, expression in self.settings.expressions.items():
-            label = _label(values.get(expression))
+            if expression not in values:
+                raise ProviderError("invalid_response", f"{expression} was not evaluated")
+            label = _label(values[expression])
             labels = list(self.questions[question].criteria)
             if label not in labels:
                 shown = "null" if label is None else repr(label)
