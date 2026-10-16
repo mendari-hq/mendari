@@ -592,7 +592,8 @@ EXPECTED_CLASSES = {
     ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
 }
 # What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
-# signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j).
+# signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j). An
+# organization's curators' routes (LP-11k) have no class, as an administrator's other writes.
 MEMBERSHIPS_CLASSES = {
     ("POST", "/api/auth/organization"): "signin",
     ("POST", "/api/auth/access-requests"): "signin",

@@ -79,6 +79,14 @@ LABELLING_ROUTES = {
     ("GET", "/api/labelling/next"),
     ("POST", "/api/labelling/{assignment_id}"),
 }
+# An organization's curators' (`curate`, LP-11k): likewise.
+CURATING_ROUTES = {
+    ("GET", "/api/evalsets"),
+    ("GET", "/api/evalsets/{set_id}"),
+    ("POST", "/api/evalsets/{set_id}/sample"),
+    ("POST", "/api/evalsets/{set_id}/assignments"),
+    ("POST", "/api/evalsets/{set_id}/adjudication"),
+}
 # What an organization's administrators read of its people: addresses, for `keys` only.
 PEOPLE_LISTS = ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests")
 
@@ -584,6 +592,12 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/labelling", None),
     ("GET", "/api/labelling/next", None),
     ("POST", "/api/labelling/a1", {"labels": {"urgency": "routine"}}),
+    # Its curators' (LP-11k): its sets, one set, its cases drawn, assigned and adjudicated.
+    ("GET", "/api/evalsets", None),
+    ("GET", "/api/evalsets/s1", None),
+    ("POST", "/api/evalsets/s1/sample", {"cases": 1}),
+    ("POST", "/api/evalsets/s1/assignments", {"labellers": ["user:0123456789abcdef"]}),
+    ("POST", "/api/evalsets/s1/adjudication", {"labellers": ["user:0123456789abcdef"]}),
 ]
 
 
@@ -607,7 +621,10 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         "replace_client_keys", "usage_ledger",
     ):  # fmt: skip
         monkeypatch.setattr(AuditStore, name, reached)
-    for name in ("labelling", "next_case", "record_label", "assignment_set"):
+    for name in (
+        "labelling", "next_case", "record_label", "assignment_set", "named_sets", "summary",
+        "show", "progress", "sample", "assign", "adjudicate",
+    ):  # fmt: skip
         monkeypatch.setattr(EvalsetStore, name, reached)
     capsys.readouterr()
     for method, path, body in ORG_ROUTES:
@@ -814,8 +831,10 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     an organization or none; never a key's, never anonymous), an administrator's in claims
     mode; and a labeller's three (LP-11j), which only a labeller passes in memberships mode
     (every role here is refused them, administrators included) and which read as an
-    administrator's in claims mode, where they are not mounted. Hidden evaluation sets are on,
-    so the routes they mount are compared too (LP-11g)."""
+    administrator's in claims mode, where they are not mounted. An organization's curators'
+    five (LP-11k) are an administrator's in both modes, so they are answered alike, and a
+    labeller is refused them. Hidden evaluation sets are on, so the routes they mount are
+    compared too (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -841,6 +860,8 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     assert own == {("POST", path) for path in OWN_ROUTES}
     labelling = {r for r in routes if permission_for(*r) == "label"}
     assert labelling == LABELLING_ROUTES
+    curating = {r for r in routes if permission_for(*r) == "curate"}
+    assert curating == CURATING_ROUTES
     labeller = member(store, org="default", roles=["labeller"], sub="member-labeller")
     differ = []
     for role in ROLES:
@@ -858,6 +879,11 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
                 claims_answer = attempt(by_claims, method, path, as_person)[0]
                 assert claims_answer == (200 if role == "admin" else 403), (role, path)
                 continue
+            if (method, path) in curating:
+                assert attempt(by_records, method, path, labeller)[0] == 403, path
+                assert attempt(by_records, method, path, as_member)[0] == (
+                    200 if role == "admin" else 403
+                ), (role, path)
             if attempt(by_records, method, path, as_member) != attempt(
                 by_claims, method, path, as_person
             ):

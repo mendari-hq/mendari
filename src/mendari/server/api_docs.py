@@ -45,6 +45,13 @@ TAGS = [
         "next case, their label and their own counts. A labeller sees a case's input and the "
         "questions, never another label, the case's attributes or a model's output.",
     },
+    {
+        "name": "Evaluation sets",
+        "description": "Hidden evaluation sets, managed by the organization's administrators "
+        "(memberships mode): its sets listed and read (state, labelling progress by user id, "
+        "and the coverage and rater agreement the key holder stored), and their cases drawn, "
+        "assigned and adjudicated. Ids and counts: never a case, an input or a label given.",
+    },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
 ]
@@ -439,6 +446,14 @@ def _secure(
         needed = (
             "a person who signed in holding the labeller role (memberships mode; never a key, a "
             "token or an administrator)"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
+    if permission == "curate":  # people only, an administrator (server/auth.py)
+        operation["security"] = [{"session": []}]
+        needed = (
+            "a person who signed in as an administrator of the organization they act for "
+            "(`curate`, memberships mode; never a key, a token or a labeller)"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

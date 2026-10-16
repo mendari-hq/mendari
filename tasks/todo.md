@@ -524,8 +524,6 @@ behaviour.
     `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
     LP-10); the registry's six writes (publish and reports, LP-18; claims, approval, tokens and
     keys, LP-19).
-  - `web/index.html` and `web/style.css` (the mendari.co page) have no licence line: it goes in
-    with the owner's next change there, so a comment alone does not redeploy the public site.
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
@@ -939,27 +937,27 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`stats.bootstrap_defined` counts the resamples it drops); derived questions through the
     pack's table over each rater's member labels. Checked against Krippendorff (2011) exactly,
     statsmodels and scipy on the same index matrix.
-  - [ ] **11c** (#222) Evaluation-set keys and sealing, nothing stored yet
+  - [x] **11c** (#222, merged 2026-10-09) Evaluation-set keys and sealing, nothing stored yet
     (`core/evalset_keys.py`: `MENDARI_EVALSET_KEY`, `MENDARI_EVALSET_READ_KEYS`,
     `MENDARI_EVALSET_INDEX_KEY`; off unless both are set, malformed, half-set or reused keys
     stop the server, which then needs sign-in and, on Vercel, Production). Every token names its
     key and is bound to its kind, set, case and label; case and index hashes are keyed by the
     index key. The PHI policy's sealing moved into `phi.seal_with` and `phi.open_with` with its
     bytes unchanged (tokens sealed before still open). Health shows the key ids to readers.
-  - [ ] **11d** (#223; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
+  - [x] **11d** (#223, merged 2026-10-09; owner's go-ahead 2026-10-09) Permissions, no route needs them yet:
     `label` (the `labeller` role, memberships mode only; a label-only member sees a page saying
     so), `curate` (people; administrators, who hold neither `label` nor `grade`), and `grade`,
     held only by a grading key the operator mints (`mendari access grader-key`, at most 365
     days, chained; listed and revoked, never rotated; refused over HTTP); open mode holds none
     of the three. ADR-0004 and ADR-0008 amended; threat model E2 and E11.
-  - [ ] **11e** (#224) Store I: sealed sets and cases, the hidden-case index,
+  - [x] **11e** (#224, merged 2026-10-09) Store I: sealed sets and cases, the hidden-case index,
     `audit verify --evalsets` (the operator's command line only): `core/evalsets.py`,
     `mendari evalset create|add|remove-case|list`, hand-written cases only (public cases refused
     exactly and under `norm/v1`), each case chained as its keyed hash and a salted commitment
     (`case_ref`), stray, retired and PHI keys refused before every write and at startup; the
     runbook `docs/operations/evalsets.md`. The sealed freeze record's column is `freeze_record`
     (FREEZE is reserved in Postgres).
-  - [ ] **11f** (PR open) Key lifecycle: rotation with its check, reindexing, the sealed export:
+  - [x] **11f** (#225, merged 2026-10-09) Key lifecycle: rotation with its check, reindexing, the sealed export:
     `mendari evalset rotate --to <id> [--batch N] [--check]` (copied from `phi rotate`: chained
     `evalset.rotated` batches, compare-and-set, retired keys seal nothing, every set state; the
     check reads only), `mendari evalset reindex` (the whole index under the current index key,
@@ -967,7 +965,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     export` (the rows as stored: ciphertext, ids and key ids, no key, nothing chained; 11g allows
     its case ids and sealed tokens, conflict 56); `SEALED_COLUMNS` and its pin; the runbook's
     "Rotating the evaluation-set key".
-  - [ ] **11g** (PR open) The generated no-leak sweep, before any evaluation-set route (tests
+  - [x] **11g** (#227, merged 2026-10-09) The generated no-leak sweep, before any evaluation-set route (tests
     only): `tests/test_evalset_leaks.py` plants a mark in every field of two organizations' draft
     sets and calls every mounted route and method as every kind of principal, scanning answers,
     headers, NDJSON, logs, every `mendari evalset` command, the audit and feedback exports, the
@@ -977,7 +975,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_origin`, `test_shipped`, `test_limits`, and after review `test_landing`,
     `test_key_presets`, `test_rotation`, `test_capability`) run with the feature on and assert
     it; threat model I13.
-  - [ ] **11h** (PR open) Store II: sampling, assignment, blind labelling, adjudication,
+  - [x] **11h** (#231, merged 2026-10-09) Store II: sampling, assignment, blind labelling, adjudication,
     agreement (the store and the key holder's command line; no route, so no person labels yet):
     `mendari evalset sample` (seeded within strata, each drawn case's weight sealed),
     `assign` and `adjudicate` (two labellers a case, balanced across labellers and pairs, and a
@@ -991,7 +989,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the 11g sweep plants labels and labellers with and without assignments (`evalset agreement`
     and `evalset coverage`, which count by label, are the only commands that may name a label
     word); the runbook's "Labelling a set".
-  - [ ] **11i** (PR open) Store III: freeze and its commitment, the grading read, the rotation
+  - [x] **11i** (#233, merged 2026-10-09) Store III: freeze and its commitment, the grading read, the rotation
     rule, retirement (the store and the key holder's command line; no route, so nothing grades
     yet): every write refuses a set that is not a draft, in its own exclusive transaction;
     `mendari evalset freeze --max-runs N --max-age-days D [--drop-unsampled]` (every drawn case
@@ -1011,7 +1009,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     active and retired sets (`evalset freeze` and `evalset show` join the commands that may
     name a label word, conflict 57 amended); threat model T6; the runbook's freezing, rotation
     rule, grading, retiring and second lifecycle.
-  - [ ] **11j** (PR open) The labelling routes (`label`, memberships mode with both keys; the
+  - [x] **11j** (#238, merged 2026-10-10) The labelling routes (`label`, memberships mode with both keys; the
     hosted site, claims mode without the keys, mounts none): `GET /api/labelling` (the
     labeller's own counts, set by set), `GET /api/labelling/next` (their oldest open case: the
     input and the set's questions only, the read chained first; `204` when nothing waits) and
@@ -1029,9 +1027,28 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_landing` and the 11g sweep, which labels through the routes and allows a case's input
     only in a labeller's own next case; `evalsets_are_on` asserts the routes in memberships
     mode; the runbook's "How a labeller labels".
-  - [ ] **11k** The set-management routes (`curate`).
+  - [ ] **11k** (PR open) The set-management routes (`curate`, mounted as 11j's: memberships
+    mode with both keys): `GET /api/evalsets` (the organization's sets: id, name, pack, state,
+    when made, cases), `GET /api/evalsets/{set_id}` (name, pack and questions; state,
+    commitment, rule, runs used and left; cases by status and each labeller's work by user id;
+    the stored aggregates with `measured_at`, null before `evalset agreement`/`coverage` or
+    freeze) and `POST /api/evalsets/{set_id}/sample`, `/assignments` and `/adjudication`
+    (`evalset.sampled`, `evalset.assigned`; counts only); another organization's set, an
+    unknown and a malformed id are one `404` (`NoEvalset`, `NO_SET`, naming no id), decided in
+    the store (`org` on `sample`, `assign`, `adjudicate`, `show` and `progress`; new
+    `named_sets` and `summary`); closed answer models pinned field by field down to the
+    aggregates; one `*` rule under `/api/evalsets` before the catch-all, its paths `admin` in
+    claims mode; no rate-limit class (an administrator's writes); security-log events
+    `evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned` with set ids only
+    (`no_set` refusals with none); the `Evaluation sets` OpenAPI tag and the `/docs` `curate`
+    row. Registered in `test_auth`, `test_shipped`, `test_two_organizations` (each
+    administrator refused the other's set and labellers, served its own), `test_memberships`,
+    `test_limits`, `test_security_log`, `test_landing`, `test_hosted_data` and the 11g sweep,
+    whose administrators draw, assign, adjudicate and read through the routes (conflict 57
+    amended: a set's answer to its curators may name label words); threat model I13 and E11;
+    the runbook's "Curating from the dashboard API".
   - [ ] **11l** The grading route and the aggregates-only result (`grade`).
-  - [ ] **11m** (PR open) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
+  - [x] **11m** (#241, merged 2026-10-10) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
     11j's routes only): shown to a person holding `label` where the routes are served (main.js
     reads their counts once to know; without the keys a labeller-only person keeps the access
     page, now saying labelling is not switched on); a labeller and nothing else sees it alone
@@ -1050,8 +1067,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
-  **Owner decisions still open** (none blocks 11a to 11j; the hosted site mounts no labelling
-  route until the first is settled): how labellers reach the hosted site
+  **Owner decisions still open** (none blocks 11a to 11k; the hosted site mounts no labelling
+  or curating route until the first is settled): how labellers reach the hosted site
   (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
   rotation numbers (maximum grading runs and age, both required at freeze); what settles a
   three-way adjudication split; whether remote providers may grade hidden sets (LP-17); raw or
@@ -2460,6 +2477,27 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
   rewritten
 - [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
   mendari.ai and the www names redirect to it
+- [x] The mendari.co redesign (2026-10-11, this branch: `claude/mendari-co-redesign`), built,
+  not deployed: one identity ("cobalt on paper": the faceted decision-diamond mark, cobalt plus
+  the four outcome colours, Newsreader, Public Sans and IBM Plex Mono self-hosted in
+  `web/fonts/` and listed in `NOTICE`; CSP gains `font-src 'self'` only). The page replaces the
+  coming-soon page: the four outcomes, the Inbox Router provider scoreboard, the five reference
+  packs with their benchmark results, the three audiences, the standards and the quickstart.
+  `web/index.html` and `web/style.css` now carry their licence line, so `LICENCE_LATER` left
+  `tests/test_shipped.py`. A pre-launch review (security policy, accessibility at 320 to 1440 px in
+  both themes, every claim against the repository, the diff) found 31 issues; the build's are
+  fixed, and the owner's are below.
+  - [ ] **Owner, before `cd web && vercel deploy --prod`:** gate G1-2 (`patent-decision`): the
+    provisional-patent decision with counsel comes before any public disclosure, and this page
+    discloses more than the coming-soon page did.
+  - [ ] **Owner:** the scoreboard names Jev (TypeSafe), Claude and gpt-oss results: confirm each
+    provider's benchmark-publication terms, and state any commercial relationship (or none) next
+    to it (the vision audit's LIC.benchmark-terms).
+  - [ ] **Owner:** `web/.well-known/security.txt` (already in `web/`) names the private reporting
+    form, which the public cannot reach while the repository is private: keep it, or leave
+    `.well-known` out of the deploy until the repository is public.
+  - [ ] Later: the page's figures are typed in, not read from `packs/*/evals/*.json`; a test that
+    ties them together would catch drift when the evaluations change.
 - [ ] DNS for mendari.co pointed at Vercel (the owner's)
 
 ## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../notes/plans/v1.0-public-launch.md))

@@ -69,3 +69,21 @@ X12 code values
   a few X12 code values as test and sandbox configuration, the settings a site would give: tests/test_pas.py, tests/test_notes.py, tests/test_x12_values.py and tests/test_key_presets.py, scripts/davinci_sample.py (the samples the HL7 validator checks) and docker-compose.yml (the sandbox's settings); listed, for X12's answer, in tasks/todo.md (LP-14); and quoted in an earlier review in notes/
   Licence: X12's terms; X12's written answer on this use is asked for (tasks/todo.md, LP-14).
   X12 is a registered trademark of X12.
+
+Newsreader
+  web/fonts/newsreader.woff2: the mendari.co page's display face (its Latin subset, as Google Fonts serves it)
+  Licence: SIL Open Font License 1.1.
+  Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader)
+  The licence in full: web/fonts/OFL-newsreader.txt.
+
+Public Sans
+  web/fonts/public-sans.woff2: the mendari.co page's text face (its Latin subset, as Google Fonts serves it)
+  Licence: SIL Open Font License 1.1.
+  Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)
+  The licence in full: web/fonts/OFL-public-sans.txt.
+
+IBM Plex Mono
+  web/fonts/ibm-plex-mono-400.woff2 and ibm-plex-mono-500.woff2: the mendari.co page's monospace face (IBM's own Latin-1 web files from @ibm/plex-mono 2.5.0, unmodified)
+  Licence: SIL Open Font License 1.1.
+  Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+  The licence in full: web/fonts/OFL-ibm-plex-mono.txt.

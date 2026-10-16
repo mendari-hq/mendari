@@ -74,6 +74,7 @@ from mendari.errors import (
     LabelError,
     MendariError,
     NoAssignment,
+    NoEvalset,
     NoteError,
     NoticeNotAcknowledged,
     PackNotFoundError,
@@ -156,6 +157,7 @@ _STATUS = {
     ClientError: 422,
     NoAssignment: 404,  # unknown, another's or closed: one answer (LP-11j)
     LabelError: 422,  # names the question, never the value
+    NoEvalset: 404,  # unknown or another organization's set: one answer (LP-11k)
     CdsHooksError: 400,
     RateLimited: 429,
 }
@@ -418,6 +420,273 @@ class LabelRecorded(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     remaining: int = Field(description="your cases still waiting")
+
+
+# An organization's curators' routes over its hidden evaluation sets (LP-11k): what they send,
+# and closed answers (`extra="forbid"`) down to the stored aggregates' last field, so a field the
+# store might one day add to what it returns (a case, an input, a label given) fails the answer
+# rather than reaching anyone. People are named by user id only (`accounts.USER_ID`).
+UserId = Annotated[str, Field(pattern=r"^user:[0-9a-f]{16}$")]
+SetState = Literal["draft", "frozen", "active", "retired"]
+Seed = Annotated[
+    int, Field(ge=0, le=2**32 - 1, description="the same set and seed give the same result")
+]
+
+
+class SampleRequest(BaseModel):
+    per_stratum: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description="how many more cases to draw from each stratum (all that are left of a "
+        "smaller one); or `cases`, not both",
+    )
+    cases: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description="how many more cases to draw in all, shared out among the strata by the "
+        "cases left in each; or `per_stratum`, not both",
+    )
+    seed: Seed = 0
+
+
+class LabellersRequest(BaseModel):
+    labellers: list[Annotated[str, Field(max_length=64)]] = Field(
+        min_length=1,
+        max_length=500,
+        description="the labellers' user ids, as the members list shows them: each with the "
+        "labeller role in this organization, and none an administrator",
+        examples=[["user:0123456789abcdef", "user:fedcba9876543210"]],
+    )
+    seed: Seed = 0
+
+
+class EvalsetListed(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set: str
+    name: str
+    pack: str
+    state: SetState
+    created_at: str
+    cases: int = Field(description="the cases the set holds")
+
+
+class CaseStatuses(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    draft: int = Field(description="not drawn")
+    sampled: int = Field(description="drawn, waiting for its two first labels")
+    agreed: int
+    disputed: int = Field(description="its two first labels differ: waiting for a third")
+    resolved: int = Field(description="settled by the majority, once adjudicated")
+    unresolved: int = Field(description="three labels, no majority: keeps the set from freezing")
+
+
+class RoundCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assigned: int
+    labelled: int
+    open: int
+    withdrawn: int
+
+
+class LabellerCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    first: RoundCounts
+    adjudication: RoundCounts
+
+
+class RunsCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    used: int = Field(description="grading runs made (frozen and active sets)")
+    left: int | None = Field(description="grading runs left; null before the set is frozen")
+
+
+class LabelCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int
+    distinct: int
+
+
+class QuestionCoverage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    labelled: int
+    labels: dict[str, LabelCount]
+
+
+class CriticalCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    label: str
+    cases: int
+    distinct: int
+    insufficient: bool
+
+
+class CoverageMix(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    language: dict[str, int]
+    source: dict[str, int]
+    stratum: dict[str, int]
+
+
+class DistinctCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exact: int
+    normalised: int
+
+
+class NamedDataset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(description="the set's id: no hash of its cases, keyed or not")
+
+
+class CoverageReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["mendari.coverage/1"]
+    pack: str
+    dataset: NamedDataset
+    norm: str
+    cases: int
+    distinct: DistinctCount
+    duplicate_groups: int
+    conflicting_groups: int
+    questions: dict[str, QuestionCoverage]
+    critical: list[CriticalCount]
+    mix: CoverageMix
+    warnings: list[str]
+
+
+class Share(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    k: int
+    n: int
+    low: float | None
+    high: float | None
+
+
+class Interval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "not_estimable"]
+    low: float | None = None
+    high: float | None = None
+    reason: str | None = None
+    dropped: int
+
+
+class Coefficient(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    estimate: float | None
+    status: Literal["ok", "not_estimable"]
+    reason: str | None = None
+    interval: Interval | None = None
+
+
+# Without the pair's label counts, which the store leaves out for curators: where a pair shares
+# few cases, they are what each rater answered (`EvalsetStore.summary`).
+class PairKappa(Coefficient):
+    raters: list[UserId]
+    n: int
+
+
+class PoolAlpha(Coefficient):
+    cases: int
+    ratings: int
+
+
+class QuestionAgreement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int
+    percent: Share
+    kappa: list[PairKappa]
+    alpha: PoolAlpha
+
+
+class AgreementSeeds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bootstrap: int
+    resamples: int
+
+
+class AgreementReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["mendari.agreement/1"]
+    pack: str
+    level: float
+    seeds: AgreementSeeds
+    questions: dict[str, QuestionAgreement]
+
+
+class StoredAggregates(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["mendari.evalset_aggregates/1"]
+    set: str
+    measured_at: str
+    n: int = Field(description="the drawn cases measured")
+    coverage: CoverageReport
+    agreement: AgreementReport
+
+
+class EvalsetDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set: str
+    name: str
+    pack: str
+    questions: dict[str, list[str]] = Field(description="each question labellers answer")
+    state: SetState
+    created_at: str
+    cases: int
+    statuses: CaseStatuses
+    labellers: dict[UserId, LabellerCounts]
+    frozen_at: str | None
+    commitment: str | None = Field(description="the salted commitment chained at freeze")
+    max_runs: int | None
+    max_age_days: int | None
+    runs: RunsCount
+    graded_until: str | None
+    retired_at: str | None
+    aggregates: StoredAggregates | None = Field(
+        description="the set's coverage and rater agreement as last stored (`mendari evalset "
+        "agreement` or `coverage`, or at freeze), with when they were measured; null before"
+    )
+
+
+class SetSampled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set: str
+    drawn: int = Field(description="cases drawn now")
+    sampled: int = Field(description="cases drawn in all")
+    seed: int
+
+
+class SetAssigned(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set: str
+    round: Literal["first", "adjudication"]
+    assigned: int = Field(description="assignments made now")
+    withdrawn: int = Field(description="open assignments whose membership no longer holds")
 
 
 # What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
@@ -2617,11 +2886,14 @@ def create_app(
             headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
             return HTMLResponse(invite_page, headers=headers)
 
-    # A labeller's routes over hidden evaluation sets (LP-11j): memberships mode (so sign-in, which
-    # the keys need anyway) with both evaluation-set keys, as the invitation page is memberships
-    # mode's; the hosted site (claims mode, no keys) mounts none of them (owner decision 1 open).
+    # A labeller's routes over hidden evaluation sets (LP-11j), and its organization's curators'
+    # (LP-11k): memberships mode (so sign-in, which the keys need anyway) with both evaluation-set
+    # keys, as the invitation page is memberships mode's; the hosted site (claims mode, no keys)
+    # mounts none of them (owner decision 1 open).
     if auth.memberships and evalsets is not None:
-        add_labelling_routes(app, auth, EvalsetStore(store, evalsets))
+        hidden = EvalsetStore(store, evalsets)
+        add_labelling_routes(app, auth, hidden)
+        add_evalset_routes(app, auth, hidden)
 
     # The status page (LP-21b): public and static, the same for everyone; it reads readiness
     # (`/api/health/ready`) in the browser, so serving it does no database work. Its own policy
@@ -2752,6 +3024,149 @@ def add_labelling_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None
         set_id = hidden.assignment_set(assignment_id, user, org=org)
         log_event(request, "evalset.labelled", ids=[set_id] if set_id else None)
         return LabelRecorded.model_validate(recorded)
+
+
+def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
+    """An organization's curators' routes over its hidden evaluation sets (LP-11k, ADR-0011):
+    its sets listed, one read, and its cases drawn, assigned and adjudicated. Mounted only in
+    memberships mode with both evaluation-set keys (`create_app`). The guard lets through only a
+    person holding `curate` (an administrator of the organization they act for: never a key, a
+    token, an EHR launch, a labeller or open mode), and each route acts for that organization,
+    never one a body, a query or a path names: another organization's set answers as an unknown
+    one does (`NoEvalset`, one `404`). Answers are ids, counts, user ids, the commitment and the
+    stored aggregates (without each rater pair's label counts): never an input, a label given,
+    an attribute or a case id. No route computes statistics, freezes or retires (conflicts 43
+    and 49): those are the key holder's commands. Not gated by the notice: they take no data in
+    and mint no credential (`notices.GATED`, `MINTING_PERMISSION`). Like an administrator's
+    other writes, they have no rate-limit class. The security log names set ids only (conflict
+    50); the access line names the route's template."""
+
+    def curators_org(request: Request) -> str:
+        """The organization the person the guard let through acts for."""
+        principal = auth.acting(request)
+        if principal.kind != "user":  # the guard lets people only through: fail closed
+            raise AuthError("only a person who signed in may do this", 403)
+        return org_of(principal)
+
+    def logged_write(
+        request: Request,
+        event: str,
+        set_id: str,
+        write: Callable[[], dict[str, Any]],
+        counted: str,
+    ) -> dict[str, Any]:
+        """`write`, logged as `event` with the set's id and how many it made (its `counted`);
+        a set that is unknown or another organization's logged as refused (`no_set`), with no
+        id."""
+        try:
+            done = write()
+        except NoEvalset:
+            log_event(request, event, outcome="refused", reason="no_set")
+            raise
+        log_event(request, event, ids=[set_id], count=int(done[counted]))
+        return done
+
+    @app.get("/api/evalsets", tags=["Evaluation sets"], summary="Your organization's hidden sets")
+    def list_evalsets(request: Request) -> list[EvalsetListed]:
+        """The hidden evaluation sets of the organization you act for, oldest first: each one's
+        id, name, pack, state, when it was made and how many cases it holds. Nothing is
+        recorded."""
+        org = curators_org(request)
+        return [EvalsetListed.model_validate(item) for item in hidden.named_sets(org=org)]
+
+    @app.get(
+        "/api/evalsets/{set_id}",
+        tags=["Evaluation sets"],
+        summary="One hidden set: its state, labelling and stored aggregates",
+        response_model=EvalsetDetail,
+        response_model_exclude_unset=True,
+    )
+    def evalset_detail(request: Request, set_id: str) -> EvalsetDetail:
+        """One of your organization's sets: its name, pack and questions with their labels; its
+        state, commitment (once frozen) and grading runs used and left; its cases counted by
+        status and each labeller's assignments by user id; and its coverage and rater agreement
+        as last stored (by the key holder's `mendari evalset agreement` or `coverage`, or at
+        freeze), with when they were measured, or null before. Counts and coefficients by label,
+        strata and languages (each rater pair's kappa without the pair's label counts): never a
+        case, an input, a label given or an attribute. Nothing is computed or recorded. An
+        unknown set and another organization's are one `404`."""
+        org = curators_org(request)
+        return EvalsetDetail.model_validate(hidden.summary(set_id, org=org))
+
+    @app.post(
+        "/api/evalsets/{set_id}/sample",
+        tags=["Evaluation sets"],
+        summary="Draw cases of a draft set to label",
+    )
+    def sample_evalset(request: Request, set_id: str, body: SampleRequest) -> SetSampled:
+        """Draws more cases of a draft set to label, seeded, within each stratum: `per_stratum`
+        from each (all that are left of a smaller one) or `cases` in all, shared out by the
+        strata's sizes. Each drawn case's weight is sealed with it, and the audit chain records
+        how many were drawn and the seed (`evalset.sampled`), never a stratum. The answer: how
+        many were drawn now and in all, and the seed. An unknown set and another
+        organization's are one `404`; a set no longer a draft changes no more."""
+        org = curators_org(request)
+        drawn = logged_write(
+            request,
+            "evalset.sampled",
+            set_id,
+            lambda: hidden.sample(
+                set_id, per_stratum=body.per_stratum, cases=body.cases, seed=body.seed, org=org
+            ),
+            "drawn",
+        )
+        return SetSampled.model_validate(drawn)
+
+    @app.post(
+        "/api/evalsets/{set_id}/assignments",
+        tags=["Evaluation sets"],
+        summary="Give each drawn case two blind labellers",
+    )
+    def assign_evalset(request: Request, set_id: str, body: LabellersRequest) -> SetAssigned:
+        """Gives each drawn case of a draft set two different labellers from those named (their
+        user ids), balanced across labellers and pairs, deterministically for a seed; an open
+        assignment whose membership no longer holds is withdrawn and its case given to another.
+        Each must hold the labeller role in this organization, and no one who manages its sets
+        (an administrator, you included) is ever assigned. The audit chain records each
+        assignment (`evalset.assigned`). The answer: how many were made and withdrawn. An
+        unknown set and another organization's are one `404`."""
+        org = curators_org(request)
+        made = logged_write(
+            request,
+            "evalset.assigned",
+            set_id,
+            lambda: hidden.assign(set_id, body.labellers, seed=body.seed, org=org),
+            "assigned",
+        )
+        return SetAssigned.model_validate(_counted(made))
+
+    @app.post(
+        "/api/evalsets/{set_id}/adjudication",
+        tags=["Evaluation sets"],
+        summary="Give each disputed case a third, blind labeller",
+    )
+    def adjudicate_evalset(request: Request, set_id: str, body: LabellersRequest) -> SetAssigned:
+        """Gives each disputed case of a draft set (its two first labels differ) a third labeller
+        from those named who is neither of its first two, balanced, with the same refusals as
+        assigning; the third labels from the input alone, and the majority on each question
+        settles the case. The audit chain records each assignment (`evalset.assigned`). The
+        answer: how many were made and withdrawn. An unknown set and another organization's are
+        one `404`."""
+        org = curators_org(request)
+        made = logged_write(
+            request,
+            "evalset.adjudication.assigned",
+            set_id,
+            lambda: hidden.adjudicate(set_id, body.labellers, seed=body.seed, org=org),
+            "assigned",
+        )
+        return SetAssigned.model_validate(_counted(made))
+
+
+def _counted(made: Mapping[str, Any]) -> dict[str, Any]:
+    """What an assignment run answers a curator: counts, never the assignments it made (each a
+    case's hash, its id and its labeller, which the chain keeps)."""
+    return {key: made[key] for key in ("set", "round", "assigned", "withdrawn")}
 
 
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:

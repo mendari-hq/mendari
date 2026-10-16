@@ -223,6 +223,10 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
     # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
     (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
+    # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
+    (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
+    (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
+    (ENGINE, "POST", "/api/evalsets/{set_id}/adjudication"): ("evalset.assigned",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
@@ -352,10 +356,6 @@ def test_the_package_version_is_the_projects() -> None:
 # §10. Every tracked source file names its licence (tests/test_spdx.py holds the rule for src,
 # tests, scripts and hub; this covers the whole repository).
 
-# The mendari.co page (web/, its own Vercel project): its header goes in with the owner's next
-# change there, so a comment alone does not redeploy the public site (tasks/todo.md, LP-03).
-LICENCE_LATER = {"web/index.html", "web/style.css"}
-
 
 def test_every_tracked_source_file_names_its_licence() -> None:
     missing = []
@@ -363,9 +363,6 @@ def test_every_tracked_source_file_names_its_licence() -> None:
         if Path(path).suffix not in COMMENTS or path.startswith(NOT_OURS + VERBATIM):
             continue
         head = (ROOT / path).read_text(encoding="utf-8").splitlines()[:2]
-        if not any(IDENTIFIER in line for line in head) and path not in LICENCE_LATER:
+        if not any(IDENTIFIER in line for line in head):
             missing.append(path)
     assert missing == []
-    for path in LICENCE_LATER:  # each still a gap: once it has its line, it comes off the list
-        head = (ROOT / path).read_text(encoding="utf-8").splitlines()[:2]
-        assert not any(IDENTIFIER in line for line in head), f"{path}: take it off LICENCE_LATER"

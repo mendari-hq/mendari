@@ -110,11 +110,20 @@ change ciphertext and keyed hashes only, so they run in every state (conflict 31
 - `show` reads a set's state, commitment, runs used and left, and its stored aggregates.
 `mendari audit verify --evalsets` and `check` recompute each frozen set's content against the
 commitment its `evalset.frozen` chained (`check`: each set the chain froze, whatever its row's
-state now)."""
+state now).
+
+An organization's curators (`curate`: its administrators, people only) manage its sets through
+their routes (LP-11k, `server/app.py` `add_evalset_routes`): `named_sets` and `summary` read
+(headers and stored aggregates, opened unchained, conflict 39; ids, counts and user ids), and
+`sample`, `assign` and `adjudicate` write, each given the organization the route acts for
+(`org`), so another organization's set is refused as an unknown one is (`NoEvalset`, `NO_SET`,
+naming no id), in the write's own transaction. No route computes statistics, freezes or
+retires: those stay the key holder's commands (conflicts 43 and 49)."""
 
 from __future__ import annotations
 
 import base64
+import copy
 import functools
 import hashlib
 import json
@@ -149,7 +158,7 @@ from mendari.core.db import Session
 from mendari.core.evalset_keys import INDEX_ENV, KEY_ENV, READ_ENV, EvalsetKeys, Kind
 from mendari.core.pack import Pack, not_json
 from mendari.core.phi import key_id, token_key
-from mendari.errors import LabelError, MendariError, NoAssignment
+from mendari.errors import LabelError, MendariError, NoAssignment, NoEvalset
 from mendari.evals.canonical import canonical_input, normalised_input
 
 if TYPE_CHECKING:
@@ -204,6 +213,9 @@ ROUNDS = (FIRST, ADJUDICATION)
 AGGREGATES_FORMAT = "mendari.evalset_aggregates/1"
 # The one answer to an assignment that is unknown, another labeller's or closed (LP-11j: one 404).
 NO_ASSIGNMENT = "no open assignment of this labeller has that id"
+# A route acting for an organization (LP-11k): an unknown set and another organization's are one
+# refusal, naming no id.
+NO_SET = "no evaluation set of this organization has that id"
 SOURCE = "hand_written"  # the only source until B20 brings de-identified cases
 REQUIRED = ("author", "language", "stratum")
 # The attributes the store adds to a case's own: the id its author gave it, its intended labels.
@@ -528,8 +540,11 @@ class EvalsetStore:
         per_stratum: int | None = None,
         cases: int | None = None,
         seed: int = 0,
+        org: str | None = None,
     ) -> dict[str, Any]:
-        """Draw cases of a draft set to label (`mendari evalset sample`): `per_stratum` more from
+        """Draw cases of a draft set to label (`mendari evalset sample`, and its curators' route,
+        LP-11k, for `org`: another organization's set is refused as an unknown one is,
+        `NoEvalset`, in the write's own transaction): `per_stratum` more from
         each stratum (all that are left of a smaller one), or `cases` more in all, shared out
         among the strata in proportion to the cases left in each (largest remainders, ties by
         stratum). The draw is seeded (`seed`) and runs over the cases in id order, the strata in
@@ -540,7 +555,7 @@ class EvalsetStore:
         seed: counts only, never a stratum. The set's id, how many were drawn now and in all,
         and the seed."""
         keys = self._ring()
-        _check_set_id(set_id)
+        _check_set_id(set_id, org)
         if (per_stratum is None) == (cases is None):
             raise MendariError(
                 "give how many cases to draw from each stratum, or how many in all: one of the two"
@@ -553,7 +568,7 @@ class EvalsetStore:
         with self.store._db.session(exclusive=True) as db:
             self.store._evalset_ready(db, keys)
             head = _draft(
-                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,)), org
             )
             rows = db.all(
                 "SELECT id, status, attributes FROM evalset_cases WHERE set_id = ? ORDER BY id",
@@ -612,7 +627,9 @@ class EvalsetStore:
             self.store._append(db, f"evalset:{set_id}", "evalset.sampled", chained)
         return {"set": set_id, "drawn": len(drawn), "sampled": len(every), "seed": seed}
 
-    def assign(self, set_id: str, labellers: Sequence[str], *, seed: int = 0) -> dict[str, Any]:
+    def assign(
+        self, set_id: str, labellers: Sequence[str], *, seed: int = 0, org: str | None = None
+    ) -> dict[str, Any]:
         """Give each sampled case of a draft set its two blind first-pass labellers
         (`mendari evalset assign`), from `labellers` (user ids): two different people a case,
         the pair of them that has shared the fewest cases, then the one whose busier member has
@@ -624,21 +641,26 @@ class EvalsetStore:
         longer a labeller's) is withdrawn first, and its case given to another labeller here.
         `evalset.assigned` is chained for each. The set's id, how many were assigned and
         withdrawn, and each new assignment: its case by its hash, its id, its labeller and its
-        round."""
-        return self._assign(set_id, labellers, seed, FIRST)
+        round. Its curators' route (LP-11k) gives `org`, the organization it acts for: another
+        organization's set is refused as an unknown one is (`NoEvalset`)."""
+        return self._assign(set_id, labellers, seed, FIRST, org)
 
-    def adjudicate(self, set_id: str, labellers: Sequence[str], *, seed: int = 0) -> dict[str, Any]:
+    def adjudicate(
+        self, set_id: str, labellers: Sequence[str], *, seed: int = 0, org: str | None = None
+    ) -> dict[str, Any]:
         """Give each disputed case of a draft set a third, blind labeller who is neither of its
-        first two (`mendari evalset adjudicate`), as `assign` does: the same refusals, the same
-        withdrawals, balanced across `labellers`. The adjudicator labels from the input alone,
-        and the majority on each question settles the case."""
-        return self._assign(set_id, labellers, seed, ADJUDICATION)
+        first two (`mendari evalset adjudicate`, and its curators' route for `org`, LP-11k), as
+        `assign` does: the same refusals, the same withdrawals, balanced across `labellers`. The
+        adjudicator labels from the input alone, and the majority on each question settles the
+        case."""
+        return self._assign(set_id, labellers, seed, ADJUDICATION, org)
 
     def _assign(
-        self, set_id: str, labellers: Sequence[str], seed: int, round_: str
+        self, set_id: str, labellers: Sequence[str], seed: int, round_: str, org: str | None
     ) -> dict[str, Any]:
         keys = self._ring()
-        _check_set_id(set_id)
+        _check_set_id(set_id, org)
+        routed = org is not None  # a curator's route: its answers name no case (LP-11k)
         users = _user_ids(labellers, at_least=2 if round_ == FIRST else 1)
         if not isinstance(seed, int) or isinstance(seed, bool):
             raise MendariError("a seed is a whole number")
@@ -646,7 +668,7 @@ class EvalsetStore:
         with self.store._db.session(exclusive=True) as db:
             self.store._evalset_ready(db, keys)
             head = _draft(
-                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
+                set_id, db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,)), org
             )
             org = str(head["org"])
             pool = {user: _labeller_in(db, org, user) for user in users}
@@ -690,9 +712,13 @@ class EvalsetStore:
                 candidates = [user for user in users if user not in barred]
                 if len(candidates) < need:
                     who = "two different labellers" if round_ == FIRST else "a third labeller"
+                    case = (
+                        f"a {'drawn' if round_ == FIRST else 'disputed'} case"
+                        if routed
+                        else f"case {row['case_hash']}"
+                    )
                     raise MendariError(
-                        f"case {row['case_hash']} needs {who}, neither of those it has: give "
-                        "more labellers"
+                        f"{case} needs {who}, neither of those it has: give more labellers"
                     )
                 if need == 2:
                     # The pair that has shared the fewest cases first (pairs stay within one
@@ -1729,21 +1755,22 @@ class EvalsetStore:
             for row in rows
         ]
 
-    def progress(self, set_id: str) -> dict[str, Any]:
-        """How a set's labelling stands (`mendari evalset progress`, LP-11h): its cases counted
-        by status, and each labeller's assignments (by user id) in each round, counted as
-        assigned, labelled, open and withdrawn. Ids and counts only: no case is named and
-        nothing sealed is opened, so no key is needed; a database from before labelling (read
-        as it is) has no assignment."""
-        _check_set_id(set_id)
+    def progress(self, set_id: str, *, org: str | None = None) -> dict[str, Any]:
+        """How a set's labelling stands (`mendari evalset progress`, LP-11h; and, for `org`, its
+        curators' read, LP-11k: another organization's set is refused as an unknown one is,
+        `NoEvalset`): its cases counted by status, and each labeller's assignments (by user id)
+        in each round, counted as assigned, labelled, open and withdrawn. Ids and counts only:
+        no case is named and nothing sealed is opened, so no key is needed; a database from
+        before labelling (read as it is) has no assignment."""
+        _check_set_id(set_id, org)
         with self.store._db.session(exclusive=False) as db:
-            head = (
+            head = _owned(
+                set_id,
                 db.one("SELECT org, state FROM evalset_sets WHERE id = ?", (set_id,))
                 if db.columns("evalset_sets")
-                else None
+                else None,
+                org,
             )
-            if head is None:
-                raise MendariError(f"no evaluation set {set_id}")
             statuses = dict.fromkeys(CASE_STATUSES, 0)
             for row in db.all(
                 "SELECT status, count(*) AS n FROM evalset_cases WHERE set_id = ? GROUP BY status",
@@ -1785,26 +1812,28 @@ class EvalsetStore:
             "labellers": dict(sorted(labellers.items())),
         }
 
-    def show(self, set_id: str) -> dict[str, Any]:
-        """A set as the key holder reads it (`mendari evalset show`, LP-11i): its state, how many
-        cases it holds, when it froze, its commitment, its rotation rule with the runs used
-        (the chained `evalset.graded`) and left and until when it grades, when it retired, and
-        its stored aggregates (opened with the keys, None without them or before any measure:
-        counts and coefficients by label, and the strata and languages, naming no case).
-        Opening the aggregates is not chained (conflict 39); nothing is written."""
-        _check_set_id(set_id)
+    def show(self, set_id: str, *, org: str | None = None) -> dict[str, Any]:
+        """A set as the key holder reads it (`mendari evalset show`, LP-11i; and, for `org`, its
+        curators' read, LP-11k: another organization's set is refused as an unknown one is,
+        `NoEvalset`): its state, how many cases it holds, when it froze, its commitment, its
+        rotation rule with the runs used (the chained `evalset.graded`) and left and until when
+        it grades, when it retired, and its stored aggregates (opened with the keys, None
+        without them or before any measure: counts and coefficients by label, and the strata
+        and languages, naming no case). Opening the aggregates is not chained (conflict 39);
+        nothing is written."""
+        _check_set_id(set_id, org)
         with self.store._db.session(exclusive=False) as db:
-            head = (
+            head = _owned(
+                set_id,
                 db.one(
                     "SELECT org, state, created_at, frozen_at, commitment, max_runs, "
                     "max_age_days, retired_at, aggregates FROM evalset_sets WHERE id = ?",
                     (set_id,),
                 )
                 if db.columns("evalset_sets")
-                else None
+                else None,
+                org,
             )
-            if head is None:
-                raise MendariError(f"no evaluation set {set_id}")
             counted = db.one("SELECT count(*) AS n FROM evalset_cases WHERE set_id = ?", (set_id,))
             used = _runs(db, set_id)
         aggregates = None
@@ -1832,6 +1861,76 @@ class EvalsetStore:
             "graded_until": until,
             "retired_at": head["retired_at"],
             "aggregates": aggregates,
+        }
+
+    # -- what an organization's curators read (LP-11k) ---------------------------------------
+
+    def named_sets(self, *, org: str) -> list[dict[str, Any]]:
+        """`org`'s sets, oldest first, as its curators list them (`GET /api/evalsets`): each
+        one's id, name and pack (its header, opened: not chained, conflict 39), state, when it
+        was made and how many cases it holds. Ids, names and counts only."""
+        keys = self._ring()
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT s.id, s.state, s.created_at, s.header, (SELECT count(*) FROM "
+                "evalset_cases c WHERE c.set_id = s.id) AS cases FROM evalset_sets s "
+                "WHERE s.org = ? ORDER BY s.created_at, s.id",
+                (org,),
+            )
+        listed = []
+        for row in rows:
+            header, _ = keys.open("header", str(row["header"]), str(row["id"]))
+            listed.append(
+                {
+                    "set": str(row["id"]),
+                    "name": header["name"],
+                    "pack": header["pack"],
+                    "state": row["state"],
+                    "created_at": row["created_at"],
+                    "cases": int(row["cases"]),
+                }
+            )
+        return listed
+
+    def summary(self, set_id: str, *, org: str) -> dict[str, Any]:
+        """One of `org`'s sets as its curators read it (`GET /api/evalsets/{set_id}`): its name,
+        pack and questions with their labels (its header, opened); what `show` reads (its state,
+        commitment, rotation rule, runs used and left, and its stored aggregates with the time
+        they were measured: None until `mendari evalset agreement`, `coverage` or freeze stores
+        them); and what `progress` counts (its cases by status, each labeller's assignments by
+        user id). An unknown set, a malformed id and another organization's set are one
+        `NoEvalset`. Ids, counts, user ids, the commitment and the stored aggregates without
+        each rater pair's label counts (`_curators_aggregates`): no input, label given,
+        attribute or case id. Opening the header and the aggregates is not chained (conflict
+        39); nothing is written."""
+        keys = self._ring()
+        shown = self.show(set_id, org=org)
+        counted = self.progress(set_id, org=org)
+        with self.store._db.session(exclusive=False) as db:
+            row = _owned(
+                set_id,
+                db.one("SELECT org, header FROM evalset_sets WHERE id = ?", (set_id,)),
+                org,
+            )
+        header, _ = keys.open("header", str(row["header"]), set_id)
+        return {
+            "set": set_id,
+            "name": header["name"],
+            "pack": header["pack"],
+            "questions": header["questions"],
+            "state": shown["state"],
+            "created_at": shown["created_at"],
+            "cases": counted["cases"],
+            "statuses": counted["statuses"],
+            "labellers": counted["labellers"],
+            "frozen_at": shown["frozen_at"],
+            "commitment": shown["commitment"],
+            "max_runs": shown["max_runs"],
+            "max_age_days": shown["max_age_days"],
+            "runs": shown["runs"],
+            "graded_until": shown["graded_until"],
+            "retired_at": shown["retired_at"],
+            "aggregates": _curators_aggregates(shown["aggregates"]),
         }
 
     def hidden_matches(self, value: Any) -> list[dict[str, str]]:
@@ -2045,18 +2144,45 @@ def _case_problems(
     return problems
 
 
-def _check_set_id(set_id: str) -> None:
+def _check_set_id(set_id: str, org: str | None = None) -> None:
+    """`set_id` names a set as the store minted it; for a route acting for `org`, anything else
+    is refused as an unknown set is (`NoEvalset`)."""
     if not _is_uuid(set_id):
+        if org is not None:
+            raise NoEvalset(NO_SET)
         raise MendariError("a set is named by its id, as `mendari evalset create` printed it")
 
 
-def _draft(set_id: str, row: Mapping[str, Any] | None) -> Mapping[str, Any]:
-    """A set's row when it is a draft; a `MendariError` when there is none or it is not one."""
-    if row is None:
-        raise MendariError(f"no evaluation set {set_id}")
+def _owned(set_id: str, row: Mapping[str, Any] | None, org: str | None) -> Mapping[str, Any]:
+    """A set's row (it names its `org`); a `NoEvalset` when there is none, or, for a route acting
+    for `org`, when it is another organization's: one refusal for both, naming no id then."""
+    if row is None or (org is not None and row["org"] != org):
+        raise NoEvalset(NO_SET if org is not None else f"no evaluation set {set_id}")
+    return row
+
+
+def _draft(set_id: str, row: Mapping[str, Any] | None, org: str | None = None) -> Mapping[str, Any]:
+    """A set's row when it is a draft (of `org`, when given: `_owned` first, so another
+    organization's set says nothing of its state); a `MendariError` when there is none or it
+    is not one."""
+    row = _owned(set_id, row, org)
     if row["state"] != DRAFT:
         raise MendariError(f"evaluation set {set_id} is {row['state']}: only a draft changes")
     return row
+
+
+def _curators_aggregates(aggregates: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The stored aggregates as a set's curators read them (`summary`): each rater pair's kappa
+    without its raters' label counts (`labels`), which, where the pair shares few cases or a
+    rater gave one label throughout, are what each of them answered. The key holder's
+    `evalset show` and `evalset agreement` keep them."""
+    if aggregates is None:
+        return None
+    shown = copy.deepcopy(dict(aggregates))
+    for question in shown["agreement"]["questions"].values():
+        for pair in question["kappa"]:
+            pair.pop("labels", None)
+    return shown
 
 
 def _is_uuid(value: str) -> bool:

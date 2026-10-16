@@ -462,6 +462,13 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         for path in ("/api/labelling", "/api/labelling/", "/api/labelling/a1/x"):
             assert permission_for(method, path) == "label", (method, path)
     assert permission_for("GET", "/api/labellings") == "read"  # another path: not theirs
+    # An organization's curators' (LP-11k, mounted likewise): `curate`, people only, for every
+    # method and path under theirs; the evaluations' list is another path.
+    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+        for path in ("/api/evalsets", "/api/evalsets/", "/api/evalsets/s1/x/y"):
+            assert permission_for(method, path) == "curate", (method, path)
+    assert permission_for("GET", "/api/evals") == "read"
+    assert permission_for("GET", "/api/evalsetsx") == "read"
 
 
 # Every route hidden evaluation sets mount (LP-11j and later), with the permission it needs, and
@@ -470,6 +477,11 @@ EVALSET_ROUTES = {
     ("GET", "/api/labelling"): "label",
     ("GET", "/api/labelling/next"): "label",
     ("POST", "/api/labelling/{assignment_id}"): "label",
+    ("GET", "/api/evalsets"): "curate",
+    ("GET", "/api/evalsets/{set_id}"): "curate",
+    ("POST", "/api/evalsets/{set_id}/sample"): "curate",
+    ("POST", "/api/evalsets/{set_id}/assignments"): "curate",
+    ("POST", "/api/evalsets/{set_id}/adjudication"): "curate",
 }
 EVALSET_PERMISSIONS = {"label", "curate", "grade"}
 EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
@@ -482,9 +494,9 @@ def test_no_evaluation_set_route_resolves_to_read_or_discover(
     lists. Every route hidden evaluation sets mount (memberships mode, both keys and Backend
     Services: the most) is pinned here with its permission, named by a rule of its own before
     the catch-all, and needs one of theirs (`label`, `curate` or `grade`), never `read` or
-    `discover`; so does every other method and path under a labeller's (plan risk 1, conflict
-    50). In claims mode, which mounts none of a labeller's, their paths read as any route no rule
-    lists, `admin`."""
+    `discover`; so does every other method and path under a labeller's and under a curator's
+    (plan risk 1, conflict 50). In claims mode, which mounts none of them, their paths read as
+    any route no rule lists, `admin`."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
@@ -514,7 +526,14 @@ def test_no_evaluation_set_route_resolves_to_read_or_discover(
     probes |= {
         (method, path)
         for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
-        for path in ("/api/labelling", "/api/labelling/next", "/api/labelling/x1/y")
+        for path in (
+            "/api/labelling",
+            "/api/labelling/next",
+            "/api/labelling/x1/y",
+            "/api/evalsets",
+            "/api/evalsets/x1",
+            "/api/evalsets/x1/y/z",
+        )
     }
     for method, path in probes:
         first = next(n for n, (m, p, _) in enumerate(rules) if m in ("*", method) and p.match(path))

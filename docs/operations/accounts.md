@@ -27,7 +27,10 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
   only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
   [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
-  so, and no packs or review queue. `grading` is a machine's and is never held by a membership: an
+  so, and no packs or review queue. An administrator manages the organization's hidden sets
+  (`curate`: its sets listed and read, their cases drawn, assigned and adjudicated, under
+  `/api/evalsets`, mounted likewise, [evalsets](evalsets.md#curating-from-the-dashboard-api))
+  and is never assigned their cases. `grading` is a machine's and is never held by a membership: an
   organization's grading key is made by the operator, `mendari access grader-key --org <org>
   --reason <why> [--days N]` (at most 365 days; its secret printed once), holds `grade` and
   nothing else, and an administrator lists and revokes it in the Access view, never rotates it. An organization always keeps an
