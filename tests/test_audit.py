@@ -271,3 +271,16 @@ def test_the_read_indexes_exist(store: AuditStore) -> None:
                 "SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema()"
             )
     assert {"audit_events_decision", "decisions_created"} <= {row["name"] for row in rows}
+
+
+def test_a_limit_of_zero_counts_nothing(store: AuditStore) -> None:
+    """The first call of a day went through the INSERT, which the `calls < limit` guard does not
+    cover: a limit of 0 refused the call but counted it, so usage said one was made."""
+    with pytest.raises(ProviderError, match="budget_exhausted"):
+        store.consume("jev", daily_limit=0)
+    assert store.usage("jev") == 0
+    assert store.consume_org("north", "decisions", daily_limit=0) is None
+    assert store.org_usage("north").get("decisions", 0) == 0
+    assert store.consume_org("north", "decisions", daily_limit=1) == 1
+    assert store.consume_org("north", "decisions", daily_limit=1) is None
+    assert store.org_usage("north")["decisions"] == 1

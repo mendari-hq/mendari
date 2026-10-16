@@ -488,3 +488,18 @@ def test_an_unbuildable_pack_is_built_once(tmp_path: Path, monkeypatch: pytest.M
     assert reasons == [("PackValidationError", invalid[pack_id])] * 2
     assert sorted(built) == sorted(set(built)) and built.count(pack_id) == 1
     assert len(built) == 6  # every served pack, once
+
+
+def test_a_negative_limit_is_not_no_limit(client: TestClient) -> None:
+    """`min(limit, 500)` had no floor: SQLite read `LIMIT -1` as every row (past the 500 cap,
+    each input read and chained under PHI mode) and Postgres answered 500 for it."""
+    for _ in range(3):
+        assert (
+            client.post(f"{PACK}/decide", json={"message": {"body": "Chest pain"}}).status_code
+            == 200
+        )
+    for path in ("/api/audit", "/api/review", "/api/feedback", "/api/deployments"):
+        listed = client.get(path, params={"limit": -1})
+        assert listed.status_code == 200, path
+        assert listed.json() == [], path  # clamped to 0, never "no limit"
+    assert len(client.get("/api/audit", params={"limit": 2}).json()) == 2

@@ -89,8 +89,10 @@ export function schemaForm(schema, record, prefix) {
     let control;
     if (kind === "enum") {
       // Always a blank choice: a required select then blocks Decide until one is picked, instead of
-      // showing a first option the record doesn't hold.
-      control = `<select ${common}><option value=""></option>${node.enum.map((option) =>
+      // showing a first option the record doesn't hold. A numeric enum reads back as a number.
+      const type = Array.isArray(node.type) ? node.type.find((t) => t !== "null") : node.type;
+      const numeric = type === "integer" || type === "number" ? ' data-numeric=""' : "";
+      control = `<select ${common}${numeric}><option value=""></option>${node.enum.map((option) =>
         `<option ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}</select>`;
     } else if (kind === "text") {
       control = `<textarea ${common} rows="3" maxlength="${node.maxLength}">${esc(value ?? "")}</textarea>`;
@@ -210,6 +212,7 @@ export function wireSchemaForm(container, current) {
     if (kind === "boolean") value = el.checked;
     else if (el.value === "") value = undefined;
     else if (kind === "integer" || kind === "number") value = Number(el.value);
+    else if (kind === "enum" && el.dataset.numeric !== undefined) value = Number(el.value);
     else value = el.value;
     // An emptied list item stays in place as "" (dropped on read), so item numbers don't shift; an
     // emptied field of an object (a table cell included) is removed.

@@ -14,8 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_SSN = re.compile(r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b")
-_PHONE = re.compile(r"(?<![\w-])(?:\+?1[-. ]?)?\(?(\d{3})\)?[-. ](\d{3})[-. ](\d{4})(?![\w-])")
+_SSN = re.compile(r"\b(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}\b")
+_PHONE = re.compile(r"(?<![\w-])(?:\+?1[-. ]?)?\(?(\d{3})\)?[-. ]?(\d{3})[-. ](\d{4})(?![\w-])")
 _MRN = re.compile(r"\b(?:MRN|medical record(?: number| no\.?)?)\b\W{0,3}[A-Z]{0,3}\d{5,}", re.I)
 _DATE = re.compile(r"\b(?:\d{1,2}[/-]\d{1,2}[/-](?:19|20)?\d{2}|(?:19|20)\d{2}-\d{2}-\d{2})\b")
 _BIRTH = re.compile(r"\b(?:DOB|D\.O\.B\.?|date of birth|born|birth ?date|birthday)\b", re.I)
@@ -38,7 +38,7 @@ class Hit:
 def scan(text: str) -> list[Hit]:
     """What looks like a real person's details in `text`, by line."""
     hits: list[Hit] = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(text.split("\n"), start=1):  # JSONL lines end at "\n" only
         kinds = []
         if _SSN.search(line):
             kinds.append("a Social Security number")

@@ -70,3 +70,22 @@ def test_the_table_is_k_of_n_and_says_where_evidence_is_short() -> None:
     # The benchmark automates nothing: no cases, never a bare rate or n/a.
     assert "| false automation rate (of automated) | no cases | no cases |" in text
     assert "| destination accuracy | 596 of 600 [98.3-99.8%] | 596 of 600 [98.3-99.8%] |" in text
+
+
+def test_a_critical_label_main_measured_must_still_be_measured() -> None:
+    """The gate compared only the change's critical labels: one dropped from `evaluation.critical`
+    (or left without a labelled case) was never compared, and the change passed."""
+    worse = copy.deepcopy(benchmark())
+    worse["decisions"]["critical"] = []
+    rows, failures = gate(worse, benchmark(), 0.03)
+    assert failures == ["critical urgency=urgent detected: no longer measured"]
+    row = next(r for r in rows if r["metric"] == "critical urgency=urgent detected")
+    assert row["change"] is None and row["main"] is not None
+
+
+def test_an_accuracy_that_can_no_longer_be_measured_fails() -> None:
+    worse = copy.deepcopy(benchmark())
+    worse["questions"]["destination"]["accuracy"] = None
+    worse["questions"]["destination"]["n"] = 0
+    _, failures = gate(worse, benchmark(), 0.03)
+    assert failures == ["destination accuracy can no longer be measured"]

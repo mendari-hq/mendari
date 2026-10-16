@@ -10,6 +10,7 @@ the transport every httpx client uses, and no socket opens."""
 
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import socket
@@ -338,3 +339,23 @@ def test_health_reports_the_provider_allow_list(
     monkeypatch.delenv(ALLOW)
     health = TestClient(create_app(db_path=tmp_path / "b.db")).get("/api/health").json()
     assert health["provider_allowed_origins"] is None
+
+
+@pytest.mark.parametrize("body", ["<html>maintenance</html>", "[]", "null"])
+def test_a_model_list_that_is_not_a_json_object_is_an_invalid_response(
+    monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """A 200 with an HTML page or a JSON array raised ValueError or AttributeError out of the
+    provider; every provider failure is a ProviderError."""
+    monkeypatch.setenv(ALLOW, JEV)
+    monkeypatch.setenv(jev.ENDPOINT_ENV, f"{JEV}/v1/decide")
+    monkeypatch.setenv(jev.API_KEY_ENV, "k")
+
+    def odd(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/html"})
+
+    transport = httpx.MockTransport(odd)
+    monkeypatch.setattr(httpx, "Client", functools.partial(httpx.Client, transport=transport))
+    with pytest.raises(ProviderError) as refused:
+        jev.list_models()
+    assert refused.value.code == "invalid_response"

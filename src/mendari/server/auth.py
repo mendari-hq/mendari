@@ -601,6 +601,9 @@ async def read_body(request: Request, limit: int) -> bytes | None:
 
 
 def permission_for(method: str, path: str) -> str:
+    """The permission a route needs. HEAD needs what GET needs: the static files (and any route
+    that serves both) answer it as GET, and the rules name GET."""
+    method = "GET" if method == "HEAD" else method
     for rule_method, pattern, permission in _RULES:
         if rule_method in ("*", method) and pattern.match(path):
             return permission
@@ -1191,7 +1194,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 **({"prompt": "select_account"} if choose else {}),
             }
         )
-        response = RedirectResponse(f"{config['authorization_endpoint']}?{query}", status_code=302)
+        endpoint = config["authorization_endpoint"]  # may carry a query of its own (RFC 6749 3.1)
+        response = RedirectResponse(f"{endpoint}{'&' if '?' in endpoint else '?'}{query}", 302)
         pending = {
             "verifier": verifier,
             "nonce": nonce,
@@ -1276,6 +1280,9 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             int(time.time()),
             auth.lifetime,
         )
+        previous, _ = sessions.read(request, COOKIE)
+        if previous:  # this browser's earlier session ends: one browser, one person
+            store.smart_delete(previous, "user")
         sid = secrets.token_urlsafe(32)
         store.smart_put(sid, "user", session, expires_at)
         security_log.event("auth.signin.ok", actor=person, org=org)

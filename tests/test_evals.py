@@ -206,3 +206,22 @@ def test_parallel_evaluation_matches_sequential(inbox_pack: Pack, screened: dict
     for key in ("questions", "decisions", "subgroups", "misclassified"):
         assert parallel[key] == sequential[key]
     assert parallel["dataset"] == {**sequential["dataset"], "limit": 60} == sequential["dataset"]
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+def test_a_line_separator_inside_a_case_is_not_a_line_end(tmp_path: Path, separator: str) -> None:
+    """`json.dumps(ensure_ascii=False)` (the feedback export) leaves U+2028 raw inside a string;
+    `str.splitlines` broke the line there and the dataset would not load again."""
+    path = tmp_path / "cases.jsonl"
+    record = {"id": "c1", "input": {"message": {"body": f"first{separator}second"}}}
+    path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert load_dataset(path).records[0]["input"]["message"]["body"] == f"first{separator}second"
+
+
+def test_the_card_lists_a_boolean_property_schema() -> None:
+    """JSON Schema's `"note": true` (anything) loads and decides; the card's input table read it
+    as an object and raised AttributeError."""
+    from mendari.core.card import _schema_rows
+
+    schema = {"properties": {"note": True, "age": {"type": "integer"}}, "required": ["note"]}
+    assert _schema_rows(schema) == ["| `note` | any | yes |", "| `age` | integer | no |"]

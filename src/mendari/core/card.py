@@ -444,6 +444,9 @@ def _schema_rows(schema: dict[str, Any], prefix: str = "") -> list[str]:
     required = set(schema.get("required", []))
     for name, prop in schema.get("properties", {}).items():
         path = f"{prefix}{name}"
+        if not isinstance(prop, dict):  # JSON Schema's `true` / `false`: anything, or nothing
+            rows.append(f"| {_c(path)} | any | {'yes' if name in required else 'no'} |")
+            continue
         if prop.get("type") == "object":
             rows.append(f"| {_c(path)} | object | {'yes' if name in required else 'no'} |")
             rows += _schema_rows(prop, f"{path}.")

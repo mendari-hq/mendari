@@ -44,7 +44,7 @@ def allowed_servers(variable: str = "MENDARI_FHIR_ALLOWED_SERVERS") -> frozenset
     for item in (part.strip() for part in raw.split(",")):
         if not item:
             continue
-        origin = _origin(item)
+        origin = origin_of(item)
         if origin is None or origin != item.rstrip("/"):
             raise MendariError(
                 f"{variable}: {item!r} must be an origin, "
@@ -82,7 +82,7 @@ class GuardedHttp:
         self._client.close()
 
     def check(self, url: str) -> None:
-        origin = _origin(url)
+        origin = origin_of(url)
         if origin is None or origin not in self.allowed:
             raise FhirError("the FHIR server is not on this deployment's allow-list")
 

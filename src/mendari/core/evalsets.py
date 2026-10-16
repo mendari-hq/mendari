@@ -312,7 +312,7 @@ def read_cases(path: Path) -> list[tuple[int, Any]]:
         number = raw.count(b"\n", 0, error.start) + 1
         raise MendariError(f"line {number}: not UTF-8 text") from None
     records = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(text.split("\n"), start=1):  # not splitlines: U+2028 etc.
         if not line.strip():
             continue
         try:
@@ -2133,7 +2133,7 @@ def _inputs_of(path: Path) -> Iterator[Any]:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return
-    for line in text.splitlines():
+    for line in text.split("\n"):  # not splitlines: a U+2028 inside a string is not a line end
         try:
             record = json.loads(line) if line.strip() else None
         except (ValueError, RecursionError):

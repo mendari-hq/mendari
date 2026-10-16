@@ -51,8 +51,11 @@ views.audit = async (main, params) => {
     const filter = $("#outcome-filter").value;
     storageSet("oh.audit.outcome", filter);
     const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-    $("#audit-table").innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
-    wire($("#audit-table"));
+    const table = $("#audit-table");
+    // Another filter chosen meanwhile, or the view left: this answer is stale.
+    if (!table || $("#outcome-filter")?.value !== filter) return;
+    table.innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
+    wire(table);
   };
   // Rows open their record (the first cell's button does the same from the keyboard).
   $("#audit-table").addEventListener("click", (event) => {
@@ -146,16 +149,23 @@ function auditTable(rows) {
   });
 }
 
+let recordAsked = 0; // the latest record asked for: an older answer, arriving after it, is dropped
+
 async function openRecord(id) {
   const opener = document.querySelector(`button.open-record[data-id="${CSS.escape(id)}"]`) ?? document.activeElement;
+  const asked = ++recordAsked;
   let found;
   try {
     found = await api(`/api/audit/${encodeURIComponent(id)}`);
   } catch (error) {
+    if (asked !== recordAsked) return;
     toastError(error.message);
     location.hash = "#audit";
     return;
   }
+  // A record opened after this one was asked for, or the drawer closed meanwhile: the address
+  // names what is shown, so a slow answer never replaces a newer drawer.
+  if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
   const shown = showDrawer({
     // What happened, in words ("Human review · nurse"); the id is in the body.
