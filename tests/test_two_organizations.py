@@ -2,9 +2,10 @@
 """Two organizations, every route (LP-12g, ADR-0008, threat model I4).
 
 Two organizations on one deployment, each with every kind of principal (people of each role,
-API keys, Backend Services clients, an EHR launch), seed data through the API, with a marker in
-every free-text field (`zqalpha`, `zqbravo`), and a hidden evaluation set of its own (LP-11g:
-the feature on, so the routes it mounts are called too). Then each calls every mounted route:
+API keys, Backend Services clients, an EHR launch, its grading key), seed data through the API,
+with a marker in every free-text field (`zqalpha`, `zqbravo`), a hidden evaluation set of its own
+(LP-11g: the feature on, so the routes it mounts are called too) and a frozen one its grading key
+grades (LP-11l). Then each calls every mounted route:
 
 - **with the other's live ids** (phase 1): refused as an unknown id is, nothing written;
 - **with its own** (phase 2): served, destructive calls last, on spare ids.
@@ -78,6 +79,9 @@ from tests.test_smart import DECIDE_BODY, REFERRAL, TENANTS, FakeEhr, routed, te
 APP = "https://mendari.test"
 IDP = "https://idp.example.org"
 INBOX = "mendari/patient-inbox-router"
+# A grading run (LP-11l): the inbox with local providers only (the deployment here runs Jev).
+RUNS: tuple[str, str] = ("POST", "/api/evalsets/{set_id}/runs")
+GRADED = {"pack": INBOX, "variants": {"safety_screen": "rules", "router": "naive_bayes"}}
 GUARD = "mendari/ai-guard"
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
 PEOPLE = ("admin", "reviewer", "governance", "viewer")
@@ -205,6 +209,7 @@ class Org:
     launch: TestClient | None = None
     launch_id: str = ""
     labeller: TestClient | None = None  # memberships mode: one assignment left open (LP-11j)
+    grader: TestClient | None = None  # its grading key, the operator's (LP-11l)
     ids: dict[str, list[str]] = field(default_factory=dict)  # kind of id: ids, in order made
 
     @property
@@ -349,6 +354,8 @@ EXPLICIT = (
     "EvalsetStore.sample",
     "EvalsetStore.assign",
     "EvalsetStore.adjudicate",
+    # A grading run's check of the set's pack (LP-11l): the grading key's organization's set only.
+    "EvalsetStore.grading_header",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -514,6 +521,7 @@ def world(
             for org in orgs.values():
                 seed(world, org)
                 hidden_set(world, org, keys)
+                graded_set(world, org, keys)
             evalsets_are_on(orgs[ORGS[0]].people["admin"], {})
             yield world
 
@@ -843,6 +851,47 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     with world.store._db.session(exclusive=False) as db:
         for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
             org.made("evalset label", row["id"])
+
+
+def graded_set(world: World, org: Org, keys: EvalsetKeys) -> None:
+    """A frozen hidden evaluation set of `org`'s, in either mode, as the key holder makes one
+    (LP-11i): two cases carrying `org`'s marker, drawn and labelled blind at the store by two of
+    its labellers who agree, frozen; and `org`'s grading key, the operator's (LP-11d), which runs
+    the inbox over it through the grading route in phase 2 (LP-11l) and is refused the other's
+    set in phase 1. The set's id, its cases' ids and hashes, the labellers' user ids and the
+    key's id and secret are `org`'s (`secrets_of`)."""
+    m = org.marker
+    hidden = EvalsetStore(world.store, keys)
+    made = hidden.create_set(
+        org.name, resolve_pack(INBOX), f"graded set {m}", created_by="operator"
+    )
+    set_id = org.made("graded evalset", made["set"])
+    written = [
+        hand_written(f"A rash on my arm since Friday {m}", author=f"author {m}"),
+        hand_written(f"A dull headache since Tuesday {m}", author=f"author {m}"),
+    ]
+    for added in hidden.add_cases(set_id, written)["cases"]:
+        org.made("evalset case", added["case"])
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
+            org.made("evalset case", row["id"])
+    hidden.sample(set_id, cases=len(written))
+    people = []
+    for n in range(2):
+        sub = f"grading-labeller-{n}-{m}"
+        member(world.store, org=org.name, roles=["labeller"], sub=sub)
+        people.append(org.made("person", person_id(IDP, sub)))
+    hidden.assign(set_id, people)
+    labels = {"destination": "nurse", "urgency": "routine"}
+    for user in people:
+        while (shown := hidden.next_case(user, org=org.name)) is not None:
+            hidden.record_label(shown["assignment"], user, labels, org=org.name)
+    hidden.freeze(set_id, max_runs=5, max_age_days=30, resamples=20)
+    grading = world.store.create_grading_key(
+        org=org.name, created_by="operator", reason=f"grading {m}"
+    )
+    org.made("grading key", grading["id"])
+    org.grader = client_of(world.app, bearer(grading["key"]))
 
 
 def token_form(signer: Signer, client_id: str, scope: str = "system/*.rs") -> dict[str, str]:
@@ -1210,6 +1259,12 @@ def refusals(world: World, x: Org, o: Org) -> None:
         (("POST", "/api/smart/decide"), "/api/smart/decide", {"json": DECIDE_BODY}),
     ):
         refused(x.launch, route, url, o.launch_id, 409, headers=pinned, **options)
+    # Their frozen set, graded by this organization's grading key (LP-11l): the `404` an unknown
+    # set gets, nothing read, written or chained.
+    assert x.grader is not None
+    theirs = o.one("graded evalset")
+    url = RUNS[1].replace("{set_id}", theirs)
+    refused(x.grader, RUNS, url, theirs, 404, json=GRADED)
     if world.accounts == "memberships":
         refused_people(world, x, o, refused)
         assert x.labeller is not None
@@ -1657,10 +1712,22 @@ def served(world: World, x: Org) -> None:
         f"/api/registry-approvals/{x.one('registry_approval', 1)}",
         expect=204,
     )
+    served_grading(world, x)
     if world.accounts == "memberships":
         served_people(world, x)
         served_labelling(world, x)
         served_curating(world, x)
+
+
+def served_grading(world: World, x: Org) -> None:
+    """`x`'s grading key runs the inbox over `x`'s frozen set with local providers (LP-11l): its
+    first run, over its two cases, answered with aggregates only (scanned, as every answer is,
+    for the other's markers and ids)."""
+    assert x.grader is not None
+    set_id = x.one("graded evalset")
+    url = RUNS[1].replace("{set_id}", set_id)
+    shown = world.call(x, x.grader, RUNS, url, json=GRADED, expect=200).json()
+    assert (shown["set"], shown["n"], shown["run"], shown["runs_left"]) == (set_id, 2, 1, 4)
 
 
 def served_labelling(world: World, x: Org) -> None:
@@ -1998,7 +2065,8 @@ def secrets_of(world: World, org: Org) -> set[str]:
     """Every id and secret of `org`'s that the other must never see: what it made, its people,
     its credentials, and the hash of each event chained about its rows."""
     found = {value for kind, values in org.ids.items() if kind != "order" for value in values}
-    for client in (*org.keys.values(), *org.tokens.values()):
+    graders = [org.grader] if org.grader is not None else []  # its grading key (LP-11l)
+    for client in (*org.keys.values(), *org.tokens.values(), *graders):
         found.add(client.headers["authorization"].removeprefix("Bearer "))
     found |= {org.launch_id, org.name}
     record = world.store.organization(org.name)

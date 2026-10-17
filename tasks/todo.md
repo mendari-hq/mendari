@@ -1047,7 +1047,30 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     whose administrators draw, assign, adjudicate and read through the routes (conflict 57
     amended: a set's answer to its curators may name label words); threat model I13 and E11;
     the runbook's "Curating from the dashboard API".
-  - [ ] **11l** The grading route and the aggregates-only result (`grade`).
+  - [ ] **11l** (PR open) The grading route and the aggregates-only result (`grade`):
+    `POST /api/evalsets/{set_id}/runs` (`{pack, variants?}`), mounted with both keys in both
+    account modes (its path out of `_MEMBERSHIPS_ONLY`, its `*` rule before the curators'); only
+    an organization's grading key passes, for its own sets (another's, an unknown and a malformed
+    id are one `404`, `no_set`); the set's header checked against the pack asked for and every
+    slot's variant checked local before any case is read (conflict 52); then `grade_read` (its
+    refusals now `GradingRefused` with fixed reasons, a `receipt` of what it chained,
+    `GradingRead`) hands the cases in memory to a Decision with no store, and the in-memory
+    `mendari.eval/2` result is projected onto the closed `mendari.hidden_result/1`
+    (`evals/hidden.py`, from `share.py`'s models: aggregates only, calibration bins and Brier
+    intervals over `MIN_GROUP` cases only); nothing stored; refusals and failures answered with
+    a fixed `reason` and sentence (`GRADING_REFUSALS`), `409` `set_changed` with an operator's
+    log line naming the set only; `grade` counts as `evaluate`; security-log event
+    `evalset.graded` with set ids only; the `Grading` OpenAPI tag and the `/docs` `grade` row; in
+    the store, `grading_header` and `pack_problem` (public). `tests/test_evalset_grading.py`
+    (both account modes where it matters, SQLite and Postgres). Registered in `test_auth`
+    (pins; claims mode reads the route as `grade`), `test_shipped` (`CHAINED`), `test_limits`
+    (both modes), `test_two_organizations` (a frozen set and a grading key per organization, in
+    both modes: refused the other's, served its own; `secrets_of`), `test_landing` (the `grade`
+    row), `test_memberships`, `test_evalset_routes` and `evalsets_are_on` (the route in either
+    mode); the 11g sweep finds the route by itself and grades each organization's frozen set
+    through it in both modes, the grading key's answer holding no mark (conflict 35; conflict 57
+    amended: label words there, as aggregates); threat model I13 and E11; the runbook's
+    "Grading a hidden set"; the spec's `mendari.hidden_result/1`.
   - [x] **11m** (#241, merged 2026-10-10) The labelling screen (`#labelling`, `dashboard/labelling.js`, over
     11j's routes only): shown to a person holding `label` where the routes are served (main.js
     reads their counts once to know; without the keys a labeller-only person keeps the access
@@ -1067,7 +1090,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **11n** The management screen.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
-  **Owner decisions still open** (none blocks 11a to 11k; the hosted site mounts no labelling
+  **Owner decisions still open** (none blocks 11a to 11l; the hosted site mounts no labelling
   or curating route until the first is settled): how labellers reach the hosted site
   (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
   rotation numbers (maximum grading runs and age, both required at freeze); what settles a

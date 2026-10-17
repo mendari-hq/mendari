@@ -97,14 +97,19 @@ change ciphertext and keyed hashes only, so they run in every state (conflict 31
   set's freeze record, and the coverage and agreement of its final labels as its aggregates.
   Chained: `evalset.frozen {set, org, commitment, n, max_runs, max_age_days}`; the unsalted
   content hash never leaves the sealed record (conflict 44).
-- `grade_read` is the one read of a frozen or active set's cases, in the process only (LP-11l
-  calls it): for a live grading key of the set's organization, while the rotation rule holds
-  (fewer chained `evalset.graded` than `max_runs`, and less than `max_age_days` since
-  `frozen_at`), and the set's rows still give the content its commitment covers (a set whose
-  chain holds its `evalset.retired` is retired, whatever its row says). In one exclusive
-  transaction it checks all that, activates a frozen set (`evalset.activated`) and
-  chains `evalset.graded {set, org, commitment, grader, pack_digest, n, run}`; only then does
-  `run` receive the cases, in memory, and only what `run` returns comes back. Nothing is stored.
+- `grade_read` is the one read of a frozen or active set's cases, in the process only (the
+  grading route calls it, LP-11l, `server/app.py` `add_grading_routes`): for a live grading key
+  of the set's organization, while the rotation rule holds (fewer chained `evalset.graded` than
+  `max_runs`, and less than `max_age_days` since `frozen_at`), and the set's rows still give
+  the content its commitment covers (a set whose chain holds its `evalset.retired` is retired,
+  whatever its row says). In one exclusive transaction it checks all that, activates a frozen
+  set (`evalset.activated`) and chains `evalset.graded {set, org, commitment, grader,
+  pack_digest, n, run}`; only then does `run` receive the cases, in memory, and only what `run`
+  returns comes back (with, for its answer, what was chained: `GradingRead`). Nothing is
+  stored. A refusal is a `GradingRefused` with a fixed reason, which the route answers in place
+  of the message; `grading_header` reads, unchained, the header of one of an organization's
+  sets (its pack and questions), for the route to check the pack it is asked to run before any
+  case is read.
 - `retire` ends a frozen or active set's use, once, its content checked once more:
   `evalset.retired {set, org, commitment}`. Nothing is published.
 - `show` reads a set's state, commitment, runs used and left, and its stored aggregates.
@@ -158,7 +163,7 @@ from mendari.core.db import Session
 from mendari.core.evalset_keys import INDEX_ENV, KEY_ENV, READ_ENV, EvalsetKeys, Kind
 from mendari.core.pack import Pack, not_json
 from mendari.core.phi import key_id, token_key
-from mendari.errors import LabelError, MendariError, NoAssignment, NoEvalset
+from mendari.errors import GradingRefused, LabelError, MendariError, NoAssignment, NoEvalset
 from mendari.evals.canonical import canonical_input, normalised_input
 
 if TYPE_CHECKING:
@@ -275,6 +280,18 @@ SEALED_COLUMNS: dict[str, SealedTable] = {
         label_id="id",
     ),
 }
+
+
+class GradingRead(NamedTuple):
+    """What a grading read chained (`evalset.graded`), for its run's answer (LP-11l): the set,
+    its commitment, how many cases the run receives, the run's number, and the runs the set has
+    left after it."""
+
+    set: str
+    commitment: str
+    n: int
+    run: int
+    runs_left: int
 
 
 def case_ref(salt: bytes, set_id: str, case_id: str, value: Any, attributes: Any) -> str:
@@ -1019,7 +1036,7 @@ class EvalsetStore:
             from mendari.core.registry import resolve_pack
 
             pack = resolve_pack(str(header["pack"]))
-        problem = _pack_problem(pack, header)
+        problem = pack_problem(pack, header)
         if problem is not None:
             raise MendariError(problem)
         if not rows:
@@ -1108,7 +1125,7 @@ class EvalsetStore:
             from mendari.core.registry import resolve_pack
 
             pack = resolve_pack(str(header["pack"]))
-        problem = _pack_problem(pack, header)
+        problem = pack_problem(pack, header)
         if problem is not None:
             raise MendariError(problem)
         undrawn = [row for row in rows if row["status"] == DRAFT]
@@ -1215,10 +1232,16 @@ class EvalsetStore:
         }
 
     def grade_read(
-        self, set_id: str, grader: str, pack_digest: str, run: Callable[[Dataset], T]
+        self,
+        set_id: str,
+        grader: str,
+        pack_digest: str,
+        run: Callable[[Dataset], T],
+        *,
+        receipt: Callable[[GradingRead], None] | None = None,
     ) -> T:
-        """The one read of a frozen or active set's cases (LP-11l's grading run calls it, in the
-        process; no route or command does in LP-11i). `grader` is the grading key's principal
+        """The one read of a frozen or active set's cases (the grading route's run calls it, in
+        the process, LP-11l; no command does). `grader` is the grading key's principal
         (`key:<id>`): a live key of role `grading` of the set's organization, or the set is
         named as unknown (another organization's, a revoked or expired key, any other key).
         In one exclusive transaction: the set is frozen or active, and its chain holds no
@@ -1232,8 +1255,13 @@ class EvalsetStore:
         chained. Only once that transaction commits does `run` receive the cases, as an
         in-memory dataset (each case by its keyed hash, with its input, final labels and frozen
         attributes; its own random case key, no file, no digest), so concurrent reads never
-        exceed `max_runs` and a run whose read was not chained never sees a case. Only what
-        `run` returns comes back; nothing is stored. A run that fails still counts."""
+        exceed `max_runs` and a run whose read was not chained never sees a case. `receipt`, if
+        given, is told what was chained (`GradingRead`) once it is, before `run` is called. Only
+        what `run` returns comes back; nothing is stored. A run that fails still counts. Each
+        refusal is a `GradingRefused` with its fixed reason: `no_set` (unknown, another
+        organization's, a key that is not a live grading key of its organization),
+        `not_gradable` (a draft or retired set), `no_runs_left`, `expired`, `set_changed` and
+        `set_unavailable` (a value under a key the ring lacks)."""
         keys = self._ring()
         _check_set_id(set_id)
         if not (isinstance(grader, str) and _GRADER.fullmatch(grader)):
@@ -1251,25 +1279,30 @@ class EvalsetStore:
                 (grader.removeprefix("key:"), GRADING_ROLE, _now()),
             )
             if head is None or key is None or str(key["org"]) != str(head["org"]):
-                raise MendariError(f"no evaluation set {set_id} is graded with {grader}")
+                raise GradingRefused(
+                    "no_set", f"no evaluation set {set_id} is graded with {grader}"
+                )
             org, state = str(head["org"]), str(head["state"])
             if _retired(db, set_id):
                 state = RETIRED  # the chain's word, whatever the row says
             if state not in GRADED:
-                raise MendariError(
-                    f"evaluation set {set_id} is {state}: only a frozen or active set is graded"
+                raise GradingRefused(
+                    "not_gradable",
+                    f"evaluation set {set_id} is {state}: only a frozen or active set is graded",
                 )
             max_runs, max_age_days, frozen_at = _rule(set_id, head)
             used = _runs(db, set_id)
             if used >= max_runs:
-                raise MendariError(
+                raise GradingRefused(
+                    "no_runs_left",
                     f"evaluation set {set_id} has had its {max_runs} grading run(s): retire it "
-                    "(`mendari evalset retire`) and freeze another"
+                    "(`mendari evalset retire`) and freeze another",
                 )
             if self.clock() - frozen_at >= timedelta(days=max_age_days):
-                raise MendariError(
+                raise GradingRefused(
+                    "expired",
                     f"evaluation set {set_id} was frozen {max_age_days} day(s) ago or more: "
-                    "retire it (`mendari evalset retire`) and freeze another"
+                    "retire it (`mendari evalset retire`) and freeze another",
                 )
             records = _intact(db, keys, set_id, head)
             if state == FROZEN:
@@ -1289,6 +1322,12 @@ class EvalsetStore:
             }
             chained = self.store._bound("evalset.graded", payload, org)
             self.store._append(db, f"evalset:{set_id}", "evalset.graded", chained)
+        if receipt is not None:
+            receipt(
+                GradingRead(
+                    set_id, str(head["commitment"]), len(records), used + 1, max_runs - used - 1
+                )
+            )
         dataset = Dataset(
             name=set_id,
             path=Path(set_id),
@@ -1933,6 +1972,33 @@ class EvalsetStore:
             "aggregates": _curators_aggregates(shown["aggregates"]),
         }
 
+    # -- what the grading route reads before a run (LP-11l) -------------------------------------
+
+    def grading_header(self, set_id: str, *, org: str) -> dict[str, Any]:
+        """One of `org`'s sets' header, as the grading route checks the pack it is asked to run
+        before any case is read (`POST /api/evalsets/{set_id}/runs`): the pack's id, its
+        questions with their labels, its derived questions and critical labels (what
+        `pack_problem` compares a pack with); never the set's name. Opened, not chained
+        (conflict 39: a header holds no case); nothing is written. An unknown set, a malformed
+        id and another organization's set are one `NoEvalset`. A header that does not open is
+        refused as the grading read refuses it (`_intact`), naming the set only: `set_unavailable`
+        when it is sealed under a key this database knows and the ring lacks, else
+        `set_changed`."""
+        keys = self._ring()
+        _check_set_id(set_id, org)
+        with self.store._db.session(exclusive=False) as db:
+            row = _owned(
+                set_id,
+                db.one("SELECT org, header FROM evalset_sets WHERE id = ?", (set_id,)),
+                org,
+            )
+            try:
+                header, _ = keys.open("header", str(row["header"]), set_id)
+            except MendariError:
+                lacking = _lacking(db, keys, [row["header"]])
+                raise (_unavailable(set_id, lacking) if lacking else _changed(set_id)) from None
+        return {name: header.get(name) for name in ("pack", "questions", "derived", "critical")}
+
     def hidden_matches(self, value: Any) -> list[dict[str, str]]:
         """The cases, of every organization's sets, whose input equals `value` exactly or under
         `norm/v1`, by set and case id: the hidden-case index, for the pack store's upload check
@@ -2460,7 +2526,7 @@ def _shared_out(total: int, sizes: Mapping[str, int]) -> dict[str, int]:
     return shares
 
 
-def _pack_problem(pack: Pack, header: Mapping[str, Any]) -> str | None:
+def pack_problem(pack: Pack, header: Mapping[str, Any]) -> str | None:
     """Why `pack` is not the set's (its header's pack id, questions with their labels, derived
     questions and critical labels); None when it is."""
     manifest = pack.manifest
@@ -2775,21 +2841,11 @@ def _retired(db: Session, set_id: str) -> bool:
     )
 
 
-def _lacking(
-    db: Session,
-    keys: EvalsetKeys,
-    head: Mapping[str, Any],
-    cases: Sequence[Mapping[str, Any]],
-    labels: Sequence[Mapping[str, Any]],
-) -> list[str]:
-    """The key ids a frozen set's sealed values name (its header and freeze record, its cases'
-    inputs and attributes, its labels) that `keys` does not hold and this database knows
-    (`EVALSET_KNOWN`): values `keys` cannot open, though no one altered them (a rotation's read
-    key not deployed), as `verify` counts them `unopenable`. A key id this database never knew
-    is not among them: such a value was altered."""
-    tokens = [head["header"], head["freeze_record"]]
-    tokens += [row[column] for row in cases for column in ("input", "attributes")]
-    tokens += [label["body"] for label in labels]
+def _lacking(db: Session, keys: EvalsetKeys, tokens: Sequence[Any]) -> list[str]:
+    """The key ids a set's sealed values (`tokens`; None is no value) name that `keys` does not
+    hold and this database knows (`EVALSET_KNOWN`): values `keys` cannot open, though no one
+    altered them (a rotation's read key not deployed), as `verify` counts them `unopenable`. A
+    key id this database never knew is not among them: such a value was altered."""
     absent = sorted(
         {token_key(str(token)) for token in tokens if token is not None} - keys.ring_ids
     )
@@ -2801,12 +2857,25 @@ def _lacking(
     return sorted(str(row["name"])[len(EVALSET_KNOWN) :] for row in found)
 
 
-def _changed(set_id: str) -> MendariError:
+def _changed(set_id: str) -> GradingRefused:
     """The refusal of a set whose rows no longer give what it was frozen with: the set alone is
-    named, never a case (LP-11l answers it `set_changed`)."""
-    return MendariError(
+    named, never a case (the grading route answers it `set_changed`, LP-11l)."""
+    return GradingRefused(
+        "set_changed",
         f"evaluation set {set_id} does not hold what it was frozen with: nothing was read or "
-        "changed; run `mendari audit verify --evalsets`"
+        "changed; run `mendari audit verify --evalsets`",
+    )
+
+
+def _unavailable(set_id: str, lacking: Sequence[str]) -> GradingRefused:
+    """The refusal of a set holding values sealed under keys this database knows and this
+    deployment lacks (`_lacking`): the set and those key ids are named, never a case. It cannot
+    be checked here, which is not a change (the grading route answers it `set_unavailable`)."""
+    return GradingRefused(
+        "set_unavailable",
+        f"evaluation set {set_id} holds values sealed under key(s) {', '.join(lacking)}, "
+        f"which this deployment lacks: nothing was read or changed; deploy them in {READ_ENV} "
+        "or run `mendari evalset rotate --check`",
     )
 
 
@@ -2828,17 +2897,17 @@ def _intact(
     """A frozen or active set's cases as a dataset's records, read in the caller's transaction,
     when its row keeps what its `evalset.frozen` chained and its rows still give the content
     that commitment covers (`frozen_holds`); else `_changed`, naming the set only. A set holding
-    a value sealed under a key this database knows and `keys` lacks (`_lacking`) is refused
-    first, naming the set and those key ids: it cannot be checked here, which is not a change."""
+    a value sealed under a key this database knows and `keys` lacks (`_lacking`: its header and
+    freeze record, its cases' inputs and attributes, its labels) is refused first
+    (`_unavailable`): it cannot be checked here, which is not a change."""
     chained = _frozen_payload(db, set_id)
     cases, labels = _frozen_rows(db, set_id)
-    lacking = _lacking(db, keys, head, cases, labels)
+    tokens = [head["header"], head["freeze_record"]]
+    tokens += [row[column] for row in cases for column in ("input", "attributes")]
+    tokens += [label["body"] for label in labels]
+    lacking = _lacking(db, keys, tokens)
     if lacking:
-        raise MendariError(
-            f"evaluation set {set_id} holds values sealed under key(s) {', '.join(lacking)}, "
-            f"which this deployment lacks: nothing was read or changed; deploy them in {READ_ENV} "
-            "or run `mendari evalset rotate --check`"
-        )
+        raise _unavailable(set_id, lacking)
     try:
         held, records = (
             frozen_holds(keys, set_id, head, cases, labels, str(chained["commitment"]))

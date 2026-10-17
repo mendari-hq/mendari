@@ -467,6 +467,12 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
         for path in ("/api/evalsets", "/api/evalsets/", "/api/evalsets/s1/x/y"):
             assert permission_for(method, path) == "curate", (method, path)
+        # A grading run (LP-11l, mounted with the keys in both account modes): `grade`, an
+        # organization's grading key's only, before the curators' rule, for every method on
+        # its path; a path below it is the curators'.
+        assert permission_for(method, "/api/evalsets/s1/runs") == "grade", method
+        for path in ("/api/evalsets/s1/runs/", "/api/evalsets/s1/runs/x", "/api/evalsets/runs"):
+            assert permission_for(method, path) == "curate", (method, path)
     assert permission_for("GET", "/api/evals") == "read"
     assert permission_for("GET", "/api/evalsetsx") == "read"
 
@@ -482,7 +488,10 @@ EVALSET_ROUTES = {
     ("POST", "/api/evalsets/{set_id}/sample"): "curate",
     ("POST", "/api/evalsets/{set_id}/assignments"): "curate",
     ("POST", "/api/evalsets/{set_id}/adjudication"): "curate",
+    ("POST", "/api/evalsets/{set_id}/runs"): "grade",
 }
+# Of those, what claims mode mounts too (with the keys): the grading route (LP-11l).
+EVALSET_CLAIMS_ROUTES = {("POST", "/api/evalsets/{set_id}/runs")}
 EVALSET_PERMISSIONS = {"label", "curate", "grade"}
 EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
 
@@ -495,8 +504,9 @@ def test_no_evaluation_set_route_resolves_to_read_or_discover(
     Services: the most) is pinned here with its permission, named by a rule of its own before
     the catch-all, and needs one of theirs (`label`, `curate` or `grade`), never `read` or
     `discover`; so does every other method and path under a labeller's and under a curator's
-    (plan risk 1, conflict 50). In claims mode, which mounts none of them, their paths read as
-    any route no rule lists, `admin`."""
+    (plan risk 1, conflict 50). Claims mode mounts the grading route alone (LP-11l), which
+    needs `grade` there too; every other of their paths reads there as any route no rule lists,
+    `admin`."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
@@ -533,6 +543,8 @@ def test_no_evaluation_set_route_resolves_to_read_or_discover(
             "/api/evalsets",
             "/api/evalsets/x1",
             "/api/evalsets/x1/y/z",
+            "/api/evalsets/x1/runs",
+            "/api/evalsets/x1/runs/y",
         )
     }
     for method, path in probes:
@@ -545,8 +557,10 @@ def test_no_evaluation_set_route_resolves_to_read_or_discover(
         members = Auth(
             AuthSettings(IDP, CLIENT, None, "roles", {}, None, None, accounts="memberships"), store
         )
+        grading = {re.sub(r"\{[^}]+\}", "x1", p) for _, p in EVALSET_CLAIMS_ROUTES}
         for method, path in probes:
-            assert claims.permission(method, path) == "admin", (method, path)
+            in_claims = "grade" if path in grading else "admin"  # every method on its path
+            assert claims.permission(method, path) == in_claims, (method, path)
             assert members.permission(method, path) in EVALSET_PERMISSIONS, (method, path)
 
 

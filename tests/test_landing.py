@@ -173,7 +173,8 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
     """With sign-in on, hidden evaluation sets are on too, so the routes they mount are in the
     table (LP-11g, conflict 37); open mode cannot have them. In memberships mode a labeller's
     routes are listed under `label`, a person's only (LP-11j), and an organization's curators'
-    under `curate`, an administrator's who signed in (LP-11k)."""
+    under `curate`, an administrator's who signed in (LP-11k); in every mode with the keys, the
+    grading route under `grade`, an organization's grading key's only, with no scope (LP-11l)."""
     if mode in ("sign-in", "memberships"):
         _sign_in_on(monkeypatch)
     if mode == "backend services":
@@ -224,6 +225,15 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
     else:
         assert labelling is None
         assert '<tr data-permission="curate">' not in text
+    grading = re.search(r'<tr data-permission="grade">(.*?)</tr>', text, re.S)
+    if mode == "open":
+        assert grading is None
+    else:
+        assert grading and "grading key, which only the operator makes" in grading[1]
+        assert {route for route, permission in expected.items() if permission == "grade"} == {
+            ("POST", "/api/evalsets/{set_id}/runs")
+        }
+        assert "docs-scope" not in grading[1]  # no scoped key or token grades
     if mode == "backend services":
         assert ("POST", "/auth/token") in expected
         assert f"<code>POST {PUBLIC_URL}/auth/token</code>" in text

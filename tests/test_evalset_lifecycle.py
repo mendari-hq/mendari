@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The lifecycle of hidden evaluation sets (LP-11i, `core/evalsets.py`, ADR-0011): freezing, the
-in-process grading read, the rotation rule and retirement. No route reads a set yet (LP-11l
-calls `grade_read`), so the grading read is tested here, at the store.
+in-process grading read, the rotation rule and retirement. The grading read is tested here, at
+the store; the grading route over it (LP-11l) in tests/test_evalset_grading.py.
 
 - Freezing fixes a draft set's content: its hash covers the header, the rotation rule and every
   case by id (whatever order its rows come in), and the chain holds only its salted commitment;
@@ -567,9 +567,10 @@ def test_verify_breaks_at_an_activation_or_a_read_the_lifecycle_allows_none(
 def test_a_ring_lacking_a_key_this_database_knows_is_refused_by_that_key(world: World) -> None:
     """A rotation done out of order: the next key made known here (deployed as a read key),
     then swapped in without the old one as a read key, before anything is re-sealed. The
-    grading read and retirement refuse, naming the set and the key id the ring lacks, never a
-    case, and not as a changed set (verify counts those values `unopenable`, no break); nothing
-    is written or chained."""
+    grading read, the grading route's header read (`set_unavailable`, as the grading read) and
+    retirement refuse, naming the set and the key id the ring lacks, never a case, and not as a
+    changed set (verify counts those values `unopenable`, no break); nothing is written or
+    chained."""
     frozen(world)
     store, set_id = world.store, world.set_id
     grader = world.grader()
@@ -583,6 +584,7 @@ def test_a_ring_lacking_a_key_this_database_knows_is_refused_by_that_key(world: 
     before = dump(store)
     for refused in (
         lambda: lacking.grade_read(set_id, grader, DIGEST, count),
+        lambda: lacking.grading_header(set_id, org=CLINIC),
         lambda: lacking.retire(set_id),
     ):
         with pytest.raises(MendariError, match=f"sealed under key\\(s\\) {old}, which") as caught:

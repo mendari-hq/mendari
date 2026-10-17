@@ -77,6 +77,26 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, graded by the organization's grading key** (LP-11, mounted with both
+  evaluation-set keys in either account mode). `POST /api/evalsets/{id}/runs` with
+  `{"pack": ..., "variants": {...}}` runs the pack a frozen or active set was made for over its
+  cases, in the server's process, with local providers only (a slot the deployment runs remotely
+  needs a local variant named; a remote one is refused before any case is read), and answers
+  aggregates only: `mendari.hidden_result/1` (the set's id and commitment, how many cases, this
+  run's number and the runs left, the pack and providers, each question's metrics with
+  calibration bins and Brier intervals over 10 cases or more only, the outcome counts and each
+  critical label's counts, the threshold sweep and error counts; never a case, its id or hash, a
+  missed or misclassified case, a subgroup or the dataset's identity). Each run is chained before
+  its cases are read (`evalset.graded`, and `evalset.activated` on a frozen set's first) and
+  counted against the set's rotation rule; nothing is stored (no decision, report, ledger or
+  usage; `/api/evals` does not change). Only the organization's grading key passes (`grade`:
+  never a person, an administrator, another key, a token or open mode); another organization's
+  set is a `404` like an unknown one. Every refusal and failure is answered with a fixed `reason`
+  and sentence, never a message: a set changed since its freeze is a `409` `set_changed`, and the
+  server's log names the set only. Its rate-limit class is `evaluate`; security-log event
+  `evalset.graded`, naming the set's id only; the `Grading` OpenAPI tag and the `/docs` `grade`
+  row. Runbook: `docs/operations/evalsets.md`, Grading a hidden set; spec:
+  `docs/spec/evaluation-reports.md`.
 - **Hidden evaluation sets, managed by the organization's administrators** (LP-11, mounted as a
   labeller's routes are: memberships mode with both evaluation-set keys only).
   `GET /api/evalsets` lists the organization's sets (id, name, pack, state, when made, cases);
@@ -110,7 +130,7 @@ The first release (not yet published).
   events `evalset.case.read` and `evalset.labelled`, naming the set's id only. Runbook:
   `docs/operations/evalsets.md`, How a labeller labels.
 - **Hidden evaluation sets, frozen, graded in the process and retired** (LP-11, the key holder's
-  command line and the store; no route yet, so nothing grades until the grading route): every write
+  command line and the store; graded through the grading route, above): every write
   refuses a set that is no longer a draft, in its own exclusive transaction, writing and chaining
   nothing. `mendari evalset freeze <set> --max-runs N --max-age-days D [--drop-unsampled]
   [--pack P]` freezes a set whose drawn cases are all agreed or resolved (an undrawn one is refused,

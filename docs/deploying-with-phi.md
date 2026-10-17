@@ -902,7 +902,11 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   refused as `no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
   `evalset.adjudication.assigned` (likewise: an organization's administrator drawing a hidden
   set's cases, assigning them and adjudicating disputes, each with the set's id and how many; one
-  refused as `no_set`, an unknown set or another organization's, with no id), `input.erased`,
+  refused as `no_set`, an unknown set or another organization's, with no id), `evalset.graded`
+  (with the evaluation-set keys, in either account mode: an organization's grading key running a
+  pack over one of its hidden sets, with the set's id and how many cases were graded; or refused
+  with its fixed reason, such as `set_changed`, with the set's id, and `no_set` with no id),
+  `input.erased`,
   `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
   the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack

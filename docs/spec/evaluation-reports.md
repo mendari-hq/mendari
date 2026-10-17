@@ -233,3 +233,43 @@ label; alpha: no case has two ratings, or every rating is one label). An interva
 `not_estimable` when any resample leaves its coefficient undefined, and `dropped` says in how
 many; otherwise it is `{status: ok, low, high, dropped: 0}`.
 
+## Hidden-set grading: `mendari.hidden_result/1`
+
+What a grading run over a hidden evaluation set answers (LP-11l, `evals/hidden.py`,
+[ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)): `POST /api/evalsets/{set}/runs`,
+for the set's organization's grading key only, over a frozen or active set. The run decides each
+of the set's cases in the server's process with local providers only and no store, and computes
+a `mendari.eval/2` result from its ledger in memory; the answer is that result projected onto
+this closed schema, and nothing is stored (no decision, report, ledger or usage). A field not
+listed here MUST NOT appear: a server MUST refuse to answer a run whose result does not fit it,
+and say nothing of it.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.hidden_result/1`. |
+| `set`, `commitment` | The set's id, and the salted commitment chained when it froze (never its content hash). |
+| `n`, `run`, `runs_left` | How many cases were graded; this run's number (its chained `evalset.graded`); the runs the rotation rule leaves after it. |
+| `pack`, `providers`, `policy` | As a site report holds them (`mendari.site-report/1`): the pack's id, version and digest; each slot's variant, type and model (local only); the risk level, thresholds and whether a governance override applied (never: a run measures the pack's own policy). |
+| `seeds` | `{bootstrap, resamples, level}`, as `mendari.eval/2`'s. |
+| `primary` | The pack's primary question. |
+| `questions` | Per question, as a site report's: `n`, `accuracy`, `macro_f1`, `per_label` (precision, recall, F1, support), `confusion`, `brier`, `calibration` (`ece` and the equal-width bins of 10 cases or more only); and as `mendari.eval/2`'s, `proportion` (accuracy as k of n) and `brier_interval`, null over fewer than 10 scored cases. |
+| `decisions` | The outcome counts and rates, the abstention rate, automation and review, recommendation accuracy, and per critical label its `question`, `label`, `n`, `detected`, `detection_rate`, `auto_missed` and `proportion` (detection as k of n). |
+| `threshold_sweep` | Per threshold: `threshold`, `coverage`, `accuracy`, `errors`. |
+| `errors` | Error codes and how many answers each failed (Mendari's closed set). |
+
+It MUST NOT hold a case's id or hash, a dataset's name or hash, the ledger's id, a critical
+label's missed cases, misclassified cases, subgroups, equal-mass calibration, latency or cost. A
+calibration bin, and a Brier interval, over fewer than 10 cases is left out, as a site report
+leaves out small bins: over a few cases their figures are single cases'. Rates are rounded to 4
+places and other figures to 3, as a site report's are. It names the pack's labels beside counts
+and rates, never beside a case.
+
+A refused run is answered with a fixed `reason` (`no_set`, `wrong_pack`, `unknown_variant`,
+`remote_provider`, `pack_unavailable`, `not_gradable`, `no_runs_left`, `expired`,
+`set_changed`, `set_unavailable`, `run_failed`) and one fixed sentence, never a store's or a
+run's message: a set whose rows no longer give its commitment is `409` `set_changed`
+([the runbook](../operations/evalsets.md)). A pack whose own names or sizes this schema cannot
+hold (more than 64 questions, slots or critical labels, a question with more than 64 labels, or
+a question, label, slot or variant name that is not 1 to 64 letters, digits, `_`, `.` or `-`
+starting with a letter or digit) is refused `pack_unavailable` before the set's cases are read,
+so it uses none of the set's runs.
