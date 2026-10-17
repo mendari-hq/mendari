@@ -904,6 +904,29 @@ textarea.code.sf-json { min-height: 90px; }
 .label-option input[type="radio"] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--color-accent); }
 .field-error { margin: 0; color: var(--color-danger); font-weight: var(--weight-medium); }
 
+/* Hidden sets (evalsets.js): a set's name a 24 px target in its row (WCAG 2.5.8), its facts, the
+   forms that draw cases and give them to labellers (each choice a 24 px target of its own, its
+   label a larger one around it), and each question's agreement in a panel of its own. */
+a.set-link { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; font-weight: var(--weight-medium); }
+.back { margin-bottom: var(--space-2); }
+.evalset-facts { margin-top: var(--space-3); }
+.evalset-body > .panel:first-child,
+.evalset-body > .empty-state:first-child,
+.evalset-body > .evalset-intro { margin-top: var(--space-4); }  /* below the tab bar */
+.evalset-body > h2:first-child { margin-top: var(--space-5); }
+.evalset-form > label { display: block; margin-top: var(--space-3); font-weight: var(--weight-medium); }
+.evalset-form > label + p.muted { margin: 0; font-size: var(--text-sm); }
+.evalset-form input[type="number"] { display: block; width: min(100%, 14rem); margin-top: var(--space-1); }
+.evalset-form .field-error { margin-top: var(--space-3); }
+.pick-list { display: grid; gap: var(--space-2); min-width: 0; border: 0; padding: 0; margin: var(--space-3) 0 0; }
+.pick-list legend { margin-bottom: var(--space-2); padding: 0; font-weight: var(--weight-medium); }
+.pick { display: flex; align-items: center; gap: var(--space-2); min-height: 24px; cursor: pointer; overflow-wrap: anywhere; }
+.pick input:is([type="checkbox"], [type="radio"]) { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--color-accent); }
+.evalset-question h2 { margin-top: 0; }
+.evalset-question :is(th, td).why { min-width: 12rem; }  /* a reason stays readable as the table scrolls */
+.evalset-question .stats-primary { margin-bottom: var(--space-4); }
+.evalset-warnings { margin: 0; padding-left: var(--space-5); }
+
 /* Decision Card: a document with a table of contents; prose at a readable width. */
 .lead { font-size: var(--text-lg); line-height: var(--leading-lg); }
 p.prose, .prose > p, .prose > ul, .prose li, .rules p { max-width: 72ch; }
@@ -1123,7 +1146,7 @@ ol.rules p { margin: var(--space-1) 0; }
   :is(button, a.button, select, input:not([type="checkbox"]), summary, .nav a, .segmented a, .toc a) { min-height: 44px; }
   :is(.icon-button, .segmented button) { min-width: 44px; }
   th button.sort { min-height: 44px; }
-  .label-option { min-height: 44px; }  /* the label is the radio's target too */
+  .label-option, .pick { min-height: 44px; }  /* the label is the radio's (or checkbox's) target too */
   .toc a, .segmented a { display: inline-flex; align-items: center; }
 }
 

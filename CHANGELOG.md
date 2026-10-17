@@ -77,6 +77,23 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets in the dashboard: the Hidden sets screen** (LP-11n, `#evalsets`).
+  An administrator who signed in, in memberships mode where hidden sets are on (their keys'
+  ids in `/api/health`), finds **Hidden sets** in the section list; labellers, other roles,
+  claims mode and a deployment without the keys never see it or its link, and their pages ask
+  for no set. It lists the organization's sets (name, id, pack, state, cases) and opens one:
+  its facts (state, commitment, evaluation runs used and left, until when it is in use) and
+  tabs for its progress (cases by status, each labeller's first and third labels, named from
+  the members list), drawing its cases (per stratum or in all, seeded), giving them to two
+  labellers and a disputed one to a third (only labellers who manage no set are offered), its
+  rater agreement (percent agreement as k of n with its exact interval, each pair's kappa and
+  the pool's alpha with their intervals, "not estimable" in words, never a blank) and its
+  coverage (counts by label, critical labels with the insufficient-evidence mark, the mix of
+  languages, sources and strata). The last two show what the key holder stored, else "Not
+  measured yet". A frozen, in-use or retired set is followed, never drawn or assigned. Ids,
+  counts, names and aggregates only: never a case, an input, a label given, an attribute, a
+  case id or a case hash. Runbook: `docs/operations/evalsets.md`, Curating from the dashboard
+  API.
 - **Hidden evaluation sets, managed by the organization's administrators** (LP-11, mounted as a
   labeller's routes are: memberships mode with both evaluation-set keys only).
   `GET /api/evalsets` lists the organization's sets (id, name, pack, state, when made, cases);

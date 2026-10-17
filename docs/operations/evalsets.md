@@ -10,9 +10,9 @@ set under its rotation rule, reading it, retiring it, listing sets and verifying
 the keys, rebuilding the hidden-case index and the sealed export, all from the key holder's
 command line; how a labeller labels, through their own routes (LP-11j); and how an
 organization's administrators list and read its sets and draw, assign and adjudicate their
-cases through theirs (LP-11k). Nothing grades against a set yet, and there is no screen over
-these routes yet: the grading route and the labelling and management screens come in later
-steps of LP-11.
+cases through theirs (LP-11k), and the dashboard's Labelling and Hidden sets screens over those
+routes (LP-11m, LP-11n). Nothing grades against a set yet: the grading route comes in a later
+step of LP-11.
 
 ## Where sets live
 
@@ -138,9 +138,9 @@ disagree on goes to a third, who works from the input alone, and the majority on
 settles it. The key holder draws the cases, assigns them and adjudicates disputes from the
 command line, or the set organization's administrators do through their routes ([Curating from
 the dashboard API](#curating-from-the-dashboard-api)); the labellers label through their own
-routes ([How a labeller labels](#how-a-labeller-labels); the screens over both come in later
-steps of LP-11). Each command takes the server's database from `--db` or `$DATABASE_URL`, works
-on a draft set only, and prints ids, case hashes, user ids and counts.
+routes ([How a labeller labels](#how-a-labeller-labels)); the dashboard's Labelling and Hidden
+sets screens are over those routes. Each command takes the server's database from `--db` or
+`$DATABASE_URL`, works on a draft set only, and prints ids, case hashes, user ids and counts.
 
 **Who labels.** A labeller is a person with the `labeller` role on a membership of the set's
 organization (memberships mode, [accounts](accounts.md)), named by their user id
@@ -280,6 +280,20 @@ route computes statistics, freezes or retires.
 | `POST /api/evalsets/{set}/sample` | Step 1 above: `{"per_stratum": N}` or `{"cases": N}`, and `"seed"` (0 unless given). The answer: `{"set", "drawn", "sampled", "seed"}`. Chained: `evalset.sampled`. |
 | `POST /api/evalsets/{set}/assignments` | Step 2: `{"labellers": ["user:…", ...], "seed": 0}`. The answer: `{"set", "round", "assigned", "withdrawn"}`, counts only. Chained: `evalset.assigned`, one per assignment. |
 | `POST /api/evalsets/{set}/adjudication` | Step 4: the same body and answer, for each disputed case's third labeller. |
+
+**In the dashboard.** The section list's **Hidden sets** (`#evalsets`, LP-11n) is a screen over
+these routes and the members list, shown only to such an administrator on such a server (a
+labeller, another role, claims mode or a server without the keys sees neither it nor its link).
+It lists the organization's sets; a set opens on its facts (state, commitment, evaluation runs
+used and left) and its tabs: **Progress** (its cases by status, and each labeller's first and
+third labels by name, read again each time the tab is shown), **Sample**, **Assign** and
+**Adjudicate** (steps 1, 2 and 4, for a draft only: per stratum or in all, with a seed; only
+members holding the labeller role and no administrator's are offered), **Agreement** and
+**Coverage** (what the key holder last stored, step 5, or "Not measured yet": percent agreement
+as k of n with its exact interval, each pair's kappa and the pool's alpha with their intervals or
+"not estimable" and why, critical labels with too few distinct positives marked "insufficient
+evidence"). A refusal is said in the form, in the server's words. It shows ids, counts, names and
+the stored aggregates only, never a case.
 
 Each write works on a draft set only (a frozen, active or retired one is refused, `400`), with the
 same refusals as its command: a labeller who does not hold the labeller role in the organization,

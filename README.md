@@ -892,7 +892,12 @@ commitment and runs left, its cases by status, each labeller's work by user id, 
 aggregates the key holder stored; never a case), and `POST /api/evalsets/{id}/sample`,
 `/assignments` and `/adjudication` draw, assign and adjudicate as the commands do; another
 organization's set is a `404` like an unknown one, and no route measures, freezes or retires.
-The dashboard's labelling and management screens and the grading route come in later steps.
+In the dashboard, a labeller labels in **Labelling**, and the administrators run their sets in
+**Hidden sets** (`#evalsets`, over those routes and the members list only): each set's state and
+evaluation runs left, its cases by status and each labeller's work by name, drawing, assigning
+and adjudicating, and the agreement (percent agreement as k of n with its interval, kappa and
+alpha, "not estimable" in words) and coverage the key holder stored; never a case. The grading
+route comes in a later step.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

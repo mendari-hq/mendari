@@ -320,10 +320,13 @@ export function storageSet(key, value) {
 // in), else null. `checkpointKey`: the id of the key that signs the daily checkpoint (`/api/health`),
 // else null: the audit trail then asks for no checkpoint. `labelling`: the person holds `label` and
 // the deployment serves the labelling routes (labelling.js); `labelOnly`: and holds nothing else,
-// so the labelling screen is all they see.
+// so the labelling screen is all they see. `evalsets`: the deployment has the evaluation-set keys
+// (`/api/health` names their ids to a signed-in reader): in memberships mode, its administrators'
+// hidden sets screen is served (evalsets.js).
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
   accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, labelOnly: false,
+  evalsets: false,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
