@@ -845,7 +845,13 @@ def test_a_request_the_store_refuses_names_no_value(world: World) -> None:
 
 
 def evalset_routes(app: Any) -> set[tuple[str, str]]:
-    return {(m, p) for m, p in mounted_routes(app) if p.startswith(SETS)}
+    """The curators' routes mounted: those under theirs, but the grading route (LP-11l), which
+    is a grading key's and mounted with the keys in both account modes."""
+    return {
+        (m, p)
+        for m, p in mounted_routes(app)
+        if p.startswith(SETS) and permission_for(m, p) != "grade"
+    }
 
 
 def test_the_routes_are_absent_in_claims_mode_and_without_the_keys(

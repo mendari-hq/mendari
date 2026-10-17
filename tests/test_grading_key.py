@@ -4,7 +4,8 @@ credential that holds `grade`: the operator mints it on the command line (never 
 at most 365 days, chained with why; it holds nothing else; an administrator lists and revokes
 it, never rotates it. No person, administrator, other key or open mode holds `grade`; `label`
 and `curate` are people's, and open mode holds none of the three. A grading route refuses
-everyone else with its own reason. No route needs these yet. All keys are made per test."""
+everyone else with its own reason (the grading route itself, LP-11l, is tested in
+tests/test_evalset_grading.py). All keys are made per test."""
 
 from __future__ import annotations
 
@@ -130,7 +131,8 @@ def test_an_administrator_lists_and_revokes_it_but_never_rotates_or_mints_one(
 def test_a_grading_route_lets_the_grading_key_through_and_refuses_everyone_else(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """No route needs `grade` yet (11l adds one): a path mapped to it here shows the guard."""
+    """The guard alone, on a path mapped to `grade` here (the grading route, LP-11l, is tested
+    in tests/test_evalset_grading.py)."""
     probe = "/api/grading-probe"
     real = Auth.permission
     monkeypatch.setattr(

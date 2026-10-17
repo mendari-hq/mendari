@@ -590,6 +590,9 @@ EXPECTED_CLASSES = {
     ("GET", "/api/audit/export/fhir"): "export",
     ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
+    # With the evaluation-set keys, in both account modes: a grading run is an evaluation
+    # (LP-11l), counted per grading key.
+    ("POST", "/api/evalsets/{set_id}/runs"): "evaluate",
 }
 # What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
 # signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j). An
@@ -612,7 +615,7 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     counts against, from its permission and path, and with the default limits on, one call of
     each as an admin (the route matrix's other half: limits never change who may call what) is
     never a 429. Hidden evaluation sets are on, so the routes they mount are classified too
-    (LP-11g; a labeller's, in memberships mode, LP-11j)."""
+    (LP-11g; a labeller's, in memberships mode, LP-11j; the grading route, in both, LP-11l)."""
     backend_on(monkeypatch)
     evalset_on(monkeypatch)
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)

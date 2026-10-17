@@ -195,9 +195,12 @@ auth_logger = logging.getLogger("mendari.auth")
 # Memberships mode's own paths: a person's own routes, an organization's people, and a labeller's
 # and its curators' routes over hidden evaluation sets (LP-11j, LP-11k, mounted with the
 # evaluation-set keys too). Not mounted in claims mode, where they read as any route no rule
-# lists, `admin` (`Auth.permission`).
+# lists, `admin` (`Auth.permission`). The grading route (LP-11l, `GRADING_PATH`) is under the
+# curators' path but mounted with the keys in both account modes: it is not one of them.
+GRADING_PATH = r"^/api/evalsets/[^/]+/runs$"
 _MEMBERSHIPS_ONLY = re.compile(
-    r"^/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets)(/|$)"
+    rf"^(?!{GRADING_PATH.removeprefix('^')})"
+    r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets)(/|$)"
 )
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
@@ -277,6 +280,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # mounted otherwise): a labeller's own counts, next case and label, people only. Every
         # method and path under it, before the reads below: the next case is a hidden case.
         ("*", r"^/api/labelling(/|$)", "label"),
+        # A grading run over one of an organization's hidden sets (LP-11l; mounted with the
+        # evaluation-set keys in both account modes): its grading key only, which holds nothing
+        # else. Every method on its path, before the curators' rule below, which would take it.
+        ("*", GRADING_PATH, "grade"),
         # And an organization's curators' (LP-11k, mounted likewise): its sets listed and read,
         # their cases drawn, assigned and adjudicated, people only (an administrator). Every
         # method and path under it, before the reads below: a set's answer names its strata,

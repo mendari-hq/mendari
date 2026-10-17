@@ -896,8 +896,13 @@ In the dashboard, a labeller labels in **Labelling**, and the administrators run
 **Hidden sets** (`#evalsets`, over those routes and the members list only): each set's state and
 evaluation runs left, its cases by status and each labeller's work by name, drawing, assigning
 and adjudicating, and the agreement (percent agreement as k of n with its interval, kappa and
-alpha, "not estimable" in words) and coverage the key holder stored; never a case. The grading
-route comes in a later step.
+alpha, "not estimable" in words) and coverage the key holder stored; never a case.
+
+The organization's grading key grades a pack against one of its frozen sets through
+`POST /api/evalsets/{id}/runs`, mounted with both keys in either account mode: with local
+providers only, each run counted against the set's rotation rule and chained before its cases
+are read, nothing stored, and answered with aggregates only (`mendari.hidden_result/1`, never a
+case).
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1374,7 +1379,8 @@ src/mendari/
 │                Decision Card
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
-├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage
+├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
+│                a hidden set's grading result
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
