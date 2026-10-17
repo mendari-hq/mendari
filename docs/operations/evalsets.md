@@ -3,16 +3,16 @@
 A **hidden evaluation set** is a set of hand-written cases that a pack's authors never see, kept
 to measure the pack honestly (LP-11,
 [ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)). Clinicians label its cases blind,
-and a grading run will answer aggregates only. This runbook covers what is built so far: making
+and a grading run answers aggregates only. This runbook covers what is built so far: making
 a set, adding and removing its cases, drawing them for labelling, assigning them to labellers,
 following the labelling, adjudicating disputes and measuring agreement and coverage, freezing a
 set under its rotation rule, reading it, retiring it, listing sets and verifying them, rotating
 the keys, rebuilding the hidden-case index and the sealed export, all from the key holder's
 command line; how a labeller labels, through their own routes (LP-11j); and how an
 organization's administrators list and read its sets and draw, assign and adjudicate their
-cases through theirs (LP-11k). Nothing grades against a set yet, and there is no screen over
-these routes yet: the grading route and the labelling and management screens come in later
-steps of LP-11.
+cases through theirs (LP-11k); and how the organization's grading key grades a pack against a
+frozen set through its route (LP-11l, [Grading a hidden set](#grading-a-hidden-set)). The
+management screen comes in a later step of LP-11.
 
 ## Where sets live
 
@@ -359,26 +359,87 @@ the set and inside its content (so editing them breaks its commitment), and chai
 - **Age.** The set grades while less than `--max-age-days` days (1 to 3,650) have passed since it
   froze.
 
-Whichever comes first ends its grading: each later read is refused, naming the set, and nothing
-is read or chained. Nothing retires a set on its own; retire it, and freeze a new one to grade
-against. `mendari evalset show` tells how many runs are left and until when.
+Whichever comes first ends its grading: each later run is refused (`no_runs_left` or `expired`,
+[Grading a hidden set](#grading-a-hidden-set)), and nothing is read or chained. Nothing retires a
+set on its own; retire it, and freeze a new one to grade against. `mendari evalset show` tells how
+many runs are left and until when, and each run's answer how many are left after it.
 
-## Grading (LP-11l)
+## Grading a hidden set
 
-No command or route grades against a set yet: the grading route, for the organization's grading key
-only (`mendari access grader-key`), comes in LP-11l and answers aggregates only. What it will call
-is already in the store, and runs in the server's process only: it serves a frozen or active set of
-the grading key's organization, to a live grading key, while the rotation rule holds and the set's
-rows still give the content its commitment covers (otherwise it is refused, naming no case). A set
-the chain retired is never served, whatever its row's state says. A set holding values sealed under
-a key this database knows and the deployment lacks (a rotation's reader not deployed) is refused
-naming that key's id, not as a changed set: deploy it in `MENDARI_EVALSET_READ_KEYS`, or finish the
-rotation. In one transaction it checks all that, makes a frozen set `active` on its first read
-(`evalset.activated`) and chains the read (`evalset.graded`: the grading key, the pack's digest and
-the run's number); only then are the cases handed to the run, in memory, named by their case hashes,
-and only what the run returns comes back. Nothing about the run is stored beside the chained read,
-and a run that fails still counts. Reads made at the same time never exceed `--max-runs`: each one's
-check and its chained read are one transaction.
+An organization's grading key grades a pack against one of its frozen or active sets through one
+route of the server (LP-11l), mounted with both evaluation-set keys in either account mode. Only
+that key reaches it, and only the operator makes one, from the command line:
+
+```bash
+mendari access grader-key --org <org> --reason "LP-17's runner" --db "$DATABASE_URL"
+```
+
+It holds `grade` and nothing else, for 365 days at most, and its secret is printed once: keep it
+as you would the sets. No person (an administrator included), other key or token reaches the
+route (`403`, `grading_only`); an EHR launch's cookie is no credential there (`401`), and a
+server without sign-in never starts with the keys. An administrator lists and revokes the key
+(the Access view, `DELETE /api/auth/keys/{id}`), never rotates it.
+
+```bash
+curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
+  -H "Authorization: Bearer $GRADING_KEY" -H "Content-Type: application/json" \
+  -d '{"pack": "mendari/patient-inbox-router", "variants": {"router": "naive_bayes"}}'
+```
+
+- `pack` is the id of the pack the set was made for, as this server serves it. A later version
+  of it grades the set too, as long as it asks the set's questions with their labels and
+  critical labels.
+- `variants` may name a variant for any of the pack's provider slots; the others run the
+  deployment's choice, else the pack's default. **Every slot runs a local variant** (rules,
+  criteria, dosing, naive Bayes, or a composite of those only): a hidden set's cases never leave
+  the server (owner decision 4 is open: LP-17 decides on remote providers). Where the deployment
+  runs a slot remotely (Jev, an LLM), name a local variant for it here.
+
+Before any case is read, the set's header is checked against the pack asked for, and each slot's
+variant is checked to be local. Then, in one exclusive transaction, the store's grading read
+checks that the set is frozen or active and that its [rotation rule](#the-rotation-rule) allows
+another run, recomputes its content against the commitment chained when it froze, makes a frozen
+set `active` on its first run (`evalset.activated`) and chains the read (`evalset.graded`: the
+grading key, the pack's digest, how many cases and the run's number). Reads made at the same time
+never exceed `--max-runs`: each one's check and its chained read are one transaction. Only then
+are the cases handed, in memory, to the run, named by their case hashes: each decided with no
+store, so no decision is recorded, no report saved (`/api/evals` does not change), no ledger kept
+and nothing spent. A run that fails still counts.
+
+The answer is `mendari.hidden_result/1` ([the evaluation reports'
+spec](../spec/evaluation-reports.md)): the set's id and commitment, how many cases were graded,
+this run's number and the runs left, the pack and its providers, and aggregates only: each
+question's metrics (its accuracy as k of n, per-label precision, recall and F1, the confusion
+matrix, the Brier score and its interval, calibration bins of 10 cases or more), the outcome
+counts and rates, each critical label's counts, the threshold sweep and error counts. Never a
+case, its id or hash, a missed or misclassified case, a subgroup, or the dataset's or the
+ledger's identity. It names the pack's labels beside counts and rates: keep it as you would the
+set's aggregates.
+
+A refusal is answered with its fixed `reason` and one sentence, never more (a store's message
+names the set, and a run's could name a case):
+
+| `reason` | Status | Why |
+|---|---|---|
+| `no_set` | 404 | No set of the key's organization has that id: another organization's set, an unknown id and a malformed one are one answer, naming no id. |
+| `wrong_pack` | 422 | `pack` is not the set's, or the pack served here no longer asks the set's questions. |
+| `unknown_variant` | 422 | `variants` names a slot or a variant the pack does not have. |
+| `remote_provider` | 422 | A slot would run a remote provider. |
+| `pack_unavailable` | 409 | The set's pack is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. |
+| `not_gradable` | 409 | The set is a draft, or retired (its chain's word, whatever its row says). |
+| `no_runs_left` | 409 | The set has had its `--max-runs`: retire it and freeze another. |
+| `expired` | 409 | The set froze `--max-age-days` days ago or more: retire it and freeze another. |
+| `set_changed` | 409 | Its rows no longer give the commitment chained at freeze: run `mendari audit verify --evalsets`, and restore the database from a backup if it was altered. |
+| `set_unavailable` | 503 | A value of the set is sealed under a key this deployment lacks (a rotation's reader not deployed): deploy it in `MENDARI_EVALSET_READ_KEYS`, or finish the rotation (`mendari evalset rotate --check`). |
+| `run_failed` | 500 | The run failed after its read, which counts. |
+
+No case is read and nothing is chained for a refusal but `run_failed`. The server's log (`mendari.evalsets`, a
+warning) names the set, and only the set, for `set_changed` and `set_unavailable`, and the set and
+the error's type for `run_failed`. A grading run counts against the grading key's `evaluate` rate
+limit (6 an hour unless `MENDARI_RATE_LIMITS` sets it). The notice does not gate it: a key is
+never asked. The security log says `evalset.graded` with the set's id and how many cases were
+graded (a refusal: its reason, with the set's id, or with no id for `no_set`), and the access line
+names the route's template.
 
 ## Retiring a set
 

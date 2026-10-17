@@ -227,6 +227,9 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
     (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
     (ENGINE, "POST", "/api/evalsets/{set_id}/adjudication"): ("evalset.assigned",),
+    # A grading run (LP-11l): each read of the set chained before its run receives the cases,
+    # and a frozen set's first activates it. The run itself stores nothing.
+    (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py

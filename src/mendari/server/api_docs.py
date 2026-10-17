@@ -52,6 +52,14 @@ TAGS = [
         "and the coverage and rater agreement the key holder stored), and their cases drawn, "
         "assigned and adjudicated. Ids and counts: never a case, an input or a label given.",
     },
+    {
+        "name": "Grading",
+        "description": "A pack graded against one of the organization's hidden evaluation sets, "
+        "frozen and committed to, by its grading key only (which only the operator makes): each "
+        "run counted against the set's rotation rule and recorded in the audit chain, with "
+        "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
+        "never a case, its id or a missed case. Nothing is stored.",
+    },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
 ]
@@ -211,8 +219,8 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
         f"decides is one, at most 50 a request), the AI guard {rates['guard']}, evaluations "
-        f"{rates['evaluate']}, exports {rates['export']} and a labeller's calls "
-        f"{rates['label']}; signing in {rates['signin']} and the token endpoint "
+        f"{rates['evaluate']} (a grading run is one), exports {rates['export']} and a labeller's "
+        f"calls {rates['label']}; signing in {rates['signin']} and the token endpoint "
         f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "
         "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
         "no-store`: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's "
@@ -453,6 +461,15 @@ def _secure(
         needed = (
             "a person who signed in as an administrator of the organization they act for "
             "(`curate`, memberships mode; never a key, a token or a labeller)"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
+    if permission == "grade":  # an organization's grading key only (server/auth.py GRADING_ONLY)
+        operation["security"] = [{"apiKey": []}]
+        needed = (
+            "the organization's grading key (`grade`), which only the operator makes "
+            "(`mendari access grader-key`); never a person, an administrator, another key or a "
+            "token"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

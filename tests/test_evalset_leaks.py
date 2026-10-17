@@ -11,8 +11,9 @@ third through their routes (LP-11k), reading the set before and after; one label
 their routes (LP-11j: shown their next case, then labelling it) and leaves an assignment open, the
 others label at the store; and the set's agreement and coverage are measured and sealed.
 Each organization also holds a set in each state of the lifecycle (LP-11i), made, labelled and
-frozen the same way: one left frozen, one made active by a grading read at the store (no route
-grades yet), one retired, each read with `evalset show` and by the administrator's route. What
+frozen the same way: one left frozen (until the sweep grades it through the grading route,
+LP-11l), one made active by a grading read at the store, one retired, each read with `evalset
+show` and by the administrator's route. What
 the store makes of all this is a mark too: each case's id, its salt and each label's, each
 frozen set's freeze salt and its unsalted content hash, every sealed token (before and after a
 rotation: inputs, attributes, headers, labels, aggregates, freeze records), the hidden-case
@@ -32,7 +33,9 @@ keys as they are by then and shown to have the feature on (health names their id
   roles, the scoped keys of tests/test_auth.py, a key of every preset, clients with every scope
   and with each scope, an EHR launch alone and with a person's session, the grading key, and
   the scheduled jobs' secret; then, with the deployment started again in claims mode, by no
-  one, the scheduled jobs and a person of each claims role;
+  one, the scheduled jobs, a person of each claims role and the grading key; the grading route's
+  set is the organization's frozen one, sent its pack, so its grading key is answered a run in
+  each mode (LP-11l);
 - each answer (its body with its NDJSON lines, and every header), each security-log line (the
   access line included) and every log record is scanned, and so is the output of every
   `mendari evalset` command, of `mendari audit verify --evalsets`, of `mendari audit export
@@ -52,16 +55,18 @@ holder aggregates by label, `evalset agreement`, `evalset coverage`, `evalset fr
 critical label's distinct positives, conflict 48) and `evalset show` (the stored aggregates)
 (`AGGREGATES`, conflict 57 as amended in LP-11i: counts and coefficients, naming no case), in
 `GET /api/evalsets/{set_id}` answered to a curator of the set's organization (its questions and
-stored aggregates, conflict 57 as amended in LP-11k) and in a labeller's own next case (its
-questions); each evaluation-set event's payload
+stored aggregates, conflict 57 as amended in LP-11k), in a grading run answered to its
+organization's grading key (aggregates by question and label, conflict 57 as amended in LP-11l)
+and in a labeller's own next case (its questions); each evaluation-set event's payload
 holds the keys pinned for its kind and no other, each of its shape, and no label word. The
 scanner is shown to see: each mark is found where it lives (the export file, the `evalset_`
 tables, what the key holder's own store opens), so a scanner that finds nothing fails. Every
 principal is the one it is meant to be (`/api/auth/me`), every URL answers someone with a 2xx or
 3xx but the pins of `NOT_ANSWERED`, each with its reason, and every evaluation-set route is
 swept, in each mode that mounts it (`EVALSET_ROUTES`: a labeller's three and a curator's five,
-memberships mode only), the labeller with an open assignment shown it and each administrator
-answered on their own set; one that appears without being listed fails. SQLite and Postgres;
+memberships mode only; the grading route, both), the labeller with an open assignment shown it,
+each administrator answered on their own set and each grading key a run over its own frozen set;
+one that appears without being listed fails. SQLite and Postgres;
 keys are made per test, cases are synthetic."""
 
 from __future__ import annotations
@@ -176,7 +181,8 @@ class Surface:
     # http: the organization whose labeller `GET /api/labelling/next` answered (LP-11j)
     own_case_of: str = ""
     # http: the organization whose curator `GET /api/evalsets/{set_id}` answered (LP-11k): its
-    # questions and stored aggregates, by label
+    # questions and stored aggregates, by label; or whose grading key a grading run answered
+    # (LP-11l): aggregates by question and label
     aggregates_of: str = ""
     evalset: bool = False  # http: an answer of an evaluation-set route (`EVALSET_ROUTES`)
 
@@ -241,9 +247,10 @@ LABEL_WORD = re.compile(r"\b(?:" + "|".join(map(re.escape, LABEL_WORDS)) + r")\b
 # the pack's label words, as counts and coefficients beside no case; and so do freezing (each
 # critical label's distinct positives, conflict 48) and `show` (the stored aggregates), LP-11i's
 # amendment to conflict 57. Every other `evalset` command, `audit verify` and every log stay
-# without one. Of the evaluation-set routes' answers, only two may hold one: a set's, to a
+# without one. Of the evaluation-set routes' answers, only three may hold one: a set's, to a
 # curator of its organization (its questions and stored aggregates, LP-11k's amendment to
-# conflict 57), and a labeller's own next case (its questions, LP-11j).
+# conflict 57), a grading run's, to its organization's grading key (aggregates by question and
+# label, LP-11l's amendment), and a labeller's own next case (its questions, LP-11j).
 AGGREGATES = ("evalset agreement", "evalset coverage", "evalset freeze", "evalset show")
 
 
@@ -367,6 +374,9 @@ EVALSET_ROUTES: dict[Route, tuple[str, ...]] = {
     ("POST", "/api/evalsets/{set_id}/sample"): ("memberships",),
     ("POST", "/api/evalsets/{set_id}/assignments"): ("memberships",),
     ("POST", "/api/evalsets/{set_id}/adjudication"): ("memberships",),
+    # An organization's grading key's: a grading run over one of its frozen or active sets
+    # (LP-11l), mounted with the keys in both account modes.
+    ("POST", "/api/evalsets/{set_id}/runs"): ("memberships", "claims"),
 }
 # Where a labeller is shown their own next case (LP-11j): the one answer a case's input may be
 # in, to a labeller of the case's organization (`allowed`).
@@ -379,6 +389,10 @@ SET_ROUTE: Route = ("GET", "/api/evalsets/{set_id}")
 SAMPLE_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/sample")
 ASSIGN_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/assignments")
 ADJUDICATE_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/adjudication")
+# A grading key's (LP-11l): the one answer, but a curator's set, that may name label words, to a
+# grading key of the set's organization, run over its frozen set (`fill`) with its pack
+# (`options`).
+RUNS_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/runs")
 # Routes no principal here is answered on with a 2xx or 3xx, in either mode, each with why: they
 # are still called and scanned. (A write the sweep sends an empty body is answered by `served`.)
 NOT_ANSWERED: dict[Route, str] = {
@@ -849,9 +863,10 @@ def lifecycle(world: World, org: Org) -> None:
     """`org`'s sets in each state of the lifecycle (LP-11i): each made and filled with `org`'s
     planted cases by the key holder's commands, drawn and assigned to the two labellers who have
     no open assignment (the second keeps the first set's open), labelled at the store (they
-    agree), frozen (`evalset freeze`); then one is left frozen, one made active by a grading read
-    at the store with `org`'s grading key (no route grades yet; the run sees the cases in the
-    process and answers a count), and one read and retired (`evalset retire`). Each is read
+    agree), frozen (`evalset freeze`); then one is left frozen (the sweep grades it through the
+    grading route, LP-11l), one made active by a grading read at the store with `org`'s grading
+    key (the run sees the cases in the process and answers a count), and one read and retired
+    (`evalset retire`). Each is read
     with `evalset show` and by `org`'s administrator (LP-11k: its state, commitment, runs and
     the aggregates freezing stored), and the sets listed; every output and answer is scanned,
     and none names a case."""
@@ -1042,6 +1057,8 @@ def fill(method: str, path: str, org: Org) -> str:
             )
         },
     }
+    if (method, path) == RUNS_ROUTE:  # a grading run: over the organization's frozen set
+        fills["set_id"] = org.lifecycle["frozen"]
     url = re.sub(r"\{(\w+)\}", lambda match: fills.get(match[1]) or match[0], path)
     assert "{" not in url, f"{method} {path}: a placeholder no rule here fills"
     query = dict(QUERIES.get(path, {}))
@@ -1051,7 +1068,10 @@ def fill(method: str, path: str, org: Org) -> str:
 
 
 def options(method: str, path: str) -> dict[str, Any]:
-    """What a call sends: a FHIR search's empty form, or an empty JSON body to a write."""
+    """What a call sends: a FHIR search's empty form; a grading run its set's pack (so the
+    organization's grading key is answered a run, LP-11l); or an empty JSON body to a write."""
+    if (method, path) == RUNS_ROUTE:
+        return {"json": {"pack": INBOX}}
     if path.endswith("/_search"):
         return {"content": "", "headers": {"content-type": "application/x-www-form-urlencoded"}}
     return {} if method in ("GET", "HEAD") else {"json": {}}
@@ -1084,6 +1104,7 @@ def sweep(
     anonymous: set[str],
     curators: set[str],
     labellers: set[str],
+    graders: set[str],
 ) -> None:
     """Every route as every caller (each on its organization's ids); the calls that end a
     session last. Each caller is first shown to be who it is meant to be: those named in
@@ -1091,8 +1112,10 @@ def sweep(
     no one fails), and those holding `curate` are `curators`. A `curate` route's answer to a
     principal who holds it (an administrator who signed in) is its organization's curators'
     (conflicts 38 and 55), and its set's answer may name label words (conflict 57 as amended in
-    LP-11k); `GET /api/labelling/next` answered to `labellers` is their own next case (LP-11j).
-    What each call got is kept (`World.statuses`)."""
+    LP-11k); `GET /api/labelling/next` answered to `labellers` is their own next case (LP-11j);
+    a grading run's answer to `graders` (each organization's grading key) may name label words
+    too, as aggregates (conflict 57 as amended in LP-11l), and no mark. What each call got is
+    kept (`World.statuses`)."""
     held = {
         name: world.call(headers, "GET", "/api/auth/me", name=name).json().get("principal", {})
         for _, name, headers in called
@@ -1104,6 +1127,9 @@ def sweep(
     assert {
         name for name, principal in held.items() if "label" in principal.get("permissions", ())
     } == labellers
+    assert {
+        name for name, principal in held.items() if "grade" in principal.get("permissions", ())
+    } == graders
     ordered = [r for r in routes if r not in LAST] + [r for r in routes if r in LAST]
     for method, path in ordered:
         curate = permission_for(method, path) == "curate"
@@ -1116,7 +1142,10 @@ def sweep(
                 name=name,
                 curate_of=org.name if curate and name in curators else "",
                 own_case_of=org.name if (method, path) == OWN_CASE and name in labellers else "",
-                aggregates_of=org.name if (method, path) == SET_ROUTE and name in curators else "",
+                aggregates_of=org.name
+                if ((method, path) == SET_ROUTE and name in curators)
+                or ((method, path) == RUNS_ROUTE and name in graders)
+                else "",
                 **options(method, path),
             )
             world.swept.add((name, (method, path)))
@@ -1411,6 +1440,7 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
                 for org in ORGS
                 for assigned in ("", " with assignments")
             },
+            graders={f"{org} grading key" for org in ORGS},
         )
         for each in ORGS:  # the labeller with an open assignment was shown it; the other, none
             labellers = (f"{each} member labeller with assignments", f"{each} member labeller")
@@ -1421,6 +1451,8 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
                 200,
                 200,
             ]
+            # Its grading key was answered a run over its frozen set (LP-11l), its first.
+            assert world.statuses[(f"{each} grading key", RUNS_ROUTE)] == 200
     world.drain("the sweep")
     # The deployment started again in claims mode (the default, ADR-0008), as its people of each
     # claims role: answered too on what memberships mode keeps for the operator.
@@ -1428,7 +1460,11 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
     by_claims = create_app(db_path=world.db)
     with TestClient(by_claims, base_url=APP) as client:
         world.client = client
-        people = callers(world, "claims mode", claims_people(world))
+        graders = [
+            (org, f"{org.name} claims grading key", org.principals["grading key"])
+            for org in world.orgs.values()
+        ]
+        people = callers(world, "claims mode", [*claims_people(world), *graders])
         reader = next(headers for _, name, headers in people if name.endswith("claims viewer"))
         evalsets_are_on(client, reader)
         in_claims = {*mounted_routes(by_claims), ("GET", "/openapi.json")}
@@ -1440,7 +1476,10 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
             anonymous={name for _, name, _ in people[:2]},
             curators={f"{org} claims admin" for org in ORGS},
             labellers=set(),
+            graders={name for _, name, _ in graders},
         )
+        for _, name, _ in graders:  # a run over its frozen set, active since its first (LP-11l)
+            assert world.statuses[(name, RUNS_ROUTE)] == 200, name
     world.drain("the sweep in claims mode")
 
     # Every log record, and every table of the database (the chain included).
@@ -1508,9 +1547,17 @@ def positive_controls(world: World, exported: Path) -> None:
     )
     states = {str(row["id"]): str(row["state"]) for row in sets}
     for org in world.orgs.values():
+        # The frozen set is active since its organization's grading key graded it through the
+        # grading route, once in each mode (LP-11l); the others are as the lifecycle left them.
         assert {state: states[set_id] for state, set_id in org.lifecycle.items()} == {
-            state: state for state in STATES
+            state: "active" if state == "frozen" else state for state in STATES
         }
+        with world.store._db.session(exclusive=False) as db:
+            graded = db.all(
+                "SELECT payload FROM audit_events WHERE decision_id = ? AND event = ?",
+                (f"evalset:{org.lifecycle['frozen']}", "evalset.graded"),
+            )
+        assert [json.loads(row["payload"])["run"] for row in graded] == [1, 2]
     live |= {
         str(row[column])
         for table, stored in (
@@ -1576,8 +1623,8 @@ def test_each_exception_is_as_narrow_as_its_conflict() -> None:
     Conflict 38: a set's name to its own organization's curators and in the key holder's
     `evalset` commands. Conflict 55: its stratum and language to those curators and in `evalset
     coverage` and `evalset show`. LP-11j: a case's input to a labeller of its organization, in
-    their next case. No mark anywhere else: no answer, log, other command or file, and never
-    the chain."""
+    their next case. No mark anywhere else: no answer (a grading run's to its organization's
+    grading key included, conflict 35), log, other command or file, and never the chain."""
     every = (*CONTENT, *MADE)
 
     def shown(surface: Surface, org: str = "clinic-a") -> set[str]:
@@ -1589,6 +1636,8 @@ def test_each_exception_is_as_narrow_as_its_conflict() -> None:
     curators = Surface("http", "a curate route", curate_of="clinic-a")
     their_set = Surface("http", "a set's answer", curate_of="clinic-a", aggregates_of="clinic-a")
     assert shown(their_set) == shown(curators)  # LP-11k: label words, never another mark
+    graded = Surface("http", "a grading run", aggregates_of="clinic-a", evalset=True)
+    assert shown(graded) == set()  # LP-11l: label words, as aggregates, and no mark (35)
     labeller = Surface("http", "a labeller's next case", own_case_of="clinic-a")
     assert shown(labeller) == {"input"}  # LP-11j: their own case, nothing else of it
     assert shown(labeller, org="clinic-b") == set()  # another organization's case
@@ -1653,17 +1702,21 @@ def test_no_label_word_is_in_a_log_or_an_evalset_command() -> None:
     for name in AGGREGATES:  # the key holder's aggregates: counts by label, beside no case
         assert not wordless(Surface("cli", name, command=name)), name
     # The evaluation-set routes' answers (LP-11k): none but a set's, to a curator of its
-    # organization (its questions and stored aggregates), and a labeller's own next case.
+    # organization (its questions and stored aggregates), a grading run's, to its organization's
+    # grading key (LP-11l), and a labeller's own next case; a grading run's refusal holds none.
     for surface in (
         Surface("http", "a curator's list", curate_of="clinic-a", evalset=True),
         Surface("http", "a draw or an assignment", curate_of="clinic-a", evalset=True),
         Surface("http", "a refusal of a set", evalset=True),
         Surface("http", "a labeller's counts or label", evalset=True),
+        Surface("http", "a grading run refused to anyone else", evalset=True),
     ):
         assert wordless(surface), surface.label
     for surface in (
         Surface("http", "a set's answer", curate_of="clinic-a", aggregates_of="clinic-a"),
         Surface("http", "a labeller's next case", own_case_of="clinic-a"),
+        # A grading run answered to its organization's grading key (LP-11l): aggregates.
+        Surface("http", "a grading run's answer", aggregates_of="clinic-a"),
     ):
         assert not wordless(replace(surface, evalset=True)), surface.label
     # Conflict 57, amended in LP-11i: freezing's critical labels and `show`'s stored aggregates.

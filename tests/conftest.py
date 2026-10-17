@@ -405,8 +405,10 @@ def evalset_on(monkeypatch: pytest.MonkeyPatch) -> tuple[bytes, bytes]:
     return key, index
 
 
-# The routes hidden evaluation sets mount in memberships mode (LP-11j: a labeller's; LP-11k: an
-# organization's curators').
+# The routes hidden evaluation sets mount in both account modes (LP-11l: the grading route, an
+# organization's grading key's), and those they mount in memberships mode only (LP-11j: a
+# labeller's; LP-11k: an organization's curators').
+EVALSET_CLAIMS_ROUTES = frozenset({("POST", "/api/evalsets/{set_id}/runs")})
 EVALSET_MEMBERSHIPS_ROUTES = frozenset(
     {
         ("GET", "/api/labelling"),
@@ -417,6 +419,7 @@ EVALSET_MEMBERSHIPS_ROUTES = frozenset(
         ("POST", "/api/evalsets/{set_id}/sample"),
         ("POST", "/api/evalsets/{set_id}/assignments"),
         ("POST", "/api/evalsets/{set_id}/adjudication"),
+        *EVALSET_CLAIMS_ROUTES,
     }
 )
 
@@ -425,21 +428,22 @@ def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
     """Hidden evaluation sets are on in the server `client` talks to, as a route inventory needs
     (LP-11g, conflict 37: with them off, their routes are not mounted and the inventory passes on
     nothing): health names, to a reader (`headers`), the ids of this environment's
-    evaluation-set keys; and in memberships mode the routes they mount there are mounted (LP-11j:
-    a labeller's; LP-11k: its curators'). Claims mode mounts none of them until the grading
-    route (LP-11l)."""
+    evaluation-set keys; and the routes they mount are mounted: the grading route in either
+    account mode (LP-11l), and in memberships mode a labeller's (LP-11j) and its curators'
+    (LP-11k) too."""
     keys = evalset_keys()
     assert keys is not None, "turn them on first: evalset_on(monkeypatch)"
     shown = client.get("/api/health", headers=dict(headers)).json()
     assert shown.get("evalset_keys") == keys.key_ids, shown.get("evalset_keys")
+    app = cast(FastAPI, client.app)
+    mounted = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or ()
+    }
+    assert mounted >= EVALSET_CLAIMS_ROUTES, "the keys mount the grading route"
     if client.get("/api/auth/me").json().get("accounts") == "memberships":
-        app = cast(FastAPI, client.app)
-        mounted = {
-            (method, route.path)
-            for route in app.routes
-            if isinstance(route, APIRoute)
-            for method in route.methods or ()
-        }
         assert mounted >= EVALSET_MEMBERSHIPS_ROUTES, "memberships mode mounts the sets' routes"
 
 

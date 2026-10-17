@@ -84,6 +84,20 @@ class NoEvalset(MendariError):
     set-management routes (LP-11k), as an id that names nothing is."""
 
 
+class GradingRefused(MendariError):
+    """A grading read of a hidden evaluation set refused (`core/evalsets.py` `grade_read`), or a
+    grading run refused before it reads one (LP-11l), with the fixed `reason` the grading route
+    answers and logs in place of the message: from the store `no_set`, `not_gradable`,
+    `no_runs_left`, `expired`, `set_changed` and `set_unavailable`; the route adds its own
+    (`server/app.py` `GRADING_REFUSALS`). The store's message names the set, for the key holder
+    and the tests; the route never repeats it. Retiring a set raises it too (`set_changed`,
+    `set_unavailable`), as the key holder's command's error."""
+
+    def __init__(self, reason: str, message: str):
+        self.reason = reason
+        super().__init__(message)
+
+
 class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when

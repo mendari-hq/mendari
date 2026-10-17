@@ -74,6 +74,24 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   answer to its organization's curators may name label words (its questions and aggregates), and
   the 11g sweep allows them there only, its curators drawing, assigning and adjudicating through
   the routes.
+- 11l, the grading route (`POST /api/evalsets/{set_id}/runs`), mounted with both keys in either
+  account mode: only an organization's grading key passes the guard (`grade`, under a rule of its
+  own before the curators', and not theirs in claims mode), for its own organization's sets
+  (another's, an unknown and a malformed id are one `404`); before any case is read, the set's
+  header is checked against the pack asked for (its id; a later version asking the same
+  questions grades the set too) and every provider slot must run a local variant (conflict 52,
+  owner decision 4 open); the store's grading read then chains the run and hands the cases in
+  memory to a Decision with no store, whose `mendari.eval/2` result, computed from its in-memory
+  ledger, is projected onto the closed `mendari.hidden_result/1` (`evals/hidden.py`, built from a
+  site report's parts: aggregates only, calibration bins and Brier intervals over 10 cases or
+  more, never a case, its id or hash, a missed or misclassified case, a subgroup or the dataset's
+  identity); nothing is stored (no decision, report, ledger or usage); every refusal and failure
+  is answered with a fixed reason (`GradingRefused`), a changed set with a `409` `set_changed`
+  and an operator's log line naming the set only; the `evaluate` rate-limit class; the security
+  log's `evalset.graded` names set ids only. Conflict 57 amended: a run's answer to its
+  organization's grading key may name label words, as aggregates, and the 11g sweep grades each
+  organization's frozen set through the route in both modes, its answer holding no mark
+  (conflict 35).
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

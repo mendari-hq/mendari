@@ -596,6 +596,8 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/evalsets/s1/sample", {"cases": 1}),
     ("POST", "/api/evalsets/s1/assignments", {"labellers": ["user:0123456789abcdef"]}),
     ("POST", "/api/evalsets/s1/adjudication", {"labellers": ["user:0123456789abcdef"]}),
+    # Its grading key's (LP-11l): a run over one of its sets.
+    ("POST", "/api/evalsets/s1/runs", {"pack": "mendari/patient-inbox-router"}),
 ]
 
 
@@ -621,7 +623,7 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         monkeypatch.setattr(AuditStore, name, reached)
     for name in (
         "labelling", "next_case", "record_label", "assignment_set", "named_sets", "summary",
-        "show", "progress", "sample", "assign", "adjudicate",
+        "show", "progress", "sample", "assign", "adjudicate", "grading_header", "grade_read",
     ):  # fmt: skip
         monkeypatch.setattr(EvalsetStore, name, reached)
     capsys.readouterr()

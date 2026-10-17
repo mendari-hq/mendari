@@ -107,7 +107,7 @@ _WHO = {
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
     "a token",
     "grade": "the organization's grading key, which only the operator makes: never a person, an "
-    "administrator or another key",
+    "administrator, another key or a token; a grading run answers aggregates only",
 }
 _LISTED = 8  # a row with more calls than this folds them away
 
@@ -318,7 +318,8 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         "person's who has not acknowledged the notice yet (<code>Mendari-Notice-Required</code>)."
         "</li>"
         "<li><strong>Costly calls are rate limited</strong> unless the deployment only counts "
-        "them: decisions, the AI guard, evaluations, exports and a labeller's calls per caller, "
+        "them: decisions, the AI guard, evaluations (a grading run is one), exports and a "
+        "labeller's calls per caller, "
         "signing in and the token endpoint per address; other reads are not. Over a limit the "
         "answer is a <code>429</code> with <code>Retry-After</code> (seconds): wait that long, "
         "then retry. The API reference gives the rates, signed in.</li>"

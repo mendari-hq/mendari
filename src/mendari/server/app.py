@@ -58,7 +58,7 @@ from mendari.core.card import benchmark, card_of
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
-from mendari.core.evalsets import EvalsetStore
+from mendari.core.evalsets import NO_SET, EvalsetStore, GradingRead, pack_problem
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy, require_protection
@@ -70,6 +70,7 @@ from mendari.errors import (
     ClientError,
     FhirError,
     FhirStructureError,
+    GradingRefused,
     InvitationRefused,
     LabelError,
     MendariError,
@@ -87,6 +88,7 @@ from mendari.errors import (
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
+from mendari.evals.hidden import HiddenResult, graded, holds
 from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
 from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
@@ -689,6 +691,55 @@ class SetAssigned(BaseModel):
     withdrawn: int = Field(description="open assignments whose membership no longer holds")
 
 
+# A grading run over a hidden evaluation set (LP-11l): what the organization's grading key sends,
+# and what it is answered (`evals/hidden.py` `HiddenResult`, closed, aggregates only).
+SlotName = Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class GradingRequest(BaseModel):
+    pack: str = Field(
+        min_length=1,
+        max_length=200,
+        description="the id of the pack the set was made for, as this server serves it",
+        examples=[INBOX],
+    )
+    variants: dict[SlotName, SlotName] | None = Field(
+        default=None,
+        max_length=64,
+        description="a variant for any of the pack's provider slots (the others run the "
+        "deployment's choice, or the pack's default); every slot must run a local variant",
+        examples=[{"router": "naive_bayes"}],
+    )
+
+
+# Each refusal of a grading run (LP-11l), by its fixed reason (`GradingRefused.reason`): its
+# status and the one sentence it is answered with, in place of any message (a store's names the
+# set, and a run's could name a case), and logged as its reason only.
+GRADING_REFUSALS: dict[str, tuple[int, str]] = {
+    # Unknown, malformed and another organization's: one answer, as the curators' routes give.
+    "no_set": (404, NO_SET),
+    "wrong_pack": (422, "a hidden set is graded with the pack it was made for: name it as `pack`"),
+    "pack_unavailable": (409, "the set's pack does not run on this server"),
+    "unknown_variant": (422, "`variants` names a slot or a variant the pack does not have"),
+    "remote_provider": (
+        422,
+        "a hidden set is graded with local providers only: name a local variant in `variants` "
+        "for each slot that runs a remote one here",
+    ),
+    "not_gradable": (409, "only a frozen or active set is graded"),
+    "no_runs_left": (409, "the set has had all the grading runs its rotation rule allows"),
+    "expired": (409, "the set is older than its rotation rule allows for grading"),
+    "set_changed": (409, "the set does not hold what it was frozen with: nothing was read"),
+    "set_unavailable": (503, "the set cannot be graded on this server now: nothing was read"),
+    "run_failed": (500, "the grading run failed; it counts as one of the set's runs"),
+}
+
+
+def grading_refused(reason: str) -> GradingRefused:
+    """A grading run's refusal as answered: its fixed reason and sentence (`GRADING_REFUSALS`)."""
+    return GradingRefused(reason, GRADING_REFUSALS[reason][1])
+
+
 # What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
 # an acknowledgement carries instead of a sign-in challenge.
 NOTICE = {"notice": notices.notice()}
@@ -1146,6 +1197,8 @@ def create_app(
             status = error.status
         if isinstance(error, ProviderError):
             status = _PROVIDER_STATUS.get(error.code, _PROVIDER_UPSTREAM)
+        if isinstance(error, GradingRefused):
+            status = GRADING_REFUSALS.get(error.reason, (status, ""))[0]
         if request.url.path.startswith(("/smart/", "/auth/")):
             page = error_page(str(error), status)
             page.headers.update(retry_headers(error))
@@ -2883,14 +2936,53 @@ def create_app(
             headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
             return HTMLResponse(invite_page, headers=headers)
 
+    def grading_decision(header: Mapping[str, Any], asked: GradingRequest) -> Decision:
+        """The Decision a grading run over a hidden set with `header` runs (LP-11l): the pack the
+        set was made for, as served here (`asked.pack` names it, and it still asks the set's
+        questions with their labels and critical labels), each slot on the variant `asked`
+        names, else the deployment's choice, else the pack's default, every one of them local
+        (conflict 52, owner decision 4 open); with no store (nothing is recorded), no budget (no
+        remote call), no governance override and the pack's own policy, as an evaluation
+        measures it. Refused before any case is read (`grading_refused`): `wrong_pack`,
+        `pack_unavailable` (not served here, it does not build, or what it names does not fit
+        `mendari.hidden_result/1`, so every run's answer would fail: `holds`), `unknown_variant`
+        and `remote_provider`. Its own Decision, whatever the deployment's for the pack built."""
+        if asked.pack != header.get("pack"):
+            raise grading_refused("wrong_pack")
+        pack = packs.get(asked.pack)
+        if pack is None:
+            raise grading_refused("pack_unavailable")
+        if pack_problem(pack, header) is not None:
+            raise grading_refused("wrong_pack")
+        slots = pack.manifest.providers
+        named = dict(asked.variants or {})
+        if any(slot not in slots or named[slot] not in slots[slot].variants for slot in named):
+            raise grading_refused("unknown_variant")
+        chosen = {**variants_for(pack)[0], **named}
+        running = {slot: chosen.get(slot, spec.use) for slot, spec in slots.items()}
+        if not all(_local_variant(pack, slot, variant) for slot, variant in running.items()):
+            raise grading_refused("remote_provider")
+        try:
+            decision = Decision(pack, providers=running, deadline_s=deadline_s, origin_cap=False)
+        except Exception:  # the pack's content: it does not run here, whatever it says
+            raise grading_refused("pack_unavailable") from None
+        if decision.is_remote:  # what the variants say, checked again on what was built
+            raise grading_refused("remote_provider")
+        if not holds(decision):
+            raise grading_refused("pack_unavailable")
+        return decision
+
     # A labeller's routes over hidden evaluation sets (LP-11j), and its organization's curators'
     # (LP-11k): memberships mode (so sign-in, which the keys need anyway) with both evaluation-set
     # keys, as the invitation page is memberships mode's; the hosted site (claims mode, no keys)
-    # mounts none of them (owner decision 1 open).
-    if auth.memberships and evalsets is not None:
+    # mounts none of them (owner decision 1 open). The grading route (LP-11l) is mounted with the
+    # keys in both account modes: only the organization's grading key reaches it.
+    if evalsets is not None:
         hidden = EvalsetStore(store, evalsets)
-        add_labelling_routes(app, auth, hidden)
-        add_evalset_routes(app, auth, hidden)
+        if auth.memberships:
+            add_labelling_routes(app, auth, hidden)
+            add_evalset_routes(app, auth, hidden)
+        add_grading_routes(app, auth, hidden, grading_decision)
 
     # The status page (LP-21b): public and static, the same for everyone; it reads readiness
     # (`/api/health/ready`) in the browser, so serving it does no database work. Its own policy
@@ -3160,6 +3252,112 @@ def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
         return SetAssigned.model_validate(_counted(made))
 
 
+def add_grading_routes(
+    app: FastAPI,
+    auth: Auth,
+    hidden: EvalsetStore,
+    grading: Callable[[Mapping[str, Any], GradingRequest], Decision],
+) -> None:
+    """The grading route over hidden evaluation sets (LP-11l, ADR-0011): one run of a pack over
+    one of the organization's frozen or active sets, answered with aggregates only
+    (`mendari.hidden_result/1`, `evals/hidden.py`). Mounted with both evaluation-set keys (so
+    with sign-in) in both account modes (`create_app`). The guard lets through only a grading
+    key (`grade`: never a person, an administrator, another key, a token, an EHR launch or open
+    mode), and the route acts for its organization: another organization's set answers as an
+    unknown one does (`no_set`, one `404`). Before any case is read the set's header is checked
+    against the pack asked for and every provider slot is checked to be local (`grading`); then
+    the store's grading read (`EvalsetStore.grade_read`) checks the set and its rotation rule,
+    recomputes its content against its commitment, chains the read (`evalset.graded`, and
+    `evalset.activated` on a frozen set's first) and hands the cases, in memory, to the run,
+    whose answer is the closed result. Nothing is stored: no decision, report, ledger or
+    `eval_reports` row. A refusal or a failure is answered with its fixed reason and sentence
+    (`GRADING_REFUSALS`), never a store's or a run's message; a set that no longer holds what it
+    was frozen with is a `409` `set_changed`, and the operator's log names the set only. Not
+    gated by the notice (a key is never asked); its rate-limit class is `evaluate`. The security
+    log names set ids only (conflict 50); the access line names the route's template."""
+
+    def grader_of(request: Request) -> Principal:
+        """The grading key the guard let through."""
+        principal = auth.acting(request)
+        if not principal.is_grading_key:  # the guard lets the grading key only through
+            raise AuthError("only the deployment's grading key may do this", 403)
+        return principal
+
+    @app.post(
+        "/api/evalsets/{set_id}/runs",
+        tags=["Grading"],
+        summary="Grade a pack against a hidden set: aggregates only",
+        response_model=HiddenResult,
+        responses={
+            404: {"description": "No set of your organization has that id"},
+            409: {"description": "The set is not graded now (`reason` says why)"},
+            422: {"description": "The pack or a variant asked for is not the set's to run"},
+        },
+    )
+    def grade_evalset(request: Request, set_id: str, body: GradingRequest) -> HiddenResult:
+        """One grading run of the pack a hidden evaluation set of your organization was made
+        for, over the set's cases, with local providers only, answered with aggregates only:
+        each question's metrics, the outcome counts and rates, each critical label's counts, the
+        threshold sweep and error counts, with the set's id and commitment, how many cases were
+        graded, this run's number and the runs left (`mendari.hidden_result/1`). Never a case,
+        its id or hash, a dataset's name or hash, a missed or misclassified case or a subgroup.
+        The set is frozen or active (a frozen set becomes active on its first run), its rotation
+        rule allows another run, and its cases still give the commitment chained when it froze;
+        each run is chained (`evalset.graded`) before the cases are read, and counts even if it
+        fails. `pack` is the set's pack id, and `variants` may choose a local variant for any of
+        its slots. Nothing is stored. A refusal names its `reason` only: `no_set` (`404`: an
+        unknown set and another organization's are one answer), `wrong_pack`,
+        `unknown_variant` and `remote_provider` (`422`), `pack_unavailable`, `not_gradable`,
+        `no_runs_left`, `expired` and `set_changed` (`409`), `set_unavailable` (`503`) and
+        `run_failed` (`500`)."""
+        principal = grader_of(request)
+        told: list[GradingRead] = []
+
+        def run(dataset: Dataset) -> HiddenResult:
+            try:
+                return graded(decision, dataset, told[0])
+            except Exception as error:  # after the read: it counts, and says nothing of a case
+                grading_logger.warning(
+                    "a grading run of evaluation set %s failed (%s): it counts as a run",
+                    set_id,
+                    type(error).__name__,
+                )
+                raise grading_refused("run_failed") from None
+
+        try:
+            header = hidden.grading_header(set_id, org=org_of(principal))
+            decision = grading(header, body)
+            answer = hidden.grade_read(
+                set_id, principal.id, decision.pack.digest, run, receipt=told.append
+            )
+        except NoEvalset:
+            log_event(request, "evalset.graded", outcome="refused", reason="no_set")
+            raise grading_refused("no_set") from None
+        except GradingRefused as refused:
+            reason = refused.reason if refused.reason in GRADING_REFUSALS else "set_unavailable"
+        except MendariError:  # the store's keys or database not ready for this set: say so only
+            reason = "set_unavailable"
+        else:
+            log_event(request, "evalset.graded", ids=[set_id], count=answer.n)
+            return answer
+        if reason == "no_set":
+            log_event(request, "evalset.graded", outcome="refused", reason=reason)
+        else:
+            log_event(request, "evalset.graded", ids=[set_id], outcome="refused", reason=reason)
+        if reason == "set_changed":
+            grading_logger.warning(
+                "evaluation set %s does not hold what it was frozen with: run `mendari audit "
+                "verify --evalsets`",
+                set_id,
+            )
+        elif reason == "set_unavailable":
+            grading_logger.warning(
+                "evaluation set %s cannot be graded here: run `mendari evalset rotate --check`",
+                set_id,
+            )
+        raise grading_refused(reason) from None
+
+
 def _counted(made: Mapping[str, Any]) -> dict[str, Any]:
     """What an assignment run answers a curator: counts, never the assignments it made (each a
     case's hash, its id and its labeller, which the chain keeps)."""
@@ -3191,7 +3389,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
         said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
-        if isinstance(error, InvitationRefused):  # which refusal, for the /invite page
+        if isinstance(error, InvitationRefused | GradingRefused):  # which refusal: a fixed code
             said["reason"] = error.reason
         return JSONResponse(identified(said), status, headers=headers)
     if isinstance(error, FhirStructureError):
@@ -3206,6 +3404,7 @@ quota_logger = logging.getLogger("mendari.limits")
 phi_logger = logging.getLogger("mendari.phi")
 monitor_logger = logging.getLogger("mendari.monitor")
 providers_logger = logging.getLogger("mendari.providers")
+grading_logger = logging.getLogger("mendari.evalsets")  # the operator's: a set's id only
 
 
 def log_event(request: Request, name: str, **fields: Any) -> None:

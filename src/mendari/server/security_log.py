@@ -52,7 +52,9 @@ set's id) and `evalset.labelled` (their label recorded: the set's id; or refused
 `no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
 `evalset.adjudication.assigned` (an organization's curator drawing a set's cases, assigning them
 and adjudicating disputes, LP-11k: the set's id and how many were drawn or assigned; or refused
-as `no_set`, an unknown set or another organization's, with no id), and `error.unhandled`.
+as `no_set`, an unknown set or another organization's, with no id), `evalset.graded` (a grading
+key's run over a hidden set, LP-11l: the set's id and how many cases were graded; or refused with
+its fixed reason, `no_set` with no id, any other with the set's id), and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

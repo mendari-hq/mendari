@@ -15,7 +15,7 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
 | `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
 | `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
-| `evaluate` | `POST …/evals` | principal | 6/h |
+| `evaluate` | `POST …/evals`, and a grading run (`POST …/runs`, LP-11l) | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
 | `label` | a labeller's routes (LP-11j; each case read is chained) | principal | 60/min, burst 30 |
 
@@ -338,7 +338,7 @@ class Limiter:
             return "decide"
         if permission == "decide":
             return "guard" if _GUARD.match(path) else "decide"
-        if permission == "evaluate":
+        if permission in ("evaluate", "grade"):  # a grading run is an evaluation (LP-11l)
             return "evaluate"
         if method == "GET" and _EXPORTS.match(path):
             return "export"

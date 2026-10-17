@@ -33,7 +33,9 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   and is never assigned their cases. `grading` is a machine's and is never held by a membership: an
   organization's grading key is made by the operator, `mendari access grader-key --org <org>
   --reason <why> [--days N]` (at most 365 days; its secret printed once), holds `grade` and
-  nothing else, and an administrator lists and revokes it in the Access view, never rotates it. An organization always keeps an
+  nothing else (a grading run over the organization's frozen hidden sets, aggregates only,
+  [evalsets](evalsets.md#grading-a-hidden-set)), and an administrator lists and revokes it in
+  the Access view, never rotates it. An organization always keeps an
   administrator who has signed in: removing or demoting its last one is refused (a pending
   membership, not yet taken up, does not count).
 - An invitation is a link, valid once, for 7 days by default (at most 30), for whoever signs in
