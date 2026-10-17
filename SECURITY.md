@@ -117,8 +117,12 @@ Each bullet is one control; the threat model names the row and the tests behind 
   carry a Mendari cookie or use POST, PUT, PATCH or DELETE (a browser leaves the SameSite=Lax
   cookie off another site's form, but the answer could still clear it), and in open mode to
   all. This site is the request's own host,
-  `MENDARI_PUBLIC_URL`, and any alias listed in `MENDARI_TRUSTED_ORIGINS`. Scripts that send
-  neither header (curl, the pilot check) are not affected.
+  `MENDARI_PUBLIC_URL`, and any alias listed in `MENDARI_TRUSTED_ORIGINS`. A read with a
+  Mendari cookie and neither `Sec-Fetch-Site` nor `Origin` (a browser without Fetch Metadata,
+  such as Safari before 16.4, following another site's link) reaches API routes only with
+  `X-Mendari-Request`, which Mendari's own pages send and another site cannot add without a
+  CORS preflight. Scripts that send neither header (curl, the pilot check) are affected only
+  there: their reads with a session cookie send `X-Mendari-Request: 1` too.
 - **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
   sign-in and `MENDARI_PUBLIC_URL`) lets clients that a signed-in admin registers, with a public
   JWK Set by value, exchange a signed assertion (RS384 or ES384, `aud` exactly the token URL,

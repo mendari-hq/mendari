@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Origin checks (server/origin.py): a request another site starts in a browser that holds a
-Mendari cookie (or any browser, in open mode) reaches only public routes and pages, to read;
-HSTS on every host but this machine."""
+Mendari cookie (or any browser, in open mode) reaches only public routes and pages, to read; a
+read with a Mendari cookie and neither Fetch Metadata nor `Origin` (an older browser following
+another site's link, or a script) reaches more only with Mendari's own header; HSTS on every host
+but this machine."""
 
 from __future__ import annotations
 
@@ -25,8 +27,17 @@ from mendari.core.phi import PhiPolicy
 from mendari.errors import AuthError, MendariError
 from mendari.server import app as app_module
 from mendari.server import smart_routes
-from mendari.server.app import create_app, mounted_routes
-from mendari.server.origin import REFUSED, OriginCheck, is_local_host, origin_of, trusted_origins
+from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
+from mendari.server.auth import permission_for
+from mendari.server.origin import (
+    OWN_REQUEST,
+    REACHABLE,
+    REFUSED,
+    OriginCheck,
+    is_local_host,
+    origin_of,
+    trusted_origins,
+)
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import (
     HASH_KEY_B64,
@@ -93,7 +104,11 @@ KINDS: list[tuple[str, dict[str, str]]] = [
     ("trusted alias, no metadata", {"origin": ALIAS}),
     ("foreign origin, no metadata", {"origin": "https://evil.example"}),
     ("origin null, no metadata", {"origin": "null"}),
-    ("not a browser", {}),
+    ("no browser headers", {}),
+    ("no browser headers, Mendari's own", {OWN_REQUEST: "1"}),
+    # Mendari's own header never outweighs what Fetch Metadata or `Origin` says.
+    ("cross-site, Mendari's own", {"sec-fetch-site": "cross-site", OWN_REQUEST: "1"}),
+    ("foreign origin, Mendari's own", {"origin": "https://evil.example", OWN_REQUEST: "1"}),
 ]
 
 
@@ -101,12 +116,17 @@ KINDS: list[tuple[str, dict[str, str]]] = [
 SAFE = ("GET", "HEAD")
 
 
-def expected(kind: str, method: str, path: str) -> bool:
-    """Whether a request of this kind with a Mendari cookie and no `Authorization` passes."""
+def expected(kind: str, method: str, path: str, *, cookie: bool = True) -> bool:
+    """Whether a request of this kind with no `Authorization` passes: with a Mendari cookie, or
+    (`cookie=False`) without one."""
     if kind in ("same-origin", "own host, no metadata", "public URL, no metadata"):
         return True
-    if kind in ("trusted alias, no metadata", "not a browser"):
+    if kind in ("trusted alias, no metadata", "no browser headers, Mendari's own"):
         return True
+    if kind == "no browser headers":
+        # A script, or an older browser following another site's link: an unsafe method is a
+        # script's (a browser would send `Origin`); a read with a cookie, a page's at most.
+        return not cookie or method not in SAFE or path in NAVIGABLE
     if kind == "address bar":
         return method in SAFE
     return method in SAFE and path in NAVIGABLE  # another site's (or an unknown) request
@@ -172,12 +192,13 @@ def test_every_route_and_kind_of_request_gets_what_it_should(
         safe = method in ("GET", "HEAD")
         for kind, headers in KINDS:
             want = expected(kind, method, path)
+            cookieless = expected(kind, method, path, cookie=False)
             cases = [
                 ("signed in", signed, {**COOKIE, **headers}, want),
                 ("open, cookie", open_mode, {**COOKIE, **headers}, want),
-                ("open, no cookie", open_mode, headers, want),
+                ("open, no cookie", open_mode, headers, cookieless),
                 ("bearer", signed, {**COOKIE, "authorization": "Bearer x", **headers}, True),
-                ("no cookie", signed, {"cookie": "other=1", **headers}, want or safe),
+                ("no cookie", signed, {"cookie": "other=1", **headers}, cookieless or safe),
             ]
             for who, check, sent, should in cases:
                 if passes(check, method, path, sent) != should:
@@ -320,6 +341,11 @@ def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_
     refused = client.get("/api/review", headers=link)
     assert refused.status_code == 403 and refused.json()["detail"] == REFUSED
     assert chain.verify()["events"] == before
+    # The same link in an older browser (Safari before 16.4): the cookie, and neither Fetch
+    # Metadata nor `Origin` (a navigation's GET sends none), nor Mendari's own header.
+    older = client.get("/api/review", headers={"cookie": reviewer["cookie"]})
+    assert older.status_code == 403 and older.json()["detail"] == REFUSED
+    assert chain.verify()["events"] == before
 
     # The dashboard's own request reads the queue, and the read is chained.
     own = client.get("/api/review", headers={**reviewer, "sec-fetch-site": "same-origin"})
@@ -431,6 +457,45 @@ def test_cookies_of_a_sign_in_say_samesite_lax_explicitly(
         assert "samesite=lax" in cookie.lower(), cookie
 
 
+def test_every_page_sends_mendaris_own_header(tmp_path: Path) -> None:
+    """The check reads `OWN_REQUEST`, and Mendari's pages send it on every request they make:
+    each script that calls `fetch` sends ui.js's `OWN_REQUEST` (the dashboard's `api` and
+    `download`, the invitation, landing and status pages), and the API reference, which imports
+    nothing, names the same header for Swagger UI's requests and its links to the document. A
+    plain link on a page reaches only what another site's link may (a public route or a page),
+    else it is fetched (the landing's OpenAPI document, `data-openapi`, and the API
+    reference's, which the browser suite clicks). A new script that fetches fails here until
+    it is looked at."""
+    sent = f'{{ "{OWN_REQUEST}": "1" }}'
+    assert f"export const OWN_REQUEST = {sent};" in (DASHBOARD_DIR / "ui.js").read_text()
+    reference = (DASHBOARD_DIR / "docs" / "reference.js").read_text()
+    assert f"const OWN_REQUEST = {sent};" in reference and "requestInterceptor" in reference
+    scripts = [p for p in DASHBOARD_DIR.rglob("*.js") if "vendor" not in p.parts]
+    fetching = {p.name: p.read_text() for p in scripts if "fetch(" in p.read_text()}
+    assert sorted(fetching) == ["docs.js", "invite.js", "reference.js", "status.js", "ui.js"]
+    assert all("OWN_REQUEST" in text for text in fetching.values())
+    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    # The API reference's introduction, which Swagger UI shows as links on the page.
+    introduction = client.get("/openapi.json").json()["info"]["description"]
+    fetched = 'link.pathname !== "/openapi.json"'  # the one reference.js fetches
+    for path in re.findall(r"\]\((/[^)#?]*)", introduction):
+        assert (path == "/openapi.json" and fetched in reference) or (
+            permission_for("GET", path) in REACHABLE
+        ), path
+    landing = client.get("/docs").text
+    pages = [landing] + [
+        (DASHBOARD_DIR / name).read_text() for name in ("index.html", "status.html", "invite.html")
+    ]
+    links = [
+        (tag, path)
+        for page in pages
+        for tag, path in re.findall(r'(<a\b[^>]*\bhref="(/[^"#?]*)[^>]*>)', page)
+    ]
+    assert links
+    for tag, path in links:
+        assert "data-openapi" in tag or permission_for("GET", path) in REACHABLE, tag
+
+
 def test_hsts_on_every_host_but_this_machine(tmp_path: Path) -> None:
     app: FastAPI = create_app(db_path=tmp_path / "a.db")
     for base in (SITE, "http://mendari.internal:8000", "http://testserver"):
@@ -463,16 +528,33 @@ def test_trusted_origins_are_origins_and_a_bad_one_fails_at_startup(
 
 
 def test_scripts_with_a_cookie_and_no_browser_headers_keep_working(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """curl, ZAP and pilot-check send neither `Origin` nor Fetch Metadata."""
+    """curl, ZAP and pilot-check send neither `Origin` nor Fetch Metadata: their unsafe calls
+    pass as before; their reads with the session cookie send Mendari's own header, as its
+    pages do, since without it such a read could be an older browser following another site's
+    link. Public routes and pages need nothing."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     client = TestClient(create_app(db_path=tmp_path / "a.db"), base_url=SITE)
-    cookie = signed_in(AuditStore(tmp_path / "a.db"), role="admin")
+    cookie = {"cookie": signed_in(AuditStore(tmp_path / "a.db"), role="admin")["cookie"]}
     made = client.post("/api/auth/keys", json={"name": "ci", "role": "viewer"}, headers=cookie)
     assert made.status_code == 201, made.text
+    capsys.readouterr()
+    refused = client.get("/api/audit", headers=cookie)
+    assert refused.status_code == 403 and refused.json()["detail"] == REFUSED
+    [event, _] = security_lines(capsys.readouterr().out)
+    assert (event["event"], event["reason"]) == ("auth.origin.refused", "no_fetch_metadata")
+    assert client.get("/api/audit", headers={**cookie, OWN_REQUEST: "1"}).status_code == 200
+    # The pages a script's author reads first say so.
+    reference = client.get("/openapi.json", headers={**cookie, OWN_REQUEST: "1"}).json()
+    for text in (client.get("/docs").text, reference["info"]["description"]):
+        assert "X-Mendari-Request: 1" in text
+    for public in ("/", "/api/auth/me", "/fhir/metadata"):
+        assert client.get(public, headers=cookie).status_code == 200, public
     # A bearer credential decides alone, whatever the browser headers say.
     key = {"authorization": f"Bearer {made.json()['key']}", "sec-fetch-site": "cross-site"}
     assert client.get("/api/audit", headers=key).status_code == 200
+    with_cookie = {**cookie, "authorization": key["authorization"]}
+    assert client.get("/api/audit", headers=with_cookie).status_code == 200

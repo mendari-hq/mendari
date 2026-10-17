@@ -4564,6 +4564,7 @@ class AuditStore(RateBuckets):
         since: str | None = None,
         until: str | None = None,
         limit: int = 100,
+        newest_first: bool = False,
     ) -> Page:
         """One page of administrative events in chain order, each `{subject, event, payload,
         created_at, hash}`: never `seq` or `prev_hash`, as an event's place in the deployment's
@@ -4572,7 +4573,9 @@ class AuditStore(RateBuckets):
         whatever is wrong with it, so a cursor cannot ask about another organization's events.
         `kinds` and `subject` (a chain id: `key:<id>`) narrow the list; `since` / `until` bound
         `created_at` (the stored format). An event whose payload names another organization
-        than its row's is left out (`verify` reports it)."""
+        than its row's is left out (`verify` reports it). `newest_first` reverses the chain
+        order: each page then holds the events before the cursor's in the chain, so a window's
+        newest events come first however many it has (the dashboard's Activity tab)."""
         if limit < 1:
             return Page()
         with self._db.session(exclusive=False) as db:
@@ -4590,7 +4593,13 @@ class AuditStore(RateBuckets):
                 )
                 if found is None:
                     raise ValueError("not a cursor of this list")
-            clauses, values = [where, "e.seq > ?"], [*params, found["seq"] if after else 0]
+            # Past the cursor in the list's order: later in the chain, or earlier when newest
+            # first (which starts at the chain's end).
+            start = found["seq"] if after is not None else (None if newest_first else 0)
+            clauses, values = [where], [*params]
+            if start is not None:
+                clauses.append("e.seq < ?" if newest_first else "e.seq > ?")
+                values.append(start)
             if kinds:
                 clauses.append(f"e.event IN ({', '.join('?' for _ in kinds)})")
                 values += kinds
@@ -4601,7 +4610,8 @@ class AuditStore(RateBuckets):
             rows = db.all(
                 "SELECT e.decision_id, e.event, e.payload, e.created_at, e.hash, "
                 f"{'s.org' if org is not None else 'NULL'} AS org FROM {source} "
-                f"WHERE {' AND '.join(clauses)} ORDER BY e.seq LIMIT ?",
+                f"WHERE {' AND '.join(clauses)} ORDER BY e.seq{' DESC' if newest_first else ''} "
+                "LIMIT ?",
                 (*values, limit + 1),
             )
         page = rows[:limit]

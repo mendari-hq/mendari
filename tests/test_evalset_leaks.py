@@ -101,6 +101,7 @@ from mendari.server.presets import PRESETS
 from mendari.server.scopes import DECIDE, OUTCOME, parse, supported
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import (
+    DASHBOARD,
     encrypt_mode,
     encrypted_store,
     evalset_keys_for_test,
@@ -995,9 +996,9 @@ def principals(world: World, org: Org) -> None:
     launcher = TestClient(world.client.app, base_url=APP)  # a browser of its own
     assert full_launch(launcher, org.ehr).status_code == 302
     cookie = "; ".join(f"{k}={v}" for k, v in launcher.cookies.items())
-    found["ehr launch"] = {"cookie": cookie}
+    found["ehr launch"] = {"cookie": cookie, **DASHBOARD}  # the dashboard window it opens
     person = org.people["reviewer"]["cookie"]
-    found["ehr launch with a session"] = {"cookie": f"{cookie}; {person}"}
+    found["ehr launch with a session"] = {"cookie": f"{cookie}; {person}", **DASHBOARD}
 
 
 # -- the sweep -------------------------------------------------------------------------------------

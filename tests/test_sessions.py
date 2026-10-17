@@ -22,7 +22,7 @@ from mendari.errors import MendariError
 from mendari.server import sessions
 from mendari.server.app import create_app
 from mendari.server.auth import safe_next
-from tests.conftest import encrypt_mode, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in, signing_in_with
 
 HTTPS = "https://mendari.test"
@@ -50,11 +50,12 @@ def idp() -> FakeIdp:
 
 @pytest.fixture
 def server(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Sign-in on (no identity provider is reached), on a host that uses `__Host-` names."""
+    """Sign-in on (no identity provider is reached), on a host that uses `__Host-` names, called
+    as the dashboard's browser calls it (Mendari's own request header)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    with TestClient(create_app(db_path=db_target), base_url=HTTPS) as client:
+    with TestClient(create_app(db_path=db_target), base_url=HTTPS, headers=DASHBOARD) as client:
         yield client
 
 
@@ -196,7 +197,7 @@ def test_the_limits_are_settings_bounded_at_startup(
     monkeypatch.setenv("MENDARI_SESSION_MAX_HOURS", "1")
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
     with signing_in_with(idp, tmp_path, monkeypatch) as busy:
-        idle = TestClient(busy.app, base_url=HTTPS)
+        idle = TestClient(busy.app, base_url=HTTPS, headers=DASHBOARD)
         sign_in(busy, idp, roles=["clinicians"])
         sign_in(idle, idp, roles=["clinicians"])
         assert busy.get("/api/health").json()["sessions"] == {"idle_minutes": 15, "max_hours": 1}

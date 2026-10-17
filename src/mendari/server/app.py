@@ -2003,6 +2003,7 @@ def create_app(
         until: str | None = None,
         after: str | None = None,
         limit: int = 100,
+        order: Literal["asc", "desc"] = "asc",
     ) -> dict[str, Any]:
         """The chained events of what your organization owns, oldest first: its keys, clients,
         automation approvals and holds, evaluation reports, its record, memberships,
@@ -2012,8 +2013,9 @@ def create_app(
         nor another organization's events, nor the deployment's own (the operator's).
 
         `kind` (repeatable) and `subject` (a chain id, `key:<id>`) narrow it; `since` and
-        `until` are instants with their offset; `limit` is 1 to 500 (100). `next`, when there is
-        more, is the `after` of the next page."""
+        `until` are instants with their offset; `limit` is 1 to 500 (100). `order=desc` lists
+        newest first. `next`, when there is more, is the `after` of the next page, in the same
+        order."""
         org = scope_of(auth.acting(request))
         try:
             page = store.administrative_events(
@@ -2024,6 +2026,7 @@ def create_app(
                 since=instant("since", since),
                 until=instant("until", until),
                 limit=min(max(limit, 1), 500),
+                newest_first=order == "desc",
             )
         except ValueError as error:  # a cursor of no event of this list, whatever the reason
             raise HTTPException(400, str(error)) from None
