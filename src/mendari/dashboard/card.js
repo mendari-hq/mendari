@@ -196,7 +196,7 @@ views.card = async (main, params) => {
     </section>`;
   wireApproval(main);
   if (registry) wireRegistry(main, registry, d);
-  wireHolds(main);
+  wireHolds(main, holds, d);
   main.querySelector("[data-copy]").addEventListener("click", async (event) => {
     try {
       await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
@@ -365,7 +365,8 @@ function wireRegistry(main, r, d) {
 
 // Automation holds (AuditStore.hold_automation): stopping automation for this pack at once,
 // without a redeploy, and lifting it. A hold set from the command line covers every
-// organization and is lifted there.
+// organization and is lifted there. Holding is one click (it only lowers automation); lifting
+// raises it again, so it is asked about first, as every other change that takes a safeguard away.
 function holdSection(holds, d) {
   const covering = holdsFor(holds, d);
   // A hold of the deployment's comes without its reason and setter in memberships mode: the
@@ -384,7 +385,18 @@ function holdSection(holds, d) {
   return listed + form;
 }
 
-function wireHolds(main) {
+// What lifting `hold` does, in the words of the dialog that asks first: the pack decides on its
+// own again, and what still stops it from automating stays.
+function liftText(hold, d) {
+  const who = hold?.pack_id
+    ? `<b>${esc(d.manifest.name)}</b> decides on its own again`
+    : `Every pack of your organization decides on its own again, <b>${esc(d.manifest.name)}</b> included`;
+  return `<p>${who}: what its policy automates is no longer sent to a person because of this hold.</p>
+    <p>Another hold, a recall by its registry, an approval it still needs and its risk level's limits keep applying.
+      The lift is kept in the audit trail.</p>`;
+}
+
+function wireHolds(main, holds, d) {
   main.querySelector("#hold-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
@@ -397,13 +409,17 @@ function wireHolds(main) {
   });
   for (const button of main.querySelectorAll("[data-lift]")) {
     button.addEventListener("click", async (event) => {
-      try {
-        await api(`/api/holds/${encodeURIComponent(event.currentTarget.dataset.lift)}`, { method: "DELETE" });
-        toast("Hold lifted");
-        render();
-      } catch (error) {
-        toastError(error.message);
-      }
+      const id = event.currentTarget.dataset.lift;
+      const lifted = await actionDialog({
+        title: "Lift this automation hold?",
+        body: liftText(holds.find((h) => h.id === id), d),
+        action: "Lift",
+        danger: true,
+        run: () => api(`/api/holds/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      });
+      if (!lifted) return;
+      toast("Hold lifted");
+      render();
     });
   }
 }

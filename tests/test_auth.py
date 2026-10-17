@@ -36,6 +36,7 @@ from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
+    DASHBOARD,
     encrypt_mode,
     encrypted_store,
     evalset_on,
@@ -132,7 +133,8 @@ def signing_in_with(
     monkeypatch: pytest.MonkeyPatch,
     providers: dict[str, str] | None = None,
 ) -> TestClient:
-    """A server whose sign-in uses `idp` (the role settings come from the test's environment)."""
+    """A server whose sign-in uses `idp` (the role settings come from the test's environment),
+    called as the dashboard's browser calls it: with Mendari's own request header."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -141,7 +143,7 @@ def signing_in_with(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
     app = create_app(db_path=tmp_path / "a.db", providers=providers)
-    return TestClient(app, base_url="https://mendari.test")
+    return TestClient(app, base_url="https://mendari.test", headers=DASHBOARD)
 
 
 def sign_in(app: TestClient, idp: FakeIdp, **claims: Any) -> Any:
@@ -874,7 +876,9 @@ def test_organizations_never_see_each_others_work(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
     client = TestClient(
-        create_app(db_path=tmp_path / "two-orgs.db"), base_url="https://mendari.test"
+        create_app(db_path=tmp_path / "two-orgs.db"),
+        base_url="https://mendari.test",
+        headers=DASHBOARD,
     )
     keys = {}
     for org in ("clinic-a", "clinic-b"):

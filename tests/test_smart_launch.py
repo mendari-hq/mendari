@@ -53,6 +53,52 @@ def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) ->
         smart_launch.find_patient("http://fhir:8080/fhir", "mendari/ai-guard")
 
 
+def test_the_launch_reads_its_session_as_the_dashboard_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the callback, every call sends the launch cookie and Mendari's own request header:
+    the script sends no Fetch Metadata, and without the header its reads would be refused as
+    another site's link (server/origin.py)."""
+    engine, launcher = "http://engine.test", "http://launcher.test"
+    sent: list[tuple[str, str, dict[str, str]]] = []
+    session = {"active": True, "patient": "1", "fhir_user": "Practitioner/1"}
+    decision = {"id": "d-1", "outcome": "AUTO", "recommendation": "routine", "input_issues": []}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        sent.append((request.method, path, dict(request.headers)))
+        if path == "/smart/launch":
+            started = {"location": f"{launcher}/authorize", "set-cookie": "mendari_launch=b"}
+            return httpx.Response(302, headers=started)
+        if path == "/authorize":
+            return httpx.Response(302, headers={"location": f"{engine}/smart/callback?code=c"})
+        if path == "/smart/callback":
+            return httpx.Response(302, headers={"location": "/", "set-cookie": "mendari_smart=s"})
+        if path == "/api/smart/session":
+            return httpx.Response(200, json=session if len(sent) < 6 else {"active": False})
+        if path == "/api/smart/focus":
+            return httpx.Response(200, json=[{"ref": "ServiceRequest/2"}])
+        if path == "/api/smart/decide":
+            return httpx.Response(200, json={"decision": decision})
+        return httpx.Response(204)  # the logout
+
+    real = httpx.Client
+    monkeypatch.setattr(
+        smart_launch.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(answer), **kw)
+    )
+    done = smart_launch.run(
+        engine=engine, launcher=launcher, fhir="", pack_id="mendari/referral-router", patient="1"
+    )
+    assert done["session_ended"] and done["decided"][0]["decision_id"] == "d-1"
+    calls = [(method, path, headers) for method, path, headers in sent if path.startswith("/api/")]
+    assert [path for _, path, _ in calls] == [
+        "/api/smart/session", "/api/smart/focus", "/api/smart/decide", "/api/smart/logout",
+        "/api/smart/session",
+    ]  # fmt: skip
+    for _, _, headers in calls:
+        assert (headers["cookie"], headers["x-mendari-request"]) == ("mendari_smart=s", "1")
+
+
 def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

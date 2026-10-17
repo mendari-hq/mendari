@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The audit screens of a signed-in organization (12g-ii, LP-21k): the Access view's Activity tab
-lists the organization's administrative events newest first, in words, and exports them as FHIR;
+lists the organization's administrative events newest first, in words (past its page cap, the
+newest, saying so), and exports them as FHIR;
 the Audit trail shows the signed daily checkpoint (or a quiet line without a key) and offers its
 FHIR export to administrators only; both pass axe in both themes. A real server at `localhost`
 in memberships mode (tests/browser/access_site.py); all data synthetic. Run with
@@ -12,13 +13,15 @@ import base64
 import json
 import re
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from playwright.sync_api import Browser, Page, expect
+from playwright.sync_api import Browser, Page, Route, expect
 
 from mendari.core.checkpoint import KEY_ENV
 from mendari.server import app as app_module
@@ -104,6 +107,45 @@ def test_the_activity_tab_lists_the_organization_s_events_newest_first(site: Sit
     codes = {r["subtype"][0]["code"] for r in exported}
     assert {"key.created", "key.revoked", "membership.created"} <= codes
     assert other not in "\n".join(lines) and "other-clinic-key" not in "\n".join(lines)
+
+
+def test_past_its_page_cap_the_activity_tab_shows_the_newest_events(site: Site) -> None:
+    """More events in the window than the tab's ten pages of 500: it asks newest first, so it
+    shows the newest 5,000, and its note and caption say so. The list is answered here (5,000
+    events would be slow to make), each page as the route pages newest first."""
+    page = site.window(lead(site))
+    asked: list[dict[str, list[str]]] = []
+    now = datetime.now(UTC)
+
+    def event(n: int) -> dict[str, Any]:  # the n-th newest
+        return {
+            "subject": f"key:k{n}",
+            "event": "key.created",
+            "payload": {"id": f"k{n}", "name": f"key-{n}", "org": "clinic-a", "created_by": "x"},
+            "created_at": (now - timedelta(minutes=n)).isoformat(timespec="milliseconds"),
+            "hash": f"{n:064x}",
+        }
+
+    def answer(route: Route) -> None:
+        start = 500 * len(asked)
+        asked.append(parse_qs(urlsplit(route.request.url).query))
+        items = [event(n) for n in range(start, start + 500)]
+        route.fulfill(json={"items": items, "next": f"after-{start + 499}"})
+
+    page.route(re.compile(r"/api/audit/administrative\?"), answer)
+    access(page, "activity")
+    table = page.locator('[data-table="activity"]')
+    expect(table.locator("caption")).to_have_text(
+        "The newest 5,000 administrative events of Clinic-A of the last 90 days, newest first"
+    )
+    expect(page.locator("#activity > p.muted")).to_have_text(
+        "The newest 5,000 events of these 90 days; the export has every one."
+    )
+    expect(table.locator("tbody tr")).to_have_count(5000)
+    expect(table.locator("tbody tr").first).to_contain_text("API key key-0")
+    expect(table.locator("tbody tr").last).to_contain_text("API key key-4999")
+    assert len(asked) == 10 and all(query["order"] == ["desc"] for query in asked)
+    assert [query.get("after") for query in asked[1:3]] == [["after-499"], ["after-999"]]
 
 
 def test_a_viewer_has_neither_the_activity_nor_the_audit_export(site: Site) -> None:

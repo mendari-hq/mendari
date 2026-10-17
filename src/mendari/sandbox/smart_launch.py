@@ -32,6 +32,7 @@ from mendari.core import tenancy
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import SANDBOX_TAG
+from mendari.server.origin import OWN_REQUEST
 
 COOKIE = "mendari_smart"
 LAUNCH = "mendari_launch"  # ties the engine's /smart/launch to its /smart/callback
@@ -102,7 +103,9 @@ def run(
             raise MendariError(f"the launcher sent the browser to {approved.split('?')[0]}")
         done = browser.get(approved, headers={"cookie": binding})
         _redirect(done, "the engine's callback")
-        cookie = {"cookie": _cookie(done, COOKIE, "session")}
+        # As the dashboard's requests: the launch cookie, and Mendari's own request header, which
+        # a read with the cookie and no Fetch Metadata needs (server/origin.py).
+        cookie = {"cookie": _cookie(done, COOKIE, "session"), OWN_REQUEST: "1"}
         session = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
         items = _json(
             browser.get(f"{engine}/api/smart/focus", params={"pack_id": pack_id}, headers=cookie)

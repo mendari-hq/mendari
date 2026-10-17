@@ -8,7 +8,7 @@
 // survives an outage that takes this page down.
 
 import { setupTheme } from "./theme.js";
-import { esc } from "./ui.js";
+import { esc, OWN_REQUEST } from "./ui.js";
 
 const EVERY_MS = 30_000;
 const TIMEOUT_MS = 10_000;
@@ -29,7 +29,8 @@ async function readiness() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const answer = await fetch("/api/health/ready", { cache: "no-store", signal: controller.signal });
+    // Public, so any browser reads it; with Mendari's own header all the same, as every page's request.
+    const answer = await fetch("/api/health/ready", { cache: "no-store", headers: OWN_REQUEST, signal: controller.signal });
     const json = await answer.json().catch(() => null);
     return json && STATES[json.status] ? json : null;
   } catch {

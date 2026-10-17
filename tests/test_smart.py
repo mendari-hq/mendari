@@ -33,7 +33,7 @@ from mendari.server.auth import ehr_id
 from mendari.server.scopes import DECIDE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import normalize_base, smart_ehrs
-from tests.conftest import encrypt_mode, message, security_lines, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, message, security_lines, signed_in
 from tests.test_backend_services import RSA_KEY, ask, assertion
 
 EHR = "https://ehr.example.org"
@@ -158,7 +158,10 @@ def app(tmp_path: Path, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> Iterat
     monkeypatch.setattr(
         smart_routes, "FhirClient", functools.partial(FhirClient, transport=transport)
     )
-    with TestClient(create_app(db_path=tmp_path / "a.db"), base_url=APP) as client:
+    # The dashboard's browser: its requests carry Mendari's own header (server/origin.py).
+    with TestClient(
+        create_app(db_path=tmp_path / "a.db"), base_url=APP, headers=DASHBOARD
+    ) as client:
         yield client
 
 
@@ -307,7 +310,7 @@ def test_a_launch_finished_in_another_browser_is_refused(app: TestClient, ehr: F
     assert started.headers["set-cookie"].startswith("__Host-mendari_launch=")
     code = ehr.authorize(started.headers["location"])
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
-    other = TestClient(app.app, base_url=APP)
+    other = TestClient(app.app, base_url=APP, headers=DASHBOARD)
     landed = other.get("/smart/callback", params={"code": code, "state": state})
     assert landed.status_code == 400 and "started in another browser" in landed.text
     assert other.get("/api/smart/session").json() == {"active": False}
@@ -456,7 +459,7 @@ def test_an_expired_session_is_gone(
 
 def test_smart_is_off_until_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MENDARI_SMART_CLIENT_ID", raising=False)
-    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    client = TestClient(create_app(db_path=tmp_path / "a.db"), headers=DASHBOARD)
     assert client.get("/api/health").json()["smart_launch"] is False
     response = client.get("/smart/launch", params={"iss": ISS, "launch": "x"})
     assert response.status_code == 404 and "not configured" in response.text
@@ -525,7 +528,7 @@ def signed_site(
     monkeypatch.setattr(
         smart_routes, "FhirClient", functools.partial(FhirClient, transport=transport)
     )
-    return TestClient(create_app(db_path=db), base_url=APP)
+    return TestClient(create_app(db_path=db), base_url=APP, headers=DASHBOARD)
 
 
 def admin(app: TestClient, db: Path | str, org: str) -> TestClient:
@@ -798,7 +801,7 @@ def test_a_later_launch_in_the_same_browser_ends_the_earlier_one(
     assert full_launch(app, a).status_code == 302
     second = app.cookies.get(name)
     assert first and second and first != second
-    copied = TestClient(app.app, base_url=APP)
+    copied = TestClient(app.app, base_url=APP, headers=DASHBOARD)
     copied.cookies.set(name, first, domain="mendari.test")
     assert copied.get("/api/smart/session").json() == {"active": False}
     assert copied.get("/api/smart/patient").status_code == 401
@@ -819,7 +822,7 @@ def test_a_launch_made_with_sign_in_off_is_refused_once_sign_in_is_on(
     a, b = tenants
     signed_site(db_target, monkeypatch, None, a, b)  # open mode, the fake EHRs wired
     monkeypatch.setenv("MENDARI_SMART_EHRS", REGISTERED)
-    pilot = TestClient(create_app(db_path=db_target), base_url=APP)
+    pilot = TestClient(create_app(db_path=db_target), base_url=APP, headers=DASHBOARD)
     a.claims = {"fhirUser": "Patient/p1"}  # a patient portal: refused with sign-in on
     assert full_launch(pilot, a).status_code == 302
     assert pilot.get("/api/smart/session").json()["fhir_user"] == "Patient/p1"
@@ -907,7 +910,7 @@ def test_open_mode_launches_as_before(
     ok = next(e for e in security_lines(capsys.readouterr().out) if e["event"] == "smart.launch.ok")
     assert "org" not in ok and "actor" not in ok
     monkeypatch.setenv("MENDARI_SMART_EHRS", f"{TENANT_B}=clinic-b:view")
-    gated = TestClient(create_app(db_path=tmp_path / "b.db"), base_url=APP)
+    gated = TestClient(create_app(db_path=tmp_path / "b.db"), base_url=APP, headers=DASHBOARD)
     a.requests.clear()
     assert launch(gated, iss=TENANT_A).status_code == 403 and a.requests == []
     assert full_launch(gated, b).status_code == 302

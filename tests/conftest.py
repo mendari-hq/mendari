@@ -34,6 +34,7 @@ from mendari.hub.registry import create_registry_app
 from mendari.providers import credentials, llm
 from mendari.providers.jev import JevProvider
 from mendari.server import sessions
+from mendari.server.origin import OWN_REQUEST
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
@@ -482,6 +483,12 @@ def message(body: str, **extra: Any) -> dict[str, Any]:
     return {"message": {"body": body, **extra}}
 
 
+# What every request of Mendari's own pages carries besides its cookie (server/origin.py): the
+# session helpers below send it, as the dashboard would. A test of a request without it (another
+# site's link in a browser without Fetch Metadata) sends the cookie alone.
+DASHBOARD = {OWN_REQUEST: "1"}
+
+
 def signed_in(
     store: AuditStore, *, role: str, org: str = "default", host: str = "mendari.test"
 ) -> dict[str, str]:
@@ -497,7 +504,7 @@ def signed_in(
         {**row, "roles": [role], "org": org}, int(time.time()), sessions.Lifetime()
     )
     store.smart_put(sid, "user", session, expires_at)
-    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}
+    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}", **DASHBOARD}
 
 
 def member(
@@ -539,7 +546,7 @@ def member(
     session, expires_at = sessions.begin(row, int(time.time()), sessions.Lifetime())
     sid = secrets.token_urlsafe(32)
     store.smart_put(sid, MEMBER, session, expires_at)
-    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}
+    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}", **DASHBOARD}
 
 
 def launched(
@@ -569,4 +576,4 @@ def launched(
     }
     session, expires_at = sessions.begin(row, now, sessions.Lifetime(), ends_by=now + 3600)
     store.smart_put(sid, "session", session, expires_at)
-    return {"cookie": f"{sessions.cookie_name(sessions.SMART, host)}={sid}"}
+    return {"cookie": f"{sessions.cookie_name(sessions.SMART, host)}={sid}", **DASHBOARD}

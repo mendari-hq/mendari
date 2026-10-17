@@ -31,6 +31,7 @@ from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals.pack_tests import load_cases
 from mendari.sandbox import synthetic_inbox
+from mendari.server.origin import OWN_REQUEST
 
 COOKIE = "mendari_session"
 SIGNIN = "mendari_signin"  # ties the engine's /auth/login to its /auth/callback
@@ -57,7 +58,9 @@ class Pilot:
         self.steps: list[str] = []
 
     def sign_in(self, who: str) -> dict[str, str]:
-        """The browser's part of the OpenID Connect flow; returns the session cookie header."""
+        """The browser's part of the OpenID Connect flow; returns the headers each call sends:
+        the session cookie, and Mendari's own request header, without which a read with the
+        cookie and no Fetch Metadata is refused as another site's link (server/origin.py)."""
         name, groups = PEOPLE[who]
         started = self.http.get(f"{self.engine}/auth/login")
         authorize = _redirect(started, "the engine's /auth/login")
@@ -71,7 +74,7 @@ class Pilot:
             raise MendariError(f"the identity provider sent the browser to {callback[:80]}")
         done = self.http.get(callback, headers={"cookie": binding})
         _redirect(done, "the engine's /auth/callback")
-        return {"cookie": _cookie(done, COOKIE, "session")}
+        return {"cookie": _cookie(done, COOKIE, "session"), OWN_REQUEST: "1"}
 
     def call(self, method: str, path: str, auth: dict[str, str], **kwargs: Any) -> httpx.Response:
         return self.http.request(method, f"{self.engine}{path}", headers=auth, **kwargs)

@@ -26,7 +26,7 @@ from mendari.server import auth as auth_module
 from mendari.server import sessions, smart_routes
 from mendari.server.app import create_app
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import encrypt_mode, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in
 from tests.test_security_log import logged
 from tests.test_smart import APP, CLIENT, EHR, ISS, REFERRAL, FakeEhr, full_launch, launch
@@ -51,7 +51,7 @@ def smart_app(db_target: str, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(
         smart_routes, "FhirClient", functools.partial(FhirClient, transport=transport)
     )
-    return TestClient(create_app(db_path=db_target), base_url=APP)
+    return TestClient(create_app(db_path=db_target), base_url=APP, headers=DASHBOARD)  # a browser
 
 
 @pytest.fixture
@@ -333,7 +333,8 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
-    with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
+    app = create_app(db_path=db_target)
+    with TestClient(app, base_url="https://mendari.test", headers=DASHBOARD) as client:
         started = client.get("/auth/login", params={"next": "/"}, follow_redirects=False)
         [pending] = raw_rows(db_target, "oidc-pending")
         assert "verifier" in json.loads(pending["data"])  # as before: deferred (ADR-0006)

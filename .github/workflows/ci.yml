@@ -452,7 +452,8 @@ jobs:
         run: npm audit --audit-level=critical
       - name: Start the engine with sign-in on, and an administrator's session for the scanner
         # Keys are viewer or service only (ADR-0004), so the scanner signs in as a person would:
-        # a session row for an admin, sent as the session cookie.
+        # a session row for an admin, sent as the session cookie, with the header Mendari's own
+        # pages send (`X-Mendari-Request`): a read with the cookie and no Fetch Metadata needs it.
         # The scan calls the decide routes thousands of times as one admin: limits run in `log`
         # mode, so the limiter's code is exercised but never refuses.
         env:
@@ -478,7 +479,13 @@ jobs:
           -config replacer.full_list(0).matchtype=REQ_HEADER
           -config replacer.full_list(0).matchstr=Cookie
           -config replacer.full_list(0).regex=false
-          -config replacer.full_list(0).replacement=mendari_session=${ZAP_SESSION}"
+          -config replacer.full_list(0).replacement=mendari_session=${ZAP_SESSION}
+          -config replacer.full_list(1).description=own-request
+          -config replacer.full_list(1).enabled=true
+          -config replacer.full_list(1).matchtype=REQ_HEADER
+          -config replacer.full_list(1).matchstr=X-Mendari-Request
+          -config replacer.full_list(1).regex=false
+          -config replacer.full_list(1).replacement=1"
       - name: No medium or high risks
         run: uv run python scripts/zap_check.py /tmp/zap/zap.json
       - if: failure()

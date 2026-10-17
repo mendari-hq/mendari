@@ -356,9 +356,14 @@ get that `403`:
 MENDARI_TRUSTED_ORIGINS=https://mendari.example.org,https://decisions.example.org   # origins only
 ```
 
-A value that is not exactly an origin stops the server at startup. Scripts with a session
-cookie and no `Origin` or `Sec-Fetch-Site` header (curl, the pilot check) are not affected. A
-refusal is logged as `auth.origin.refused` (§7), with a reason code and the request id.
+A value that is not exactly an origin stops the server at startup. A browser without Fetch
+Metadata (Safari before 16.4) sends neither `Origin` nor `Sec-Fetch-Site` when it follows a link,
+so a read with the session cookie and neither header reaches an API route only with
+`X-Mendari-Request`, which the dashboard and Mendari's other pages send on every request. A
+script with a session cookie (curl, the pilot check) sends it on its reads, too
+(`-H 'X-Mendari-Request: 1'`); its POSTs, PUTs and DELETEs need nothing more. A refusal is
+logged as `auth.origin.refused` (§7), with a reason code and the request id
+(`no_fetch_metadata` for a read without the header).
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an

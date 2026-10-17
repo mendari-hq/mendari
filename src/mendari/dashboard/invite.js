@@ -14,7 +14,7 @@
 // the token the tab holds when it is pressed.
 
 import { setupTheme } from "./theme.js";
-import { announce, esc, focusHeading, refusalText, roleName, storageSet, whileBusy } from "./ui.js";
+import { announce, esc, focusHeading, OWN_REQUEST, refusalText, roleName, storageSet, whileBusy } from "./ui.js";
 
 const TOKEN = "oh.invite";
 const SIGN_IN = "/auth/login?next=%2Finvite";
@@ -40,11 +40,13 @@ function forget(token) {
   } catch { /* nothing was kept */ }
 }
 
-// Same-origin JSON, never with the dashboard's organization header. Its answer, whatever it is.
+// Same-origin JSON, with Mendari's own header (`OWN_REQUEST`, ui.js) and never the dashboard's
+// organization header. Its answer, whatever it is.
 async function send(path, payload) {
-  const options = { cache: "no-store", credentials: "same-origin" };
+  const options = { cache: "no-store", credentials: "same-origin", headers: { ...OWN_REQUEST } };
   if (payload !== undefined) {
-    Object.assign(options, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    Object.assign(options, { method: "POST", body: JSON.stringify(payload) });
+    options.headers["content-type"] = "application/json";
   }
   const response = await fetch(path, options);
   const answer = await response.json().catch(() => null);

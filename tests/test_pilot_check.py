@@ -25,13 +25,14 @@ def test_the_pilot_needs_sign_in_and_phi_encryption() -> None:
 
 def test_the_pilot_reads_the_phi_mode_once_the_admin_has_signed_in() -> None:
     """Anonymous health is only status, version and sign-in; the PHI mode is a setting, shown
-    to a signed-in reader."""
-    asked: list[bool] = []
+    to a signed-in reader. Its reads with the session cookie say they are Mendari's own
+    (`X-Mendari-Request`): without Fetch Metadata, the engine refuses them otherwise."""
+    asked: list[tuple[bool, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         path, signed_in = request.url.path, "cookie" in request.headers
         if path == "/api/health":
-            asked.append(signed_in)
+            asked.append((signed_in, request.headers.get("x-mendari-request")))
             public = {"status": "ok", "version": "1", "sign_in": True}
             return httpx.Response(200, json={**public, "phi_mode": "off"} if signed_in else public)
         if path == "/auth/login":
@@ -50,7 +51,7 @@ def test_the_pilot_reads_the_phi_mode_once_the_admin_has_signed_in() -> None:
 
     with pytest.raises(MendariError, match="sign-in on and PHI mode encrypt"):
         pilot_check.run(engine=ENGINE, transport=httpx.MockTransport(handler))
-    assert asked == [False, True]
+    assert asked == [(False, None), (True, "1")]
 
 
 def test_a_sign_in_must_come_back_to_the_engine() -> None:

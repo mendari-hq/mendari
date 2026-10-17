@@ -136,9 +136,18 @@ export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#
 // it never lands in another chosen since in a second window (the server answers 409).
 export const orgPin = () => (state.accounts === "memberships" && state.me?.org ? { "x-mendari-org": state.me.org } : {});
 
+// Every request a Mendari page makes says it is one (server/origin.py `OWN_REQUEST`): a browser
+// without Fetch Metadata (Safari before 16.4) sends no `Sec-Fetch-Site`, so a read with the
+// session cookie and without this header could be another site's link, and is refused. Another
+// site cannot add it without a CORS preflight, which Mendari never grants. Downloads are fetched
+// for it too (`download`): a plain link cannot send a header.
+export const OWN_REQUEST = { "x-mendari-request": "1" };
+
 export async function api(path, options = {}, asked = false) {
   const pin = orgPin();
-  const headers = options.headers ? { ...pin, ...options.headers } : { "content-type": "application/json", ...pin };
+  const headers = options.headers
+    ? { ...OWN_REQUEST, ...pin, ...options.headers }
+    : { "content-type": "application/json", ...OWN_REQUEST, ...pin };
   const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => null);
   // Refused for want of the notice's acknowledgement (a new version since the dashboard opened):
@@ -176,12 +185,13 @@ export const refusalText = (body) => {
   return body?.detail || body?.error || "";
 };
 
-// Memberships mode: a file to save, fetched so it carries the window's organization as every other
-// request does (a link cannot send a header), and refused, saying so, once that organization is
-// not the chosen one any more. Saved under the name the server gives it, else `name`.
+// A file to save, fetched so it carries Mendari's own header and, in memberships mode, the
+// window's organization as every other request does (a link cannot send a header), and refused,
+// saying so, once that organization is not the chosen one any more. Saved under the name the
+// server gives it, else `name`.
 export async function download(path, name = "download") {
   try {
-    const response = await fetch(path, { headers: orgPin() });
+    const response = await fetch(path, { headers: { ...OWN_REQUEST, ...orgPin() } });
     if (!response.ok) refusal(path, response, await response.json().catch(() => null));
     const named = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "");
     saveFile(await response.blob(), named?.[1] ?? name);

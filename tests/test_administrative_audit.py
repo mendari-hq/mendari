@@ -193,11 +193,85 @@ def test_a_cursor_of_another_organization_is_refused_as_any_other(two: dict[str,
     assert foreign
     unknown = audit_fhir_cursor("key:nobody", "0" * 64)
     answers = [
-        client.get("/api/audit/administrative", params={"after": after}, headers=headers[alpha])
+        client.get(
+            "/api/audit/administrative", params={"after": after, **order}, headers=headers[alpha]
+        )
         for after in (foreign, unknown, "not-a-cursor")
+        for order in ({}, {"order": "desc"})
     ]
     assert {answer.status_code for answer in answers} == {400}
     assert len({answer.json()["detail"] for answer in answers}) == 1
+
+
+def test_newest_first_is_the_same_list_reversed_page_by_page(two: dict[str, Any]) -> None:
+    """`order=desc` (the Activity tab's) lists the chain's events newest first: paged by any
+    size, narrowed by kind or time, it is the oldest-first list reversed; the default and its
+    cursor are as they were."""
+    client, headers = two["client"], two["headers"][ORGS[0]]
+    items = listed(client, headers)
+    assert len(items) > 6
+    assert listed(client, headers, order="asc") == items
+    for limit in (1, 2, 3, 500):
+        assert listed(client, headers, order="desc", limit=limit) == items[::-1]
+    middle = items[len(items) // 2]["created_at"]
+    for query in ({"kind": ["key.revoked", "client.revoked"]}, {"since": middle}):
+        oldest_first = listed(client, headers, **query)
+        assert (
+            oldest_first
+            and listed(client, headers, order="desc", limit=1, **query) == (oldest_first[::-1])
+        )
+    # The first page is the newest; its `next` goes on to older ones.
+    first = client.get(
+        "/api/audit/administrative", params={"order": "desc", "limit": 2}, headers=headers
+    ).json()
+    assert first["items"] == items[:-3:-1] and first["next"]
+    refused = client.get("/api/audit/administrative", params={"order": "up"}, headers=headers)
+    assert refused.status_code == 422
+
+
+def test_newest_first_pages_through_events_of_one_instant(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Events written in the same millisecond keep their chain order, newest first too: no
+    page repeats or skips one, whatever the page size and wherever a page ends."""
+    import mendari.core.audit as audit_module
+
+    org = ORGS[0]
+    with AuditStore(db_target) as store:
+        for stamp in ("2026-10-01T00:00:00.000+00:00", "2026-10-02T00:00:00.000+00:00"):
+            monkeypatch.setattr(audit_module, "_now", lambda stamp=stamp: stamp)
+            if store.organization(org) is None:
+                store.create_organization(org=org, name="Clinic", created_by="ops")
+            for n in range(4):
+                key = store.create_api_key(name=f"k{n}", role="viewer", org=org, created_by="ops")
+                store.revoke_api_key(key["id"], revoked_by="ops")
+        monkeypatch.undo()
+        chain = store.administrative_events(org, limit=500).rows
+        assert len(chain) == 17  # the organization's record, then 8 keys made and revoked
+        assert len({event["created_at"] for event in chain}) == 2  # 9 events, then 8, alike
+
+        def pages(limit: int, **filters: Any) -> list[dict[str, Any]]:
+            found: list[dict[str, Any]] = []
+            after = None
+            while True:
+                page = store.administrative_events(
+                    org, after=after, limit=limit, newest_first=True, **filters
+                )
+                found += page.rows
+                if page.after is None:
+                    return found
+                after = page.after
+
+        for limit in (1, 2, 3, 4, 5, 16, 17, 18):
+            assert pages(limit) == chain[::-1]
+        since = "2026-10-02T00:00:00.000+00:00"
+        assert pages(3, since=since) == chain[:8:-1]
+        assert pages(3, until=since) == chain[8::-1]
+        assert pages(2, kinds=["key.revoked"]) == [
+            event for event in chain[::-1] if event["event"] == "key.revoked"
+        ]
+        with pytest.raises(ValueError, match="not a cursor of this list"):
+            store.administrative_events(org, after=("key:nobody", "0" * 64), newest_first=True)
 
 
 def audit_fhir_cursor(subject: str, digest: str) -> str:

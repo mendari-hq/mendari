@@ -101,7 +101,9 @@ and the sandbox.
   `MENDARI_PUBLIC_URL`, where their callback lands).
 - **Origin checks.** A request another site starts reaches only public routes and pages, with
   GET or HEAD; an unsafe method is checked even without a cookie (another site's form carries
-  none, but could still sign someone out).
+  none, but could still sign someone out). A read with a Mendari cookie and neither Fetch
+  Metadata nor `Origin` (an older browser following a link) needs `X-Mendari-Request`, which
+  only Mendari's own pages send (added 2026-10-16, after the bug audit).
 - **Supply chain.** Swagger UI vendored at a pinned version; actions pinned by commit, images
   by digest; the Docker image installed from `uv.lock`; Dependabot monthly.
 
@@ -212,7 +214,7 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
 - **Tests:** `tests/`, about 1,800 on Postgres. The security-relevant files:
   `test_auth.py` (the route × principal matrix), `test_api_keys.py`, `test_scopes.py`,
   `test_backend_services.py` (37 kinds of bad assertion), `test_sessions.py`,
-  `test_session_store.py`, `test_origin.py` (every route × 12 kinds of request × each mode),
+  `test_session_store.py`, `test_origin.py` (every route × 15 kinds of request × each mode),
   `test_limits.py`, `test_public_surface.py`, `test_security_log.py`, `test_security_headers.py`,
   `test_vendor.py`, `test_supply_chain.py`, `test_phi.py`, `test_notes.py`,
   `test_record_hygiene.py`, `test_fhir_client.py`, `test_smart.py`, `test_smart_sealing.py`,
@@ -311,7 +313,8 @@ From the threat model's residual risks, and the plan's deferred list:
 - **Browsers other than Chromium:** `__Host-` cookies on the production domain, SameSite=Lax on
   the identity provider's redirect back, and the Origin check in Safari and Firefox.
 - **The ZAP scan with the Origin check:** whether ZAP sends `Origin` or `Sec-Fetch-Site`, which
-  would turn some of its requests into `403`s (fewer findings, not failures).
+  would turn some of its requests into `403`s (fewer findings, not failures). The scan adds
+  `X-Mendari-Request: 1` beside its session cookie, so its reads are not refused for want of it.
 - **Production's settings** (PHI mode, whether the SMART launch is off, the Vercel plan): no
   production or preview URL was called while building.
 
