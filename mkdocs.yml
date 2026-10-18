@@ -71,6 +71,8 @@ nav:
       - Evaluation reports and ledgers: spec/evaluation-reports.md
       - Decision Pack spec 0.1: spec/decision-pack-0.1.md
       - Architecture: architecture.md
+  - Grading:
+      - Grading method 1.0 (draft): grading/method-1.0.md
   - Security:
       - Threat model: security/threat-model.md
       - External review packet: security/review-packet.md
@@ -87,5 +89,6 @@ nav:
       - "ADR-0010: Operations for a public service": decisions/ADR-0010-operations-for-a-public-service.md
       - "ADR-0011: Hidden evaluation sets, blind labelling and agreement": decisions/ADR-0011-hidden-evaluation-sets.md
       - "ADR-0012: A registry that shows only what it checked": decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md
+      - "ADR-0013: A scoreboard and scoped grades": decisions/ADR-0013-scoreboard-and-scoped-grades.md
   - Project:
       - Roadmap: roadmap.md

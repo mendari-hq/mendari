@@ -1130,6 +1130,18 @@ vercel curl /api/packs/mendari/patient-inbox-router/evals --deployment <url> -- 
 uv run mendari leaderboard mendari/patient-inbox-router --report jev-test.json
 ```
 
+The scoreboard and its scoped grades (LP-17, being built) follow a method written down before
+their code: the [grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
+(`mendari.grading/1.0`). It sets the arms by provider class, which figures carry which interval,
+the statistics (Clopper-Pearson simultaneous across a pack's critical labels, exact McNemar, the
+paired bootstrap, Holm), the attestations a grade is made of (never a letter or a score), the
+bands a ranking uses, the evidence rule (enough distinct positives for each critical label, never
+fewer than 100) and the scope statement every result carries. Grades and ranks are given only on
+frozen hidden sets; a public set is a regression check, never a ranking. It is a draft, not in
+effect, until the owner sets its effective date; `mendari.evals.method` pins its hash and every
+number in it ([ADR-0013](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0013-scoreboard-and-scoped-grades.md)).
+It is an engineering evaluation, not clinical validation.
+
 ## Feedback loop
 
 Anyone using the dashboard can rate any decision, automated ones included, as right (thumbs
