@@ -1611,7 +1611,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   calls a live provider or holds the signing key; no PR changes a reference pack's critical-label
   figures. The full plan, its 38 conflicts with the default each PR follows, the owner decisions
   and the risks are in `notes/lp17-plan.md`.
-  - [x] **17a** (this PR) The grading method 1.0 (`docs/grading/method-1.0.md`,
+  - [x] **17a** (#257) The grading method 1.0 (`docs/grading/method-1.0.md`,
     `mendari.grading/1.0`): status "draft, not in effect", the effective-date line left empty for
     the owner, a changelog; one section per requirement, 1 to 14; the machine-readable parameter
     block, every number "owner to confirm"; the evidence rule, `n_min(floor, L) = max(100, the
