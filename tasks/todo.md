@@ -1296,7 +1296,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     output holds a case's input, author or author's id but each labeller's own next case its
     input. The review packet (`docs/security/review-packet.md`) is not updated: neither the
     plan's 11o nor LP-12's close-out touched it.
-  - [x] **11p** (this PR) What 11o's review found nothing checked, now covered: each draw chains
+  - [x] **11p** (#260) What 11o's review found nothing checked, now covered: each draw chains
     a commitment to every drawn case's weight by its keyed hash (`weight_refs` on
     `evalset.sampled`, `weight_ref`: a salt new at each draw, sealed beside the weight, so no
     commitment repeats and the chain does not show whose weight changed), and takes as drawn
