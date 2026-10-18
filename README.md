@@ -903,8 +903,9 @@ operator makes (`mendari access grader-key`): no person, administrator or other 
 The key holder keeps the sets from the command line (`mendari evalset create`, `add`,
 `remove-case` and `list`; [the runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md)):
 hand-written cases only, sealed in the deployment's own database, with ids, keyed case hashes
-and commitments in the chain, which `mendari audit verify --evalsets` checks the sealed cases
-against. Their key rotates as the PHI key does (`mendari evalset rotate`, then
+and commitments in the chain (each case, label, drawn case's weight and stored set of aggregates,
+and each frozen set's content), which `mendari audit verify --evalsets` checks the sealed rows
+against, each case's status against its labels and draw. Their key rotates as the PHI key does (`mendari evalset rotate`, then
 `rotate --check`), a new index key rebuilds the hidden-case index (`mendari evalset reindex`),
 and `mendari evalset export` copies the sealed sets as stored, needing no key. Its cases are
 labelled blind: `mendari evalset sample` draws them, seeded, within strata; `assign` gives each

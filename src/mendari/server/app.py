@@ -3207,9 +3207,10 @@ def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
         """Draws more cases of a draft set to label, seeded, within each stratum: `per_stratum`
         from each (all that are left of a smaller one) or `cases` in all, shared out by the
         strata's sizes. Each drawn case's weight is sealed with it, and the audit chain records
-        how many were drawn and the seed (`evalset.sampled`), never a stratum. The answer: how
-        many were drawn now and in all, and the seed. An unknown set and another
-        organization's are one `404`; a set no longer a draft changes no more."""
+        how many were drawn, the seed and a salted commitment to each drawn case's weight,
+        naming every case drawn so far by its keyed hash (`evalset.sampled`), never a stratum or
+        a weight. The answer: how many were drawn now and in all, and the seed. An unknown set
+        and another organization's are one `404`; a set no longer a draft changes no more."""
         org = curators_org(request)
         drawn = logged_write(
             request,
@@ -3232,9 +3233,12 @@ def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
         user ids), balanced across labellers and pairs, deterministically for a seed; an open
         assignment whose membership no longer holds is withdrawn and its case given to another.
         Each must hold the labeller role in this organization, and no one who manages its sets
-        (an administrator, you included) is ever assigned. The audit chain records each
-        assignment (`evalset.assigned`). The answer: how many were made and withdrawn. An
-        unknown set and another organization's are one `404`."""
+        (an administrator, you included) is ever assigned. Cases are chosen by status, so a set
+        whose rows are not those its audit chain recorded (a label, a status or a weight changed
+        behind the store's back) is refused (a `400` naming the set and no case) and nothing is
+        assigned. The audit chain records each assignment (`evalset.assigned`). The answer: how
+        many were made and withdrawn. An unknown set and another organization's are one
+        `404`."""
         org = curators_org(request)
         made = logged_write(
             request,

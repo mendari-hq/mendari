@@ -29,9 +29,11 @@ from mendari.core import evalsets as evalsets_module
 from mendari.core.audit import EVALSET_KNOWN, EVALSET_RETIRED, HASH_EPOCH, KNOWN
 from mendari.core.evalset_keys import AAD, CASE_PREFIX, INDEX_PREFIX, EvalsetKeys
 from mendari.core.evalsets import (
+    AGGREGATES_REF_PREFIX,
     CASE_REF_PREFIX,
     FREEZE_PREFIX,
     LABEL_REF_PREFIX,
+    WEIGHT_REF_PREFIX,
     EvalsetStore,
     case_ref,
 )
@@ -481,7 +483,8 @@ def test_the_index_matches_both_canonical_and_normalised_inputs(
 def test_index_and_commitment_prefixes_never_collide() -> None:
     """No hash or binding the deployment makes starts as another does: the index key's two
     (case hashes, index hashes), the unkeyed commitments (a case's, a label's, a frozen set's, a
-    note's) and the associated data of sealed values."""
+    drawn case's weight's, a set's stored aggregates', a note's) and the associated data of
+    sealed values."""
     prefixes = [
         AAD,
         CASE_PREFIX,
@@ -490,6 +493,8 @@ def test_index_and_commitment_prefixes_never_collide() -> None:
         CASE_REF_PREFIX,
         LABEL_REF_PREFIX,
         FREEZE_PREFIX,  # a frozen set's commitment (LP-11i)
+        WEIGHT_REF_PREFIX,  # a drawn case's weight's (LP-11p)
+        AGGREGATES_REF_PREFIX,  # a set's stored aggregates' (LP-11p)
         NOTE_AAD,
         DETAILS_AAD,
         INPUT_HASH_PREFIX,
@@ -657,6 +662,7 @@ def test_verify_holds_and_counts_the_sets(
             "assignments": 0,
             "labels": 0,
             "frozen": 0,
+            "predating": 0,
         },
     }
     unchecked = store.verify(evalsets=True)  # without keys: each counted, never a break
@@ -670,6 +676,7 @@ def test_verify_holds_and_counts_the_sets(
             "assignments": 0,
             "labels": 0,
             "frozen": 0,
+            "predating": 0,
         },
     }
     assert plain["ok"] and plain["events"] == events
@@ -739,6 +746,7 @@ def test_verify_finds_an_altered_row(
             "assignments": 0,
             "labels": 0,
             "frozen": 0,
+            "predating": 0,
         },
     }
 
@@ -806,6 +814,7 @@ def test_verify_counts_what_a_missing_key_sealed_as_unopenable(
         "assignments": 0,
         "labels": 0,
         "frozen": 0,
+        "predating": 0,
     }
 
 
@@ -913,6 +922,7 @@ def test_audit_verify_passes_after_cases_added(
         "assignments": 0,
         "labels": 0,
         "frozen": 0,
+        "predating": 0,
     }
     assert run(capsys, "audit", "verify", *db)[0] == 0
 
@@ -937,7 +947,7 @@ def test_the_commands_refuse_while_the_keys_are_unset(
     code, out, _ = run(capsys, "audit", "verify", "--evalsets", "--db", db)
     assert code == 0 and json.loads(out)["evalsets"] == {
         "sets": 0, "checked": 0, "removed": 0, "unchecked": 0, "assignments": 0, "labels": 0,
- "frozen": 0,
+ "frozen": 0, "predating": 0,
     }  # fmt: skip
     assert Path(db).read_bytes() == before
 

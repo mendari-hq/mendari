@@ -415,7 +415,7 @@ def test_a_hidden_set_from_creation_to_retirement_through_the_cli_and_http(
     assert code == 0 and verified["ok"]
     assert verified["evalsets"] == {
         "sets": 2, "checked": 6, "removed": 0, "unchecked": 0, "assignments": 9, "labels": 9,
-        "frozen": 1,
+        "frozen": 1, "predating": 0,
     }  # fmt: skip
     code, out, _ = world.command("evalset", "rotate", "--check")
     assert code == 0 and json.loads(out)["ready"]

@@ -123,6 +123,35 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets: a draft's statuses and weights, and every set's stored aggregates,
+  covered by commitments** (LP-11p, what 11o's review found nothing checked). Each draw
+  (`mendari evalset sample`, `POST /api/evalsets/{set}/sample`) chains a commitment to every
+  drawn case's weight by its keyed hash, each with a salt new at each draw (`weight_refs` on
+  `evalset.sampled`), and takes as drawn before what the latest draw committed to, never a
+  case's status. Each store of a set's aggregates (`evalset agreement`, `coverage` and `freeze`)
+  chains a commitment to them, with their salt sealed beside them (`aggregates_ref` on
+  `evalset.measured` and `evalset.frozen`). A case's status, still in the clear, is checked
+  against its labels and the set's latest draw; each label counts in the round and for the
+  labeller its `evalset.labelled` chained, never as an assignment row says now, every label the
+  chain recorded must be there, and an adjudicator's label settles only a case whose two
+  first-pass labels differ. So a status edited by SQL (a disputed case made `agreed`, which
+  freezing used to commit to with its first labeller's answer), a label deleted or an
+  assignment moved to another round, a weight re-sealed or put back from before a draw, and
+  aggregates re-sealed, put back or removed now break `mendari audit verify --evalsets` and
+  fail `mendari evalset rotate --check`; `freeze`, `agreement` and `coverage` refuse such a set,
+  counting its cases and naming none (a draw or a label landing while they read says "run it
+  again" instead); `assign` and `adjudicate` (and their curators' routes, a `400`), which still
+  open nothing, refuse a status the chain's draw and labels do not allow, so no case goes to a
+  labeller on it; and `mendari evalset show` and `GET /api/evalsets/{set}` refuse such
+  aggregates (a `400`), naming the set only. An agreed case's status edited to `disputed` still
+  reaches an adjudicator (telling it from a disputed one takes the labels' values), but that
+  label no longer settles it, so the edit stays found. Sets made before this release verify as
+  before: both checks count the rows no commitment covers yet (`predating`, a new count in their
+  answers, never an id), still check those sets' statuses against their labels, and take their
+  weights, whether an unlabelled case was drawn, and their aggregates as they are until the set
+  is drawn or measured again (a set frozen before it keeps its aggregates unchecked: take its
+  gate's positives from `freeze`'s output). A draft's header stays uncovered until it freezes.
+  The threat model, ADR-0011 and the runbook say what is covered and what is not.
 - **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
   keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
   Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from
@@ -138,7 +167,8 @@ The first release (not yet published).
   keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
   which cases were disputed; until a set freezes, no commitment covers its header, its cases'
   statuses or their weights, so freezing commits to them as they are, and none covers a set's
-  stored aggregates; and paraphrased public cases pass. The runbook
+  stored aggregates (LP-11p, above, covers all but the header); and paraphrased public cases
+  pass. The runbook
   (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
   lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
   attestations) and a set from start to end, and now says that every writing `mendari evalset`

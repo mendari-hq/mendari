@@ -1296,6 +1296,41 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     output holds a case's input, author or author's id but each labeller's own next case its
     input. The review packet (`docs/security/review-packet.md`) is not updated: neither the
     plan's 11o nor LP-12's close-out touched it.
+  - [x] **11p** (#260) What 11o's review found nothing checked, now covered: each draw chains
+    a commitment to every drawn case's weight by its keyed hash (`weight_refs` on
+    `evalset.sampled`, `weight_ref`: a salt new at each draw, sealed beside the weight, so no
+    commitment repeats and the chain does not show whose weight changed), and takes as drawn
+    before what the latest draw committed to, never a status; each store of a set's aggregates
+    chains a commitment to them (`aggregates_ref` on `evalset.measured` and `evalset.frozen`,
+    the salt sealed with them). A case's status, clear text, is checked against its labels and
+    the latest draw (`given_statuses`, sharing `_settle`'s rule), each label in the round and by
+    the labeller its `evalset.labelled` chained (`_chain`, `_as_chained`: no assignment row is
+    read, and every chained label must be there), and an adjudicator's label settles only a case
+    whose two first-pass labels differ. `freeze` and `measure` refuse a set whose labels,
+    statuses or weights do not hold, naming no case, once read again under the chain's lock (a
+    write landing as they read is "run it again", `_refuse_unless_changed`); `assign` and
+    `adjudicate`, still opening nothing (I13), refuse a status the chain's draw and labels'
+    rounds do not allow (`_shape_mismatches`; an agreed case edited to `disputed` still reaches
+    an adjudicator, whose label then settles nothing, so it stays found); `show`, and so the
+    curators' `GET /api/evalsets/{set_id}` (a `400`) and `mendari evalset show`, refuse
+    aggregates their commitment does not cover (re-sealed, put back, removed, or stored without
+    their event),
+    naming the set only, read in one statement with their latest event; `mendari audit verify
+    --evalsets` breaks at the case's `evalset.case_added` (a status or a stray weight), the draw
+    (a drawn case's weight) or the storing event (aggregates), at a frozen set's
+    `evalset.frozen` for its rows, counts aggregates no event stored `unchained`, and excuses a
+    draw, a label or a measure chained while it reads; `rotate --check` lists `status`,
+    `weight` and `aggregates` failures (and `labels`). Rows from before these commitments verify
+    as before and are counted (`predating`, in both answers, a count only): statuses still
+    checked against labels, weights, an unlabelled case's draw and aggregates taken as they are.
+    A draft's header stays uncovered until it freezes, and an open assignment ended by SQL looks
+    like a withdrawal. `tests/test_evalset_commitments.py` (SQLite and Postgres; each edit fails
+    on the code before it, the review's probes among them, the old chain rebuilt without the
+    commitments); the payload, count and prefix pins, and the 11g sweep's payload keys and
+    salts, updated. The threat model's residual bullets (what is covered; a draw names each
+    drawn case) and T6, ADR-0011 (11p step and consequences), the runbook (events, drawing,
+    assigning, adjudicating, measuring, freezing, `show`, Verifying, the check, the gates), the
+    sample route's description, the README and the CHANGELOG.
 
   **Owner decisions still open** (none blocked the build; the hosted site mounts no labelling
   or curating route until the first is settled): how labellers reach the hosted site
