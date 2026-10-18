@@ -1842,7 +1842,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (macro-F1), the Korn-Graubard weighted proportion, Brier's reliability term.
   - [x] **17c** (#259) Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari
     scoreboard arms PACK`).
-  - [x] **17d** (this PR) Scoreboard entries (`mendari.scoreboard/1`, `evals/scoreboard.py`) and
+  - [x] **17d** (#261) Scoreboard entries (`mendari.scoreboard/1`, `evals/scoreboard.py`) and
     run records (`mendari.run/1`, `evals/runs.py`), pure; the price table (`mendari.prices/1`,
     refused from Mendari's code or a pack's directory) and the disclosures file
     (`mendari.disclosures/1`). An entry is a pure function of its ledger, dataset, run record,
