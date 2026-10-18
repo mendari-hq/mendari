@@ -1814,6 +1814,114 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
      cannot be evaluated on its own test set with local providers says so.
 
+- [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Proposed). Planned by a mapping
+  workflow (2026-10-17) as thirteen PRs, 17a to 17m: twelve build PRs and one data PR the owner
+  runs (17i). It adds a published grading method, a scoreboard computed from ledgers
+  (`mendari.scoreboard/1`), and scoped grades and band ranking given only on frozen hidden sets.
+  `mendari.eval/2`, `mendari.ledger/1`, `mendari.compare/1`, `Proportion.to_dict`,
+  `mendari.rank/1` (as data), `mendari.hidden_result/1`, every committed benchmark and ledger and
+  every pack decision stay byte for byte; nothing is ranked or graded on a public set; CI never
+  calls a live provider or holds the signing key; no PR changes a reference pack's critical-label
+  figures. The full plan, its 38 conflicts with the default each PR follows, the owner decisions
+  and the risks are in `notes/lp17-plan.md`.
+  - [x] **17a** (#257) The grading method 1.0 (`docs/grading/method-1.0.md`,
+    `mendari.grading/1.0`): status "draft, not in effect", the effective-date line left empty for
+    the owner, a changelog; one section per requirement, 1 to 14; the machine-readable parameter
+    block, every number "owner to confirm"; the evidence rule, `n_min(floor, L) = max(100, the
+    smallest n whose n-of-n lower bound at 1 - 0.05/L reaches the floor)`, and its table for L = 1
+    to 8, recomputed with `stats.clopper_pearson` (0.95: 100 up to L = 4, 104, 107, 110, 113; the
+    0.02 ceiling needs 183 labelled cases); the scope statement and "engineering evaluation, not
+    clinical validation". `mendari.evals.method`: `METHOD`, `METHOD_PATH`, `METHOD_SHA256` (the
+    document is in neither the wheel nor the sdist, so the hash is pinned and a test checks it
+    against the repository's file), `EFFECTIVE = None`, the parameters, `simultaneous_level`,
+    `min_positives` and `in_effect`; it imports only `stats`, and nothing imports it yet.
+    ADR-0013 (Proposed); the nav's Grading section; gate `grading-method` probes the document
+    and its `pending` names the rest of LP-17 (the attestation stays empty); the spec links the
+    method. `tests/test_grading_method.py`.
+  - [ ] **17b** Statistics additions (pure, `evals/stats.py`): the stratified bootstrap (macro-F1),
+    the Korn-Graubard weighted proportion, Brier's reliability term.
+  - [ ] **17c** Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari scoreboard
+    arms PACK`).
+  - [ ] **17d** Scoreboard entries (`mendari.scoreboard/1`) and run records (`mendari.run/1`),
+    pure; the price table (`mendari.prices/1`) and the disclosures file.
+  - [ ] **17e** Signing and the public verifier (`MENDARI_GRADING_SIGNING_KEY`, off without it;
+    `mendari scoreboard sign|verify`; `docs/grading/verifying.md`).
+  - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
+    and the early scoreboard (stage 3): every local configuration on the 15 public scoring sets,
+    unranked and unsigned, on a generated page.
+  - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
+    the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
+    comparison sections become stale).
+  - [ ] **17h** Remote arms on public sets: 3 to 5 replicates, the spread and the flip rate, model
+    freshness, the canary and disclosures; built, and refusing to start in CI.
+  - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
+    (31,500 decisions).
+  - [ ] **17j** Grades (attestations: met, not met or insufficient evidence) and band ranking,
+    with the Holm family and rank intervals (pure).
+  - [ ] **17k** The hidden-set scoreboard through the existing grading route
+    (`mendari.hidden_scoreboard/1`, every declared arm in one grading read).
+  - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
+    Blocked on LP-20 and owner decisions 4 and 10.
+  - [ ] **17m** Close-out: gate probes for `a9-scoreboard` and `grading-method`, the threat
+    model's residual risks, ADR-0013 Accepted, the owner's runbook.
+
+  Order: 17a first; then 17b, 17c and 17e in parallel; 17d after 17b and 17c; 17f after 17d and
+  17e; 17g and 17h after 17f; 17j after 17d; 17k after 17f and 17j; 17i after 17h; 17l after 17k
+  and LP-20; 17m after 17g, 17h and 17k. Threat-model rows allocated to LP-17: S20, T8, R4, I14,
+  I15 and E14.
+
+  **Defaults each PR follows** (the owner may choose otherwise; the plan's conflicts in full):
+  1. (17d, 17g, 17j) `mendari.rank/1` stays the leaderboard's data and listing order; the
+     scoreboard ranks only under `mendari.grading/1.0`, on hidden sets.
+  2. (17d, 17f) Every public set is "public set: regression check, not a ranking"; the
+     acceptance's "scoreboard on public sets" is the unranked early scoreboard.
+  3. (17d) Each critical label needs enough evidence, not any one.
+  4. (17d, 17k) Evidence on distinct positives under `norm/v1`; a group is detected only when
+     every positive case in it is; figures stay raw k of n.
+  5. (17a, 17d) Bounds at `1 - 0.05/L` are two-sided (conservative); display stays k of n at 95%;
+     the grade's bound is its own field naming its level.
+  6. (17j) The Holm tests set the rank intervals and never reorder the ranks; Brier's
+     paired-bootstrap p-value joins the family; `paired.compare` does not change.
+  7. (17j) Cost is banded and is the band tuple's last element.
+  8. (17k) Local providers only on hidden sets: a remote arm reads "not graded here", so ranking
+     is built but off.
+  9. (17c, 17h) `naive_bayes` is deterministic and local, `cql` deterministic but remote; the
+     specialised classifier is Jev; the "both" arm exists only across slots.
+  10. (17k, 17l) Mendari's own grading declares one configuration per arm before grading; the
+     salted split comes with the developer flow.
+  11. (17k) Every declared arm is decided inside one grading read, one of `max_runs`.
+  12. (17d, 17k) No ledger format change: weights, distinct groups, per-type tokens and latency
+     come from the dataset and the run record; latency is labelled "measured on the runner, not
+     reproducible" and never ranked; no subgroups on hidden sets.
+  13. (17d, 17h) Price tables are dated files under `scoreboard/prices/`, cited by SHA-256; a
+     cost is "unknown" when any call failed or a model is unpriced; a remote entry is withheld
+     until its provider type has a disclosure.
+  14. (17e, 17f) The signing key is `MENDARI_GRADING_SIGNING_KEY`, offline only, never a server
+     or CI setting; committed results stay "unsigned" until the owner signs; the store is
+     `scoreboard/` at the repository root, its checks steps of `reference-pack`.
+  15. (17g) No dashboard scoreboard screen: the card and the dashboard link the docs page.
+  16. (17a, 17m) The method stays a draft (`EFFECTIVE = None`); any edit re-pins its hash; the
+     effective date is the owner's PR, at least 30 days after the URL is attested (B30).
+
+  **Owner decisions still open** (17i needs 6 and 7, 17l needs 4 and 10; none blocks the
+  others): which parts are built in a private repository (default: none); remote providers on
+  hidden sets (default: local only for method 1.0); raw or distinct positives (default:
+  distinct); rotation numbers and the submission budget (no house default; suggested 20 runs and
+  180 days per set, 3 submissions per organization and lineage per rotation, the confirmation
+  once per version); the floors, the ceiling, the bands and the effective date (the method's
+  parameters, each "owner to confirm"); one-sided or two-sided bounds (default: two-sided); the
+  spend for 17i (default: 31,500 decisions, once); benchmark-publication terms and the
+  commercial-relationship disclosures (default: nothing remote published without one); the
+  signing key (default: made offline, its public key in `scoreboard/keys.json`); who a
+  submitting developer is (LP-19, LP-20); publishing the docs site and the corrected
+  `web/index.html` (after G1-2).
+  - [ ] Owner: generate the signing key, publish its public key and sign the committed results.
+  - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`) and mint a grading key once 17k
+    lands.
+  - [ ] Owner: write the price table, the disclosures and the declarations, then run 17i.
+  - [ ] Owner: attest `grading-method` once the site is published, and set the method's
+    effective date.
+
 - [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
   by 18h, 2026-10-17): it waits on the owner's choice of where the registry runs.** The build
   prompt says so ("Owner decision needed: mount the registry under the engine app (one origin,

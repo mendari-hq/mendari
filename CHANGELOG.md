@@ -326,6 +326,21 @@ The first release (not yet published).
   across the pool, exact, each with a seeded percentile bootstrap interval; an undefined
   coefficient or interval says why. Checked against hand-computed references, statsmodels and
   scipy; no dependency is added.
+- **The grading method 1.0, a draft not in effect** (LP-17a, `docs/grading/method-1.0.md`,
+  `mendari.grading/1.0`; ADR-0013, Proposed). The rules the scoreboard and its scoped grades will
+  follow, written before their code: arms by provider class; selection by declared
+  configurations; which figures are estimates with an interval and which are descriptions (ECE
+  has no interval and never decides anything); Clopper-Pearson simultaneous across a pack's
+  critical labels (`1 - 0.05/L`) for a grade's bound and 95% for display, exact McNemar, the
+  paired bootstrap and a stated Holm family; a grade as attestations, each met, not met or
+  insufficient evidence; bands for ranking, on frozen hidden sets only; the evidence rule on
+  distinct positives (at least 100 for each critical label, 107 for the Clinical Trial
+  Prescreener's six at a 0.95 floor); the scope statement, signing, freshness and the developer
+  flow. Every number the method sets is in one parameter block, each the owner's to confirm (a
+  test checks that the text uses no other), and the effective date is the owner's to set.
+  `mendari.evals.method` pins the version, the document's SHA-256 and the parameters; nothing
+  uses it yet, so no figure, format or decision changes, and the leaderboards still rank public
+  sets with `mendari.rank/1` until LP-17g. Gate `grading-method` now probes the document.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
