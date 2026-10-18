@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -188,17 +189,58 @@ def keys_read(function: Callable[..., Any], name: str) -> set[str]:
     return found
 
 
+def changed(value: Any) -> Any:
+    """`value` changed, of the same type."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, str):
+        return value + "x"
+    if isinstance(value, list):
+        return [changed(item) for item in value]
+    if isinstance(value, dict):
+        return {**value, "x": "x"}
+    raise AssertionError(f"no change made for {value!r}")
+
+
+def not_exported(checks: ModuleType, spec: dict[str, Any]) -> list[str]:
+    """Each key the export lets through but does not give the provider: one `export` does not
+    read, or one a check of `spec` uses that can change without the export changing."""
+    known = {"check": checks.CHECK_KEYS, "request": checks.REQUEST_KEYS}
+    known["expect"] = set(checks.EXPECT_FIELDS)
+    missing = [
+        f"{part} key {key}: the export does not read it"
+        for part, keys in known.items()
+        for key in sorted(set(keys) - keys_read(checks.export, part))
+    ]
+    bases = {"api": API, "registry": REGISTRY, "hub": HUB}
+    before = checks.export(spec, bases)
+    for index, check in enumerate(spec["checks"]):
+        places = [("check", key) for key in check if key not in ("request", "expect")]
+        places += [(part, key) for part in ("request", "expect") for key in check[part]]
+        for part, key in places:
+            after = copy.deepcopy(spec)
+            where = after["checks"][index]
+            where = where if part == "check" else where[part]
+            where[key] = changed(where[key])
+            if checks.export(after, bases) == before:
+                missing.append(f"{check['name']}, {part} {key}: the export does not change with it")
+    return missing
+
+
 def test_the_export_gives_every_check_and_every_key_the_checker_enforces(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A key the checker starts to read (`run`, `_problem`) fails here until the export gives it
-    a field; a key the checks file starts to use fails until the export knows it."""
+    to the provider; a key the checks file starts to use fails until the export knows it."""
     checks = script()
     enforced = keys_read(checks._problem, "expect")
     assert "status" in enforced  # the scan reads the checker
     assert enforced == set(checks.EXPECT_FIELDS)
     assert keys_read(checks.run, "request") <= checks.REQUEST_KEYS
     assert keys_read(checks.run, "check") <= checks.CHECK_KEYS
+    assert not_exported(checks, checks.load()) == []
     monkeypatch.setenv(KEY, "ohk_secret-value")
     argv = ["--export", "json", "--api", API, "--registry", REGISTRY, "--hub", HUB]
     assert checks.main(argv) == 0
@@ -216,12 +258,14 @@ def test_the_export_gives_every_check_and_every_key_the_checker_enforces(
         assert entry["follow_redirects"] is False  # the checker never follows one
         assert entry.get("json_body") == check["request"].get("json")
         for key in check["expect"]:
-            assert checks.EXPECT_FIELDS[key] in entry, (check["name"], key)
+            for field in checks.EXPECT_FIELDS[key]:
+                assert field in entry, (check["name"], key, field)
         assert entry.get("only_with_sign_in", False) is check.get("only_with_sign_in", False)
     assert exported["readiness"]["url"] == f"{API}/api/health/ready"
     assert exported["readiness"]["expected_statuses"] == [200]
     assert exported["sign-in"]["expected_statuses"] == [302]
     assert exported["sign-in"]["location_leaves_host"] == "mendari.example.org"
+    assert exported["sign-in"]["location_path_not"] == "/auth/login"
     assert exported["decide"]["headers"] == {
         "Content-Type": "application/json",
         "Authorization": "Bearer ${STATUS_DECIDE_KEY}",
@@ -230,6 +274,58 @@ def test_the_export_gives_every_check_and_every_key_the_checker_enforces(
     assert exported["decide"]["body_keyword"] == '"outcome":'
     assert exported["registry"]["url"] == f"{REGISTRY}/v1/health"
     assert exported["hub"]["url"] == f"{HUB}/"
+
+
+def test_a_key_the_export_lets_through_but_drops_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Headers the checker started to send, let through by REQUEST_KEYS but not exported: the
+    provider would send another request than the checker, and nothing would say so."""
+    checks = script()
+    monkeypatch.setattr(checks, "REQUEST_KEYS", checks.REQUEST_KEYS | {"headers"})
+    spec = copy.deepcopy(checks.load())
+    spec["checks"][0]["request"]["headers"] = {"X-Probe": "1"}
+    (readiness_entry, *_), _ = checks.export(spec, {"api": API})
+    assert "headers" not in readiness_entry  # dropped, with no error
+    assert not_exported(checks, spec) == [
+        "request key headers: the export does not read it",
+        "readiness, request headers: the export does not change with it",
+    ]
+
+
+def provider_says_up(entry: dict[str, Any], answer: httpx.Response) -> bool:
+    """Whether a provider set up from an exported check calls `answer` up, reading the status
+    and Location fields as docs/operations/status-checks.md says."""
+    if answer.status_code not in entry["expected_statuses"]:
+        return False
+    if "location_leaves_host" in entry:
+        there = urlsplit(answer.headers.get("location", ""))
+        if there.netloc in ("", entry["location_leaves_host"]):
+            return False
+        if there.path == entry.get("location_path_not"):
+            return False
+    return True
+
+
+@pytest.mark.parametrize(
+    ("status", "location"),
+    [
+        (302, "https://idp.example.com/authorize?redirect_uri=https%3A%2F%2Fmendari.example.org"),
+        (302, "https://public.example.org/auth/login?next=%2F"),  # another of Mendari's addresses
+        (302, "https://mendari.example.org/auth/error"),
+        (302, "http://mendari.example.org/auth/callback"),  # the same host, another scheme
+        (302, "/auth/login?next=%2F"),
+        (302, None),
+        (200, None),
+    ],
+)
+def test_a_provider_set_up_from_the_export_calls_a_sign_in_redirect_what_the_checker_does(
+    status: int, location: str | None
+) -> None:
+    checks = script()
+    spec = checks.load()
+    (expect,) = [check["expect"] for check in spec["checks"] if check["name"] == "sign-in"]
+    (entry,) = [e for e in checks.export(spec, {"api": API})[0] if e["name"] == "sign-in"]
+    answer = httpx.Response(status, headers={"location": location} if location else {})
+    assert provider_says_up(entry, answer) is (checks._problem(answer, expect, API) is None)
 
 
 def test_the_body_keyword_is_in_a_real_decision_and_not_in_an_answer_without_one(

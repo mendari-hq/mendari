@@ -124,8 +124,10 @@ provider needs to run it as the script does:
 - `follow_redirects`, always `false`. Each check judges the answer it gets: a redirect followed
   to a sign-in page would answer `200` and look up;
 - `expected_statuses`, the statuses that are up;
-- `location_leaves_host` (sign-in): up only when the redirect's `Location` names another host
-  than this one;
+- `location_leaves_host` and `location_path_not` (sign-in): up only when the redirect's
+  `Location` names another host than this one, and its path is not `/auth/login`. That path on
+  another host is Mendari moving sign-in to its public address first, not the identity
+  provider: export with `--api` set to that address (`MENDARI_PUBLIC_URL`);
 - `body_keyword` (decide): text the body must hold, `"outcome":`;
 - `headers`: `Authorization: Bearer ${STATUS_DECIDE_KEY}` names the variable that holds the
   key (`secret_from_environment`), never the key. Give the provider the key itself as a

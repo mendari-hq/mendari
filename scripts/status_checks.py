@@ -38,15 +38,19 @@ import yaml
 CHECKS = Path(__file__).resolve().parent.parent / "deploy" / "status" / "checks.yaml"
 TIMEOUT_S = 10.0
 _BASE = re.compile(r"^\{(api|registry|hub)\}")
-# Every key of a check the export knows, and the field it gives each `expect` key the checker
-# enforces (`_problem`): tests/test_status_checks.py holds what `run` and `_problem` read to
-# these, so a key the checker starts to read fails until it is exported.
+# Mendari's own sign-in route. A redirect there on another host is Mendari moving sign-in to its
+# public address (MENDARI_PUBLIC_URL), not the identity provider answering.
+SIGN_IN_PATH = "/auth/login"
+# Every key of a check the export knows, and the fields it gives each `expect` key the checker
+# enforces (`_problem`). tests/test_status_checks.py holds these to what `run`, `_problem` and
+# `export` read, and changes each key a check uses to see that the export changes with it: a
+# key the checker starts to read fails there until it is exported.
 CHECK_KEYS = frozenset({"name", "what", "request", "expect", "only_with_sign_in"})
 REQUEST_KEYS = frozenset({"method", "url", "json", "key_from"})
 EXPECT_FIELDS = {
-    "status": "expected_statuses",
-    "location_leaves": "location_leaves_host",
-    "json_has": "body_keyword",
+    "status": ("expected_statuses",),
+    "location_leaves": ("location_leaves_host", "location_path_not"),
+    "json_has": ("body_keyword",),
 }
 
 
@@ -127,12 +131,10 @@ def _problem(answer: httpx.Response, expect: Mapping[str, Any], root: str) -> st
     if answer.status_code not in expect["status"]:
         return f"answered {answer.status_code}, not {' or '.join(map(str, expect['status']))}"
     if "location_leaves" in expect:
-        location = answer.headers.get("location", "")
-        here = urlsplit(root)
-        there = urlsplit(location)
-        if not there.netloc or (there.scheme, there.netloc) == (here.scheme, here.netloc):
+        there = urlsplit(answer.headers.get("location", ""))
+        if not there.netloc or there.netloc == urlsplit(root).netloc:
             return "the redirect stays here: it does not reach the identity provider"
-        if there.path == "/auth/login":  # Mendari's own move to its public address
+        if there.path == SIGN_IN_PATH:
             return "the redirect goes to another of Mendari's addresses: give --api that one"
     if "json_has" in expect:
         try:
@@ -150,10 +152,11 @@ def export(
     """Each check of `spec` whose base URL `bases` gives, for a status provider to run as the
     checker does: its absolute URL, method, JSON body and interval; redirects never followed
     (the checker judges the answer itself, and a redirect followed to a sign-in page would look
-    up); the statuses that are up; the host the redirect's Location must leave; `json_has` as a
-    keyword of the body (the key, quoted, and its colon); and headers that name the key's
-    environment variable, never its value. Then the checks left out, with why. Raises
-    ValueError on a key it does not know, rather than leave it out."""
+    up); the statuses that are up; the host the redirect's Location must leave and the path it
+    must not have (Mendari's own sign-in, on another of its addresses); `json_has` as a keyword
+    of the body (the key, quoted, and its colon); and headers that name the key's environment
+    variable, never its value. Then the checks left out, with why. Raises ValueError on a key
+    it does not know, rather than leave it out."""
     exported, left = [], []
     for check in spec["checks"]:
         name = check.get("name", "?")
@@ -182,15 +185,16 @@ def export(
             entry["secret_from_environment"] = request["key_from"]
         if headers:
             entry["headers"] = headers
-        entry[EXPECT_FIELDS["status"]] = list(expect["status"])
+        entry["expected_statuses"] = list(expect["status"])
         if "location_leaves" in expect:
             there, base = _absolute(expect["location_leaves"], bases)
             if there is None:
                 left.append(Result(name, "skipped", f"no --{base} given"))
                 continue
-            entry[EXPECT_FIELDS["location_leaves"]] = urlsplit(there).netloc
+            entry["location_leaves_host"] = urlsplit(there).netloc
+            entry["location_path_not"] = SIGN_IN_PATH
         if "json_has" in expect:
-            entry[EXPECT_FIELDS["json_has"]] = f'"{expect["json_has"]}":'
+            entry["body_keyword"] = f'"{expect["json_has"]}":'
         if check.get("only_with_sign_in"):
             entry["only_with_sign_in"] = True
         exported.append(entry)

@@ -48,8 +48,11 @@ The first release (not yet published).
   `scripts/status_checks.py --export json` prints the checks in `deploy/status/checks.yaml`
   for a status provider instead of running them: each check's absolute URL, method, JSON body,
   interval and expected statuses, redirects not followed, the host the sign-in redirect must
-  leave, the decide check's `outcome` as a body keyword, and a header that names the key's
-  environment variable, never its value. A key the export does not know stops it.
+  leave and the path it must not have (Mendari's own `/auth/login`), the decide check's
+  `outcome` as a body keyword, and a header that names the key's environment variable, never
+  its value. A key the export does not know stops it. The script's own sign-in check now
+  compares the redirect's host alone, as the export does: a redirect to the same host on
+  another scheme fails.
 - **Evaluation with exact statistics:** a run keeps a per-case ledger (no input text, no case
   id) and its report's result is computed only from it (`mendari.eval/2`), byte for byte the same
   on a second run; each proportion is k of n with its exact Clopper-Pearson interval, each Brier
