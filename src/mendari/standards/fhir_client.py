@@ -12,6 +12,8 @@ that guards against server-side request forgery:
 - **Paths stay under the server's base URL**; `next` links must too.
 - **No redirects**, a timeout, a response size cap, and JSON only.
 - **Errors say what failed, never what the server answered**, and never include the token.
+  Each carries its fixed reason (`FhirError.reason`, `errors.ReadReason`), which a decision
+  that could not read part of its record abstains with (LP-23d).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
-from mendari.errors import FhirError, MendariError
+from mendari.errors import FhirError, MendariError, ReadReason
 
 MAX_BYTES = 5 * 1024 * 1024
 TIMEOUT = 10.0
@@ -84,7 +86,9 @@ class GuardedHttp:
     def check(self, url: str) -> None:
         origin = origin_of(url)
         if origin is None or origin not in self.allowed:
-            raise FhirError("the FHIR server is not on this deployment's allow-list")
+            raise FhirError(
+                "the FHIR server is not on this deployment's allow-list", reason="off_server"
+            )
 
     def get_json(self, url: str, headers: Mapping[str, str] | None = None) -> dict[str, Any]:
         return self._send("GET", url, headers=headers)
@@ -126,15 +130,15 @@ class GuardedHttp:
         try:
             with self._client.stream(method, url, headers=headers, **kwargs) as response:
                 if response.is_redirect:
-                    raise FhirError(f"the server redirected (HTTP {response.status_code})")
+                    raise _redirected(response.status_code)
                 body = bytearray()
                 for chunk in response.iter_bytes():
                     body += chunk
                     if len(body) > MAX_BYTES:
-                        raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
+                        raise _too_large()
                 return response.status_code, response.headers, bytes(body)
         except httpx.HTTPError as error:
-            raise FhirError(f"could not reach the server ({type(error).__name__})") from None
+            raise _unreachable(error) from None
 
     def download(
         self, url: str, path: Path, *, headers: Mapping[str, str] | None, max_bytes: int
@@ -145,16 +149,24 @@ class GuardedHttp:
         try:
             with self._client.stream("GET", url, headers=headers) as response:
                 if response.is_redirect or not response.is_success:
-                    raise FhirError(f"the download answered HTTP {response.status_code}")
+                    status = response.status_code
+                    raise FhirError(
+                        f"the download answered HTTP {status}", reason=_status_reason(status)
+                    )
                 with path.open("wb") as out:
                     for chunk in response.iter_bytes():
                         size += len(chunk)
                         if size > max_bytes:
-                            raise FhirError(f"the download is larger than {max_bytes} bytes")
+                            raise FhirError(
+                                f"the download is larger than {max_bytes} bytes",
+                                reason="too_large",
+                            )
                         out.write(chunk)
         except httpx.HTTPError as error:
             path.unlink(missing_ok=True)
-            raise FhirError(f"the download failed ({type(error).__name__})") from None
+            raise FhirError(
+                f"the download failed ({type(error).__name__})", reason=_network_reason(error)
+            ) from None
         except FhirError:
             path.unlink(missing_ok=True)
             raise
@@ -166,30 +178,34 @@ class GuardedHttp:
         try:
             with self._client.stream(method, url, **kwargs) as response:
                 if response.is_redirect:
-                    raise FhirError(f"the server redirected (HTTP {response.status_code})")
+                    raise _redirected(response.status_code)
                 body = bytearray()
                 for chunk in response.iter_bytes():
                     if stop is not None and stop():
-                        raise FhirError("the answer did not arrive in time")
+                        raise FhirError("the answer did not arrive in time", reason="timeout")
                     body += chunk
                     if len(body) > MAX_BYTES:
-                        raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
+                        raise _too_large()
                 if not response.is_success:
                     status = response.status_code
                     raise FhirError(
-                        f"the server answered HTTP {status}{_oauth(bytes(body))}", status=status
+                        f"the server answered HTTP {status}{_oauth(bytes(body))}",
+                        status=status,
+                        reason=_status_reason(status),
                     )
                 kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
                 if kind not in _JSON_TYPES:
-                    raise FhirError("the server did not answer with JSON")
+                    raise FhirError("the server did not answer with JSON", reason="not_json")
         except httpx.HTTPError as error:
-            raise FhirError(f"could not reach the server ({type(error).__name__})") from None
+            raise _unreachable(error) from None
         try:
             data = json.loads(bytes(body))
         except (ValueError, RecursionError):  # not JSON, over 4,300 digits, or nested too deep
-            raise FhirError("the server answered with invalid JSON") from None
+            raise FhirError("the server answered with invalid JSON", reason="not_json") from None
         if not isinstance(data, Mapping):
-            raise FhirError("the server answered with something other than a JSON object")
+            raise FhirError(
+                "the server answered with something other than a JSON object", reason="not_json"
+            )
         return dict(data)
 
 
@@ -220,32 +236,95 @@ class FhirClient:
     def close(self) -> None:
         self._http.close()
 
-    def read(self, relative: str) -> dict[str, Any]:
+    def read(self, relative: str, *, complete: bool = False) -> dict[str, Any]:
         """GET `relative` (e.g. "Patient/123" or "Observation?patient=123") under the base URL.
-        A searchset's `next` pages are followed and merged into one Bundle."""
+        A searchset's `next` pages are followed and merged into one Bundle, at most `MAX_PAGES`
+        of them after the first. With `complete` (a decision's record, LP-23d), a search with
+        more pages than that is a `FhirError` (`cap`) rather than its first pages, and so is a
+        page that is not a Bundle (`operation_outcome`, `not_r4`): a record cut short is not
+        read. A page whose `entry` or `link` is not R4's shape, or whose `next` link is not a
+        URL, is a `FhirError` (`not_r4`) in every mode, never a crash."""
         result = self._http.get_json(self._resolve(relative), self._headers)
         if result.get("resourceType") != "Bundle":
             return result
-        entries = list(result.get("entry") or [])
+        entries = _entries(result)
         for _ in range(MAX_PAGES):
-            links = result.get("link") or []
-            following = next((x.get("url") for x in links if x.get("relation") == "next"), None)
+            following = _next(result)
             if not following:
                 break
             result = self._http.get_json(self._resolve(following), self._headers)
-            entries += result.get("entry") or []
+            if complete and result.get("resourceType") != "Bundle":
+                kind: ReadReason = (
+                    "operation_outcome"
+                    if result.get("resourceType") == "OperationOutcome"
+                    else "not_r4"
+                )
+                raise FhirError("a page of the search is not a Bundle", reason=kind)
+            entries += _entries(result)
+        else:
+            if complete and _next(result):
+                raise FhirError(f"the search has more than {MAX_PAGES + 1} pages", reason="cap")
         return {"resourceType": "Bundle", "type": "searchset", "entry": entries}
 
     def _resolve(self, relative: str) -> str:
-        """An absolute URL under the base URL, or a FhirError for anything that escapes it."""
-        parts = urlsplit(urljoin(self.base, relative))
+        """An absolute URL under the base URL, or a FhirError for anything that escapes it (a
+        URL that does not parse cannot be shown to stay under it)."""
+        try:
+            parts = urlsplit(urljoin(self.base, relative))
+        except ValueError:  # e.g. a malformed IPv6 host
+            raise FhirError("a FHIR request is not a URL", reason="off_server") from None
         base = urlsplit(self.base)
         path = posixpath.normpath(parts.path or "/")
         if (parts.scheme, parts.netloc) != (base.scheme, base.netloc) or not (
             path.rstrip("/") + "/"
         ).startswith(base.path):
-            raise FhirError("a FHIR request left the server's base URL")
+            raise FhirError("a FHIR request left the server's base URL", reason="off_server")
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
+
+
+def _entries(bundle: Mapping[str, Any]) -> list[Any]:
+    """A Bundle page's entries (none when `entry` is absent or empty); any other `entry` that is
+    not a list is not R4."""
+    entries = bundle.get("entry") or []
+    if not isinstance(entries, list):
+        raise FhirError("a page of the search has an entry that is not a list", reason="not_r4")
+    return list(entries)
+
+
+def _next(bundle: Mapping[str, Any]) -> str | None:
+    """A Bundle page's `next` link, if it has one (none when `link` or its URL is absent or
+    empty). A `link` that is not a list of objects, or a `next` URL that is not printable text,
+    is not R4, and could not be sent."""
+    links = bundle.get("link") or []
+    if not isinstance(links, list) or not all(isinstance(x, Mapping) for x in links):
+        raise FhirError("a page of the search has a link that is not R4", reason="not_r4")
+    url = next((x.get("url") for x in links if x.get("relation") == "next"), None)
+    if not url:
+        return None
+    if not isinstance(url, str) or not url.isprintable():
+        raise FhirError("a page of the search has a next link that is not a URL", reason="not_r4")
+    return url
+
+
+def _status_reason(status: int) -> ReadReason:
+    return "unauthorized" if status in (401, 403) else "http_status"
+
+
+def _network_reason(error: httpx.HTTPError) -> ReadReason:
+    return "timeout" if isinstance(error, httpx.TimeoutException) else "network"
+
+
+def _redirected(status: int) -> FhirError:
+    return FhirError(f"the server redirected (HTTP {status})", reason="http_status")
+
+
+def _too_large() -> FhirError:
+    return FhirError(f"the response is larger than {MAX_BYTES} bytes", reason="too_large")
+
+
+def _unreachable(error: httpx.HTTPError) -> FhirError:
+    reason = _network_reason(error)
+    return FhirError(f"could not reach the server ({type(error).__name__})", reason=reason)
 
 
 def _oauth(body: bytes) -> str:

@@ -6,8 +6,9 @@ _Graded 2026-10-17 at `06d5332f` with LP-23a, from the vision audit's A12 rows
 it: the synthetic trial and prior-authorization records, the golden of today's FHIR decisions,
 and tests that show behaviour `06d5332f` already had. A row that rests on any of it names 23a in
 its last column; every other row's tests are all at `06d5332f`. Each LP-23 step that meets a
-criterion updates its row with the test that shows it, and the step that closes LP-23 (23m)
-grades every dimension again at its own commit._
+criterion updates its row with the test that shows it and names itself in the row's last
+column (`23d: ...`); a grade's level is always the rule applied to the rows as they stand, and the
+step that closes LP-23 (23m) grades every dimension again at its own commit._
 
 **The scope of every grade:** rubric v1, graded at `06d5332f` with LP-23a, synthetic data and
 test keys only, not a vendor certification. A rubric level is an assessment against named
@@ -100,10 +101,10 @@ What a hook does when the request is wrong, or the record cannot be read.
 | FB-2b | 2 | Input that is not FHIR R4 JSON (an unknown element or resource type, a wrong JSON type, a malformed primitive) is refused before any provider runs, in every mode. | met | `tests/test_fhir_structure.py::test_a_malformed_primitive_is_a_structure_error_in_every_mode` | A12.3f | |
 | FB-2c | 2 | A failed read fails closed, and never echoes the server's answer. | met | `tests/test_fhir_client.py::test_failures_fail_closed_without_echoing_the_server` | A12.3f | |
 | FB-2d | 2 | Input that is R4 JSON but breaks R4's other rules (a complex element R4 requires, a code outside an R4 required value set) is refused before any provider runs. | partial | `tests/test_fhir_structure.py::test_base_r4_findings_follow_fhir_validation`, `tests/test_us_core.py::test_the_setting`, `tests/test_us_core.py::test_the_server_reports_the_mode_and_returns_the_issues` | A12.3f | the owner: the pilot's `MENDARI_FHIR_VALIDATION`. Only `enforce` blocks such input; under `warn`, the default, it is decided as if it conformed, with its issues recorded on the decision and audited, and `off` skips the check |
-| FB-3a | 3 | A failed prefetch read gives a recorded ABSTAIN with its reason, and the hook still answers. | missing | missing | A12.3f | 23d: today the hook fails with `422` and nothing is recorded |
-| FB-3b | 3 | Data present but unreadable (a note that is only a link, or whose data does not decode) gives ABSTAIN with its reason. | missing | missing | A12.3a | 23d: today it reads as no notes (`tests/test_fhir.py::test_a_base64_attachment_that_is_not_base64_maps_to_nothing`) |
-| FB-3c | 3 | Every FHIR decision carries its data-coverage record: for each mapped field, what was looked for and what was found, as counts and declared codes. | missing | missing | LP-23 requirement 7 | 23d |
-| FB-4a | 4 | Inferno's CRD kit passes its technical-issues group: a hook whose reads fail answers, with `indeterminate` coverage for a technical reason. | missing | missing | A12.acc-1 | 23d, 23l |
+| FB-3a | 3 | A failed prefetch read gives a recorded ABSTAIN with its reason, and the hook still answers. | met | `tests/test_cds_unreadable.py::test_a_fetch_failure_gives_abstain_with_a_reason_and_a_recorded_decision`, `tests/test_cds_unreadable.py::test_a_search_page_that_is_not_r4_abstains_never_a_500`, `tests/test_cds_unreadable.py::test_smart_decide_abstains_on_a_failed_prefetch_read` | A12.3f | 23d: each key is read on its own, and one that fails abstains with a fixed reason (it was a `422`, with nothing recorded) |
+| FB-3b | 3 | Data present but unreadable (a note that is only a link, or whose data does not decode) gives ABSTAIN with its reason. | met | `tests/test_cds_unreadable.py::test_a_note_that_is_only_a_link_or_does_not_decode_abstains` | A12.3a | 23d: such a note abstains (`not_fetched`, `undecodable`); before, it read as no notes |
+| FB-3c | 3 | Every FHIR decision carries its data-coverage record: for each mapped field, what was looked for and what was found, as counts and declared codes. | met | `tests/test_data_coverage.py::test_every_fhir_decision_carries_its_data_coverage`, `tests/test_data_coverage.py::test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain` | LP-23 requirement 7 | 23d: `data_coverage`, `mendari.data-coverage/1` |
+| FB-4a | 4 | Inferno's CRD kit passes its technical-issues group: a hook whose reads fail answers, with `indeterminate` coverage for a technical reason. | missing | missing | A12.acc-1 | 23l: 23d built the `indeterminate` coverage (`scripts/davinci_sample.py`), and Inferno's run is 23l's |
 | FB-5a | 5 | On Epic's sandbox, a read that fails or a note Mendari cannot read abstains with its reason, and the data-coverage counts show how often. | missing | missing | A12.acc-3 | the owner: the Epic sandbox run |
 
 **Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,

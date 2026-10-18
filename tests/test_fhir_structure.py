@@ -231,8 +231,9 @@ def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 def test_the_samples_are_clean_for_both(
     samples: dict[str, Any], jsonschema_check: Callable[[Any], list[ValidationError]]
 ) -> None:
-    # 10 Da Vinci samples: PAS with every X12 code, and only required; DTR with a warning too
-    assert len(samples) == 16
+    # 11 Da Vinci samples: PAS with every X12 code, and only required; DTR with a warning too;
+    # CRD's `indeterminate` coverage over a record that could not be read (LP-23d)
+    assert len(samples) == 17
     for name, document in samples.items():
         assert check(document) == [], name
         assert jsonschema_check(document) == [], name
