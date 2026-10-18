@@ -378,8 +378,11 @@ The first release (not yet published).
   NaN or an infinity), a method hash that is not its version's, a key not in
   `scoreboard/keys.json` (`mendari.grading-keys/1`, empty until the owner adds one) or not
   valid on the day the result was measured, a publisher's or a registry's key this machine
-  pinned, and any changed byte. No result is signed yet. Guide: `docs/grading/verifying.md`;
-  threat model S20 and E14. No figure, format or decision changes.
+  pinned, and any changed byte. Each result is its own line, a file it cannot read included, and
+  the keys file is read as strictly as a result (a field twice is refused). No result is signed
+  yet. Guide: `docs/grading/verifying.md`, which also says how to sign without the key reaching
+  the shell's history, and what to do when a key leaks (run its results again; a result is
+  signed once); threat model S20 and E14. No figure, format or decision changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

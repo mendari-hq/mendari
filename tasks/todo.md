@@ -1855,7 +1855,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     FILE ...` refuses in CI and without the key, and with a key pinned as a publisher's;
     `mendari scoreboard verify FILE ... [--keys | --public-key]` needs no secret and names each
     refusal (another format, a body that is not canonical, a method hash not its version's, a key
-    unknown, outside its dates or a publisher's, a changed byte). `scoreboard/keys.json`
+    unknown, outside its dates or a publisher's, a changed byte), one line per result, a file it
+    cannot read included; the keys file is read as strictly as a result. `scoreboard/keys.json`
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.

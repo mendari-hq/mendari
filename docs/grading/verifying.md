@@ -26,14 +26,15 @@ mendari scoreboard verify RESULT.json --public-key <base64>      # one public ke
 
 It needs no secret and writes nothing. Each result that verifies is one line on standard output,
 naming its key and the method it was made under. Each one that does not is one `error:` line,
-saying why, and the exit code is 1. A result with no signature reads `unsigned`.
+saying why, and the exit code is 1. A file it cannot read (missing, not UTF-8, not JSON) is one
+such line too, and the next file is still checked. A result with no signature reads `unsigned`.
 
 The verifier refuses a result, saying which of these it is:
 
 - it is not a scoreboard result: an entry (`mendari.scoreboard/1`) or a hidden set's scoreboard
   answer (`mendari.hidden_scoreboard/1`);
 - its body is not canonical JSON: a key twice in one object, NaN, or an infinity (a number too
-  large for a float reads as an infinity);
+  large for a float reads as an infinity), or it holds a whole number too long to read;
 - its scope names no method, a method version this engine does not know, or a SHA-256 that is not
   that version's;
 - its scope names no day it was measured;
@@ -94,7 +95,9 @@ same key, and a result's signature verifies as none of them.
 
 Each key signs results measured from `valid_from` to `valid_until`, both included; `null` has
 no end. A key's id must be its public key's, no id is listed twice, and an entry holds these four
-fields and nothing else. A file that breaks any of this stops the verifier.
+fields and nothing else. The file is read as strictly as a result: a field twice in one entry (a
+new `valid_until` written beside the old one, say), NaN or an infinity is refused, never read as
+one of its values. A file that breaks any of this stops the verifier.
 
 ## For the key holder
 
@@ -112,19 +115,25 @@ key's seed. It is the owner's, made and kept offline.
 - It does not sign a hidden set's freeze commitment. A signed hidden-set result carries the
   commitment instead.
 
-Making the key, once:
+Making the key, once, straight into a file in your own private folder (never in the
+repository), so it is never on the screen:
 
 ```bash
-openssl rand -base64 32      # keep it in your own private folder, never in the repository
+mkdir -p ~/private && chmod 700 ~/private
+(umask 077 && openssl rand -base64 32 > ~/private/mendari-grading.key)
 ```
 
-Signing, on your own machine:
+Signing, on your own machine. The key goes from its file into the one command, and nowhere else:
 
 ```bash
-export MENDARI_GRADING_SIGNING_KEY='<the key>'
-mendari scoreboard sign scoreboard/results/<sha256>.json      # one or more files
-unset MENDARI_GRADING_SIGNING_KEY
+MENDARI_GRADING_SIGNING_KEY="$(cat ~/private/mendari-grading.key)" \
+  mendari scoreboard sign scoreboard/results/<sha256>.json      # one or more files
 ```
+
+Never type or paste the key itself into a shell, not even after `export`: the shell keeps what
+you type in a history file (such as `~/.zsh_history` or `~/.bash_history`), and `unset` does not
+take it out. The line above puts only the file's name in the history, and sets the key for that
+one command, so there is nothing to unset.
 
 `sign` checks every file before it writes any. It refuses a result that is signed already (a
 result is signed once), one the verifier would refuse before its signature, and a symbolic link.
@@ -137,6 +146,11 @@ the first day it signs results for and `valid_until` set to `null`. Then check w
 Rotating to a new key: add the new key, and set the old key's `valid_until` to the last day it
 signs results for. What it signed for results measured up to that day still verifies.
 
-A key that leaked: take it out of the keys file. Nothing it signed verifies any more, since a
-leaked key could sign a result dated within its valid days. Make a new key and sign the results
-again with it.
+A key that leaked: take it out of the keys file, and make a new key. Nothing the old key signed
+verifies any more, since a leaked key could sign a result dated within its valid days: `verify`
+says each such result is signed with a key that is not in the keys given. Those results are not
+signed again. A stored result changes only by gaining a signature while it is unsigned
+([method](method-1.0.md), section 11), so `sign` refuses one that is signed already, and editing
+the file by hand to take its signature out breaks the store's rule. Run each one again instead,
+as for a stale entry (section 12): the new result supersedes the old one, and you sign it with
+the new key. List the new key first, with `valid_from` on or before the day it is run again.

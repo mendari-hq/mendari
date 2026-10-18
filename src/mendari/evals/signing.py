@@ -190,8 +190,9 @@ def signed_message(result: Mapping[str, Any]) -> bytes:
 
 
 def read(text: str) -> Any:
-    """A result's JSON as a file holds it, read strictly: a key twice in one object, NaN or an
-    infinity is refused (a `MendariError`), never read as one of its meanings."""
+    """A result's or the keys file's JSON as a file holds it, read strictly: a key twice in one
+    object, NaN or an infinity is refused (a `MendariError`), never read as one of its meanings;
+    so is a whole number too long for Python to read, which raises a plain ValueError."""
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         found: dict[str, Any] = {}
@@ -210,6 +211,8 @@ def read(text: str) -> Any:
         raise MendariError(
             f"not valid JSON (line {error.lineno}, column {error.colno}: {error.msg})"
         ) from None
+    except ValueError:  # after JSONDecodeError, which is one: the digit limit on an int
+        raise MendariError("its JSON holds a whole number too long to read") from None
     except RecursionError:
         raise MendariError("its JSON is nested too deeply") from None
 
@@ -283,7 +286,8 @@ def load_keys(data: Any) -> dict[str, GradingKey]:
     """The grading keys a keys file lists (`mendari.grading-keys/1`), by id. A `MendariError`
     for a file that is not one: each key is its id, its public key (32 bytes in base64, as
     `public_text` gives it), the first day it signs results measured on, and the last (or
-    null), and nothing else; no id twice."""
+    null), and nothing else; no id twice. Its text is read with `read`, as a result's is: a
+    field twice (a `valid_until` added beside the old one) is refused, never read as its last."""
     if not isinstance(data, Mapping) or data.get("format") != KEYS_FORMAT:
         raise MendariError(f"a keys file is {KEYS_FORMAT}")
     if set(data) != {"format", "keys"} or not isinstance(data["keys"], list):

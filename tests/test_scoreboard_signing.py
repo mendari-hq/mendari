@@ -427,6 +427,110 @@ def test_the_keys_file_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert line.startswith(f"error: --keys {listing}: not valid JSON")
 
 
+def test_a_keys_file_is_read_as_strictly_as_a_result(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A field twice in the keys file (a key's end date written beside the old one, which plain
+    JSON reads as its last value), NaN or an infinity stops the verifier, naming the file: never
+    a key trusted on days the file seems to end it."""
+    key = Ed25519PrivateKey.generate()
+    signed = written(tmp_path / "result.json", signing.sign(result(), key))  # measured 10-18
+    ended = signing.dump(keys_file(key, valid_until="2026-10-05"))
+    listing = written(tmp_path / "ended.json", ended)
+    assert main(["scoreboard", "verify", str(signed), "--keys", str(listing)]) == 1
+    assert "not valid on 2026-10-18 (valid from 2026-10-01 to 2026-10-05)" in err_lines(capsys)[0]
+    ending = '"valid_until": "2026-10-05"'
+    reopened = ended.replace(ending, f'{ending},\n      "valid_until": null')
+    # Plain JSON reads it as a key with no end date, which would verify the result.
+    assert json.loads(reopened)["keys"][0]["valid_until"] is None
+    twice = "a key appears twice in one object"
+    for text, expected in (
+        (reopened, twice),
+        (ended.replace('"format"', '"keys": [],\n  "format"'), twice),
+        (ended.replace(ending, '"valid_until": NaN'), "it holds NaN or an infinity"),
+    ):
+        assert text != ended
+        listing = written(tmp_path / "keys.json", text)
+        assert main(["scoreboard", "verify", str(signed), "--keys", str(listing)]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == f"error: --keys {listing}: its JSON is not canonical: {expected}\n"
+    listing.write_bytes(b"\xff" + ended.encode("ascii"))
+    missing = tmp_path / "missing.json"
+    for given, line in (
+        (listing, f"error: --keys {listing}: not UTF-8 text; save it as UTF-8"),
+        (missing, f"error: --keys {missing}: No such file or directory; check the path"),
+    ):
+        assert main(["scoreboard", "verify", str(signed), "--keys", str(given)]) == 1
+        assert err_lines(capsys) == [line]
+
+
+def test_each_result_is_its_own_line_one_that_cannot_be_read_included(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`verify` checks every file it is given: one that cannot be read (not JSON, a key twice,
+    NaN, a whole number too long to read, not UTF-8, missing, a folder) is one `error:` line
+    naming it and why, and every other result still gets its line. With --debug the first such
+    error is let through."""
+    key = Ed25519PrivateKey.generate()
+    keys = written(tmp_path / "keys.json", keys_file(key))
+    first = written(tmp_path / "first.json", signing.sign(result(), key))
+    last = written(tmp_path / "last.json", signing.sign(result(arm="llm"), key))
+    text = signing.dump(signing.sign(result(arm="classifier"), key))
+    assert '"k": 512' in text
+    # Each file's content (bytes as they are; None: no file; "folder": a folder) and why.
+    broken: dict[str, tuple[str | bytes | None, str]] = {
+        "notjson.json": (text[:-3], "not valid JSON"),
+        "twice.json": (
+            text.replace('"k": 512', '"k": 512, "k": 600'),
+            "its JSON is not canonical: a key appears twice in one object",
+        ),
+        "nan.json": (
+            text.replace('"k": 512', '"k": NaN'),
+            "its JSON is not canonical: it holds NaN or an infinity",
+        ),
+        "huge.json": (
+            text.replace('"k": 512', '"k": ' + "9" * 5000),
+            "its JSON holds a whole number too long to read",
+        ),
+        "latin1.json": (b"\xff" + text.encode("ascii"), "not UTF-8 text; save it as UTF-8"),
+        "missing.json": (None, "No such file or directory; check the path"),
+        "folder.json": ("folder", "Is a directory; check the path"),
+    }
+    paths = []
+    for name, (content, _) in broken.items():
+        made = tmp_path / name
+        if isinstance(content, bytes):
+            made.write_bytes(content)
+        elif content == "folder":
+            made.mkdir()
+        elif content is not None:
+            made.write_text(content, encoding="utf-8")
+        paths.append(str(made))
+    with pytest.raises(MendariError, match="too long to read"):
+        signing.read("[" + "9" * 5000 + "]")
+    argv = ["scoreboard", "verify", str(first), *paths, str(last), "--keys", str(keys)]
+    assert main(argv) == 1
+    captured = capsys.readouterr()
+    signer = key_id(key.public_key())
+    assert captured.out.splitlines() == [
+        f"verified: {path}, signed with {signer} (valid from 2026-10-01 to no end date), under "
+        f"{method.METHOD}"
+        for path in (first, last)
+    ]
+    lines = captured.err.splitlines()
+    assert len(lines) == len(broken)
+    for line, shown, (_, why) in zip(lines, paths, broken.values(), strict=True):
+        assert line.startswith(f"error: {shown}: {why}"), line
+    assert "unexpected" not in captured.err
+    # --debug lets the first error through, as for any command (LP-15).
+    with pytest.raises(MendariError, match="not valid JSON"):
+        main([*argv, "--debug"])
+    monkeypatch.setenv("MENDARI_DEBUG", "1")
+    with pytest.raises(MendariError, match="not valid JSON"):
+        main(argv)
+
+
 # -- the key -----------------------------------------------------------------------------------
 
 
