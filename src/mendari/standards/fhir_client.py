@@ -200,7 +200,7 @@ class GuardedHttp:
             raise _unreachable(error) from None
         try:
             data = json.loads(bytes(body))
-        except ValueError:
+        except (ValueError, RecursionError):  # not JSON, over 4,300 digits, or nested too deep
             raise FhirError("the server answered with invalid JSON", reason="not_json") from None
         if not isinstance(data, Mapping):
             raise FhirError(
@@ -331,7 +331,7 @@ def _oauth(body: bytes) -> str:
     """An OAuth error code from an error response (" (invalid_grant)"), and nothing else of it."""
     try:
         code = json.loads(body).get("error")
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, RecursionError):
         return ""
     return f" ({code})" if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) else ""
 

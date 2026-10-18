@@ -788,8 +788,29 @@ Connect) is not supported yet.
     FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
     every case of the four mapped packs' local-site examples, 1,150 cases; 41 prior-auth orders
     with no requirement set are refused through FHIR, as today). Nothing changes how a pack decides.
-  - [ ] **23b** Signed CDS client tokens: the registry, the verifier and the `cds` principal (one
-    adversarial security review).
+  - [x] **23b** (#262) Signed CDS client tokens: the registry, the verifier and the `cds`
+    principal (one adversarial security review). `server/cds_clients.py`: `MENDARI_CDS_CLIENTS`
+    checked at startup (entry and field named, never a value or key material), keys by value or
+    one allow-listed `jwks_uri` (`JwksCache`: an hour, an unknown `kid` refetches at most once a
+    minute per client on each instance, one fetch at a time, a private key keeps nothing), and
+    `verify` (8 KiB, the header `alg` `kid` `typ` `jku` only, RS384 or ES384, `jku` exact, one
+    key per `kid` and type, `aud` the public URL plus the path, `exp` `iat` `jti` required, 330 s
+    at most, a pinned `sub` and `tenant`, then the guard's organization and permission checks,
+    the `jti` claimed last as `cds-jti`, each refusal one of 17 reasons).
+    `server/auth.py`: the CDS branch above open mode's shortcut, a `Bearer` credential holding a
+    `.` on `/cds-services` only; kind `cds` (`cds:<id>`, `cds <id>`) holding discover and decide,
+    refused anywhere else (`cds_only`). `cds_invoke` refuses an unregistered `fhirServer` with
+    `403` before charging or fetching; health lists `cds_clients`; `smart_claim` purges up to
+    100 expired rows. `Signer`, `assertion` and `forged` moved to `tests/jwt_signers.py`. Tests:
+    `tests/test_cds_clients.py`, `tests/test_cds_auth.py` (SQLite and Postgres), the route matrix
+    and the per-kind cap extended with kind `cds`. Threat-model rows S21, D13 and E15, with S5, E1
+    and R2 updated; `docs/guides/connecting-an-ehr.md`, `SECURITY.md` and the review packet.
+    The review's fixes: a token refused for its organization's record or the route's permission
+    claims no `jti`; a JWK Set of the wrong JSON shape (`check_jwks`) and a JSON answer nested too
+    deep (`GuardedHttp`) are refusals, not `500`s; an integer `exp` past a float's range is
+    `cds_claims`; the session table keys a lone surrogate (`_session_key`, every older key
+    unchanged); `cds_issued_at` folded into `cds_claims` and `cds_not_yet_valid`. Open mode still
+    answers on any host until 23c.
   - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
     for registered origins.
   - [x] **23d** (#264) A hook that always answers: an unreadable record gives a recorded ABSTAIN
@@ -1318,6 +1339,41 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     output holds a case's input, author or author's id but each labeller's own next case its
     input. The review packet (`docs/security/review-packet.md`) is not updated: neither the
     plan's 11o nor LP-12's close-out touched it.
+  - [x] **11p** (#260) What 11o's review found nothing checked, now covered: each draw chains
+    a commitment to every drawn case's weight by its keyed hash (`weight_refs` on
+    `evalset.sampled`, `weight_ref`: a salt new at each draw, sealed beside the weight, so no
+    commitment repeats and the chain does not show whose weight changed), and takes as drawn
+    before what the latest draw committed to, never a status; each store of a set's aggregates
+    chains a commitment to them (`aggregates_ref` on `evalset.measured` and `evalset.frozen`,
+    the salt sealed with them). A case's status, clear text, is checked against its labels and
+    the latest draw (`given_statuses`, sharing `_settle`'s rule), each label in the round and by
+    the labeller its `evalset.labelled` chained (`_chain`, `_as_chained`: no assignment row is
+    read, and every chained label must be there), and an adjudicator's label settles only a case
+    whose two first-pass labels differ. `freeze` and `measure` refuse a set whose labels,
+    statuses or weights do not hold, naming no case, once read again under the chain's lock (a
+    write landing as they read is "run it again", `_refuse_unless_changed`); `assign` and
+    `adjudicate`, still opening nothing (I13), refuse a status the chain's draw and labels'
+    rounds do not allow (`_shape_mismatches`; an agreed case edited to `disputed` still reaches
+    an adjudicator, whose label then settles nothing, so it stays found); `show`, and so the
+    curators' `GET /api/evalsets/{set_id}` (a `400`) and `mendari evalset show`, refuse
+    aggregates their commitment does not cover (re-sealed, put back, removed, or stored without
+    their event),
+    naming the set only, read in one statement with their latest event; `mendari audit verify
+    --evalsets` breaks at the case's `evalset.case_added` (a status or a stray weight), the draw
+    (a drawn case's weight) or the storing event (aggregates), at a frozen set's
+    `evalset.frozen` for its rows, counts aggregates no event stored `unchained`, and excuses a
+    draw, a label or a measure chained while it reads; `rotate --check` lists `status`,
+    `weight` and `aggregates` failures (and `labels`). Rows from before these commitments verify
+    as before and are counted (`predating`, in both answers, a count only): statuses still
+    checked against labels, weights, an unlabelled case's draw and aggregates taken as they are.
+    A draft's header stays uncovered until it freezes, and an open assignment ended by SQL looks
+    like a withdrawal. `tests/test_evalset_commitments.py` (SQLite and Postgres; each edit fails
+    on the code before it, the review's probes among them, the old chain rebuilt without the
+    commitments); the payload, count and prefix pins, and the 11g sweep's payload keys and
+    salts, updated. The threat model's residual bullets (what is covered; a draw names each
+    drawn case) and T6, ADR-0011 (11p step and consequences), the runbook (events, drawing,
+    assigning, adjudicating, measuring, freezing, `show`, Verifying, the check, the gates), the
+    sample route's description, the README and the CHANGELOG.
 
   **Owner decisions still open** (none blocked the build; the hosted site mounts no labelling
   or curating route until the first is settled): how labellers reach the hosted site
@@ -1860,12 +1916,27 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     ADR-0013 (Proposed); the nav's Grading section; gate `grading-method` probes the document
     and its `pending` names the rest of LP-17 (the attestation stays empty); the spec links the
     method. `tests/test_grading_method.py`.
-  - [ ] **17b** Statistics additions (pure, `evals/stats.py`): the stratified bootstrap (macro-F1),
-    the Korn-Graubard weighted proportion, Brier's reliability term.
-  - [ ] **17c** Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari scoreboard
-    arms PACK`).
-  - [ ] **17d** Scoreboard entries (`mendari.scoreboard/1`) and run records (`mendari.run/1`),
-    pure; the price table (`mendari.prices/1`) and the disclosures file.
+  - [x] **17b** (#258) Statistics additions (pure, `evals/stats.py`): the stratified bootstrap
+    (macro-F1), the Korn-Graubard weighted proportion, Brier's reliability term.
+  - [x] **17c** (#259) Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari
+    scoreboard arms PACK`).
+  - [x] **17d** (#261) Scoreboard entries (`mendari.scoreboard/1`, `evals/scoreboard.py`) and
+    run records (`mendari.run/1`, `evals/runs.py`), pure; the price table (`mendari.prices/1`,
+    refused from Mendari's code or a pack's directory) and the disclosures file
+    (`mendari.disclosures/1`). An entry is a pure function of its ledger, dataset, run record,
+    price table and method (`body_sha256`), refused for a ledger of another pack, dataset or
+    configuration, or a run record that disagrees with its ledger (its cases, tokens or
+    models). Evidence on distinct
+    positives, each critical label needing `method.min_positives`; the grade's bound at
+    `1 - 0.05/L` over distinct groups; every proportion k of n with its interval and every mean
+    with its bootstrap interval; ECE a description; cost from tokens and the dated table, or "0
+    (no metered calls)" or "unknown"; latency from the run record, never ranked; subgroups ("too
+    few" under 10) and Korn-Graubard weighted figures (detection never weighted); the scope
+    statement and the disclosure; a public set is a regression check with no rank and no grade.
+    `board` (one table per pack and set, the banner, each arm measured, "not measured" or "not
+    applicable", freshness worked out when built and never stored) and
+    `render.scoreboard_markdown`. Spec sections for the three formats.
+    `tests/test_scoreboard.py`. Nothing calls it yet; the store and the page are 17f's.
   - [ ] **17e** Signing and the public verifier (`MENDARI_GRADING_SIGNING_KEY`, off without it;
     `mendari scoreboard sign|verify`; `docs/grading/verifying.md`).
   - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
