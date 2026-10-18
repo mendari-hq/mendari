@@ -265,7 +265,12 @@ none may be one of its administrators: any other refuses the whole run, and noth
 The assignments the set already has count, so running it again gives only the cases that still
 lack a labeller. An open assignment whose membership has ended, been replaced, or lost the
 labeller role (or gained an administrator's) is withdrawn on the next run, and its case given to
-another labeller of those named, never the case's other labeller.
+another labeller of those named, never the case's other labeller. Cases are chosen by status, so
+the run first checks, opening nothing, each case's status against what the chain recorded: its
+draw, and how many labels of each round it holds (every label the chain recorded must be there,
+and no other). A status edited behind the store's back that the chain shows wrong (an undrawn
+case made `sampled`, a case with one label made `disputed`, say) refuses the whole run, counted
+and naming no case, and nothing is written: run `mendari audit verify --evalsets` to find it.
 
 **3. Follow the labelling.**
 
@@ -290,7 +295,12 @@ Each disputed case goes to a labeller named who is not one of its first two, so 
 hold such a person for every disputed case, or the whole run refuses and nothing is written:
 with three first-pass labellers, name all three. The adjudicator is shown what the first
 labellers were shown, the input and the questions only, never their labels. The same refusals
-and withdrawals apply. An unresolved case keeps the set from being frozen
+and withdrawals apply, the status check among them: a case is `disputed` only with two
+first-pass labels and no adjudicator's. That check cannot tell an agreed case from a disputed one
+without opening their labels, which neither command does, so an agreed case's status edited to
+`disputed` is still given to a third labeller; that label settles nothing (an adjudicator's label
+settles only a case whose two first-pass labels differ), so the status stays as edited and
+[Verifying](#verifying) still finds it. An unresolved case keeps the set from being frozen
 ([Freezing a set](#freezing-a-set)) until it is removed (`mendari evalset remove-case`), which
 removes its assignments and labels with it; what settles a three-way split instead is the
 owner's decision still open.
@@ -314,9 +324,11 @@ strata and languages, so keep its output as you would the set. The pack is the o
 made for, found by its id; give `--pack` (an id or a directory) if it does not resolve where you
 run the command. `coverage` uses seed 0 and 2,000 resamples for the agreement it stores beside
 it: run `agreement` afterwards to store other settings. A set whose drawn cases or labels change
-while it is measured is refused: run it again. So is a set holding a case whose status its
-labels and the set's latest draw do not give, or whose weight that draw's commitment does not
-cover (each counted, no case named): see [Verifying](#verifying).
+while it is measured (a draw or a label landing as it reads) is refused: run it again. A set
+holding a case whose labels are not those the chain recorded, whose status those labels and the
+set's latest draw do not give, or whose weight that draw's commitment does not cover is refused
+too (each counted, no case named): see [Verifying](#verifying). Each label counts in the round
+and for the labeller its `evalset.labelled` chained, never as an assignment row says now.
 
 **A second round.** To label more, add cases (`mendari evalset add`), draw again (`sample`), and
 assign again (`assign`): only the new draws get labellers, and the first round's cases keep
@@ -408,12 +420,18 @@ mendari evalset freeze <set id> --max-runs 20 --max-age-days 180 --db "$DATABASE
 ```
 
 Every case of the set is drawn and settled first: agreed, or resolved by its adjudicator. Each
-case's status must be the one its labels and the set's latest draw give it, and each drawn
-case's weight the one that draw committed to: a status edited behind the store's back (a
-disputed case made `agreed`, say) or a weight re-sealed or put back refuses the freeze, counted
-and naming no case, so it is never committed to as it stands (run `mendari audit verify
---evalsets` to find it). The command also refuses, counting them by why and naming none, while a
-drawn case is unlabelled (it
+case's labels must be those the chain recorded, each in the round its `evalset.labelled` chained
+(an assignment's round is never read), its status the one those labels and the set's latest draw
+give it, and each drawn case's weight the one that draw committed to: a label deleted, an
+assignment moved to another round, a status edited behind the store's back (a disputed case made
+`agreed`, say) or a weight re-sealed or put back refuses the freeze, counted and naming no case,
+so it is never committed to as it stands (run `mendari audit verify --evalsets` to find it). On a
+set whose latest draw is from before LP-11p, no commitment covers the weights: they are taken as
+they are, so a weight re-sealed or put back there is frozen as it stands; draw again first
+(`sample`, if a case is left to draw) to have every weight committed to. A draw or a label that
+lands while the command reads is not a refusal: it says the set changed while it was frozen, and
+to run it again. The command also refuses, counting them by why and naming none, while a drawn
+case is unlabelled (it
 waits for its two first-pass labels), disputed (it waits for its adjudicator) or unresolved
 (remove it with `mendari evalset remove-case`). A case never drawn refuses it too: draw and
 label it, or add `--drop-unsampled`, which removes each undrawn case (with its index rows) in
@@ -612,7 +630,9 @@ the verification at its event (`broken_at`); a row, or a set's state, without it
 
 In every state of a set, each case's status is the one its labels and the set's latest draw give
 it (`draft` until a draw takes it, `sampled` until its labels settle it, then `agreed`,
-`disputed`, `resolved` or `unresolved`), each drawn case's weight is the one the latest
+`disputed`, `resolved` or `unresolved`; each label in the round its `evalset.labelled` chained,
+and an adjudicator's label settles only a case whose two first-pass labels differ, so one on an
+agreed case leaves no status that holds), each drawn case's weight is the one the latest
 `evalset.sampled` committed to (a case no draw took holds none), and the set's stored aggregates
 are those the latest `evalset.measured` or `evalset.frozen` committed to when it stored them. A
 status edited behind the store's back breaks the verification at the case's `evalset.case_added`,
@@ -626,13 +646,16 @@ The counts are of sets, cases checked, removed and unchecked, assignments, label
 recomputed, and `predating`: the rows a draw or a store from before these commitments (LP-11p)
 holds, read as before and never named (each case such a draw took, by its status, and each set's
 aggregates such a store left). Such a set's statuses are still checked against its labels, but
-whether an unlabelled case was drawn, and its weight, are taken as they are. On a draft, a new
-draw (`sample`) commits to every drawn case's weight, and a new measure (`agreement`) to the
-aggregates. What no chained commitment covers is only checked to open under its own set id: until
-a set is frozen, that is its header, so a header re-sealed by someone holding the key passes, and
-freezing commits to it as it is (the
-[threat model](../security/threat-model.md#residual-risks-and-assumptions) names this residual
-risk). Without the keys, each case, each label and each frozen set is counted `unchecked`, never a
+whether an unlabelled case was drawn, and its weight, are taken as they are (a weight re-sealed
+or put back there passes, and freezing commits to it), and so are its aggregates (`show` reads
+those of a set frozen before LP-11p unchecked). On a draft, a new draw (`sample`) commits to
+every drawn case's weight, and a new measure (`agreement`) to the aggregates. What no chained
+commitment covers is only checked to open under its own set id: until a set is frozen, that is
+its header, so a header re-sealed by someone holding the key passes, and freezing commits to it
+as it is. And an open assignment ended by SQL looks like a withdrawal, which the chain does not
+record, so its case goes to another labeller at the next `assign` (the
+[threat model](../security/threat-model.md#residual-risks-and-assumptions) names these residual
+risks). Without the keys, each case, each label and each frozen set is counted `unchecked`, never a
 break. It reads only, marks nothing, and cannot be combined with `--since-checkpoint`.
 
 ## Rotating the evaluation-set key
@@ -675,13 +698,14 @@ commitment afterwards. In this order:
    case's keyed hash, checks its rows in the hidden-case index under the current index key, and
    recomputes the content of each set the chain froze, whatever its row's state now, against the
    commitment its first `evalset.frozen` chained (a set whose row is gone, is a draft again or holds
-   no freeze record fails), and, for every set, each case's status against its labels and the set's
-   latest draw, each drawn case's weight against that draw's commitment, and the stored aggregates
+   no freeze record fails), and, for every set, each case's labels against those the chain
+   recorded, its status against those labels and the set's latest draw, each drawn case's weight
+   against that draw's commitment, and the stored aggregates
    against theirs, as [Verifying](#verifying) does (`predating` counts the rows from before those
    commitments, which are not failures). It reads only: nothing is written, marked or chained.
    `"ready": true` (exit 0) means nothing needs the old key. A failure names its kind (`set` for a
    set's content or aggregates), its set, a case by its hash or a label by its id, and the key it
-   names or what did not match (`commitment`, `case_hash`, `index`, `status`, `weight`,
+   names or what did not match (`commitment`, `case_hash`, `index`, `labels`, `status`, `weight`,
    `aggregates`), never a value. A key in `read_not_retired` had
    nothing to move, so it was not retired: make sure no deployment still seals with it before you
    drop it. Then run `mendari audit verify --evalsets`.
@@ -766,6 +790,8 @@ outside the repository.
   reads back. Its positives per critical label are `freeze`'s `critical` list, the `distinct`
   count of each label, computed from the labels as the set freezes; `show` reads back the coverage
   freezing stored, checked against the commitment `evalset.frozen` chained to it
-  ([Verifying](#verifying)). A set counts only when
+  ([Verifying](#verifying)). A set frozen before LP-11p has no such commitment, and `show` reads
+  its coverage as it is, unchecked: for such a set, take the positives from `freeze`'s own output,
+  kept when it froze. A set counts only when
   none of its critical labels is `insufficient` (fewer than 100 distinct positives): a set
   frozen with that warning does not.

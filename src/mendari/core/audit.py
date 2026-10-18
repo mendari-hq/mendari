@@ -5238,7 +5238,7 @@ class AuditStore(RateBuckets):
         }
         # What the events below opened and found as chained, for the rows' own checks after
         # them (`_check_rows`, LP-11p): each set's sealed values, each case's attributes and
-        # each label's values, by id.
+        # each label's round, as its event chained it, and values, by id.
         opened_sets: dict[str, dict[str, Any] | None] = {}
         opened_cases: dict[str, Any] = {}
         opened_labels: dict[str, Any] = {}
@@ -5406,7 +5406,7 @@ class AuditStore(RateBuckets):
                     return broken, counts
                 if made != ref.get("sha256"):
                     return broken, counts
-                opened_labels[label_id] = body.get("values")
+                opened_labels[label_id] = (str(payload.get("round")), body.get("values"))
                 counts["labels"] += 1
                 continue
             chained_cases.add(str(case))
@@ -5588,21 +5588,23 @@ def _check_rows(
     state: the earliest event they break at (None when they hold), and how many sets hold
     aggregates that no event stored. `stages` is each set's events among those read, by kind;
     `listed` the sets chained; `opened` what the events' checks opened and found as chained
-    (each set's sealed values, each case's attributes, each label's values, by id: none
-    without a ring, and none of a set holding a value the ring cannot open).
+    (each set's sealed values, each case's attributes, each label's round as its
+    `evalset.labelled` chained it and its values, by id: none without a ring, and none of a set
+    holding a value the ring cannot open).
 
     A set's stored aggregates give the commitment its latest `evalset.measured` or
     `evalset.frozen` chained (`stored_aggregates`), else break there (re-sealed, put back from
-    an earlier copy, or gone). Each case's status is the one its labels and the set's latest
-    `evalset.sampled` give it, and each drawn case's weight the one that draw committed to,
-    with none on a case it did not draw (`row_mismatches`): a status or a stray weight breaks
-    at the case's `evalset.case_added`, a drawn case's weight at that draw; in a frozen set,
-    either breaks at its `evalset.frozen`, as its content does. A draw or a store from before
-    the commitments is read as before: its rows are counted `predating` (each case the store
-    took as drawn, by its status; each set's aggregates), and a status is then checked against
-    its labels alone. A draw, a store or a label chained since the events read (`later`)
-    excuses the rows it wrote; aggregates without any event that stores them are counted
-    `unchained`."""
+    an earlier copy, or gone). Each case's status is the one its labels (each in its chained
+    round; an adjudicator's settles only a case its two first-pass labels dispute) and the
+    set's latest `evalset.sampled` give it, and each drawn case's weight the one that draw
+    committed to, with none on a case it did not draw (`row_mismatches`): a status or a stray
+    weight breaks at the case's `evalset.case_added`, a drawn case's weight at that draw; in a
+    frozen set, either breaks at its `evalset.frozen`, as its content does. A draw or a store
+    from before the commitments is read as before: its rows are counted `predating` (each case
+    the store took as drawn, by its status; each set's aggregates), and a status is then
+    checked against its labels alone. A draw, a store or a label chained since the events read
+    (`later`) excuses the rows it wrote; aggregates without any event that stores them are
+    counted `unchained`."""
     from mendari.core.evalsets import (  # that module imports this one
         ADJUDICATION,
         DRAFT,
@@ -5616,7 +5618,6 @@ def _check_rows(
     later = held["later"]
     drawn_later = {p.get("set") for k, p in later if k == "evalset.sampled"}
     stored_later = {p.get("set") for k, p in later if k in STORING}
-    rounds = {str(found["id"]): str(found["round"]) for found in held["assignments"]}
     labels_of: dict[str, list[Mapping[str, Any]]] = {}
     for label in held["labels"]:
         labels_of.setdefault(str(label["case_id"]), []).append(label)
@@ -5661,9 +5662,9 @@ def _check_rows(
                 continue  # not checked above: no ring, removed, added since, or unchained
             if any(str(label["id"]) not in opened_labels for label in mine):
                 continue  # a label chained since, or not checked above
-            by_round = [(rounds.get(str(label["assignment_id"])), label) for label in mine]
-            first = [opened_labels[str(label["id"])] for r, label in by_round if r == FIRST]
-            third = [opened_labels[str(label["id"])] for r, label in by_round if r == ADJUDICATION]
+            given = [opened_labels[str(label["id"])] for label in mine]  # (round, values)
+            first = [values for round_, values in given if round_ == FIRST]
+            third = [values for round_, values in given if round_ == ADJUDICATION]
             problems = row_mismatches(set_id, case, opened_cases[case_id], first, third, committed)
             if not problems:
                 continue

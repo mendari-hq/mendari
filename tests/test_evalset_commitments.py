@@ -19,9 +19,19 @@ aggregates re-sealed or put back. Each is a regression test here, failing withou
   `evalset.measured` and `evalset.frozen`): aggregates re-sealed, put back, removed or written
   without their event break verification (or count `unchained`), and `show`, the curators' read
   (`GET /api/evalsets/{set_id}`) and `mendari evalset show` refuse them, naming the set only.
+- Each label is the one the chain recorded, in the round its `evalset.labelled` chained, never
+  as its assignment row says now, and every label the chain recorded must be there; an
+  adjudicator's label settles only a case whose two first-pass labels differ. So a label deleted
+  and a round moved by SQL (the review of this PR: freezing then took one labeller's answer) are
+  found, `freeze` and `measure` refuse the set, and `assign` and `adjudicate`, which open
+  nothing, refuse a status the chain's draw and labels do not allow, so no case is given to a
+  labeller on it. An agreed case edited to `disputed` still reaches an adjudicator (telling it
+  from a disputed one takes the labels' values), but stays found.
 - Sets made before these commitments still verify and stay ready to rotate: their draws and
   aggregates are read as before, and `predating` counts their rows (a count, never an id).
-- A draw, a label or a measure written while a verification reads is never taken for a break.
+- A draw, a label or a measure written while a verification reads is never taken for a break,
+  and a draw or a label landing while `freeze` or `measure` reads is "run it again", never a
+  refusal.
 
 On SQLite and Postgres (`db_target`); keys are made per test, cases are hand-written synthetic
 text."""
@@ -29,6 +39,7 @@ text."""
 from __future__ import annotations
 
 import base64
+import functools
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -39,6 +50,7 @@ import pytest
 
 from mendari import AuditStore, Pack
 from mendari.cli import main
+from mendari.core import evalsets
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.evalsets import EvalsetStore
@@ -148,11 +160,12 @@ def status_of(world: World, row: dict[str, Any], status: str) -> None:
 
 
 def unchanged(world: World) -> str:
+    tables = ("evalset_sets", "evalset_cases", "evalset_assignments", "evalset_labels")
     with world.store._db.session(exclusive=False) as db:
         return json.dumps(
             {
                 table: db.all(f"SELECT * FROM {table} ORDER BY 1")
-                for table in ("evalset_sets", "evalset_cases", "evalset_labels", "audit_events")
+                for table in (*tables, "audit_events")
             },
             default=str,
         )
@@ -182,6 +195,10 @@ STATUS_EDITS: dict[str, tuple[int, str]] = {
     "a drawn case put back to draft": (0, "draft"),
     "a labelled case put back to sampled": (0, "sampled"),
 }
+# The edits the chain shows without opening a label (its draw, and how many labels of each round
+# it recorded): `assign` and `adjudicate`, which open nothing (threat model I13), refuse these.
+# Telling `agreed` from `disputed` takes the labels' values.
+SHAPED_EDITS = {edit for edit, (_, to) in STATUS_EDITS.items() if to not in ("agreed", "disputed")}
 
 
 @pytest.mark.parametrize("edit", sorted(STATUS_EDITS))
@@ -189,8 +206,10 @@ def test_a_draft_status_its_labels_do_not_give_breaks_verify_and_check_and_is_ne
     world: World, edit: str
 ) -> None:
     """A status edited by SQL on a draft set: `verify` breaks at the case's `evalset.case_added`,
-    `rotate --check` names the case by its hash, and `freeze` and `measure` refuse the set
-    naming no case, writing nothing. Put back, everything holds again."""
+    `rotate --check` names the case by its hash, and `freeze` and `measure` refuse the set naming
+    no case, writing nothing; so do `assign` and `adjudicate` (the key holder's, and a curator's
+    for the set's organization) when the chain shows the status wrong without opening a label,
+    so no case is given to a labeller on such a status. Put back, everything holds again."""
     world.labelled()
     number, status = STATUS_EDITS[edit]
     row = case_of(world, number)
@@ -199,10 +218,17 @@ def test_a_draft_status_its_labels_do_not_give_breaks_verify_and_check_and_is_ne
     verified = world.verified()
     assert not verified["ok"] and verified["broken_at"] == seq_added(world, row), verified
     assert ("case", row["case_hash"], "status") in world.failed()
+    hidden, users = world.hidden, world.users
     writes: list[tuple[Callable[[], Any], str]] = [
-        (lambda: world.hidden.freeze(world.set_id, max_runs=3, max_age_days=30), "frozen"),
-        (lambda: world.hidden.measure(world.set_id, resamples=20), "measured"),
+        (lambda: hidden.freeze(world.set_id, max_runs=3, max_age_days=30), "frozen"),
+        (lambda: hidden.measure(world.set_id, resamples=20), "measured"),
     ]
+    if edit in SHAPED_EDITS:
+        writes += [
+            (lambda: hidden.assign(world.set_id, users[:2]), "assigned"),
+            (lambda: hidden.adjudicate(world.set_id, users[2:]), "assigned"),
+            (lambda: hidden.adjudicate(world.set_id, users[2:], org=CLINIC), "assigned"),
+        ]
     for write, done in writes:
         said = refused_naming_no_case(world, write, "a status its labels and draw do not give")
         assert f"nothing was {done}" in said and world.set_id in said
@@ -247,6 +273,245 @@ def test_a_frozen_set_whose_status_its_labels_do_not_give_breaks_at_its_freeze(
     verified = world.verified()
     assert not verified["ok"] and verified["broken_at"] == freeze["seq"]
     assert ("case", resolved["case_hash"], "status") in world.failed()
+
+
+# -- each label as the chain recorded it ----------------------------------------------------------
+
+
+def labels_of(world: World, row: dict[str, Any]) -> list[dict[str, Any]]:
+    """A case's label rows, oldest first, each with its values opened."""
+    found = []
+    held = rows(world.store, "evalset_labels", case_id=row["id"])
+    for label in sorted(held, key=lambda label: label["created_at"]):
+        body, _ = world.keys.open(
+            "label", label["body"], label["set_id"], label["case_id"], label["id"]
+        )
+        found.append({**label, "values": body["values"]})
+    return found
+
+
+def round_of(world: World, label: dict[str, Any], round_: str) -> None:
+    """The assignment a label answers moved to another round by SQL (no key needed)."""
+    tamper(
+        world.store,
+        "UPDATE evalset_assignments SET round = ? WHERE id = ?",
+        (round_, label["assignment_id"]),
+    )
+
+
+def every_write_refused(world: World, done: str = "") -> set[str]:
+    """`freeze`, `measure`, `assign` and `adjudicate` each refuse the set, naming no case and
+    writing nothing; what each said."""
+    hidden, users = world.hidden, world.users
+    writes: list[tuple[Callable[[], Any], str]] = [
+        (lambda: hidden.freeze(world.set_id, max_runs=3, max_age_days=30, resamples=20), "frozen"),
+        (lambda: hidden.measure(world.set_id, resamples=20), "measured"),
+        (lambda: hidden.assign(world.set_id, users[:2]), "assigned"),
+        (lambda: hidden.adjudicate(world.set_id, users[2:]), "assigned"),
+        (lambda: hidden.adjudicate(world.set_id, users[2:], org=CLINIC), "assigned"),
+    ]
+    said = set()
+    for write, not_done in writes:
+        refused = refused_naming_no_case(world, write, f"{done}.*nothing was {not_done}")
+        assert world.set_id in refused
+        said.add(refused)
+    return said
+
+
+def test_a_label_deleted_and_a_round_moved_by_sql_never_freeze_one_labellers_answer(
+    world: World,
+) -> None:
+    """The review's probe: two labellers disagree on case 1; with no key, the second label's
+    row is deleted, the first label's assignment moved to the adjudication round and the case's
+    status set to `resolved`. Before, `freeze` took each label's round from its assignment row,
+    so the one label left settled the case `resolved` and the set froze with that labeller's
+    answer, never adjudicated, and `rotate --check` was ready. Now each label's round is the one
+    its `evalset.labelled` chained, and every label the chain holds must be there: the case's
+    labels and status do not hold, and every write that reads them refuses the set."""
+    world.labelled()
+    disputed = case_of(world, 1)
+    first, second = labels_of(world, disputed)
+    assert first["values"] != second["values"]
+    world.hidden.remove_case(world.set_id, case_of(world, 2)["case_hash"])  # the other dispute
+    tamper(world.store, "DELETE FROM evalset_labels WHERE id = ?", (second["id"],))
+    round_of(world, first, "adjudication")
+    status_of(world, disputed, "resolved")
+    said = every_write_refused(world, "whose labels are not those its chain recorded")
+    assert all("a status its labels and draw do not give" in one for one in said)
+    failed = world.failed()
+    assert {("case", disputed["case_hash"], k) for k in ("labels", "status")} <= failed
+    assert not world.verified()["ok"]
+    assert events(world.store, "evalset.frozen") == []
+
+
+def test_a_round_moved_by_sql_on_a_case_one_labeller_answered_is_never_frozen(
+    world: World,
+) -> None:
+    """The review's second probe, nothing deleted: a case only its first labeller has answered,
+    that label's assignment moved to the adjudication round and the status set `resolved`.
+    The label's round is the chained one (`first`), so the case is `sampled` by its labels:
+    every write refuses the set and `rotate --check` names the case."""
+    world.hidden.add_cases(world.set_id, cases(1))
+    world.hidden.sample(world.set_id, cases=1)
+    world.users = labellers(world.store, 3)
+    world.hidden.assign(world.set_id, world.users[:2])
+    shown = world.hidden.next_case(world.users[0], org=CLINIC)
+    assert shown is not None
+    world.hidden.record_label(shown["assignment"], world.users[0], dict(split(1, 0)), org=CLINIC)
+    (row,) = rows(world.store, "evalset_cases", set_id=world.set_id)
+    (only,) = labels_of(world, row)
+    round_of(world, only, "adjudication")
+    status_of(world, row, "resolved")
+    every_write_refused(world, "a status its labels and draw do not give")
+    assert ("case", row["case_hash"], "status") in world.failed()
+    assert not world.verified()["ok"]
+
+
+def test_an_adjudicators_label_settles_only_a_case_whose_two_first_labels_differ(
+    world: World,
+) -> None:
+    """A second labeller's open assignment moved to the adjudication round by SQL before they
+    answer: their label is chained in that round, beside a single first-pass label. Before, the
+    two settled the case `resolved` (a majority of two), which every check accepted and freezing
+    took. An adjudicator's label now settles only a case whose two first-pass labels differ: the
+    case stays `sampled`, which no labels give, so it is found and never frozen."""
+    world.hidden.add_cases(world.set_id, cases(1))
+    world.hidden.sample(world.set_id, cases=1)
+    world.users = labellers(world.store, 3)
+    world.hidden.assign(world.set_id, world.users[:2])
+    answer = dict(split(0, 0))
+    for nth, user in enumerate(world.users[:2]):
+        shown = world.hidden.next_case(user, org=CLINIC)
+        assert shown is not None
+        if nth == 1:  # the second labeller's assignment, still open, moved to adjudication
+            round_of(world, {"assignment_id": shown["assignment"]}, "adjudication")
+        world.hidden.record_label(shown["assignment"], user, answer, org=CLINIC)
+    (row,) = rows(world.store, "evalset_cases", set_id=world.set_id)
+    assert row["status"] == "sampled"  # one first-pass label and an adjudicator's: unsettled
+    rounds = [e["payload"]["round"] for e in events(world.store, "evalset.labelled")]
+    assert rounds == ["first", "adjudication"]
+    every_write_refused(world, "a status its labels and draw do not give")
+    assert ("case", row["case_hash"], "status") in world.failed()
+    assert not world.verified()["ok"]
+
+
+def test_adjudication_gives_no_third_labeller_a_case_its_labels_do_not_dispute(
+    world: World,
+) -> None:
+    """The review's third probe: a case only its first labeller answered, its status edited from
+    `sampled` to `disputed` by SQL. Before, `adjudicate` chose cases by their status, gave this
+    one a third labeller, and the case then settled `resolved` on one first-pass label and the
+    adjudicator's, which verification, `rotate --check` and freezing all accepted. Now it refuses
+    the set, the curators' route too, and no one more is shown the case."""
+    world.hidden.add_cases(world.set_id, cases(1))
+    world.hidden.sample(world.set_id, cases=1)
+    world.users = labellers(world.store, 3)
+    world.hidden.assign(world.set_id, world.users[:2])
+    shown = world.hidden.next_case(world.users[0], org=CLINIC)
+    assert shown is not None
+    world.hidden.record_label(shown["assignment"], world.users[0], dict(split(0, 0)), org=CLINIC)
+    (row,) = rows(world.store, "evalset_cases", set_id=world.set_id)
+    status_of(world, row, "disputed")
+    assigned = len(events(world.store, "evalset.assigned"))
+    for org in (None, CLINIC):  # the key holder's command, then a curator's route
+        adjudicated = functools.partial(world.hidden.adjudicate, world.set_id, world.users[2:])
+        refused_naming_no_case(
+            world,
+            functools.partial(adjudicated, org=org),
+            "a status its labels and draw do not give: nothing was assigned",
+        )
+    assert len(events(world.store, "evalset.assigned")) == assigned
+    assert world.hidden.next_case(world.users[2], org=CLINIC) is None
+    status_of(world, row, "sampled")  # put back: nothing is disputed, nothing to adjudicate
+    assert world.hidden.adjudicate(world.set_id, world.users[2:])["assigned"] == 0
+    assert world.verified()["ok"] and world.hidden.check()["ready"]
+
+
+def test_an_agreed_case_edited_to_disputed_stays_found_after_its_adjudication(
+    world: World,
+) -> None:
+    """An agreed case's status edited to `disputed` by SQL: the chain cannot tell it from a
+    disputed one without opening its labels, which `adjudicate` never does (threat model I13), so
+    the case is given to a third labeller (the residual the threat model names). Before, that
+    label settled it `resolved`, and verification, `rotate --check` and freezing all passed: the
+    edit was gone. An adjudicator's label now settles only a case whose two first-pass labels
+    differ, so the status stays as edited, and every check still finds it."""
+    world.labelled()
+    agreed = case_of(world, 0)
+    status_of(world, agreed, "disputed")
+    world.hidden.adjudicate(world.set_id, world.users[2:])
+    label_all(world.hidden, world.users[2:], lambda number, _: split(number, 2))
+    (row,) = rows(world.store, "evalset_cases", id=agreed["id"])
+    assert row["status"] == "disputed"  # never `resolved`: nothing settles it
+    assert len(labels_of(world, row)) == 3
+    verified = world.verified()
+    assert not verified["ok"] and verified["broken_at"] == seq_added(world, agreed)
+    assert ("case", agreed["case_hash"], "status") in world.failed()
+    refused_naming_no_case(
+        world,
+        lambda: world.hidden.freeze(world.set_id, max_runs=3, max_age_days=30, resamples=20),
+        "a status its labels and draw do not give: nothing was frozen",
+    )
+
+
+# -- what freezing and measuring read while the store writes --------------------------------------
+
+
+def a_draw(world: World) -> None:
+    world.hidden.sample(world.set_id, cases=1)
+
+
+def a_label(world: World) -> None:
+    shown = world.hidden.next_case(world.users[1], org=CLINIC)
+    assert shown is not None
+    world.hidden.record_label(shown["assignment"], world.users[1], dict(split(0, 1)), org=CLINIC)
+
+
+LANDING: dict[str, Callable[[World], None]] = {"a draw": a_draw, "a label": a_label}
+READING: dict[str, tuple[Callable[[World], Any], str]] = {
+    "measure": (lambda w: w.hidden.measure(w.set_id, resamples=20), "measured"),
+    "freeze": (
+        lambda w: w.hidden.freeze(w.set_id, max_runs=3, max_age_days=30, resamples=20),
+        "frozen",
+    ),
+}
+
+
+@pytest.mark.parametrize("command", sorted(READING))
+@pytest.mark.parametrize("write", sorted(LANDING))
+def test_a_write_landing_while_freeze_or_measure_reads_is_run_again_never_a_tamper(
+    world: World, monkeypatch: pytest.MonkeyPatch, write: str, command: str
+) -> None:
+    """A draw or a label that commits between the rows `freeze` or `measure` reads and the
+    chain it reads after them (they read outside the chain's lock): the rows look as no
+    commitment gives them, so they are read again under the lock, where they hold, and the
+    answer is the one for a set that changed while it was read: run it again. Before, it was a
+    refusal sending the operator to look for a tamper that never happened. Nothing is written,
+    verification holds, and run again, measuring succeeds."""
+    world.hidden.add_cases(world.set_id, cases(4))
+    world.hidden.sample(world.set_id, cases=2)
+    world.users = labellers(world.store, 2)
+    world.hidden.assign(world.set_id, world.users)
+    label_all(world.hidden, world.users[:1])
+    original = evalsets._chain
+    landed: list[str] = []
+
+    def landing(db: Any, set_id: str) -> Any:
+        if not landed:
+            landed.append(write)
+            LANDING[write](world)  # commits in its own transaction, beside the read
+        return original(db, set_id)
+
+    monkeypatch.setattr(evalsets, "_chain", landing)
+    run, done = READING[command]
+    before = unchanged(world)
+    with pytest.raises(MendariError, match=f"changed while it was {done}: run it again") as caught:
+        run(world)
+    assert "audit verify" not in str(caught.value) and landed == [write]
+    assert unchanged(world) != before  # what landed, and nothing else: no aggregate, no freeze
+    assert events(world.store, "evalset.frozen") == events(world.store, "evalset.measured") == []
+    assert world.verified()["ok"] and world.hidden.check()["ready"]
+    assert world.hidden.measure(world.set_id, resamples=20)["n"] >= 2
 
 
 # -- a drawn case's weight ------------------------------------------------------------------------

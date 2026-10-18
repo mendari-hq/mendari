@@ -131,18 +131,27 @@ The first release (not yet published).
   case's status. Each store of a set's aggregates (`evalset agreement`, `coverage` and `freeze`)
   chains a commitment to them, with their salt sealed beside them (`aggregates_ref` on
   `evalset.measured` and `evalset.frozen`). A case's status, still in the clear, is checked
-  against its labels and the set's latest draw. So a status edited by SQL (a disputed case made
-  `agreed`, which freezing used to commit to with its first labeller's answer), a weight
-  re-sealed or put back from before a draw, and aggregates re-sealed, put back or removed now
-  break `mendari audit verify --evalsets` and fail `mendari evalset rotate --check`; `freeze`,
-  `agreement` and `coverage` refuse such a set, counting its cases and naming none; and
-  `mendari evalset show` and `GET /api/evalsets/{set}` refuse such aggregates (a `400`), naming
-  the set only. Sets made before this release verify as before: both checks count the rows no
-  commitment covers yet (`predating`, a new count in their answers, never an id), still check
-  those sets' statuses against their labels, and take their weights, and whether an unlabelled
-  case was drawn, as they are until the set is drawn again. A draft's header stays uncovered
-  until it freezes. The threat model, ADR-0011 and the runbook say what is covered and what is
-  not.
+  against its labels and the set's latest draw; each label counts in the round and for the
+  labeller its `evalset.labelled` chained, never as an assignment row says now, every label the
+  chain recorded must be there, and an adjudicator's label settles only a case whose two
+  first-pass labels differ. So a status edited by SQL (a disputed case made `agreed`, which
+  freezing used to commit to with its first labeller's answer), a label deleted or an
+  assignment moved to another round, a weight re-sealed or put back from before a draw, and
+  aggregates re-sealed, put back or removed now break `mendari audit verify --evalsets` and
+  fail `mendari evalset rotate --check`; `freeze`, `agreement` and `coverage` refuse such a set,
+  counting its cases and naming none (a draw or a label landing while they read says "run it
+  again" instead); `assign` and `adjudicate` (and their curators' routes, a `400`), which still
+  open nothing, refuse a status the chain's draw and labels do not allow, so no case goes to a
+  labeller on it; and `mendari evalset show` and `GET /api/evalsets/{set}` refuse such
+  aggregates (a `400`), naming the set only. An agreed case's status edited to `disputed` still
+  reaches an adjudicator (telling it from a disputed one takes the labels' values), but that
+  label no longer settles it, so the edit stays found. Sets made before this release verify as
+  before: both checks count the rows no commitment covers yet (`predating`, a new count in their
+  answers, never an id), still check those sets' statuses against their labels, and take their
+  weights, whether an unlabelled case was drawn, and their aggregates as they are until the set
+  is drawn or measured again (a set frozen before it keeps its aggregates unchecked: take its
+  gate's positives from `freeze`'s output). A draft's header stays uncovered until it freezes.
+  The threat model, ADR-0011 and the runbook say what is covered and what is not.
 - **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
   keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
   Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from

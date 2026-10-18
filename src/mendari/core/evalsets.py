@@ -58,8 +58,10 @@ counts, `labelling`):
   its first two. Each refuses anyone who does not hold the `labeller` role on a membership in
   force in the set's organization, and anyone who manages hidden sets there (`curate`: an
   administrator, separation of duties); an open assignment whose membership no longer holds is
-  withdrawn, and its case given to another, on the next run. Chained: `evalset.assigned {set,
-  org, case, assignment, labeller, round}`.
+  withdrawn, and its case given to another, on the next run. Each chooses cases by status, so
+  each first checks, opening nothing, that every status is one the case's draw and its chained
+  labels allow (LP-11p, below), and refuses a set where one is not, naming no case. Chained:
+  `evalset.assigned {set, org, case, assignment, labeller, round}`.
 - `next_case` serves a labeller, while their membership holds, their oldest open assignment in
   a draft set: the case's input and the set's questions with their labels, nothing else (no
   attribute, intended label, other label or model output). Chained in the same transaction,
@@ -70,7 +72,8 @@ counts, `labelling`):
   id and the SHA-256 of `LABEL_REF_PREFIX`, the salt and the canonical `{set, case, label,
   assignment, values}` (`label_ref`). A case's second first-pass label settles it `agreed` or
   `disputed`; its adjudicator's, by the majority on each question, `resolved`, or `unresolved`
-  where any question has none (a three-way split). The labeller is told how many cases are left,
+  where any question has none (a three-way split), and only on a case whose two first-pass
+  labels differ (LP-11p). The labeller is told how many cases are left,
   never how their label compares. A refused label is a `NoAssignment` (one refusal for every
   assignment not theirs to answer now) or a `LabelError` (naming the question, never a value).
 - `labelling` counts a labeller's own assignments, set by set: how many wait and how many they
@@ -126,11 +129,19 @@ A draft's draws and statuses, and every set's stored aggregates (LP-11p): a case
 text, so it is checked against what commitments cover, its labels (`label_ref`) and the set's
 latest draw (`weight_refs`, which names every drawn case), by `given_statuses`; a drawn case's
 weight against its draw's commitment (`weight_holds`); a set's stored aggregates against the
-commitment the latest `evalset.measured` or `evalset.frozen` chained (`stored_aggregates`).
-`freeze` and `measure` refuse a set whose statuses or weights do not hold (`row_mismatches`),
-`show` refuses aggregates that do not, and `check` and `mendari audit verify --evalsets` check all
-three. A draw or a store from before these commitments is read as before, and counted
-(`predating`).
+commitment the latest `evalset.measured` or `evalset.frozen` chained (`stored_aggregates`). A
+case's labels are those the chain recorded, each in the round and by the labeller its
+`evalset.labelled` chained (`_chain`), never as an assignment row says now: a label the chain
+holds and the rows lack, or a label row it never recorded, fails the case (`labels`), and an
+adjudicator's label settles only a case whose two first-pass labels differ. `freeze` and
+`measure` refuse a set whose labels, statuses or weights do not hold (`_mismatches`; they read
+outside the chain's lock, so they read the set again under it first, and a set that changed
+meanwhile is "run it again", never a refusal); `assign` and `adjudicate`, which open nothing,
+refuse a set whose labels or statuses its chain does not allow (`_shape_mismatches`: they cannot
+tell `agreed` from `disputed` without the labels' values, so an agreed case's status edited to
+`disputed` is still adjudicated, and found afterwards); `show` refuses aggregates that do not
+hold, and `check` and `mendari audit verify --evalsets` check all of it. A draw or a store from
+before these commitments is read as before, and counted (`predating`).
 
 An organization's curators (`curate`: its administrators, people only) manage its sets through
 their routes (LP-11k, `server/app.py` `add_evalset_routes`): `named_sets` and `summary` read
@@ -157,7 +168,7 @@ from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn, TypeVar
 
 from mendari.core import accounts
 from mendari.core.audit import (
@@ -718,12 +729,16 @@ class EvalsetStore:
         named, pairs differ by one case at most and labellers by two); deterministic for a
         seed. Each labeller must hold the `labeller` role on a membership in force in the set's
         organization, and none may manage hidden sets there (`accounts.CURATING`): either
-        refuses the run. An open assignment whose membership no longer holds (ended, or no
-        longer a labeller's) is withdrawn first, and its case given to another labeller here.
-        `evalset.assigned` is chained for each. The set's id, how many were assigned and
-        withdrawn, and each new assignment: its case by its hash, its id, its labeller and its
-        round. Its curators' route (LP-11k) gives `org`, the organization it acts for: another
-        organization's set is refused as an unknown one is (`NoEvalset`)."""
+        refuses the run. Cases are chosen by status (`sampled` here, `disputed` to adjudicate),
+        clear text: so first, before anything is written and opening nothing, the set's rows
+        are checked against what the chain recorded (`_shape_mismatches`, LP-11p: each case's
+        labels, and a status its draw and its labels' rounds allow), and a set where one does
+        not hold is refused, counted and naming no case. An open assignment whose membership no
+        longer holds (ended, or no longer a labeller's) is withdrawn first, and its case given
+        to another labeller here. `evalset.assigned` is chained for each. The set's id, how many
+        were assigned and withdrawn, and each new assignment: its case by its hash, its id, its
+        labeller and its round. Its curators' route (LP-11k) gives `org`, the organization it
+        acts for: another organization's set is refused as an unknown one is (`NoEvalset`)."""
         return self._assign(set_id, labellers, seed, FIRST, org)
 
     def adjudicate(
@@ -731,9 +746,11 @@ class EvalsetStore:
     ) -> dict[str, Any]:
         """Give each disputed case of a draft set a third, blind labeller who is neither of its
         first two (`mendari evalset adjudicate`, and its curators' route for `org`, LP-11k), as
-        `assign` does: the same refusals, the same withdrawals, balanced across `labellers`. The
-        adjudicator labels from the input alone, and the majority on each question settles the
-        case."""
+        `assign` does: the same refusals (a set whose rows its chain does not allow among them:
+        a case is `disputed` only with two first-pass labels and no adjudicator's), the same
+        withdrawals, balanced across `labellers`. The adjudicator labels from the input alone,
+        and the majority on each question settles the case, if its first two labels differ
+        (else nothing settles it, and the status is found, `given_statuses`)."""
         return self._assign(set_id, labellers, seed, ADJUDICATION, org)
 
     def _assign(
@@ -753,6 +770,22 @@ class EvalsetStore:
             )
             org = str(head["org"])
             pool = {user: _labeller_in(db, org, user) for user in users}
+            # The cases are chosen by status (`waiting`), clear text: first the set's rows are
+            # checked against what the chain recorded, opening nothing (LP-11p, I13), so a
+            # status its draw and labels do not allow never gives a case to a labeller.
+            found = _shape_mismatches(
+                db.all(
+                    "SELECT id, case_hash, status FROM evalset_cases WHERE set_id = ? ORDER BY id",
+                    (set_id,),
+                ),
+                db.all(
+                    "SELECT id, case_id FROM evalset_labels WHERE set_id = ? ORDER BY id",
+                    (set_id,),
+                ),
+                _chain(db, set_id),
+            )
+            if found:
+                raise _refused(set_id, Counter(what for _, what in found), "assigned")
             withdrawn = _withdraw(db, set_id, org, round_)
             if not db.one(
                 "SELECT id FROM evalset_cases WHERE set_id = ? AND status <> ? LIMIT 1",
@@ -1055,6 +1088,24 @@ class EvalsetStore:
             )
         return None if row is None else str(row["set_id"])
 
+    def _refuse_unless_changed(self, keys: EvalsetKeys, set_id: str, done: str) -> NoReturn:
+        """Refuse a draft set whose rows, as `freeze` or `measure` read them outside the chain's
+        lock (`done`: what was not done), are not those the commitments give (`_mismatches`).
+        Its rows and chain are read again under the lock, where no write of the store lands
+        between the reads: if they still do not hold, the set is refused as they are, counted
+        by what and naming no case (`_refused`); if they do, a draw, a label or a removal landed
+        while the set was read, and it changed while it was measured (or frozen): run it again,
+        never a refusal that sends the operator looking for a tamper (LP-11p). Writes
+        nothing."""
+        with self.store._db.session(exclusive=True) as db:
+            _draft(set_id, db.one("SELECT state FROM evalset_sets WHERE id = ?", (set_id,)))
+            cases, labels = _case_rows(db, set_id), _label_rows(db, set_id)
+            chain = _chain(db, set_id)
+        counted = Counter(what for _, what in _mismatches(keys, set_id, cases, labels, chain))
+        if counted:
+            raise _refused(set_id, counted, done)
+        raise MendariError(f"evaluation set {set_id} changed while it was {done}: run it again")
+
     def measure(
         self,
         set_id: str,
@@ -1068,17 +1119,21 @@ class EvalsetStore:
         settled labels (an agreed case's, or a resolved one's majority; none while it waits)
         and those its pack derives from them; and its raters' agreement
         (`evals/rater_agreement.py`, seeded) over the first-pass labels of the cases both
-        labellers answered, raters by user id. The pack is the set's (its header's id, resolved
-        here) unless `pack` is given; one whose questions, labels or critical labels differ
-        from the header's is refused, and so is a set holding a case whose status its labels
-        and draw do not give, or whose weight its draw's commitment does not cover (LP-11p,
-        `row_mismatches`: the aggregates would count it as it stands). Inputs, attributes and
-        labels are opened and the statistics computed outside the chain's lock; then, in one
-        transaction, if the set's drawn cases and labels are still those that were read, the
-        aggregates are sealed as the set's with a new 32-byte salt and `evalset.measured` is
-        chained (how many cases, and the aggregates' commitment, `aggregates_ref`). The
-        aggregates: counts and coefficients by question and label, the mix of languages,
-        sources and strata, never a case."""
+        labellers answered, raters by user id. Each label is one the chain recorded, in the
+        round and by the labeller its `evalset.labelled` chained (`_as_chained`, LP-11p), never
+        as an assignment row says now. The pack is the set's (its header's id, resolved here)
+        unless `pack` is given; one whose questions, labels or critical labels differ from the
+        header's is refused, and so is a set holding a case whose labels are not those its chain
+        recorded, whose status its labels and draw do not give, or whose weight its draw's
+        commitment does not cover (LP-11p, `_mismatches`: the aggregates would count it as it
+        stands), once read again under the chain's lock (`_refuse_unless_changed`: a set that
+        changed while it was read is "run it again"). Inputs, attributes and labels are opened
+        and the statistics computed outside the chain's lock; then, in one transaction, if the
+        set's drawn cases, its labels and what its chain says of them are still those that were
+        read, the aggregates are sealed as the set's with a new 32-byte salt and
+        `evalset.measured` is chained (how many cases, and the aggregates' commitment,
+        `aggregates_ref`). The aggregates: counts and coefficients by question and label, the
+        mix of languages, sources and strata, never a case."""
         keys = self._ring()
         _check_set_id(set_id)
         if not isinstance(resamples, int) or isinstance(resamples, bool) or resamples < 1:
@@ -1087,18 +1142,9 @@ class EvalsetStore:
             head = _draft(
                 set_id, db.one("SELECT state, header FROM evalset_sets WHERE id = ?", (set_id,))
             )
-            every = db.all(
-                "SELECT id, case_hash, status, input, attributes FROM evalset_cases "
-                "WHERE set_id = ? ORDER BY id",
-                (set_id,),
-            )
-            labelled = db.all(
-                "SELECT l.id, l.case_id, l.body, a.user_id, a.round FROM evalset_labels l "
-                "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.set_id = ? "
-                "ORDER BY l.id",
-                (set_id,),
-            )
-            committed = _latest_draw(db, set_id)
+            every = _case_rows(db, set_id)
+            label_rows = _label_rows(db, set_id)
+            chain = _chain(db, set_id)
         header, _ = keys.open("header", str(head["header"]), set_id)
         if pack is None:
             from mendari.core.registry import resolve_pack
@@ -1107,14 +1153,16 @@ class EvalsetStore:
         problem = pack_problem(pack, header)
         if problem is not None:
             raise MendariError(problem)
-        _refuse_mismatches(keys, set_id, every, labelled, committed, "measured")
+        if _mismatches(keys, set_id, every, label_rows, chain):
+            self._refuse_unless_changed(keys, set_id, "measured")
+        labelled = _as_chained(label_rows, chain)
         rows = [row for row in every if row["status"] != DRAFT]
         if not rows:
             raise MendariError(
                 f"no case of evaluation set {set_id} is drawn: draw them first "
                 "(`mendari evalset sample`)"
             )
-        read = _measured_rows(rows, labelled)
+        read = (_measured_rows(rows, labelled), chain)
         aggregates = _aggregates(keys, pack, set_id, rows, labelled, seed, resamples)
         with self.store._db.session(exclusive=True) as db:
             self.store._evalset_ready(db, keys)
@@ -1128,7 +1176,7 @@ class EvalsetStore:
             now_labels = db.all(
                 "SELECT id FROM evalset_labels WHERE set_id = ? ORDER BY id", (set_id,)
             )
-            if _measured_rows(now_rows, now_labels) != read:
+            if (_measured_rows(now_rows, now_labels), _chain(db, set_id)) != read:
                 raise MendariError(
                     f"evaluation set {set_id} changed while it was measured: run it again"
                 )
@@ -1153,24 +1201,27 @@ class EvalsetStore:
         resamples: int = 2000,
     ) -> dict[str, Any]:
         """Freeze a draft set (`mendari evalset freeze`, the key holder's only): its content and
-        its rotation rule fixed, committed to and chained. Refused while a case's status is not
-        the one its labels and the set's latest draw give it, or a drawn case's weight is not
-        the one that draw's commitment covers (LP-11p, `row_mismatches`: what freezing would
-        commit to as it stands; a draw from before those commitments has its weights taken as
-        they are), naming no case; while a case is not drawn (unless `drop_unsampled`: each
-        such case is removed, with its index rows, and `evalset.case_removed` chained for it),
-        or a drawn one is unlabelled, disputed or unresolved; and without both limits
+        its rotation rule fixed, committed to and chained. Refused while a case's labels are not
+        those its chain recorded (each in its chained round, `_as_chained`: an assignment row's
+        round is never read), its status is not the one those labels and the set's latest draw
+        give it, or a drawn case's weight is not the one that draw's commitment covers (LP-11p,
+        `_mismatches`: what freezing would commit to as it stands; a draw from before those
+        commitments has its weights taken as they are), naming no case, once read again under
+        the chain's lock (`_refuse_unless_changed`: a set that changed while it was read is
+        "run it again"); while a case is not drawn (unless `drop_unsampled`: each such case is
+        removed, with its index rows, and `evalset.case_removed` chained for it), or a drawn
+        one is unlabelled, disputed or unresolved; and without both limits
         (`max_runs` grading runs, `max_age_days` days from now, by `clock`, which time the
         content holds: no default, conflict 47). The pack is the set's, as `measure` finds it,
         for the labels it derives from the final member labels (`derive_answer`). Inputs,
         attributes and labels are opened, the content hashed (`content_hash`,
         `_frozen_content`) and the aggregates computed (the coverage of the final labels and the
         first-pass agreement, as `measure` stores them) outside the chain's lock; then, in one
-        transaction, if the set's cases and labels are still those that were read, the set
-        becomes `frozen`: its freeze record (the salt, the content hash and the derived labels)
-        and aggregates sealed (the aggregates with a new 32-byte salt), its commitment, limits
-        and time kept, and `evalset.frozen` chained with the aggregates' commitment
-        (`aggregates_ref`). The set's id, state, time, commitment, how
+        transaction, if the set's cases, its labels and what its chain says of them are still
+        those that were read, the set becomes `frozen`: its freeze record (the salt, the content
+        hash and the derived labels) and aggregates sealed (the aggregates with a new 32-byte
+        salt), its commitment, limits and time kept, and `evalset.frozen` chained with the
+        aggregates' commitment (`aggregates_ref`). The set's id, state, time, commitment, how
         many cases it holds and how many were dropped, its limits, and the distinct positives
         of each critical label (`critical`, which names the pack's label words: conflict 48,
         never chained) with the coverage report's warnings; a critical label under
@@ -1184,18 +1235,9 @@ class EvalsetStore:
             head = _draft(
                 set_id, db.one("SELECT state, header FROM evalset_sets WHERE id = ?", (set_id,))
             )
-            rows = db.all(
-                "SELECT id, case_hash, status, input, attributes FROM evalset_cases "
-                "WHERE set_id = ? ORDER BY id",
-                (set_id,),
-            )
-            labelled = db.all(
-                "SELECT l.id, l.case_id, l.body, a.user_id, a.round FROM evalset_labels l "
-                "JOIN evalset_assignments a ON a.id = l.assignment_id WHERE l.set_id = ? "
-                "ORDER BY l.id",
-                (set_id,),
-            )
-            committed = _latest_draw(db, set_id)
+            rows = _case_rows(db, set_id)
+            label_rows = _label_rows(db, set_id)
+            chain = _chain(db, set_id)
         header, _ = keys.open("header", str(head["header"]), set_id)
         if pack is None:
             from mendari.core.registry import resolve_pack
@@ -1204,7 +1246,9 @@ class EvalsetStore:
         problem = pack_problem(pack, header)
         if problem is not None:
             raise MendariError(problem)
-        _refuse_mismatches(keys, set_id, rows, labelled, committed, "frozen")
+        if _mismatches(keys, set_id, rows, label_rows, chain):
+            self._refuse_unless_changed(keys, set_id, "frozen")
+        labelled = _as_chained(label_rows, chain)
         undrawn = [row for row in rows if row["status"] == DRAFT]
         if undrawn and not drop_unsampled:
             raise MendariError(
@@ -1232,7 +1276,7 @@ class EvalsetStore:
         }
         aggregates = _aggregates(keys, pack, set_id, kept, labelled, seed, resamples)
         sealed_aggregates, aggregates_commitment = _sealed_aggregates(keys, set_id, aggregates)
-        read = _measured_rows(rows, labelled)
+        read = (_measured_rows(rows, labelled), chain)
         dropped = [str(row["id"]) for row in undrawn]
         with self.store._db.session(exclusive=True) as db:
             self.store._evalset_ready(db, keys)
@@ -1246,7 +1290,7 @@ class EvalsetStore:
             now_labels = db.all(
                 "SELECT id FROM evalset_labels WHERE set_id = ? ORDER BY id", (set_id,)
             )
-            if _measured_rows(now_rows, now_labels) != read:
+            if (_measured_rows(now_rows, now_labels), _chain(db, set_id)) != read:
                 raise MendariError(
                     f"evaluation set {set_id} changed while it was frozen: run it again"
                 )
@@ -1600,18 +1644,19 @@ class EvalsetStore:
         row's state now, and each set row in a state of the lifecycle (LP-11i), the content its
         first `evalset.frozen` committed to, recomputed from its rows (`frozen_holds`), with the
         limits it chained (a set whose row is gone, a draft again, or holds no freeze record,
-        fails); and for each set in every state (LP-11p), each case's status against its labels
-        and the set's latest draw, each drawn case's weight against that draw's commitment
-        (`row_mismatches`), and its stored aggregates against the commitment chained when they
+        fails); and for each set in every state (LP-11p), each case's labels against those the
+        chain recorded (each in its chained round), its status against those labels and the
+        set's latest draw, each drawn case's weight against that draw's commitment
+        (`_mismatches`), and its stored aggregates against the commitment chained when they
         were stored (`stored_aggregates`). Counts the index rows by key id, and the rows a draw
         or a store from before LP-11p's commitments holds (`predating`: each drawn case of a
         set whose latest draw committed to no weight, and each set whose stored aggregates no
         commitment covers), which are not failures. A failure names the value's kind (`case`
         for a case's checks, `label` for a label's, `set` for a set's), its set, a case by its
         hash or a label by its id, and the key it names or what did not match (`commitment`,
-        `case_hash`, `index`, `status`, `weight`, `aggregates`). `ready` only when everything
-        opened and matched and the current key is not retired. Nothing is chained, marked or
-        written."""
+        `case_hash`, `index`, `labels`, `status`, `weight`, `aggregates`). `ready` only when
+        everything opened and matched and the current key is not retired. Nothing is chained,
+        marked or written."""
         keys = self._ring()
         alone = keys.current_only()
         current = key_id(keys.key)
@@ -1630,14 +1675,24 @@ class EvalsetStore:
                 )
                 if isinstance(payload := json.loads(row["payload"]), Mapping)
             }
-            label_refs = {
-                str(ref.get("id")): ref.get("sha256")
-                for row in db.all(
-                    "SELECT payload FROM audit_events WHERE event = ?", ("evalset.labelled",)
-                )
-                if isinstance(payload := json.loads(row["payload"]), Mapping)
-                and isinstance(ref := payload.get("label_ref"), Mapping)
-            }
+            # Each label's commitment by its id, and each set's labels as the chain recorded them
+            # (their cases, rounds and labellers, `_Chain.labels`: LP-11p).
+            label_refs: dict[str, Any] = {}
+            chained_labels: dict[str, dict[str, tuple[str, str, str]]] = {}
+            for row in db.all(
+                "SELECT payload FROM audit_events WHERE event = ? ORDER BY seq",
+                ("evalset.labelled",),
+            ):
+                payload = json.loads(row["payload"])
+                if not isinstance(payload, Mapping):
+                    continue
+                if isinstance(ref := payload.get("label_ref"), Mapping):
+                    label_refs[str(ref.get("id"))] = ref.get("sha256")
+                    chained_labels.setdefault(str(payload.get("set")), {})[str(ref.get("id"))] = (
+                        str(payload.get("case")),
+                        str(payload.get("round")),
+                        str(payload.get("labeller")),
+                    )
             # Each set's first `evalset.frozen` (a set freezes once: a later one is no commitment),
             # its latest draw and the latest event that stored its aggregates (LP-11p).
             freezes: dict[str, Mapping[str, Any]] = {}
@@ -1784,16 +1839,17 @@ class EvalsetStore:
                 except MendariError:
                     failures.append({"kind": "set", "set": set_id, "key": "aggregates"})
             draw = draws.get(set_id)
-            committed = {} if draw is None else weight_refs_of(draw)
+            chain = _Chain(
+                {} if draw is None else weight_refs_of(draw), chained_labels.get(set_id, {})
+            )
             with self.store._db.session(exclusive=False) as db:
-                if labelling:
-                    its_cases, its_labels = _frozen_rows(db, set_id)
-                else:  # an older database, from before labelling (LP-11h): no label
-                    its_cases, its_labels = _case_rows(db, set_id), []
-            if committed is None:  # drawn before the commitments: its weights are read as before
+                its_cases = _case_rows(db, set_id)
+                # An older database, from before labelling (LP-11h), holds no label.
+                its_labels = _label_rows(db, set_id) if labelling else []
+            if chain.drawn is None:  # drawn before the commitments: its weights read as before
                 predating += sum(1 for row in its_cases if row["status"] != DRAFT)
             try:
-                mismatched = _mismatches(alone, set_id, its_cases, its_labels, committed)
+                mismatched = _mismatches(alone, set_id, its_cases, its_labels, chain)
             except MendariError:
                 continue  # a value the current key alone does not open: listed above
             failures += [
@@ -2654,10 +2710,15 @@ def _labelled_status(
     first: Sequence[Mapping[str, str]], third: Sequence[Mapping[str, str]]
 ) -> str | None:
     """The status a case's labels settle it at (`_settle`, and what `given_statuses` checks a
-    status against): with an adjudicator's label, `resolved` when every question has a majority
-    of the three, else `unresolved`; with two first-pass labels, `agreed` when they are the same
-    on every question, else `disputed`; None while they settle nothing."""
+    status against): with an adjudicator's label on a disputed case (two first-pass labels that
+    differ, `_disputed`), `resolved` when every question has a majority of the three, else
+    `unresolved`; with two first-pass labels, `agreed` when they are the same on every
+    question, else `disputed`; None while they settle nothing, and for an adjudicator's label on
+    a case its first two did not dispute, which no store write gives (an assignment's round
+    edited by SQL: `given_statuses` then allows no status, LP-11p)."""
     if third:
+        if not _disputed(first):
+            return None
         return RESOLVED if _majority([*first, *third]) is not None else UNRESOLVED
     if len(first) >= 2:
         return AGREED if first[0] == first[1] else DISPUTED
@@ -2959,7 +3020,8 @@ def kept_as_chained(row: Mapping[str, Any], chained: Mapping[str, Any]) -> bool:
 
 
 def _case_rows(db: Session, set_id: str) -> list[dict[str, Any]]:
-    """A set's cases, in id order, as `frozen_holds` and `_mismatches` read them."""
+    """A set's cases, in id order, as `frozen_holds` and `_mismatches` read them (and `freeze`,
+    `measure`, `assign` and `check`)."""
     return db.all(
         "SELECT id, case_hash, status, input, attributes FROM evalset_cases WHERE set_id = ? "
         "ORDER BY id",
@@ -3117,24 +3179,96 @@ def _latest_draw(db: Session, set_id: str) -> dict[str, str] | None:
     return weight_refs_of(payload) if isinstance(payload, Mapping) else None
 
 
+class _Chain(NamedTuple):
+    """What a set's chain says of its draft rows (LP-11p), as `_chain` reads it: its latest
+    draw's weight commitments by case hash (`drawn`: empty without a draw, None for a draw from
+    before them, as `_latest_draw` gives them), and each label it chained, by the label's id:
+    its case's keyed hash, its round and its labeller, as its `evalset.labelled` recorded them
+    (`labels`), never as an assignment row says now."""
+
+    drawn: dict[str, str] | None
+    labels: dict[str, tuple[str, str, str]]
+
+
+def _chain(db: Session, set_id: str) -> _Chain:
+    """A set's `_Chain`, read from its own events in one statement."""
+    drawn: dict[str, str] | None = {}
+    labels: dict[str, tuple[str, str, str]] = {}
+    for row in db.all(
+        "SELECT event, payload FROM audit_events WHERE decision_id = ? AND event IN (?, ?) "
+        "ORDER BY seq",
+        (f"evalset:{set_id}", "evalset.sampled", "evalset.labelled"),
+    ):
+        payload = json.loads(row["payload"])
+        if row["event"] == "evalset.sampled":
+            drawn = weight_refs_of(payload) if isinstance(payload, Mapping) else None
+        elif isinstance(payload, Mapping) and isinstance(ref := payload.get("label_ref"), Mapping):
+            labels[str(ref.get("id"))] = (
+                str(payload.get("case")),
+                str(payload.get("round")),
+                str(payload.get("labeller")),
+            )
+    return _Chain(drawn, labels)
+
+
+def _label_rows(db: Session, set_id: str) -> list[dict[str, Any]]:
+    """A set's label rows, in id order, without their assignments: each label's round and
+    labeller are the chain's (`_Chain.labels`, `_as_chained`)."""
+    return db.all(
+        "SELECT id, case_id, body FROM evalset_labels WHERE set_id = ? ORDER BY id", (set_id,)
+    )
+
+
+def _as_chained(labels: Sequence[Mapping[str, Any]], chain: _Chain) -> list[dict[str, Any]]:
+    """Each label row the chain recorded, with the round and the labeller (`user_id`) its
+    `evalset.labelled` chained: what `freeze` and `measure` read once `_mismatches` found the
+    rows and the chain to agree."""
+    return [
+        {**row, "round": chained[1], "user_id": chained[2]}
+        for row in labels
+        if (chained := chain.labels.get(str(row["id"]))) is not None
+    ]
+
+
+def _disputed(first: Sequence[Mapping[str, str]]) -> bool:
+    """Whether a case's first-pass labels are two that differ: the only case adjudicated."""
+    return len(first) == 2 and first[0] != first[1]
+
+
+def shaped_statuses(drawn: bool | None, firsts: int, thirds: int) -> tuple[str, ...]:
+    """The statuses a case may hold by its draw and how many first-pass and adjudication labels
+    it holds, opening none (LP-11p; what `assign` and `adjudicate` check, `_shape_mismatches`):
+    `draft` for a case no draw took (none, if it holds labels: only a drawn case is assigned);
+    for a drawn one, `sampled` until it holds two first-pass labels, then `agreed` or
+    `disputed`, then, with an adjudicator's label, `resolved` or `unresolved`; none for an
+    adjudicator's label on a case without two first-pass labels. `drawn` is None for a set whose
+    latest draw is from before the commitments: an unlabelled case may then be `draft` or
+    `sampled`."""
+    if drawn is False:
+        return () if firsts or thirds else (DRAFT,)
+    if thirds:
+        return (RESOLVED, UNRESOLVED) if firsts == 2 else ()
+    if firsts >= 2:
+        return (AGREED, DISPUTED)
+    if drawn is None and not firsts:
+        return (DRAFT, SAMPLED)
+    return (SAMPLED,)
+
+
 def given_statuses(
     drawn: bool | None,
     first: Sequence[Mapping[str, str]],
     third: Sequence[Mapping[str, str]],
 ) -> tuple[str, ...]:
     """The statuses a case's labels (the first-pass and adjudication values, opened) and its draw
-    allow (LP-11p): `draft` for a case no draw took (none, if it holds labels: only a drawn case
-    is assigned); for a drawn one, the status its labels settle (`_labelled_status`), else
-    `sampled`. `drawn` is None for a set whose latest draw is from before the commitments: an
-    unlabelled case may then be `draft` or `sampled`."""
-    if drawn is False:
-        return () if first or third else (DRAFT,)
+    allow (LP-11p): those its shape allows (`shaped_statuses`), and of a settled one's, the one
+    its labels settle (`_labelled_status`), so none for an adjudicator's label on a case whose
+    two first-pass labels do not differ (only a disputed case is adjudicated)."""
+    shaped = shaped_statuses(drawn, len(first), len(third))
+    if set(shaped) <= {DRAFT, SAMPLED}:
+        return shaped  # no label settles it
     settled = _labelled_status(first, third)
-    if settled is not None:
-        return (settled,)
-    if drawn is None and not first:
-        return (DRAFT, SAMPLED)
-    return (SAMPLED,)
+    return (settled,) if settled in shaped else ()
 
 
 def weight_holds(body: Any, set_id: str, case_id: str, ref: str | None) -> bool:
@@ -3162,7 +3296,7 @@ def row_mismatches(
 ) -> list[str]:
     """What of a case's row the commitments do not give (LP-11p), from its row (`case`: its id,
     keyed hash and status), its opened attributes (`body`) and labels (`first`, `third`), and
-    its set's latest draw (`committed`: its weight commitments by case hash, `_latest_draw`):
+    its set's latest draw (`committed`: its weight commitments by case hash, `_Chain.drawn`):
     `status`, a status its labels and that draw do not give (`given_statuses`); `weight`, a
     drawn case's weight that draw's commitment does not cover, or a weight on a case it did not
     draw (`weight_holds`). A draw from before the commitments (`committed` None) checks the
@@ -3179,53 +3313,90 @@ def row_mismatches(
     return problems
 
 
+def _labels_as_chained(
+    cases: Sequence[Mapping[str, Any]], labels: Sequence[Mapping[str, Any]], chain: _Chain
+) -> tuple[dict[str, list[tuple[Mapping[str, Any], str]]], set[str]]:
+    """A set's label rows (`labels`, `_label_rows`) as its chain recorded them (LP-11p): by
+    each case's hash (`cases`, every case the set holds), its label rows the chain recorded,
+    each with the round its `evalset.labelled` chained (never an assignment row's); and the
+    hashes of the cases missing a label the chain recorded (a row deleted) or holding a label
+    row it never recorded. Opens nothing."""
+    hashes = {str(case["id"]): str(case["case_hash"]) for case in cases}
+    held = {str(row["id"]) for row in labels}
+    unheld = {hashed for label, (hashed, _, _) in chain.labels.items() if label not in held}
+    given: dict[str, list[tuple[Mapping[str, Any], str]]] = {}
+    for row in labels:
+        hashed = hashes.get(str(row["case_id"]), "")  # "": a label of no case the set holds
+        chained = chain.labels.get(str(row["id"]))
+        if chained is None or chained[0] != hashed or chained[1] not in ROUNDS:
+            unheld.add(hashed)  # a label row the chain never recorded, for this case
+            continue
+        given.setdefault(hashed, []).append((row, chained[1]))
+    return given, unheld
+
+
+def _shape_mismatches(
+    cases: Sequence[Mapping[str, Any]], labels: Sequence[Mapping[str, Any]], chain: _Chain
+) -> list[tuple[Mapping[str, Any], str]]:
+    """Each of a set's cases with what of its row its chain does not allow, opening nothing
+    (what `assign` and `adjudicate` check before they choose cases by status, LP-11p; threat
+    model I13: their routes open no sealed value): `labels` (`_labels_as_chained`), and
+    `status`, a status its draw and the number of labels of each round the chain recorded do not
+    allow (`shaped_statuses`). It cannot tell `agreed` from `disputed`, nor `resolved` from
+    `unresolved`: only the labels' values do (`_mismatches`)."""
+    given, unheld = _labels_as_chained(cases, labels, chain)
+    found: list[tuple[Mapping[str, Any], str]] = []
+    for case in cases:
+        hashed = str(case["case_hash"])
+        rounds = [round_ for _, round_ in given.get(hashed, [])]
+        drawn = None if chain.drawn is None else hashed in chain.drawn
+        allowed = shaped_statuses(drawn, rounds.count(FIRST), rounds.count(ADJUDICATION))
+        found += [(case, "labels")] if hashed in unheld else []
+        found += [] if str(case["status"]) in allowed else [(case, "status")]
+    return found
+
+
 def _mismatches(
     keys: EvalsetKeys,
     set_id: str,
     cases: Sequence[Mapping[str, Any]],
     labels: Sequence[Mapping[str, Any]],
-    committed: Mapping[str, str] | None,
+    chain: _Chain,
 ) -> list[tuple[Mapping[str, Any], str]]:
-    """Each of a set's cases with what of its row the commitments do not give (`row_mismatches`):
-    (its row, `status` or `weight`), its attributes and labels (each label row with its round)
-    opened with `keys`. A value `keys` does not open raises `MendariError`."""
-    given: dict[str, tuple[list[dict[str, str]], list[dict[str, str]]]] = {}
-    for row, values in _opened_labels(keys, set_id, labels):
-        first, third = given.setdefault(str(row["case_id"]), ([], []))
-        (first if row["round"] == FIRST else third).append(values)
+    """Each of a set's cases (`cases`, every one it holds) with what of its row the commitments
+    do not give: (its row, what). `labels` (`_labels_as_chained`); then, from the labels the
+    chain recorded, each in its chained round, `status` and `weight` (`row_mismatches`, against
+    the latest draw). Attributes and those labels (`labels`: the set's label rows,
+    `_label_rows`) are opened with `keys`; a value it does not open raises `MendariError`."""
+    given, unheld = _labels_as_chained(cases, labels, chain)
     found: list[tuple[Mapping[str, Any], str]] = []
     for case in cases:
-        case_id = str(case["id"])
+        case_id, hashed = str(case["id"]), str(case["case_hash"])
         body, _ = keys.open("attributes", str(case["attributes"]), set_id, case_id)
-        first, third = given.get(case_id, ([], []))
-        found += [
-            (case, what) for what in row_mismatches(set_id, case, body, first, third, committed)
-        ]
+        mine = given.get(hashed, [])
+        opened = _opened_labels(keys, set_id, [row for row, _ in mine])
+        rounds = [round_ for _, round_ in mine]
+        first = [values for (_, values), r in zip(opened, rounds, strict=True) if r == FIRST]
+        third = [values for (_, values), r in zip(opened, rounds, strict=True) if r != FIRST]
+        problems = row_mismatches(set_id, case, body, first, third, chain.drawn)
+        found += [(case, what) for what in (["labels"] if hashed in unheld else []) + problems]
     return found
 
 
-def _refuse_mismatches(
-    keys: EvalsetKeys,
-    set_id: str,
-    cases: Sequence[Mapping[str, Any]],
-    labels: Sequence[Mapping[str, Any]],
-    committed: Mapping[str, str] | None,
-    done: str,
-) -> None:
-    """Refuse a set any of whose cases' rows the commitments do not give (`_mismatches`), before
-    `freeze` or `measure` reads it as it stands (`done`: what was not done), with how many cases
-    of each kind, naming no case."""
-    counted = Counter(what for _, what in _mismatches(keys, set_id, cases, labels, committed))
-    if not counted:
-        return
-    said = []
-    if counted["status"]:
-        said.append(f"{counted['status']} case(s) with a status its labels and draw do not give")
-    if counted["weight"]:
-        weight = "with a weight its draw's commitment does not cover"
-        said.append(f"{counted['weight']} case(s) {weight}")
-    raise MendariError(
-        f"evaluation set {set_id} holds {' and '.join(said)}: nothing was {done}; "
+def _refused(set_id: str, counted: Mapping[str, int], done: str) -> MendariError:
+    """Why a set is refused (`done`: what was not done) when its rows are not those the
+    commitments give (`_mismatches`, `_shape_mismatches`): how many cases of each kind, naming
+    no case."""
+    kinds = (
+        ("labels", "whose labels are not those its chain recorded"),
+        ("status", "with a status its labels and draw do not give"),
+        ("weight", "with a weight its draw's commitment does not cover"),
+    )
+    said = " and ".join(
+        f"{counted[kind]} case(s) {what}" for kind, what in kinds if counted.get(kind)
+    )
+    return MendariError(
+        f"evaluation set {set_id} holds {said}: nothing was {done}; "
         "run `mendari audit verify --evalsets`"
     )
 
