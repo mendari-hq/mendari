@@ -33,7 +33,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 
 | Item | Where |
 |---|---|
-| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.1.md)), [`src/mendari/core/spec.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/spec.py) |
+| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.1.md); 0.3, the FHIR mapping only: [`decision-pack-0.3.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.3.md)), [`src/mendari/core/spec.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/spec.py) |
 | Mendari runtime | [`src/mendari/core/decision.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/decision.py), [`policy.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/policy.py) |
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/mendari/providers/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/providers) |
 | FHIR adapter + CDS Hooks | [`src/mendari/standards/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/standards) |

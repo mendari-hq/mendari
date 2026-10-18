@@ -296,6 +296,23 @@ fragment. A card summary or Task text uses bare placeholders (`{specialty}`, nev
 `{specialty!r}` or `{specialty:>20}`). `mendari validate` refuses anything else and a registry
 refuses it; your own server lists such a prefetch or card summary under `pack_warnings`.
 
+Real EHR data rarely puts your code first. A pack whose FHIR mapping reads it can use spec 0.3
+([Decision Pack spec 0.3](../spec/decision-pack-0.3.md)), which changes only the mapping:
+
+- pick a coding by its code system, wherever it is
+  (`code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code`);
+- give a field fallback `paths`, tried in order;
+- `follow` one reference inside the record (a MedicationRequest's Medication), never fetched;
+- read plain-text and HTML notes as text (`attachment_text`);
+- match a set of your own codes (`code_sets` and `code_set`);
+- read several resource types into one list (`resources`), with a MedicationRequest's start and
+  stop by a stated rule (`medication_period`).
+
+Set `spec_version: "0.3"` to use any of them, and declare in `code_systems` every system the
+mapping selects on. A 0.2 pack that uses one is refused. A pack you publish to a registry or
+contribute as a community pack has at most 4 paths a field and 200 codes a code set, and
+`mendari validate` holds yours to the same. The packs Mendari ships still use 0.2.
+
 ## 9. Publish the card
 
 ```bash
@@ -331,4 +348,5 @@ into one page. Share it with your AI or clinical decision support committee. At 
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
-The full format is in the [Decision Pack specification](../spec/decision-pack-0.2.md).
+The full format is in the [Decision Pack specification](../spec/decision-pack-0.2.md), and the
+FHIR mapping of spec 0.3 in [its own document](../spec/decision-pack-0.3.md).

@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Decision Pack manifest, spec versions 0.1 and 0.2.
+"""Decision Pack manifest, spec versions 0.1, 0.2 and 0.3.
 
 A pack declares *questions* (a fixed set of labels, each with human-readable criteria).
 Providers answer questions with probability distributions; the policy turns answers into
 one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *derived*
 questions computed from other answers by a decision table. See docs/spec/decision-pack-0.2.md.
+Spec 0.3 changes only the FHIR mapping (docs/spec/decision-pack-0.3.md), which
+`standards/fhir.py` reads and checks; its manifest is a 0.2 manifest.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from mendari.core.templates import unknown_placeholders
 
-SPEC_VERSION = "0.2"
+SPEC_VERSION = "0.3"  # the newest spec version this engine reads
 MAX_VERSION_CHARS = 64
 MAX_DERIVE_ROWS = 10
 
@@ -659,7 +661,7 @@ def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
 
 
 class PackManifest(_Strict):
-    spec_version: Literal["0.1", "0.2"]
+    spec_version: Literal["0.1", "0.2", "0.3"]
     id: str
     version: str
     name: str

@@ -1,7 +1,8 @@
 # Decision Pack Specification, version 0.2
 
 Status: draft. Supersedes [0.1](decision-pack-0.1.md); every valid 0.1 pack is a valid 0.2
-pack with unchanged behaviour (§13). The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
+pack with unchanged behaviour (§13). [0.3](decision-pack-0.3.md) changes only the FHIR mapping
+(§9): what it adds is there, and the rest of this document holds for 0.3 too. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (manifest), `mendari.core.derive` (derived
 questions) and `mendari.core.policy` (semantics).
 Where this document and the implementation disagree, file an issue; the document is intended
@@ -543,7 +544,8 @@ together, in the same order). A registry MUST NOT echo what it refuses.
 
 ## 9. FHIR and CDS Hooks
 
-`fhir/mapping.yaml` declares the `focus` resource type, the required and optional resource
+Spec [0.3](decision-pack-0.3.md) extends the mapping below; a 0.2 pack reads as this section
+says. `fhir/mapping.yaml` declares the `focus` resource type, the required and optional resource
 types, and a mapping from input fields to FHIRPath-subset paths (dotted elements, where a
 list-valued element yields all its items and `[n]` selects one), with optional transforms
 (`join`, `age_band`) and value maps. A decision maps to a FHIR R4 `Task`: `status` `ready`

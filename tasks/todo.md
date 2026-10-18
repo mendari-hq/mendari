@@ -797,7 +797,22 @@ Connect) is not supported yet.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
   - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
-  - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+  - [x] **23g** (this PR) Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+    `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping (`spec_version: "0.3"`, a
+    nav entry, a pointer from 0.2): the `[system=<uri>]` predicate for a declared system,
+    fallback `paths`, one `follow` hop resolved inside the record and never fetched,
+    `attachment_text` (text/plain, and text/html through `html.parser` with scripts and styles
+    dropped; its reasons `unsupported_type`, `undecodable`, `not_fetched`), `code_sets` and a
+    `code_set` selector that takes a site's translations (nothing passes them until 23i), list
+    `resources`, and `medication_period` by conflict 39 (B21 clinician review still owed, and the
+    trial card's failure modes say it when 23k adopts it). A 0.1 or 0.2 pack with a 0.3 key is
+    refused where its mapping is read, naming each key; a pack the deployment does not own (and
+    every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set, and a
+    `follow` is one hop for every pack. `FhirAdapter.looked_for` gives what each field and list
+    looks for (paths, declared systems, the pack's own codes) from the mapping alone, for 23d's
+    `data_coverage.measure`, and `read_attachment` the reason an attachment was not read. The
+    golden is unchanged, and the four mappings written with `paths` and `resources` read every
+    case alike (`tests/test_fhir_mapping_03.py`, `tests/test_spec_03.py`).
   - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
   - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
     automated.

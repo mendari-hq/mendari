@@ -9,7 +9,8 @@ no section, or whose section is not the newest. Changes to a pack are in the pac
 
 The first release (not yet published).
 
-- **Decision Packs:** the specification (0.2; 0.1 still loads), and the runtime that runs a
+- **Decision Packs:** the specification (0.2, and 0.3 for the FHIR mapping; 0.1 still loads),
+  and the runtime that runs a
   pack's providers (rules, naive Bayes, Jev, LLMs, criteria, CQL, dosing) under a risk policy
   that may only lower automation.
 - **Five reference packs**, built and evaluated on synthetic data: Patient Inbox Router,
@@ -40,6 +41,23 @@ The first release (not yet published).
   golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
   today, input hash included (`scripts/fhir_decisions_golden.py`,
   `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
+- **FHIR mapping syntax 0.3** (LP-23g; no shipped pack adopts it, so nothing changes how a pack
+  decides). `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping. A pack that declares
+  `spec_version: "0.3"` may pick a coding or an identifier by its code system
+  (`code.coding[system=<uri>].code`, for a uri `code_systems` declares), give a field fallback
+  `paths`, `follow` one reference inside the record (contained, by `fullUrl` or `Type/id`, never
+  fetched), read plain-text and HTML notes as text (`attachment_text`, inline or from a Binary in
+  the record; any other type, data that does not decode and a link to a Binary the record does
+  not hold add nothing, each with its reason), match a set of its own codes (`code_sets` and
+  `code_set`, which a site's translations may feed once LP-23i passes them), and read several
+  resource types into one list (`resources`), with a MedicationRequest's start and stop by a
+  stated rule (`medication_period`: the dosage bounds, else when it was written; the stop never
+  inferred from its status; entered in error left out). A 0.1 or 0.2 pack that uses any of these
+  is refused, naming each key; a pack the deployment does not own (and every pack in `mendari
+  validate`) has at most 4 paths a field and 200 codes a code set. Every 0.1 and 0.2 pack maps
+  as before: the golden is unchanged. `FhirAdapter.looked_for` says what each field and list
+  looks for (paths, declared systems, the pack's own codes), from the mapping alone, for the
+  data-coverage record LP-23d builds. An engine that reads only 0.2 refuses a 0.3 pack.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
