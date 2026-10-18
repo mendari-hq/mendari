@@ -561,6 +561,16 @@ is refused. A prefetch template is a read or search relative to that server (`Ty
 Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
 ([LLMs and local models](#llms-and-local-models)).
 
+**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
+Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
+Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
+Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
+`Authorization` header. How an EHR is to call with its own token, and what a hook does with a
+record it cannot read, is
+[ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
+(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
+is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
+
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
 Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on
