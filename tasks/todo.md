@@ -774,7 +774,7 @@ Connect) is not supported yet.
   signed. No database table is added. LP-23 computes no statistic and ranks nothing: the
   scorecard shows rubric levels with their scope, a data-coverage record counts per field for one
   decision, and Inferno results are each test's own outcome.
-  - [ ] **23a** (this PR) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
+  - [x] **23a** (#256) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
     ADR-0006's rule that the narrow EHR principal is for SMART launches only), the Epic sandbox
     checklist B38 says Claude sends (`notes/epic-sandbox-checklist.md`), the EHR scorecard
     (`notes/ehr-scorecard.md`: rubric v1, seven dimensions, graded at `06d5332f` with LP-23a;
