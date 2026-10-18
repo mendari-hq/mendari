@@ -1873,12 +1873,27 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     ADR-0013 (Proposed); the nav's Grading section; gate `grading-method` probes the document
     and its `pending` names the rest of LP-17 (the attestation stays empty); the spec links the
     method. `tests/test_grading_method.py`.
-  - [ ] **17b** Statistics additions (pure, `evals/stats.py`): the stratified bootstrap (macro-F1),
-    the Korn-Graubard weighted proportion, Brier's reliability term.
-  - [ ] **17c** Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari scoreboard
-    arms PACK`).
-  - [ ] **17d** Scoreboard entries (`mendari.scoreboard/1`) and run records (`mendari.run/1`),
-    pure; the price table (`mendari.prices/1`) and the disclosures file.
+  - [x] **17b** (#258) Statistics additions (pure, `evals/stats.py`): the stratified bootstrap
+    (macro-F1), the Korn-Graubard weighted proportion, Brier's reliability term.
+  - [x] **17c** (#259) Arms by provider class (`evals/arms.py`, `mendari.arms/1`, `mendari
+    scoreboard arms PACK`).
+  - [x] **17d** (#261) Scoreboard entries (`mendari.scoreboard/1`, `evals/scoreboard.py`) and
+    run records (`mendari.run/1`, `evals/runs.py`), pure; the price table (`mendari.prices/1`,
+    refused from Mendari's code or a pack's directory) and the disclosures file
+    (`mendari.disclosures/1`). An entry is a pure function of its ledger, dataset, run record,
+    price table and method (`body_sha256`), refused for a ledger of another pack, dataset or
+    configuration, or a run record that disagrees with its ledger (its cases, tokens or
+    models). Evidence on distinct
+    positives, each critical label needing `method.min_positives`; the grade's bound at
+    `1 - 0.05/L` over distinct groups; every proportion k of n with its interval and every mean
+    with its bootstrap interval; ECE a description; cost from tokens and the dated table, or "0
+    (no metered calls)" or "unknown"; latency from the run record, never ranked; subgroups ("too
+    few" under 10) and Korn-Graubard weighted figures (detection never weighted); the scope
+    statement and the disclosure; a public set is a regression check with no rank and no grade.
+    `board` (one table per pack and set, the banner, each arm measured, "not measured" or "not
+    applicable", freshness worked out when built and never stored) and
+    `render.scoreboard_markdown`. Spec sections for the three formats.
+    `tests/test_scoreboard.py`. Nothing calls it yet; the store and the page are 17f's.
   - [ ] **17e** Signing and the public verifier (`MENDARI_GRADING_SIGNING_KEY`, off without it;
     `mendari scoreboard sign|verify`; `docs/grading/verifying.md`).
   - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
