@@ -40,6 +40,19 @@ The first release (not yet published).
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.
+- **Operations: a test alert and the status checks for a provider.** `mendari alerts test`
+  posts one test alert (`alerts.test`, with no alerts in it) to `MENDARI_ALERT_WEBHOOK` through
+  the same delivery as every alert, in its format and signed with its secret, tried once and
+  recorded nowhere; it prints whether it was delivered and the webhook's answer, never the URL
+  or the secret, and refuses without a webhook and in CI (`CI` or `GITHUB_ACTIONS` set).
+  `scripts/status_checks.py --export json` prints the checks in `deploy/status/checks.yaml`
+  for a status provider instead of running them: each check's absolute URL, method, JSON body,
+  interval and expected statuses, redirects not followed, the host the sign-in redirect must
+  leave and the path it must not have (Mendari's own `/auth/login`), the decide check's
+  `outcome` as a body keyword, and a header that names the key's environment variable, never
+  its value. A key the export does not know stops it. The script's own sign-in check now
+  compares the redirect's host alone, as the export does: a redirect to the same host on
+  another scheme fails.
 - **Evaluation with exact statistics:** a run keeps a per-case ledger (no input text, no case
   id) and its report's result is computed only from it (`mendari.eval/2`), byte for byte the same
   on a second run; each proportion is k of n with its exact Clopper-Pearson interval, each Brier

@@ -1645,6 +1645,42 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 1 if found_alerts else 0
 
 
+def cmd_alerts_test(args: argparse.Namespace) -> int:
+    """For the operator, after setting the webhook: one test alert (`alerts.test`) to
+    $MENDARI_ALERT_WEBHOOK through `mendari.alerts`, in its format and signed with its secret,
+    as every alert is; tried once, recorded nowhere. Refused in CI (`CI` or `GITHUB_ACTIONS`
+    set), so no job posts to a real webhook, and without a webhook. What it prints names the
+    outcome, never the URL or the secret. Exit 0 when delivered, 1 when not."""
+    from mendari.alerts import TEST_EVENT, alert_settings, check_webhook, send_test
+
+    for name in ("CI", "GITHUB_ACTIONS"):
+        if os.environ.get(name, "").strip():
+            raise MendariError(
+                f"{name} is set: a test alert is never sent from CI; run it on your own machine"
+            )
+    settings = alert_settings()
+    if settings is None:
+        raise MendariError(
+            "MENDARI_ALERT_WEBHOOK is not set: set it (and MENDARI_ALERT_SECRET) as the "
+            "deployment has them, then run this again"
+        )
+    check_webhook(settings.webhook)
+    sent = send_test(settings)
+    if not sent.delivered:
+        why = (
+            f"the webhook answered {sent.status}"
+            if sent.status is not None
+            else f"no answer ({sent.error})"
+        )
+        raise MendariError(f"the test alert was not delivered: {why} (delivery {sent.id})")
+    signed = "signed" if settings.secret else "not signed: MENDARI_ALERT_SECRET is not set"
+    print(
+        f"delivered: one {TEST_EVENT} in the {settings.format} format, {signed} "
+        f"(the webhook answered {sent.status}, delivery {sent.id})"
+    )
+    return 0
+
+
 def cmd_phi_purge(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
     from mendari.settings import MAX_RETENTION_DAYS, retention_days
@@ -2894,6 +2930,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)
+
+    alerts_cmd = sub.add_parser(
+        "alerts", help="the alert webhook ($MENDARI_ALERT_WEBHOOK)"
+    ).add_subparsers(dest="alerts_command", required=True)
+    alerts_cmd.add_parser(
+        "test",
+        help="post one signed test alert to $MENDARI_ALERT_WEBHOOK, to check it (never in CI)",
+    ).set_defaults(handler=cmd_alerts_test)
 
     smart_cmd = sub.add_parser("smart", help="SMART on FHIR EHR launch tools").add_subparsers(
         dest="smart_command", required=True

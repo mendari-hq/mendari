@@ -14,7 +14,8 @@ Two things tell people whether Mendari is working:
 ## The checks
 
 [`deploy/status/checks.yaml`](https://github.com/mendari-hq/mendari/blob/main/deploy/status/checks.yaml)
-lists them; set each up in the provider as an HTTP check:
+lists them; set each up in the provider as an HTTP check ([Exporting the
+checks](#exporting-the-checks) prints them ready to copy):
 
 | Check | Request | Up when | Why |
 |---|---|---|---|
@@ -104,3 +105,48 @@ STATUS_DECIDE_KEY=<the status key> python scripts/status_checks.py \
 It prints one line for each check (`ok`, `failed` and why, or `skipped` and why) and exits 1
 when any check fails. A check is skipped when its base URL is not given, when the key is not
 set, or (sign-in) when sign-in is off. Nothing it prints holds the key.
+
+## Exporting the checks
+
+To set the checks up in a provider, print them from the same file:
+
+<!-- check: skip placeholder: prints the checks for your deployment's URLs -->
+```bash
+python scripts/status_checks.py --export json \
+  --api https://mendari.example.org --registry https://registry.example.org \
+  --hub https://hub.example.org
+```
+
+It sends nothing. It prints, as JSON, each check whose base URL you give, with what the
+provider needs to run it as the script does:
+
+- `method`, `url` (absolute), `json_body` when there is one, and `interval_seconds`;
+- `follow_redirects`, always `false`. Each check judges the answer it gets: a redirect followed
+  to a sign-in page would answer `200` and look up;
+- `expected_statuses`, the statuses that are up;
+- `location_leaves_host` and `location_path_not` (sign-in): up only when the redirect's
+  `Location` names another host than this one, and its path is not `/auth/login`. That path on
+  another host is Mendari moving sign-in to its public address first, not the identity
+  provider: export with `--api` set to that address (`MENDARI_PUBLIC_URL`);
+- `body_keyword` (decide): text the body must hold, `"outcome":`;
+- `headers`: `Authorization: Bearer ${STATUS_DECIDE_KEY}` names the variable that holds the
+  key (`secret_from_environment`), never the key. Give the provider the key itself as a
+  secret;
+- `only_with_sign_in` (sign-in): set it up only where sign-in is on.
+
+A check whose base URL is not given is left out, with a line on stderr saying so. A key in the
+checks file the export does not know stops it, so no part of a check is dropped unsaid. Your
+provider's own import format, API or Terraform is not written yet: copy each check into it.
+
+## The project's own deployment
+
+Until the launch, the project's own deployment (synthetic data, on Vercel) sits behind Vercel
+Authentication. A request without a Vercel session, a provider's check included, is redirected
+to Vercel's sign-in: readiness answers `302`, not `200`, so no outside check can reach it. Its
+checks are set up once Vercel Authentication is lifted, the last step of the launch order in
+[Before go-live](../deploying-with-phi.md#9-before-go-live). Do not give a provider the
+Protection Bypass for Automation secret to get past it: that secret passes every protection
+Vercel puts on the deployment, not one check. On that deployment the decide check also waits
+for a status organization (it has one organization until it runs in memberships mode), and the
+registry and Hub checks wait until both are hosted.
+

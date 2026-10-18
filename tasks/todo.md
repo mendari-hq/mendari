@@ -481,8 +481,10 @@ behaviour.
     notice on every page: the docs site now shows the notice (`mendari.notices`, through a
     MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
     `docs` job). `site_url`: `https://mendari-hq.github.io/mendari/`. Nothing published or
-    deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
-    `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
+    deployed. **Owner, open:** the docs host, still to be named (GitHub Pages at `site_url` by
+    default; a custom domain is a `site_url` change). The organization is on GitHub Team, where
+    Pages publishes from a private repository and the site is public to anyone; what holds it back
+    is `docs.yml` itself, whose deploy job skips while the repository is private. The first TestPyPI
     upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
     repository (`release.yml` publishes to TestPyPI only from one); the `testpypi` environment and
     TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
@@ -622,17 +624,17 @@ registry or copied into the store.
     `unevaluatedProperties` or `unevaluatedItems` below another (conflict 22). The shipped
     packs, scaffolds and fixtures: 6, 1 and 2. Packs it does not own keep B11's caps and budget,
     unchanged. Threat model D10.
-  - [ ] **16g** (#219; PR E, last) The threat model's "Pack content" part
+  - [x] **16g** (#219, merged 2026-10-08; PR E, last) The threat model's "Pack content" part
     (`docs/security/threat-model.md`, between the STRIDE table and the residual risks): what a
     pack can set (every manifest input, provider type and variant key, the wording templates,
     `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
     digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
     24 are written there). `tests/test_threat_model.py` holds it to every input, to each
     provider type's closed config keys, to rows and tests that exist, and to no line that reads
-    as a row; gate a3's `what` says LP-16a–g. LP-16 counts as merged for LP-18 and LP-20 once
-    16g lands, 16e-2 with it (16c-2 is not part of LP-16, above).
+    as a row; gate a3's `what` says LP-16a–g. With 16g merged, LP-16 counts as merged for LP-18
+    and LP-20, 16e-2 with it (16c-2 is not part of LP-16, above).
 
-  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  **LP-16 was built in this order:** A (F and 16f); B (16d, beside A); C (16e-1, after A and B);
   D (16e-2, after C); E (16g, after A to D).
 
   **Conflicts written before building LP-16, and the default each PR follows** (the owner may
@@ -1640,7 +1642,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     retries for 60 s, no organization started after 180 s, an alert naming those left, a
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
-    never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
+    never re-run; gate `hosted-monitoring` names its tests and waits only for the owner's alert
+    webhook (the schedule, 21n, is merged).
   - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
@@ -1664,7 +1667,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`CRON_SECRET`) records and signs, and alerts `audit.broken` on a chain that does not
     verify or a day's stored statement that is not this key's (never published); a rotated
     key signs the day anew; `mendari audit verify --against <statement or the route's answer>
-    --public-key <key>`. The hosted schedule waits for 21n.
+    --public-key <key>`. The hosted schedule runs it daily at 10:00 UTC (21n); a statement is
+    signed and published once the owner sets the key.
   - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
     `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
     `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
@@ -1677,11 +1681,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
     firewall's log-only week (the owner's); `tests/test_restore.py` runs the restore on SQLite
     and Postgres in CI; gate `incident-runbook` names its tests.
-  - [ ] **21n** (#217, draft) The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
-    Prepared: the purge at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily;
-    a test pins them and runs each with the secret, and gate `hosted-monitoring` names it. Its
-    alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for Production; the gate
-    stays pending until then.
+  - [x] **21n** (#217, merged 2026-10-09) The hosted schedule (`vercel.json` crons): the purge
+    at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily; a test pins them
+    and runs each with the secret, and gate `hosted-monitoring` names it. It has run daily
+    since (the production logs show all three routes answering `200` on 2026-10-15, 10-16 and
+    10-17). The owner's go-ahead to merge is not recorded in writing: **owner, confirm it after
+    the fact.** Its alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for
+    Production, which `mendari alerts test` checks; the gate stays pending until then.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
 
   **Defaults each PR follows** (the owner may choose otherwise):
@@ -1707,12 +1713,23 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   10. (21k) The public checkpoint carries no sequence number or count, and is published only
      once the owner sets the key.
 
-  **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
-  paged (B36); the evaluation quota values, and whether evaluations get a deployment budget of
-  their own (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
-  decisions); the alert format, secret and destination; the
-  checkpoint key and where its public key is published; the hosted schedule (21n); firewall
-  enforcement (21o).
+  **Owner decisions** (none blocks 21a to 21n), still open:
+  - the status page provider, its checks and who is paged (B36). `python
+    scripts/status_checks.py --export json --api <MENDARI_PUBLIC_URL>` prints the checks to set
+    up. No outside check reaches the hosted site until Vercel Authentication is lifted; the
+    decide check waits for a status organization (memberships mode, LP-12), and the registry and
+    Hub checks for LP-19 (gate `status-page`'s pending line);
+  - the evaluation quota values, and whether evaluations get a deployment budget of their own
+    (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
+    decisions);
+  - the alert format, secret and destination. Set `MENDARI_ALERT_WEBHOOK` (https),
+    `MENDARI_ALERT_SECRET` (`openssl rand -hex 32`) and, for a Slack webhook,
+    `MENDARI_ALERT_FORMAT=slack`, for Production only and marked sensitive; redeploy; then run
+    `mendari alerts test` on your own machine with the same three values: it should say
+    `delivered`, and the receiver should accept the signature. Then a build PR removes gate
+    `hosted-monitoring`'s pending line;
+  - the checkpoint key (`MENDARI_CHECKPOINT_KEY`) and where its public key is published;
+  - firewall enforcement (21o).
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
@@ -1757,8 +1774,9 @@ and GitHub's email push protection goes on. Location is the trust label, never t
 - [ ] **A10 (owner)** Private vulnerability reporting, secret scanning with push protection,
   Dependabot, CodeQL, fork-PR approval for first-time contributors.
 - [ ] **A11 (owner, then build)** Protected `pypi` and `ghcr` environments, a `v*` tag ruleset,
-  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (a deploy workflow is a
-  later PR), and the README's install line switches to `pip install mendari`.
+  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (`docs.yml`, LP-15c, run
+  by hand; its deploy skips while the repository is private; owner step 9), and the README's
+  install line switches to `pip install mendari`.
 
 **Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
 B6/B7 → B8 → B9 → B10).
@@ -2041,12 +2059,17 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → the `mendari-hq` organization → Packages lists the six `mendari-*`
    images (make each public in its package settings if it is private).
-9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
-   Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
-   the site opens at `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a
-   custom domain, change it and add the domain in Pages), every page shows the notice, then a
-   build PR points the README and `mendari new` at it and switches the install line to `pip
-   install mendari`.
+9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). First name the docs host:
+   GitHub Pages at `https://mendari-hq.github.io/mendari/`, or a custom domain (Pages → Custom
+   domain, a DNS CNAME to `mendari-hq.github.io`, HTTPS enforced, and a build PR that changes
+   `site_url` and the dashboard's `DOCS_SITE`, which a test keeps equal). The organization is on
+   GitHub Team, so Pages can publish from the private repository and the site would be public to
+   anyone, but `docs.yml`'s deploy job skips while the repository is private: a run before A9 builds
+   the site and publishes nothing. After A9: Settings → **Pages** → Source: **GitHub Actions**; then
+   Actions → **docs** → Run workflow, from `main`. Check after: the site opens at
+   `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a custom domain, change it
+   and add the domain in Pages), every page shows the notice, then a build PR points the README and
+   `mendari new` at it and switches the install line to `pip install mendari`.
 
 ### Community packs: owner steps (B8–B10)
 After the community-packs PR (`claude/community-packs`) is merged and the repository is public
