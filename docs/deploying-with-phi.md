@@ -797,13 +797,15 @@ logs, at startup, each slot the Jev defaults turn on.
   build of the pack with the providers and models this deployment runs, under the same
   governance (an approval in force or not), over the decisions made since that configuration
   started, and stratum by stratum (reviewed decisions, automated ones); otherwise it says why
-  (`benchmark.reason` in `/api/monitoring`: `no_benchmark`, `another_build`,
+  (`benchmark.reason` in `/api/monitoring`: `from_registry`, `no_benchmark`, `another_build`,
   `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
   benchmark run: automated decisions rated wrong, overrides that doubled against the week
   before, and operational health. A deployment that runs other providers than the benchmark
   did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an
   approval the benchmark was measured without, gets only those: the benchmark says nothing about
-  how that configuration should do. Operational health, from what each decision stored, alerts
+  how that configuration should do. A pack pulled from a registry gets only those too, whatever
+  benchmark it carries (`from_registry`): that is its publisher's upload, never a reference
+  ([ADR-0012](decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)). Operational health, from what each decision stored, alerts
   week over week (50 decisions or more this week):
 
   | Alert | Fires when |
@@ -853,6 +855,14 @@ logs, at startup, each slot the Jev defaults turn on.
   once). Each run of `GET /api/internal/monitor` first sends the due ones again;
   `mendari monitor` records nothing and sends none again, so a deployment that wants pending
   alerts tried again schedules the route, with `CRON_SECRET`.
+  After setting the webhook, check it with `mendari alerts test`, on your own machine with the
+  deployment's `MENDARI_ALERT_WEBHOOK`, `MENDARI_ALERT_SECRET` and `MENDARI_ALERT_FORMAT` in its
+  environment. It posts one test alert there through the same delivery, in that format and
+  signed as every alert is: `event` `alerts.test`, with no alerts in it (a receiver treats it as
+  nothing to do). It is tried once and recorded nowhere. It prints whether it was delivered and
+  the webhook's answer, never the URL or the secret, and exits 1 when it was not delivered. It
+  refuses without a webhook, and in CI (`CI` or `GITHUB_ACTIONS` set), so no job posts to a
+  real webhook.
   A receiver checks the signature over the raw body:
 
   <!-- receiver: the recipe tests/test_alerts.py runs -->
@@ -964,7 +974,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
 | `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
-| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How often a server reads the recalls of each registry its served packs came from; a recalled pack stops automating (LP-18e) | 4 |
+| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How old a server's last read of the recalls of a registry its served packs came from may be before a decision for one of those packs starts another (that decision uses the last list); a recalled pack stops automating (LP-18e; [Running a pack registry](operations/registry.md)) | 4 |
 | `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (1 to 604800 seconds, at least twice the check) | After this long without a successful read of its registry's recalls, a pack from that registry stops automating. A serverless instance starts unread, so a pulled pack waits for its first read there; `mendari decide` sees only the recall known at its last pull. These reads go to the registry a pack came from, not through `MENDARI_PROVIDER_ALLOWED_ORIGINS` | 4 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
@@ -1045,6 +1055,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       response carried, and no line holds a key, a query value or case text.
 - [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled (§3, *Checkpoints*);
       `mendari audit verify` passes.
+- [ ] With the alert webhook set, `mendari alerts test` says `delivered`, and the receiver
+      accepts its signature (§6, *Alerts*).
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:

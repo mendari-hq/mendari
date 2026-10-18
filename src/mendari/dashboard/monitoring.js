@@ -16,6 +16,7 @@ const PERIODS = [30, 90, 180];
 const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 // Why the benchmark is not compared (`benchmark.reason`).
 const NOT_COMPARED = {
+  from_registry: "the pack is from a registry, and the benchmark it carries is its publisher's upload, never a reference",
   no_benchmark: "the pack has no benchmark",
   another_build: "the benchmark measured another build of the pack",
   other_providers: "the benchmark ran other providers or models than this deployment",

@@ -23,6 +23,23 @@ The first release (not yet published).
   built wheel and sdist, and any number written as a SNOMED CT concept id in Mendari's own files
   there (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
+- **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
+  `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
+  dimensions, each at a level from 1 to 5 by named criteria, each criterion with the test that
+  shows it or "missing"; the overall grade is the lowest dimension's (level 1, graded at
+  `06d5332f` with LP-23a), and every grade says its scope (synthetic data and test keys only, not
+  a vendor certification). Failure behaviour is at level 1 under the default FHIR validation
+  mode, `warn`: input that is R4 JSON but breaks R4's other rules is decided with its issues
+  recorded, and only `enforce` blocks it.
+  ADR-0014 (Proposed) records how an EHR is to call the CDS Hooks services with its own signed
+  token, and `notes/epic-sandbox-checklist.md` what the owner registers in Epic's sandbox and
+  notes back. The sandbox now builds synthetic US Core FHIR for the trial and prior-authorization
+  packs too (`trial_entries`, `prior_auth_entries`: the same entries on every run, no SNOMED CT,
+  deciding as their records do; an order the prior-auth pack has no requirements for is refused
+  through FHIR, as before), and `inbox_entries` takes the time its message is sent. A
+  golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
+  today, input hash included (`scripts/fhir_decisions_golden.py`,
+  `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
@@ -37,9 +54,39 @@ The first release (not yet published).
   in set as settings, a request is byte for byte what it was. The sandbox payer answers with
   `MENDARI_SANDBOX_PAYER_REVIEW_ACTION`, or with no review action code when it is unset, and
   its disposition says "Approved". Anyone who relied on the old values sets them.
+- **Da Vinci DTR: errors as DTR 2.2.0 asks (breaking for a client that read a 200).**
+  `POST /fhir/Questionnaire/$questionnaire-package` warns (`warning`, `not-found`) in `outcome`
+  of every questionnaire asked for that is not found here, beside any package (oper-9); it was
+  an information note, and only when no package was built. A canonical of Mendari's form whose
+  names are not the pack's labels is not found too: it no longer gets a questionnaire made up
+  for it. Nor is one with a version other than the pack's: it got the current version before.
+  A questionnaire that is found comes beside the orders' packages, the union DTR asks for, each
+  questionnaire version once; it was dropped whenever an order had a package. An order or a
+  `context` that names no decision of the caller's organization is a warning too, which points
+  at the parameter and names no id; it was silent. With nothing to return, they are a `422`
+  OperationOutcome (`not-found`, spec-130), not a `200`; an unknown id and another
+  organization's get the same answer, which repeats neither. A request that names no order,
+  context or questionnaire is a `400` (oper-6). A decided order that needs no documentation
+  keeps its information note (oper-8), and a package that was built is as before.
+  `scripts/davinci_sample.py` writes a tenth sample, a package with both warnings, for
+  `fhir-conformance`. "Validated against DTR 2.2.0" now reads profile-validated (HL7 validator,
+  offline): that checks the answers' structure, not how the operation behaves.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.
+- **Operations: a test alert and the status checks for a provider.** `mendari alerts test`
+  posts one test alert (`alerts.test`, with no alerts in it) to `MENDARI_ALERT_WEBHOOK` through
+  the same delivery as every alert, in its format and signed with its secret, tried once and
+  recorded nowhere; it prints whether it was delivered and the webhook's answer, never the URL
+  or the secret, and refuses without a webhook and in CI (`CI` or `GITHUB_ACTIONS` set).
+  `scripts/status_checks.py --export json` prints the checks in `deploy/status/checks.yaml`
+  for a status provider instead of running them: each check's absolute URL, method, JSON body,
+  interval and expected statuses, redirects not followed, the host the sign-in redirect must
+  leave and the path it must not have (Mendari's own `/auth/login`), the decide check's
+  `outcome` as a body keyword, and a header that names the key's environment variable, never
+  its value. A key the export does not know stops it. The script's own sign-in check now
+  compares the redirect's host alone, as the export does: a redirect to the same host on
+  another scheme fails.
 - **Evaluation with exact statistics:** a run keeps a per-case ledger (no input text, no case
   id) and its report's result is computed only from it (`mendari.eval/2`), byte for byte the same
   on a second run; each proportion is k of n with its exact Clopper-Pearson interval, each Brier
@@ -59,9 +106,8 @@ The first release (not yet published).
   none. Its "False automation" is now of the labelled cases, as on the card (it was of the
   automated ones); the subgroups table drops its false-automation column, which the card never
   had; the overview compares a period with the one before by that period's own figure.
-  The Hub shows each pack's benchmark accuracy as k of n with its interval, and its leaderboard
-  in the ranking's order, one set of records at a time, each row with its rank or why it has
-  none (it ranked by accuracy alone).
+  The Hub shows no benchmark or leaderboard a publisher uploads (LP-18, below), only the
+  registry's own regression check, as k of n with its interval.
   Each answer of an `llm` or `vote` provider records the model that answered (the id the
   endpoint reports, when well formed), as Jev's already did: on the decision, the audit
   record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
@@ -77,6 +123,27 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
+  keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
+  Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from
+  the command line, drawn, assigned and adjudicated through the administrator's routes, labelled
+  blind through the labellers', followed and measured from the command line, frozen, graded
+  through the grading route with a grading key and a body as the runbook writes them, shown and
+  retired; then `mendari audit verify --evalsets` passes, `mendari evalset rotate --check` is
+  ready and the set's chain holds its events in the lifecycle's order, and no answer, log line
+  or command's output held a case's content but each labeller's own next case its input. The
+  launch gates' `labelling-underway` and `hidden-sets-frozen` name the tests that hold them,
+  each still waiting for the owner's attestation. The threat model names hidden sets' residual
+  risks: the key holder can decrypt offline; an administrator can link one case's events by its
+  keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
+  which cases were disputed; until a set freezes, no commitment covers its header, its cases'
+  statuses or their weights, so freezing commits to them as they are, and none covers a set's
+  stored aggregates; and paraphrased public cases pass. The runbook
+  (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
+  lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
+  attestations) and a set from start to end, and now says that every writing `mendari evalset`
+  command refuses a database no server used and that a grading key lives 90 days unless
+  `--days` says otherwise. ADR-0011 records what was built and its consequences.
 - **Hidden evaluation sets in the dashboard: the Hidden sets screen** (LP-11n, `#evalsets`).
   An administrator who signed in, in memberships mode where hidden sets are on (their keys'
   ids in `/api/health`), finds **Hidden sets** in the section list; labellers, other roles,
@@ -132,6 +199,16 @@ The first release (not yet published).
   administrator's other writes, they have no rate-limit class. Security-log events
   `evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned`, naming the set's id
   only. Runbook: `docs/operations/evalsets.md`, Curating from the dashboard API.
+- **Hidden evaluation sets in the dashboard: the Labelling screen** (LP-11m, `#labelling`, over
+  a labeller's own routes only). A person holding `label` where those routes are served finds
+  **Labelling** in the section list; someone who only labels sees it alone, with no pack, no
+  notice and no other section, and without the keys keeps the access page, which says labelling
+  is not switched on. It shows their counts set by set, then one case at a time: its input as
+  text and the set's questions as radio groups with nothing chosen, then the next case on Save.
+  An unanswered question, or a label the server refuses, is said beside the question it names;
+  an assignment no longer theirs moves on to the next; when nothing waits, it says so. Blind:
+  nothing of the case but its input, nor anyone's label, reaches the page, and nothing is kept
+  in the browser's storage. Runbook: `docs/operations/evalsets.md`, How a labeller labels.
 - **Hidden evaluation sets, labelled through a labeller's own routes** (LP-11, memberships mode
   with both evaluation-set keys only: the hosted site, in claims mode without them, mounts none).
   `GET /api/labelling` gives a labeller their own counts, set by set; `GET /api/labelling/next`
@@ -276,6 +353,75 @@ The first release (not yet published).
   registry with a reference pack's id and version but other files is refused at publish, pull
   and load (it would have been served in the reference pack's place); one cached before is
   listed under `/api/health` `invalid`, with the directory to remove.
+- **A registry that shows only what it checked** (LP-18,
+  [ADR-0012](docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)). The
+  registry renders each version's Decision Card itself, from the files the pack digest covers,
+  with the publisher's text as plain text (no heading, table, image, link or bold line of the
+  publisher's can pass for the registry's), and stores and shows no uploaded card, benchmark or
+  leaderboard; a version published before serves none (`checked.card: not_rendered`). Every
+  version answers `checked` (the signing key, the archive's SHA-256, the digest, the engine,
+  the card rendered here, the status label, the review, the namespace's publisher type) apart
+  from `claimed` (the publisher, its declared risk level, licence and summary), and the Hub
+  shows the two groups apart and renders the card with GFM tables, no raw HTML and no image;
+  `figures` stays in the registry's answers, always null. `mendari search` prints no figure and
+  says the risk is declared. Where the engine serves or names a pulled pack (its pack detail,
+  `mendari card`) it shows the registry's card, without the uploaded benchmark and leaderboard.
+- **The registry's chain and reviews** (LP-18b). Every registry write appends a hash-chained
+  event naming who acted (`admin`, or a token by its id) and holding the hash of the row it
+  left; `mendari registry verify --db` (read-only, exit 1 when broken) checks the chain and
+  that every row is the one its event hashed, re-hashes archives and recomputes key ids. A
+  registry with rows from before records them once. `GET /v1/chain/head` publishes the head to
+  keep elsewhere. A registry reviewer (the admin token until LP-19) records the risk level a
+  review found and a one-line note (`POST /v1/packs/{namespace}/{name}/{version}/review`),
+  shown as `checked.review` and `claimed.risk.confirmed`.
+- **Recalls and deletions** (LP-18c). `mendari yank ns/name@version --reason --severity --key`
+  recalls a version with a signed `mendari.yank/1` record; an administrator's recall is signed
+  with the registry's own key (`MENDARI_REGISTRY_SIGNING_KEY`, `GET /v1/registry-key`). A
+  record is stored only if it names exactly that version, is recent and its signature holds,
+  once per version. A recalled version leaves latest and search, is still served by exact
+  version with its record, and `GET /v1/yanks` lists every recall. An administrator can delete
+  a version (`POST …/delete`): its archive answers `410`, its bytes go, a tombstone stays, and
+  `mendari pull` refuses it and removes a cached copy. `mendari pull` of a recalled version
+  prints the record and whether its signature holds with a pinned key.
+- **Breaking, for deployments that serve pulled packs: a pulled pack waits for its
+  organization** (LP-18d). A pull writes where the pack came from beside it
+  (`mendari.origin/1`). Served, a pack from a registry never automates until its organization
+  approves its exact digest (`GET`/`POST /api/registry-approvals`, `DELETE …/{id}`, the
+  `approve` permission, chained `registry_pack.approved` and `.revoked`), at every risk level,
+  nor while its pull recorded a recall, and its own rule's BLOCK goes to a person until then.
+  Nothing in the pack lifts it, a copy of a reference pack included. `mendari decide --db`
+  honours the trail's approvals; `mendari test`, `eval` and `leaderboard --run` check the pack's
+  own policy. Approve a pulled pack before relying on its automation.
+- **The approval on the Decision Card** (#240). For a pack served from a registry, the card's
+  Automation approval section shows where it came from, a recall recorded at pull, the
+  approval in force and every earlier one; approving takes a reference and a dialog that names
+  the digest and what it never lifts, and revoking is one button, both only with `approve`.
+- **A running server honours its registries' recalls** (LP-18e, `server/recalls.py`). A
+  decision for one of a registry's packs starts a read of its `GET /v1/yanks` in a thread of its
+  own once the last is older than `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set; that
+  decision uses the list read before), over https, bounded in time and size, and the server
+  holds a recalled pack as an unapproved one is held, and every pack of a registry it has not
+  read for `MENDARI_REGISTRY_RECALL_STALE_S` (a day unless set). The full `/api/health` shows
+  `registry_recalls`.
+- **Rate limits and headers on the registry and the Hub** (LP-18f). The registry limits reads
+  per address and writes and site reports per token, in its own database, before a body is
+  read (`MENDARI_REGISTRY_RATE_LIMITS`); every registry answer and Hub page carries a strict CSP
+  (the Hub's with a fresh nonce), refuses framing and sends HSTS but on this machine. CI's
+  `hub-site` runs the Hub's tests over a seeded registry, a hostile example among its packs,
+  then the OWASP ZAP baseline, failing on a medium or high risk.
+- **The regression check** (LP-18g). On every publish the registry evaluates the version on
+  its own test set, in an isolated child process with local providers only, and compares it
+  with the newest earlier version's check; it is shown as "publisher's own test set:
+  regression check, not a ranking" and never refuses a version
+  (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
+- **A pulled pack's uploaded benchmark is never a reference** (LP-18h). The Monitoring view and
+  `/api/monitoring` take no benchmark for a pack from a registry (`benchmark.reason:
+  from_registry`, its benchmark figures null) and run only the checks that need none; the
+  evaluation route and `mendari eval` attach no comparison with the benchmark it carries and
+  say why (`comparison.status: unknown`), as `mendari demo` does for a pulled copy of its pack
+  in the pack cache, while a report given with `--baseline` is still compared. Every other pack
+  is monitored and compared as before. The runbook for running a registry is
+  [`docs/operations/registry.md`](docs/operations/registry.md).
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

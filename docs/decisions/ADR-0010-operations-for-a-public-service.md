@@ -1,7 +1,9 @@
 # ADR-0010: Operations for a public service
 
 ## Status
-Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`); each step adds what it built
+Proposed (2026-10-08). Built: 21a to 21n, merged 2026-10-08 and 2026-10-09 (LP-21,
+`tasks/todo.md`); 21o, firewall enforcement, is the owner's alone. Accepted once the owner's
+decisions listed there confirm or change the defaults below. Each step added what it built
 here, in the order they landed:
 - 21a, the readiness route;
 - 21c, the monitor comparing like with like;
@@ -16,17 +18,21 @@ here, in the order they landed:
   --since-checkpoint`; the templates run it daily);
 - 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
 - 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
-  `mendari audit verify --against`; its hosted schedule waits for 21n);
+  `mendari audit verify --against`; its hosted schedule came with 21n);
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
   `CallBudget.for_evaluation`, never the decisions' quotas);
 - 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
   `mendari usage` for the operator);
 - 21m, the incident runbook (`docs/operations/incident-runbook.md`) and the restore test;
 - 21n, the hosted schedule (`vercel.json` runs the purge, the monitor and the checkpoint daily),
-  merged with the owner's go-ahead.
+  merged 2026-10-09 and run daily since; the owner's go-ahead is not recorded in writing, and
+  `tasks/todo.md` asks the owner to confirm it;
+- after 21n, two aids for the owner's steps: the checks printed for a status provider
+  (`scripts/status_checks.py --export json`) and one signed test alert (`mendari alerts test`,
+  refused in CI).
 
-The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
-site (the schedule, 21n) or its firewall (21o) wait for the owner.
+The defaults below hold unless the owner chooses otherwise; the step that changes the hosted
+firewall (21o) waits for the owner.
 
 ## Context
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of

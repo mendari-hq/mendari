@@ -562,6 +562,16 @@ is refused. A prefetch template is a read or search relative to that server (`Ty
 Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
 ([LLMs and local models](#llms-and-local-models)).
 
+**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
+Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
+Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
+Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
+`Authorization` header. How an EHR is to call with its own token, and what a hook does with a
+record it cannot read, is
+[ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
+(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
+is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
+
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
 Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on
@@ -621,7 +631,16 @@ A pack declares this with `cds_hooks.coverage_information`.
 `POST /fhir/Questionnaire/$questionnaire-package` (with the Coverage and the order) returns it: the
 documentation the payer asks for, for that service and payer, pre-answered from the pack's
 decision, which is found by the CRD assertion id on the order. A clinician completes only what is
-missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
+missing. A questionnaire asked for by its canonical comes beside the orders' packages,
+unanswered, and each questionnaire version comes once (an order's package holds its own). A
+questionnaire that is not found here is a warning in `outcome`, beside any package; so is a
+version other than the pack's, the only one served. An order or a `context` that names no
+decision of the caller's organization is a warning too. Orders or a `context` that name no
+decision, with nothing to return, are a `422` OperationOutcome (`not-found`): DTR asks for a
+4xx. An unknown id and another organization's get the same answer, which names neither. A
+decided order that needs no documentation gets an information note instead. The answers are
+profile-validated against DTR 2.2.0 (HL7 validator, offline) in CI, which checks their
+structure, not how the operation behaves; the tests check that. A pack declares it with
 `cds_hooks.questionnaire`.
 
 **Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
@@ -689,7 +708,8 @@ why community packs work as they do is
 threat model ([`docs/security/threat-model.md`](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
+on, and the job `hub-site` runs the ZAP baseline over every Hub page; GitHub Actions are pinned
+by commit and images by digest. Every response carries a strict
 CSP and the usual isolation headers (HSTS off localhost), the developer landing and the API
 reference included: the reference is Swagger UI served from vendored, pinned files, never a CDN,
 and the landing loads nothing but its own files. Sessions end after 30 minutes idle
@@ -749,14 +769,20 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
   input and a CPU budget per decision, after which a person decides. A copy of a reference pack
   of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
-  of its files, never by its manifest or the registry. Served, a pulled pack never automates
-  until your organization approves its exact digest (`POST /api/registry-approvals`, chained;
-  `DELETE` revokes it), at any risk level, and never while the registry recalled it; nothing
-  in the pack lifts that. A running server reads its registries' recalls every five minutes
-  and holds a recalled pack the same way, and one whose registry it could not read for a day. `mendari test` and `mendari eval` check the pack's own policy. The
-  verified marker beside a pulled pack records the registry, namespace, publisher type and
-  key it came from
+  of its files, never by its manifest or the registry
   ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  Served, a pulled pack never automates until your organization approves its exact digest, on
+  its Decision Card or with `POST /api/registry-approvals` (chained; `DELETE` revokes it), at
+  any risk level, and never while the registry recalled it; nothing in the pack lifts that. A
+  running server reads a registry's recalls again when a decision for one of its packs finds the
+  last read five minutes old (that decision uses the list read before), and holds a recalled
+  pack the same way, and one whose registry it could not read for a day; its full `/api/health`
+  shows each registry's last read under `registry_recalls`. `mendari test` and `mendari eval`
+  check the pack's own policy, and neither `mendari eval`, `mendari demo`, the evaluation route
+  nor the Monitoring view compares a pulled pack with the benchmark it carries (its publisher's
+  upload). The verified marker beside a pulled pack records the registry, namespace, publisher
+  type and key it came from
+  ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
   trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
@@ -774,11 +800,14 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   SHA-256, the digest, the engine, the card rendered here, the review status) and `claimed`
   (the publisher, the risk level it declares, the licence and summary). Every registry write
   is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
-  namespace, key, token, version, report and review is named by its event), and a registry
-  reviewer's review records the risk level it found beside the one the publisher declared.
+  namespace, key, token, version, report, review, recall and deletion is the row its event
+  hashed; keep `GET /v1/chain/head` elsewhere, since the chain is unkeyed), and a registry
+  reviewer's review (`POST /v1/packs/{namespace}/{name}/{version}/review`, the admin token
+  until LP-19) records the risk level it found beside the one the publisher declared.
 - **A recall** (`mendari yank`) is a signed record with a reason and a severity: the
   publisher signs it with a namespace key, or the registry with its own
-  (`MENDARI_REGISTRY_SIGNING_KEY`). A recalled version is never the latest and is not
+  (`MENDARI_REGISTRY_SIGNING_KEY`, published at `GET /v1/registry-key`); `GET /v1/yanks` lists
+  every recall. A recalled version is never the latest and is not
   searched, and is still pulled by its exact version, with the record shown and its signature
   checked against the keys you pinned. An administrator can also delete a version that must
   not be served: its archive's bytes go, and a tombstone stays.
@@ -795,6 +824,8 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.
 
+Running one, the administrator's routes and what to do when a pack must stop are in
+[Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md).
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the
 reference packs of its own image, so with an image built from an older checkout, a pack that
@@ -903,7 +934,12 @@ The organization's grading key grades a pack against one of its frozen sets thro
 `POST /api/evalsets/{id}/runs`, mounted with both keys in either account mode: with local
 providers only, each run counted against the set's rotation rule and chained before its cases
 are read, nothing stored, and answered with aggregates only (`mendari.hidden_result/1`, never a
-case).
+case). The runbook walks
+[a set from start to end](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#a-set-from-start-to-end),
+and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
+on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
+the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
+how labellers will reach it is the owner's decision still open.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -996,6 +1032,12 @@ answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not 
 mendari monitor --db "$DATABASE_URL" --each-org --webhook https://alerts.example.org/hook
 ```
 
+After setting the webhook, `mendari alerts test` posts one test alert to
+`MENDARI_ALERT_WEBHOOK` (`event` `alerts.test`, with no alerts in it), in its format and signed
+with `MENDARI_ALERT_SECRET` as every alert is, tried once and recorded nowhere. It prints
+whether it was delivered and the webhook's answer, never the URL or the secret, exits 1 when it
+was not delivered, and refuses in CI (`CI` or `GITHUB_ACTIONS` set).
+
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
 from the audit chain. Only signed-in reviewers and admins read them, and each read is chained
@@ -1017,7 +1059,7 @@ API keys rotate with an overlap. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
-`mendari audit verify --notes` checks the kept ones. Hidden evaluation sets (LP-11, being built)
+`mendari audit verify --notes` checks the kept ones. Hidden evaluation sets (LP-11)
 have keys of their own, unlike every other key: `MENDARI_EVALSET_KEY` and
 `MENDARI_EVALSET_INDEX_KEY`, set together for Production only, or not at all (the feature is then
 off). Read
@@ -1353,6 +1395,11 @@ about 3.5 seconds) and answers `503` while the database does not answer or no pa
 where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
 settings, which read the database, so it fails during an outage too)
 ([deploying with PHI](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
+`python scripts/status_checks.py --export json --api <url>` prints the status checks
+(`deploy/status/checks.yaml`) ready to set up in a status provider, sending nothing: each
+check's absolute URL, method, body, interval and what is up, with redirects not followed and
+the decide key's variable named, never its value
+([status checks](https://github.com/mendari-hq/mendari/blob/main/docs/operations/status-checks.md)).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers

@@ -20,6 +20,13 @@ A report has two parts.
   override's approver (kept locally, never in the result). `result_sha256` is the SHA-256 of the
   canonical result.
 
+`comparison`, outside the result, is the local validation against the pack's benchmark. For a
+pack pulled from a registry it is never made with the benchmark the pack carries, which is its
+publisher's upload
+([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it is
+`{"status": "unknown", "reason": ..., "findings": []}`, as for a benchmark that cannot be
+compared, and says why.
+
 The result MUST carry everything a `mendari.eval/1` report carries, except case ids, and adds:
 
 - `ledger`: the ledger's id (`sha256:` of its bytes) and its number of cases;
@@ -109,14 +116,16 @@ leaderboard or registry version on every read, so one published before needs no 
 | `GET /api/packs/{pack}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
 | `POST /api/packs/{pack}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
 | `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
-| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true |
-| `GET /v1/packs/{pack}` | `latest.figures` | the latest version's benchmark accuracy and leaderboard |
-| `GET /v1/packs/{pack}/{version}` | `figures` | that version's benchmark accuracy and leaderboard |
-| `GET /v1/search` | each item's `figures` | the benchmark accuracy only |
+| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: a pack pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and a pack from a registry's benchmark figures are null |
+| `GET /v1/packs/{pack}`, `GET /v1/packs/{pack}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the pack's test set, labelled "publisher's own test set: regression check, not a ranking" |
+| `GET /v1/packs/{pack}` | `latest.figures` | `benchmark` and `leaderboard`, always null: a registry shows no uploaded figure |
+| `GET /v1/packs/{pack}/{version}` | `figures` | the same, always null |
+| `GET /v1/search` | each item's `figures` | `benchmark`, always null |
 
-A registry's leaderboard figures are null when the board is malformed, or would hold more than
-5,000 figures (`MAX_BOARD_FIGURES`; a shipped one holds a few hundred), so one upload cannot make
-every read of it slow.
+Since LP-18 a registry stores and shows no benchmark or leaderboard a publisher uploads
+([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): `figures`
+keeps its shape for clients that read it, with null values. Its one figure is the regression
+check's, which nothing ranks on.
 
 A report's figures are each over what the card shows it over: accuracy over the labelled
 cases, each outcome and automation over all cases, false automation over the labelled cases,

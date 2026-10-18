@@ -1310,6 +1310,14 @@ REGISTRY_RATES: dict[str, Rate] = {
 _REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
 
 
+def _answer_headers(request: Request) -> dict[str, str]:
+    """The headers every answer carries: `REGISTRY_HEADERS`, and HSTS but on this machine
+    (browsers ignore it over plain http)."""
+    if is_local_host(request.url.hostname):
+        return REGISTRY_HEADERS
+    return {**REGISTRY_HEADERS, "Strict-Transport-Security": HSTS}
+
+
 def registry_limit_settings() -> LimitSettings:
     """From `MENDARI_REGISTRY_RATE_LIMITS`: a mode (`on` unless set, `log`, `off`), then
     overrides of `REGISTRY_RATES` in the engine's syntax (`registry_read=1200/min:300`)."""
@@ -1372,12 +1380,11 @@ def create_registry_app(
         return store.token_namespace(token) is not None
 
     @app.exception_handler(Exception)
-    async def _unhandled(_: Request, error: Exception) -> JSONResponse:
+    async def _unhandled(request: Request, error: Exception) -> JSONResponse:
         """An error no handler names: a 500 with nothing of the error, and the headers every
-        answer carries (Starlette answers it outside the middleware)."""
-        return JSONResponse(
-            {"error": "InternalError", "detail": "internal error"}, 500, headers=REGISTRY_HEADERS
-        )
+        answer carries, HSTS included (Starlette answers it outside the middleware)."""
+        body = {"error": "InternalError", "detail": "internal error"}
+        return JSONResponse(body, 500, headers=_answer_headers(request))
 
     @app.middleware("http")
     async def _limits_and_headers(request: Request, call_next: Any) -> Response:
@@ -1394,10 +1401,8 @@ def create_registry_app(
             )
         else:
             response = await call_next(request)
-        for name, value in REGISTRY_HEADERS.items():
+        for name, value in _answer_headers(request).items():
             response.headers[name] = value
-        if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
-            response.headers["Strict-Transport-Security"] = HSTS
         return response
 
     @app.exception_handler(HubError)
