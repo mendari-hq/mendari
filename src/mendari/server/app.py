@@ -81,6 +81,7 @@ from mendari.errors import (
     NoticeNotAcknowledged,
     PackNotFoundError,
     PackValidationError,
+    PrefetchRequired,
     ProviderError,
     ReviewError,
     ScopeError,
@@ -155,6 +156,7 @@ _STATUS = {
     NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
     FhirSourceNotFound: 422,  # issue type not-found: unknown or another organization's, one answer
+    PrefetchRequired: 412,  # CDS Hooks 2.0: neither the prefetch nor a fhirServer to read it from
     FhirError: 422,
     PackValidationError: 422,
     PasError: 422,
@@ -1600,7 +1602,11 @@ def create_app(
         code outside an R4 required value set, and US Core 6.1.0's rules are checked under
         `fhir_validation` (`/api/health`): `warn` records them in `decision.input_issues`,
         `enforce` blocks. An error on this route is an `OperationOutcome`. For FHIR out as well,
-        use `POST /fhir/$decide`."""
+        use `POST /fhir/$decide`.
+
+        A note whose data does not decode, or that is only a link (`url`), cannot be read: the
+        decision is ABSTAIN with the reason (`undecodable`, `not_fetched`). `decision.data_coverage`
+        says what the mapping looked for and found, as counts and the pack's own codes."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task, **NOTICE}
 
@@ -2456,7 +2462,13 @@ def create_app(
     def cds_invoke(service_id: str, request: JsonBody, http: Request) -> dict[str, Any]:
         """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons.
         An order hook decides each draft order the pack is about, at most 50 a request: each
-        counts as one decision against the rate limit and the principal's daily cap."""
+        counts as one decision against the rate limit and the principal's daily cap.
+
+        A prefetch key left out is read from `fhirServer` (an allow-listed one only); with no
+        `fhirServer` the request is a `412`. A null value is "no data" and is not read. When a
+        key cannot be read (a failed read, an OperationOutcome, a resource that is not R4), the
+        hook still answers `200`: the decision is ABSTAIN with the key and a fixed reason, it is
+        recorded, and its card says so. Every decision carries its `data_coverage` record."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")

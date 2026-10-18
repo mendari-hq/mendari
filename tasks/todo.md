@@ -792,8 +792,23 @@ Connect) is not supported yet.
     adversarial security review).
   - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
     for registered origins.
-  - [ ] **23d** A hook that always answers: an unreadable record gives a recorded ABSTAIN with its
-    reason, and every FHIR decision carries its data-coverage record.
+  - [x] **23d** (this PR) A hook that always answers: an unreadable record gives a recorded ABSTAIN
+    with its reason, and every FHIR decision carries its data-coverage record. Each prefetch key
+    is read on its own (`cds_hooks.read_each`, shared with the SMART launch's decide); a key that
+    could not be read, an OperationOutcome, a fetched resource that is not R4 (`not_r4`), and a
+    note that is only a link or does not decode make the decision ABSTAIN before any provider,
+    with `could not read <key>: <reason>` from the closed set `errors.ReadReason` (13 codes, set
+    at each raise in `fhir_client`); refused input still BLOCKs; the hook answers `200` with an
+    `info` card whatever `show` says; neither prefetch nor `fhirServer` is a `412`
+    (`PrefetchRequired`); a null value is no data and is not fetched; CRD gets `indeterminate`
+    for a `technical` reason when the Coverage was read (`davinci.indeterminate`, a fourth CRD
+    sample). `standards/data_coverage.py` (`mendari.data-coverage/1`) is on every FHIR
+    decision's answer and record, null on JSON ones. Threat-model row I17; the scorecard's FB-3a
+    to FB-3c are met (failure behaviour stays at level 1 on FB-2d). The 23a golden is
+    unchanged. Beyond the plan's letter: a declared key whose value is neither null nor a
+    resource (`{}`, say) is `unsupported_type` (it was fetched, or read as no data), and a
+    decision's search past `MAX_PAGES` is `cap` (it was cut short without a word). The section
+    for `docs/guides/connecting-an-ehr.md` waits for 23b, which creates that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
   - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.

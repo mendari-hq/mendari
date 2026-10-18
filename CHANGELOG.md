@@ -40,6 +40,37 @@ The first release (not yet published).
   golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
   today, input hash included (`scripts/fhir_decisions_golden.py`,
   `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
+- **A hook that always answers (LP-23d; two changes in behaviour).** A CDS Hooks service reads
+  each prefetch key on its own. When a key cannot be read (a failed read with its reason:
+  `network`, `timeout`, `http_status`, `unauthorized`, `not_json`, `too_large`, `off_server`, a
+  search past the page cap `cap`; an OperationOutcome sent or read, `operation_outcome`; a
+  resource Mendari read that is not R4 JSON, `not_r4`, or not the type asked for,
+  `unsupported_type`), the decision is ABSTAIN before any provider runs, its reasons
+  `could not read <key>: <reason>`, never a URL, a query or what a server answered. The hook
+  answers `200` instead of the `422` it gave before, the decision is recorded like any other, and
+  its card is an `info` card naming the keys, whatever the pack's `show` says. Refused input
+  still BLOCKs, a request fault stays a `4xx`, the structural R4 check on what the client sent
+  stays a `400`, and a `fhirServer` off the allow-list is still refused with nothing fetched or
+  recorded. A key whose value is null is "no data" (CDS Hooks 2.0) and is no longer fetched; a
+  value that is neither a resource nor null (an empty object, say) is unreadable
+  (`unsupported_type`), where it used to be fetched or read as no data. For
+  Da Vinci CRD, an order that abstained this way gets `covered: indeterminate` for a `technical`
+  reason, with fixed text, when its Coverage was read; without the Coverage there is no system
+  action. The SMART launch's decide reads its record the same way (a `401` still ends the
+  launch, and a focus resource that cannot be read is an error, as before). Every FHIR decision
+  now carries `data_coverage` (`mendari.data-coverage/1`) in its answer and its chained record:
+  for each mapped field and list, the paths looked for, the code systems the pack declares, the
+  pack's own codes, and what was found, as counts, with what could not be read counted by reason.
+  It never holds a value, an id, text, a patient's code or a system the pack does not declare. A
+  decision on JSON input carries `null`, and older records still verify.
+  - **Changed: decisions on notes Mendari cannot read move from a possible AUTO to ABSTAIN.** A
+    `base64_text` attachment that is only a `url`, or whose data does not decode to text, used
+    to read as no notes, so the decision was made as if the record held none, and could
+    automate. It now abstains (`not_fetched`, `undecodable`) in every pack and on every FHIR
+    route (CDS Hooks, `fhir/decide`, `$decide`, the SMART launch, `mendari decide --fhir`).
+    Readable input decides byte for byte as before (the 23a golden is unchanged).
+  - **Changed: a CDS Hooks request with neither the prefetch nor a `fhirServer` answers `412`**
+    (`PrefetchRequired`), as CDS Hooks 2.0 says. It answered `422`.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

@@ -299,13 +299,16 @@ def test_a_server_off_the_list_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_without_a_fhir_server_prefetch_is_still_required(tmp_path: Path) -> None:
+    """Neither the prefetch nor a server to read it from: a `412`, as CDS Hooks 2.0 says
+    (LP-23d; it was a `422`), and nothing is decided or recorded."""
     request, _, _, _ = referral_ehr()
     del request["fhirServer"]
-    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/mendari.referral-router", json=request
-    )
-    assert response.status_code == 422
+    app = TestClient(create_app(db_path=tmp_path / "a.db"))
+    response = app.post("/cds-services/mendari.referral-router", json=request)
+    assert response.status_code == 412
+    assert response.json()["error"] == "PrefetchRequired"
     assert "prefetch required for: patient, documents, reports, labs" in response.text
+    assert app.get("/api/audit").json() == []
 
 
 @pytest.mark.parametrize("patient_id", ["p1&_include=*", "../Admin", "", None])
