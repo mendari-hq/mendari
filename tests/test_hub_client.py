@@ -135,6 +135,69 @@ def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
     assert detail["card_markdown"] == card
 
 
+def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_against(
+    hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """LP-18h: the engine still read a pulled pack's uploaded benchmark in two places. The
+    evaluation route and `mendari eval` attached a comparison with it, and the monitor took it
+    as its reference. Now the evaluation says it is not compared with the benchmark the pack
+    carries, as it says when a benchmark cannot be compared, and the monitor has no benchmark
+    (`from_registry`). The same pack of one's own is compared as before."""
+    from fastapi.testclient import TestClient
+
+    from mendari.core.card import benchmark
+    from mendari.evals.compare import FROM_REGISTRY, not_compared
+    from mendari.server.app import create_app
+
+    token, key = hub.namespace("site-a")
+    pack = copy_pack(tmp_path, "site-a/inbox")
+    hub.client(token).push(pack, key)
+    pulled = pull("site-a/inbox", hub.client())
+    assert pulled.origin == "hub" and benchmark(pulled) is not None  # it carries one
+    run = {"dataset": "red_flags", "limit": 20}
+    with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
+        answer = engine.post("/api/packs/site-a/inbox/evals", json=run).json()
+        monitored = engine.get("/api/monitoring", params={"pack_id": "site-a/inbox"}).json()
+    capsys.readouterr()  # the server's security log
+    assert answer["comparison"] == not_compared(FROM_REGISTRY)
+    assert answer["figures"]["comparison"] is None
+    assert (monitored["benchmark"]["comparable"], monitored["benchmark"]["reason"]) == (
+        False,
+        "from_registry",
+    )
+    assert monitored["benchmark"]["figures"]["accuracy"] is None
+    eval_args = ["--dataset", "red_flags", "--limit", "20"]
+    assert main(["eval", "site-a/inbox", *eval_args, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["comparison"] == not_compared(FROM_REGISTRY)
+    assert main(["eval", "site-a/inbox", *eval_args]) == 0
+    assert f"Comparison unavailable: {FROM_REGISTRY}" in capsys.readouterr().out
+    # The pack it was published from is one's own: compared with its benchmark, as before.
+    assert main(["eval", str(pack.root), *eval_args, "--json"]) == 0
+    own = json.loads(capsys.readouterr().out)["comparison"]
+    assert own["status"] in ("ok", "warning", "degraded") and "baseline" in own
+
+
+def test_the_demo_never_compares_a_pulled_copy_with_the_benchmark_it_carries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The LP-18h review: `mendari demo` takes its pack from the search path, the pack cache
+    first, and compared a pulled copy of the reference pack with the benchmark the copy carries,
+    whatever its publisher put there. Now it says the copy is not compared; the bundled pack is
+    compared as before."""
+    from mendari.evals.compare import FROM_REGISTRY
+    from mendari.sandbox.demo import PACK_ID, run_demo
+
+    run_demo(example_datasets_dir())
+    assert "Public benchmark (test, n=600):" in capsys.readouterr().out
+    # The reference pack's own bytes, in the cache: not refused as a shadow, and from a registry.
+    shutil.copytree(INBOX_DIR, client.packs_cache() / PACK_ID / SHIPPED)
+    assert resolve_pack(PACK_ID).origin == "hub"
+    run_demo(example_datasets_dir())
+    shown = capsys.readouterr().out
+    assert f"Comparison unavailable: {FROM_REGISTRY}" in shown
+    assert "Public benchmark" not in shown and "degradation" not in shown
+
+
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

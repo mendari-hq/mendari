@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Alert delivery (LP-21 requirement 3, `mendari.alerts`): formats chosen by a setting, an HMAC
 signature a receiver checks with the documented recipe, retries, and a record of every alert
-that holds neither the webhook's URL nor the secret."""
+that holds neither the webhook's URL nor the secret; and `mendari alerts test`, one signed test
+alert for the operator to check the webhook with, never from CI."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
+import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -371,3 +375,138 @@ def test_a_pending_alert_sent_again_is_delivered_with_its_id_and_a_fresh_signatu
         204,
     )
     assert delivered["next_attempt_at"] is None and delivered["last_error"] is None
+
+
+# -- the test alert (`mendari alerts test`) -------------------------------------------------------
+
+
+@pytest.fixture
+def operator_machine(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """The operator's own machine, not CI, whatever runs these tests."""
+    for name in ("CI", "GITHUB_ACTIONS"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+@pytest.fixture
+def receiver() -> Iterator[tuple[str, list[dict[str, Any]]]]:
+    """A webhook on this machine that answers 204 and keeps each post's path, headers and raw
+    body; its address carries a token in its path, as most webhooks' do."""
+    heard: list[dict[str, Any]] = []
+
+    class Receive(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = self.rfile.read(int(self.headers["content-length"]))
+            headers = {name.lower(): value for name, value in self.headers.items()}
+            heard.append({"path": self.path, "headers": headers, "body": body})
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Receive)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/services/T000/B000/WebhookSecretToken", heard
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_alerts_test_posts_one_signed_test_alert_and_prints_neither_the_url_nor_the_secret(
+    operator_machine: pytest.MonkeyPatch,
+    receiver: tuple[str, list[dict[str, Any]]],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    url, heard = receiver
+    operator_machine.setenv("MENDARI_ALERT_WEBHOOK", url)
+    operator_machine.setenv("MENDARI_ALERT_SECRET", SECRET)
+    assert main(["alerts", "test"]) == 0
+    (post,) = heard
+    assert post["path"] == "/services/T000/B000/WebhookSecretToken"
+    assert recipe()(SECRET, post["headers"]["mendari-signature"], post["body"])
+    delivery = post["headers"]["mendari-delivery"]
+    assert post["headers"]["mendari-event"] == "alerts.test"
+    assert json.loads(post["body"]) == {
+        "source": "mendari",
+        "delivery": delivery,
+        "event": "alerts.test",
+        "organization": None,
+        "alerts": [],
+    }
+    out, err = capsys.readouterr()
+    assert out == (
+        "delivered: one alerts.test in the mendari format, signed "
+        f"(the webhook answered 204, delivery {delivery})\n"
+    )
+    for text in (out, err):
+        assert "WebhookSecretToken" not in text and "127.0.0.1" not in text
+        assert SECRET not in text
+
+
+def test_alerts_test_posts_in_the_format_set_and_says_when_it_is_not_signed(
+    operator_machine: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    no_waiting: list[float],
+) -> None:
+    hook = Webhook(200)
+    operator_machine.setattr(alerts_module.httpx, "post", hook)
+    operator_machine.setenv("MENDARI_ALERT_WEBHOOK", HOOK)
+    operator_machine.setenv("MENDARI_ALERT_FORMAT", "slack")
+    assert main(["alerts", "test"]) == 0
+    (sent,) = hook.sent
+    assert json.loads(sent["content"]) == {
+        "text": "Mendari: alerts.test\na test alert from `mendari alerts test`: nothing to do"
+    }
+    assert "mendari-signature" not in sent["headers"]
+    out = capsys.readouterr().out
+    assert out.startswith("delivered: one alerts.test in the slack format, not signed: ")
+    assert "MENDARI_ALERT_SECRET is not set" in out
+
+
+def test_alerts_test_tries_once_and_says_why_it_failed_never_the_url(
+    operator_machine: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    no_waiting: list[float],
+) -> None:
+    operator_machine.setenv("MENDARI_ALERT_WEBHOOK", HOOK)
+    operator_machine.setenv("MENDARI_ALERT_SECRET", SECRET)
+    busy = Webhook(503)
+    operator_machine.setattr(alerts_module.httpx, "post", busy)
+    assert main(["alerts", "test"]) == 1
+    assert len(busy.sent) == 1 and no_waiting == []  # one try: it says what happens now
+    first = capsys.readouterr().err
+    assert first.startswith("error: the test alert was not delivered: the webhook answered 503")
+    down = Webhook(httpx.ConnectError(f"cannot reach {HOOK} with {SECRET}"))
+    operator_machine.setattr(alerts_module.httpx, "post", down)
+    assert main(["alerts", "test"]) == 1
+    second = capsys.readouterr().err
+    assert "the test alert was not delivered: no answer (ConnectError)" in second
+    for text in (first, second):
+        assert "WebhookSecretToken" not in text and "hooks.example.org" not in text
+        assert SECRET not in text
+
+
+def test_alerts_test_is_refused_in_ci_without_a_webhook_and_for_a_webhook_alerts_never_use(
+    operator_machine: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hook = Webhook()
+    operator_machine.setattr(alerts_module.httpx, "post", hook)
+    assert main(["alerts", "test"]) == 1
+    assert "error: MENDARI_ALERT_WEBHOOK is not set" in capsys.readouterr().err
+    operator_machine.setenv("MENDARI_ALERT_WEBHOOK", HOOK)
+    for name in ("CI", "GITHUB_ACTIONS"):
+        operator_machine.setenv(name, "true")
+        assert main(["alerts", "test"]) == 1
+        assert capsys.readouterr().err == (
+            f"error: {name} is set: a test alert is never sent from CI; run it on your own "
+            "machine\n"
+        )
+        operator_machine.delenv(name)
+    operator_machine.setenv("MENDARI_ALERT_WEBHOOK", HOOK.replace("https:", "http:"))
+    assert main(["alerts", "test"]) == 1
+    assert capsys.readouterr().err == "error: the alert webhook must use https\n"
+    assert hook.sent == []

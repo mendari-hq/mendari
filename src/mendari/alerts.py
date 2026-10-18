@@ -8,8 +8,13 @@ the signing secret.
 
 **Formats** (`MENDARI_ALERT_FORMAT`):
 - `mendari` (the default): JSON with `source`, `delivery` (this alert's id), `event`
-  (`monitor.alerts` or `quota.reached`), `organization` and `alerts` (each sender's own list);
+  (`monitor.alerts`, `monitor.incomplete`, `quota.reached`, `audit.broken`, or `alerts.test`
+  from `mendari alerts test`), `organization` and `alerts` (each sender's own list);
 - `slack`: a Slack incoming webhook's `{"text": ...}`, a heading and one line per alert.
+
+**The test alert** (`send_test`, `mendari alerts test`): one `alerts.test` with no alerts in
+it, rendered, signed and posted as every alert is, tried once and recorded nowhere, so the
+operator can check the webhook after setting it.
 
 **Signature** (`MENDARI_ALERT_SECRET`, optional, at least 32 characters): every post carries
 `Mendari-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>." + the body>`, beside
@@ -56,6 +61,8 @@ MIN_SECRET = 32
 RETRY_DELAYS = (2.0, 8.0)
 MAX_ATTEMPTS = 5
 RETRY_AFTER = timedelta(minutes=10)
+TEST_EVENT = "alerts.test"
+TEST_LINE = "a test alert from `mendari alerts test`: nothing to do"
 alerts_logger = logging.getLogger("mendari.alerts")
 _sleep: Callable[[float], None] = time.sleep  # replaced in tests
 
@@ -65,6 +72,21 @@ class AlertSettings:
     webhook: str
     format: str = "mendari"
     secret: str | None = None
+
+
+@dataclass(frozen=True)
+class Delivery:
+    """What one send came to: the alert's id, the tries made, the last HTTP status (None
+    without an answer) and the fixed error code (None: delivered). Never the URL or the body."""
+
+    id: str
+    attempts: int
+    status: int | None
+    error: str | None
+
+    @property
+    def delivered(self) -> bool:
+        return self.error is None
 
 
 def alert_settings(webhook: str | None = None) -> AlertSettings | None:
@@ -154,6 +176,31 @@ def deliver(
     """Send one alert, trying up to `attempts` times; record it when given a store. Whether it
     was delivered. Never raises for a webhook that fails: a failure is logged (its code and the
     alert's id) and, with a store, left `pending` for `retry_due` while tries remain."""
+    sent = send(
+        settings,
+        event=event,
+        org=org,
+        alerts=alerts,
+        lines=lines,
+        attempts=attempts,
+        timeout=timeout,
+        store=store,
+    )
+    return sent.delivered
+
+
+def send(
+    settings: AlertSettings,
+    *,
+    event: str,
+    org: str | None,
+    alerts: Sequence[Any],
+    lines: Sequence[str],
+    attempts: int,
+    timeout: float,
+    store: AuditStore | None = None,
+) -> Delivery:
+    """`deliver`, saying what the send came to rather than only whether it was delivered."""
     delivery = uuid.uuid4().hex
     body = render(
         settings.format, delivery=delivery, event=event, org=org, alerts=alerts, lines=lines
@@ -181,7 +228,21 @@ def deliver(
                 **_outcome(status, error, tried, now),
             }
         )
-    return error is None
+    return Delivery(id=delivery, attempts=tried, status=status, error=error)
+
+
+def send_test(settings: AlertSettings, *, timeout: float = 10.0) -> Delivery:
+    """One test alert (TEST_EVENT, no alerts in it) in the settings' format, signed with their
+    secret, tried once and recorded nowhere (`mendari alerts test`)."""
+    return send(
+        settings,
+        event=TEST_EVENT,
+        org=None,
+        alerts=[],
+        lines=[TEST_LINE],
+        attempts=1,
+        timeout=timeout,
+    )
 
 
 def retry_due(

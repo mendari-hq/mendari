@@ -510,7 +510,10 @@ ledger and carries each proportion with its exact interval: see
 **Local validation** compares a report on local data with the pack's published benchmark. It
 MUST report the overall delta of primary accuracy and SHOULD localize degradation by label
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
-a finding.
+a finding. A pack pulled from a registry MUST NOT be compared with the benchmark it carries,
+which is outside its digest and is its publisher's upload
+([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); a report
+the caller gives MAY be.
 
 A **leaderboard** (`format: mendari.leaderboard/2`) compares provider configurations. Each
 row summarises one report: the configuration (slot variants, naming the model of remote

@@ -1,15 +1,26 @@
 # ADR-0012: A registry that shows only what it checked
 
 ## Status
-Proposed (2026-10-09). Built in steps (LP-18, `tasks/todo.md`); each step adds what it built
-here, in the order they landed:
+Proposed (2026-10-09). Built (LP-18, 18a to 18h and the Decision Card's approval screen,
+2026-10-09 to 2026-10-17), each default below as `tasks/todo.md` records it; accepted once the
+owner confirms or changes those defaults. Gate G3-4's prerequisite `a10-registry-hub`
+(`launch/gates.yaml`) names the tests that hold it; LP-19 (registry accounts, namespace claims,
+the registry and the Hub deployed) stays pending there, on the owner's choice of where the
+registry runs. The steps, in the order they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
 - 18d, origin at pull and the cap on a pulled pack (`registry_approvals`);
 - 18e, a running server honours its registries' recalls (`server/recalls.py`);
 - 18f, rate limits and security headers on the registry and the Hub;
-- 18g, the regression check on the publisher's own test set (`hub/regression.py`).
+- 18g, the regression check on the publisher's own test set (`hub/regression.py`);
+- the approval on the Decision Card (#240): where a pulled pack came from, a recall, the
+  approval in force and earlier ones, approving through a dialog that names the digest, and
+  revoking;
+- 18h, the close-out: the engine no longer compares with or monitors against a pulled pack's
+  uploaded benchmark (decision 1), the threat model's rows (S18, S19, T7, R3, D11, D12, E12,
+  E13), the gate's tests, and the registry's runbook
+  ([`docs/operations/registry.md`](../operations/registry.md)).
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -44,6 +55,11 @@ Nothing on a pack's page comes from the uploader unchecked.
    - Figures the registry computes itself come later (18g), labelled as the publisher's own test
      set. Only the scoreboard (LP-17) ranks; until it exists the registry and the Hub rank
      nothing.
+   - The engine treats a pulled pack's uploaded benchmark the same way (18h): its pack detail
+     and card show none, its monitor has no benchmark for it (`benchmark.reason:
+     from_registry`), and its evaluation route, `mendari eval` and `mendari demo` make no
+     comparison with it, saying why (a report given with `--baseline` is the caller's own and is
+     compared).
 2. **Two groups on every version, in the API and on the Hub (18a).**
    - `checked`, what the registry verified itself: the signing key's id, the archive's SHA-256,
      the pack digest the signed manifest names and the pack loaded with, the engine it was
@@ -99,13 +115,14 @@ Nothing on a pack's page comes from the uploader unchecked.
    the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
    `mendari decide` never do. A library caller (`Decision.from_hub`) is capped unless it passes
    `origin_approval`.
-7. **A running server honours recalls (18e).** For each registry its served packs came from,
-   a server reads `GET /v1/yanks` every five minutes (`MENDARI_REGISTRY_RECALL_CHECK_S`) in a
-   thread of its own, over https. A pack it lists is held as an unapproved one is. What cannot
-   be checked is treated the same: a registry not read in a day
-   (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or not recorded
-   beside the pack. A recall is honoured whether or not its signature can be checked here: it
-   only lowers automation.
+7. **A running server honours recalls (18e).** For each registry its served packs came from, a
+   server reads `GET /v1/yanks` in a thread of its own, over https, started by a decision for
+   one of that registry's packs once the last read is five minutes old
+   (`MENDARI_REGISTRY_RECALL_CHECK_S`); that decision uses the list read before. A pack it lists
+   is held as an unapproved one is. What cannot be checked is treated the same: a registry not
+   read in a day (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or
+   not recorded beside the pack. A recall is honoured whether or not its signature can be
+   checked here: it only lowers automation.
 8. **Limits and headers (18f).** The registry limits reads per address and writes and site
    reports per token, in its own database (the engine's `Limiter` and buckets), refusing before
    a body is read. Every registry answer carries a CSP that loads nothing, and the Hub's pages
@@ -136,8 +153,26 @@ Nothing on a pack's page comes from the uploader unchecked.
 4. (18a) Where Mendari serves or shows a pack pulled from a registry (the engine's pack detail,
    `mendari card`), it shows the registry's card too, without the pack's uploaded benchmark and
    leaderboard (`card_of`).
+5. (18b) Until LP-19's reviewer accounts, a review is recorded with the admin token.
+6. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
+   registry with its own key. A client honours every yank, verified or not (a forged yank only
+   stops automation, the safe direction), and says whether it verified.
+7. (18d) A pulled copy of a reference pack is capped too: the cap follows the origin, not the
+   bytes. `mendari test` checks the pack's own policy and says that serving caps it.
+8. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
+9. (18g) A regression is shown, not refused: the version is the publisher's; a pack that cannot
+   be evaluated on its own test set with local providers says so.
+10. (18h) The rule on uploaded benchmarks follows the origin too: a pulled copy of a reference
+    pack is not monitored against or compared with the benchmark it carries.
 
 ## Consequences
+- **Breaking, for deployments that serve pulled packs.** A pack pulled from a registry no
+  longer automates until its organization approves its digest, at every risk level, and its own
+  rule's BLOCK goes to a person until then. A registry a server cannot read for a day holds
+  every pack pulled from it, and one pulled before LP-18d (a marker that names no registry) is
+  held until it is pulled again.
+- A pulled pack is never monitored against, or its evaluations compared with, the benchmark it
+  carries; such a pack's monitor runs only the checks that need no benchmark.
 - A publisher can no longer show a better benchmark than the registry measured, or a lower risk
   level in its card than the manifest declares.
 - The Hub's pack page loses its benchmark fact and provider leaderboard until 18g; the

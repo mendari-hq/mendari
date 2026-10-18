@@ -31,6 +31,9 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 | What is logged | `server/security_log.py` |
 | The dashboard and the API reference in the browser: CSP, cookies, the vendored Swagger UI | `src/mendari/dashboard/`, `server/app.py` (`_security_headers`, `versioned_page`) |
 | Outbound calls (SSRF): FHIR servers, the CQL engine, the identity provider, the payer, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
+| The pack registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
+| Pulling and serving a pack from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
+| The Hub website: rendering publisher text, its CSP and headers | the repository's top-level `hub/` (Next.js: `proxy.ts`, `app/`), not `src/mendari/hub/` |
 | The build: CI, pinned actions and images, the Docker image, Dependabot | `.github/`, `Dockerfile`, `deploy/` |
 
 Paths under `src/mendari/` are given without that prefix.
@@ -49,7 +52,8 @@ Paths under `src/mendari/` are given without that prefix.
    (`core/origin.py` `deployment_config`). With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, these
    calls (and Vercel Connect's key exchange) reach only the origins it lists
    (`providers/http.py`).
-5. **Registry ↔ clients:** signed pack archives.
+5. **Registry ↔ clients:** signed pack archives and signed recalls; the Hub website shows the
+   registry's packs to anyone, and a server reads its registries' recalls.
 6. **Engine ↔ database.**
 
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
@@ -221,7 +225,8 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   `test_smart_check.py`, and the browser suite in `tests/browser/`.
   Tests marked "SQLite and Postgres" run on both when `MENDARI_TEST_DATABASE_URL` is set.
 - **CI** (`.github/workflows/ci.yml`): the job `security` (pip-audit, npm audit, an OWASP ZAP
-  scan with sign-in on), `pilot-check` (a pilot organization end to end against a mock identity
+  scan with sign-in on), `hub-site` (the Hub against a seeded registry, a pack whose text
+  tries to run a script among them: its Playwright tests and the OWASP ZAP baseline), `pilot-check` (a pilot organization end to end against a mock identity
   provider, PHI mode `encrypt`), `sandbox-e2e` (SMART launches from smart-launcher-v2, in open
   mode and into an engine with sign-in on and the launcher registered) and `fhir-conformance`
   (the HL7 validator).
@@ -325,7 +330,8 @@ From the threat model's residual risks, and the plan's deferred list:
 - A pilot site's own infrastructure: TLS, network, the identity provider, the database's
   access control, backups, key custody.
 - Denial of service by volume beyond the limits above.
-- The Hub website (`hub/`) and the pack registry, which are not public yet; they can follow.
+- The pack store (LP-20), which is not built yet; it can follow. The registry and the Hub
+  website are in scope above, though neither is deployed yet (LP-19).
 - Vercel and Neon themselves, and their business associate agreements.
 
 ## How to report

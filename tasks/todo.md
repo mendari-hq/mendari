@@ -481,8 +481,10 @@ behaviour.
     notice on every page: the docs site now shows the notice (`mendari.notices`, through a
     MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
     `docs` job). `site_url`: `https://mendari-hq.github.io/mendari/`. Nothing published or
-    deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
-    `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
+    deployed. **Owner, open:** the docs host, still to be named (GitHub Pages at `site_url` by
+    default; a custom domain is a `site_url` change). The organization is on GitHub Team, where
+    Pages publishes from a private repository and the site is public to anyone; what holds it back
+    is `docs.yml` itself, whose deploy job skips while the repository is private. The first TestPyPI
     upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
     repository (`release.yml` publishes to TestPyPI only from one); the `testpypi` environment and
     TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
@@ -522,8 +524,8 @@ behaviour.
   suite takes about 6 min. **Found, for later prompts:**
   - Writes with no chained event (an expected failure in `test_shipped.py` until they are):
     `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
-    LP-10); the registry's six writes (publish and reports, LP-18; claims, approval, tokens and
-    keys, LP-19).
+    LP-10); the registry's writes (every one chained since LP-18b, #229: `NOT_CHAINED_YET` is
+    empty; LP-19's claims and their approval are chained as they are built).
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
@@ -622,17 +624,17 @@ registry or copied into the store.
     `unevaluatedProperties` or `unevaluatedItems` below another (conflict 22). The shipped
     packs, scaffolds and fixtures: 6, 1 and 2. Packs it does not own keep B11's caps and budget,
     unchanged. Threat model D10.
-  - [ ] **16g** (#219; PR E, last) The threat model's "Pack content" part
+  - [x] **16g** (#219, merged 2026-10-08; PR E, last) The threat model's "Pack content" part
     (`docs/security/threat-model.md`, between the STRIDE table and the residual risks): what a
     pack can set (every manifest input, provider type and variant key, the wording templates,
     `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
     digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
     24 are written there). `tests/test_threat_model.py` holds it to every input, to each
     provider type's closed config keys, to rows and tests that exist, and to no line that reads
-    as a row; gate a3's `what` says LP-16a–g. LP-16 counts as merged for LP-18 and LP-20 once
-    16g lands, 16e-2 with it (16c-2 is not part of LP-16, above).
+    as a row; gate a3's `what` says LP-16a–g. With 16g merged, LP-16 counts as merged for LP-18
+    and LP-20, 16e-2 with it (16c-2 is not part of LP-16, above).
 
-  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  **LP-16 was built in this order:** A (F and 16f); B (16d, beside A); C (16e-1, after A and B);
   D (16e-2, after C); E (16g, after A to D).
 
   **Conflicts written before building LP-16, and the default each PR follows** (the owner may
@@ -762,6 +764,158 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
+- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Proposed). Planned by a mapping workflow
+  (2026-10-17, against main `06d5332f`) as thirteen PRs, 23a to 23m, each safe alone; the full
+  plan, its 60 conflicts with the default each PR follows, the owner decisions and the risks are
+  in `notes/lp23-plan.md`. An EHR calls the CDS Hooks services with its own signed token, and
+  Mendari reads EHR-shaped data and decides, or records what it could not read, abstains and
+  still answers. Off until the owner acts: with `MENDARI_CDS_CLIENTS` unset no JWT is accepted
+  anywhere and sign-in behaves as today; with `MENDARI_SITE_CODES` unset no code is translated;
+  `MENDARI_CDS_SANDBOX` is set only by the compose sandbox engine and the test suite; no shipped
+  pack declares spec 0.3 until 23k; Production gets none of these settings until a pilot is
+  signed. No database table is added. LP-23 computes no statistic and ranks nothing: the
+  scorecard shows rubric levels with their scope, a data-coverage record counts per field for one
+  decision, and Inferno results are each test's own outcome.
+  - [x] **23a** (#256) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
+    ADR-0006's rule that the narrow EHR principal is for SMART launches only), the Epic sandbox
+    checklist B38 says Claude sends (`notes/epic-sandbox-checklist.md`), the EHR scorecard
+    (`notes/ehr-scorecard.md`: rubric v1, seven dimensions, graded at `06d5332f` with LP-23a;
+    overall level 1, from who may call from where, failure behaviour, and cards and workflow;
+    `tests/test_ehr_baseline.py` shows today's sign-in on the CDS services, an EHR's own token
+    refused, and the HL7 validator and smart-launcher-v2 CI jobs), synthetic FHIR for the trial and
+    prior-auth packs (`sandbox/fhir_records.py` `trial_entries`, `prior_auth_entries`: US Core
+    6.1.0, deterministic, no SNOMED CT, deciding as their records do), and a golden of today's
+    FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
+    every case of the four mapped packs' local-site examples, 1,150 cases; 41 prior-auth orders
+    with no requirement set are refused through FHIR, as today). Nothing changes how a pack decides.
+  - [ ] **23b** Signed CDS client tokens: the registry, the verifier and the `cds` principal (one
+    adversarial security review).
+  - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
+    for registered origins.
+  - [ ] **23d** A hook that always answers: an unreadable record gives a recorded ABSTAIN with its
+    reason, and every FHIR decision carries its data-coverage record.
+  - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
+    first end-to-end result).
+  - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+  - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+  - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
+  - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
+    automated.
+  - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
+    **The owner confirms the `show` list.**
+  - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
+    changes FHIR-path decisions in three packs.
+  - [ ] **23l** Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the SMART
+    App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
+    schedule, and the vendor scope check.
+  - [ ] **23m** Close-out: gate `a12-ehr-pilot` names its tests and keeps one owner `pending:`
+    line for the Epic run; ADR-0014 Accepted; the scorecard graded again at the close-out commit.
+
+  **Order:** 23a first; then 23b, 23d and 23g in parallel; 23c after 23b; 23f after 23b and 23d;
+  23e after 23b, 23c and 23d; 23h and 23i in parallel, after 23d and 23g; 23j after 23f; 23k after
+  23e, 23h and 23i; 23l after 23b and 23d, beside 23e to 23k; 23m last.
+
+  **Conflicts written before building, and the default each PR follows** (in brief; each in full,
+  with the code it rests on, in `notes/lp23-plan.md`; the owner may choose otherwise):
+  - 23a (1, 59): the launch plan's EHR grade and its rubric are in no file or commit (A12.goal),
+    so rubric v1 is graded at main, the overall grade is the lowest dimension, every grade carries
+    its scope and the old grade is not reproduced. Whether Epic's free sandbox can call an
+    external CDS service is unverified: the checklist asks.
+  - 23b (2 to 14): a JWT-shaped bearer credential up to 8 KiB is recognised on `/cds-services`
+    only (`ohk_` and `mat_` unchanged); the CDS branch runs above open mode's shortcut, so a JWT
+    is verified in both modes, without a registry it gets `401`, and with sign-in off every
+    registered organization is `default` (the public CDS Hooks Sandbox must then be registered
+    even for a local demo); `aud` is `MENDARI_PUBLIC_URL` plus the path, exact, never the `Host`
+    header; `iss`, keys and FHIR bases are registered apart, with an optional
+    `iss_is_fhir_server`; `sub` is checked only when pinned and an unregistered `tenant` claim is
+    refused (no Community Connect); `iat` is required, a token lives at most 330 s; the header is
+    `alg`, `kid`, `typ` (`JWT`) and `jku` only, Backend Services unchanged; `jku` equals the
+    registered `jwks_uri` on the allow-list, keys come through `GuardedHttp`, kept 3,600 s, an
+    unknown `kid` refetches at most once a minute per client, a private key caches nothing; the
+    registry is `MENDARI_CDS_CLIENTS`, checked at startup; "the same credential" is the same
+    client and keys (a `jti` is single-use); kind `cds` holds discover and decide, confined to
+    `/cds-services`, outside the notice gate, daily-capped and limited by `cds:<id>`;
+    `smart_claim` gains `smart_put`'s bounded purge; a `fhirServer` off the allow-list or not the
+    client's is refused (`403` for a `cds` principal before charging or fetching, else `422` as
+    today), never abstained on.
+  - 23c (15, 16): "local" is a loopback client address, a local `Host` and no forwarding header;
+    otherwise only `MENDARI_CDS_SANDBOX=1`, refused on Vercel or with sign-in on, and a verified
+    token does not lift it. CORS on `/cds-services` only, for exact registered origins, without
+    credentials, the preflight before the guard; CORP unchanged.
+  - 23d (17 to 26): neither prefetch nor `fhirServer` is `412`, a failed read from an allowed
+    server is `200` with a recorded ABSTAIN; a null prefetch value is no data and is not fetched,
+    an OperationOutcome is unreadable; every declared key that could not be read abstains with a
+    fixed reason, request faults stay `4xx`, the client's structure errors `400`, and fetched ones
+    `not_r4`; `decide(..., unreadable=)` still BLOCKs refused input and abstains before any
+    provider; a link-only or undecodable note abstains (`_decode` unchanged, the CHANGELOG says
+    so); `data_coverage` (`mendari.data-coverage/1`) holds declared systems, the pack's own codes,
+    counts and reason codes only, on every FHIR decision, null on JSON ones, old records still
+    verifying; SMART decide shares the per-key read, a failed focus read keeps today's error; an
+    unreadable ABSTAIN always shows an `info` card; CRD gets `indeterminate` and `technical` only
+    when the Coverage was read.
+  - 23e (27, 28): the vendor profile uses fictional site systems, ICD-10-CM, LOINC and RxNorm,
+    no SNOMED CT, shaped after public vendor documentation; it stands in for Epic's patients,
+    whose run is the owner's acceptance (A12.acc-3), a pending line in the gate.
+  - 23f (29 to 36): a card-only `fill_display` with display names, every summary expansion
+    checked to fit 140 characters, Task text unchanged; the bare confidence percentage leaves the
+    card; the trace goes behind the audit link only with `MENDARI_PUBLIC_URL` set; the launch link
+    is a `?pack=` URL only when fully configured; the card's uuid is the decision id; feedback is a
+    `decide` rule (same pack and organization, and with sign-in on the same requester; one `404`
+    otherwise; all or nothing; the decide bucket, no daily cap; `card.feedback`, codes and ids
+    only); `userComment` is dropped; `source.topic` only if Inferno needs it.
+  - 23g (37 to 39): spec 0.3 in its own document, 0.1 and 0.2 packs loading and mapping as
+    before, 0.3 keys refused in older packs and bounded at load for packs the deployment does not
+    own; a MedicationRequest starts at `boundsPeriod.start`, else `authoredOn`, and stops at
+    `boundsPeriod.end`, else unknown, never inferred from its status (B21 clinician review still
+    owed).
+  - 23h (40, 41): Binary is read as FHIR JSON under the `fhirServer` base only, plain text and
+    HTML only, at most 20 reads of 1 MiB per decision, never from `fhir/decide` or `$decide`; the
+    payer by `payor[0].reference`, then its Organization's identifier, then the site map.
+  - 23i (42 to 44): the site map translates in the adapter (logic files and digests untouched),
+    per organization in the environment, its version and sha256 recorded; a `site_code` cap keeps
+    those decisions at HUMAN_REVIEW until G5-6 `site-validation`; 23i rebuilds the reference packs
+    and expects no diff, 23j and 23k commit their rebuilt artifacts.
+  - 23j (45, 46): the inbox pack gets a template and stays off Inferno's list; the referral
+    `show` list is `[return_for_info, urgent_review]`.
+  - 23k (47): built, its merge held for the owner's go-ahead.
+  - 23l (48 to 56): Mendari's own Inferno Dockerfile and overlay, pinned by digest and commit; a
+    separate report-only `conformance.yml`; test 1.01 (TLS) and CRD's standard prefetch forms
+    are expected results with their reasons; Mendari writes the v2.2.1 session and its golden;
+    token refusal is proven by Mendari's own tests; a terminology server on a schedule only; the
+    SMART client suite headless if it can be, else by hand; the scope check says `unknown` when
+    nothing is published.
+  - 23m and requirement 8 (57, 58): the gate's pending probe is replaced by the tests and one
+    owner `pending:` line, with no count changing; no refresh tokens or iframe mode are built
+    until the sandbox shows the need.
+  - Numbers (60): ADR-0014 and threat-model rows S21, T9, R5, I16, I17, I18, D13, D14, E15 and
+    E16 are LP-23's.
+
+  **Owner decisions** (defaults first; none blocks 23a to 23i): (1) the CDS client registry in
+  `MENDARI_CDS_CLIENTS` for the pilot, a database-backed one before a second EHR; (2) the site
+  code map in `MENDARI_SITE_CODES`, site-mapped decisions capped at HUMAN_REVIEW until G5-6
+  `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
+  scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, before 23j merges;
+  (5) the go-ahead for 23k, with a clinician's note on the MedicationRequest rule (B21); (6) an
+  unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
+  from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
+  addressed, clinical judgement); (9) attachments: plain text and HTML only, 20 reads of 1 MiB;
+  (10) conformance jobs required after four consecutive green weekly runs; (11) the engine trace
+  behind Mendari sign-in; (12) the card's launch link as `?pack=`; (13) neither refresh tokens
+  nor iframe mode unless Epic needs them (any change amends ADR-0006); (14) the Epic run as an
+  owner `pending:` line on `a12-ehr-pilot`, not a seventh G5-6 prerequisite; (15) if Epic's free
+  sandbox cannot call an external CDS service, a pilot site's own environment, Oracle Health's
+  sandbox as the backup, and test keys and Inferno until then; (16, raised by the 23a scorecard,
+  not in the plan) the pilot's `MENDARI_FHIR_VALIDATION`: `warn`, as today, under which input
+  that is R4 JSON but breaks R4's other rules is decided with its issues recorded and failure
+  behaviour stays at level 1 (FB-2d), or `enforce`, which blocks it before any provider runs.
+
+  **Owner actions** (not decisions): sign up for Epic's sandbox from
+  `notes/epic-sandbox-checklist.md` and note back its `iss`, `jku`, `aud` form, `sub` and
+  `tenant`, feedback support, scopes and launch handling; put Epic's JWKS origin and FHIR base on
+  `MENDARI_FHIR_ALLOWED_SERVERS`; set `MENDARI_CDS_CLIENTS` (and any site codes) for Production
+  only once a pilot is signed; run `mendari smart check` against Epic; do the Epic sandbox run
+  that lets a build PR remove the gate's pending line.
+
 **Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
 owner received in October 2026, no image goes to GHCR until it carries what the licences of
 everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are
@@ -873,8 +1027,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
         views, shown to catch one.
       - [x] **C** (#157) The Hub: `hub/lib/figures.ts` (checked against the fixture), the
         pack page's leaderboard in served order (it ranked by accuracy alone), the benchmark
-        fact and the search cards as k of n. Its card is still raw Markdown tables (no GFM);
-        left for LP-18, which reworks what the Hub shows of a version.
+        fact and the search cards as k of n. Its card was raw Markdown tables (no GFM) until
+        LP-18a (#228) rendered them with `remark-gfm`, and took the benchmark fact and the
+        leaderboard away (ADR-0012).
       - Owner, optional: give the 166 shipped `mendari.leaderboard/1` rows their accuracy
         counts from the committed datasets where provable (the dataset unchanged since the
         row's run, k/n exactly the stored rate). Without it they show accuracy as n/a.
@@ -901,7 +1056,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
       2026-10-07; the PR's Preview health is checked after CI, before merging. Review: the
       README, the authoring guide and the deploy steps say an `llm` variant needs `LLM_MODEL`.
 
-- [ ] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed).
+- [x] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed; built 2026-10-17; gates `labelling-underway` and `hidden-sets-frozen` probed by tests, owner attestations open).
   **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the
   hidden-case index live only in the hosted engine's own database (locally, a developer's SQLite or
   Postgres with synthetic sets), in tables prefixed `evalset_`; never in this repository, a pack
@@ -922,7 +1077,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
 
   Planned by a mapping workflow (2026-10-09) as fifteen PRs, each safe alone, the feature off
-  without both keys; the full plan, its 55 conflicts with the default each PR follows, and the
+  without both keys; the full plan, its 57 conflicts with the default each PR follows, and the
   risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
   no-leak sweep land before any evaluation-set route exists.
   - [x] **11a** (#220, merged 2026-10-09) One canonical form of a case's input (`evals/canonical.py`: the strict
@@ -1027,7 +1182,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_landing` and the 11g sweep, which labels through the routes and allows a case's input
     only in a labeller's own next case; `evalsets_are_on` asserts the routes in memberships
     mode; the runbook's "How a labeller labels".
-  - [ ] **11k** (PR open) The set-management routes (`curate`, mounted as 11j's: memberships
+  - [x] **11k** (#248, merged 2026-10-16) The set-management routes (`curate`, mounted as 11j's: memberships
     mode with both keys): `GET /api/evalsets` (the organization's sets: id, name, pack, state,
     when made, cases), `GET /api/evalsets/{set_id}` (name, pack and questions; state,
     commitment, rule, runs used and left; cases by status and each labeller's work by user id;
@@ -1047,7 +1202,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     whose administrators draw, assign, adjudicate and read through the routes (conflict 57
     amended: a set's answer to its curators may name label words); threat model I13 and E11;
     the runbook's "Curating from the dashboard API".
-  - [ ] **11l** (PR open) The grading route and the aggregates-only result (`grade`):
+  - [x] **11l** (#250, merged 2026-10-16) The grading route and the aggregates-only result (`grade`):
     `POST /api/evalsets/{set_id}/runs` (`{pack, variants?}`), mounted with both keys in both
     account modes (its path out of `_MEMBERSHIPS_ONLY`, its `*` rule before the curators'); only
     an organization's grading key passes, for its own sets (another's, an unknown and a malformed
@@ -1087,7 +1242,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
     phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
     gate probe changes (11o replaces `labelling-underway`'s).
-  - [ ] **11n** (PR open) The management screen (`#evalsets[/<set id>[/<tab>]]`,
+  - [x] **11n** (#251, merged 2026-10-17) The management screen (`#evalsets[/<set id>[/<tab>]]`,
     `dashboard/evalsets.js`, "Hidden sets" in the section list, over 11k's routes and the members
     list only): available, link included, only to a signed-in person holding `curate` in
     memberships mode where `/api/health` names the evaluation-set keys (`state.evalsets`, read
@@ -1110,9 +1265,39 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in claims mode; axe in both themes; phone and `UNDER_24` on every tab; the import lines)
     and `test_invite_page` (the screen's labeller rule and evidence threshold are the
     server's). The Access tab lists are unchanged.
-  - [ ] **11o** Close-out (gates, threat model rows, the review packet).
+  - [x] **11o** (#254) Close-out, tests and docs only: G2-3's `labelling-underway` and
+    G3-4's `hidden-sets-frozen` lose their `pending` probes for `tests` probes (29 and 21 tests,
+    named without their cases: the 11g, 11h, 11j, 11k, 11m and 11n tests, and the 11a, 11g, 11i,
+    11k, 11l and 11n tests, each with the end-to-end test; browser tests included), both
+    attestations left empty and no prerequisite added. The threat model's residual risks: the
+    key holder decrypts offline; an administrator links one case's events by its keyed hash and
+    sees who read and labelled it, and the chain keeps those user ids; adjudication shows which
+    cases and pairs disagreed; until a set freezes, no commitment covers its header, its cases'
+    statuses or their weights (a status edited by SQL passes verify and is frozen as it is), and
+    none covers a set's stored aggregates, so a gate's positives come from `freeze`'s output;
+    paraphrased public cases pass the public-source rule. The
+    runbook's owner's steps (both keys made with the command, kept off the laptop, Production
+    only and why, redeploy and the health check, the `0600` file, what claims mode mounts, a
+    lost key, the grading key's `--days` and expiry, each set's rotation numbers, how to fill
+    both attestations) and "A set from start to end", each checked against the code (every
+    writing command, not only `create`, `add` and `remove-case`, refuses a database no server
+    used). ADR-0011's status (built 11a to 11o; accepted once the owner's decisions below confirm
+    or change its defaults), its 11m and 11o steps and its consequences; the README and the
+    CHANGELOG (11m's entry, which #241 lacked, and the close-out).
+    `tests/test_evalset_end_to_end.py` (SQLite and Postgres): two organizations made on the
+    command line, the deployment in use with the keys on, a set made and filled with `mendari
+    evalset create` and `add`, drawn, assigned and adjudicated through the curators' routes,
+    labelled blind through the labellers' (one case disputed, then resolved) and followed with
+    `progress`, measured (`agreement`, `coverage`), frozen, shown and retired by the runbook's
+    lines, graded once through the grading route with a key and a body as the runbook writes
+    them (the other organization's key answered `no_set`; a second run after retiring
+    `not_gradable`), then `mendari audit verify --evalsets` passes, `rotate --check` is ready and
+    the set's chain holds its events in the lifecycle's order; no answer, log line or command
+    output holds a case's input, author or author's id but each labeller's own next case its
+    input. The review packet (`docs/security/review-packet.md`) is not updated: neither the
+    plan's 11o nor LP-12's close-out touched it.
 
-  **Owner decisions still open** (none blocks 11a to 11l; the hosted site mounts no labelling
+  **Owner decisions still open** (none blocked the build; the hosted site mounts no labelling
   or curating route until the first is settled): how labellers reach the hosted site
   (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
   rotation numbers (maximum grading runs and age, both required at freeze); what settles a
@@ -1389,9 +1574,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
 
-- [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
-  (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
-  changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
+- [x] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed; built with 18h,
+  2026-10-17; G3-4's a10-registry-hub still waits on LP-19). Planned (2026-10-09) as eight PRs,
+  each merged before the next, and the Decision Card's approval screen added: nine items;
+  LP-16 is merged (16a to 16g). None changes what a pack decides on its own engine; 18d only
+  lowers automation for pulled packs.
   - [x] **18a** (#228, merged 2026-10-09) The card rendered by the registry and the two groups: `render_card(pack,
     report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
     pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
@@ -1543,7 +1730,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     registry did not issue counts against its sender's address); the limit's database work ran
     on the event loop (now in the thread pool); an unhandled error's 500 had no headers (now a
     bare 500 with them); the Hub's tests cover an unmatched page too.
-  - [x] **18g** (PR open) The regression check (`hub/regression.py`): on every publish
+  - [x] **18g** (#239, merged 2026-10-10) The regression check (`hub/regression.py`): on every publish
     (`MENDARI_REGISTRY_REGRESSION`, `on` unless set), the pack is evaluated on its own
     `evaluation.benchmark_dataset` (a file its digest covers) in a child process (`python -I -m
     mendari.hub.regression DIR`: an environment of five fixed variables, no credential or
@@ -1568,7 +1755,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
     file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
     accuracy) is no longer served beside `checked.regression`.
-  - [x] **18d screen** (PR open) The registry approval on the Decision Card: an approval is keyed
+  - [x] **18d screen** (#240, merged 2026-10-10) The registry approval on the Decision Card: an approval is keyed
     on the pack and its digest (per organization), so it lives in the card's Automation approval
     section, not in Access. For a pack served from a registry: where it came from (registry,
     namespace, signing key, when pulled, the digest served), a recall recorded at pull, the
@@ -1583,8 +1770,34 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
     names the deployed model, and the list would be a call to Jev on every card for nothing to
     act on.
-  - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
-    rows, docs.
+  - [x] **18h** (#255) Close-out. The engine no longer uses a pulled pack's uploaded
+    benchmark, the gap in the acceptance check that needed code (18a left the monitor as is,
+    and nothing covered the evaluation's comparison; the others are residual risks in the
+    threat model): `/api/monitoring` and `mendari monitor` take no
+    benchmark for a pack from a registry (`benchmark.reason: from_registry`, its figures null,
+    only the checks that need none run; the dashboard says why), and the evaluation route and
+    `mendari eval` attach `comparison: {status: unknown, reason}` instead of comparing with the
+    benchmark it carries (`--baseline report.json` is still compared), and `mendari demo` says
+    the same of a pulled copy of its pack; every other pack as before. Gate a10's LP-18 half is
+    its tests, in five probes by the prompt's Tests (the card, the two groups and the engine's
+    uploaded benchmark; recalls, deletions and a server honouring them; the pulled-pack cap and
+    the Decision Card's approval; limits and headers, the Hub's half pinned by
+    `test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner` and
+    `test_zap_check_fails_on_a_medium_or_high_risk_only`; plain publisher text and the
+    chain); its `pending` probe names LP-19 alone, so a10 stays unmet. Threat model rows S18,
+    S19, T7, R3, D11, D12, E12 and E13, with E1, E3, S4, the trust boundaries, the header and
+    the Pack content part amended, and residual risks (the admin token until LP-19, unverified
+    site reports, an unreadable registry, the unkeyed chain, the signing key, the regression
+    check, approvals that never expire, the Hub's checks not required). ADR-0012's status
+    (built; accepted once the owner confirms) and Consequences (the breaking cap).
+    `docs/operations/registry.md` (in the nav), README, CHANGELOG, SECURITY.md, the
+    evaluation-reports spec (the registry's `figures` always null), the review packet's scope
+    (the registry and the Hub in it), architecture and the authoring guide;
+    `scripts/zap_check.py`'s docstring names both jobs. The review: the registry's 500 carries
+    HSTS as every answer does, and the docs say what a server's recall read is (a decision
+    starts it once the last is five minutes old, and uses the list read before, so the
+    first decision after a quiet spell can still automate; a hold acts within seconds).
+    **LP-18 is built.**
 
   **Defaults each PR follows** (the owner may choose otherwise):
   1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes
@@ -1709,6 +1922,39 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] Owner: attest `grading-method` once the site is published, and set the method's
     effective date.
 
+- [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
+  by 18h, 2026-10-17): it waits on the owner's choice of where the registry runs.** The build
+  prompt says so ("Owner decision needed: mount the registry under the engine app (one origin,
+  one session, one database) or deploy it as a separate project. If it is not recorded in
+  tasks/todo.md, stop and ask."). It is not recorded, and it decides how a publisher token
+  belongs to a signed-in user and organization (requirement 1), where namespace claims and
+  their approvals live (2, 3), and what the deployment configuration is (4), so no part is built
+  on a guess. The options:
+  - **A, mount the registry under the engine (the build session's recommendation).** The
+    registry's routes under the engine app (`/registry/v1/...`, or its own host on the same
+    project): one origin, the engine's sign-in and memberships (LP-12) for people, one Postgres
+    with the `hub_` tables beside the engine's, one set of headers, limits and alerts, one
+    backup and runbook. Publisher tokens become credentials an organization's member mints and
+    revokes in the Access view (owner, created, last used, expiry), claims and their approval a
+    reviewer's queue there; the shared admin token goes. The Hub (Next.js, `hub/`) is a second
+    Vercel project that reads the registry's public routes. Cost: the registry's traffic and its
+    regression checks (a child process per publish, up to 180 s) share the engine's functions
+    and database; on Vercel a publish's check needs a longer function timeout than a decide.
+  - **B, a separate project** (`registry.<domain>`): its own Vercel project and Neon database,
+    sign-in through the same identity provider but its own sessions, organizations mirrored or
+    looked up from the engine, its own runbook and backups. Isolates load and failure, at the
+    cost of two account systems to keep in step.
+  Either way, after the choice (Claude builds, the owner deploys): tokens owned and expiring,
+  with self-service create, list and revoke; namespace claims (`mendari/` and `openhealth/`
+  reserved), a first publish invisible to search, pull and the Hub until a reviewer approves
+  it; an organization linked to its namespaces; the deployment configuration (configuration
+  only); the registry's key counter-signing accepted versions, shipped with the client; https
+  required but on localhost. **Owner steps then:** choose A or B; for B, create the Vercel
+  project and the Neon database; set `MENDARI_REGISTRY_SIGNING_KEY` (32 random bytes, base64)
+  for the registry's own recalls and counter-signatures; DNS for the registry and the Hub; the
+  Hub's `REGISTRY_URL`. LP-22 (the site evaluation network) needs LP-19's organizations in the
+  registry, so it waits too.
+
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
@@ -1748,7 +1994,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     retries for 60 s, no organization started after 180 s, an alert naming those left, a
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
-    never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
+    never re-run; gate `hosted-monitoring` names its tests and waits only for the owner's alert
+    webhook (the schedule, 21n, is merged).
   - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
@@ -1772,7 +2019,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`CRON_SECRET`) records and signs, and alerts `audit.broken` on a chain that does not
     verify or a day's stored statement that is not this key's (never published); a rotated
     key signs the day anew; `mendari audit verify --against <statement or the route's answer>
-    --public-key <key>`. The hosted schedule waits for 21n.
+    --public-key <key>`. The hosted schedule runs it daily at 10:00 UTC (21n); a statement is
+    signed and published once the owner sets the key.
   - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
     `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
     `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
@@ -1785,11 +2033,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `pg_restore`, Neon) with a full verification against the last signed checkpoint, the
     firewall's log-only week (the owner's); `tests/test_restore.py` runs the restore on SQLite
     and Postgres in CI; gate `incident-runbook` names its tests.
-  - [ ] **21n** (#217, draft) The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
-    Prepared: the purge at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily;
-    a test pins them and runs each with the secret, and gate `hosted-monitoring` names it. Its
-    alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for Production; the gate
-    stays pending until then.
+  - [x] **21n** (#217, merged 2026-10-09) The hosted schedule (`vercel.json` crons): the purge
+    at 08:00 UTC, the monitor at 09:00, the checkpoint at 10:00, each daily; a test pins them
+    and runs each with the secret, and gate `hosted-monitoring` names it. It has run daily
+    since (the production logs show all three routes answering `200` on 2026-10-15, 10-16 and
+    10-17). The owner's go-ahead to merge is not recorded in writing: **owner, confirm it after
+    the fact.** Its alerts reach someone once the owner sets `MENDARI_ALERT_WEBHOOK` for
+    Production, which `mendari alerts test` checks; the gate stays pending until then.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
 
   **Defaults each PR follows** (the owner may choose otherwise):
@@ -1815,12 +2065,23 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   10. (21k) The public checkpoint carries no sequence number or count, and is published only
      once the owner sets the key.
 
-  **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
-  paged (B36); the evaluation quota values, and whether evaluations get a deployment budget of
-  their own (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
-  decisions); the alert format, secret and destination; the
-  checkpoint key and where its public key is published; the hosted schedule (21n); firewall
-  enforcement (21o).
+  **Owner decisions** (none blocks 21a to 21n), still open:
+  - the status page provider, its checks and who is paged (B36). `python
+    scripts/status_checks.py --export json --api <MENDARI_PUBLIC_URL>` prints the checks to set
+    up. No outside check reaches the hosted site until Vercel Authentication is lifted; the
+    decide check waits for a status organization (memberships mode, LP-12), and the registry and
+    Hub checks for LP-19 (gate `status-page`'s pending line);
+  - the evaluation quota values, and whether evaluations get a deployment budget of their own
+    (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
+    decisions);
+  - the alert format, secret and destination. Set `MENDARI_ALERT_WEBHOOK` (https),
+    `MENDARI_ALERT_SECRET` (`openssl rand -hex 32`) and, for a Slack webhook,
+    `MENDARI_ALERT_FORMAT=slack`, for Production only and marked sensitive; redeploy; then run
+    `mendari alerts test` on your own machine with the same three values: it should say
+    `delivered`, and the receiver should accept the signature. Then a build PR removes gate
+    `hosted-monitoring`'s pending line;
+  - the checkpoint key (`MENDARI_CHECKPOINT_KEY`) and where its public key is published;
+  - firewall enforcement (21o).
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
@@ -1865,8 +2126,9 @@ and GitHub's email push protection goes on. Location is the trust label, never t
 - [ ] **A10 (owner)** Private vulnerability reporting, secret scanning with push protection,
   Dependabot, CodeQL, fork-PR approval for first-time contributors.
 - [ ] **A11 (owner, then build)** Protected `pypi` and `ghcr` environments, a `v*` tag ruleset,
-  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (a deploy workflow is a
-  later PR), and the README's install line switches to `pip install mendari`.
+  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (`docs.yml`, LP-15c, run
+  by hand; its deploy skips while the repository is private; owner step 9), and the README's
+  install line switches to `pip install mendari`.
 
 **Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
 B6/B7 → B8 → B9 → B10).
@@ -2149,12 +2411,17 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → the `mendari-hq` organization → Packages lists the six `mendari-*`
    images (make each public in its package settings if it is private).
-9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
-   Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
-   the site opens at `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a
-   custom domain, change it and add the domain in Pages), every page shows the notice, then a
-   build PR points the README and `mendari new` at it and switches the install line to `pip
-   install mendari`.
+9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). First name the docs host:
+   GitHub Pages at `https://mendari-hq.github.io/mendari/`, or a custom domain (Pages → Custom
+   domain, a DNS CNAME to `mendari-hq.github.io`, HTTPS enforced, and a build PR that changes
+   `site_url` and the dashboard's `DOCS_SITE`, which a test keeps equal). The organization is on
+   GitHub Team, so Pages can publish from the private repository and the site would be public to
+   anyone, but `docs.yml`'s deploy job skips while the repository is private: a run before A9 builds
+   the site and publishes nothing. After A9: Settings → **Pages** → Source: **GitHub Actions**; then
+   Actions → **docs** → Run workflow, from `main`. Check after: the site opens at
+   `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a custom domain, change it
+   and add the domain in Pages), every page shows the notice, then a build PR points the README and
+   `mendari new` at it and switches the install line to `pip install mendari`.
 
 ### Community packs: owner steps (B8–B10)
 After the community-packs PR (`claude/community-packs`) is merged and the repository is public
@@ -2672,10 +2939,45 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
   criteria in CQL, checked against `criteria` in CI (job `cql`; `mendari agreement`)
 - [x] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
-- [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response (validated
-  against CRD 2.2.1)
-- [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
-- [x] Da Vinci PAS: request Bundle and submission to a mock payer (validated against PAS 2.2.1)
+- [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response
+  (profile-validated against CRD 2.2.1 with the HL7 validator, offline)
+- [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (profile-validated against DTR
+  2.2.0 with the HL7 validator, offline)
+- [x] Da Vinci PAS: request Bundle and submission to a mock payer (profile-validated against PAS
+  2.2.1 with the HL7 validator, offline)
+- [ ] **Da Vinci verification** (brief of 2026-10-17, DV-a to DV-e). Mendari's DTR route is the
+  payer side (the "DTR Server"), so a payer never calls it: the counterpart is a DTR client, the
+  Inferno DTR test kit v0.18.0 (suite `dtr_payer_server_v220`, Inferno as the client).
+  - [x] DV-a: `$questionnaire-package` error semantics. A questionnaire not found (a version
+    other than the pack's too) is a warning (`not-found`) in `outcome`, with packages or without
+    (oper-9), and so is an order or a context that names no decision; the packages are the union
+    of the orders' and the questionnaires asked for, each version once. Orders or a context
+    that name no decision of the caller's organization, with nothing to return, are a `422`
+    OperationOutcome (`not-found`, spec-130), one answer for an unknown id and another
+    organization's; a decided order that needs no documentation keeps its information note
+    (oper-8); a request that names no order, context or questionnaire is a `400` (oper-6).
+    "Validated against DTR 2.2.0" now says profile-validated (HL7 validator, offline).
+  - [ ] DV-b: pin the implementation guide packages by checksum (each packages.fhir.org tarball
+    with its sha256, `sha256sum -c`, a local `-ig path.tgz`); today only the validator's jar is.
+  - [ ] DV-c: the Inferno DTR payer-suite job, weekly and by hand, not a required check: groups
+    1, 3 and 4 against the open engine on synthetic data, from Mendari's own Dockerfile and
+    compose file pinned by digest and SHA, compared with a known-gaps file that may only shrink.
+    Expected gaps: 1.01 (conf-1), 3.4.04 (spec-54), the CQL design tests, 3.7.x must-support,
+    4.01 (oper-1). 3.6.01 and 3.6.02 must pass.
+  - [ ] DV-d (optional): the Inferno PAS client suite's approval workflow, the closest stand-in
+    for a payer, attested from the decision's `pas.submitted` event.
+  - [ ] DV-e is LP-23's 23l: DTR group 2 (Backend Services) and the CRD server suite, once
+    LP-23 verifies EHR tokens.
+  - Conflicts, defaults taken: the kits validate through tx.fhir.org, so `fhir-conformance`
+    stays the offline gate (`-tx n/a`) and Inferno runs weekly with synthetic resources only;
+    Mendari pins the kits' images and gems itself; `$next-question`, `$log-questionnaire-errors`,
+    `ValueSet/$expand` and CQL population stay listed gaps, not advertised; no new launch gate;
+    the HL7 DTR reference app is never run (it would POST to https://mendari.co).
+  - **Owner decisions:** whether a weekly job may send synthetic resources to tx.fhir.org or
+    must stay offline; a fuller DTR payer service or a declared partial one; whether PAS
+    attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for `needs_attention`.
+    Real acceptance is the owner's alone: a payer's PAS sandbox with credentials, a payer's
+    written requirements, an EHR's DTR client (B38).
 
 ## Done: v0.6 Readiness for health organizations ([plan](../notes/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).

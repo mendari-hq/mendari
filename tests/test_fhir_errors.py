@@ -155,8 +155,16 @@ def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
     assert outcome_of(unknown_pack, 404)[0]["code"] == "not-found"
     no_route = client.get("/fhir/Patient/p1")  # Mendari serves no clinical resources
     assert outcome_of(no_route, 404)[0]["code"] == "not-found"
-    dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json={"resourceType": "x"})
+    package = "/fhir/Questionnaire/$questionnaire-package"
+    dtr = client.post(package, json={"resourceType": "x"})
     assert "Coverage" in outcome_of(dtr, 422)[0]["diagnostics"]
+    coverage = {"name": "coverage", "resource": {"resourceType": "Coverage", "id": "c1"}}
+    asks_nothing = {"resourceType": "Parameters", "parameter": [coverage]}
+    [issue] = outcome_of(client.post(package, json=asks_nothing), 400)  # DTR oper-6
+    assert (issue["code"], issue["expression"]) == ("required", ["Parameters.parameter"])
+    context = {"name": "context", "valueString": SECRET}  # names no decision: DTR spec-130
+    no_source = client.post(package, json={**asks_nothing, "parameter": [coverage, context]})
+    assert outcome_of(no_source, 422)[0]["code"] == "not-found" and SECRET not in no_source.text
 
 
 def test_a_body_that_is_not_a_json_object_is_refused_without_an_echo(client: TestClient) -> None:
