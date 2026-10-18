@@ -1,8 +1,12 @@
 # ADR-0011: Hidden evaluation sets, blind labelling and agreement
 
 ## Status
-Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
-`notes/lp11-plan.md`); each step adds what it built here, in the order they land:
+Proposed (2026-10-09). Built (LP-11, 11a to 11o, 2026-10-09 to 2026-10-17) by the defaults of
+the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them; accepted
+once the seven owner decisions still open there (how labellers reach the hosted site among
+them) confirm or change those defaults. Gate G2-3's prerequisite `labelling-underway` and gate
+G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests that hold what was built; each
+still waits for the owner's attestation. What each step built, in the order they landed:
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file;
 - 11b, rater agreement (percent agreement, Cohen's kappa per pair, Krippendorff's alpha, with
   seeded bootstrap intervals), pure;
@@ -57,6 +61,13 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   names the question, never the value; closed answer models; a `label` rate limit per labeller;
   not gated by the notice; the security log names set ids only. The 11g sweep labels through
   them and allows a case's input only in a labeller's own next case.
+- 11m, the labelling screen (`#labelling`, `dashboard/labelling.js`, over 11j's routes only):
+  shown to a person holding `label` where those routes are served; someone who only labels sees
+  it alone (`labelOnly`: no pack, no notice, no other section); their counts set by set, then
+  one case at a time, its input escaped by `record.js` (the generic renderer, taken out of
+  `pack.js`) and the set's questions as radio groups with nothing chosen. Blind: nothing of the
+  case but its input, nor anyone's label, reaches the page, and nothing is kept in the
+  browser's storage.
 - 11k, an organization's curators' routes (`GET /api/evalsets`, `GET /api/evalsets/{set_id}`,
   `POST /api/evalsets/{set_id}/sample`, `/assignments` and `/adjudication`), mounted as 11j's are
   (memberships mode with both keys only): only a person holding `curate` (an administrator of the
@@ -103,6 +114,18 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   estimable" in words, the insufficient-evidence mark); a set that is no longer a draft shows no
   form. Ids, counts, names and stored aggregates only; the wording says "in use" and "evaluation
   runs".
+- 11o, the close-out, tests and docs only: gate G2-3's `labelling-underway` probed by the 11g,
+  11h, 11j, 11k, 11m and 11n tests and gate G3-4's `hidden-sets-frozen` by the 11a, 11g, 11i,
+  11k, 11l and 11n tests, each with the end-to-end test, both attestations left to the owner;
+  the threat model's residual risks for hidden sets; the runbook's owner's steps (the keys, a
+  grading key, the rotation rule's numbers and the two attestations) and a set from start to
+  end; and one end-to-end test (`tests/test_evalset_end_to_end.py`, SQLite and Postgres: a set
+  made and filled on the command line, drawn, assigned and adjudicated through the curators'
+  routes, labelled blind through the labellers', followed and measured on the command line,
+  frozen, graded through the grading route with a grading key and a body as the runbook writes
+  them, shown and retired, then `mendari audit verify --evalsets` and `mendari evalset rotate
+  --check` pass and the set's chain holds its events in the lifecycle's order; no answer, log
+  or command output holds a case's content but a labeller's own next case its input).
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
@@ -174,7 +197,19 @@ until LP-17 decides on remote ones.
 - The coverage report counts distinct positives; the evaluation report (`mendari.eval/2`) still
   counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). Which one the
   evidence rule should use is the owner's, for LP-17.
-- Paraphrases of public text pass the equality check; review and the threat model cover them.
+- An organization's administrators can link one case's events by its keyed hash, in the
+  administrative list and its FHIR export, and see who read and labelled it (by user id) and
+  that it went to adjudication, which shows that its first two labellers disagreed; never what
+  it holds or how anyone labelled it.
+- The chain keeps each labeller's user id for as long as the chain is kept, a labeller who
+  leaves included.
+- The database refuses no write itself: its DDL holds no trigger (Postgres splits it on `;`),
+  so the refusals are the store's, and an edit made by SQL is caught when the set is next read
+  or verified, not prevented.
+- The freeze commitment is a salted hash, not a signature, until LP-17 decides the grading key.
+- Paraphrases of public text pass the equality check; the hand-written rule (`template` null)
+  and review stand against them. The threat model's residual risks name this risk and the
+  others above.
 
 ## Alternatives considered
 - **Sets in a separate store or service.** Rejected by the owner: one database, one backup, one

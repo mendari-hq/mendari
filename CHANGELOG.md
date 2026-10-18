@@ -77,6 +77,25 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
+  keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
+  Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from
+  the command line, drawn, assigned and adjudicated through the administrator's routes, labelled
+  blind through the labellers', followed and measured from the command line, frozen, graded
+  through the grading route with a grading key and a body as the runbook writes them, shown and
+  retired; then `mendari audit verify --evalsets` passes, `mendari evalset rotate --check` is
+  ready and the set's chain holds its events in the lifecycle's order, and no answer, log line
+  or command's output held a case's content but each labeller's own next case its input. The
+  launch gates' `labelling-underway` and `hidden-sets-frozen` name the tests that hold them,
+  each still waiting for the owner's attestation. The threat model names hidden sets' residual
+  risks: the key holder can decrypt offline; an administrator can link one case's events by its
+  keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
+  which cases were disputed; and paraphrased public cases pass. The runbook
+  (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
+  lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
+  attestations) and a set from start to end, and now says that every writing `mendari evalset`
+  command refuses a database no server used and that a grading key lives 90 days unless
+  `--days` says otherwise. ADR-0011 records what was built and its consequences.
 - **Hidden evaluation sets in the dashboard: the Hidden sets screen** (LP-11n, `#evalsets`).
   An administrator who signed in, in memberships mode where hidden sets are on (their keys'
   ids in `/api/health`), finds **Hidden sets** in the section list; labellers, other roles,
@@ -132,6 +151,16 @@ The first release (not yet published).
   administrator's other writes, they have no rate-limit class. Security-log events
   `evalset.sampled`, `evalset.assigned` and `evalset.adjudication.assigned`, naming the set's id
   only. Runbook: `docs/operations/evalsets.md`, Curating from the dashboard API.
+- **Hidden evaluation sets in the dashboard: the Labelling screen** (LP-11m, `#labelling`, over
+  a labeller's own routes only). A person holding `label` where those routes are served finds
+  **Labelling** in the section list; someone who only labels sees it alone, with no pack, no
+  notice and no other section, and without the keys keeps the access page, which says labelling
+  is not switched on. It shows their counts set by set, then one case at a time: its input as
+  text and the set's questions as radio groups with nothing chosen, then the next case on Save.
+  An unanswered question, or a label the server refuses, is said beside the question it names;
+  an assignment no longer theirs moves on to the next; when nothing waits, it says so. Blind:
+  nothing of the case but its input, nor anyone's label, reaches the page, and nothing is kept
+  in the browser's storage. Runbook: `docs/operations/evalsets.md`, How a labeller labels.
 - **Hidden evaluation sets, labelled through a labeller's own routes** (LP-11, memberships mode
   with both evaluation-set keys only: the hosted site, in claims mode without them, mounts none).
   `GET /api/labelling` gives a labeller their own counts, set by set; `GET /api/labelling/next`

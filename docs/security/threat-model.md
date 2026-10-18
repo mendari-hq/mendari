@@ -364,6 +364,33 @@ Whatever it says, and whoever wrote it, a pack cannot:
   database. Two deployments that share a database and a `MENDARI_PUBLIC_URL` (a preview
   pointed at production's database, say) accept each other's tokens and assertions. Give
   preview its own database, or keep Backend Services off there.
+- **The key holder can decrypt hidden evaluation sets offline.** Whoever holds
+  `MENDARI_EVALSET_KEY` and a copy of the database, or a sealed export (`mendari evalset
+  export`), can open every case, label, aggregate and freeze record outside the server. "Only a
+  grading run reads a frozen or active set" is a rule the software keeps (the routes and the
+  grading read, I13; the lifecycle, T6), not the cryptography. A case, a label or a frozen set's
+  content changed and re-sealed offline is still caught by its chained commitment (T6); a
+  draft's header has no commitment until the set is frozen. The keys are the owner's, set as
+  Secret for Production only, so a Preview's copy of the database holds the sets as ciphertext
+  it cannot open (ADR-0011).
+- **An administrator can link one hidden case's events, and the chain keeps who labelled it.**
+  Every event about a case names it by the same keyed hash (`hmac-sha256:<index key id>:…`), so
+  an organization's administrators, in the administrative list and its FHIR export, can follow
+  one case through being added, assigned, read, labelled and adjudicated, and see who read and
+  labelled it, by user id; never what it holds or how anyone labelled it (I13). The chain keeps
+  those user ids for as long as it is kept: a labeller who leaves stays named there.
+- **Adjudication shows where labellers disagreed.** A case given a third labeller
+  (`evalset.assigned` in round `adjudication`) is one its first two labelled differently, so the
+  chain shows which cases, and which pairs of labellers, disagreed, though not on which question
+  or with which labels. The curators' read of a set counts its cases `disputed`, `resolved` and
+  `unresolved`, and gives each pair's kappa (I13).
+- **Paraphrases of public cases pass.** `mendari evalset add` takes hand-written cases only
+  (`source` is `hand_written`, `template` is null) and refuses an input equal to a public case's,
+  exactly or under `norm/v1`: the bundled reference data and example datasets, and each
+  synthetic generator's output at its default seed. A reworded public case passes that check;
+  only the rule, the author's care and review stand against it. The hidden-case index matches
+  the same two forms, so the pack store's upload check (LP-20) will miss a reworded hidden case
+  too.
 
 ## Reporting a vulnerability
 

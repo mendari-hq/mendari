@@ -902,7 +902,12 @@ The organization's grading key grades a pack against one of its frozen sets thro
 `POST /api/evalsets/{id}/runs`, mounted with both keys in either account mode: with local
 providers only, each run counted against the set's rotation rule and chained before its cases
 are read, nothing stored, and answered with aggregates only (`mendari.hidden_result/1`, never a
-case).
+case). The runbook walks
+[a set from start to end](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#a-set-from-start-to-end),
+and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
+on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
+the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
+how labellers will reach it is the owner's decision still open.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1016,7 +1021,7 @@ API keys rotate with an overlap. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
-`mendari audit verify --notes` checks the kept ones. Hidden evaluation sets (LP-11, being built)
+`mendari audit verify --notes` checks the kept ones. Hidden evaluation sets (LP-11)
 have keys of their own, unlike every other key: `MENDARI_EVALSET_KEY` and
 `MENDARI_EVALSET_INDEX_KEY`, set together for Production only, or not at all (the feature is then
 off). Read
