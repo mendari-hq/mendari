@@ -73,6 +73,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "agreement": (["mendari/patient-inbox-router", "--slot", "routr", "--variants", "a", "b"], {}),
     "leaderboard": (["mendari/ai-guard", "--report", "{missing}"], {}),
     "compare": (["{missing}", "{missing}", "--dataset", "test"], {}),
+    "scoreboard arms": (["no/such-pack"], {}),
     "card": (["no/such-pack"], {}),
     "schema": (["no/such-pack"], {}),
     "serve": (["--db", "{not_db}"], {}),

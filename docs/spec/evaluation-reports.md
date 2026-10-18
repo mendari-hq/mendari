@@ -205,6 +205,53 @@ the row: a board can come from a registry upload. A row measured on another pack
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.
 
+## Arms: `mendari.arms/1`
+
+The scoreboard (LP-17) puts a pack's provider configurations in four arms, by the class of the
+models they ask (`evals/arms.py`). `mendari scoreboard arms PACK` lists them from the pack's
+manifest alone: nothing is run, called or written (`--json` prints the report).
+
+A configuration is one variant for each of the pack's slots, so a pack's configurations are the
+product of its slots' variants. Its arm comes from the provider types it runs, in any slot,
+counting a composite's members as its own (one level: composites cannot nest). Jev is the
+specialised classifier and an LLM the general model; every other type asks no model.
+
+| Arm | Name | Its configurations |
+|---|---|---|
+| `deterministic` | Mendari only | Ask no model: rules, criteria, dosing, naive Bayes and CQL. |
+| `classifier` | + specialised classifier | Jev in at least one slot, and no LLM. |
+| `llm` | + general LLM | An LLM in at least one slot, and no Jev. |
+| `classifier_and_llm` | + both | Jev and an LLM, in two slots, or in one through a composite with both. |
+
+The arm says what a configuration asks, not where it runs. Each configuration also says whether
+it is local: every slot's variant decides on the machine (`core.origin.is_local`: rules,
+criteria, dosing and naive Bayes, or a composite of only those). A configuration that is not
+local names its remote types, the types it calls off the machine. CQL is deterministic but
+remote: it calls Mendari's own CQL engine (`MENDARI_CQL_URL`), not a model. An arm none of a
+pack's configurations reaches is `not applicable`. A pack with more than 10,000 configurations is
+refused, never listed.
+
+The report holds `format`, `pack` (its `id`, `version` and `digest`), `configurations` (how many
+the pack has) and `arms`: for each arm, in the order above, its `name`, its `status`
+(`applicable` or `not applicable`) and its `configurations`. Each configuration has `providers`
+(slot to variant, in the manifest's order), `local` and `remote_types` (sorted, and empty when it
+is local). The command line writes each configuration as `mendari leaderboard --run` takes it
+(`slot=variant,slot=variant`). The report names the pack, its slots and their variants, never a
+case.
+
+The five reference packs' arms, from their manifests:
+
+| Pack | Mendari only | + specialised classifier | + general LLM | + both |
+|---|---|---|---|---|
+| ai-guard | 1 | 2 | 2 | not applicable |
+| clinical-trial-prescreener | 2 (one is `structured=cql`) | 4 | 4 | not applicable |
+| patient-inbox-router | 2 (`router` is `naive_bayes` or `rules`) | 10 | 7 | 6 |
+| prior-auth-preflight | 1 | 2 | 2 | not applicable |
+| referral-router | 1 | 8 | 5 | 6 |
+
+No variant in these packs asks both Jev and an LLM, so "+ both" takes two slots, and only the
+inbox and referral packs have it.
+
 ## Paired comparisons: `mendari.compare/1`
 
 `mendari compare A B --dataset X` compares two runs of one pack on the same dataset, from their
