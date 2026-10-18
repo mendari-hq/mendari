@@ -8,8 +8,19 @@ the narrow EHR principal exists only for SMART launches. It is built in steps (L
 - 23c, open mode on this machine only, and CORS for registered origins;
 - 23d, a recorded ABSTAIN on an unreadable record, and the data-coverage record.
 
-Nothing is built yet (23a writes this record and the plan). The defaults below hold unless the
-owner chooses otherwise.
+23a wrote this record and the plan. What each step has built since:
+
+- **23b (2026-10-18):** decisions 1 to 4, in `server/cds_clients.py` (the registry, the key
+  cache and the verifier) and `server/auth.py` (the `cds` principal and the CDS branch of the
+  guard). Two details the decisions leave open are settled there. A JWT-shaped credential is a
+  `Bearer` credential that holds a `.`, which none Mendari issues does, so a JWT of any length
+  reaches the verifier on `/cds-services`, and one over 8 KiB is refused by its size. The `jti`
+  claims are the session table's kind `cds-jti`, kept apart from Backend Services' `jti` and
+  never ended by the break-glass; each claim now deletes up to 100 expired rows, as each put
+  does. A `cds` principal in open mode acts for `default` and is named in the chain
+  (`requested_by: cds <id>`), the one principal open mode has.
+
+The defaults below hold unless the owner chooses otherwise.
 
 ## Context
 An EHR calls a CDS Hooks service with its own signed token. Mendari cannot take one today:

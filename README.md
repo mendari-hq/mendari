@@ -562,12 +562,19 @@ is refused. A prefetch template is a read or search relative to that server (`Ty
 Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
 ([LLMs and local models](#llms-and-local-models)).
 
-**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
-Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
-Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
-Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
-`Authorization` header. How an EHR is to call with its own token, and what a hook does with a
-record it cannot read, is
+**An EHR's own token (LP-23b).** With sign-in on, the CDS Hooks services take Mendari's own
+credentials (a key made from the `cds-hooks` preset, or a SMART Backend Services token scoped to
+decide) and, once you register an EHR in `MENDARI_CDS_CLIENTS`, the short-lived JWT that EHR
+signs itself (CDS Hooks 2.0). A registered client names its `iss`, its organization, the FHIR
+bases it may send as `fhirServer`, and its public keys, by value or from one `jwks_uri` on
+`MENDARI_FHIR_ALLOWED_SERVERS`. A token must be RS384 or ES384, addressed (`aud`) to
+`MENDARI_PUBLIC_URL` plus the path it calls, live at most 330 seconds, and carry a `jti` used
+once. A verified token is the principal `cds:<id>` of the registered organization: it lists and
+calls the CDS services and reaches nothing else. Unset, a JWT is refused everywhere, in open mode
+too, where before it was never read. The rest of open mode is as before: it answers anyone, on
+any host, until LP-23c. How it works, field by field, is
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
+the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
 (Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
 is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
@@ -945,8 +952,9 @@ With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoev
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
 and the dashboard shows them as the audit chain names them and offers only what their role may
 do. The chain names a person by their verified email, else by their identity provider's subject
-qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`
-and a Backend Services client as `client <id>`. In open mode the client names the reviewer,
+qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`,
+a Backend Services client as `client <id>`, and an EHR calling CDS Hooks with its own token as
+`cds <id>` (in open mode too). In open mode the client names the reviewer,
 reporter and approver, and each must be an identifier (no spaces, at most 100 characters). `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.

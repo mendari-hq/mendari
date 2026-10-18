@@ -4,10 +4,8 @@ access tokens and discovery, on SQLite and Postgres. Synthetic keys and data onl
 
 from __future__ import annotations
 
-import base64
 import json
 import time
-import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +14,6 @@ from typing import Any
 import httpx
 import jwt
 import pytest
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi.testclient import TestClient
 
@@ -35,35 +32,10 @@ from mendari.server.scopes import DECIDE, OUTCOME
 from mendari.standards import bulk
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import encrypt_mode, message, security_lines, signed_in
+from tests.jwt_signers import DROP, PUBLIC_URL, TOKEN_URL, Signer, assertion, forged
 
-PUBLIC_URL = "https://mendari.test"
-TOKEN_URL = f"{PUBLIC_URL}/auth/token"
 INBOX = "mendari/patient-inbox-router"
 INVALID_CLIENT = {"error": "invalid_client", "error_description": "client authentication failed"}
-DROP = object()  # a claim left out of an assertion
-
-
-@dataclass(frozen=True)
-class Signer:
-    alg: str
-    kid: str
-    private: Any
-
-    @property
-    def jwk(self) -> dict[str, Any]:
-        public = self.private.public_key()
-        family = jwt.algorithms.RSAAlgorithm if self.alg == "RS384" else jwt.algorithms.ECAlgorithm
-        return {**json.loads(family.to_jwk(public)), "kid": self.kid}
-
-    def pem(self) -> str:
-        """As a site keeps it: PKCS#8 for RSA, SEC 1 for EC (what `bulk.backend_token` reads)."""
-        layout = (
-            serialization.PrivateFormat.PKCS8
-            if self.alg == "RS384"
-            else serialization.PrivateFormat.TraditionalOpenSSL
-        )
-        encoding = serialization.Encoding.PEM
-        return self.private.private_bytes(encoding, layout, serialization.NoEncryption()).decode()
 
 
 RSA_KEY = Signer("RS384", "rsa-1", rsa.generate_private_key(public_exponent=65537, key_size=2048))
@@ -124,36 +96,6 @@ def server(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Server]:
     on(monkeypatch)
     with TestClient(create_app(db_path=db_target), base_url=PUBLIC_URL) as http:
         yield Server(http, db_target)
-
-
-def assertion(
-    signer: Signer,
-    client_id: str,
-    *,
-    headers: dict[str, Any] | None = None,
-    algorithm: str | None = None,
-    lifetime: int = 120,
-    **claims: Any,
-) -> str:
-    now = int(time.time())
-    body: dict[str, Any] = {"iss": client_id, "sub": client_id, "aud": TOKEN_URL}
-    body |= {"exp": now + lifetime, "iat": now, "jti": uuid.uuid4().hex}
-    body |= claims
-    body = {name: value for name, value in body.items() if value is not DROP}
-    return jwt.encode(
-        body,
-        signer.private,
-        algorithm=algorithm or signer.alg,
-        headers={"kid": signer.kid, **(headers or {})},
-    )
-
-
-def forged(header: dict[str, Any], claims: dict[str, Any], signature: bytes = b"sig") -> str:
-    def part(value: Any) -> str:
-        raw = value if isinstance(value, bytes) else json.dumps(value).encode()
-        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
-    return f"{part(header)}.{part(claims)}.{part(signature)}"
 
 
 def ask(http: TestClient, signed: str, scope: str | None = "system/*.rs", **form: Any) -> Any:

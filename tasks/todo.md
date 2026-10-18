@@ -788,8 +788,23 @@ Connect) is not supported yet.
     FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
     every case of the four mapped packs' local-site examples, 1,150 cases; 41 prior-auth orders
     with no requirement set are refused through FHIR, as today). Nothing changes how a pack decides.
-  - [ ] **23b** Signed CDS client tokens: the registry, the verifier and the `cds` principal (one
-    adversarial security review).
+  - [x] **23b** (this PR) Signed CDS client tokens: the registry, the verifier and the `cds`
+    principal (one adversarial security review). `server/cds_clients.py`: `MENDARI_CDS_CLIENTS`
+    checked at startup (entry and field named, never a value or key material), keys by value or
+    one allow-listed `jwks_uri` (`JwksCache`: an hour, an unknown `kid` refetches at most once a
+    minute per client, one fetch at a time, a private key keeps nothing), and `verify` (8 KiB,
+    the header `alg` `kid` `typ` `jku` only, RS384 or ES384, `jku` exact, one key per `kid` and
+    type, `aud` the public URL plus the path, `exp` `iat` `jti` required, 330 s at most, a pinned
+    `sub` and `tenant`, the `jti` claimed last as `cds-jti`, each refusal one of 18 reasons).
+    `server/auth.py`: the CDS branch above open mode's shortcut, a `Bearer` credential holding a
+    `.` on `/cds-services` only; kind `cds` (`cds:<id>`, `cds <id>`) holding discover and decide,
+    refused anywhere else (`cds_only`). `cds_invoke` refuses an unregistered `fhirServer` with
+    `403` before charging or fetching; health lists `cds_clients`; `smart_claim` purges up to
+    100 expired rows. `Signer`, `assertion` and `forged` moved to `tests/jwt_signers.py`. Tests:
+    `tests/test_cds_clients.py`, `tests/test_cds_auth.py` (SQLite and Postgres), the route matrix
+    and the per-kind cap extended with kind `cds`. Threat-model rows S21, D13 and E15, with S5, E1
+    and R2 updated; `docs/guides/connecting-an-ehr.md`. Open mode still answers on any host
+    until 23c.
   - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
     for registered origins.
   - [ ] **23d** A hook that always answers: an unreadable record gives a recorded ABSTAIN with its

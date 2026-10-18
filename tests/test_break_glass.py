@@ -257,8 +257,9 @@ def test_a_revoked_key_and_ended_sessions_are_refused_by_the_running_server(
 
 
 def test_every_session_kind_the_server_writes_is_in_a_group_but_claims() -> None:
-    """A new kind of session must be put in `SESSION_GROUPS` (or be a claim, never ended), so
-    the break-glass cannot miss one."""
+    """A new kind of session must be put in `SESSION_GROUPS` (or be a claim, never ended: a
+    Backend Services assertion's `jti`, a CDS client's token's `cds-jti`), so the break-glass
+    cannot miss one."""
     written: set[str] = {auth_module.MEMBER}
     for path in (ROOT / "src" / "mendari").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -271,8 +272,9 @@ def test_every_session_kind_the_server_writes_is_in_a_group_but_claims() -> None
                 if isinstance(kind, ast.Constant) and isinstance(kind.value, str):
                     written.add(kind.value)
     grouped = {kind for kinds in SESSION_GROUPS.values() for kind in kinds}
-    assert written - {"jti"} == grouped
-    assert "jti" in written and "jti" not in grouped
+    claims = {"jti", "cds-jti"}
+    assert written - claims == grouped
+    assert claims <= written and not claims & grouped
 
 
 def test_ending_sessions_renders_as_an_audit_event_without_its_reason() -> None:
