@@ -512,6 +512,10 @@ change that loosens it:
 - every image (CI services, `docker run`, the Dockerfile's bases, both compose files) is pinned
   by digest;
 - every file a workflow downloads is checked against a pinned sha256;
+- the HL7 validator loads only the FHIR packages `scripts/fhir_packages.lock` pins (US Core, the
+  Da Vinci guides and every package they need, each with its sha256), and runs with no HTTP
+  access, so it fetches nothing by version alone (`tests/test_fhir_packages.py`,
+  `tests/test_workflow_safety.py`);
 - the Docker image installs exactly `uv.lock` (`uv sync --frozen`), and the build backend
   (hatchling) is pinned;
 - the vendored Swagger UI matches its pin: the npm integrity value in its lockfile, and each

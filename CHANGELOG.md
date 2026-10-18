@@ -71,6 +71,21 @@ The first release (not yet published).
   `scripts/davinci_sample.py` writes a tenth sample, a package with both warnings, for
   `fhir-conformance`. "Validated against DTR 2.2.0" now reads profile-validated (HL7 validator,
   offline): that checks the answers' structure, not how the operation behaves.
+- **The FHIR packages the HL7 validator loads are pinned by checksum (DV-b).** The validator
+  fetched US Core and the Da Vinci guides, and every package they need, from the package
+  registry by version alone; only its jar was checked. `scripts/fhir_packages.lock` now pins 55
+  packages, each with its sha256 and its URL: US Core 6.1.0, CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1,
+  what validator 6.10.4 loads by itself (R4 core, its terminology and extensions), and every
+  package they need (US Core 3.1.1 and 7.0.0, HRex, SDC, THO and VSAC among them). The job
+  `fhir-conformance` downloads each, checks it with `sha256sum -c` and fails on a mismatch, a
+  cached tarball too; it builds the validator's package cache from the checked tarballs
+  (`scripts/fhir_packages.py install`, which also refuses a lock that misses a dependency or
+  holds a package nothing needs), and runs the validator with no HTTP access
+  (`scripts/fhir_validate.py --offline`), so the validator loads nothing else and the job fails
+  if it put another package in its cache. `--ig` takes a package tarball, and CI passes the Da
+  Vinci guides as tarballs; a test fails any workflow that names a package by version alone.
+  The job's cache key follows the lock. No version changes. `scripts/fhir_packages.py lock`
+  writes the lock again after a validator or guide version changes.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.

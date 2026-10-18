@@ -681,7 +681,10 @@ that it evaluates identically (in CI).
 The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
 the audit export. Everything
 Mendari treats as conforming must pass it, and everything the in-process checks flag must
-fail it.
+fail it. The validator loads only the FHIR packages `scripts/fhir_packages.lock` pins, each
+downloaded from the FHIR package registries and checked against its sha256 (`sha256sum -c`), and
+runs with no HTTP access, so its verdict depends on nothing fetched by version alone.
+`scripts/fhir_packages.py lock` writes the lock again after a validator or guide version changes.
 
 ## Documentation
 

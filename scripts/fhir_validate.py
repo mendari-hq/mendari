@@ -2,7 +2,7 @@
 """Check FHIR resources with the official HL7 FHIR validator against US Core 6.1.0.
 
     uv run python scripts/fhir_validate.py --valid FILE... [--invalid FILE...] [--docker]
-                                           [--ig PACKAGE#VERSION|FOLDER ...]
+                                           [--offline] [--ig PACKAGE#VERSION|FOLDER|FILE.tgz ...]
 
 - `--valid` files must have no errors, and no warnings but those `EXPECTED_WARNINGS` lists
   with the reason, so a new one is noticed: they are what Mendari produces or accepts as
@@ -13,13 +13,21 @@
   so the in-process checks never reject what R4 and US Core accept (which
   `MENDARI_FHIR_VALIDATION=enforce` would turn into a block).
 
-`--ig` loads more implementation guides next to US Core, e.g. the Da Vinci guides for the prior
-authorization samples (`hl7.fhir.us.davinci-crd#2.2.1`), or a folder of resources, e.g. Mendari's
+`--ig` loads more implementation guides next to US Core: a package tarball, e.g. the Da Vinci
+guides for the prior authorization samples (`var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz`),
+a package by name (`hl7.fhir.us.davinci-crd#2.2.1`), or a folder of resources, e.g. Mendari's
 terminology (`scripts/fhir_terminology.py`), so a code Mendari emits that its CodeSystem lacks is an
 error. The validator runs without a terminology
 server (`-tx n/a`), so the result does not depend on a remote service. Java comes from the PATH,
 or from the eclipse-temurin image with `--docker`. Set `FHIR_VALIDATOR_JAR` to the jar (default
 `var/validator/validator_cli.jar`).
+
+`--offline` runs the validator with no HTTP access (`-no-http-access`; with `--docker`, in a
+container with no network too), so it loads FHIR packages only from its package cache, which
+`scripts/fhir_packages.py install` fills with the packages `scripts/fhir_packages.lock` pins, each
+checked against its sha256. That is how CI runs it: a package by name then resolves to the locked
+one, a package the lock lacks fails the run, and so does one the validator put in its cache while
+it ran.
 """
 
 from __future__ import annotations
@@ -36,12 +44,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # fhir_packages, a script beside this one
+
+import fhir_packages  # noqa: E402
 
 from mendari.standards import fhir_structure, us_core  # noqa: E402
 
 JAR = Path(os.environ.get("FHIR_VALIDATOR_JAR", ROOT / "var/validator/validator_cli.jar"))
 IMAGE = "eclipse-temurin:21-jre"
 ARGS = ["-version", "4.0.1", "-ig", "hl7.fhir.us.core#6.1.0", "-tx", "n/a"]
+OFFLINE = "-no-http-access"
+# Java ignores HOME: the package cache follows user.home, which the container sets to this.
+DOCKER_HOME = ROOT / "var/validator/cache"
+LOG_TAIL = 40  # lines of the validator's own output shown when it writes no report
 _RESOURCE = re.compile(r"/\*(\w+/[^*]+)\*/")
 
 
@@ -146,28 +161,42 @@ EXPECTED_WARNINGS = (
 
 
 def run_validator(
-    files: list[Path], docker: bool, igs: list[str] | None = None
+    files: list[Path], docker: bool, igs: list[str] | None = None, offline: bool = False
 ) -> dict[str, list[dict[str, str]]]:
     """Errors and warnings per file:
     [{"severity": "error", "resource": "Patient/p1", "where": ..., "text": ...}]."""
     local = _mounted if docker else str
     loaded = [local(Path(ig)) if Path(ig).exists() else ig for ig in igs or []]
-    args = [*ARGS, *(part for ig in loaded for part in ("-ig", ig))]
+    args = [*ARGS, *([OFFLINE] if offline else []), *(p for ig in loaded for p in ("-ig", ig))]
+    cache = DOCKER_HOME / ".fhir/packages" if docker else fhir_packages.CACHE
+    before = _cached(cache)
     (ROOT / "var").mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=ROOT / "var") as scratch:
         out = Path(scratch) / "out.json"
+        log = Path(scratch) / "validator.log"
         if docker:
-            # Java ignores HOME: the package cache follows user.home.
-            cache = "/work/var/validator/cache"
-            command = ["docker", "run", "--rm", "-v", f"{ROOT}:/work", "-e", f"HOME={cache}"]
-            command += [IMAGE, "java", f"-Duser.home={cache}", "-jar", _mounted(JAR)]
+            home = _mounted(DOCKER_HOME)
+            command = ["docker", "run", "--rm", *(["--network", "none"] if offline else [])]
+            command += ["-v", f"{ROOT}:/work", "-e", f"HOME={home}"]
+            command += [IMAGE, "java", f"-Duser.home={home}", "-jar", _mounted(JAR)]
             command += [*args, *map(_mounted, files), "-output", _mounted(out)]
         else:
             command = ["java", "-jar", str(JAR), *args, *map(str, files), "-output", str(out)]
-        subprocess.run(command, check=False, stdout=subprocess.DEVNULL)
+        with log.open("wb") as handle:
+            subprocess.run(command, check=False, stdout=handle, stderr=subprocess.STDOUT)
         if not out.exists():
-            sys.exit("the validator produced no output; run it by hand to see why")
+            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-LOG_TAIL:]
+            print("\n".join(tail), file=sys.stderr)
+            sys.exit("the validator produced no report; the end of its output is above")
         report = json.loads(out.read_text(encoding="utf-8"))
+    if offline:
+        locked = {package.ref for package in fhir_packages.read_lock()}
+        fetched = sorted(_cached(cache) - before - locked)
+        if fetched:
+            sys.exit(
+                f"the validator put {', '.join(fetched)} in its package cache ({cache}), which "
+                "scripts/fhir_packages.lock does not pin"
+            )
     outcomes = [e["resource"] for e in report["entry"]] if "entry" in report else [report]
     issues: dict[str, list[dict[str, str]]] = {}
     for outcome, path in zip(outcomes, files, strict=True):
@@ -194,6 +223,13 @@ def _mounted(path: Path) -> str:
     return f"/work/{path.resolve().relative_to(ROOT)}"
 
 
+def _cached(cache: Path) -> set[str]:
+    """The packages in the validator's package cache, as `name#version`."""
+    if not cache.is_dir():
+        return set()
+    return {entry.name for entry in cache.iterdir() if entry.is_dir() and "#" in entry.name}
+
+
 def unexpected(issues: list[dict[str, str]]) -> list[dict[str, str]]:
     """The errors, and the warnings no entry of EXPECTED_WARNINGS explains."""
     return [
@@ -209,13 +245,22 @@ def main() -> int:
     parser.add_argument("--invalid", nargs="*", default=[], type=Path)
     parser.add_argument("--docker", action="store_true", help="run Java in the temurin image")
     parser.add_argument(
-        "--ig", action="append", default=[], help="another IG: package#version, or a folder"
+        "--offline", action="store_true", help="no HTTP access: only the locked packages"
+    )
+    parser.add_argument(
+        "--ig",
+        action="append",
+        default=[],
+        help="another IG: a package tarball (.tgz), package#version, or a folder",
     )
     args = parser.parse_args()
     files = [*args.valid, *args.invalid]
     if not files:
         parser.error("no files")
-    issues = run_validator(files, args.docker, args.ig)
+    for ig in args.ig:
+        if ig.endswith(".tgz") and not Path(ig).is_file():
+            parser.error(f"--ig {ig}: no such package tarball (see scripts/fhir_packages.lock)")
+    issues = run_validator(files, args.docker, args.ig, args.offline)
     failed = False
     for path in args.valid:
         found = issues[str(path)]

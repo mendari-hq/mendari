@@ -350,7 +350,8 @@ def test_every_download_is_checked_against_a_pinned_sha256(path: Path) -> None:
 def test_the_download_scan_finds_the_validator() -> None:
     ci = ROOT / ".github" / "workflows" / "ci.yml"
     found = {target for script in _scripts(ci) for target in _downloads(script)}
-    assert found == {"var/validator/validator_cli.jar"}
+    # And `$file`: each FHIR package scripts/fhir_packages.lock pins, in a loop over its lines.
+    assert found == {"var/validator/validator_cli.jar", "$file"}
     assert list(_downloads("curl -sf http://127.0.0.1:8000/api/health > /dev/null")) == []
 
 

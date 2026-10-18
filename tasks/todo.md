@@ -2957,8 +2957,16 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     organization's; a decided order that needs no documentation keeps its information note
     (oper-8); a request that names no order, context or questionnaire is a `400` (oper-6).
     "Validated against DTR 2.2.0" now says profile-validated (HL7 validator, offline).
-  - [ ] DV-b: pin the implementation guide packages by checksum (each packages.fhir.org tarball
-    with its sha256, `sha256sum -c`, a local `-ig path.tgz`); today only the validator's jar is.
+  - [x] DV-b (this PR): the implementation guide packages are pinned by checksum.
+    `scripts/fhir_packages.lock` names the 55 packages the validator loads, each with its sha256
+    and URL (packages.fhir.org; packages2.fhir.org for VSAC 0.18.0 and 0.19.0, which only it
+    serves): US Core 6.1.0, CRD 2.2.1, DTR 2.2.0, PAS 2.2.1, what validator 6.10.4 loads by
+    itself, and every dependency of theirs (US Core 3.1.1 and 7.0.0 for DV-c among them).
+    `fhir-conformance` checks each with `sha256sum -c`, builds the validator's package cache
+    from them (`scripts/fhir_packages.py install`, which refuses a lock that is not exactly the
+    closure) and runs the validator with no HTTP access (`--offline`); the Da Vinci guides go in
+    as local `-ig path.tgz`; `tests/test_workflow_safety.py` fails a workflow that names a
+    package by version alone. DV-c can mount the same cache into Inferno's validator.
   - [ ] DV-c: the Inferno DTR payer-suite job, weekly and by hand, not a required check: groups
     1, 3 and 4 against the open engine on synthetic data, from Mendari's own Dockerfile and
     compose file pinned by digest and SHA, compared with a known-gaps file that may only shrink.
