@@ -21,6 +21,7 @@ import yaml
 from scipy import stats as st
 from statsmodels.stats.proportion import proportion_confint
 
+from mendari.core import audit
 from mendari.evals import method, result, share, stats
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +139,66 @@ def test_the_parameters_are_the_numbers_the_statistics_use() -> None:
     assert list(method.COST_BANDS_USD_PER_1000) == sorted(method.COST_BANDS_USD_PER_1000)
     assert 1 <= method.MIN_REPLICATES <= method.MAX_REPLICATES
     assert 0 < method.SPLIT_FRACTION < 1
+    # A submission key never outlives what every API key may (the method only narrows it).
+    assert 1 <= method.SUBMISSION_KEY_MAX_DAYS <= audit.KEY_MAX_DAYS
+
+
+def numbers_in(text: str) -> set[float]:
+    """The numbers a text of the method uses, with what is not a number of the method taken
+    out: headings and list markers, names that carry digits (LP-17d, SHA-256, Ed25519, B30,
+    `mendari.ledger/1`, norm/v1), references to a section, an attestation, a replicate, an owner
+    decision or a stage, and the citations' years and equations. A percentage is its share."""
+    kept = []
+    for line in text.splitlines():
+        if line.startswith("#") or re.match(r"^\s*\| (?:Floor|0\.\d+) \|", line):
+            continue  # a heading, or the evidence table (its own test recomputes it)
+        kept.append(re.sub(r"^\s*\d+\. ", " ", line))
+    body = "\n".join(kept)
+    for name in (
+        r"[\w.-]+/v?\d+(?:\.\d+)?",  # a format or a version: mendari.ledger/1, norm/v1
+        r"\b[A-Za-z][A-Za-z_]*-?\d[\w-]*",  # LP-17d, ADR-0011, SHA-256, Ed25519, B30, p95
+        r"\b(?:sections?|attestation|replicate|stage) \d+(?: (?:to|and) \d+)?",
+        r"\bowner decisions? \d+(?: and \d+)?",
+        r"\(\d{4}\)|\b(?:19|20)\d\d\b|\beq\. \d+\.\d+|\bdefinition \d+",
+    ):
+        body = re.sub(name, " ", body)
+    found = set()
+    for number in re.findall(r"(?<![\w.,])\d+(?:,\d{3})*(?:\.\d+)?%?(?!\w)", body):
+        value = float(number.rstrip("%").replace(",", ""))
+        found.add(round(value / 100 if number.endswith("%") else value, 10))
+    return found
+
+
+def test_the_text_uses_no_number_that_is_not_a_parameter_or_worked_out_from_one() -> None:
+    """The parameter block holds every number the method sets, so the owner confirms each and the
+    code pins it. Any other number in the text is worked out from those (section 8's minimums,
+    the ceiling's 183, alpha/2), counts what the packs declare (L), or is the method's version or
+    the unit of a figure. A rule with a number of its own fails here until it is a parameter."""
+    _, block = parameter_block()
+    block.pop("method")
+    parameters = set()
+    for value in block.values():
+        for number in value if isinstance(value, list) else [value]:
+            parameters.add(round(float(number), 10))
+    ceiling = method.FALSE_AUTOMATION_CEILING
+    least = next(n for n in itertools.count(1) if stats.clopper_pearson(0, n)[1] <= ceiling)
+    worked_out = {
+        *CRITICAL_LABELS.values(),  # L for each pack (Terms), also 1 - alpha/L and a rank
+        *(method.min_positives(method.RECALL_FLOOR, count) for count in CRITICAL_LABELS.values()),
+        least,  # the ceiling's minimum, 183, and the n below it, with their upper bounds
+        least - 1,
+        round(stats.clopper_pearson(0, least)[1], 5),
+        round(stats.clopper_pearson(0, least - 1)[1], 5),
+        method.ALPHA / 2,  # the n-of-n bound's tail
+        float(method.METHOD.rsplit("/", 1)[1]),  # "method 1.0"
+        1000,  # cost per 1,000 decisions: the unit of the cost bands
+    }
+    allowed = parameters | {round(float(number), 10) for number in worked_out}
+    rules = TEXT.partition("\n## Parameters\n")[0]
+    assert numbers_in(rules) - allowed == set()
+    # The scan finds a number the block lacks: one rule with a number of its own fails.
+    assert numbers_in("- a key lives for at most 400 days.") - allowed == {400}
+    assert numbers_in("2. 95% of 1,000 (LP-17d, section 7), within 60 days.") - allowed == {60}
 
 
 def test_the_method_has_a_version_an_effective_date_line_and_a_changelog() -> None:

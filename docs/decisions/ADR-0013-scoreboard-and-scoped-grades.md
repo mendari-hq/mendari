@@ -60,8 +60,10 @@ grade is given.
 5. **Local providers only on hidden sets, until owner decision 2.** The grading route refuses a
    remote variant before any case is read (LP-11l). A remote arm on a hidden set reads "not
    graded here". With one local arm per pack, ranking is built but off until the owner decides
-   otherwise. Remote arms are measured on public sets only, with 3 to 5 replicates, by the owner,
-   outside CI.
+   otherwise. A remote configuration is measured on public sets only, with 3 to 5 replicates,
+   outside CI: the remote arms by the owner, and the Clinical Trial Prescreener's CQL
+   configuration (deterministic, but calling Mendari's own CQL engine) by a build session
+   (LP-17h).
 6. **The declared-configuration route to selection.** For Mendari's own grading, one
    configuration per arm is declared and committed (`scoreboard/declared/`) before grading, and
    each result cites the declaration's SHA-256. Nothing is selected, so the whole set is
@@ -93,10 +95,14 @@ grade is given.
    is "insufficient evidence" when even a perfect result could not meet it.
 5. (17d) The ledger's format does not change: distinct groups, weights, per-type tokens and
    latency come from the dataset and the run record.
-6. (17d, 17f) No paired tests on public boards under method 1.0: each entry stands alone with its
+6. (17d, 17h) A local configuration's disclosure reads "no model provider". An entry of a remote
+   configuration, CQL's included, reads "not published: disclosure pending" until each remote
+   provider type it calls has a statement.
+7. (17d, 17f) No paired tests on public boards under method 1.0: each entry stands alone with its
    intervals.
-7. (17j) The Holm tests set the rank intervals and never reorder the ranks; cost is the band
-   tuple's last element.
+8. (17j) The Holm tests set the rank intervals and never reorder the ranks; cost is the band
+   tuple's last element. Detection is compared on distinct positive groups, as the grade's bound
+   is computed.
 
 ## Consequences
 - The method is readable, and fixed, before any grade exists. Any edit to it while a draft re-pins

@@ -10,7 +10,7 @@ this version names the version and the SHA-256 of this file's bytes.
 
 The effective date is left empty for the owner. Until the owner sets it, the method is a draft:
 an entry made under it says "method draft, not in effect", every attestation is marked "draft",
-and no grade or rank made under it is final. Every number in it is the owner's to confirm (see
+and no grade or rank made under it is final. Every number it sets is the owner's to confirm (see
 [Parameters](#parameters)).
 
 !!! warning "Engineering evaluation, not clinical validation"
@@ -21,6 +21,10 @@ and no grade or rank made under it is final. Every number in it is the owner's t
 ## Terms
 
 - **Configuration:** one variant for each of a pack's provider slots.
+- **Local and remote:** a provider type is local when it decides without calling anything (rules,
+  criteria, dosing and naive Bayes), and remote when it calls a service (`jev`, `llm` and `cql`).
+  A configuration is local when every provider in it is local, a composite's members included,
+  and remote otherwise.
 - **Set:** a labelled dataset. A public set is in the repository. A hidden set is frozen and held
   only in the hosted engine's database ([ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)).
 - **Critical label:** a `question=label` pair that the pack's manifest lists under
@@ -74,7 +78,7 @@ from its manifest by walking each slot's variants, and one level of a composite'
   criteria, dosing, naive Bayes and CQL. A composite (`any_of`, `cascade` or `vote`) counts as
   the types of its members.
 - Naive Bayes is local. CQL is deterministic but calls Mendari's own CQL engine
-  (`MENDARI_CQL_URL`), so it is not local, and no hidden set runs it.
+  (`MENDARI_CQL_URL`), so it is remote, and no hidden set runs it.
 - Every configuration is in exactly one arm. Each named model is an entry within its arm: an entry
   names the models that answered, as each provider reported them.
 - An arm that no configuration of the pack reaches reads "not applicable". An arm the pack can
@@ -91,9 +95,12 @@ from its manifest by walking each slot's variants, and one level of a composite'
 - The salted split comes with the developer flow (section 13). Each frozen set is split into a
   selection part and a ranking part:
   - each case is ordered by an HMAC-SHA256 of its case id, under a key derived from the set's
-    freeze salt;
+    freeze salt, in ascending order of the digest's bytes;
   - within strata of critical-label membership, so each part keeps each label's share;
-  - at the split fraction (0.5), with a pinned rounding rule.
+  - at the split fraction (0.5), rounded down for the selection part: in each stratum of n cases,
+    the first `floor(n * 0.5)` in that order are the selection part and the rest the ranking
+    part, so an odd stratum's extra case is in the part that is reported. The product is worked
+    out exactly, on the fraction as written, never in floating point.
 
   A configuration is chosen on the selection part and reported on the ranking part, once. The
   split is computed in the server's process. It is never stored, logged or answered, and it never
@@ -144,9 +151,12 @@ shown with its interval, or a description, shown without one.
   in place of it. Detection is never weighted: it is over positives, whatever their prevalence. A
   public set's figures read "as sampled".
 - Descriptions, shown without an interval: ECE, a set's counts of cases and distinct inputs, and
-  the spread across replicates (section 10). Every other figure is an estimate with its interval.
-- Every figure shown is k of n with its interval, or a mean with its interval, never a bare
-  percentage. A figure is printed as the spec's
+  the spread across replicates (section 10). Every other figure is an estimate and is shown with
+  its interval: a proportion as k of n with it, and a mean, a term, a percentile or a weighted
+  estimate as its value with it. No figure, estimate or description, is a bare percentage.
+- Where the table above says so, a figure reads as a stated reason instead: "not estimable", "0
+  (no metered calls)", "unknown" or "too few", or "insufficient evidence" (section 8).
+- A figure is printed as the spec's
   [How a figure is shown](../spec/evaluation-reports.md#how-a-figure-is-shown) says.
 
 ## 5. Statistics
@@ -164,11 +174,14 @@ shown with its interval, or a description, shown without one.
   percentile of Hyndman and Fan's definition 7. Macro-F1 resamples within each true label, so each
   label keeps its count in every resample.
 - **Paired comparisons** of two arms graded on the same cases: the exact two-sided McNemar test on
-  the discordant cases for a proportion, and the paired bootstrap's two-sided p-value (Davison and
+  the discordant pairs for a proportion, and the paired bootstrap's two-sided p-value (Davison and
   Hinkley 1997, eq. 4.11) for Brier. Arms graded in one read share a case key, so their cases pair.
+  - A pair is a case, except for a critical label's detection. There it is a distinct positive
+    group, detected only when every positive case in it is, as for the grade's bound: an input
+    repeated in several cases is one pair, never several.
 - **Holm** (1979), over a stated family at alpha 0.05. The family is per pack and set: every pair
   of ranked arms, by each ranking criterion:
-  - each critical label's detection (McNemar on that label's positives);
+  - each critical label's detection (McNemar on that label's distinct positive groups);
   - false automation and accuracy (McNemar);
   - Brier (the paired bootstrap).
 
@@ -278,12 +291,15 @@ Every entry, grade and ranking carries its scope:
 - the method's version and SHA-256, and whether it is in effect;
 - the date it was measured (`measured_on`);
 - the words "engineering evaluation, not clinical validation";
-- the disclosure: for each model provider called, a statement of any commercial relationship
-  between Mendari and that provider, or "no model provider" for a configuration that calls none;
+- the disclosure: for each remote provider type the configuration calls (see
+  [Terms](#terms)), the statement for that type in the disclosures file
+  (`scoreboard/disclosures.json`), of any commercial relationship between Mendari and that
+  provider; or "no model provider" for a local configuration;
 - the synthetic-example label, for a pack that is not clinician-reviewed.
 
-An entry that calls a model provider with no statement reads "not published: disclosure
-pending": its scope is shown, and its figures are not.
+An entry of a remote configuration reads "not published: disclosure pending" until every remote
+provider type it calls has a statement: its scope is shown, and its figures are not. This holds
+for `cql` too, which calls Mendari's own CQL engine and no model.
 
 ## 10. Reproducibility: the inputs of an entry
 
@@ -300,11 +316,13 @@ pending": its scope is shown, and its figures are not.
   number, the engine's version and the date. It never holds a key, an endpoint or case text.
 - Latency is an input, never measured again by a rebuild. It is labelled "measured on the runner,
   not reproducible".
-- A remote arm runs 3 to 5 replicates of its declared configuration, outside CI. Replicate 1 is
-  the headline, as declared before the run. Each figure's spread is its minimum to maximum across
-  the replicates. The case flip rate is k of n cases whose primary prediction or outcome differs
-  between any two replicates, with its interval. A local configuration is deterministic: one
-  replicate, no flips.
+- A remote configuration (see [Terms](#terms)) runs 3 to 5 replicates, outside CI. That includes
+  a deterministic one that calls a remote service, such as the Clinical Trial Prescreener's CQL
+  configuration: its replicates show whether the service answered the same each time. Replicate
+  1 is the headline, as declared before the run. Each figure's spread is its minimum to maximum
+  across the replicates. The case flip rate is k of n cases whose primary prediction or outcome
+  differs between any two replicates, with its interval.
+- A local configuration is deterministic: one replicate, no flips.
 - A hidden-set entry cannot be recomputed by anyone else, since no ledger of it is kept. Its
   determinism is tested on synthetic frozen sets.
 
@@ -336,12 +354,21 @@ entry is stale when:
 - its pack digest, set SHA-256 or method SHA-256 is not the current one (for the pack digest,
   "stale: pack changed");
 - a later run, or a canary, of the same provider type reports another model;
-- a canary shows drift: its flip rate's lower bound is above the replicates' upper bound;
+- a canary shows drift (below);
 - 45 days have passed since `measured_on`. Since no clock is read, every entry shows the date
   this happens, as "stale after DATE".
 
-A canary is a seeded draw of 30 cases from the pack's `test` set, run by hand outside CI, with no
-schedule. A stale entry is run again, never edited. The new result supersedes it.
+A canary is a seeded draw of 30 cases from the pack's `test` set, run once by hand outside CI,
+with no schedule, on a remote configuration that has replicates on that set.
+
+- Its flip rate is k of the 30 cases whose primary prediction or outcome differs from replicate
+  1's on the same case (matched by its ledger hash), with its 95% interval.
+- It shows drift when that interval's lower bound is above the upper bound of the replicates'
+  flip rate's 95% interval. Without drift, a canary is one more run like the replicates, so it
+  differs from replicate 1 no more often than some two replicates differ: drift is a change the
+  replicates did not show among themselves.
+
+A stale entry is run again, never edited. The new result supersedes it.
 
 ## 13. Developer flow
 
@@ -349,7 +376,7 @@ This waits for the pack store (LP-20) and owner decisions 4 and 10.
 
 - A developer submits a version from the pack store, with local providers only, using a
   `submission` key the operator mints for one organization and one pack lineage, for at most 365
-  days.
+  days (never longer than any API key may live).
 - The answer holds bands and attestation states only, on the selection part (section 3). It never
   holds a per-case field.
 - Each organization and pack lineage has a submission budget per set rotation, counted from
@@ -364,9 +391,9 @@ This waits for the pack store (LP-20) and owner decisions 4 and 10.
   (its `test` set, its enriched set and that set's holdout).
 - It is unranked and ungraded. Each table reads "public set: regression check, not a ranking". It
   has no Rank column and never says "ranked".
-- Every figure has its interval. A table short of evidence carries the insufficient-evidence
-  banner. Every table carries its scope statement and the marks "unsigned", "method draft, not in
-  effect" and "stale after DATE" where they apply.
+- Every estimate has its interval (section 4). A table short of evidence carries the
+  insufficient-evidence banner. Every table carries its scope statement and the marks
+  "unsigned", "method draft, not in effect" and "stale after DATE" where they apply.
 - Each arm reads measured, "not measured" or "not applicable".
 - No paired test is made on a public board under this version. Each entry stands alone with its
   intervals.
@@ -376,8 +403,10 @@ This waits for the pack store (LP-20) and owner decisions 4 and 10.
 
 ## Parameters
 
-Every number in this method. The code pins the same values (`mendari.evals.method`), and a test
-checks that the two agree. Each is the owner's to confirm (owner decision 5).
+Every number this method sets. Its other numbers are worked out from these (section 8's
+minimums, and 183 for the ceiling) or count what a pack declares (L). The code pins the same
+values (`mendari.evals.method`), and a test checks that the two agree and that the text uses no
+other number. Each is the owner's to confirm (owner decision 5).
 
 ```yaml
 method: mendari.grading/1.0
@@ -394,14 +423,15 @@ accuracy_band_step: 0.05                      # owner to confirm: on the 95% low
 brier_band_step: 0.05                         # owner to confirm: on the 95% upper bound
 cost_bands_usd_per_1000: [0, 1, 10, 100]      # owner to confirm: lower is better
 stale_after_days: 45                          # owner to confirm
-min_replicates: 3                             # owner to confirm: a remote arm
-max_replicates: 5                             # owner to confirm: a remote arm
+min_replicates: 3                             # owner to confirm: a remote configuration
+max_replicates: 5                             # owner to confirm: a remote configuration
 canary_size: 30                               # owner to confirm: cases drawn from `test`
 split_fraction: 0.5                           # owner to confirm: the selection part's share
 notice_days: 30                               # owner to confirm: before a change takes effect
 calibration_bins: 10                          # owner to confirm: equal-mass bins
 calibration_min_bin: 30                       # owner to confirm: cases per bin, at least
 subgroup_min: 10                              # owner to confirm: cases per cell, at least
+submission_key_max_days: 365                  # owner to confirm: at most any API key's lifetime
 ```
 
 ## Changelog

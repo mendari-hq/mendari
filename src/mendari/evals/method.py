@@ -27,7 +27,7 @@ from mendari.evals import stats
 
 METHOD = "mendari.grading/1.0"
 METHOD_PATH = "docs/grading/method-1.0.md"  # from the repository root; not in the wheel
-METHOD_SHA256 = "279d1b5b26c7142e719892319cc1312141894f1ad7ad3f9fad21a46be3403f46"
+METHOD_SHA256 = "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a"
 EFFECTIVE: datetime.date | None = None  # the owner's: None is a draft, not in effect
 
 # The parameters (the document's "Parameters" block, each the owner's to confirm).
@@ -44,14 +44,15 @@ ACCURACY_BAND_STEP = 0.05  # on accuracy's 95% lower bound
 BRIER_BAND_STEP = 0.05  # on Brier's 95% upper bound
 COST_BANDS_USD_PER_1000 = (0, 1, 10, 100)  # lower is better
 STALE_AFTER_DAYS = 45
-MIN_REPLICATES = 3  # a remote arm
-MAX_REPLICATES = 5  # a remote arm
+MIN_REPLICATES = 3  # a remote configuration (the method's Terms)
+MAX_REPLICATES = 5  # a remote configuration
 CANARY_SIZE = 30  # cases drawn from a pack's `test` set
 SPLIT_FRACTION = 0.5  # the selection part's share of a frozen set (the developer flow)
 NOTICE_DAYS = 30  # before a change takes effect (B30)
 CALIBRATION_BINS = 10  # equal-mass bins (ECE and Brier reliability)
 CALIBRATION_MIN_BIN = 30  # cases per bin, at least
 SUBGROUP_MIN = 10  # cases per subgroup cell, at least
+SUBMISSION_KEY_MAX_DAYS = 365  # a submission key's lifetime (the developer flow), at most
 
 # The same values under the names the document's block uses.
 PARAMETERS: Mapping[str, object] = MappingProxyType(
@@ -77,6 +78,7 @@ PARAMETERS: Mapping[str, object] = MappingProxyType(
         "calibration_bins": CALIBRATION_BINS,
         "calibration_min_bin": CALIBRATION_MIN_BIN,
         "subgroup_min": SUBGROUP_MIN,
+        "submission_key_max_days": SUBMISSION_KEY_MAX_DAYS,
     }
 )
 
