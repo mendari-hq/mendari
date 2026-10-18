@@ -788,7 +788,7 @@ Connect) is not supported yet.
     FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
     every case of the four mapped packs' local-site examples, 1,150 cases; 41 prior-auth orders
     with no requirement set are refused through FHIR, as today). Nothing changes how a pack decides.
-  - [x] **23b** (this PR) Signed CDS client tokens: the registry, the verifier and the `cds`
+  - [x] **23b** (#262) Signed CDS client tokens: the registry, the verifier and the `cds`
     principal (one adversarial security review). `server/cds_clients.py`: `MENDARI_CDS_CLIENTS`
     checked at startup (entry and field named, never a value or key material), keys by value or
     one allow-listed `jwks_uri` (`JwksCache`: an hour, an unknown `kid` refetches at most once a
