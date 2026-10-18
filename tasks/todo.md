@@ -1844,7 +1844,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     arms PACK`).
   - [ ] **17d** Scoreboard entries (`mendari.scoreboard/1`) and run records (`mendari.run/1`),
     pure; the price table (`mendari.prices/1`) and the disclosures file.
-  - [x] **17e** (this PR) Signing and the public verifier (`mendari.evals.signing`; off without
+  - [x] **17e** (#263) Signing and the public verifier (`mendari.evals.signing`; off without
     the key). `MENDARI_GRADING_SIGNING_KEY` (Ed25519, 32 bytes in base64, the owner's, offline):
     unset is off, a malformed or reused one stops the command naming no value; it must differ from
     the checkpoint, registry, PHI (and each read key), input hash and three evaluation-set keys,
