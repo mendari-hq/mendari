@@ -184,6 +184,30 @@ def test_a_benchmark_for_other_providers_or_another_build_is_not_a_reference(
     assert report["benchmark"]["reason"] == "no_benchmark" and report["alerts"] == []
 
 
+def test_a_pack_from_a_registry_is_never_compared_with_the_benchmark_it_carries(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    """LP-18h: a pulled pack's benchmark is its publisher's upload (ADR-0012), so the monitor
+    takes none as a reference and shows none of its figures, even byte for byte the reference
+    pack's (the rule follows the origin, as the cap does); only the checks that need no
+    benchmark run. The same pack of one's own is compared as before."""
+    reviewed(store, inbox_pack, 25, days_ago=2, final="billing")
+    own = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert own["benchmark"]["comparable"] is True
+    assert [a["kind"] for a in own["alerts"]] == ["accuracy"]
+    pulled = load_pack(inbox_pack.root, origin="hub")
+    assert pulled.digest == inbox_pack.digest and benchmark(pulled) is not None
+    report = monitor(store, pulled, now=NOW, providers=MEASURED)
+    bench = report["benchmark"]
+    assert (bench["comparable"], bench["reason"]) == (False, "from_registry")
+    assert (bench["accuracy"], bench["n"]) == (None, None)
+    assert (bench["reviewed_accuracy"], bench["automated_accuracy"]) == (None, None)
+    assert set(bench["figures"].values()) == {None}
+    assert report["alerts"] == [] and report["last_7_days"]["drift_psi"] is None
+    # The live figures are the same decisions' either way.
+    assert report["last_7_days"]["figures"] == own["last_7_days"]["figures"]
+
+
 def test_automated_decisions_are_compared_with_the_benchmarks_automated_accuracy(
     store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:

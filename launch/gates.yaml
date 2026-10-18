@@ -297,7 +297,68 @@ gates:
         what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
         owner: build
         probes:
-          - pending: "LP-18 and LP-19"
+          # LP-18 (ADR-0012), by its Tests: a forged card, benchmark and leaderboard show only
+          # what the registry rendered, and the engine never shows or compares with a pulled
+          # pack's uploaded benchmark; the regression check is no ranking; a review.
+          - tests:
+              - tests/test_registry.py::test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_rendered
+              - tests/test_registry.py::test_uploaded_attestations_of_any_shape_are_never_read
+              - tests/test_registry.py::test_every_version_answers_what_the_registry_checked_and_what_the_publisher_claims
+              - tests/test_registry.py::test_a_version_published_before_the_registry_rendered_cards_serves_nothing_uploaded
+              - tests/test_hub_client.py::test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served
+              - tests/test_hub_client.py::test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_against
+              - tests/test_hub_client.py::test_the_demo_never_compares_a_pulled_copy_with_the_benchmark_it_carries
+              - tests/test_hub_client.py::test_search_shows_no_figure_a_registry_sends
+              - tests/test_monitoring.py::test_a_pack_from_a_registry_is_never_compared_with_the_benchmark_it_carries
+              - tests/test_registry_regression.py::test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking
+              - tests/test_registry_regression.py::test_the_check_runs_isolated
+              - tests/test_registry_regression.py::test_the_raw_check_is_never_served_beside_its_figure
+              - tests/test_registry_chain.py::test_a_review_confirms_or_corrects_the_declared_risk_level
+          # A recalled version leaves latest and search; a deleted one is gone; a server that
+          # pulled it stops automating.
+          - tests:
+              - tests/test_registry_yank.py::test_a_yanked_version_leaves_latest_and_search_and_is_still_served_by_version
+              - tests/test_registry_yank.py::test_a_forged_or_replayed_yank_is_refused
+              - tests/test_registry_yank.py::test_only_the_namespace_or_the_registry_recalls
+              - tests/test_registry_yank.py::test_a_pull_shows_a_recall_and_whether_its_signature_holds
+              - tests/test_registry_yank.py::test_a_deleted_version_is_never_served_and_its_bytes_are_gone
+              - tests/test_registry_yank.py::test_a_deleted_version_is_removed_from_the_cache_and_never_pulled
+              - tests/test_registry_recalls.py::test_a_running_server_stops_automating_a_pack_its_registry_recalls
+              - tests/test_registry_recalls.py::test_what_the_watch_holds_and_when
+              - tests/test_registry_recalls.py::test_a_registrys_answer_is_bounded_in_size_time_and_shape
+              - tests/test_registry_origin.py::test_a_recall_recorded_at_pull_holds_even_an_approved_pack
+          # A pulled pack never automates before its organization approves its digest, at any
+          # risk level, and the Decision Card says so.
+          - tests:
+              - tests/test_registry_origin.py::test_a_pulled_pack_never_automates_before_its_digest_is_approved
+              - tests/test_registry_origin.py::test_risk_level_4_never_automates_even_approved
+              - tests/test_registry_origin.py::test_nothing_in_the_pack_lifts_the_cap
+              - tests/test_registry_origin.py::test_an_unapproved_pulled_packs_own_block_goes_to_a_person
+              - tests/test_registry_origin.py::test_an_organization_approves_a_pulled_digest_and_can_revoke_it
+              - tests/test_registry_origin.py::test_the_command_line_decides_a_pulled_pack_capped_unless_its_trail_approved_it
+              - tests/test_registry_origin.py::test_the_marker_records_where_a_pull_came_from
+              - tests/browser/test_registry_approvals.py::test_an_unapproved_pack_says_so_and_is_approved_through_the_dialog
+              - tests/browser/test_registry_approvals.py::test_a_recall_is_said_and_holds_even_an_approved_pack
+          # Limits and exact headers on every registry route; the Hub's pages by CI's hub-site
+          # (headers.spec.ts, the smoke test on publisher text, the pinned ZAP baseline).
+          - tests:
+              - tests/test_registry_limits.py::test_every_registry_route_answers_with_the_headers
+              - tests/test_registry_limits.py::test_an_unhandled_error_is_a_bare_500_with_the_headers
+              - tests/test_registry_limits.py::test_writes_are_limited_per_token_before_their_body_is_read
+              - tests/test_registry_limits.py::test_made_up_tokens_share_their_senders_bucket
+              - tests/test_registry_regression.py::test_a_burst_of_publishes_is_told_to_try_again
+              - tests/test_registry_limits.py::test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner
+              - tests/test_registry_limits.py::test_zap_check_fails_on_a_medium_or_high_risk_only
+          # Publisher text is inert in the registry's card; every write is chained.
+          - tests:
+              - tests/test_registry.py::test_publisher_text_in_the_registrys_card_is_plain_text
+              - tests/test_registry.py::test_a_changelog_that_is_not_utf8_is_refused_and_a_huge_card_too
+              - tests/test_registry_chain.py::test_every_write_is_chained_and_the_chain_verifies
+              - tests/test_registry_chain.py::test_the_command_line_verifies_read_only
+              - tests/test_registry_chain.py::test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify
+              - tests/test_registry_chain.py::test_a_registry_from_before_the_chain_records_what_it_held_once
+              - tests/test_shipped.py::test_every_state_changing_route_is_in_the_inventory
+          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): waits on the owner's choice of where the registry runs"
       - id: external-review
         what: "An external security review whose scope covers the registry, the Hub and the pack store (B29)"
         owner: owner

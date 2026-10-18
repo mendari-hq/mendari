@@ -697,7 +697,8 @@ why community packs work as they do is
 threat model ([`docs/security/threat-model.md`](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
+on, and the job `hub-site` runs the ZAP baseline over every Hub page; GitHub Actions are pinned
+by commit and images by digest. Every response carries a strict
 CSP and the usual isolation headers (HSTS off localhost), the developer landing and the API
 reference included: the reference is Swagger UI served from vendored, pinned files, never a CDN,
 and the landing loads nothing but its own files. Sessions end after 30 minutes idle
@@ -757,14 +758,20 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
   input and a CPU budget per decision, after which a person decides. A copy of a reference pack
   of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
-  of its files, never by its manifest or the registry. Served, a pulled pack never automates
-  until your organization approves its exact digest (`POST /api/registry-approvals`, chained;
-  `DELETE` revokes it), at any risk level, and never while the registry recalled it; nothing
-  in the pack lifts that. A running server reads its registries' recalls every five minutes
-  and holds a recalled pack the same way, and one whose registry it could not read for a day. `mendari test` and `mendari eval` check the pack's own policy. The
-  verified marker beside a pulled pack records the registry, namespace, publisher type and
-  key it came from
+  of its files, never by its manifest or the registry
   ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  Served, a pulled pack never automates until your organization approves its exact digest, on
+  its Decision Card or with `POST /api/registry-approvals` (chained; `DELETE` revokes it), at
+  any risk level, and never while the registry recalled it; nothing in the pack lifts that. A
+  running server reads a registry's recalls again when a decision for one of its packs finds the
+  last read five minutes old (that decision uses the list read before), and holds a recalled
+  pack the same way, and one whose registry it could not read for a day; its full `/api/health`
+  shows each registry's last read under `registry_recalls`. `mendari test` and `mendari eval`
+  check the pack's own policy, and neither `mendari eval`, `mendari demo`, the evaluation route
+  nor the Monitoring view compares a pulled pack with the benchmark it carries (its publisher's
+  upload). The verified marker beside a pulled pack records the registry, namespace, publisher
+  type and key it came from
+  ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
   trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
@@ -782,11 +789,14 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   SHA-256, the digest, the engine, the card rendered here, the review status) and `claimed`
   (the publisher, the risk level it declares, the licence and summary). Every registry write
   is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
-  namespace, key, token, version, report and review is named by its event), and a registry
-  reviewer's review records the risk level it found beside the one the publisher declared.
+  namespace, key, token, version, report, review, recall and deletion is the row its event
+  hashed; keep `GET /v1/chain/head` elsewhere, since the chain is unkeyed), and a registry
+  reviewer's review (`POST /v1/packs/{namespace}/{name}/{version}/review`, the admin token
+  until LP-19) records the risk level it found beside the one the publisher declared.
 - **A recall** (`mendari yank`) is a signed record with a reason and a severity: the
   publisher signs it with a namespace key, or the registry with its own
-  (`MENDARI_REGISTRY_SIGNING_KEY`). A recalled version is never the latest and is not
+  (`MENDARI_REGISTRY_SIGNING_KEY`, published at `GET /v1/registry-key`); `GET /v1/yanks` lists
+  every recall. A recalled version is never the latest and is not
   searched, and is still pulled by its exact version, with the record shown and its signature
   checked against the keys you pinned. An administrator can also delete a version that must
   not be served: its archive's bytes go, and a tombstone stays.
@@ -803,6 +813,8 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   registry's card. It shows no figure the registry did not compute, and no site report until
   sites sign what they share.
 
+Running one, the administrator's routes and what to do when a pack must stop are in
+[Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md).
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the
 reference packs of its own image, so with an image built from an older checkout, a pack that

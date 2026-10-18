@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local validation: compare an evaluation on local data with the pack's published benchmark,
-and say *where* performance degrades, not just by how much."""
+and say *where* performance degrades, not just by how much. A pack pulled from a registry is
+never compared with the benchmark it carries: that is its publisher's upload (ADR-0012)."""
 
 from __future__ import annotations
 
@@ -10,6 +11,16 @@ from mendari.evals.result import subgroup_labelled
 
 MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy to act on
 MIN_LABEL_SUPPORT = 10
+# Why an evaluation of a pack from a registry is not compared with the benchmark it carries.
+FROM_REGISTRY = (
+    "the pack is from a registry, and the benchmark it carries is its publisher's upload, "
+    "never a reference"
+)
+
+
+def not_compared(reason: str) -> dict[str, Any]:
+    """A comparison that was not made and why, as `compare` answers when it cannot compare."""
+    return {"status": "unknown", "reason": reason, "findings": []}
 
 
 def _number(value: Any, *, optional: bool = False) -> bool:

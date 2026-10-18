@@ -9,6 +9,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.decision import Decision
 from mendari.evals import compare, evaluate, load_dataset, resolve_dataset
+from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.render import comparison_text, shown
 from mendari.evals.result import counted
 
@@ -75,7 +76,13 @@ def _run(store: AuditStore, datasets_dir: Path | None) -> None:
         print("skipped: needs the pack benchmark and datasets/local-site-example.jsonl")
         return
     local = evaluate(Decision(pack), load_dataset(local_path))
-    comparison = compare(local, baseline, m.evaluation.degradation_tolerance)
+    # A copy pulled from a registry (one in the pack cache) carries its publisher's benchmark,
+    # never a reference (ADR-0012): the demo says so instead of comparing with it.
+    comparison = (
+        not_compared(FROM_REGISTRY)
+        if pack.origin == "hub"
+        else compare(local, baseline, m.evaluation.degradation_tolerance)
+    )
     print(comparison_text(comparison))
     critical = local["decisions"]["critical"][0]
     print(
