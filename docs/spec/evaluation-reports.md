@@ -9,9 +9,11 @@ words MUST, SHOULD and MAY are used as in that spec.
 The scoreboard and its scoped grades (LP-17) follow the
 [grading method 1.0](../grading/method-1.0.md), a draft not in effect: the arms, the figures and
 their statistics, the evidence rule, and why, under it, a public set is a regression check, never
-a ranking. The formats on this page do not change with it, and the leaderboards below are not
-made under it: until LP-17g relabels them, they still rank rows on public sets with
-`mendari.rank/1`, as their section says.
+a ranking. The scoreboard's own formats are made under it: its arms (`mendari.arms/1`), its
+entries (`mendari.scoreboard/1`), and the run records and price tables an entry is computed from
+(`mendari.run/1`, `mendari.prices/1`). The other formats on this page do not change with it, and
+the leaderboards below are not made under it: until LP-17g relabels them, they still rank rows
+on public sets with `mendari.rank/1`, as their section says.
 
 ## The report: `mendari.eval/2`
 
@@ -156,8 +158,8 @@ library only and checked against scipy and statsmodels (`tests/test_stats.py`). 
 resamples come from `random.Random(seed)`, the one part of Python's random module whose
 sequence is fixed for a seed, so anyone with the cases and the seed draws the same resamples.
 
-Three functions were added for the scoreboard (LP-17). No format on this page uses them yet, so
-no stored result changes:
+Three functions were added for the scoreboard (LP-17). Only its entries
+(`mendari.scoreboard/1`) use them, so no other stored result changes:
 
 - **The stratified bootstrap** (`stratified_bootstrap`) draws each case of a resample from its
   own stratum's cases, from the same seeded draws. Every stratum keeps its size, and with one
@@ -251,6 +253,149 @@ The five reference packs' arms, from their manifests:
 
 No variant in these packs asks both Jev and an LLM, so "+ both" takes two slots, and only the
 inbox and referral packs have it.
+
+## Scoreboard entries: `mendari.scoreboard/1`
+
+An entry is one configuration's figures on one set, under the
+[grading method 1.0](../grading/method-1.0.md) (`evals/scoreboard.py`, LP-17d). It is a pure
+function of five inputs: the ledger (`mendari.ledger/1`), the dataset (by its SHA-256), the run
+record (`mendari.run/1`), the price table (`mendari.prices/1`, by its SHA-256) and the method (by
+its SHA-256). The same inputs give the same bytes, and every bootstrap is the method's: 2,000
+resamples, seed 0, at 95%. Where `mendari.eval/2`'s result already holds a figure, the entry
+reuses it. No format on this page changes. Nothing writes or stores an entry yet: the results
+store comes with LP-17f.
+
+An entry is refused, with a message that names ids and hashes and never a case, when:
+
+- the ledger is of another pack (its id, version or digest) or another dataset (its name,
+  SHA-256, size or `limit`), or its case hashes are not the dataset's cases in the dataset's
+  order;
+- the configuration is not the ledger's (slot by slot), or not in the arm named;
+- the run record is not the ledger's (see [run records](#run-records-mendarirun1)), or names
+  tokens or models of a type the configuration does not call.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.scoreboard/1`. |
+| `arm`, `configuration` | The arm (`mendari.arms/1`), and the configuration: `providers` (slot to variant), `local` and `remote_types`. |
+| `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date (null when the entry priced nothing), and the method's SHA-256. |
+| `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
+| `scope` | What the figures are of (below). |
+| `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null. |
+| `figures` | The figures (below). |
+| `body_sha256` | `sha256:` and the SHA-256 of the entry's canonical JSON without `body_sha256` and `signature`. |
+
+The scope holds the pack (`id`, `version`, `digest`) and its `status` line (the synthetic-example
+label for a pack built from synthetic data); the `set` (`kind`, `public` for every shipped set;
+`name`, `sha256`, `n`, `distinct_inputs` and `norm`, the `norm/v1` rule they are counted under);
+the ledger's `providers`; the `models` as reported (`answered`, the ledger's list, and `by_type`,
+the run record's); the `method` (`version`, `sha256`, and `in_effect` on the date measured, false
+while it is a draft); `measured_on`, the run record's date; `evaluation`, the words "engineering
+evaluation, not clinical validation"; and the `disclosure`. A local configuration's disclosure is
+"no model provider". A remote one's holds, for each remote type it calls, that type's statement
+from the disclosures file, and reads "not published: disclosure pending" while any is missing:
+its scope is shown and its figures are not.
+
+| Figure | What it holds |
+|---|---|
+| `critical` | Per critical label: `detected` and `automated` (its positives decided AUTO), each raw k of n; `distinct`, its distinct `positives` and how many are `detected`; `bound`, the grade's bound; and `evidence`, `sufficient` or `insufficient evidence`, with the minimum it `needed`. |
+| `false_automation` | Wrong AUTO over the cases labelled for the primary question, k of n. |
+| `auto_error_rate` | Wrong AUTO over the AUTO cases, k of n. |
+| `automation`, `accuracy` | k of n, as `mendari.eval/2`'s. |
+| `macro_f1` | `{estimate, low, high}`, the bootstrap resampled within each true label. |
+| `brier` | `{estimate, low, high}`, `mendari.eval/2`'s mean and interval. |
+| `brier_reliability` | Murphy's reliability term with its bootstrap interval, or `not_estimable` with its `reason` (a bin under 30 cases). |
+| `ece` | The equal-mass ECE as a `value`, a description with no interval, or `not_estimable`. |
+| `cost_per_1000` | `priced`, in USD per 1,000 decisions with its bootstrap interval; `none`, "0 (no metered calls)"; or `unknown`, with its `reason`. |
+| `latency_ms` | `p50` and `p95` (Hyndman and Fan's definition 7), each with its bootstrap interval, and the `note` "measured on the runner, not reproducible". |
+| `subgroups` | Per declared subgroup and value: its cases, and its accuracy, automation and AUTO error rate as k of n, each `too few` over fewer than 10 cases. |
+| `weighted` | `as sampled`, or, when every record carries `attributes.weight`, the Korn-Graubard accuracy, false automation, automation and AUTO error rate (`estimate`, `effective_n`, `low`, `high`), beside the unweighted figures. |
+
+- **Distinct positives:** the dataset's cases are grouped by their input under `norm/v1`. A
+  group is a positive of a critical label when any of its cases is, and detected only when every
+  positive case in it is.
+- **The grade's bound:** the Clopper-Pearson interval of the detected groups over the positive
+  groups, at the simultaneous level `1 - 0.05/L` for a pack with L critical labels, stored with
+  its `level` and `labels`. It is shown as "lower bound X at Y%, simultaneous across L labels".
+- **Evidence:** a critical label has enough when its distinct positives reach
+  `method.min_positives(0.95, L)`: 100 for L of 1 to 4, and 107 for the Clinical Trial
+  Prescreener's 6. Every critical label needs enough, not just one.
+- **Cost** is priced from the run record's tokens, per case and per model type, and the dated
+  price table. It is never the ledger's cost, a price a pack sets or one built into a provider.
+  It is "0 (no metered calls)" for a configuration that calls no model (CQL included), and
+  "unknown" when any provider call failed, there is no table, or a type's model is not in it
+  (or the type reported more than one model, whose tokens a run record does not split).
+- **Latency** is read from the run record, never measured again, and never ranked.
+- **Weighted figures:** detection is never weighted. A set with weights on some records and not
+  others is refused.
+
+### The board
+
+`board(entries, current)` shows entries one table per pack and set, in a listing order (by arm,
+then configuration, then date), never an order of any figure. `current` is, per pack, its
+digest, its arms' statuses and its sets' SHA-256 (`Current.of(pack)`). Each table holds:
+
+- its standing, "public set: regression check, not a ranking", and the words "engineering
+  evaluation, not clinical validation";
+- the insufficient-evidence banner when any entry's critical label is short of evidence, naming
+  each such label, its distinct positives and the minimum;
+- each arm's status: measured, "not measured", or "not applicable" for an arm the pack cannot
+  build;
+- each entry with its marks, worked out when the board is built and never stored: "unsigned"
+  (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
+  "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
+  "stale: another model reported" (a later run of the same configuration of the pack reports
+  another model of a type), and "stale after DATE", 45 days after it was measured. No clock is
+  read, so the date is shown and never checked.
+
+`render.scoreboard_markdown(board)` writes it in Markdown: per table its standing, the banner, the
+arms, then one column per entry with its marks, its scope and its figures. A proportion is k of n
+with its exact 95% interval (as [How a figure is shown](#how-a-figure-is-shown) says), a mean is
+its value with its bootstrap interval, and ECE is "a description: no interval". It has no Rank
+column, no bare percentage, and names no case.
+
+## Run records: `mendari.run/1`
+
+A run record holds what a ledger does not, and what no rebuild reproduces (`evals/runs.py`). It
+is a closed schema: anything else in it is refused. It never holds a key, an endpoint or case
+text. Its bytes are its canonical JSON (sorted keys, no spaces, no NaN) and a newline, and its
+SHA-256 is of those bytes: a record whose bytes are not canonical is refused when read.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.run/1`. |
+| `replicate` | The replicate's number, 1 to 5. |
+| `engine` | The engine's version. |
+| `date` | The day it ran (YYYY-MM-DD, US Eastern). |
+| `ledger` | The id of the ledger it is the run record of. |
+| `models` | Per model type (`jev`, `llm`), the model ids its answers reported, sorted. |
+| `cases` | Per case, in the ledger's order: `latency_ms` (3 places) and `tokens`, per model type `[input, output]`. |
+
+A model id is as its provider reports it, never a URL. `runs.record` builds one from a run's
+results: each result's latency and its model types' tokens, and the models its answers name. A
+composite's answer names its member and the member's model, and a member of a model type counts
+as that type. A model whose answers a composite never kept is not reported, so a cost that needs
+it is unknown, never guessed.
+
+`runs.agrees(run, ledger)` holds when the record names the ledger's id, has its number of cases,
+and each case's tokens, summed over its types, are the ledger's `u` (input and output tokens).
+An entry is never made from a record that does not agree.
+
+## Price tables and disclosures: `mendari.prices/1` and `mendari.disclosures/1`
+
+A price table is a dated file outside Mendari's code (`scoreboard/prices/<YYYY-MM-DD>.json`),
+cited by the SHA-256 of its bytes. A table read from the package, the repository's `src/` or a
+pack's directory is refused before it is read.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.prices/1`. |
+| `date`, `source` | When the prices were read, and where from. |
+| `prices` | Per model type and model id: `input_per_1000` and `output_per_1000`, USD per 1,000 tokens. |
+
+The disclosures file (`scoreboard/disclosures.json`) holds `format` (`mendari.disclosures/1`), its
+`date`, and `statements`: per remote provider type (`jev`, `llm`, `cql`), the statement of any
+commercial relationship between Mendari and that provider.
 
 ## Paired comparisons: `mendari.compare/1`
 
