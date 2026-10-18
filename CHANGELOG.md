@@ -255,8 +255,9 @@ The first release (not yet published).
   only", "+ specialised classifier" (Jev), "+ general LLM" and "+ both". Each configuration
   says whether it runs on the machine, or names the types it calls off it (CQL asks no model
   but is remote). An arm no configuration reaches is "not applicable". It reads the manifest
-  alone and writes nothing. The five reference packs have 5, 10, 25, 5 and 20 configurations; only the
-  inbox and referral packs reach "+ both", across two slots. Spec:
+  alone and writes nothing. Of the reference packs, Patient Inbox Router has 25 configurations,
+  Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
+  Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
   `docs/spec/evaluation-reports.md`, Arms.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
