@@ -2957,7 +2957,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     organization's; a decided order that needs no documentation keeps its information note
     (oper-8); a request that names no order, context or questionnaire is a `400` (oper-6).
     "Validated against DTR 2.2.0" now says profile-validated (HL7 validator, offline).
-  - [x] DV-b (this PR): the implementation guide packages are pinned by checksum.
+  - [x] DV-b (#267): the implementation guide packages are pinned by checksum.
     `scripts/fhir_packages.lock` names the 55 packages the validator loads, each with its sha256
     and URL (packages.fhir.org; packages2.fhir.org for VSAC 0.18.0 and 0.19.0, which only it
     serves): US Core 6.1.0, CRD 2.2.1, DTR 2.2.0, PAS 2.2.1, what validator 6.10.4 loads by
