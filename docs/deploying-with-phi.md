@@ -797,13 +797,15 @@ logs, at startup, each slot the Jev defaults turn on.
   build of the pack with the providers and models this deployment runs, under the same
   governance (an approval in force or not), over the decisions made since that configuration
   started, and stratum by stratum (reviewed decisions, automated ones); otherwise it says why
-  (`benchmark.reason` in `/api/monitoring`: `no_benchmark`, `another_build`,
+  (`benchmark.reason` in `/api/monitoring`: `from_registry`, `no_benchmark`, `another_build`,
   `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
   benchmark run: automated decisions rated wrong, overrides that doubled against the week
   before, and operational health. A deployment that runs other providers than the benchmark
   did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an
   approval the benchmark was measured without, gets only those: the benchmark says nothing about
-  how that configuration should do. Operational health, from what each decision stored, alerts
+  how that configuration should do. A pack pulled from a registry gets only those too, whatever
+  benchmark it carries (`from_registry`): that is its publisher's upload, never a reference
+  ([ADR-0012](decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)). Operational health, from what each decision stored, alerts
   week over week (50 decisions or more this week):
 
   | Alert | Fires when |
@@ -964,7 +966,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
 | `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
-| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How often a server reads the recalls of each registry its served packs came from; a recalled pack stops automating (LP-18e) | 4 |
+| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How often a server reads the recalls of each registry its served packs came from; a recalled pack stops automating (LP-18e; [Running a pack registry](operations/registry.md)) | 4 |
 | `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (1 to 604800 seconds, at least twice the check) | After this long without a successful read of its registry's recalls, a pack from that registry stops automating. A serverless instance starts unread, so a pulled pack waits for its first read there; `mendari decide` sees only the recall known at its last pull. These reads go to the registry a pack came from, not through `MENDARI_PROVIDER_ALLOWED_ORIGINS` | 4 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |

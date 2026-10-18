@@ -91,6 +91,18 @@
   Versions are immutable in the registry, and publishing needs a namespace token (stored
   hashed). A registry can't swap a pack without its publisher's key, and it can't swap the key
   without the user noticing.
+- **A registry shows only what it checked**
+  ([ADR-0012](decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it renders
+  each version's card from the digested files, never shows an uploaded card, benchmark or
+  leaderboard, and answers `checked` apart from `claimed`. Every registry write is a chained
+  event (`mendari registry verify`). The engine shows a pulled pack with the registry's card and
+  never takes the benchmark it carries as a reference (monitoring, evaluations).
+- **A pulled pack is capped by its origin** (`core/origin.py`, `Decision._origin_holds`): it
+  writes where it came from beside itself (`mendari.origin/1`), and served it never automates
+  until its organization approves its digest (`registry_approvals`), nor while its registry
+  recalls it. A recall is a signed record (`hub/yank.py`); a running server reads each
+  registry's recalls every five minutes (`server/recalls.py`) and holds a pack whose registry it
+  could not read for a day. The Decision Card shows the origin and the approval.
 - **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that

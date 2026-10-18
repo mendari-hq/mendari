@@ -2385,6 +2385,29 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
     ).to_be_visible()
 
 
+def test_monitoring_says_a_pack_from_a_registry_is_not_compared(page: Page) -> None:
+    """LP-18h: the monitor takes no benchmark for a pulled pack (`from_registry`)."""
+    bench = {
+        **monitoring_report()["benchmark"],
+        "accuracy": None,
+        "n": None,
+        "reviewed_accuracy": None,
+        "comparable": False,
+        "reason": "from_registry",
+        "figures": {"accuracy": None, "reviewed_accuracy": None, "automated_accuracy": None},
+    }
+    report = monitoring_report(benchmark=bench)
+    page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
+    open_pack(page, INBOX, "monitoring")
+    main = page.locator("main")
+    expect(main).to_contain_text(
+        "Not compared with the benchmark: the pack is from a registry, and the benchmark it "
+        "carries is its publisher's upload, never a reference. Only the checks that need no "
+        "benchmark run"
+    )
+    expect(page.locator(".stats-primary .stat").first).not_to_contain_text("benchmark")
+
+
 def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
     week = {
         **monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),

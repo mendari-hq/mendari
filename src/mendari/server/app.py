@@ -86,6 +86,7 @@ from mendari.errors import (
     SmartError,
 )
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
+from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.hidden import HiddenResult, graded, holds
@@ -1832,7 +1833,9 @@ def create_app(
     )
     def run_eval(namespace: str, name: str, request: EvalRequest, http: Request) -> dict[str, Any]:
         """Evaluate the pack (or another provider configuration) on one of its datasets, and compare
-        with the published benchmark. Calls to remote providers are capped at 200 cases."""
+        with the published benchmark (a pack from a registry: `comparison` says it is not
+        compared with the benchmark it carries). Calls to remote providers are capped at 200
+        cases."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
@@ -1875,8 +1878,12 @@ def create_app(
         report = run.report
         baseline = benchmark(pack)
         if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
-            report["comparison"] = compare(
-                report, baseline, pack.manifest.evaluation.degradation_tolerance
+            # A pack from a registry carries its publisher's benchmark, never a reference here
+            # (ADR-0012): the answer says so instead of comparing with it.
+            report["comparison"] = (
+                not_compared(FROM_REGISTRY)
+                if pack.origin == "hub"
+                else compare(report, baseline, pack.manifest.evaluation.degradation_tolerance)
             )
         store.save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
         return _with_figures(report)

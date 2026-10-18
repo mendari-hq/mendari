@@ -264,6 +264,26 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
+- **A registry shows only what it checked**
+  ([ADR-0012](docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)). It
+  renders each version's Decision Card itself, from the files the digest covers, with the
+  publisher's text as plain text, and never shows an uploaded card, benchmark or leaderboard.
+  Each version answers what the registry verified (`checked`) apart from what the publisher
+  says (`claimed`, the risk level "declared by the publisher" until a review). Its one figure is
+  its own regression check on the publisher's test set, labelled as such and never a ranking.
+  Where Mendari serves a pulled pack it shows the registry's card too, and never monitors it
+  against, or compares its evaluations with, the benchmark it carries. Every registry write is
+  a hash-chained event (`mendari registry verify`); the registry limits reads and writes and
+  sends a strict CSP, as the Hub does.
+- **A pulled pack waits for its organization, and stops at a recall.** Served, a pack from a
+  registry never automates until its organization approves its exact digest (the Decision Card,
+  or `POST /api/registry-approvals`; chained, revoked at once), at any risk level, and its own
+  rule's BLOCK goes to a person until then. A recall is a signed record (`mendari yank`, or the
+  registry's own key): a recalled version leaves the latest and search, and every running server
+  that serves it stops automating it at its next read of the registry (every five minutes
+  unless set), as it does for a pack whose registry it could not read for a day. Nothing in a
+  pack lifts this, a copy of a reference pack included. The runbook is
+  [`docs/operations/registry.md`](docs/operations/registry.md).
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.
 - A pack cannot choose a provider's endpoint or credentials. Which environment variables
@@ -366,11 +386,11 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   not UTF-8 or not JSON (an integer of more than 4,300 digits, nested too deep), or holds a
   lone surrogate or NaN, is named by file and line (`GET …/datasets`, `mendari eval`). A
   version has at most 64 characters, so comparing versions never fails. Publishing a pack to
-  the registry that does not load, or whose card is not text, is refused with a `422` and its
-  reason, never a server error; the registry shows a benchmark's dataset name, count and
-  accuracy only as a short string, an integer and a finite number, and a leaderboard only up
-  to 32 levels and 1 MB (otherwise as none), and serializes what it will show before storing
-  anything, so a pack's attestations cannot make search or its version's page a server error.
+  the registry that does not load, whose changelog is not UTF-8 or whose card would be over
+  1 MB, is refused with a `422` and its reason, never a server error; the registry never reads
+  a pack's uploaded card, benchmark or leaderboard (it renders the card itself, above), and
+  serializes what it will show before storing anything, so a pack's attestations cannot make
+  search or its version's page a server error.
 - A pack's input schema is self-contained: every `$ref` points inside it (`#...`) at a schema,
   `$schema` and `$id` appear only at its root (the dialect 2020-12), and it holds no
   `$dynamicAnchor` and no `format: regex` (which jsonschema checks by compiling the caller's
@@ -388,8 +408,8 @@ the patterns on RE2 with their caps and budget, also hold every pack pulled from
 that is not a copy of a reference pack of the installed release
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md),
 threat model D8 and S15): they are the limits of community and registry packs. The others are
-the community packs' alone: a pulled pack is labelled "From a registry", and its own policy
-applies.
+the community packs' alone: a pulled pack is labelled "From a registry", and it automates
+under its own policy only once its organization approves its digest (above).
 
 - **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_PACKS=on`, default off,
   one switch for all of them), and never shipped in the Python package or the images.
@@ -471,6 +491,12 @@ threat, its mitigation and the test that checks it. The CI job `security` runs:
   fixed version must not stop every change);
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail (the
   rate limits run in `log` mode there, so the scan is counted, not refused).
+
+The job `hub-site` builds the Hub website against a registry holding the five reference packs
+and one whose text tries to run a script (`scripts/hub_seed.py --hostile-example`), runs its
+Playwright tests (every page's headers by exact value, the publisher's text shown as text),
+then an OWASP ZAP baseline scan of every page (the pinned image), where medium and high risks
+fail; `tests/test_registry_limits.py` pins those steps.
 
 The job `pilot-check` plays a pilot organization end to end against a mock identity provider:
 sign-in, PHI mode `encrypt` with a generated input hash key, a key for the worker, a reviewer's

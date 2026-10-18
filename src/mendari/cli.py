@@ -191,6 +191,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
     from mendari.evals import compare, resolve_dataset
+    from mendari.evals.compare import FROM_REGISTRY, not_compared
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
 
@@ -212,7 +213,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
             baseline = _read_json(args.baseline, "--baseline", shape=dict)
         if baseline is not None:
             tolerance = pack.manifest.evaluation.degradation_tolerance
-            comparison = compare(report, baseline, tolerance)
+            if args.baseline == "auto" and pack.origin == "hub":
+                # A pack from a registry carries its publisher's benchmark, never a reference
+                # (ADR-0012); a report given with --baseline is the caller's own.
+                comparison = not_compared(FROM_REGISTRY)
+            else:
+                comparison = compare(report, baseline, tolerance)
             report["comparison"] = comparison
 
     if args.out:
@@ -2309,7 +2315,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--baseline",
         default="auto",
-        help="'auto' (pack benchmark), 'none', or a report JSON path",
+        help="'auto' (the pack's benchmark, never one a pack from a registry carries), 'none', "
+        "or a report JSON path",
     )
     evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
     evaluate.add_argument(

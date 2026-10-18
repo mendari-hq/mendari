@@ -522,8 +522,8 @@ behaviour.
   suite takes about 6 min. **Found, for later prompts:**
   - Writes with no chained event (an expected failure in `test_shipped.py` until they are):
     `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
-    LP-10); the registry's six writes (publish and reports, LP-18; claims, approval, tokens and
-    keys, LP-19).
+    LP-10); the registry's writes (every one chained since LP-18b, #229: `NOT_CHAINED_YET` is
+    empty; LP-19's claims and their approval are chained as they are built).
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
@@ -873,8 +873,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
         views, shown to catch one.
       - [x] **C** (#157) The Hub: `hub/lib/figures.ts` (checked against the fixture), the
         pack page's leaderboard in served order (it ranked by accuracy alone), the benchmark
-        fact and the search cards as k of n. Its card is still raw Markdown tables (no GFM);
-        left for LP-18, which reworks what the Hub shows of a version.
+        fact and the search cards as k of n. Its card was raw Markdown tables (no GFM) until
+        LP-18a (#228) rendered them with `remark-gfm`, and took the benchmark fact and the
+        leaderboard away (ADR-0012).
       - Owner, optional: give the 166 shipped `mendari.leaderboard/1` rows their accuracy
         counts from the committed datasets where provable (the dataset unchanged since the
         row's run, k/n exactly the stored rate). Without it they show accuracy as n/a.
@@ -1389,9 +1390,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
 
-- [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
-  (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
-  changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
+- [x] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed; built with 18h,
+  2026-10-17; G3-4's a10-registry-hub still waits on LP-19). Planned (2026-10-09) as eight PRs,
+  each merged before the next, and the Decision Card's approval screen added: nine items;
+  LP-16 is merged (16a to 16g). None changes what a pack decides on its own engine; 18d only
+  lowers automation for pulled packs.
   - [x] **18a** (#228, merged 2026-10-09) The card rendered by the registry and the two groups: `render_card(pack,
     report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
     pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
@@ -1543,7 +1546,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     registry did not issue counts against its sender's address); the limit's database work ran
     on the event loop (now in the thread pool); an unhandled error's 500 had no headers (now a
     bare 500 with them); the Hub's tests cover an unmatched page too.
-  - [x] **18g** (PR open) The regression check (`hub/regression.py`): on every publish
+  - [x] **18g** (#239, merged 2026-10-10) The regression check (`hub/regression.py`): on every publish
     (`MENDARI_REGISTRY_REGRESSION`, `on` unless set), the pack is evaluated on its own
     `evaluation.benchmark_dataset` (a file its digest covers) in a child process (`python -I -m
     mendari.hub.regression DIR`: an environment of five fixed variables, no credential or
@@ -1568,7 +1571,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the check); the child's limits are set in the child itself (no `preexec_fn`), with a
     file-size limit, its errors dropped and its answer read to 1 MB; the raw check (a bare
     accuracy) is no longer served beside `checked.regression`.
-  - [x] **18d screen** (PR open) The registry approval on the Decision Card: an approval is keyed
+  - [x] **18d screen** (#240, merged 2026-10-10) The registry approval on the Decision Card: an approval is keyed
     on the pack and its digest (per organization), so it lives in the card's Automation approval
     section, not in Access. For a pack served from a registry: where it came from (registry,
     namespace, signing key, when pulled, the digest served), a recall recorded at pull, the
@@ -1583,8 +1586,29 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
     names the deployed model, and the list would be a call to Jev on every card for nothing to
     act on.
-  - [ ] **18h** Close-out: gate a10's probe (LP-18's tests; LP-19 stays pending), threat model
-    rows, docs.
+  - [x] **18h** (this PR) Close-out. The engine no longer uses a pulled pack's uploaded
+    benchmark, the gap in the acceptance check that needed code (18a left the monitor as is,
+    and nothing covered the evaluation's comparison; the others are residual risks in the
+    threat model): `/api/monitoring` and `mendari monitor` take no
+    benchmark for a pack from a registry (`benchmark.reason: from_registry`, its figures null,
+    only the checks that need none run; the dashboard says why), and the evaluation route and
+    `mendari eval` attach `comparison: {status: unknown, reason}` instead of comparing with the
+    benchmark it carries (`--baseline report.json` is still compared); every other pack as
+    before. Gate a10's LP-18 half is its tests, in five probes by the prompt's Tests (the card,
+    the two groups and the engine's uploaded benchmark; recalls, deletions and a server
+    honouring them; the pulled-pack cap and the Decision Card's approval; limits and headers,
+    the Hub's half pinned by `test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner`
+    and `test_zap_check_fails_on_a_medium_or_high_risk_only`; plain publisher text and the
+    chain); its `pending` probe names LP-19 alone, so a10 stays unmet. Threat model rows S18,
+    S19, T7, R3, D11, D12, E12 and E13, with E1, E3, S4, the trust boundaries, the header and
+    the Pack content part amended, and residual risks (the admin token until LP-19, unverified
+    site reports, an unreadable registry, the unkeyed chain, the signing key, the regression
+    check, approvals that never expire, the Hub's checks not required). ADR-0012's status
+    (built; accepted once the owner confirms) and Consequences (the breaking cap).
+    `docs/operations/registry.md` (in the nav), README, CHANGELOG, SECURITY.md, the
+    evaluation-reports spec (the registry's `figures` always null), the review packet's scope
+    (the registry and the Hub in it), architecture and the authoring guide;
+    `scripts/zap_check.py`'s docstring names both jobs. **LP-18 is built.**
 
   **Defaults each PR follows** (the owner may choose otherwise):
   1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes
@@ -1600,6 +1624,39 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   6. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
   7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
      cannot be evaluated on its own test set with local providers says so.
+
+- [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
+  by 18h, 2026-10-17): it waits on the owner's choice of where the registry runs.** The build
+  prompt says so ("Owner decision needed: mount the registry under the engine app (one origin,
+  one session, one database) or deploy it as a separate project. If it is not recorded in
+  tasks/todo.md, stop and ask."). It is not recorded, and it decides how a publisher token
+  belongs to a signed-in user and organization (requirement 1), where namespace claims and
+  their approvals live (2, 3), and what the deployment configuration is (4), so no part is built
+  on a guess. The options:
+  - **A, mount the registry under the engine (the build session's recommendation).** The
+    registry's routes under the engine app (`/registry/v1/...`, or its own host on the same
+    project): one origin, the engine's sign-in and memberships (LP-12) for people, one Postgres
+    with the `hub_` tables beside the engine's, one set of headers, limits and alerts, one
+    backup and runbook. Publisher tokens become credentials an organization's member mints and
+    revokes in the Access view (owner, created, last used, expiry), claims and their approval a
+    reviewer's queue there; the shared admin token goes. The Hub (Next.js, `hub/`) is a second
+    Vercel project that reads the registry's public routes. Cost: the registry's traffic and its
+    regression checks (a child process per publish, up to 180 s) share the engine's functions
+    and database; on Vercel a publish's check needs a longer function timeout than a decide.
+  - **B, a separate project** (`registry.<domain>`): its own Vercel project and Neon database,
+    sign-in through the same identity provider but its own sessions, organizations mirrored or
+    looked up from the engine, its own runbook and backups. Isolates load and failure, at the
+    cost of two account systems to keep in step.
+  Either way, after the choice (Claude builds, the owner deploys): tokens owned and expiring,
+  with self-service create, list and revoke; namespace claims (`mendari/` and `openhealth/`
+  reserved), a first publish invisible to search, pull and the Hub until a reviewer approves
+  it; an organization linked to its namespaces; the deployment configuration (configuration
+  only); the registry's key counter-signing accepted versions, shipped with the client; https
+  required but on localhost. **Owner steps then:** choose A or B; for B, create the Vercel
+  project and the Neon database; set `MENDARI_REGISTRY_SIGNING_KEY` (32 random bytes, base64)
+  for the registry's own recalls and counter-signatures; DNS for the registry and the Hub; the
+  Hub's `REGISTRY_URL`. LP-22 (the site evaluation network) needs LP-19's organizations in the
+  registry, so it waits too.
 
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack

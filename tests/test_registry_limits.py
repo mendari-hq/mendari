@@ -1,13 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """The registry's rate limits and security headers (LP-18f), asserted by exact value on every
-route."""
+route; and the Hub's half, which only CI's `hub-site` job runs (Playwright and the OWASP ZAP
+baseline are not pytest), pinned here by its steps (LP-18h)."""
 
 from __future__ import annotations
 
+import importlib.util
+import json
+import re
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -19,6 +26,14 @@ from mendari.hub.registry import (
     registry_limit_settings,
 )
 from tests.conftest import REGISTRY_ADMIN
+
+ROOT = Path(__file__).resolve().parents[1]
+HUB_TESTS = ROOT / "hub" / "tests"
+# A pinned image: a version and its digest.
+ZAP_BASELINE = re.compile(
+    r"\bdocker run .*ghcr\.io/zaproxy/zaproxy:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}\s+"
+    r"zap-baseline\.py -t http://127\.0\.0\.1:3100 -J zap\.json\b"
+)
 
 EXPECTED = {
     "x-content-type-options": "nosniff",
@@ -148,3 +163,71 @@ def test_an_unhandled_error_is_a_bare_500_with_the_headers(
     assert answer.status_code == 500 and answer.json()["detail"] == "internal error"
     for name, value in EXPECTED.items():
         assert answer.headers.get(name) == value, name
+
+
+def test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner() -> None:
+    """The Hub's half of LP-18's tests 4 and 5 (exact headers on every page; a script in
+    publisher text is inert) runs only in CI's `hub-site`: the registry seeded with the hostile
+    example, the Hub's Playwright tests (`headers.spec.ts`, and the smoke test on publisher
+    text), then the pinned ZAP baseline over the local site and `scripts/zap_check.py`, which
+    fails on a medium or high risk. A step dropped, reordered or allowed to fail fails here."""
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    job = ci["jobs"]["hub-site"]
+    steps = job["steps"]
+    assert "continue-on-error" not in job
+    assert not [step for step in steps if step.get("continue-on-error")]
+
+    def step(matches: Any) -> int:
+        found = [i for i, s in enumerate(steps) if matches(s)]
+        assert len(found) == 1, found
+        return found[0]
+
+    seed = step(lambda s: "scripts/hub_seed.py --registry" in s.get("run", ""))
+    assert "--hostile-example" in steps[seed]["run"]
+    assert "mendari registry verify" in steps[seed]["run"]
+    tests = step(lambda s: s.get("run") == "npm test" and s.get("working-directory") == "hub")
+    started = step(
+        lambda s: "npm run start" in s.get("run", "") and s.get("working-directory") == "hub"
+    )
+    scan = step(lambda s: ZAP_BASELINE.search(" ".join(s.get("run", "").split())) is not None)
+    check = step(lambda s: s.get("run") == "uv run python scripts/zap_check.py /tmp/zap/zap.json")
+    assert "-v /tmp/zap:/zap/wrk" in steps[scan]["run"]  # where zap_check reads the report
+    assert seed < tests < started < scan < check
+    headers = (HUB_TESTS / "headers.spec.ts").read_text()
+    assert 'test("every page and asset carries the headers, each nonce fresh"' in headers
+    assert '"/packs/hub-test/hostile-text"' in headers
+    smoke = (HUB_TESTS / "smoke.spec.ts").read_text()
+    title = "publisher text is shown as text: no script runs and no unsafe link is made"
+    assert f'test("{title}"' in smoke
+    assert 'testDir: "tests"' in (ROOT / "hub" / "playwright.config.ts").read_text()
+
+
+def _zap_check() -> ModuleType:
+    path = ROOT / "scripts" / "zap_check.py"
+    spec = importlib.util.spec_from_file_location("zap_check", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(("risk", "code"), [(0, 0), (1, 0), (2, 1), (3, 1)])
+def test_zap_check_fails_on_a_medium_or_high_risk_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], risk: int, code: int
+) -> None:
+    """`scripts/zap_check.py` (CI's `security` and `hub-site`): informational and low alerts
+    are listed and pass; a medium or high one fails, and so does a report holding one among
+    others."""
+    zap_check = _zap_check()
+    assert zap_check.ACCEPTED == {}  # no medium or high risk is accepted
+    alert = {"riskcode": str(risk), "pluginid": "10038", "name": "A finding", "count": "2"}
+    quiet = {"riskcode": "0", "pluginid": "10049", "name": "Informational", "count": "1"}
+    report = tmp_path / "zap.json"
+    report.write_text(json.dumps({"site": [{"alerts": [quiet]}, {"alerts": [alert]}]}))
+    assert zap_check.main(report) == code
+    printed = capsys.readouterr().out
+    assert ("FAIL" in printed) is bool(code)
+    assert printed.rstrip().endswith(
+        "medium or high risks found" if code else "no medium or high risks"
+    )

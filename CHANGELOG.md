@@ -59,9 +59,8 @@ The first release (not yet published).
   none. Its "False automation" is now of the labelled cases, as on the card (it was of the
   automated ones); the subgroups table drops its false-automation column, which the card never
   had; the overview compares a period with the one before by that period's own figure.
-  The Hub shows each pack's benchmark accuracy as k of n with its interval, and its leaderboard
-  in the ranking's order, one set of records at a time, each row with its rank or why it has
-  none (it ranked by accuracy alone).
+  The Hub shows no benchmark or leaderboard a publisher uploads (LP-18, below), only the
+  registry's own regression check, as k of n with its interval.
   Each answer of an `llm` or `vote` provider records the model that answered (the id the
   endpoint reports, when well formed), as Jev's already did: on the decision, the audit
   record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
@@ -266,6 +265,72 @@ The first release (not yet published).
   registry with a reference pack's id and version but other files is refused at publish, pull
   and load (it would have been served in the reference pack's place); one cached before is
   listed under `/api/health` `invalid`, with the directory to remove.
+- **A registry that shows only what it checked** (LP-18,
+  [ADR-0012](docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)). The
+  registry renders each version's Decision Card itself, from the files the pack digest covers,
+  with the publisher's text as plain text (no heading, table, image, link or bold line of the
+  publisher's can pass for the registry's), and stores and shows no uploaded card, benchmark or
+  leaderboard; a version published before serves none (`checked.card: not_rendered`). Every
+  version answers `checked` (the signing key, the archive's SHA-256, the digest, the engine,
+  the card rendered here, the status label, the review, the namespace's publisher type) apart
+  from `claimed` (the publisher, its declared risk level, licence and summary), and the Hub
+  shows the two groups apart and renders the card with GFM tables, no raw HTML and no image;
+  `figures` stays in the registry's answers, always null. `mendari search` prints no figure and
+  says the risk is declared. Where the engine serves or names a pulled pack (its pack detail,
+  `mendari card`) it shows the registry's card, without the uploaded benchmark and leaderboard.
+- **The registry's chain and reviews** (LP-18b). Every registry write appends a hash-chained
+  event naming who acted (`admin`, or a token by its id) and holding the hash of the row it
+  left; `mendari registry verify --db` (read-only, exit 1 when broken) checks the chain and
+  that every row is the one its event hashed, re-hashes archives and recomputes key ids. A
+  registry with rows from before records them once. `GET /v1/chain/head` publishes the head to
+  keep elsewhere. A registry reviewer (the admin token until LP-19) records the risk level a
+  review found and a one-line note (`POST /v1/packs/{namespace}/{name}/{version}/review`),
+  shown as `checked.review` and `claimed.risk.confirmed`.
+- **Recalls and deletions** (LP-18c). `mendari yank ns/name@version --reason --severity --key`
+  recalls a version with a signed `mendari.yank/1` record; an administrator's recall is signed
+  with the registry's own key (`MENDARI_REGISTRY_SIGNING_KEY`, `GET /v1/registry-key`). A
+  record is stored only if it names exactly that version, is recent and its signature holds,
+  once per version. A recalled version leaves latest and search, is still served by exact
+  version with its record, and `GET /v1/yanks` lists every recall. An administrator can delete
+  a version (`POST …/delete`): its archive answers `410`, its bytes go, a tombstone stays, and
+  `mendari pull` refuses it and removes a cached copy. `mendari pull` of a recalled version
+  prints the record and whether its signature holds with a pinned key.
+- **Breaking, for deployments that serve pulled packs: a pulled pack waits for its
+  organization** (LP-18d). A pull writes where the pack came from beside it
+  (`mendari.origin/1`). Served, a pack from a registry never automates until its organization
+  approves its exact digest (`GET`/`POST /api/registry-approvals`, `DELETE …/{id}`, the
+  `approve` permission, chained `registry_pack.approved` and `.revoked`), at every risk level,
+  nor while its pull recorded a recall, and its own rule's BLOCK goes to a person until then.
+  Nothing in the pack lifts it, a copy of a reference pack included. `mendari decide --db`
+  honours the trail's approvals; `mendari test`, `eval` and `leaderboard --run` check the pack's
+  own policy. Approve a pulled pack before relying on its automation.
+- **The approval on the Decision Card** (#240). For a pack served from a registry, the card's
+  Automation approval section shows where it came from, a recall recorded at pull, the
+  approval in force and every earlier one; approving takes a reference and a dialog that names
+  the digest and what it never lifts, and revoking is one button, both only with `approve`.
+- **A running server honours its registries' recalls** (LP-18e, `server/recalls.py`). It reads
+  each registry's `GET /v1/yanks` every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set),
+  over https, bounded in time and size, and holds a recalled pack as an unapproved one is
+  held, and every pack of a registry it has not read for `MENDARI_REGISTRY_RECALL_STALE_S`
+  (a day unless set). The full `/api/health` shows `registry_recalls`.
+- **Rate limits and headers on the registry and the Hub** (LP-18f). The registry limits reads
+  per address and writes and site reports per token, in its own database, before a body is
+  read (`MENDARI_REGISTRY_RATE_LIMITS`); every registry answer and Hub page carries a strict CSP
+  (the Hub's with a fresh nonce), refuses framing and sends HSTS but on this machine. CI's
+  `hub-site` runs the Hub's tests over a seeded registry, a hostile example among its packs,
+  then the OWASP ZAP baseline, failing on a medium or high risk.
+- **The regression check** (LP-18g). On every publish the registry evaluates the version on
+  its own test set, in an isolated child process with local providers only, and compares it
+  with the newest earlier version's check; it is shown as "publisher's own test set:
+  regression check, not a ranking" and never refuses a version
+  (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
+- **A pulled pack's uploaded benchmark is never a reference** (LP-18h). The Monitoring view and
+  `/api/monitoring` take no benchmark for a pack from a registry (`benchmark.reason:
+  from_registry`, its benchmark figures null) and run only the checks that need none; the
+  evaluation route and `mendari eval` attach no comparison with the benchmark it carries and
+  say why (`comparison.status: unknown`), while a report given with `--baseline` is still
+  compared. Every other pack is monitored and compared as before. The runbook for running a
+  registry is [`docs/operations/registry.md`](docs/operations/registry.md).
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

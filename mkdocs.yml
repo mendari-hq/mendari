@@ -65,6 +65,7 @@ nav:
       - Organizations and memberships: operations/accounts.md
       - Status checks: operations/status-checks.md
       - Hidden evaluation sets: operations/evalsets.md
+      - Running a pack registry: operations/registry.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
