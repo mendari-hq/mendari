@@ -570,9 +570,10 @@ bases it may send as `fhirServer`, and its public keys, by value or from one `jw
 `MENDARI_FHIR_ALLOWED_SERVERS`. A token must be RS384 or ES384, addressed (`aud`) to
 `MENDARI_PUBLIC_URL` plus the path it calls, live at most 330 seconds, and carry a `jti` used
 once. A verified token is the principal `cds:<id>` of the registered organization: it lists and
-calls the CDS services and reaches nothing else. Unset, a JWT is refused everywhere, in open mode
-too, where before it was never read. The rest of open mode is as before: it answers anyone, on
-any host, until LP-23c. How it works, field by field, is
+calls the CDS services and reaches nothing else. Unset, a JWT on `/cds-services` is refused in
+every mode, open mode included, where before it was never read. Elsewhere a JWT is what it was:
+refused with sign-in on, and ignored in open mode, which reads no credential there. The rest of
+open mode is as before: it answers anyone, on any host, until LP-23c. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)

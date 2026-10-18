@@ -308,6 +308,10 @@ P256 = ec.generate_private_key(ec.SECP256R1())
         ([jwk(RSA_KEY, alg="RS256")], "signs RS384"),
         ([jwk(RSA_KEY, use="enc")], "use must be sig"),
         ([jwk(RSA_KEY, key_ops=["sign", "verify"])], "key_ops"),
+        ([jwk(RSA_KEY, key_ops=[["verify"]])], "key_ops"),  # never hashed: no TypeError
+        ([jwk(RSA_KEY, key_ops=["verify", {}])], "key_ops"),
+        ([jwk(RSA_KEY, kty=["RSA"])], "kty must be RSA"),
+        ([jwk(EC_KEY, kty={"EC": 1})], "kty must be RSA"),
         ([jwk(RSA_KEY, kid=DROP)], "needs a kid"),
         ([jwk(RSA_KEY, kid="a b")], "needs a kid"),
         ([jwk(RSA_KEY), jwk(STRANGER)], "same kid"),

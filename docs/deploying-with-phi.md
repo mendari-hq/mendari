@@ -243,7 +243,8 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
   `403` before anything is fetched. It is rate limited and capped daily like a key.
 - **Its keys** are given by value (`jwks`, public RS384 or ES384 keys) or fetched from one
   `jwks_uri` whose origin is on `MENDARI_FHIR_ALLOWED_SERVERS`, kept an hour and fetched again
-  at most once a minute for a key it does not know. A token's `jku` must be that URL exactly.
+  at most once a minute for a key it does not know. Each instance keeps its own, so the EHR sees
+  up to one such request a minute from each. A token's `jku` must be that URL exactly.
 - **Every token that does not verify** (another key or algorithm, the wrong `iss` or `aud`, too
   old, too long-lived, used before) is the one `401`, and the security log says why
   (`cds_<reason>`). Unset, no JWT is accepted anywhere, in open mode too.

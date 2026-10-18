@@ -5816,10 +5816,14 @@ _SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
 # A bucket's start for the next request: its `tat`, or now if that has passed (GCRA's max).
 def _session_key(kind: str, value: str) -> str:
     """A session-table row's key: sha256(kind || 0x00 || value). Kinds are short lowercase names
-    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal."""
+    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal. A value
+    is any string: one decoded from JSON (a token's `jti`) may hold a lone surrogate, which
+    `surrogatepass` encodes as no valid string encodes, so the bytes of every other value, and
+    so every key made before, are unchanged."""
     if not _SESSION_KIND.fullmatch(kind):
         raise ValueError(f"not a session kind: {kind!r}")
-    return hashlib.sha256(kind.encode() + b"\x00" + value.encode()).hexdigest()
+    raw = value.encode("utf-8", "surrogatepass")
+    return hashlib.sha256(kind.encode() + b"\x00" + raw).hexdigest()
 
 
 def _opener(kind: str, key: str, secret: str | None) -> str | None:

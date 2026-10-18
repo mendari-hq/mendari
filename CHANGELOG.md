@@ -43,19 +43,25 @@ The first release (not yet published).
 - **An EHR calls CDS Hooks with its own signed token** (LP-23b, ADR-0014). Register the EHR in
   `MENDARI_CDS_CLIENTS`, a JSON list checked at startup: its `iss`, organization, the FHIR bases
   it may send as `fhirServer` and its public keys, by value or from one `jwks_uri` on
-  `MENDARI_FHIR_ALLOWED_SERVERS` (kept an hour, fetched again at most once a minute for a `kid`
-  it does not know). `MENDARI_PUBLIC_URL` must be set. A token is verified in full (RS384 or
-  ES384; a header of `alg`, `kid`, `typ` and `jku` only, `jku` the registered URL exactly; `aud`
-  the public URL plus the path called; `exp`, `iat` and a `jti` used once, at most 330 seconds;
-  a pinned `sub` and `tenant`), and becomes the principal `cds:<id>` of the registered
+  `MENDARI_FHIR_ALLOWED_SERVERS` (kept an hour, fetched again at most once a minute, by each
+  instance, for a `kid` it does not know). `MENDARI_PUBLIC_URL` must be set. A token is verified
+  in full (RS384 or ES384; a header of `alg`, `kid`, `typ` and `jku` only, `jku` the registered
+  URL exactly; `aud` the public URL plus the path called; `exp`, `iat` and a `jti` used once, at
+  most 330 seconds; a pinned `sub` and `tenant`), and becomes the principal `cds:<id>` of the registered
   organization, which lists and calls the CDS services and reaches nothing else, sends only its
   registered `fhirServer` (else `403`, before anything is fetched), and is rate limited and
   capped like any principal. Its decisions are chained as asked for by `cds <id>`. Every token
-  that does not verify is one `401`, its reason in the security log (`cds_<reason>`).
-  **A change for open mode:** a JWT on `/cds-services` is now verified there too, and refused
-  without a registry, where before it was never read and a forged one got cards; a call with no
-  credential is answered as before. `AuditStore.smart_claim` now deletes up to 100 expired
-  session-table rows, as each put does. See [Connecting an EHR](docs/guides/connecting-an-ehr.md).
+  that does not verify is one `401`, its reason in the security log (`cds_<reason>`), and its
+  `jti` is claimed only after every check, the organization's record and the route's permission
+  included. **A change for open mode:** a JWT on `/cds-services` is now verified there too, and
+  refused without a registry, where before it was never read and a forged one got cards; a call
+  with no credential is answered as before, and off `/cds-services` open mode still reads no
+  credential. `AuditStore.smart_claim` now deletes up to 100 expired session-table rows, as each
+  put does, and the session table keys any string, a lone surrogate in a `jti` included (every
+  key made before is unchanged). Two fixes found on the way, each a `500` before: a JWK Set whose
+  `kty` or `key_ops` is of the wrong JSON type is refused as any bad key set is (a `422` when a
+  Backend Services client is registered), and a FHIR server's answer nested too deep to read is
+  refused as invalid JSON. See [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

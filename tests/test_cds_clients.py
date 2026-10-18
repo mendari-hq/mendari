@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from mendari.core import audit as audit_module
 from mendari.core.audit import SESSION_PURGE_BATCH, AuditStore
 from mendari.errors import AuthError, MendariError
 from mendari.server import auth as auth_module
@@ -259,7 +260,8 @@ def test_a_token_from_the_future_or_living_too_long_is_refused(
     guard: Guard, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`iat` ahead of now beyond the skew, `nbf` ahead, more than 330 s between `iat` and `exp`
-    or from now to `exp`; and `exp`, `iat` or `jti` missing or of the wrong kind."""
+    or from now to `exp`; and `exp`, `iat` or `jti` missing or of the wrong kind, an integer past
+    a float's range among them (each the one `401`, never an error)."""
     guard.accepts(token())
     capsys.readouterr()
     now = int(time.time())
@@ -273,7 +275,13 @@ def test_a_token_from_the_future_or_living_too_long_is_refused(
         "no iat": (token(iat=DROP), "cds_claims"),
         "no jti": (token(jti=DROP), "cds_claims"),
         "iat a string": (token(iat=str(now)), "cds_claims"),
+        "iat not a number": (token(iat="soon"), "cds_claims"),
+        "iat a list": (token(iat=[now]), "cds_claims"),
+        "iat 400 digits ago": (token(iat=-(10**400)), "cds_claims"),
+        "iat 400 digits ahead": (token(iat=10**400), "cds_not_yet_valid"),
         "exp a string": (token(exp=str(now + 60)), "cds_claims"),
+        "exp 400 digits ahead": (token(exp=10**400), "cds_claims"),
+        "exp 400 digits, iat a float": (token(iat=now + 0.5, exp=10**400), "cds_claims"),
         "exp true": (token(exp=True), "cds_expired"),  # PyJWT reads it as 1
         "jti a number": (token(jti=7), "cds_claims"),
         "empty jti": (token(jti=""), "cds_jti"),
@@ -567,6 +575,46 @@ def test_a_jwks_answer_with_a_private_key_is_refused_and_nothing_is_cached(
         assert secret not in out
 
 
+def test_a_jwks_answer_of_the_wrong_shape_is_a_refusal_never_an_error(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A key whose `kty` is a list, or whose `key_ops` holds a list or an object, is a key set
+    refused (`invalid_keys`): it drops what was kept, even listed after a good key. An answer
+    nested too deep to read is a failed fetch (`unreachable`): what was kept holds. Each is the
+    one `401` and one `cds.jwks.refused` line, never an error."""
+    fetched = jwks_server(
+        monkeypatch,
+        {"keys": [RSA_EHR.jwk]},
+        {"keys": [RSA_EHR.jwk, {**EC_EHR.jwk, "kty": ["EC"]}]},
+        {"keys": [RSA_EHR.jwk]},
+        {"keys": [{**RSA_EHR.jwk, "key_ops": [["verify"]]}]},
+        {"keys": [RSA_EHR.jwk]},
+        {"keys": [{**RSA_EHR.jwk, "key_ops": [{}]}]},
+        {"keys": [RSA_EHR.jwk]},
+        httpx.Response(200, content=b"[" * 100_000, headers={"content-type": "application/json"}),
+    )
+    register(monkeypatch, entry(jwks=DROP, jwks_uri=JWKS_URI))
+    clock = Clock()
+    with AuditStore(db_target) as store:
+        guard = guard_for(store, keys=JwksCache(allowed={EHR}, clock=clock))
+        for _ in range(3):  # good keys kept; a refused answer drops them
+            assert guard.accepts(token()).id == "cds:epic"
+            clock.now += 61
+            assert guard.ask(token(headers={"kid": "unknown"})) == 401
+            assert guard.ask(token()) == 401
+            clock.now += 61
+        assert guard.accepts(token()).id == "cds:epic"
+        clock.now += 61
+        assert guard.ask(token(headers={"kid": "unknown"})) == 401  # too deep: kept keys hold
+        assert guard.accepts(token()).id == "cds:epic"
+        assert len(fetched) == 8
+        assert guard.claims() == 5
+        out = capsys.readouterr().out
+    jwks_lines = [line for line in security_lines(out) if line["event"] == "cds.jwks.refused"]
+    assert [line["reason"] for line in jwks_lines] == ["invalid_keys"] * 3 + ["unreachable"]
+    assert reasons(out).count("cds_keys_unavailable") == 6
+
+
 def test_two_requests_share_one_fetch(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """A request that finds another's fetch under way waits for it rather than fetching again:
     two threads at a cold start make one request to the EHR, and both are accepted."""
@@ -639,6 +687,30 @@ def test_a_refused_token_claims_no_jti(guard: Guard, capsys: pytest.CaptureFixtu
     assert guard.claims() == 1
 
 
+def test_a_jti_holding_a_lone_surrogate_is_claimed_once(guard: Guard) -> None:
+    """A `jti` is any JSON string of 1 to 256 characters, one holding a lone surrogate (valid
+    JSON, not valid Unicode text) too: claimed once, and refused when sent again, never an
+    error."""
+    for jti in ("\ud800", "\udc00\ud800", "x\udfff"):
+        assert guard.accepts(token(jti=jti)).id == "cds:epic", ascii(jti)
+        assert guard.ask(token(jti=jti)) == 401, ascii(jti)
+    assert guard.claims() == 3
+
+
+def test_a_session_row_is_keyed_for_any_string(store: AuditStore) -> None:
+    """The session table keys any string (`_session_key`): a lone surrogate is keyed apart from
+    every other string, a surrogate pair apart from the character it would make, and a valid
+    string's key is what it was before (sha256 of the kind, a NUL and its UTF-8)."""
+    now = int(time.time())
+    values = ("\ud800", "\ud800\udc00", "\U00010000", "\udc00\ud800", "\ufffd", "?")
+    for value in values:
+        assert store.smart_claim("cds-jti", value, now + 300), ascii(value)
+    for value in values:
+        assert not store.smart_claim("cds-jti", value, now + 300), ascii(value)
+    before = hashlib.sha256("cds-jti\x00épic\n\U00010000".encode()).hexdigest()
+    assert audit_module._session_key("cds-jti", "épic\n\U00010000") == before
+
+
 def test_expired_claims_are_purged_in_bounded_batches(store: AuditStore) -> None:
     """A claim deletes at most `SESSION_PURGE_BATCH` expired rows of the session table, as a put
     does, so a CDS client's claims (one per call) do not pile up; live rows stay."""
@@ -702,6 +774,9 @@ REFUSED_REGISTRIES: list[tuple[Any, str]] = [
     ([entry(jwks={"keys": [PRIVATE]})], "entry 1: jwks: key 1 is private or symmetric"),
     ([entry(jwks={"keys": [SMALL.jwk]})], "entry 1: jwks: key 1: an RSA key needs 2048"),
     ([entry(jwks={"keys": [P256.jwk]})], "entry 1: jwks: key 1: an EC key must be on P-384"),
+    ([entry(jwks={"keys": [{**RSA_EHR.jwk, "kty": ["RSA"]}]})], "entry 1: jwks: key 1: kty must"),
+    ([entry(jwks={"keys": [{**RSA_EHR.jwk, "key_ops": [["verify"]]}]})], "jwks: key 1: key_ops"),
+    ([entry(jwks={"keys": [EC_EHR.jwk, {**RSA_EHR.jwk, "kty": {}}]})], "jwks: key 2: kty must"),
     ([entry(jwks=DROP, jwks_uri="http://ehr.example.org/jwks")], "entry 1: jwks_uri must be h"),
     ([entry(jwks=DROP, jwks_uri=f"{JWKS_URI}#k")], "entry 1: jwks_uri must be https"),
     ([entry(jwks=DROP, jwks_uri="https://keys.example/j")], "jwks_uri's origin is not on MENDA"),
@@ -876,7 +951,8 @@ def test_the_principal_is_confined_to_cds_services(
 ) -> None:
     """Only the guard's CDS branch, on `/cds-services`, makes a `cds` principal; should one reach
     any other path (say, through a future change to `authenticate`), the guard refuses it there
-    (`cds_only`), and on `/cds-services` a route it holds no permission for."""
+    (`cds_only`), and on `/cds-services` a route it holds no permission for, before the token's
+    `jti` is claimed."""
     register(monkeypatch)
     cds = Principal(kind="cds", name="CDS client epic", id="cds:epic", actor="cds epic")
     with AuditStore(db_target) as store:
@@ -885,6 +961,7 @@ def test_the_principal_is_confined_to_cds_services(
         for method, path in (("GET", "/api/packs"), ("GET", "/api/audit"), ("POST", "/api/x")):
             assert guard.ask(None, path, method) == 403
         assert guard.ask(token(path="/cds-services/x/y"), "/cds-services/x/y", "POST") == 403
+        assert guard.claims() == 0  # refused before its jti is claimed
     lines = security_lines(capsys.readouterr().out)
     refused = [line["reason"] for line in lines if line["event"] == "auth.permission.refused"]
     assert refused == ["cds_only"] * 3 + ["admin"]

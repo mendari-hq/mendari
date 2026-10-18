@@ -10,8 +10,8 @@ An EHR calls Mendari's CDS Hooks services (`GET /cds-services` and
   register the EHR once, and each call carries a short-lived JWT the EHR signs with its own
   private key. Mendari never holds that key. This page is about this way.
 
-Off until you register a client: with `MENDARI_CDS_CLIENTS` unset, a JWT is refused everywhere,
-in every mode, and everything else works as before. The decision behind it is
+Off until you register a client: with `MENDARI_CDS_CLIENTS` unset, a JWT on `/cds-services` is
+refused in every mode, open mode included, and everything else works as before. The decision behind it is
 [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md).
 
 ## Register the EHR
@@ -68,11 +68,16 @@ Keys from a `jwks_uri`:
 - are kept an hour;
 - are fetched again, at most once a minute per client, when a token names a `kid` the kept keys
   do not hold. A key the EHR rotates in is found within a minute of its first use. A flood of
-  made-up `kid`s costs the EHR one request a minute.
+  made-up `kid`s costs the EHR one request a minute from each running instance of Mendari.
 
-An answer that is not a set of public signing keys keeps nothing, and drops what was kept. A
-failed fetch keeps what was kept until it is an hour old. Each is one `cds.jwks.refused` line in
-the security log.
+Each instance keeps its own keys (on Vercel, each function instance), so a new instance fetches
+them at its first token, and the limit above holds per instance: with several running, the EHR
+sees up to one request a minute from each.
+
+An answer that is not a set of public signing keys, a key of the wrong shape among them, keeps
+nothing, and drops what was kept. A failed fetch (no answer, an error, or an answer that is not
+JSON or is nested too deep to read) keeps what was kept until it is an hour old. Each is one
+`cds.jwks.refused` line in the security log.
 
 ## The token
 
@@ -90,7 +95,9 @@ The EHR signs one token for each call:
 
 Every token that does not pass is the same answer, a `401` with
 `WWW-Authenticate: Bearer realm="mendari", error="invalid_token"`. Nothing a refused token
-sends is written: its `jti` is claimed only once every other check has passed.
+sends is written: its `jti` is claimed only once every other check has passed, those of the
+token, then (in memberships mode) its organization's record, then the route's permission. A
+hook call refused for its `fhirServer` (below) has passed all of them, so its `jti` is used.
 
 ## What a client may do
 
@@ -98,8 +105,8 @@ A verified token is a principal of kind `cds`, in the client's registered organi
 list the services and call them, and nothing else:
 
 - It reaches `/cds-services` and its children only. On any other route the token is not a
-  credential, and the answer is the same `401` as for any other credential Mendari did not
-  issue.
+  credential: with sign-in on the answer is the same `401` as for any other credential Mendari
+  did not issue, and in open mode, which reads no credential there, it is ignored.
 - The `fhirServer` it sends must be one of its `fhir_servers` (and its `iss`, with
   `iss_is_fhir_server`). Any other is a `403` before anything is fetched, charged or decided.
 - It is rate limited and capped daily like any principal, as `cds:<id>`
@@ -114,7 +121,7 @@ alone.
 
 With sign-in off, a JWT on `/cds-services` is verified too, and without a registry it is
 refused. A request with no credential is answered as before, so a local demo that sends no
-token still works. A tool that always sends its own JWT, such as the public CDS Hooks Sandbox,
+token still works. Off `/cds-services` open mode reads no credential, a JWT included. A tool that always sends its own JWT, such as the public CDS Hooks Sandbox,
 has to be registered first, with `org` set to `default`.
 
 ## Check it
@@ -137,8 +144,8 @@ has to be registered first, with `org` set to `default`.
 | `cds_key` | No one key of the client matches the `kid` and the algorithm's key type. |
 | `cds_signature` | The signature does not verify with that key. |
 | `cds_audience` | `aud` is not the URL called. |
-| `cds_expired`, `cds_not_yet_valid`, `cds_issued_at`, `cds_lifetime` | The token's time: expired, not valid yet, issued in the future, or living longer than 330 seconds. |
-| `cds_claims` | A required claim is missing, or of the wrong type. |
+| `cds_expired`, `cds_not_yet_valid`, `cds_lifetime` | The token's time: expired, not valid yet (`nbf` or `iat` more than 30 seconds ahead), or living longer than 330 seconds. |
+| `cds_claims` | A required claim is missing, or of the wrong type: `exp` or `iat` not a number (a numeric string included), or `jti` not a string. |
 | `cds_subject`, `cds_tenant` | `sub` or `tenant` other than registered. |
 | `cds_jti` | A `jti` that is empty or longer than 256 characters. |
 | `cds_replayed` | The `jti` was used before by this client. |

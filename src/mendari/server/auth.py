@@ -66,8 +66,10 @@ server is open, as before (production sits behind Vercel Authentication). When c
   bearer credential (one with a `.`, which no credential Mendari issues has) is verified in
   every mode, before open mode's shortcut: without a registry it is refused, and so is every
   token that does not verify, with one answer and the reason in the security log
-  (`cds_<reason>`). Anywhere else a JWT is refused as before, and Mendari's own keys and tokens
-  do not change.
+  (`cds_<reason>`). Its organization's record (memberships mode) and the route's permission
+  are checked before its `jti` is claimed. Anywhere else a JWT is what it was before: refused
+  with sign-in on, and ignored in open mode, which reads no credential there. Mendari's own keys
+  and tokens do not change.
 - **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
   session cookie, nor to the launch cookie. The scheme is `Bearer` (any case), and the
   credential's prefix says what it is: `ohk_` a key, `mat_` an access token (refused unless
@@ -137,7 +139,7 @@ from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.smart import Registration
 
 if TYPE_CHECKING:  # server/cds_clients.py imports this module
-    from mendari.server.cds_clients import CdsRegistry
+    from mendari.server.cds_clients import CdsClient, CdsRegistry
 
 COOKIE = sessions.SESSION  # `__Host-mendari_session` except on local hosts (server/sessions.py)
 REALM = "mendari"
@@ -1206,31 +1208,42 @@ class Auth:
         """A CDS client's token, verified against the registry for this request's path (its
         `aud` is `MENDARI_PUBLIC_URL` plus the path), made a `cds` principal of the client's
         organization, which may list and call the CDS services and do nothing else. Every
-        refusal is the one `invalid_token` answer (`401`), its reason in the security log."""
+        refusal of the token is the one `invalid_token` answer (`401`), its reason in the
+        security log; a route it holds no permission for is a `403`. The organization's record
+        and the route's permission are checked before the `jti` is claimed (`admit`), so a token
+        refused for either claims nothing."""
         path = request.url.path
         if self.cds is None:
             raise refused_credential("cds_unregistered")
+        permission = self.permission(request.method, path)
+
+        def admit(client: CdsClient) -> None:
+            principal = _cds_principal(client)
+            if self.memberships and not self.recorded(client.org):
+                raise refused_credential("cds_no_organization_record", actor=principal.id)
+            if permission not in principal.role_permissions():
+                _refused_permission(principal, permission)
+                scope = challenge("insufficient_scope")
+                raise AuthError(f"a CDS client may not {permission} here", 403, challenge=scope)
+
         try:
-            caller = self.cds.verify(token, path=path, store=self.store)
+            caller = self.cds.verify(token, path=path, store=self.store, admit=admit)
         except CdsRefused as refused:
             named = None if refused.client_id is None else f"cds:{refused.client_id}"
             raise refused_credential(f"cds_{refused.reason}", actor=named) from None
-        client = caller.client
-        principal = Principal(
-            kind=CDS,
-            name=f"CDS client {client.id}",
-            id=f"cds:{client.id}",
-            actor=f"cds {client.id}",
-            org=client.org,
-        )
-        if self.memberships and not self.recorded(client.org):
-            raise refused_credential("cds_no_organization_record", actor=principal.id)
-        permission = self.permission(request.method, path)
-        if permission not in principal.role_permissions():
-            _refused_permission(principal, permission)
-            refused_scope = challenge("insufficient_scope")
-            raise AuthError(f"a CDS client may not {permission} here", 403, challenge=refused_scope)
-        request.state.principal = principal
+        request.state.principal = _cds_principal(caller.client)
+
+
+def _cds_principal(client: CdsClient) -> Principal:
+    """The `cds` principal a CDS client's verified token is: `cds:<id>`, named `cds <id>` in the
+    chain, in the client's registered organization."""
+    return Principal(
+        kind=CDS,
+        name=f"CDS client {client.id}",
+        id=f"cds:{client.id}",
+        actor=f"cds {client.id}",
+        org=client.org,
+    )
 
 
 def _within_scope(principal: Principal, method: str, path: str) -> None:

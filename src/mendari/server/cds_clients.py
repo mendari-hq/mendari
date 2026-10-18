@@ -30,15 +30,18 @@ token causes, in memory); `jku`, which must equal the registered `jwks_uri` exac
 whose keys are given by value takes none); exactly one of the client's keys for the `kid` and
 key type; the signature; `aud` exactly the URL called; `exp`, `iat` and `jti` required, 30 s of
 skew, `iat` not ahead, at most 330 s between `iat` and `exp` and from now to `exp`; `sub` and
-`tenant` as registered (a `tenant` refused when none is); then, last, the `jti` is claimed once
-per client until the token expires, so a refused token claims nothing. Each refusal is one
-reason of `REASONS`.
+`tenant` as registered (a `tenant` refused when none is); then the caller's own checks of the
+client (`admit`: in the guard, the organization's record and the route's permission); then,
+last, the `jti` is claimed once per client until the token expires, so a refused token claims
+nothing. Each refusal is one reason of `REASONS`.
 
 **Keys from a `jwks_uri`** (`JwksCache`) are fetched only through `GuardedHttp`, checked as
 keys by value are, and kept an hour. A `kid` the kept keys do not hold fetches them again at
 most once per client a minute; an answer that is not a set of public signing keys is refused,
 and what was kept for that client is dropped. Each failed fetch is one `cds.jwks.refused` line
-in the security log, with the client's id and a fixed reason.
+in the security log, with the client's id and a fixed reason. The cache is each process's own
+(each instance on Vercel), so that limit is per instance, and an instance fetches a client's
+keys at its first token.
 """
 
 from __future__ import annotations
@@ -94,7 +97,6 @@ REASONS = (
     "audience",
     "expired",
     "not_yet_valid",
-    "issued_at",
     "lifetime",
     "claims",
     "subject",
@@ -177,9 +179,10 @@ class JwksCache:
     """Each client's keys: by value as registered, or fetched from its `jwks_uri` through the
     allow-listed client and kept `ttl` seconds. A `kid` the kept keys do not hold, or kept keys
     that are stale, fetch them again at most once per client every `refetch` seconds, so random
-    `kid`s cannot make Mendari call an EHR more often than that. One fetch per client at a time:
-    a request that finds one under way while the client's keys are fresh does not wait for it;
-    without fresh keys it waits for that fetch, never starting another."""
+    `kid`s cannot make this instance call an EHR more often than that (each instance keeps its
+    own). One fetch per client at a time: a request that finds one under way while the client's
+    keys are fresh does not wait for it; without fresh keys it waits for that fetch, never
+    starting another."""
 
     def __init__(
         self,
@@ -247,14 +250,14 @@ class JwksCache:
             with GuardedHttp(allowed=self.allowed) as http:
                 answer = http.get_json(client.jwks_uri, {"accept": "application/json"})
             fetched = tuple(check_jwks(answer))
-        except FhirError:  # unreachable, not JSON, too large, redirected, or off the list
+        except FhirError:  # unreachable, not JSON or too deep, too large, redirected, off the list
             _jwks_refused("unreachable", actor)
             with self._lock:
                 kept = self._fresh(client.id, self._clock())
             if kept is None:
                 raise CdsRefused("keys_unavailable", client.id) from None
             return kept  # what was kept still holds until it is stale
-        except ClientError:  # a private or symmetric key, a weak one, too many: none is kept
+        except ClientError:  # a private, symmetric or weak key, too many, any wrong shape
             with self._lock:
                 self._kept.pop(client.id, None)
             _jwks_refused("invalid_keys", actor)
@@ -281,11 +284,14 @@ def verify(
     clients: Mapping[str, CdsClient],
     keys: Callable[[CdsClient, str], Sequence[Mapping[str, Any]]],
     claim: Callable[[str, int], bool],
+    admit: Callable[[CdsClient], None] | None = None,
 ) -> CdsCaller:
     """The registered client a CDS Hooks token is from, or `CdsRefused`. `clients` are keyed by
-    `iss`; `keys` gives a client's keys to look for a `kid` in; `claim(value, until)` claims a
-    `jti` once (`AuditStore.smart_claim`), and runs last, so nothing a refused token sends is
-    written. Nothing here logs: the caller does, with the reason."""
+    `iss`; `keys` gives a client's keys to look for a `kid` in; `admit(client)`, once the token
+    has passed every check, is the caller's own checks of the client, which refuse by raising
+    (the guard's: the organization's record and the route's permission); `claim(value, until)`
+    claims a `jti` once (`AuditStore.smart_claim`), and runs last, so nothing a refused token
+    sends is written. Nothing here logs: the caller does, with the reason."""
     if not 1 <= len(token) <= MAX_ASSERTION_BYTES:
         raise CdsRefused("size")
     parts = token.split(".")
@@ -336,19 +342,17 @@ def verify(
         raise CdsRefused("audience", client.id) from None
     except jwt.ExpiredSignatureError:
         raise CdsRefused("expired", client.id) from None
-    except jwt.ImmatureSignatureError:
+    except jwt.ImmatureSignatureError:  # `nbf`, or `iat`, ahead of now beyond the skew
         raise CdsRefused("not_yet_valid", client.id) from None
-    except jwt.InvalidIssuedAtError:
-        raise CdsRefused("issued_at", client.id) from None
-    except (jwt.PyJWTError, ValueError, TypeError):
+    except (jwt.PyJWTError, ValueError, TypeError):  # an `iat` that is not a number among them
         raise CdsRefused("claims", client.id) from None
-    issued, expires = claims["iat"], claims["exp"]
-    if not _number(issued) or not _number(expires):
+    issued, expires = _seconds(claims["iat"]), _seconds(claims["exp"])
+    if issued is None or expires is None:
         raise CdsRefused("claims", client.id)
     if expires <= now - SKEW:
         raise CdsRefused("expired", client.id)
-    if issued > now + SKEW:
-        raise CdsRefused("issued_at", client.id)
+    if issued > now + SKEW:  # as PyJWT checks it, against the `now` given here
+        raise CdsRefused("not_yet_valid", client.id)
     longest = MAX_LIFETIME + SKEW
     if expires - issued > longest or expires > now + longest:
         raise CdsRefused("lifetime", client.id)
@@ -362,6 +366,8 @@ def verify(
     jti = claims["jti"]
     if not isinstance(jti, str) or not 1 <= len(jti) <= MAX_JTI:
         raise CdsRefused("jti", client.id)
+    if admit is not None:
+        admit(client)
     # Last, the one write a token may cause: claimed until it expires, once per client.
     until = max(int(expires) + SKEW, int(time.time()) + 1)
     if not claim(f"{client.id}\n{jti}", until):
@@ -378,11 +384,17 @@ def _json_segment(segment: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _number(value: object) -> bool:
-    """A NumericDate: a finite JSON number, not a boolean or a string."""
+def _seconds(value: object) -> float | None:
+    """A NumericDate in seconds: a finite JSON number, not a boolean or a string; None for
+    anything else, an integer past a float's range (`10**400`) included, so what follows
+    compares and subtracts floats only and never overflows."""
     if isinstance(value, bool) or not isinstance(value, int | float):
-        return False
-    return math.isfinite(value)
+        return None
+    try:
+        seconds = float(value)
+    except OverflowError:
+        return None
+    return seconds if math.isfinite(seconds) else None
 
 
 # -- the registry ---------------------------------------------------------------------------------
@@ -418,9 +430,17 @@ class CdsRegistry:
         """The clients' ids, of `org` only (None: every organization's, open mode)."""
         return sorted(c.id for c in self.clients if org is None or c.org == org)
 
-    def verify(self, token: str, *, path: str, store: AuditStore) -> CdsCaller:
-        """`verify` against this registry, for a request to `path`, its `jti` claimed in
-        `store` (the session table's `cds-jti` claims, which expire and are never ended)."""
+    def verify(
+        self,
+        token: str,
+        *,
+        path: str,
+        store: AuditStore,
+        admit: Callable[[CdsClient], None] | None = None,
+    ) -> CdsCaller:
+        """`verify` against this registry, for a request to `path`, `admit` run before its
+        `jti` is claimed in `store` (the session table's `cds-jti` claims, which expire and are
+        never ended)."""
         return verify(
             token,
             audience=self.audience(path),
@@ -428,6 +448,7 @@ class CdsRegistry:
             clients=self.by_iss,
             keys=self.keys.keys,
             claim=lambda value, until: store.smart_claim("cds-jti", value, until),
+            admit=admit,
         )
 
 

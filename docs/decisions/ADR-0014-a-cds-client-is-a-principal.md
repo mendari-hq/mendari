@@ -18,7 +18,15 @@ the narrow EHR principal exists only for SMART launches. It is built in steps (L
   claims are the session table's kind `cds-jti`, kept apart from Backend Services' `jti` and
   never ended by the break-glass; each claim now deletes up to 100 expired rows, as each put
   does. A `cds` principal in open mode acts for `default` and is named in the chain
-  (`requested_by: cds <id>`), the one principal open mode has.
+  (`requested_by: cds <id>`), the one principal open mode has. Three points differ from what
+  23a first wrote below, and the decisions now say so. A `cds` token off `/cds-services` is
+  never read as a credential, so it is not the `403` decision 3 first said: with sign-in on it
+  is the one `401` (`malformed` or `unknown_prefix`), and in open mode it is ignored, as every
+  credential is there; only a `cds` principal found off `/cds-services`, which nothing makes
+  today, is a `403` (`cds_only`). The `jti` is claimed after the guard's own checks too (the
+  organization's record in memberships mode, the route's permission), so a token refused for
+  either claims nothing. And the key cache is each instance's own, so "once per client a
+  minute" is per instance.
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -65,24 +73,28 @@ Inferno's Da Vinci CRD kit sends exactly those, with a header of `alg`, `typ`, `
    - `sub` and `tenant` must equal the registered values when those are set. A `tenant` claim
      is refused when none is registered: an Epic shared by several organizations (Community
      Connect) is not supported.
-   - A `jti` is claimed once per client, last, so a refused token claims nothing.
+   - A `jti` is claimed once per client, last (after the organization's record and the
+     route's permission are checked), so a refused token claims nothing.
    - Keys are fetched only through the allow-listed client and kept 3,600 seconds. An unknown
-     `kid` fetches the keys again at most once per client a minute, and an answer that holds a
-     private key is refused and keeps nothing.
+     `kid` fetches the keys again at most once per client a minute on each instance, and an
+     answer that holds a private key is refused and keeps nothing.
    - Each refusal has its reason from a closed set. The security log names it `cds_<reason>`
      with the caller `cds:<id>`, never a claim's value or the token.
 3. **The `cds` principal (23b).** A verified token is a principal of kind `cds` (`cds:<id>`,
    the actor `cds <id>`) in the client's registered organization. It holds exactly two
    permissions, `discover` and `decide`, and reaches `/cds-services` and its children only, as a
-   launch reaches only the launch's routes; anywhere else it gets `403`. The `fhirServer` it
-   sends must be one of its registered bases, else `403` before anything is charged or fetched.
-   It is rate limited and capped daily like any principal, by `cds:<id>`. The notice
+   launch reaches only the launch's routes: anywhere else its token is not a credential (decision
+   4), and a `cds` principal found anywhere else gets `403`. The `fhirServer` it sends must be
+   one of its registered bases, else `403` before anything is charged or fetched. It is rate
+   limited and capped daily like any principal, by `cds:<id>`. The notice
    acknowledgement covers people only, so it is not asked. "The same credential reads
    discovery" means the same registered client and keys: a `jti` is good for one request.
 4. **Verification in every mode (23b).** A JWT-shaped bearer credential on `/cds-services` is
    verified whether sign-in is on or off: the check runs before open mode's shortcut. Without a
    registry it gets `401`. With sign-in off, every registered organization must be `default`. On
-   any other path a JWT is refused as before, and Mendari's own keys and tokens do not change.
+   any other path a JWT is what it was before: with sign-in on, refused as a credential Mendari
+   did not issue; in open mode, ignored, as every credential is there. Mendari's own keys and
+   tokens do not change.
 5. **Open mode answers on this machine only (23c).** With sign-in off, `/cds-services` answers a
    request only when it is local (a loopback client address, a local `Host` and no forwarding
    header) or when `MENDARI_CDS_SANDBOX=1` is set. That flag stops startup on Vercel or with

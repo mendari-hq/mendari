@@ -288,7 +288,8 @@ def test_a_cds_client_decides_in_its_registered_organization(
     db_target: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Memberships mode: a client of an organization with a record decides in it; one whose
-    organization has no record is refused (`cds_no_organization_record`) and decides nothing."""
+    organization has no record is refused (`cds_no_organization_record`), decides nothing and
+    claims nothing: its token's `jti` stays free."""
     sign_in_on(monkeypatch)
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     south = entry("south-ehr", iss=f"{EHR}/south", org="south", jwks={"keys": [OTHER_EHR.jwk]})
@@ -312,6 +313,7 @@ def test_a_cds_client_decides_in_its_registered_organization(
     with AuditStore(db_target) as store, store._db.session(exclusive=False) as db:
         orgs = [row["org"] for row in db.all("SELECT org FROM decisions")]
     assert orgs == ["north"]
+    assert Served(http, db_target).claims() == 1  # north's call only
 
 
 def test_a_long_jwt_elsewhere_is_still_malformed(
