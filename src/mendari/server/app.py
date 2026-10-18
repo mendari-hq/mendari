@@ -2464,11 +2464,12 @@ def create_app(
         An order hook decides each draft order the pack is about, at most 50 a request: each
         counts as one decision against the rate limit and the principal's daily cap.
 
-        A prefetch key left out is read from `fhirServer` (an allow-listed one only); with no
-        `fhirServer` the request is a `412`. A null value is "no data" and is not read. When a
-        key cannot be read (a failed read, an OperationOutcome, a resource that is not R4), the
-        hook still answers `200`: the decision is ABSTAIN with the key and a fixed reason, it is
-        recorded, and its card says so. Every decision carries its `data_coverage` record."""
+        A prefetch key left out, or sent empty, is read from `fhirServer` (an allow-listed one
+        only); with no `fhirServer` the request is a `412`. A null value is "no data" and is not
+        read. A structure error in what was sent is a `400`. When a key cannot be read (a failed
+        read, an OperationOutcome, a value that is not a resource, a resource or search page
+        that is not R4), the hook still answers `200`: the decision is ABSTAIN with the key and a
+        fixed reason, it is recorded with its `data_coverage` record, and its card says so."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")

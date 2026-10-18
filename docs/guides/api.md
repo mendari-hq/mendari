@@ -65,18 +65,23 @@ clinical resources.
 
 **CDS Hooks.** `GET /cds-services` lists the services, one per pack that declares a hook, and
 `POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards.
-A prefetch key you leave out is read from your `fhirServer`, if the deployment allows it; with no
-`fhirServer` the request is a `412`. A null value means you have no data, and it is not read. A
-hook always answers: when a key cannot be read (a failed read, an OperationOutcome, a resource
-that is not R4 JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with
-reasons such as `could not read labs: timeout`, it is recorded, and its card is an `info` card
-that says so. Reasons never repeat a URL, a query or what a server answered. A request fault
-(the wrong hook, a malformed field) is still a `4xx`.
+A prefetch key you leave out, or send empty (`{}`, `[]`, `""`), is read from your `fhirServer`,
+if the deployment allows it; with no `fhirServer` the request is a `412`. A null value means you
+have no data, and it is not read. Every value you send goes through the structural R4 check: a
+structure error is a `400`. A hook always answers: when a key cannot be read (a failed read, an
+OperationOutcome, a value that is not a resource, a resource or search page that is not R4
+JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
+as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
+Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
+malformed field, a required resource you sent something else for) is still a `4xx`.
 
 **What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the
-SMART launch) carries `data_coverage`: for each mapped field and list, the paths it looked for,
-the code systems the pack declares, the pack's own codes, and what it found, as counts, with what
-could not be read counted by reason. It holds no value, id or text. A decision on JSON input
+SMART launch) carries `data_coverage` in its record, which `GET /api/audit/{id}` returns: for
+each mapped field and list, the paths it looked for, the code systems the pack declares, the
+pack's own codes, and what it found, as counts, with what could not be read counted by reason.
+It holds no value, id or text. The answers of `fhir/decide` and the SMART launch's decide hold it
+too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id
+(`extension.mendari.decision_id`, the GuidanceResponse `identifier`). A decision on JSON input
 carries `null`.
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at

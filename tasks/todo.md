@@ -802,13 +802,20 @@ Connect) is not supported yet.
     `info` card whatever `show` says; neither prefetch nor `fhirServer` is a `412`
     (`PrefetchRequired`); a null value is no data and is not fetched; CRD gets `indeterminate`
     for a `technical` reason when the Coverage was read (`davinci.indeterminate`, a fourth CRD
-    sample). `standards/data_coverage.py` (`mendari.data-coverage/1`) is on every FHIR
-    decision's answer and record, null on JSON ones. Threat-model row I17; the scorecard's FB-3a
-    to FB-3c are met (failure behaviour stays at level 1 on FB-2d). The 23a golden is
-    unchanged. Beyond the plan's letter: a declared key whose value is neither null nor a
-    resource (`{}`, say) is `unsupported_type` (it was fetched, or read as no data), and a
-    decision's search past `MAX_PAGES` is `cap` (it was cut short without a word). The section
-    for `docs/guides/connecting-an-ehr.md` waits for 23b, which creates that page.
+    sample). `standards/data_coverage.py` (`mendari.data-coverage/1`) is in every FHIR
+    decision's record, and in the answers of `fhir/decide` and the SMART launch's decide (a card
+    and `$decide` give the decision id); null on JSON ones. Threat-model row I17; the
+    scorecard's FB-3a to FB-3c are met (failure behaviour stays at level 1 on FB-2d). The 23a
+    golden is unchanged. Every value the client sent goes through the structural R4 check
+    before any is set aside (a `400`, as before), and a key sent empty (`{}`, `[]`, `""`) still
+    counts as left out. Beyond the plan's letter: a declared key whose value is otherwise not a
+    resource (a string, a list, an object with no `resourceType`) is `unsupported_type` (it was
+    read as no data, or a list as its resources), while a required resource it stands in for is
+    still a `422`; a decision's search past `MAX_PAGES` is `cap` (it was cut short without a
+    word); a search page whose `entry` or `link` is not R4's shape is `not_r4` (a `500`
+    before), and a later page that is not a Bundle is its reason (it was read as the first
+    pages). The section for `docs/guides/connecting-an-ehr.md` waits for 23b, which creates
+    that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
   - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.

@@ -5,17 +5,19 @@ The EHR sends the data via `prefetch` (resources or search Bundles), and for ord
 orders in `context.draftOrders`. A prefetch key the EHR left out is fetched from the request's
 `fhirServer` with its `fhirAuthorization` token, using the pack's own prefetch template, but only
 when that server is on the deployment's allow-list (`MENDARI_FHIR_ALLOWED_SERVERS`, empty by
-default; see `fhir_client`). A key left out with no `fhirServer` is a `412` (`PrefetchRequired`),
-as CDS Hooks 2.0 says; a key whose value is null is "no data" and is not fetched, and one whose
-value is neither null nor a resource cannot be read.
+default; see `fhir_client`). A key sent empty (`{}`, `[]`, `""`) counts as left out, as before. A
+key left out with no `fhirServer` is a `412` (`PrefetchRequired`), as CDS Hooks 2.0 says; a key
+whose value is null is "no data" and is not fetched, and one whose value is neither null nor a
+resource cannot be read. What the client sent goes through the structural R4 check, every
+value of it (a `400`), before any of it is set aside.
 
 The hook always answers (LP-23d). A key that could not be read (each read on its own: a failed
-fetch, an OperationOutcome, a resource Mendari fetched that is not R4, a page cap) makes the
-decision ABSTAIN with its reason, recorded like any other, and the card says so whatever the
-pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it, the card
-describes a routing decision. A pack that declares `coverage_information` also returns, for each
-decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate` for a
-technical reason when the order abstained over unreadable data and the Coverage was read.
+fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
+cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
+whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it,
+the card describes a routing decision. A pack that declares `coverage_information` also returns,
+for each decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate`
+for a technical reason when the order abstained over unreadable data and the Coverage was read.
 """
 
 from __future__ import annotations
@@ -33,7 +35,13 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, Priority
 from mendari.core.templates import fill
-from mendari.errors import CdsHooksError, FhirError, PrefetchRequired, ReadReason
+from mendari.errors import (
+    CdsHooksError,
+    FhirError,
+    FhirStructureError,
+    PrefetchRequired,
+    ReadReason,
+)
 from mendari.standards import davinci, fhir_structure
 from mendari.standards.data_coverage import source_type
 from mendari.standards.fhir import FhirAdapter
@@ -118,24 +126,30 @@ def invoke(
     if charge is not None:
         charge(len(orders) if hooks.hook in ORDER_HOOKS else 1)
     sent = _object(request, "prefetch")
-    # A key left out is fetched; a null value is "no data" (CDS Hooks 2.0), never fetched.
-    missing = [key for key in hooks.prefetch if key not in sent]
-    prefetch: dict[str, Any] = {}
+    # A key left out, or sent empty, is fetched, as before; a null value is "no data" (CDS
+    # Hooks 2.0), never fetched.
+    missing = [key for key in hooks.prefetch if _left_out(sent, key)]
+    found: dict[str, Any] = {}
     unreadable: dict[str, ReadReason] = {}
+    if missing:
+        found, unreadable = fetch(hooks.prefetch, missing, request)
+    # Every value the client sent goes through the structural R4 check before any is set aside,
+    # as before: a structure error is the request's fault (a `400`), whatever the value is.
+    _require_r4(sent)
+    prefetch: dict[str, Any] = {}
     for key, value in sent.items():
-        if value is None:
+        if value is None or key in missing:
             continue
         if key in hooks.prefetch and _outcome(value):
             unreadable[key] = "operation_outcome"  # the client's own read failed
             continue
         if key in hooks.prefetch and not _resource(value):
-            unreadable[key] = "unsupported_type"  # e.g. `{}`: neither data nor "no data"
-            continue
+            # Neither data nor "no data" (a string, a list, an object with no resourceType):
+            # nothing is decided on it, but it stays as sent, so a required resource it does not
+            # hold is still refused (`decide_fhir`), as before.
+            unreadable[key] = "unsupported_type"
         prefetch[key] = value
-    if missing:
-        found, failed = fetch(hooks.prefetch, missing, request)
-        prefetch.update(found)
-        unreadable.update(failed)
+    prefetch.update(found)
     templates = hooks.prefetch
     if hooks.hook in ORDER_HOOKS:
         decided = [
@@ -217,8 +231,9 @@ def read_each(
     read, and the keys that could not be, each with its reason. A search is read whole (a page
     cap is `cap`). What comes back must be what was asked for: an OperationOutcome is
     `operation_outcome`, another resource type (or a resource for a search) `unsupported_type`,
-    and a resource that fails the structural R4 check (`fhir_structure`) `not_r4`, so nothing
-    is decided on it. An error `fatal` says so (SMART's `401`: the launch has ended) is raised."""
+    and a resource that fails the structural R4 check (`fhir_structure`), or a search page whose
+    `entry` or `link` is not R4's shape (`FhirClient.read`), `not_r4`, so nothing is decided on
+    it. An error `fatal` says so (SMART's `401`: the launch has ended) is raised."""
     found: dict[str, Any] = {}
     unreadable: dict[str, ReadReason] = {}
     for key, query in queries.items():
@@ -248,6 +263,29 @@ def _unread(template: str, value: Mapping[str, Any]) -> ReadReason | None:
     if fhir_structure.blocking(fhir_structure.check(value)):
         return "not_r4"
     return None
+
+
+def _left_out(sent: Mapping[str, Any], key: str) -> bool:
+    """A prefetch key the client did not send, or sent empty (`{}`, `[]`, `""`): it is fetched,
+    or with no `fhirServer` a `412`, as an empty value was before. A null value is not left out:
+    it says there is no data (CDS Hooks 2.0)."""
+    if key not in sent:
+        return True
+    value = sent[key]
+    return value is not None and not value
+
+
+def _require_r4(sent: Mapping[str, Any]) -> None:
+    """The structural R4 check on the prefetch the client sent (`fhir_structure`): a blocking
+    issue is the request's fault, a `FhirStructureError` (`400`), paths only."""
+    malformed = fhir_structure.blocking(fhir_structure.check(sent))
+    if malformed:
+        raise FhirStructureError(
+            [
+                {"code": i.code, "expression": i.expression, "diagnostics": i.diagnostics}
+                for i in malformed
+            ]
+        )
 
 
 def _outcome(value: Any) -> bool:

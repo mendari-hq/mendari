@@ -240,26 +240,39 @@ class FhirClient:
         """GET `relative` (e.g. "Patient/123" or "Observation?patient=123") under the base URL.
         A searchset's `next` pages are followed and merged into one Bundle, at most `MAX_PAGES`
         of them after the first. With `complete` (a decision's record, LP-23d), a search with
-        more pages than that is a `FhirError` (`cap`) rather than its first pages: a record
-        cut short is not read."""
+        more pages than that is a `FhirError` (`cap`) rather than its first pages, and so is a
+        page that is not a Bundle (`operation_outcome`, `not_r4`): a record cut short is not
+        read. A page whose `entry` or `link` is not R4's shape, or whose `next` link is not a
+        URL, is a `FhirError` (`not_r4`) in every mode, never a crash."""
         result = self._http.get_json(self._resolve(relative), self._headers)
         if result.get("resourceType") != "Bundle":
             return result
-        entries = list(result.get("entry") or [])
+        entries = _entries(result)
         for _ in range(MAX_PAGES):
             following = _next(result)
             if not following:
                 break
             result = self._http.get_json(self._resolve(following), self._headers)
-            entries += result.get("entry") or []
+            if complete and result.get("resourceType") != "Bundle":
+                kind: ReadReason = (
+                    "operation_outcome"
+                    if result.get("resourceType") == "OperationOutcome"
+                    else "not_r4"
+                )
+                raise FhirError("a page of the search is not a Bundle", reason=kind)
+            entries += _entries(result)
         else:
             if complete and _next(result):
                 raise FhirError(f"the search has more than {MAX_PAGES + 1} pages", reason="cap")
         return {"resourceType": "Bundle", "type": "searchset", "entry": entries}
 
     def _resolve(self, relative: str) -> str:
-        """An absolute URL under the base URL, or a FhirError for anything that escapes it."""
-        parts = urlsplit(urljoin(self.base, relative))
+        """An absolute URL under the base URL, or a FhirError for anything that escapes it (a
+        URL that does not parse cannot be shown to stay under it)."""
+        try:
+            parts = urlsplit(urljoin(self.base, relative))
+        except ValueError:  # e.g. a malformed IPv6 host
+            raise FhirError("a FHIR request is not a URL", reason="off_server") from None
         base = urlsplit(self.base)
         path = posixpath.normpath(parts.path or "/")
         if (parts.scheme, parts.netloc) != (base.scheme, base.netloc) or not (
@@ -269,10 +282,28 @@ class FhirClient:
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
 
-def _next(bundle: Mapping[str, Any]) -> Any:
-    """A Bundle's `next` link, if it has one."""
+def _entries(bundle: Mapping[str, Any]) -> list[Any]:
+    """A Bundle page's entries (none when `entry` is absent or empty); any other `entry` that is
+    not a list is not R4."""
+    entries = bundle.get("entry") or []
+    if not isinstance(entries, list):
+        raise FhirError("a page of the search has an entry that is not a list", reason="not_r4")
+    return list(entries)
+
+
+def _next(bundle: Mapping[str, Any]) -> str | None:
+    """A Bundle page's `next` link, if it has one (none when `link` or its URL is absent or
+    empty). A `link` that is not a list of objects, or a `next` URL that is not printable text,
+    is not R4, and could not be sent."""
     links = bundle.get("link") or []
-    return next((x.get("url") for x in links if x.get("relation") == "next"), None)
+    if not isinstance(links, list) or not all(isinstance(x, Mapping) for x in links):
+        raise FhirError("a page of the search has a link that is not R4", reason="not_r4")
+    url = next((x.get("url") for x in links if x.get("relation") == "next"), None)
+    if not url:
+        return None
+    if not isinstance(url, str) or not url.isprintable():
+        raise FhirError("a page of the search has a next link that is not a URL", reason="not_r4")
+    return url
 
 
 def _status_reason(status: int) -> ReadReason:

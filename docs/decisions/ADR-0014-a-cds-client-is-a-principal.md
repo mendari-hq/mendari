@@ -8,8 +8,15 @@ the narrow EHR principal exists only for SMART launches. It is built in steps (L
 - 23c, open mode on this machine only, and CORS for registered origins;
 - 23d, a recorded ABSTAIN on an unreadable record, and the data-coverage record.
 
-Nothing is built yet (23a writes this record and the plan). The defaults below hold unless the
-owner chooses otherwise.
+23a wrote this record and the plan. What each step built, in the order they landed:
+- 23d (2026-10-18), decisions 7 and 8: a prefetch key that could not be read, or a note that is
+  only a link or does not decode, gives a recorded ABSTAIN with its reason
+  (`errors.ReadReason`), an `info` card whatever `show` says, and CRD's `indeterminate` coverage
+  when the Coverage was read; neither prefetch nor `fhirServer` is a `412`, and request faults
+  stay `4xx`. Every FHIR decision's record carries `data_coverage`
+  (`standards/data_coverage.py`). The SMART launch's decide reads its record the same way.
+
+The defaults below hold unless the owner chooses otherwise.
 
 ## Context
 An EHR calls a CDS Hooks service with its own signed token. Mendari cannot take one today:

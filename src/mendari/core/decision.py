@@ -596,9 +596,11 @@ class Decision:
         `unreadable` names the prefetch keys that could not be read, each with its reason
         (`errors.ReadReason`), and `sources` the prefetch templates they were read with (the
         pack's own by default), so a required resource whose read failed is not refused as
-        missing. Those keys, and a note whose data does not decode or that is only a link, make
-        the decision ABSTAIN unless its input is refused (`decide`). The result carries its
-        data-coverage record (`standards/data_coverage.py`) in every case."""
+        missing. A key that still holds what the client sent (a value that is not a resource)
+        excuses nothing: a required resource it does not hold is refused, as before. Those keys,
+        and a note whose data does not decode or that is only a link, make the decision ABSTAIN
+        unless its input is refused (`decide`). The result carries its data-coverage record
+        (`standards/data_coverage.py`) in every case."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
@@ -606,7 +608,11 @@ class Decision:
         failed = dict(unreadable or {})
         hooks = self.pack.manifest.cds_hooks
         templates = dict(sources if sources is not None else (hooks.prefetch if hooks else {}))
-        excused = {data_coverage.source_type(templates[key]) for key in failed if key in templates}
+        excused = {
+            data_coverage.source_type(templates[key])
+            for key in failed
+            if key in templates and resources.get(key) is None
+        }
         given = resources if focus is None else [resources, focus]
         base = fhir_structure.check(given)
         malformed = fhir_structure.blocking(base)

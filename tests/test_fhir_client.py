@@ -151,6 +151,66 @@ def test_a_next_link_to_another_server_is_refused() -> None:
         fhir.read("Observation")
 
 
+NEXT = f"{EHR}/Observation?page=2"
+
+
+@pytest.mark.parametrize(
+    ("page", "reason"),
+    [
+        ({"link": "next"}, "not_r4"),
+        ({"link": ["next"]}, "not_r4"),
+        ({"link": {"relation": "next", "url": NEXT}}, "not_r4"),
+        ({"link": [{"relation": "next", "url": 5}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": [NEXT]}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": f"{NEXT}\x01"}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": "https://[ehr.example.org/fhir/x"}]}, "off_server"),
+        ({"entry": 5}, "not_r4"),
+        ({"entry": {"resource": {"resourceType": "Observation"}}}, "not_r4"),
+    ],
+)
+def test_a_search_page_that_is_not_r4_is_a_fhir_error_never_a_crash(
+    page: dict[str, Any], reason: str
+) -> None:
+    """A search page whose `link` is not a list of objects, whose `next` URL is not printable
+    text (or does not parse), or whose `entry` is not a list fails with its reason in every
+    mode (LP-23d), where it crashed before with an error a hook did not catch (a `500`)."""
+    first = {"resourceType": "Bundle", "type": "searchset", **page}
+    with client(lambda r: fhir_json(first)) as fhir:
+        for complete in (False, True):
+            with pytest.raises(FhirError) as error:
+                fhir.read("Observation?patient=p1", complete=complete)
+            assert error.value.reason == reason
+
+
+@pytest.mark.parametrize(
+    ("second", "reason"),
+    [
+        ({"resourceType": "OperationOutcome", "issue": []}, "operation_outcome"),
+        ({"resourceType": "Patient", "id": "p1"}, "not_r4"),
+        ({"resourceType": "Bundle", "entry": 5}, "not_r4"),
+    ],
+)
+def test_a_following_page_that_is_not_a_bundle_is_not_a_complete_record(
+    second: dict[str, Any], reason: str
+) -> None:
+    """A decision's record is read whole (`complete`): a later page that is not a Bundle fails
+    with its reason, never read as the first pages alone. Other reads keep their first pages,
+    as before, unless the page's shape is not R4."""
+    first = {
+        "resourceType": "Bundle",
+        "entry": [{"resource": {"id": "1"}}],
+        "link": [{"relation": "next", "url": NEXT}],
+    }
+    pages = {f"{EHR}/Observation?patient=p1": first, NEXT: second}
+    with client(lambda r: fhir_json(pages[str(r.url)])) as fhir:
+        with pytest.raises(FhirError) as error:
+            fhir.read("Observation?patient=p1", complete=True)
+        assert error.value.reason == reason
+        if second["resourceType"] != "Bundle":
+            bundle = fhir.read("Observation?patient=p1")
+            assert [e["resource"]["id"] for e in bundle["entry"]] == ["1"]
+
+
 @pytest.mark.parametrize(
     ("response", "message"),
     [

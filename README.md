@@ -563,21 +563,26 @@ Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_A
 ([LLMs and local models](#llms-and-local-models)).
 
 **A record Mendari cannot read (LP-23d).** A hook always answers. Each prefetch key is read on its
-own. A key the request leaves out, with no `fhirServer` to read it from, is a `412`, as CDS Hooks
-2.0 says (it was a `422`). A key whose value is null has no data and is not read. When a key cannot
-be read (a failed read, an OperationOutcome, a resource Mendari read that is not R4 JSON, a search
-past the page cap), or a note is only a link or its data does not decode, the decision is ABSTAIN
-before any provider runs. Its reasons read `could not read <key>: <reason>`, with a reason from a
-closed set (`timeout`, `unauthorized`, `not_fetched` and the others), never a URL, a query or what
-a server answered. The hook answers `200`, the decision is recorded like any other, and its card
-is an `info` card that names the keys, whatever the pack's `show` says. Input that is refused
-still BLOCKs, and a request fault stays a `4xx`. A Da Vinci CRD order whose Coverage was read gets
-`covered: indeterminate` for a `technical` reason. The SMART launch's decide reads its record the
-same way. Every FHIR decision carries `data_coverage` (`mendari.data-coverage/1`): for each mapped
-field and list, the paths it looked for, the code systems the pack declares, the pack's own codes,
-and what it found, as counts (resources by type, values, codings by declared system with any
-other system as one count, what could not be read by reason). It never holds a value, an id, text,
-a patient's code or a system the pack does not declare. A JSON decision carries none.
+own. A key the request leaves out (or sends empty), with no `fhirServer` to read it from, is a
+`412`, as CDS Hooks 2.0 says (it was a `422`). A key whose value is null has no data and is not
+read. Everything the client sends goes through the structural R4 check, as before (a `400`). When
+a key cannot be read (a failed read, an OperationOutcome, a value that is not a resource, a
+resource or search page Mendari read that is not R4 JSON, a search past the page cap), or a note
+is only a link or its data does not decode, the decision is ABSTAIN before any provider runs. Its
+reasons read `could not read <key>: <reason>`, with a reason from a closed set (`timeout`,
+`unauthorized`, `not_fetched` and the others), never a URL, a query or what a server answered.
+The hook answers `200`, the decision is recorded like any other, and its card is an `info` card
+that names the keys, whatever the pack's `show` says. Input that is refused still BLOCKs, and a
+request fault stays a `4xx` (a required resource the client sent something else for among them).
+A Da Vinci CRD order whose Coverage was read gets `covered: indeterminate` for a `technical`
+reason. The SMART launch's decide reads its record the same way. Every FHIR decision carries
+`data_coverage` (`mendari.data-coverage/1`) in its record (`GET /api/audit/{id}`; the answers of
+`fhir/decide` and the SMART launch's decide hold it too, while a card and `$decide` give the
+decision id): for each mapped field and list, the paths it looked for, the code systems the pack
+declares, the pack's own codes, and what it found, as counts (resources by type, values, codings
+by declared system with any other system as one count, what could not be read by reason). It
+never holds a value, an id, text, a patient's code or a system the pack does not declare. A JSON
+decision carries none.
 
 **An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
 Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend

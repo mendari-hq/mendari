@@ -153,6 +153,58 @@ def test_a_fetch_failure_gives_abstain_with_a_reason_and_a_recorded_decision(
     assert coverage["lists"]["documents"]["resources"] == 1
 
 
+# Search pages whose shape is not R4, as an allowed server may answer them, each with the reason
+# the key is unreadable for. Each answered `500` with nothing recorded before.
+MALFORMED_PAGES: list[tuple[dict[str, Any], str]] = [
+    ({"link": "oops"}, "not_r4"),
+    ({"link": ["oops"]}, "not_r4"),
+    ({"link": [{"relation": "next", "url": 5}]}, "not_r4"),
+    ({"link": [{"relation": "next", "url": f"{EHR}/Observation?page=\x01"}]}, "not_r4"),
+    ({"link": [{"relation": "next", "url": "https://[ehr.example.org/fhir/x"}]}, "off_server"),
+    ({"entry": 5}, "not_r4"),
+    ({"entry": ["x"]}, "not_r4"),
+]
+
+
+@pytest.mark.parametrize(("page", "reason"), MALFORMED_PAGES)
+def test_a_search_page_that_is_not_r4_abstains_never_a_500(
+    monkeypatch: pytest.MonkeyPatch, app: TestClient, page: dict[str, Any], reason: str
+) -> None:
+    """An allowed server's search answer whose `link` or `entry` is not R4's shape, or whose
+    `next` link is not a URL: the key is unreadable, and the hook answers with a recorded
+    ABSTAIN, never a `500` with nothing recorded."""
+    answer = {"resourceType": "Bundle", "type": "searchset", **page}
+    request, seen = ehr_failing(monkeypatch, lambda r: fhir_json(answer))
+    response = app.post(SERVICE, json=request)
+    assert response.status_code == 200, response.text
+    assert seen, "the read was made"
+    [card] = response.json()["cards"]
+    assert f"- labs: {reason}" in card["detail"]
+    item = recorded(app, card)
+    assert item["outcome"] == "ABSTAIN"
+    assert item["record"]["reasons"] == [f"could not read labs: {reason}"]
+
+
+def test_a_later_search_page_that_is_not_a_bundle_abstains(
+    monkeypatch: pytest.MonkeyPatch, app: TestClient
+) -> None:
+    """A search whose second page is an OperationOutcome is not read as its first page alone:
+    the record would be cut short. The key is unreadable (`operation_outcome`)."""
+    first = _bundle(link=[{"relation": "next", "url": f"{EHR}/Observation?page=2"}])
+    outcome = FAULTS["operation_outcome"](httpx.Request("GET", EHR)).json()
+
+    def answer(sent: httpx.Request) -> httpx.Response:
+        return fhir_json(outcome if sent.url.params.get("page") == "2" else first)
+
+    request, seen = ehr_failing(monkeypatch, answer)
+    response = app.post(SERVICE, json=request)
+    assert response.status_code == 200, response.text
+    assert sum(r.url.path.endswith("/Observation") for r in seen) == 2  # both pages were read
+    [card] = response.json()["cards"]
+    assert recorded(app, card)["record"]["reasons"] == ["could not read labs: operation_outcome"]
+    assert SERVER_TEXT not in response.text
+
+
 @pytest.mark.parametrize("reason", NOTED)
 def test_a_note_that_is_only_a_link_or_does_not_decode_abstains(
     app: TestClient, reason: str
@@ -266,13 +318,17 @@ def test_an_operation_outcome_in_prefetch_abstains(
     assert SERVER_TEXT not in response.text
 
 
-@pytest.mark.parametrize("value", [{}, [], "", 0, {"entry": []}])
+LAB = {"resourceType": "Observation", "id": "o1", "status": "final", "code": {"text": "HbA1c"}}
+
+
+@pytest.mark.parametrize("value", ["labs", 7, {"entry": []}, [LAB], {"o1": LAB}])
 def test_a_value_that_is_neither_data_nor_null_abstains(
     monkeypatch: pytest.MonkeyPatch, app: TestClient, value: Any
 ) -> None:
     """A declared key's value is a resource (or a Bundle), or null for no data. Anything else
-    (an empty object, a list, a string) is neither, so the key is unreadable
-    (`unsupported_type`) and not fetched: never read as an empty record."""
+    (a string, a number, an object with no `resourceType`, a list) is neither, so the key is
+    unreadable (`unsupported_type`) and not fetched: never decided on, and never read as an
+    empty record."""
     request, seen = ehr_failing(monkeypatch, None)
     request["prefetch"] = {"labs": value}
     response = app.post(SERVICE, json=request)
@@ -280,6 +336,51 @@ def test_a_value_that_is_neither_data_nor_null_abstains(
     assert all("/Observation" not in str(r.url) for r in seen)
     [card] = response.json()["cards"]
     assert recorded(app, card)["record"]["reasons"] == ["could not read labs: unsupported_type"]
+
+
+@pytest.mark.parametrize("value", [{}, [], ""])
+def test_an_empty_value_is_left_out_as_before(
+    monkeypatch: pytest.MonkeyPatch, app: TestClient, value: Any
+) -> None:
+    """An empty value is not data and not "no data" (null): it counts as left out, as it did
+    before LP-23d. It is fetched from the `fhirServer`, and with none the request is a `412`
+    (the one status that moved: it was a `422`), with nothing decided or recorded."""
+    request, seen = ehr_failing(monkeypatch, None)
+    request["prefetch"] = {"patient": None, "documents": None, "reports": None, "labs": value}
+    response = app.post(SERVICE, json=request)
+    assert response.status_code == 200, response.text
+    assert [str(r.url).removeprefix(EHR).split("?")[0] for r in seen] == ["/Observation"]
+    [card] = response.json()["cards"]
+    reasons = recorded(app, card)["record"]["reasons"]
+    assert not any(reason.startswith("could not read") for reason in reasons)
+    del request["fhirServer"]
+    response = app.post(SERVICE, json=request)
+    assert response.status_code == 412, response.text
+    assert "prefetch required for: labs" in response.text
+    assert len(app.get("/api/audit").json()) == 1  # the first request's decision alone
+
+
+@pytest.mark.parametrize("value", ["p1", 7, {"entry": []}])
+def test_a_required_resource_sent_as_something_else_is_still_refused(
+    app: TestClient, value: Any
+) -> None:
+    """The trial pack requires a Patient. A client that sends something else for it (not a
+    resource, not null) has sent no Patient: the request is refused (`422`) as before, never
+    turned into a recorded ABSTAIN. A Patient sent inside a list is not a resource either: it
+    is never decided on, but the record holds it, so the decision abstains."""
+    body = patient_view(trial_record("Seen for diabetes follow-up."))
+    patient = body["prefetch"]["patient"]
+    body["prefetch"]["patient"] = value
+    response = app.post(TRIAL, json=body)
+    assert response.status_code == 422, response.text
+    assert "missing required FHIR resources: Patient" in response.text
+    assert app.get("/api/audit").json() == []
+    body["prefetch"]["patient"] = [patient]
+    response = app.post(TRIAL, json=body)
+    assert response.status_code == 200, response.text
+    [card] = response.json()["cards"]
+    assert card["indicator"] == "info"
+    assert recorded(app, card)["record"]["reasons"] == ["could not read patient: unsupported_type"]
 
 
 def test_no_provider_runs_when_the_record_is_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,16 +502,25 @@ def test_request_faults_stay_4xx_and_the_r4_gate_is_unchanged(
     def no_patient(body: dict[str, Any]) -> None:
         del body["context"]["patientId"]
 
-    def malformed(body: dict[str, Any]) -> None:
-        body["prefetch"] = {"patient": {"resourceType": "Patient", "id": "ref-p1", "gender": 7}}
+    def malformed(value: Any) -> Callable[[dict[str, Any]], None]:
+        return lambda body: body.update(prefetch={"labs": value})
 
+    bad = {"resourceType": "Observation", "id": "o1", "status": 7, "code": {}}
     assert sent(lambda body: body.update(hook="patient-view")) == 422
     assert sent(many) == 400
     assert sent(lambda body: body.update(context=[])) == 422
     assert sent(lambda body: body.update(fhirAuthorization={"access_token": 7})) == 422
     assert sent(no_patient) == 422
     assert sent(no_server) == 412
-    assert sent(malformed) == 400
+    # The structural check runs on every value the client sent before any is set aside as an
+    # OperationOutcome or as not a resource: each of these was, and stays, a `400`.
+    patient = {"resourceType": "Patient", "id": "ref-p1", "gender": 7}
+    assert sent(lambda body: body.update(prefetch={"patient": patient})) == 400
+    assert sent(malformed({"resourceType": "OperationOutcome", "issue": 5})) == 400
+    assert sent(malformed([bad])) == 400
+    assert sent(malformed({"o1": bad})) == 400
+    assert sent(malformed({"resourceType": 5})) == 400
+    assert sent(malformed(_bundle(bad))) == 400
     assert app.get("/api/audit").json() == []
 
 
@@ -476,17 +586,21 @@ def test_a_failed_read_gives_indeterminate_technical_coverage_when_coverage_was_
 
 
 class FailingEhr(FakeEhr):
-    """The fake EHR, answering one resource type's reads with `status` instead."""
+    """The fake EHR, answering one resource type's reads with `status`, or with the JSON body
+    in `bodies`, instead."""
 
     def __init__(self) -> None:
         super().__init__()
         self.failing: dict[str, int] = {}
+        self.bodies: dict[str, dict[str, Any]] = {}
 
     def fhir(self, request: httpx.Request) -> httpx.Response:
-        path = request.url.path.removeprefix("/fhir/")
-        status = self.failing.get(path.split("/")[0])
+        kind = request.url.path.removeprefix("/fhir/").split("/")[0]
+        status = self.failing.get(kind)
         if status is not None and request.headers.get("authorization"):
             return httpx.Response(status, json={"error": SERVER_TEXT})
+        if kind in self.bodies and request.headers.get("authorization"):
+            return fhir_json(self.bodies[kind])
         return super().fhir(request)
 
 
@@ -530,6 +644,22 @@ def test_smart_decide_abstains_on_a_failed_prefetch_read(smart: tuple[TestClient
     ehr.failing = {"Observation": 401}
     assert app.post("/api/smart/decide", json=body).status_code == 401
     assert app.get("/api/smart/session").json() == {"active": False}  # the launch ended
+
+
+@pytest.mark.parametrize(("page", "reason"), MALFORMED_PAGES)
+def test_smart_decide_abstains_on_a_search_page_that_is_not_r4(
+    smart: tuple[TestClient, Any], page: dict[str, Any], reason: str
+) -> None:
+    """The launch's decide reads its record as a hook does: a search page that is not R4's
+    shape makes the key unreadable, never a `500`."""
+    app, ehr = smart
+    ehr.bodies = {"Observation": {"resourceType": "Bundle", "type": "searchset", **page}}
+    body = {"pack_id": REFERRAL, "focus": "ServiceRequest/ref-sr1"}
+    response = app.post("/api/smart/decide", json=body)
+    assert response.status_code == 200, response.text
+    decision = response.json()["decision"]
+    assert decision["outcome"] == "ABSTAIN"
+    assert decision["reasons"] == [f"could not read labs: {reason}"]
 
 
 @pytest.mark.parametrize("unread", ["timeout", "not_fetched"])
