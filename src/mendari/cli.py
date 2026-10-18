@@ -563,6 +563,76 @@ def cmd_scoreboard_verify(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_scoreboard_run(args: argparse.Namespace) -> int:
+    """Run local configurations of a maintained pack over its public scoring sets (LP-17f) and
+    store each result, unsigned, with its ledger and its run record (each case's latency and
+    tokens) in the results store (`scoreboard/`, from the repository's root, or --store). A
+    result that is still current (the pack's digest, the set and the method unchanged, and not
+    past its stale date) is kept, not run again, unless --again; a new one supersedes the stored
+    one. Refused before anything runs: a remote configuration, a fitting set (`train`,
+    `calibration`), anything but a set the pack names (so no file and no hidden set), and a
+    pack Mendari does not maintain."""
+    from mendari.evals import results_store
+
+    store = results_store.Store.at(args.store)
+    pack = resolve_pack(args.pack)
+    if args.every_local:
+        configurations = results_store.local_configurations(pack)
+    else:
+        configurations = [results_store.configuration_of(pack, args.config)]
+    sets = list(dict.fromkeys(args.dataset)) or results_store.scoring_sets(pack)
+    for configuration in configurations:
+        for name in sets:
+            results_store.refuse_unmeasurable(pack, name, configuration)
+    today = clock.today()
+    stored = False
+    for configuration in configurations:
+        for name in sets:
+            outcome = results_store.record_run(
+                store, pack, name, configuration, date=today, again=args.again
+            )
+            stored = stored or outcome.action == results_store.STORED
+            print(outcome.line)
+    if stored:
+        print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
+    return 0
+
+
+def cmd_scoreboard_add(args: argparse.Namespace) -> int:
+    """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
+    never over another file. `--supersedes HASH` names the stored result it replaces, which
+    becomes part of its body: refused for a signed result, whose signature would no longer
+    hold. A public result must be what its stored inputs give, on its pack's current digest,
+    set and method; a signed one must verify against the store's keys."""
+    from mendari.evals import results_store, scoreboard, signing
+    from mendari.hub.client import config_dir
+
+    store = results_store.Store.at(args.store)
+    result = _scoreboard_result(args.file)
+    if not isinstance(result, dict):
+        raise MendariError(f"{_path_shown(args.file)}: not a scoreboard result")
+    if args.supersedes is not None:
+        target = args.supersedes.strip().removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", target):
+            raise MendariError("--supersedes names a stored result by its name (64 hex digits)")
+        if "signature" in result:
+            raise MendariError(
+                f"{_path_shown(args.file)} is signed: its supersedes link is part of its body, "
+                "so it is set before it is signed"
+            )
+        if result.get("supersedes") not in (None, f"sha256:{target}"):
+            raise MendariError(f"{_path_shown(args.file)} supersedes another result already")
+        result = {**result, "supersedes": f"sha256:{target}"}
+        result["body_sha256"] = scoreboard.body_sha256(result)
+    publishers = signing.read_pins(config_dir() / "trusted_keys.json")
+    try:
+        name = store.add(result, publisher_ids=publishers)
+    except MendariError as error:
+        raise MendariError(f"{_path_shown(args.file)}: {error}") from None
+    print(f"stored: {results_store.RESULTS}/{name}.json")
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import card_of
 
@@ -2593,7 +2663,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     scoreboard = sub.add_parser(
         "scoreboard",
-        help="the scoreboard: a pack's configurations by arm; signing and verifying results",
+        help="the scoreboard: a pack's configurations by arm; signing and verifying results; "
+        "running and storing them",
     ).add_subparsers(dest="scoreboard_command", required=True)
     scoreboard_arms = scoreboard.add_parser(
         "arms",
@@ -2621,6 +2692,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     trusted.add_argument("--public-key", help="one public key instead: 32 bytes in base64")
     scoreboard_verify.set_defaults(handler=cmd_scoreboard_verify)
+    scoreboard_run = scoreboard.add_parser(
+        "run",
+        help="run local configurations of a maintained pack over its public scoring sets, and "
+        "store each result (unsigned) in the results store",
+    )
+    scoreboard_run.add_argument("pack", help="pack id (namespace/name[@version])")
+    scoreboard_run.add_argument(
+        "--dataset",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a public scoring set of the pack, by name (repeatable; default: each of them)",
+    )
+    chosen = scoreboard_run.add_mutually_exclusive_group()
+    chosen.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        metavar="SLOT=VARIANT",
+        help="a slot's variant (repeatable, or comma-separated); the other slots take the "
+        "pack's defaults",
+    )
+    chosen.add_argument(
+        "--every-local", action="store_true", help="each local configuration of the pack"
+    )
+    scoreboard_run.add_argument(
+        "--again",
+        action="store_true",
+        help="run a result that is still current again (the new one supersedes it)",
+    )
+    scoreboard_run.add_argument(
+        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
+    )
+    scoreboard_run.set_defaults(handler=cmd_scoreboard_run)
+    scoreboard_add = scoreboard.add_parser(
+        "add", help="store a result made elsewhere in the results store, never over another"
+    )
+    scoreboard_add.add_argument("file", metavar="FILE", help="a result file")
+    scoreboard_add.add_argument(
+        "--supersedes", metavar="HASH", help="the stored result it supersedes (its name)"
+    )
+    scoreboard_add.add_argument(
+        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
+    )
+    scoreboard_add.set_defaults(handler=cmd_scoreboard_add)
 
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")

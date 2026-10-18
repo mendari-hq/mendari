@@ -54,7 +54,10 @@
   pack behaviour tests, what a labelled set covers (`coverage.py`, over one canonical form of
   a case's input, `canonical.py`), and what a grading run over a hidden evaluation set answers,
   aggregates only (`hidden.py`, `mendari.hidden_result/1`). `method.py` pins the
-  [grading method](grading/method-1.0.md)'s version, hash and numbers, for the scoreboard to come.
+  [grading method](grading/method-1.0.md)'s version, hash and numbers. The scoreboard's entries
+  (`scoreboard.py`) are computed from ledgers and run records (`runs.py`), signed offline
+  (`signing.py`) and kept in an append-only store in the repository (`results_store.py`,
+  `scoreboard/`), from which the [early scoreboard](grading/scoreboard.md) is generated.
 - **Standards** (`standards/`): FHIR R4 mapping and `Task` output, CDS Hooks discovery and
   cards, the structural R4 check on FHIR inputs (`fhir_structure.py`, from HL7's R4 JSON
   Schema), US Core 6.1.0 checks on them (`us_core.py`, generated from the official packages),

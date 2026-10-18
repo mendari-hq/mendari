@@ -1,0 +1,315 @@
+{
+  "arm": "deterministic",
+  "body_sha256": "sha256:cab2ef28851cc92ad6c97b4f9596b3161e17da250e94535746f0abfdbfdca508",
+  "configuration": {
+    "local": true,
+    "providers": {
+      "router": "naive_bayes",
+      "safety_screen": "rules"
+    },
+    "remote_types": []
+  },
+  "figures": {
+    "accuracy": {
+      "high": 0.893092,
+      "k": 21,
+      "low": 0.551285,
+      "n": 28
+    },
+    "auto_error_rate": {
+      "high": null,
+      "k": 0,
+      "low": null,
+      "n": 0
+    },
+    "automation": {
+      "high": 0.092513,
+      "k": 0,
+      "low": 0.0,
+      "n": 38
+    },
+    "brier": {
+      "estimate": 0.330897,
+      "high": 0.46302,
+      "low": 0.210961
+    },
+    "brier_reliability": {
+      "reason": "28 scored cases; 10 equal-mass bins of at least 30 need 300",
+      "status": "not_estimable"
+    },
+    "cost_per_1000": {
+      "status": "none",
+      "text": "0 (no metered calls)"
+    },
+    "critical": [
+      {
+        "automated": {
+          "high": 0.123436,
+          "k": 0,
+          "low": 0.0,
+          "n": 28
+        },
+        "bound": {
+          "high": 1.0,
+          "k": 28,
+          "labels": 1,
+          "level": 0.95,
+          "low": 0.876564,
+          "n": 28
+        },
+        "detected": {
+          "high": 1.0,
+          "k": 28,
+          "low": 0.876564,
+          "n": 28
+        },
+        "distinct": {
+          "detected": 28,
+          "positives": 28
+        },
+        "evidence": {
+          "needed": 100,
+          "status": "insufficient evidence"
+        },
+        "label": "urgent",
+        "question": "urgency"
+      }
+    ],
+    "ece": {
+      "reason": "28 scored cases; 10 equal-mass bins of at least 30 need 300",
+      "status": "not_estimable"
+    },
+    "false_automation": {
+      "high": 0.123436,
+      "k": 0,
+      "low": 0.0,
+      "n": 28
+    },
+    "latency_ms": {
+      "note": "measured on the runner, not reproducible",
+      "p50": {
+        "estimate": 0.102,
+        "high": 0.109,
+        "low": 0.094
+      },
+      "p95": {
+        "estimate": 0.32065,
+        "high": 0.499,
+        "low": 0.13815
+      }
+    },
+    "macro_f1": {
+      "estimate": 0.857143,
+      "high": 0.943396,
+      "low": 0.727273
+    },
+    "subgroups": {
+      "age_band": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.893092,
+            "k": 21,
+            "low": 0.551285,
+            "n": 28
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.092513,
+            "k": 0,
+            "low": 0.0,
+            "n": 38
+          },
+          "n": 38
+        }
+      },
+      "channel": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.893092,
+            "k": 21,
+            "low": 0.551285,
+            "n": 28
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.092513,
+            "k": 0,
+            "low": 0.0,
+            "n": 38
+          },
+          "n": 38
+        }
+      },
+      "language": {
+        "en": {
+          "accuracy": {
+            "high": 0.913783,
+            "k": 21,
+            "low": 0.577417,
+            "n": 27
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.094891,
+            "k": 0,
+            "low": 0.0,
+            "n": 37
+          },
+          "n": 37
+        },
+        "es": {
+          "n": 1,
+          "status": "too few"
+        }
+      },
+      "topic": {
+        "abdomen": {
+          "n": 1,
+          "status": "too few"
+        },
+        "anaphylaxis": {
+          "n": 2,
+          "status": "too few"
+        },
+        "bleeding": {
+          "n": 2,
+          "status": "too few"
+        },
+        "breathing": {
+          "n": 2,
+          "status": "too few"
+        },
+        "chest_pain": {
+          "n": 3,
+          "status": "too few"
+        },
+        "control": {
+          "accuracy": {
+            "n": 0,
+            "status": "too few"
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.308497,
+            "k": 0,
+            "low": 0.0,
+            "n": 10
+          },
+          "n": 10
+        },
+        "gi_bleed": {
+          "n": 9,
+          "status": "too few"
+        },
+        "head_injury": {
+          "n": 1,
+          "status": "too few"
+        },
+        "headache": {
+          "n": 1,
+          "status": "too few"
+        },
+        "infant_fever": {
+          "n": 1,
+          "status": "too few"
+        },
+        "self_harm": {
+          "n": 3,
+          "status": "too few"
+        },
+        "stroke": {
+          "n": 2,
+          "status": "too few"
+        },
+        "unresponsive": {
+          "n": 1,
+          "status": "too few"
+        }
+      }
+    },
+    "weighted": {
+      "status": "as sampled"
+    }
+  },
+  "format": "mendari.scoreboard/1",
+  "grade": null,
+  "inputs": {
+    "dataset": "66dd801d74e561402791eccc97cbb02bc0b015bf25dbd1e192b7e8246cbee693",
+    "ledger": "sha256:fd43e25f93abb877b34e0c4d434082bf2a81c21776083bb428e8fc7a3590bd2b",
+    "method": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+    "prices": null,
+    "run": {
+      "engine": "0.1.0",
+      "replicate": 1,
+      "sha256": "sha256:02bf5360c30b70af547fa864d7869ebc9608db27df5c8a1a491d0474f8579fdf"
+    }
+  },
+  "ranking": {
+    "reason": "public set: regression check, not a ranking",
+    "status": "off"
+  },
+  "scope": {
+    "disclosure": {
+      "statements": {},
+      "status": "no model provider"
+    },
+    "evaluation": "engineering evaluation, not clinical validation",
+    "measured_on": "2026-10-18",
+    "method": {
+      "in_effect": false,
+      "sha256": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+      "version": "mendari.grading/1.0"
+    },
+    "models": {
+      "answered": [
+        "naive_bayes@37cb3086c82a",
+        "rules@661449489daf"
+      ],
+      "by_type": {}
+    },
+    "pack": {
+      "digest": "sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef",
+      "id": "mendari/patient-inbox-router",
+      "version": "0.4.2"
+    },
+    "providers": {
+      "router": {
+        "model": "naive_bayes@37cb3086c82a",
+        "type": "naive_bayes",
+        "variant": "naive_bayes"
+      },
+      "safety_screen": {
+        "model": "rules@661449489daf",
+        "type": "rules",
+        "variant": "rules"
+      }
+    },
+    "set": {
+      "distinct_inputs": 38,
+      "kind": "public",
+      "n": 38,
+      "name": "red_flags",
+      "norm": "norm/v1",
+      "sha256": "66dd801d74e561402791eccc97cbb02bc0b015bf25dbd1e192b7e8246cbee693"
+    },
+    "status": "Synthetic example. Not clinically reviewed. Not for patient care."
+  },
+  "seeds": {
+    "bootstrap": 0,
+    "level": 0.95,
+    "resamples": 2000
+  },
+  "supersedes": null
+}

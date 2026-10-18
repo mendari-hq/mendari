@@ -262,8 +262,9 @@ function of five inputs: the ledger (`mendari.ledger/1`), the dataset (by its SH
 record (`mendari.run/1`), the price table (`mendari.prices/1`, by its SHA-256) and the method (by
 its SHA-256). The same inputs give the same bytes, and every bootstrap is the method's: 2,000
 resamples, seed 0, at 95%. Where `mendari.eval/2`'s result already holds a figure, the entry
-reuses it. No format on this page changes. Nothing writes or stores an entry yet: the results
-store comes with LP-17f.
+reuses it. No format on this page changes. Entries are kept in the
+[results store](#the-results-store-scoreboard), and the
+[early scoreboard](../grading/scoreboard.md) is generated from it.
 
 An entry is refused, with a message that names ids and hashes and never a case, when:
 
@@ -272,7 +273,8 @@ An entry is refused, with a message that names ids and hashes and never a case, 
   are not the dataset's cases in the dataset's order;
 - the configuration is not the ledger's (slot by slot), or not in the arm named;
 - the run record is not the ledger's (see [run records](#run-records-mendarirun1)), or names
-  tokens or models of a type the configuration does not call.
+  tokens or models of a type the configuration does not call;
+- `supersedes` is not `sha256:` and 64 hex digits.
 
 | Field | What it holds |
 |---|---|
@@ -283,6 +285,7 @@ An entry is refused, with a message that names ids and hashes and never a case, 
 | `scope` | What the figures are of (below). |
 | `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null. |
 | `figures` | The figures (below). |
+| `supersedes` | The earlier result this one supersedes in the results store, `sha256:` and its body's SHA-256, or null. It is part of the body, so its hash and any signature cover it. |
 | `body_sha256` | `sha256:` and the SHA-256 of the entry's canonical JSON without `body_sha256` and `signature`. |
 
 The scope holds the pack (`id`, `version`, `digest`) and its `status` line (the synthetic-example
@@ -346,7 +349,9 @@ order. Each table holds:
 - the insufficient-evidence banner when any entry's critical label is short of evidence, naming
   each such label, its distinct positives and the minimum;
 - each arm's status: measured, "not measured", or "not applicable" for an arm the pack cannot
-  build;
+  build; and each configuration of a measured arm that has no entry in the table (`not_measured`,
+  "not measured yet"), such as the Clinical Trial Prescreener's `structured=cql`, which is
+  deterministic but calls Mendari's CQL engine;
 - each entry with its marks, worked out when the board is built and never stored: "unsigned"
   (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
   "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
@@ -416,6 +421,52 @@ The disclosures file (`scoreboard/disclosures.json`) holds `format` (`mendari.di
 `date`, and `statements`: per remote provider type (`jev`, `llm`, `cql`), the statement of any
 commercial relationship between Mendari and that provider. Both are closed schemas, and a
 refusal of either names a key the input chose as `<key>`, as a run record's does.
+
+## The results store: `scoreboard/`
+
+Scoreboard results are kept in the repository, under `scoreboard/` at its root
+(`evals/results_store.py`, LP-17f; the [grading method](../grading/method-1.0.md), section 11).
+It is outside the wheel, the sdist and the site: a pack's own `evals/` is in every archive, where
+a publisher's pack could carry a forged result. Each file is named by its content:
+
+| Path | What it holds |
+|---|---|
+| `results/<sha256>.json` | A result, named by its body's SHA-256 (`body_sha256` without `sha256:`), sorted and indented, with one newline at the end. |
+| `ledgers/<sha256>.jsonl` | A ledger (`mendari.ledger/1`), named by its id. |
+| `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
+| `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
+| `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
+
+- **Append-only.** Nothing stored changes, except that a valid signature may be added to an
+  unsigned result whose body stays the same. `mendari scoreboard add FILE [--supersedes HASH]`
+  never writes over a file.
+- **Supersedes.** A result may name the earlier result it supersedes: one of the same pack, set,
+  arm and configuration, measured no later, which no other result supersedes. Both stay. The
+  later is the current one, and one pack, set, arm and configuration has one current result at
+  most.
+- **Running.** `mendari scoreboard run PACK [--dataset NAME ...] [--config slot=variant ... |
+  --every-local] [--again]` runs a configuration of a pack Mendari maintains over its public
+  scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
+  run record (each case's latency and tokens) and the entry, unsigned. A result that is still
+  current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
+  stale date) is kept unless `--again`; a new one supersedes it. It refuses a remote
+  configuration, a fitting set and anything but a set the pack names, so a file or a hidden set
+  is never run.
+- **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
+  `reference-pack` job, names each file whose name is not its content's, each result of the base
+  removed or changed (but for a valid signature added), each `supersedes` link that breaks the
+  rules above, and each current result whose signature does not verify against `keys.json`. It
+  recomputes every public result from its stored ledger, its dataset (SHA-256 checked), its run
+  record, its price table and the method, byte for byte, and re-runs every local ledger on its
+  pack's current digest. A result of an older digest is recomputed and kept, never re-run; one
+  whose set or method changed is kept as it is, and shown stale. A new result must be on its
+  pack's current digest, set and method. A superseded result keeps the signature it had, so a
+  key taken out of the keys file leaves what it signed as history.
+- **The page.** `scripts/scoreboard_page.py` writes
+  [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
+  and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
+  `reference-pack`) fails when the page is not the store's. Its bytes depend only on the
+  repository.
 
 ## Paired comparisons: `mendari.compare/1`
 
