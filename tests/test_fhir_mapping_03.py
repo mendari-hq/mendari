@@ -346,6 +346,93 @@ def test_a_reference_is_followed_inside_the_record_only(
         adapter(tmp_path / "hops", hops)
 
 
+class Scanned(list[Any]):
+    """Resources of a record (of one type, or contained in one resource), counting each time
+    something reads them all."""
+
+    def __init__(self, items: list[Any]) -> None:
+        super().__init__(items)
+        self.scans = 0
+
+    def __iter__(self) -> Any:
+        self.scans += 1
+        return super().__iter__()
+
+
+def test_a_follow_is_one_lookup_a_reference_whatever_the_record_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bounds bound the work too: a `follow` is resolved once for its field, however many
+    paths the field tries, and each reference is a lookup: `Type/id` and `fullUrl` in the
+    indexed record, never a scan of each resource of its type, and `#id` among a resource's
+    contained ones, read once for the resource, not once a reference. So a pack the deployment
+    does not own maps a record in time that grows with the record, as a 0.2 mapping does, not
+    with its square. A plain mapping (not `index`'s) still resolves, the first of an id
+    winning."""
+    paths = [f"Medication.code.coding[{n}].code" for n in range(MAX_PATHS)]
+    source = {"fields": {"code": {"follow": "medicationReference", "paths": paths}}}
+    payer = {
+        "follow": "Coverage.payor",
+        "paths": [f"Organization.identifier[{n}].value" for n in range(MAX_PATHS)],
+    }
+    changes = {
+        "lists": {"medications": {"resources": {"MedicationRequest": source}}},
+        "fields": {"payer": payer},
+    }
+    mapped = adapter(tmp_path, changes, origin="hub")
+    count = 50
+
+    def ordered(number: int, reference: str) -> dict[str, Any]:
+        return {
+            "resourceType": "MedicationRequest",
+            "id": f"r{number}",
+            "status": "active",
+            "intent": "order",
+            "medicationReference": {"reference": reference},
+        }
+
+    medications = [
+        {"resourceType": "Medication", "id": f"m{n}", "code": {"coding": [{"code": f"M{n}"}]}}
+        for n in range(count)
+    ]
+    misses = [ordered(n, "Medication/none") for n in range(count)]  # every path finds nothing
+    hits = [ordered(count + n, f"Medication/m{n}") for n in range(count)]
+    coverage = {  # payors contained in it, none with an identifier: every path finds nothing
+        "resourceType": "Coverage",
+        "id": "cov",
+        "status": "active",
+        "payor": [{"reference": f"#o{n}"} for n in range(count)],
+        "contained": [{"resourceType": "Organization", "id": f"o{n}"} for n in range(count)],
+    }
+    indexed = mapped.index(bundle(PATIENT, *misses, *hits, *medications, coverage))
+    indexed["Medication"] = by_type = Scanned(indexed["Medication"])
+    held = indexed["Coverage"][0]
+    held["contained"] = contained = Scanned(held["contained"])
+    resolved: list[Any] = []
+    resolve = fhir.resolve
+
+    def counted(reference: Any, container: Any, record: Any) -> Any:
+        resolved.append(reference)
+        return resolve(reference, container, record)
+
+    monkeypatch.setattr(fhir, "resolve", counted)
+    found = mapped.to_input(indexed)
+    assert found["medications"] == [{"code": f"M{n}"} for n in range(count)]
+    assert "payer" not in found
+    assert len(resolved) == 3 * count  # once a reference, not once a path
+    assert (by_type.scans, contained.scans) == (0, 1)
+
+    plain = {"Medication": [{"resourceType": "Medication", "id": "m1", "n": 1}, {"id": "m1"}]}
+    assert resolve({"reference": "Medication/m1"}, None, plain) == plain["Medication"][0]
+    one = {"Medication": {"resourceType": "Medication", "id": "m2"}}
+    assert resolve({"reference": "Medication/m2/_history/3"}, None, one) == one["Medication"]
+    assert resolve({"reference": "Medication/m3"}, None, one) is None
+    twice = {"contained": [{"resourceType": "Organization", "id": "o1", "n": 1}, {"id": "o1"}]}
+    twice["contained"].append({"resourceType": "Organization", "id": "o1", "n": 3})
+    assert resolve({"reference": "#o1"}, twice, {}) == twice["contained"][0]
+    assert resolve({"reference": "#o2"}, twice, {}) is None
+
+
 def note(
     id_: str, content_type: str | None, text: str | None = None, **attachment: Any
 ) -> dict[str, Any]:
@@ -422,6 +509,27 @@ def test_an_html_note_is_read_as_text_and_another_type_is_unreadable(tmp_path: P
         result, _ = decision.decide_fhir(bundle(PATIENT, note("n1", "text/html", markup)))
         labels.append(result.answers["note_pancreatitis"].label)
     assert labels == ["no", "yes"]
+
+
+def test_an_attachments_base64_may_hold_line_breaks_and_spaces() -> None:
+    """R4's base64Binary allows whitespace between its characters, and an EHR may wrap `data`
+    every 76 characters as MIME does: `attachment_text` reads such data, inline or in a Binary.
+    A character outside base64, a no-break space among them, is still `undecodable`."""
+    text = "Seen for diabetes follow-up. No new complaints. " * 6
+    wrapped = base64.encodebytes(text.encode()).decode()  # a line break every 76 characters
+    assert wrapped.strip().count("\n") > 1
+    spaced = " \t" + "\r\n ".join(wrapped.split("\n"))
+    for data in (wrapped, spaced):
+        assert read_attachment({"contentType": "text/plain", "data": data}) == (text.strip(), None)
+    html = base64.encodebytes(f"<p>{text}</p>".encode()).decode()
+    assert read_attachment({"contentType": "text/html", "data": html}) == (text.strip(), None)
+    binary = {"resourceType": "Binary", "id": "b1", "contentType": "text/plain", "data": wrapped}
+    linked = {"contentType": "text/plain", "url": "Binary/b1"}
+    assert read_attachment(linked, record={"Binary": [binary]}) == (text.strip(), None)
+    encoded = b64("A note.")
+    for stray in ("\u00a0", "\u2028", "\x0b"):  # no-break space, line separator, vertical tab
+        unreadable = {"contentType": "text/plain", "data": encoded[:4] + stray + encoded[4:]}
+        assert read_attachment(unreadable) == (None, UNDECODABLE), repr(stray)
 
 
 def test_a_code_set_selector_matches_only_its_declared_codes(tmp_path: Path) -> None:

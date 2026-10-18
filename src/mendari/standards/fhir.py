@@ -89,6 +89,9 @@ UNSUPPORTED_TYPE = "unsupported_type"  # not text/plain or text/html, or no cont
 UNDECODABLE = "undecodable"  # data that is not base64, or not UTF-8 once decoded
 NOT_FETCHED = "not_fetched"  # only a `url`, to a Binary that is not in the record
 TEXT_TYPES = ("text/plain", "text/html")
+# The whitespace R4's base64Binary allows between its characters (`\s` of its regex, as XML
+# Schema has it: space, tab, line feed, carriage return), dropped before decoding.
+_BASE64_SPACE = str.maketrans("", "", " \t\n\r")
 
 
 class _Model(BaseModel):
@@ -250,12 +253,51 @@ class LookedFor(TypedDict):
 
 class Indexed(dict[str, list[dict[str, Any]]]):
     """A record by resource type (`FhirAdapter.index`). `urls` holds each Bundle entry's
-    resource by its `fullUrl`, so a reference to an entry (`urn:uuid:…`) resolves inside the
-    record (`resolve`)."""
+    resource by its `fullUrl`, `ids` each resource that has an id by its type and id, and
+    `contained` a resource's contained resources by id, so a reference (`#id`, `urn:uuid:…`,
+    `Type/id`) resolves inside the record with one lookup (`resolve`), however many resources
+    the record or the resource holding the reference has."""
 
     def __init__(self) -> None:
         super().__init__()
         self.urls: dict[str, dict[str, Any]] = {}
+        self.ids: dict[tuple[str, str], dict[str, Any]] = {}
+        # By the container's identity, which the container held beside its table keeps.
+        self._contained: dict[int, tuple[Any, dict[str, Mapping[str, Any]]]] = {}
+
+    def contained(self, container: Any) -> Mapping[str, Mapping[str, Any]]:
+        """The resources `container` (the resource holding a reference) contains, by id, the
+        first of an id: read the first time a `#id` in it is resolved, then looked up."""
+        held = self._contained.get(id(container))
+        if held is not None and held[0] is container:
+            return held[1]
+        table: dict[str, Mapping[str, Any]] = {}
+        for item in _as_list(_object(container).get("contained")):
+            if (
+                isinstance(item, Mapping)
+                and "resourceType" in item
+                and isinstance(item.get("id"), str)
+            ):
+                table.setdefault(item["id"], item)
+        self._contained[id(container)] = (container, table)
+        return table
+
+    @classmethod
+    def of(cls, record: Mapping[str, Any]) -> Indexed:
+        """`record` itself when it is an Indexed; otherwise (a mapping of a resource type to one
+        resource or a list of them) its resources by type, with their ids indexed, the first of
+        a type and id kept."""
+        if isinstance(record, Indexed):
+            return record
+        indexed = cls()
+        for kind, resources in record.items():
+            items = _as_list(resources)
+            indexed[kind] = items
+            for item in items:
+                held = item.get("id") if isinstance(item, Mapping) else None
+                if held is not None:
+                    indexed.ids.setdefault((kind, str(held)), item)
+        return indexed
 
 
 # A site's translations into the mapping's code sets: {code set: [{system, code, as}]}, the
@@ -265,10 +307,10 @@ SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 
 @dataclass(frozen=True)
 class _Reading:
-    """What a mapping reads a record with: the record (for references), the mapping's code sets
-    and a site's translations into them."""
+    """What a mapping reads a record with: the record indexed (for references), the mapping's
+    code sets and a site's translations into them."""
 
-    record: Mapping[str, Any]
+    record: Indexed
     code_sets: Mapping[str, CodeSet]
     site_codes: SiteCodes
 
@@ -286,13 +328,8 @@ class FhirAdapter:
         of every pack) they must also be bare names (`template_problems`). Otherwise an owned
         pack's Task text renders as it always did. Spec 0.3's rules are checked for every pack
         (`mapping_problems`), and its bounds under `bare` too."""
+        mapping = read_mapping(pack)
         relative = pack.manifest.inputs.fhir
-        if relative is None:
-            raise FhirError(f"pack {pack.id} does not declare a FHIR mapping")
-        try:
-            mapping = FhirMapping.model_validate(pack.read_yaml(relative))
-        except ValidationError as error:
-            raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
         templates = {"description": mapping.task.description, "performer": mapping.task.performer}
         questions = pack.manifest.questions
         held = pack.bounded if bare is None else bare
@@ -321,7 +358,7 @@ class FhirAdapter:
         With `focus` (e.g. one draft order), the record is indexed around that resource and any
         other resource of the focus type in `resources` is ignored."""
         indexed = Indexed()
-        kept: dict[tuple[str, str], dict[str, Any]] = {}
+        kept = indexed.ids  # by type and id: a resource seen again is the first one
         for url, resource in iter_entries(resources if focus is None else [resources, focus]):
             kind = resource["resourceType"]
             if kind == self.mapping.focus and not self.is_focus(resource):
@@ -370,7 +407,8 @@ class FhirAdapter:
         """The pack's input from an indexed record. `site_codes` (LP-23i) are a site's
         translations into the mapping's code sets, read by `code_set` selectors only; without
         them a code set matches its own codes only. Nothing else reads them."""
-        reading = _Reading(indexed, self.mapping.code_sets, site_codes or {})
+        # References resolve in the record indexed by id once, not by a scan for each.
+        reading = _Reading(Indexed.of(indexed), self.mapping.code_sets, site_codes or {})
         result: dict[str, Any] = {}
         for target, mapped in self.mapping.fields.items():
             value = _field_value(mapped, indexed, None, reading)
@@ -579,30 +617,20 @@ def resolve(reference: Any, container: Any, record: Mapping[str, Any]) -> Mappin
     among the contained resources of `container` (the resource holding the reference), a
     Bundle entry by its exact `fullUrl` (`urn:uuid:…`, or an absolute URL an entry has), or
     `Type/id` among the record's resources. None for anything else: an absolute URL no entry
-    has, a reference by identifier only, a malformed one."""
+    has, a reference by identifier only, a malformed one. In an `Indexed` record, a lookup; a
+    plain mapping is indexed for the call."""
     target = reference.get("reference") if isinstance(reference, Mapping) else None
     if not isinstance(target, str) or not target:
         return None
+    indexed = Indexed.of(record)
     if target.startswith("#"):
-        for item in _as_list(_object(container).get("contained")):
-            if (
-                isinstance(item, Mapping)
-                and "resourceType" in item
-                and item.get("id") == target[1:]
-            ):
-                return item
-        return None
-    urls = record.urls if isinstance(record, Indexed) else {}
-    if target in urls:
-        return urls[target]
+        return indexed.contained(container).get(target[1:])
+    if target in indexed.urls:
+        return indexed.urls[target]
     match = _RELATIVE.match(target)
     if match is None:
         return None
-    for item in _as_list(record.get(match["type"])):
-        held = item.get("id") if isinstance(item, Mapping) else None
-        if held is not None and str(held) == match["id"]:
-            return item
-    return None
+    return indexed.ids.get((match["type"], match["id"]))
 
 
 def read_attachment(
@@ -615,8 +643,9 @@ def read_attachment(
     text/plain is read as it is, text/html as text through `html.parser` with scripts and styles
     dropped, both as UTF-8. Returns (text, None) when read; (None, reason) when the content
     could not be: `UNSUPPORTED_TYPE` for any other content type (a missing one included),
-    `UNDECODABLE` for data that is not base64 or not UTF-8, `NOT_FETCHED` for a url to a Binary
-    the record does not hold; (None, None) for an attachment with no content, or empty text."""
+    `UNDECODABLE` for data that is not base64 (line breaks and spaces in it aside) or not UTF-8,
+    `NOT_FETCHED` for a url to a Binary the record does not hold; (None, None) for an
+    attachment with no content, or empty text."""
     if not isinstance(attachment, Mapping):
         return None, UNSUPPORTED_TYPE
     kind = _media_type(attachment.get("contentType"))
@@ -634,7 +663,9 @@ def read_attachment(
     if data is None:
         return None, None
     try:
-        text = base64.b64decode(str(data), validate=True).decode("utf-8")
+        # R4's base64Binary may hold whitespace (data wrapped every 76 characters, as MIME
+        # does), which the strict decode refuses: it is dropped first.
+        text = base64.b64decode(str(data).translate(_BASE64_SPACE), validate=True).decode("utf-8")
     except ValueError:  # binascii.Error, UnicodeDecodeError, or non-ASCII text
         return None, UNDECODABLE
     text = html_text(text) if kind == "text/html" else text.strip()
@@ -760,12 +791,15 @@ def _field_value(
 ) -> Any:
     """A field's value: each of its paths in order, the first that gives one. `scope` is what
     its paths are read in (the record, or one list resource as {its type: it}), and `kind` a
-    list resource's type, which its relative paths start from."""
+    list resource's type, which its relative paths start from. A `follow` is resolved once for
+    the field, whatever number of paths it tries."""
+    reached = None if mapped.follow is None else _followed(mapped.follow, scope, kind, reading)
     for path in mapped.tried:
-        if mapped.follow is None:
+        if reached is None:
             pairs = _walk(scope, _absolute(kind, path))
         else:
-            pairs = _walk(_followed(mapped.follow, scope, kind, path, reading.record), path)
+            wanted = split_path(path)[0]  # the type the path reads, among what was reached
+            pairs = _walk({wanted: [r for r in reached if r.get("resourceType") == wanted]}, path)
         value = _value(mapped, pairs, reading)
         if value is not None:
             return value
@@ -773,18 +807,17 @@ def _field_value(
 
 
 def _followed(
-    follow: str, scope: Mapping[str, Any], kind: str | None, path: str, record: Mapping[str, Any]
-) -> dict[str, list[Any]]:
-    """What `follow` reaches inside the record, of the type `path` starts with, each once."""
-    wanted = split_path(path)[0]
-    reached: list[Any] = []
+    follow: str, scope: Mapping[str, Any], kind: str | None, reading: _Reading
+) -> list[Mapping[str, Any]]:
+    """What `follow` reaches inside the record, in order, each once."""
+    reached: list[Mapping[str, Any]] = []
     seen: set[int] = set()  # by identity: a resource reached twice is read once
     for container, reference in _walk(scope, _absolute(kind, follow)):
-        found = resolve(reference, container, record)
-        if found is not None and found.get("resourceType") == wanted and id(found) not in seen:
+        found = resolve(reference, container, reading.record)
+        if found is not None and id(found) not in seen:
             seen.add(id(found))
             reached.append(found)
-    return {wanted: reached}
+    return reached
 
 
 def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: _Reading) -> Any:
@@ -835,40 +868,75 @@ def located_fields(mapping: FhirMapping) -> Iterator[tuple[str, str | None, Fiel
 
 
 def newer_keys(mapping: FhirMapping) -> list[str]:
-    """Where a mapping uses a spec 0.3 key, e.g. `fields.notes.paths`, in the mapping's order."""
-    found = ["code_sets"] if mapping.code_sets else []
+    """Where a mapping uses a spec 0.3 key, e.g. `fields.notes.paths`, in the mapping's order. A
+    key counts when it is written, whatever its value (`code_sets: {}`, `follow: null`)."""
+    found = ["code_sets"] if "code_sets" in mapping.model_fields_set else []
     if mapping.focus_where is not None and "[system=" in mapping.focus_where.path:
         found.append("focus_where.path")
     for where, _, mapped in located_fields(mapping):
-        if mapped.paths is not None:
-            found.append(f"{where}.paths")
-        if mapped.follow is not None:
-            found.append(f"{where}.follow")
-        if mapped.code_set is not None:
-            found.append(f"{where}.code_set")
+        found += [
+            f"{where}.{key}"
+            for key in ("paths", "follow", "code_set")
+            if key in mapped.model_fields_set
+        ]
         if mapped.transform == "attachment_text":
             found.append(f"{where}.transform")
         if mapped.path is not None and "[system=" in mapped.path:
             found.append(f"{where}.path")
     found += [
-        f"lists.{target}.resources" for target, spec in mapping.lists.items() if spec.resources
+        f"lists.{target}.resources"
+        for target, spec in mapping.lists.items()
+        if "resources" in spec.model_fields_set
     ]
     return found
 
 
+def older_spec_problems(mapping: FhirMapping, manifest: PackManifest) -> list[str]:
+    """A 0.1 or 0.2 pack's mapping uses no spec 0.3 key: the problem names each one it does
+    (`newer_keys`). `load_pack` refuses such a pack wherever it comes from (`version_problems`),
+    as `spec.cross_reference_problems` refuses 0.2 features in a 0.1 pack."""
+    newer = [] if manifest.spec_version == SPEC_03 else newer_keys(mapping)
+    return [f"{newer} use spec 0.3 mapping features; set spec_version: '0.3'"] if newer else []
+
+
+def version_problems(pack: Pack) -> list[str]:
+    """`older_spec_problems` for a pack's mapping, each naming the file, for `load_pack` to
+    refuse a pack the deployment owns as it does one it does not (whose whole mapping
+    `FhirAdapter.for_pack` checks at load). A mapping that is not of the mapping's shape gives
+    none here: it is refused where it is read, as before (the adapter, `mendari validate`)."""
+    relative = pack.manifest.inputs.fhir
+    if relative is None or pack.manifest.spec_version == SPEC_03:
+        return []
+    try:
+        mapping = read_mapping(pack)
+    except PackValidationError:
+        return []
+    return [f"{relative}: {problem}" for problem in older_spec_problems(mapping, pack.manifest)]
+
+
+def read_mapping(pack: Pack) -> FhirMapping:
+    """A pack's FHIR mapping, of the mapping's shape: a `PackValidationError` naming the file
+    otherwise, and a `FhirError` for a pack that declares none."""
+    relative = pack.manifest.inputs.fhir
+    if relative is None:
+        raise FhirError(f"pack {pack.id} does not declare a FHIR mapping")
+    try:
+        return FhirMapping.model_validate(pack.read_yaml(relative))
+    except ValidationError as error:
+        raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
+
+
 def mapping_problems(mapping: FhirMapping, manifest: PackManifest, *, held: bool) -> list[str]:
     """What spec 0.3 holds a mapping to beyond its shape (`FhirAdapter.for_pack`). A 0.1 or 0.2
-    pack uses no 0.3 key, and is otherwise read as it always was. A 0.3 pack's paths are paths of
-    the subset (a top-level field's start from a resource type, a list field's from its
-    resource, a followed field's from the type it reaches); each `[system=…]` and each code set
-    names a system its `code_systems` declares; `medication_period` derives a MedicationRequest's
-    only. With `held` (a pack the deployment does not own, or any in `mendari validate`), a field
-    tries at most `MAX_PATHS` paths and a code set has at most `MAX_CODE_SET_CODES` codes."""
+    pack uses no 0.3 key (`older_spec_problems`), and is otherwise read as it always was. A 0.3
+    pack's paths are paths of the subset (a top-level field's start from a resource type, a list
+    field's from its resource, a followed field's from the type it reaches); each `[system=…]`
+    and each code set names a system its `code_systems` declares; `medication_period` derives a
+    MedicationRequest's only. With `held` (a pack the deployment does not own, or any in
+    `mendari validate`), a field tries at most `MAX_PATHS` paths and a code set has at most
+    `MAX_CODE_SET_CODES` codes."""
     if manifest.spec_version != SPEC_03:
-        newer = newer_keys(mapping)
-        if newer:
-            return [f"{newer} use spec 0.3 mapping features; set spec_version: '0.3'"]
-        return []
+        return older_spec_problems(mapping, manifest)
     declared = {use.url for use in manifest.code_systems}
     problems: list[str] = []
 

@@ -806,9 +806,9 @@ Connect) is not supported yet.
     `code_set` selector that takes a site's translations (nothing passes them until 23i), list
     `resources`, and `medication_period` by conflict 39 (B21 clinician review still owed, and the
     trial card's failure modes say it when 23k adopts it). A 0.1 or 0.2 pack with a 0.3 key is
-    refused where its mapping is read, naming each key; a pack the deployment does not own (and
-    every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set, and a
-    `follow` is one hop for every pack. `FhirAdapter.looked_for` gives what each field and list
+    refused at load wherever it comes from, naming each key; a pack the deployment does not own
+    (and every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set,
+    and a `follow` is one hop for every pack, resolved once a field by a lookup in the record. `FhirAdapter.looked_for` gives what each field and list
     looks for (paths, declared systems, the pack's own codes) from the mapping alone, for 23d's
     `data_coverage.measure`, and `read_attachment` the reason an attachment was not read. The
     golden is unchanged, and the four mappings written with `paths` and `resources` read every

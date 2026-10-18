@@ -109,8 +109,10 @@ reference is resolved inside the record only, and never fetched:
 Anything else resolves to nothing: an absolute URL no entry has, a reference by identifier
 only, or a resource of another type than the field's paths start with. The field's paths are
 then read in the resources the reference reached. A `follow` is one hop: what it reaches is
-not followed further. A runtime MAY add resources it read itself to the record before the
-mapping runs; the mapping still never fetches.
+not followed further. A field's reference is resolved once, whatever number of paths it tries,
+and a runtime SHOULD resolve it by a lookup rather than a search of the record, so that mapping
+a record takes time in proportion to its size. A runtime MAY add resources it read itself to the
+record before the mapping runs; the mapping still never fetches.
 
 ### 2.4 Attachment text (0.3)
 
@@ -119,7 +121,9 @@ mapping runs; the mapping still never fetches.
 only a `url`, a Binary the url names inside the record (resolved as in §2.3). `text/plain` is
 read as it is. `text/html` is read as text: scripts and styles dropped, entities decoded, each
 block on its own line. Both are read as UTF-8, and a content type's parameters
-(`; charset=utf-8`) are ignored. The texts are joined with a blank line between them.
+(`; charset=utf-8`) are ignored. `data` is base64 as R4 has it: spaces and line breaks between
+its characters (data wrapped every 76 characters) are allowed. The texts are joined with a blank
+line between them.
 
 An attachment that cannot be read adds no text, and the reason is one of three:
 
@@ -195,9 +199,9 @@ so it holds no patient's value, id or text. The reference runtime's is
 ## 3. Versions
 
 A pack that uses any key marked (0.3) MUST declare `spec_version: "0.3"`. A 0.1 or 0.2 pack with
-one is invalid, and the problem names each key and says to set `spec_version: '0.3'`. It is
-refused where its mapping is read: at load for a pack the deployment does not own, where it is
-used for an owned pack (a FHIR decision, the CDS Hooks service), and by `mendari validate`.
+one is invalid, whatever the key holds (`code_sets: {}` too), and the problem names each key and
+says to set `spec_version: '0.3'`. It is refused at load, wherever it comes from (an owned pack
+too), and so by `mendari validate`.
 
 An engine that reads only 0.1 and 0.2 refuses a 0.3 pack, since its `spec_version` is not one
 it knows. Publish a pack as 0.3 only for engines that read 0.3.

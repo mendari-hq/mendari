@@ -53,11 +53,13 @@ The first release (not yet published).
   resource types into one list (`resources`), with a MedicationRequest's start and stop by a
   stated rule (`medication_period`: the dosage bounds, else when it was written; the stop never
   inferred from its status; entered in error left out). A 0.1 or 0.2 pack that uses any of these
-  is refused, naming each key; a pack the deployment does not own (and every pack in `mendari
-  validate`) has at most 4 paths a field and 200 codes a code set. Every 0.1 and 0.2 pack maps
-  as before: the golden is unchanged. `FhirAdapter.looked_for` says what each field and list
-  looks for (paths, declared systems, the pack's own codes), from the mapping alone, for the
-  data-coverage record LP-23d builds. An engine that reads only 0.2 refuses a 0.3 pack.
+  is refused at load, wherever it comes from, naming each key; a pack the deployment does not own
+  (and every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set. A
+  `follow` and an attachment's link are each one lookup in the record, so mapping a record takes
+  time in proportion to its size. Every 0.1 and 0.2 pack maps as before: the golden is
+  unchanged. `FhirAdapter.looked_for` says what each field and list looks for (paths, declared
+  systems, the pack's own codes), from the mapping alone, for the data-coverage record LP-23d
+  builds. An engine that reads only 0.2 refuses a 0.3 pack.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
