@@ -121,6 +121,7 @@ from mendari.server.backend_services import (
     oauth_error,
     throttled,
 )
+from mendari.server.cds_clients import cds_clients, fhir_server_allowed
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
@@ -805,6 +806,9 @@ def create_app(
     ehrs = smart_ehrs()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
+    # The CDS clients whose own signed tokens are principals (LP-23b): unset, none; anything
+    # wrong in the list (or a missing public URL) fails here, at startup, naming the entry.
+    cds = cds_clients(signed_in=sign_in is not None, ehrs=ehrs)
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     launch = smart_options is not None  # a launch fetches the patient's record
     # and plaintext where it must not be: never with sign-in, never on the hosted site
@@ -857,6 +861,7 @@ def create_app(
         tokens=backend is not None,
         lifetime=session_lifetime,
         ehrs=ehrs if smart_options is not None else None,
+        cds=cds,
     )
     origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
     limiter = Limiter(store, rate_limits)
@@ -1278,8 +1283,9 @@ def create_app(
         counts are), the rate limits (where the caller's address is read, and the address seen
         on this request), the session policy, the organization's daily quotas with what it used
         today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
-        or null), and the id of the key that signs the daily checkpoint (`checkpoint_key`, or
-        null).
+        or null), the registered CDS clients of the caller's organization (`cds_clients`: their
+        ids, or null when none is registered), and the id of the key that signs the daily
+        checkpoint (`checkpoint_key`, or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
         be built, the problems an owned pack loads with, `pack_warnings`) is
@@ -1327,6 +1333,13 @@ def create_app(
                 for ehr in sorted(ehrs.values(), key=lambda ehr: ehr.base)
                 if principal.kind == "open" or ehr.org == principal.org
             ],
+            # The CDS clients whose own tokens are verified here (MENDARI_CDS_CLIENTS), by id,
+            # the caller's organization's only (every one in open mode); None: none registered.
+            "cds_clients": (
+                None
+                if cds is None
+                else cds.ids(None if principal.kind == "open" else principal.org)
+            ),
             "phi_mode": phi.mode,
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
             # those it only opens with (MENDARI_PHI_READ_KEYS, during a rotation).
@@ -2445,7 +2458,9 @@ def create_app(
         summary="CDS Hooks discovery",
     )
     def cds_discovery() -> dict[str, Any]:
-        """The CDS Hooks services this deployment offers (one per pack that declares a hook)."""
+        """The CDS Hooks services this deployment offers (one per pack that declares a hook).
+        With sign-in on, a key or token scoped to deciding reads it, and so does a registered CDS
+        client's own signed token (`MENDARI_CDS_CLIENTS`), whose `aud` is this URL."""
         return cds_hooks.discovery(packs.values())
 
     @app.post(
@@ -2456,10 +2471,27 @@ def create_app(
     def cds_invoke(service_id: str, request: JsonBody, http: Request) -> dict[str, Any]:
         """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons.
         An order hook decides each draft order the pack is about, at most 50 a request: each
-        counts as one decision against the rate limit and the principal's daily cap."""
+        counts as one decision against the rate limit and the principal's daily cap. A
+        registered CDS client calls with its own signed token (RS384 or ES384, `aud` this
+        service's URL, a `jti` used once); the `fhirServer` it sends must be one it registered,
+        else `403` before anything is fetched or decided."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
+        caller = principal_of(http)
+        if caller.kind == "cds":
+            # A CDS client's token (LP-23b): its `fhirServer` must be one it registered, before
+            # anything is charged, fetched or decided.
+            registered = None if cds is None else cds.client(caller.id.removeprefix("cds:"))
+            if registered is None or not fhir_server_allowed(registered, request.get("fhirServer")):
+                security_log.event(
+                    "auth.permission.refused",
+                    outcome="refused",
+                    reason="cds_fhir_server_not_registered",
+                    actor=caller.id,
+                    org=caller.org,
+                )
+                raise AuthError("the fhirServer is not one registered for this CDS client", 403)
 
         def charge(decisions: int) -> None:
             """The guard counted the request as one decision against the rate limit; the rest
@@ -2869,7 +2901,8 @@ def create_app(
         if refused is not None:
             return refused
         principal = getattr(request.state, "principal", None)
-        # Who asked, as the chain names them, rides along with the organization (open mode: none).
+        # Who asked, as the chain names them, rides along with the organization (open mode: none,
+        # but for a CDS client's verified token, which is `default`'s).
         # A person of no organization (memberships mode) acts for nobody: any organization data
         # a route reaches through tenancy is refused, never read for all of them or `default`.
         who = principal if principal is not None and principal.kind != "open" else None

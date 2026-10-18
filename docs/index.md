@@ -23,6 +23,7 @@ hash-chained audit record.
 | write a pack, without programming | [Writing a Decision Pack](guides/authoring-a-pack.md) |
 | contribute a pack for everyone, by pull request | [Contributing a community pack](guides/contributing-a-pack.md) |
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
+| let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
 | know exactly what a pack may contain | [The Decision Pack spec](spec/decision-pack-0.2.md) |
 | understand how the engine works | [Architecture](architecture.md) |

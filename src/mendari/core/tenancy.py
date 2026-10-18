@@ -6,7 +6,9 @@ launch for the length of the request. The audit store stamps the organization on
 filters every read by it, and names the requester on each new `decision.created` (the
 principal's chain name, `Principal.actor`). In open mode neither is ever set: nothing is
 filtered, records belong to the default organization, and nobody is named, so single-organization
-deployments work as before.
+deployments work as before. The one principal open mode has is a CDS client's verified token
+(LP-23b, `server/cds_clients.py`), registered to the default organization: it acts for that one,
+and is named.
 
 None means open mode or the command line (every organization), never a signed-in principal. A
 signed-in principal with no organization (memberships mode, LP-12) acts for nobody instead: then

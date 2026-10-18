@@ -224,6 +224,33 @@ curl -sS -X POST "$MENDARI/api/auth/keys" -H "Cookie: <your session>" \
 Creating, rotating and revoking a key are recorded in the audit chain (who, when, the role,
 scope and expiry; never the key).
 
+**An EHR's own CDS Hooks token (optional, off by default).** Instead of a `cds-hooks` key, an
+EHR can call the CDS Hooks services with the short-lived JWT it signs itself (CDS Hooks 2.0).
+Register it in `MENDARI_CDS_CLIENTS`, a JSON list read at startup, with `MENDARI_PUBLIC_URL`
+set (a token's `aud` is that URL plus the path called):
+
+```bash
+MENDARI_PUBLIC_URL=https://mendari.example.org
+MENDARI_FHIR_ALLOWED_SERVERS=https://ehr.example.org
+MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.example.org/fhir/r4",
+  "org": "default", "fhir_servers": ["https://ehr.example.org/fhir/r4"],
+  "jwks_uri": "https://ehr.example.org/.well-known/jwks.json"}]'
+```
+
+- **What a verified token may do:** list and call the CDS services, as the principal
+  `cds:<id>` of the organization you register, and nothing else. On any other route it is not a
+  credential. The `fhirServer` it sends must be one of its `fhir_servers`, or the call is a
+  `403` before anything is fetched. It is rate limited and capped daily like a key.
+- **Its keys** are given by value (`jwks`, public RS384 or ES384 keys) or fetched from one
+  `jwks_uri` whose origin is on `MENDARI_FHIR_ALLOWED_SERVERS`, kept an hour and fetched again
+  at most once a minute for a key it does not know. Each instance keeps its own, so the EHR sees
+  up to one such request a minute from each. A token's `jku` must be that URL exactly.
+- **Every token that does not verify** (another key or algorithm, the wrong `iss` or `aud`, too
+  old, too long-lived, used before) is the one `401`, and the security log says why
+  (`cds_<reason>`). Unset, no JWT is accepted anywhere, in open mode too.
+- Each field, the token's rules and the log's reasons are in
+  [Connecting an EHR](guides/connecting-an-ehr.md).
+
 **Upgrading from a release without key expiry (before Phase 4).** The first start of this
 release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
 Existing keys keep their role until then, even `reviewer`, `governance` or `admin`, but no key
@@ -956,12 +983,13 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_ACCOUNTS` | `claims` | `memberships`: organizations and roles from records, not claims (needs sign-in; [runbook](operations/accounts.md)) | 2 |
 | `MENDARI_PACKS_PATH` | none | Folders of your own packs (`:`-separated), searched first; when one id is found in several places the newest version is served; a relative folder is read from the working directory, and one that does not exist is skipped | 1 |
 | `MENDARI_PACKS` | every pack found | Only these pack ids are served (comma-separated; each must be found on the path): one pack per image | 1 |
-| `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services | 2 |
+| `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services and for CDS clients | 2 |
 | `MENDARI_SESSION_IDLE_MINUTES` | 30 (5 to 120) | A session ends after this long without a request | 2 |
 | `MENDARI_SESSION_MAX_HOURS` | 8 (1 to 12) | ...and this long after signing in | 2 |
 | `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
+| `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant` and `iss_is_fhir_server`. Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
@@ -1027,6 +1055,10 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       patient view alone, a decision there is in the audit trail of the registered
       organization, under the EHR's `<issuer>|<subject>` (or verified email), and a second
       launch in the same browser leaves the first window saying it was replaced.
+- [ ] Only if an EHR calls with its own tokens: signed in, `/api/health` `cds_clients` lists
+      exactly the clients you registered for your organization; a hook the EHR calls is in
+      that organization's audit trail, asked for by `cds <id>`; and a token signed with another
+      key, or sent a second time, is refused with `401` and a `cds_<reason>` line in the log.
 - [ ] Only if you turn on EHR launches: a reviewer, signed in as usual, opens the launched
       decision's id (the one the clinician's window shows, "Recorded in your organization's
       audit trail as …") in the audit trail and sees it; a HUMAN_REVIEW one is in their review
