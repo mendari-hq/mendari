@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Fail on medium or high risks in an OWASP ZAP report (CI job `security`).
+"""Fail on medium or high risks in an OWASP ZAP report (CI jobs `security`, the engine's API
+with sign-in on, and `hub-site`, the Hub's pages).
 
     uv run python scripts/zap_check.py zap.json
 
