@@ -58,11 +58,23 @@ server is open, as before (production sits behind Vercel Authentication). When c
   patient and the items to decide about) and, registered to decide, `launch_decide`. No other
   principal holds either. Their credential is the launch cookie, and only on `/api/smart/`
   (and the dashboard page, `/`): anywhere else it is not a credential.
+- **An EHR calling CDS Hooks with its own signed token** (LP-23b, ADR-0014,
+  `server/cds_clients.py`) is a principal of kind `cds` once the token is verified against the
+  client registered for its `iss` (`MENDARI_CDS_CLIENTS`, read at startup): `cds:<id>`, named
+  `cds <id>` in the chain, in the client's registered organization, holding `discover` and
+  `decide` only, and only on `/cds-services` and its children (`CDS_PATH`). There a JWT-shaped
+  bearer credential (one with a `.`, which no credential Mendari issues has) is verified in
+  every mode, before open mode's shortcut: without a registry it is refused, and so is every
+  token that does not verify, with one answer and the reason in the security log
+  (`cds_<reason>`). Its organization's record (memberships mode) and the route's permission
+  are checked before its `jti` is claimed. Anywhere else a JWT is what it was before: refused
+  with sign-in on, and ignored in open mode, which reads no credential there. Mendari's own keys
+  and tokens do not change.
 - **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
   session cookie, nor to the launch cookie. The scheme is `Bearer` (any case), and the
   credential's prefix says what it is: `ohk_` a key, `mat_` an access token (refused unless
-  Backend Services is on); anything else is refused. A credential is never accepted in a URL or
-  a form (`access_token`).
+  Backend Services is on); on `/cds-services` a JWT is a CDS client's token (above); anything
+  else is refused. A credential is never accepted in a URL or a form (`access_token`).
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
   Managing keys, clients and (memberships mode) an organization's members and invitations
   (`keys`) is for people who signed in, never for a key or token, whatever its role: a stolen
@@ -80,6 +92,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
 | an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
+| a CDS client's token (`cds`, not a role) | `discover` and `decide`, on `/cds-services` only |
 | any person, memberships mode | `person`: choose one, ask to join, accept an invitation |
 """
 
@@ -94,7 +107,7 @@ import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
@@ -124,6 +137,9 @@ from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.smart import Registration
+
+if TYPE_CHECKING:  # server/cds_clients.py imports this module
+    from mendari.server.cds_clients import CdsClient, CdsRegistry
 
 COOKIE = sessions.SESSION  # `__Host-mendari_session` except on local hosts (server/sessions.py)
 REALM = "mendari"
@@ -178,6 +194,11 @@ EHR_LEVELS: dict[str, frozenset[str]] = {
 }
 EHR_ONLY = frozenset({"launch", "launch_decide"})
 LAUNCH_PATH = "/api/smart/"  # where the launch cookie is a credential (and on the page, `/`)
+# A CDS client's verified token (LP-23b, ADR-0014): what it holds, and the only paths where a
+# JWT is read at all, and where its principal may go.
+CDS = "cds"
+CDS_PERMISSIONS = frozenset({"discover", "decide"})
+CDS_PATH = re.compile(r"^/cds-services(/|$)")
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
@@ -380,15 +401,17 @@ def auth_settings() -> AuthSettings | None:
 
 @dataclass(frozen=True)
 class Principal:
-    kind: str  # "open", "user", "key", "client" (an access token's) or "ehr" (an EHR launch)
+    # "open", "user", "key", "client" (an access token's), "ehr" (an EHR launch) or "cds" (a
+    # CDS client's verified token)
+    kind: str
     name: str
     # Stable and opaque, for counting and logging per principal: `user:<16 hex>` (person_id),
-    # `key:<key id>`, `client:<client id>`, `ehr:<16 hex>` (ehr_id) or `open`. Never a secret,
-    # a name or an email.
+    # `key:<key id>`, `client:<client id>`, `ehr:<16 hex>` (ehr_id), `cds:<registered id>` or
+    # `open`. Never a secret, a name or an email.
     id: str = field(kw_only=True)
     # Who the audit chain records (reviewer, reporter, approver, reader, creator): a person's
     # verified email or `<issuer>|<subject>` (chain_name; an EHR launch's user likewise, by the
-    # EHR's issuer), `key <id>`, `client <id>`. Permanent.
+    # EHR's issuer), `key <id>`, `client <id>`, `cds <id>`. Permanent.
     actor: str = field(kw_only=True)
     roles: frozenset[str] = field(default_factory=frozenset)
     # None only for a person of no organization, in memberships mode: refused before every route
@@ -406,9 +429,12 @@ class Principal:
     def role_permissions(self) -> frozenset[str]:
         """What the roles grant; for a key (or a token), never a people-only permission. An EHR
         launch has its level's permissions only, and nobody else ever has those; a grading key
-        has `grade` only, and nobody else ever has that. Open mode never holds `NEVER_OPEN`."""
+        has `grade` only, and nobody else ever has that; a CDS client has `discover` and
+        `decide` and nothing else. Open mode never holds `NEVER_OPEN`."""
         if self.kind == "ehr":
             return EHR_LEVELS.get(self.level or "", frozenset())
+        if self.kind == CDS:
+            return CDS_PERMISSIONS
         if self.is_grading_key:
             return GRADING_ONLY
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
@@ -457,6 +483,17 @@ class Launch:
 OPEN = Principal(
     kind="open", name="open mode", roles=frozenset({"admin"}), id="open", actor="open mode"
 )
+
+
+class CdsRefused(Exception):
+    """A CDS client's token that does not verify (`server/cds_clients.py`): `reason`, one of
+    `cds_clients.REASONS`, and the registered client its `iss` names once that is known, for the
+    security log. The caller is told neither: every refusal is the one `invalid_token` answer."""
+
+    def __init__(self, reason: str, client_id: str | None = None):
+        self.reason = reason
+        self.client_id = client_id
+        super().__init__(reason)
 
 
 def key_reaches(
@@ -569,14 +606,30 @@ def invalid_token() -> AuthError:
     return AuthError("the credential is not valid", 401, challenge=challenge("invalid_token"))
 
 
-def refused_credential(reason: str, error: AuthError | None = None) -> AuthError:
+def refused_credential(
+    reason: str, error: AuthError | None = None, *, actor: str | None = None
+) -> AuthError:
     """`error` (by default the one `invalid_token` answer), with the reason the caller is not
     told in the security log: `malformed`, `unknown_prefix`, `key` (unknown, revoked and expired
     alike, as the lookup finds none of them), `key_scope`, `token`, `token_scope`, `scheme`,
-    `headers`, `in_url_or_form`. (An EHR launch whose EHR is no longer registered is logged
-    with `unregistered`, `Auth.launch`.)"""
-    security_log.event("auth.credential.refused", outcome="refused", reason=reason)
+    `headers`, `in_url_or_form`, and for a CDS client's token `cds_<reason>`
+    (`cds_clients.REASONS`, `cds_unregistered`, `cds_headers`, `cds_no_organization_record`),
+    with the client it names as `actor` (`cds:<id>`) once that is known. (An EHR launch whose
+    EHR is no longer registered is logged with `unregistered`, `Auth.launch`.)"""
+    security_log.event("auth.credential.refused", outcome="refused", reason=reason, actor=actor)
     return error or invalid_token()
+
+
+def jwt_credential(header: str) -> str | None:
+    """The credential of an `Authorization: Bearer` header that is JWT-shaped (it holds a `.`,
+    which no credential Mendari issues does, `ohk_` and `mat_` being base64url), else None. Any
+    whitespace separates the scheme here, so no spacing of the header takes a JWT past the
+    verifier."""
+    parts = header.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    credential = parts[1].strip()
+    return credential if "." in credential else None
 
 
 def credential_in_url_or_form() -> AuthError:
@@ -778,8 +831,11 @@ class Auth:
         tokens: bool = False,
         lifetime: sessions.Lifetime | None = None,
         ehrs: Mapping[str, Registration] | None = None,
+        cds: CdsRegistry | None = None,
     ):
         self.settings = settings
+        # The registered CDS clients (`MENDARI_CDS_CLIENTS`, LP-23b); None: no JWT is accepted.
+        self.cds = cds
         self._replaced_seen: set[str] = set()  # rotated keys already logged in use
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
@@ -1057,11 +1113,23 @@ class Auth:
         )
 
     def check(self, request: Request) -> Response | None:
-        """None when the request may go on; otherwise the response that refuses it."""
+        """None when the request may go on; otherwise the response that refuses it. On
+        `/cds-services` a JWT is a CDS client's token, verified first, in every mode: above open
+        mode's shortcut, so open mode never answers one it did not verify."""
+        if CDS_PATH.match(request.url.path):
+            token = self._cds_token(request)
+            if token is not None:
+                self._cds(request, token)
+                return None
         permission = self.permission(request.method, request.url.path)
         if permission == "public" or self.settings is None:
             return None
         principal = self.authenticate(request)
+        if principal is not None and principal.kind == CDS and not CDS_PATH.match(request.url.path):
+            # Only `_cds` makes one, on `CDS_PATH`: should one reach anywhere else, refuse it.
+            _refused_permission(principal, "cds_only")
+            refused = challenge("insufficient_scope")
+            raise AuthError("a CDS client reaches /cds-services only", 403, challenge=refused)
         if permission == "page":
             if principal is None:
                 target = f"/auth/login?next={quote(request.url.path)}"
@@ -1118,6 +1186,65 @@ class Auth:
         request.state.principal = principal
         return None
 
+    def _cds_token(self, request: Request) -> str | None:
+        """On `/cds-services`: the JWT-shaped bearer credential, when an `Authorization` header
+        holds one (with another header beside it, the request is refused, as `_bearer` refuses
+        two); else None, and the request goes on as any other (a key, a token, a session, or
+        open mode, which reads no other credential)."""
+        headers = request.headers.getlist("authorization")
+        tokens = [token for token in map(jwt_credential, headers) if token is not None]
+        if not tokens:
+            return None
+        if len(headers) != 1:
+            raise refused_credential(
+                "cds_headers",
+                AuthError(
+                    "send one Authorization header", 400, challenge=challenge("invalid_request")
+                ),
+            )
+        return tokens[0]
+
+    def _cds(self, request: Request, token: str) -> None:
+        """A CDS client's token, verified against the registry for this request's path (its
+        `aud` is `MENDARI_PUBLIC_URL` plus the path), made a `cds` principal of the client's
+        organization, which may list and call the CDS services and do nothing else. Every
+        refusal of the token is the one `invalid_token` answer (`401`), its reason in the
+        security log; a route it holds no permission for is a `403`. The organization's record
+        and the route's permission are checked before the `jti` is claimed (`admit`), so a token
+        refused for either claims nothing."""
+        path = request.url.path
+        if self.cds is None:
+            raise refused_credential("cds_unregistered")
+        permission = self.permission(request.method, path)
+
+        def admit(client: CdsClient) -> None:
+            principal = _cds_principal(client)
+            if self.memberships and not self.recorded(client.org):
+                raise refused_credential("cds_no_organization_record", actor=principal.id)
+            if permission not in principal.role_permissions():
+                _refused_permission(principal, permission)
+                scope = challenge("insufficient_scope")
+                raise AuthError(f"a CDS client may not {permission} here", 403, challenge=scope)
+
+        try:
+            caller = self.cds.verify(token, path=path, store=self.store, admit=admit)
+        except CdsRefused as refused:
+            named = None if refused.client_id is None else f"cds:{refused.client_id}"
+            raise refused_credential(f"cds_{refused.reason}", actor=named) from None
+        request.state.principal = _cds_principal(caller.client)
+
+
+def _cds_principal(client: CdsClient) -> Principal:
+    """The `cds` principal a CDS client's verified token is: `cds:<id>`, named `cds <id>` in the
+    chain, in the client's registered organization."""
+    return Principal(
+        kind=CDS,
+        name=f"CDS client {client.id}",
+        id=f"cds:{client.id}",
+        actor=f"cds {client.id}",
+        org=client.org,
+    )
+
 
 def _within_scope(principal: Principal, method: str, path: str) -> None:
     """A scoped principal reaches only the routes its scopes name (server/scopes.py)."""
@@ -1134,7 +1261,8 @@ def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
     `people_only`, `ehr_only`, `grading_only`, `out_of_scope`, `no_organization` (memberships
     mode: a person of none), `org_changed` (a window on another organization than the one
-    chosen since) or `not_a_member` (choosing an organization one holds no membership of)."""
+    chosen since), `not_a_member` (choosing an organization one holds no membership of) or
+    `cds_only` (a CDS client off `/cds-services`)."""
     security_log.event(
         "auth.permission.refused",
         outcome="refused",

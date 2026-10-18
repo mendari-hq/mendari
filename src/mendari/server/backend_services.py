@@ -160,7 +160,9 @@ def check_jwks(jwks: Any) -> list[dict[str, Any]]:
     """A client's JWK Set, checked when it is registered: 1 to 10 keys with distinct `kid`s,
     public only (a private or symmetric key is refused, never stored), RSA of 2048 bits or more
     for RS384 or EC P-384 for ES384, for signatures. Returns the keys with their public members
-    only. A `ClientError` (422) names the key that is refused, never its material."""
+    only. A `ClientError` (422) names the key that is refused, never its material; it is the one
+    exception any JSON value gets, since a CDS client's keys fetched from its `jwks_uri`
+    (`server/cds_clients.py`) are checked here too."""
     keys = jwks.get("keys") if isinstance(jwks, Mapping) else None
     if not isinstance(keys, list) or not 1 <= len(keys) <= MAX_KEYS:
         raise ClientError(f"jwks must be a JWK Set with 1 to {MAX_KEYS} keys")
@@ -179,7 +181,7 @@ def check_jwks(jwks: Any) -> list[dict[str, Any]]:
         if kid in (k["kid"] for k in checked):
             raise ClientError(f"key {number}: another key has the same kid")
         kty = key.get("kty")
-        if kty not in _PUBLIC_MEMBERS:
+        if not isinstance(kty, str) or kty not in _PUBLIC_MEMBERS:  # a list cannot be looked up
             raise ClientError(f"key {number}: kty must be RSA (RS384) or EC (ES384)")
         algorithm = "RS384" if kty == "RSA" else "ES384"
         if key.get("alg", algorithm) != algorithm:
@@ -187,7 +189,8 @@ def check_jwks(jwks: Any) -> list[dict[str, Any]]:
         if key.get("use", "sig") != "sig":
             raise ClientError(f"key {number}: use must be sig")
         key_ops = key.get("key_ops", ["verify"])
-        if not isinstance(key_ops, list) or not key_ops or set(key_ops) != {"verify"}:
+        # Compared one by one, never hashed: an operation may be a list or an object.
+        if not isinstance(key_ops, list) or not key_ops or any(op != "verify" for op in key_ops):
             raise ClientError(f"key {number}: key_ops may only be verify")
         if kty == "EC" and key.get("crv") != "P-384":
             raise ClientError(f"key {number}: an EC key must be on P-384 (ES384)")

@@ -25,7 +25,7 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 | In scope | Where |
 |---|---|
 | The engine's HTTP surface: REST `/api`, FHIR `/fhir` (read, search, `$decide`), CDS Hooks, DTR, PAS, the sign-in routes `/auth`, the SMART launch `/smart` | `src/mendari/server/`, `src/mendari/standards/` |
-| Authentication and authorization: OIDC sign-in, sessions, API keys, scopes, SMART Backend Services | `server/auth.py`, `server/sessions.py`, `server/scopes.py`, `server/backend_services.py`, `standards/oidc.py` |
+| Authentication and authorization: OIDC sign-in, sessions, API keys, scopes, SMART Backend Services, an EHR's own signed CDS Hooks token (LP-23b, [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md)) | `server/auth.py`, `server/sessions.py`, `server/scopes.py`, `server/backend_services.py`, `server/cds_clients.py`, `standards/oidc.py` |
 | Abuse controls: the body cap, rate limits, quotas, the Origin check | `server/app.py` (`BodyCap`, `_guard`), `server/limits.py`, `server/origin.py`, `core/decision.py` (`CallBudget`) |
 | What is stored: the audit chain, PHI modes, notes, the keyed input hash | `core/audit.py`, `core/phi.py`, `core/decision.py` |
 | What is logged | `server/security_log.py` |
@@ -42,7 +42,9 @@ Paths under `src/mendari/` are given without that prefix.
 
 1. **Browser ↔ engine:** the dashboard, the API reference and the API, with a session cookie.
 2. **EHR ↔ engine:** CDS Hooks, the SMART launch, DTR and FHIR `$decide`, with API keys or
-   SMART Backend Services tokens.
+   SMART Backend Services tokens; on CDS Hooks also, for an EHR registered in
+   `MENDARI_CDS_CLIENTS`, the JWT it signs itself, verified against its registered keys (by
+   value, or fetched from its one allow-listed `jwks_uri`).
 3. **Engine → outside servers:** FHIR servers, the CQL engine, the identity provider, the payer
    and alert webhooks, all through one outbound client with an allow-list.
 4. **Engine → model providers:** Jev, and LLMs through a gateway. Only a pack's declared
@@ -71,9 +73,13 @@ no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to decide,
 `launch_decide` (`POST /api/smart/decide`), which nobody else holds (threat E7,
 [ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)); the dashboard page also
-opens for it, on the patient view alone. Machines are `viewer` or `service` only (but an organization's grading key, which only the operator mints, LP-11); managing keys and clients is for signed-in
-people only. Without sign-in (open mode) every caller is an admin: that mode is for local use
-and the sandbox.
+opens for it, on the patient view alone. An EHR registered in `MENDARI_CDS_CLIENTS` calling
+with its own verified token is a principal of kind `cds` (`cds:<id>`), with no role: it holds
+only `discover` and `decide`, on `/cds-services` only, in its registered organization (threats
+S21 and E15). Machines are `viewer` or `service` only (but an organization's grading key, which only the operator mints, LP-11); managing keys and clients is for signed-in
+people only. Without sign-in (open mode) every caller is an admin, but for a JWT on
+`/cds-services`, which is verified and is then a `cds` principal: that mode is for local use and
+the sandbox.
 
 ## What changed in Phases 4 and 4b
 
@@ -222,7 +228,8 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   `test_limits.py`, `test_public_surface.py`, `test_security_log.py`, `test_security_headers.py`,
   `test_vendor.py`, `test_supply_chain.py`, `test_phi.py`, `test_notes.py`,
   `test_record_hygiene.py`, `test_fhir_client.py`, `test_smart.py`, `test_smart_sealing.py`,
-  `test_smart_check.py`, and the browser suite in `tests/browser/`.
+  `test_smart_check.py`, `test_cds_clients.py` and `test_cds_auth.py` (an EHR's own CDS Hooks
+  token), and the browser suite in `tests/browser/`.
   Tests marked "SQLite and Postgres" run on both when `MENDARI_TEST_DATABASE_URL` is set.
 - **CI** (`.github/workflows/ci.yml`): the job `security` (pip-audit, npm audit, an OWASP ZAP
   scan with sign-in on), `hub-site` (the Hub against a seeded registry, a pack whose text
@@ -309,7 +316,8 @@ From the threat model's residual risks, and the plan's deferred list:
   input hash key epochs, API key rotation with an overlap.
 - **Deferred:** database tables
   for security events (stdout plus the chain instead), in-app limits on reads, signed JWT access
-  tokens, JWKS URLs and external authorization servers.
+  tokens, JWKS URLs for Backend Services clients (a registered CDS client's `jwks_uri` is
+  fetched, LP-23b), and external authorization servers.
 
 ## Not verified by the project
 

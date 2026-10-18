@@ -50,6 +50,7 @@ from mendari.core.evalsets import (
     CONTENT_FORMAT,
     NO_ASSIGNMENT,
     EvalsetStore,
+    aggregates_ref,
     content_hash,
     freeze_commitment,
     frozen_holds,
@@ -97,7 +98,15 @@ TABLES = (
 )
 # The keys each lifecycle event's payload holds.
 PAYLOADS = {
-    "evalset.frozen": {"set", "org", "commitment", "n", "max_runs", "max_age_days"},
+    "evalset.frozen": {
+        "set",
+        "org",
+        "commitment",
+        "n",
+        "max_runs",
+        "max_age_days",
+        "aggregates_ref",
+    },
     "evalset.activated": {"set", "org"},
     "evalset.graded": {"set", "org", "commitment", "grader", "pack_digest", "n", "run"},
     "evalset.retired": {"set", "org", "commitment"},
@@ -222,6 +231,10 @@ def test_freezing_fixes_the_content_hash(world: World) -> None:
     assert made["commitment"] == row["commitment"] == commitment
     assert commitment != record["content_hash"]
     (event,) = events(world.store, "evalset.frozen")
+    # The aggregates freezing stores, sealed with a salt of their own, are committed to too
+    # (LP-11p): the commitment covers what `show` reads back.
+    stored, _ = world.keys.open("aggregates", row["aggregates"], world.set_id)
+    stored_salt = base64.b64decode(stored["salt"])
     assert event["payload"] == {
         "set": world.set_id,
         "org": CLINIC,
@@ -229,7 +242,9 @@ def test_freezing_fixes_the_content_hash(world: World) -> None:
         "n": 2,
         "max_runs": 4,
         "max_age_days": 21,
+        "aggregates_ref": aggregates_ref(stored_salt, world.set_id, stored["aggregates"]),
     }
+    assert world.hidden.show(world.set_id)["aggregates"] == stored["aggregates"]
     # The same content however its rows are ordered, and recomputed from the database.
     with world.store._db.session(exclusive=False) as db:
         found, labels = evalsets_module._frozen_rows(db, world.set_id)
@@ -987,7 +1002,7 @@ def test_audit_verify_passes_after_labelling_adjudication_and_freeze(
     assert code == 0 and status["ok"]
     assert status["evalsets"] == {
         "sets": 1, "checked": 2, "removed": 2, "unchecked": 0, "assignments": 5, "labels": 5,
-        "frozen": 1,
+        "frozen": 1, "predating": 0,
     }  # fmt: skip
     assert LABEL_WORD.search(out) is None
     code, out, _ = run(capsys, "evalset", "rotate", "--check", *on)
