@@ -1110,7 +1110,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in claims mode; axe in both themes; phone and `UNDER_24` on every tab; the import lines)
     and `test_invite_page` (the screen's labeller rule and evidence threshold are the
     server's). The Access tab lists are unchanged.
-  - [x] **11o** (this PR) Close-out, tests and docs only: G2-3's `labelling-underway` and
+  - [x] **11o** (#254) Close-out, tests and docs only: G2-3's `labelling-underway` and
     G3-4's `hidden-sets-frozen` lose their `pending` probes for `tests` probes (29 and 21 tests,
     named without their cases: the 11g, 11h, 11j, 11k, 11m and 11n tests, and the 11a, 11g, 11i,
     11k, 11l and 11n tests, each with the end-to-end test; browser tests included), both
