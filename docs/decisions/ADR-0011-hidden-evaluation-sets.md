@@ -204,8 +204,13 @@ until LP-17 decides on remote ones.
 - The chain keeps each labeller's user id for as long as the chain is kept, a labeller who
   leaves included.
 - The database refuses no write itself: its DDL holds no trigger (Postgres splits it on `;`),
-  so the refusals are the store's, and an edit made by SQL is caught when the set is next read
-  or verified, not prevented.
+  so the refusals are the store's. An edit made by SQL to what a chained commitment covers (a
+  case's input and own attributes, a label, a frozen set's content) is caught when the set is
+  next read or verified, not prevented. What no commitment covers is not caught at all: until a
+  set is frozen, its header, each case's status and each drawn case's weight, and in every
+  state its stored aggregates. Freezing commits to a draft's rows as they are, so a disputed
+  case's status edited to `agreed` passes verification and is frozen with its first labeller's
+  answer, never adjudicated.
 - The freeze commitment is a salted hash, not a signature, until LP-17 decides the grading key.
 - Paraphrases of public text pass the equality check; the hand-written rule (`template` null)
   and review stand against them. The threat model's residual risks name this risk and the

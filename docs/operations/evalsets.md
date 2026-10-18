@@ -595,9 +595,16 @@ round; each label opens under its own set, case and id and gives the commitment 
 the verification at its event (`broken_at`); a row, or a set's state, without its event is counted
 (`unchained`); a row sealed under a key this database knew and the shell lacks is counted by key id
 (`unopenable`). The counts are of sets, cases checked, removed and unchecked, assignments, labels
-and frozen sets recomputed. A draft set's header is only checked to open under its own set id: it
-has no chained commitment until the set is frozen, so a draft's header re-sealed by someone holding
-the key passes; a frozen set's header is part of its content. Without the keys, each case, each
+and frozen sets recomputed. What no chained commitment covers is only checked to open under its own
+set id, and a case's status is not checked at all. Until a set is frozen, that is its header, each
+case's status and each drawn case's weight: a status edited behind the store's back, a header or a
+weight re-sealed by someone holding the key, or a case's attributes put back from an earlier copy
+of its row (from before a draw gave it its weight) pass, and freezing commits to them as they are
+(a frozen set's header, statuses and weights are part of its content). In every state, it is the
+set's stored aggregates, which `show` and the curators' route read, so a gate's positives come from
+`freeze`'s own output ([The launch gates](#the-launch-gates); the
+[threat model](../security/threat-model.md#residual-risks-and-assumptions) names this residual
+risk). Without the keys, each case, each
 label and each frozen set is counted `unchecked`, never a break. It reads only, marks nothing, and
 cannot be combined with `--since-checkpoint`.
 
@@ -726,6 +733,7 @@ outside the repository.
   label (100 or more)", for each frozen set. Its id is the one `mendari evalset list` prints.
   Its freeze hash is its commitment (no signature yet: LP-17), which `freeze` prints and `show`
   reads back. Its positives per critical label are `freeze`'s `critical` list, the `distinct`
-  count of each label (`show` gives them again in the stored coverage). A set counts only when
+  count of each label, computed from the labels as the set freezes; `show` reads the stored
+  coverage instead, which no commitment covers ([Verifying](#verifying)). A set counts only when
   none of its critical labels is `insufficient` (fewer than 100 distinct positives): a set
   frozen with that warning does not.

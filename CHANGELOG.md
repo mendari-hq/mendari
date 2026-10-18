@@ -90,7 +90,9 @@ The first release (not yet published).
   each still waiting for the owner's attestation. The threat model names hidden sets' residual
   risks: the key holder can decrypt offline; an administrator can link one case's events by its
   keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
-  which cases were disputed; and paraphrased public cases pass. The runbook
+  which cases were disputed; until a set freezes, no commitment covers its header, its cases'
+  statuses or their weights, so freezing commits to them as they are, and none covers a set's
+  stored aggregates; and paraphrased public cases pass. The runbook
   (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
   lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
   attestations) and a set from start to end, and now says that every writing `mendari evalset`

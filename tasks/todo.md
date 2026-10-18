@@ -1117,7 +1117,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     attestations left empty and no prerequisite added. The threat model's residual risks: the
     key holder decrypts offline; an administrator links one case's events by its keyed hash and
     sees who read and labelled it, and the chain keeps those user ids; adjudication shows which
-    cases and pairs disagreed; paraphrased public cases pass the public-source rule. The
+    cases and pairs disagreed; until a set freezes, no commitment covers its header, its cases'
+    statuses or their weights (a status edited by SQL passes verify and is frozen as it is), and
+    none covers a set's stored aggregates, so a gate's positives come from `freeze`'s output;
+    paraphrased public cases pass the public-source rule. The
     runbook's owner's steps (both keys made with the command, kept off the laptop, Production
     only and why, redeploy and the health check, the `0600` file, what claims mode mounts, a
     lost key, the grading key's `--days` and expiry, each set's rotation numbers, how to fill
