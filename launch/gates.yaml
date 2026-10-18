@@ -400,7 +400,9 @@ gates:
         what: "The grading method published as a versioned document, with 30 days' notice before a change (B30)"
         owner: owner
         probes:
-          - pending: "LP-17 (writes the method document)"
+          # The method, a draft not in effect (LP-17a); its hash is pinned in mendari.evals.method.
+          - file: docs/grading/method-1.0.md
+          - pending: "the rest of LP-17 (17b to 17m: 17m replaces this line with the method's tests)"
           - attested: {what: "published at a public URL, with its version and effective date", by: "", date: ""}
 
   - id: G4-5
