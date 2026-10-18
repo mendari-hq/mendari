@@ -19,6 +19,7 @@ import pytest
 
 from mendari.core.decision import Decision
 from mendari.core.pack import load_pack
+from mendari.core.spec import Outcome
 from mendari.errors import FhirError
 from mendari.evals.harness import load_dataset
 from mendari.sandbox.fhir_records import prior_auth_entries, trial_entries
@@ -134,7 +135,8 @@ def test_the_new_synthetic_fhir_conforms_to_us_core_and_carries_no_snomed_ct(pac
 def test_the_new_synthetic_fhir_decides_as_its_record_does(pack_id: str) -> None:
     """Through the pack's FHIR mapping, a case decides as its record does (the same outcome,
     recommendation and answers), but for an order the pack has no requirements for: the FHIR
-    path finds no order to decide (its `focus_where`), where the record is decided as `other`."""
+    path finds no order to decide (its `focus_where`), where the record is decided as `other`,
+    at HUMAN_REVIEW."""
     dataset, build = BUILT[pack_id]
     decision = Decision.from_path(ROOT / "packs" / pack_id.split("/")[1])
     adapter = FhirAdapter.for_pack(decision.pack)
@@ -149,6 +151,7 @@ def test_the_new_synthetic_fhir_decides_as_its_record_does(pack_id: str) -> None
                 assert focus is not None and record["input"]["order"]["code"] not in focus.values
                 assert str(error) == "missing required FHIR resources: ServiceRequest"
                 assert direct.answers["service"].label == "other", record["id"]
+                assert direct.outcome is Outcome.HUMAN_REVIEW, record["id"]
                 refused += 1
                 continue
             assert (result.outcome, result.recommendation) == (

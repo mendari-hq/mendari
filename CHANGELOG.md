@@ -26,8 +26,11 @@ The first release (not yet published).
 - **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
   `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
   dimensions, each at a level from 1 to 5 by named criteria, each criterion with the test that
-  shows it or "missing"; the overall grade is the lowest dimension's (level 1 at `06d5332f`), and
-  every grade says its scope (synthetic data and test keys only, not a vendor certification).
+  shows it or "missing"; the overall grade is the lowest dimension's (level 1, graded at
+  `06d5332f` with LP-23a), and every grade says its scope (synthetic data and test keys only, not
+  a vendor certification). Failure behaviour is at level 1 under the default FHIR validation
+  mode, `warn`: input that is R4 JSON but breaks R4's other rules is decided with its issues
+  recorded, and only `enforce` blocks it.
   ADR-0014 (Proposed) records how an EHR is to call the CDS Hooks services with its own signed
   token, and `notes/epic-sandbox-checklist.md` what the owner registers in Epic's sandbox and
   notes back. The sandbox now builds synthetic US Core FHIR for the trial and prior-authorization

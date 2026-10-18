@@ -1,25 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
 """The EHR scorecard (notes/ehr-scorecard.md, rubric v1; LP-23a): every criterion cites a test
-that exists or says "missing", every grade states its rubric version, commit and scope, no
-figure is a percentage or a fraction, and each grade is what its criteria give, the overall
-grade the lowest dimension's."""
+that exists or says "missing", every grade states its rubric version, commit and scope, a test
+that was not at the graded commit is cited only by a row that says it rests on LP-23a, no figure
+is a percentage or a fraction, and each grade is what its criteria give, the overall grade the
+lowest dimension's."""
 
 from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
 from typing import NamedTuple
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCORECARD = ROOT / "notes" / "ehr-scorecard.md"
 COMMIT = "06d5332f"
-SCOPE = (
-    f"rubric v1, graded at `{COMMIT}`, synthetic data and test keys only, not a vendor "
-    "certification"
-)
+GRADED = f"graded at `{COMMIT}` with LP-23a"  # main at that commit, and what LP-23a adds
+SCOPE = f"rubric v1, {GRADED}, synthetic data and test keys only, not a vendor certification"
 DIMENSIONS = (
     "Client trust",
     "Who may call from where",
@@ -133,7 +135,7 @@ def test_every_grade_states_its_rubric_version_commit_and_scope() -> None:
     for title, body in sections().items():
         stated = [p for p in paragraphs(body) if p.startswith("**Grade:**")]
         assert len(stated) == 1, title
-        assert f"Rubric v1, graded at `{COMMIT}`, synthetic data and test keys only" in stated[0]
+        assert f"Rubric v1, {GRADED}, synthetic data and test keys only" in stated[0]
         assert stated[0].endswith("not a vendor certification."), title
         graded += 1
     assert graded == len(DIMENSIONS)
@@ -143,6 +145,33 @@ def test_every_grade_states_its_rubric_version_commit_and_scope() -> None:
         assert line.rstrip().endswith(f"| {SCOPE} |"), line
     (overall,) = [p for p in paragraphs(text()) if p.startswith("**Overall:**")]
     assert overall.endswith(f"R{SCOPE[1:]}."), overall
+
+
+def _shallow() -> bool:
+    asked = ["git", "rev-parse", "--is-shallow-repository"]
+    return subprocess.run(asked, cwd=ROOT, capture_output=True, text=True).stdout.strip() == "true"
+
+
+def test_a_test_not_at_the_graded_commit_is_cited_only_where_the_row_names_23a() -> None:
+    """The scope line says `COMMIT` with LP-23a. A test a row names (as its evidence, or in its
+    last column) is a test function at `COMMIT`, or the row's last column says it rests on
+    LP-23a's work; and a row that says so names a test LP-23a added. Skipped in a shallow clone,
+    which holds no history."""
+    if _shallow():
+        pytest.skip("a shallow clone holds no history")
+    files: dict[str, str] = {}
+    for body in sections().values():
+        for row in criteria(body):
+            new = []
+            for node in NODE.findall(f"{row.evidence} {row.waits_on}"):
+                file, name = node.split("::")
+                if file not in files:
+                    shown = ["git", "show", f"{COMMIT}:{file}"]
+                    found = subprocess.run(shown, cwd=ROOT, capture_output=True, text=True)
+                    files[file] = found.stdout if found.returncode == 0 else ""
+                if not re.search(rf"^def {name}\(", files[file], flags=re.MULTILINE):
+                    new.append(node)
+            assert bool(new) is row.waits_on.startswith("23a: "), (row.id, new)
 
 
 def test_the_scorecard_shows_no_percentage_or_fraction() -> None:
@@ -184,6 +213,8 @@ def test_each_grade_is_what_its_criteria_give_and_the_overall_is_the_lowest() ->
             if row.status != "met":
                 assert row.waits_on, row.id
                 assert re.match(r"23[b-m]\b|the owner: \S+( \S+){2}", row.waits_on), row.id
+            else:  # the LP-23 step whose work a met row rests on, or nothing: `COMMIT` alone
+                assert not row.waits_on or re.match(r"23[a-m]: \S+", row.waits_on), row.id
             if row.level == 5:
                 assert row.waits_on.startswith("the owner: "), row.id
         levels[title] = level_of(rows)

@@ -777,8 +777,10 @@ Connect) is not supported yet.
   - [ ] **23a** (this PR) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
     ADR-0006's rule that the narrow EHR principal is for SMART launches only), the Epic sandbox
     checklist B38 says Claude sends (`notes/epic-sandbox-checklist.md`), the EHR scorecard
-    (`notes/ehr-scorecard.md`: rubric v1, seven dimensions, graded at `06d5332f`; overall level
-    1, from who may call from where and cards and workflow), synthetic FHIR for the trial and
+    (`notes/ehr-scorecard.md`: rubric v1, seven dimensions, graded at `06d5332f` with LP-23a;
+    overall level 1, from who may call from where, failure behaviour, and cards and workflow;
+    `tests/test_ehr_baseline.py` shows today's sign-in on the CDS services, an EHR's own token
+    refused, and the HL7 validator and smart-launcher-v2 CI jobs), synthetic FHIR for the trial and
     prior-auth packs (`sandbox/fhir_records.py` `trial_entries`, `prior_auth_entries`: US Core
     6.1.0, deterministic, no SNOMED CT, deciding as their records do), and a golden of today's
     FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
@@ -900,7 +902,10 @@ Connect) is not supported yet.
   nor iframe mode unless Epic needs them (any change amends ADR-0006); (14) the Epic run as an
   owner `pending:` line on `a12-ehr-pilot`, not a seventh G5-6 prerequisite; (15) if Epic's free
   sandbox cannot call an external CDS service, a pilot site's own environment, Oracle Health's
-  sandbox as the backup, and test keys and Inferno until then.
+  sandbox as the backup, and test keys and Inferno until then; (16, raised by the 23a scorecard,
+  not in the plan) the pilot's `MENDARI_FHIR_VALIDATION`: `warn`, as today, under which input
+  that is R4 JSON but breaks R4's other rules is decided with its issues recorded and failure
+  behaviour stays at level 1 (FB-2d), or `enforce`, which blocks it before any provider runs.
 
   **Owner actions** (not decisions): sign up for Epic's sandbox from
   `notes/epic-sandbox-checklist.md` and note back its `iss`, `jku`, `aud` form, `sub` and

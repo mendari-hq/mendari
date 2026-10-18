@@ -1,13 +1,17 @@
 # EHR scorecard (rubric v1)
 
-_Graded 2026-10-17 at `06d5332f`, from the vision audit's A12 rows (`notes/vision-audit.md`,
-"A12. EHR pilot readiness") and the code, for LP-23 (`notes/lp23-plan.md`). Each LP-23 step that
-meets a criterion updates its row with the test that shows it, and the step that closes LP-23
-(23m) grades every dimension again at its own commit._
+_Graded 2026-10-17 at `06d5332f` with LP-23a, from the vision audit's A12 rows
+(`notes/vision-audit.md`, "A12. EHR pilot readiness") and the code, for LP-23
+(`notes/lp23-plan.md`). "With LP-23a" means main's code at `06d5332f`, plus what LP-23a adds to
+it: the synthetic trial and prior-authorization records, the golden of today's FHIR decisions,
+and tests that show behaviour `06d5332f` already had. A row that rests on any of it names 23a in
+its last column; every other row's tests are all at `06d5332f`. Each LP-23 step that meets a
+criterion updates its row with the test that shows it, and the step that closes LP-23 (23m)
+grades every dimension again at its own commit._
 
-**The scope of every grade:** rubric v1, graded at `06d5332f`, synthetic data and test keys only,
-not a vendor certification. A rubric level is an assessment against named criteria, not an
-estimate from a sample, so it has no interval.
+**The scope of every grade:** rubric v1, graded at `06d5332f` with LP-23a, synthetic data and
+test keys only, not a vendor certification. A rubric level is an assessment against named
+criteria, not an estimate from a sample, so it has no interval.
 
 **The grade the launch plan cites.** The launch plan puts Mendari's EHR readiness at 2.5 on a
 five-point scale. That grade and its rubric are not in the repository or anywhere in its history
@@ -32,7 +36,8 @@ Seven dimensions, each graded on five levels by named criteria:
 - **Evidence** is the test that shows the criterion, or "missing".
 - **Source** is the vision audit's row, or the LP-23 requirement, the criterion comes from.
 - **Built in, or waits on** names the LP-23 step that builds an unmet criterion, or says what the
-  owner has to do first.
+  owner has to do first. On a met criterion it names the LP-23 step whose work the row rests on,
+  and is empty when the row rests on `06d5332f` alone.
 - **The overall grade is the lowest dimension's level**, shown beside every dimension, so a
   strong dimension cannot hide a missing one.
 
@@ -40,16 +45,17 @@ Seven dimensions, each graded on five levels by named criteria:
 
 | Dimension | Level | Overall | Scope |
 |---|---|---|---|
-| 1. Client trust | 2 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 2. Who may call from where | 1 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 3. Failure behaviour | 2 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 4. Data shapes | 2 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 5. Cards and workflow | 1 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 6. Conformance evidence | 2 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
-| 7. Vendor fit | 2 | 1 | rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification |
+| 1. Client trust | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 2. Who may call from where | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 3. Failure behaviour | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 4. Data shapes | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 5. Cards and workflow | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 6. Conformance evidence | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 7. Vendor fit | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 
-**Overall:** level 1, the lowest dimension (who may call from where, and cards and workflow).
-Rubric v1, graded at `06d5332f`, synthetic data and test keys only, not a vendor certification.
+**Overall:** level 1, the lowest dimension (who may call from where, failure behaviour, and cards
+and workflow). Rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only,
+not a vendor certification.
 
 ## 1. Client trust
 
@@ -57,16 +63,16 @@ Who the caller is: an EHR's own signed token, verified against the keys register
 
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
-| CT-2a | 2 | With sign-in on, discovery and a hook need a credential Mendari issued, and a key scoped to deciding reads discovery and calls a hook. | met | `tests/test_key_presets.py::test_the_documented_calls_answer_with_the_presets_keys` | A12.1c | |
-| CT-2b | 2 | With sign-in on, a bearer credential Mendari did not issue (an EHR's JWT among them) is refused with `401` and never read as an identity. | met | `tests/test_auth.py::test_a_credential_that_is_not_valid_never_falls_back_to_the_session` | A12.ctx-jwt-today | |
+| CT-2a | 2 | With sign-in on, discovery and a hook need a credential Mendari issued, and a key scoped to deciding reads discovery and calls a hook. | met | `tests/test_ehr_baseline.py::test_with_sign_in_on_discovery_and_a_hook_need_a_credential_mendari_issued` | A12.1c | 23a: the test (the behaviour is `06d5332f`'s) |
+| CT-2b | 2 | With sign-in on, a bearer credential Mendari did not issue (an EHR's JWT among them) is refused with `401` and never read as an identity. | met | `tests/test_ehr_baseline.py::test_an_ehrs_signed_token_is_refused_as_a_credential_mendari_did_not_issue`, `tests/test_auth.py::test_a_credential_that_is_not_valid_never_falls_back_to_the_session` | A12.ctx-jwt-today | 23a: the EHR token's test (the behaviour is `06d5332f`'s) |
 | CT-3a | 3 | An EHR's signed token (RS384 or ES384) is verified against the keys registered for its issuer: the signature, `iss`, `aud`, `exp`, `iat`, a `jti` replay check, and `jku` only when it equals the registered URI. | missing | missing | A12.1a | 23b |
 | CT-3b | 3 | A verified token is a narrow `cds` principal in the registered organization, holding only discover and decide, and reaching `/cds-services` only. | missing | missing | A12.1b | 23b |
 | CT-3c | 3 | The same registered client reads discovery and calls a hook. | partial | `tests/test_key_presets.py::test_the_documented_calls_answer_with_the_presets_keys` | A12.1c | 23b: true today for a Mendari key, not for an EHR's token |
 | CT-4a | 4 | An outside CDS client (Inferno's Da Vinci CRD kit) calls over HTTP with signed tokens in CI, and Mendari verifies them. | missing | missing | A12.acc-2 | 23l |
 | CT-5a | 5 | Epic's own sandbox token is verified and accepted. | missing | missing | A12.goal | the owner: Epic's sandbox registration, and its token's `iss`, `jku` and `aud` noted back (`notes/epic-sandbox-checklist.md`) |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 2. Who may call from where
 
@@ -81,8 +87,8 @@ Which hosts and browser origins may reach the CDS services, with sign-in on and 
 | WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23c, 23e |
 | WC-5a | 5 | Epic's sandbox reaches Mendari's CDS services from Epic's own servers. | missing | missing | A12.acc-3 | the owner: whether Epic's free sandbox can call an external CDS service at all (owner decision 15) |
 
-**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 3. Failure behaviour
 
@@ -91,16 +97,17 @@ What a hook does when the request is wrong, or the record cannot be read.
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
 | FB-2a | 2 | A request fault (a malformed CDS request, a `fhirServer` off the allow-list) is a `4xx`, and nothing is fetched. | met | `tests/test_fhir_client.py::test_a_malformed_cds_request_is_a_client_error`, `tests/test_fhir_client.py::test_a_server_off_the_list_is_refused` | A12.ctx-fhirAuthorization | |
-| FB-2b | 2 | Input that is not FHIR R4 is refused before any provider runs, in every mode. | met | `tests/test_fhir_structure.py::test_a_malformed_primitive_is_a_structure_error_in_every_mode` | A12.3f | |
+| FB-2b | 2 | Input that is not FHIR R4 JSON (an unknown element or resource type, a wrong JSON type, a malformed primitive) is refused before any provider runs, in every mode. | met | `tests/test_fhir_structure.py::test_a_malformed_primitive_is_a_structure_error_in_every_mode` | A12.3f | |
 | FB-2c | 2 | A failed read fails closed, and never echoes the server's answer. | met | `tests/test_fhir_client.py::test_failures_fail_closed_without_echoing_the_server` | A12.3f | |
+| FB-2d | 2 | Input that is R4 JSON but breaks R4's other rules (a complex element R4 requires, a code outside an R4 required value set) is refused before any provider runs. | partial | `tests/test_fhir_structure.py::test_base_r4_findings_follow_fhir_validation`, `tests/test_us_core.py::test_the_setting`, `tests/test_us_core.py::test_the_server_reports_the_mode_and_returns_the_issues` | A12.3f | the owner: the pilot's `MENDARI_FHIR_VALIDATION`. Only `enforce` blocks such input; under `warn`, the default, it is decided as if it conformed, with its issues recorded on the decision and audited, and `off` skips the check |
 | FB-3a | 3 | A failed prefetch read gives a recorded ABSTAIN with its reason, and the hook still answers. | missing | missing | A12.3f | 23d: today the hook fails with `422` and nothing is recorded |
 | FB-3b | 3 | Data present but unreadable (a note that is only a link, or whose data does not decode) gives ABSTAIN with its reason. | missing | missing | A12.3a | 23d: today it reads as no notes (`tests/test_fhir.py::test_a_base64_attachment_that_is_not_base64_maps_to_nothing`) |
 | FB-3c | 3 | Every FHIR decision carries its data-coverage record: for each mapped field, what was looked for and what was found, as counts and declared codes. | missing | missing | LP-23 requirement 7 | 23d |
 | FB-4a | 4 | Inferno's CRD kit passes its technical-issues group: a hook whose reads fail answers, with `indeterminate` coverage for a technical reason. | missing | missing | A12.acc-1 | 23d, 23l |
 | FB-5a | 5 | On Epic's sandbox, a read that fails or a note Mendari cannot read abstains with its reason, and the data-coverage counts show how often. | missing | missing | A12.acc-3 | the owner: the Epic sandbox run |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 4. Data shapes
 
@@ -108,8 +115,8 @@ Whether the mappings read the shapes an EHR sends.
 
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
-| DS-2a | 2 | Each mapped pack decides its synthetic FHIR cases as pinned (a golden of today's decisions and input hashes). | met | `tests/test_fhir_decisions.py::test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says` | A12.ctx-prefetch | |
-| DS-2b | 2 | A synthetic FHIR record decides as the same case's JSON input does (referral, trial and prior authorization). | met | `tests/test_sandbox.py::test_referral_cases_decide_the_same_from_fhir`, `tests/test_fhir_decisions.py::test_the_new_synthetic_fhir_decides_as_its_record_does` | A12.acc-3 | |
+| DS-2a | 2 | Each mapped pack decides its synthetic FHIR cases as pinned (a golden of today's decisions and input hashes). | met | `tests/test_fhir_decisions.py::test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says` | A12.ctx-prefetch | 23a: the golden and its test |
+| DS-2b | 2 | A synthetic FHIR record decides as the same case's JSON input does (referral, trial and prior authorization), but for a prior-authorization order the pack has no requirement set for (FX901 to FX903): through FHIR it gets no decision (no order passes the mapping's `focus_where`, so the input is refused as missing its ServiceRequest), where its JSON record decides HUMAN_REVIEW, as service `other`. | met | `tests/test_sandbox.py::test_referral_cases_decide_the_same_from_fhir`, `tests/test_fhir_decisions.py::test_the_new_synthetic_fhir_decides_as_its_record_does` | A12.acc-3 | 23a: the trial and prior-authorization records and their test |
 | DS-2c | 2 | Prefetch search Bundles are flattened and deduplicated, and a key the EHR left out is fetched from an allow-listed `fhirServer` with the EHR's token. | met | `tests/test_fhir_lists.py::test_prefetch_search_bundles_are_flattened_and_deduplicated`, `tests/test_fhir_client.py::test_cds_hooks_fetches_missing_prefetch_from_an_allowed_server` | A12.ctx-prefetch | |
 | DS-3a | 3 | A coding is chosen by its code system, wherever it sits. | missing | missing | A12.3b | 23g, 23k: today the first coding only (`tests/test_trial_pack.py::test_through_fhir_a_condition_is_read_by_its_first_coding_only`) |
 | DS-3b | 3 | A note linked by `Binary` is read through the allow-listed client. | missing | missing | A12.3a | 23h, 23k |
@@ -119,8 +126,8 @@ Whether the mappings read the shapes an EHR sends.
 | DS-4a | 4 | A vendor-shaped synthetic profile (linked notes, several codings, MedicationRequest) passes the HL7 validator against US Core 6.1.0 in CI, and every pack with a standard hook decides on it without a failed hook. | missing | missing | LP-23 requirement 10 | 23e |
 | DS-5a | 5 | Every reference pack with a standard hook decides on Epic's sandbox patients without a failed hook. | missing | missing | A12.acc-3 | the owner: the Epic sandbox run |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 5. Cards and workflow
 
@@ -140,8 +147,8 @@ What the clinician sees, and what comes back from them.
 | CW-4a | 4 | Every card matches the CDS Hooks 2.0 card shape, and Inferno's CRD card tests pass. | missing | missing | A12.acc-1 | 23f, 23l |
 | CW-5a | 5 | Epic's sandbox shows the cards and sends feedback on them. | missing | missing | A12.2b | the owner: the Epic sandbox run, and whether Epic sends feedback (`notes/epic-sandbox-checklist.md`) |
 
-**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 6. Conformance evidence
 
@@ -149,17 +156,17 @@ What outside tools have checked, in CI.
 
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
-| CE-2a | 2 | The HL7 validator runs offline in CI over Mendari's outputs and the sandbox's inputs (the `fhir-conformance` job), over the same files the in-process US Core checks pass. | met | `tests/test_us_core.py::test_conforming_bundles_have_no_issues` | A12.5d | |
-| CE-2b | 2 | The SMART app runs against a third-party launcher (smart-launcher-v2) in CI (the `sandbox-e2e` job). | met | `tests/test_smart_launch.py::test_the_launch_reads_its_session_as_the_dashboard_does` | A12.5b | |
+| CE-2a | 2 | The HL7 validator runs offline in CI over Mendari's outputs and the sandbox's inputs (the `fhir-conformance` job), over the same files the in-process US Core checks pass. | met | `tests/test_ehr_baseline.py::test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandboxs_inputs` | A12.5d | 23a: the test (the job is `06d5332f`'s) |
+| CE-2b | 2 | The SMART app runs against a third-party launcher (smart-launcher-v2) in CI (the `sandbox-e2e` job). | met | `tests/test_ehr_baseline.py::test_ci_runs_the_smart_app_against_smart_launcher_v2` | A12.5b | 23a: the test (the job is `06d5332f`'s) |
 | CE-3a | 3 | A CDS Hooks client calls the services over HTTP with signed tokens, in the sandbox and in CI. | missing | missing | A12.5a | 23e |
 | CE-4a | 4 | Inferno's Da Vinci CRD kit runs as the CDS client in CI, with each test's outcome pinned with its reason. | missing | missing | A12.acc-1, A12.acc-2 | 23l |
 | CE-4b | 4 | Inferno's SMART App Launch and Bulk Data client suites run for Mendari's roles. | missing | missing | A12.5b, A12.5c | 23l |
-| CE-4c | 4 | The HL7 validator also runs with a terminology server, on a schedule. | partial | `tests/test_us_core.py::test_conforming_bundles_have_no_issues` | A12.5d | 23l: offline only today |
+| CE-4c | 4 | The HL7 validator also runs with a terminology server, on a schedule. | missing | missing | A12.5d | 23l: today it runs offline only, on every change (CE-2a) |
 | CE-4d | 4 | The scopes Mendari asks for are checked against the scopes the EHR publishes (`scopes_supported`). | missing | missing | A12.5e | 23l |
 | CE-5a | 5 | `mendari smart check` and the scope check pass against Epic. | missing | missing | A12.5e | the owner: `mendari smart check` run against Epic's FHIR base |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 7. Vendor fit
 
@@ -176,5 +183,5 @@ Session length, embedding and the launch's form, as the named vendor needs them.
 | VF-4a | 4 | Inferno's SMART App Launch client suite passes for the vendor's launch form. | missing | missing | A12.5b | 23l |
 | VF-5a | 5 | A launch and a hook from Epic's sandbox work end to end. | missing | missing | A12.acc-3 | the owner: the Epic sandbox run |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f`, synthetic data and test
-keys only, not a vendor certification.
+**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
