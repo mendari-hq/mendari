@@ -1127,15 +1127,18 @@ def refusals(world: World, x: Org, o: Org) -> None:
         404,
         json=pas,
     )
-    package = world.call(
-        x,
+    # Their signed order names no decision of this organization: DTR's source data error (a 422,
+    # spec-130), the same answer an unknown assertion id gets.
+    package = refused(
         service,
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
         "/fhir/Questionnaire/$questionnaire-package",
+        o.one("prior"),
+        422,
         json=package_request({"name": "order", "resource": json.loads(o.one("order"))}),
-        expect=200,
     ).json()
-    assert [p["name"] for p in package["parameter"]] == ["outcome"]  # no decision of these orders
+    assert [i["code"] for i in package["issue"]] == ["not-found"]
+    assert o.one("prior") not in json.dumps(package)
     # Credentials and governance of the other's.
     for key_id in o.ids["key"]:
         refused(

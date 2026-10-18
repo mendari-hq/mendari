@@ -6,6 +6,7 @@ The HL7 validator checks the same resources against the CRD guide in the CI job
 from __future__ import annotations
 
 import copy
+import json
 from typing import Any
 
 import pytest
@@ -203,11 +204,6 @@ def test_the_questionnaire_package_is_pre_answered_from_the_decision(tmp_path: A
     assert response["subject"] == {"reference": "Patient/p1"}
     assert response["questionnaire"] == f"{form['url']}|{form['version']}"
 
-    unknown = client.post(
-        "/fhir/Questionnaire/$questionnaire-package",
-        json=package_request({"name": "context", "valueString": "not-a-decision"}),
-    ).json()
-    assert [p["name"] for p in unknown["parameter"]] == ["outcome"]
     assert (
         client.post(
             "/fhir/Questionnaire/$questionnaire-package", json={"resourceType": "Parameters"}
@@ -237,4 +233,161 @@ def test_a_questionnaire_asked_for_by_canonical_comes_unanswered() -> None:
         {PA: pack},
         "2026-09-30T00:00:00+00:00",
     )
-    assert [p["name"] for p in nothing["parameter"]] == ["outcome"]
+    [issue] = outcome(nothing)  # no documentation there, so no such questionnaire (oper-9)
+    assert (issue["severity"], issue["code"]) == ("warning", "not-found")
+    assert "needs no documentation" in issue["diagnostics"]
+
+
+# -- DTR errors (2.2.0: oper-6, oper-8, oper-9, spec-130) ------------------------------------------
+
+PACKAGE = "/fhir/Questionnaire/$questionnaire-package"
+ELSEWHERE = "https://inferno.health/Questionnaire/does-not-exist"  # another server's
+
+
+def outcome(answer: dict[str, Any]) -> list[dict[str, Any]]:
+    """The issues of a successful answer's `outcome`, which comes after its packages."""
+    assert answer["resourceType"] == "Parameters"
+    *packages, last = answer["parameter"]
+    assert last["name"] == "outcome" and {p["name"] for p in packages} <= {"packagebundle"}
+    assert last["resource"]["resourceType"] == "OperationOutcome"
+    issues: list[dict[str, Any]] = last["resource"]["issue"]
+    return issues
+
+
+def signed_order(client: Any, payer: str, note: str, order: dict[str, Any]) -> dict[str, Any]:
+    """The order as CRD updated it (with the coverage-assertion-id, the decision id)."""
+    hook = client.post(f"/cds-services/{PA.replace('/', '.')}", json=request(payer, note, order))
+    assert hook.status_code == 200, hook.text
+    updated: dict[str, Any] = hook.json()["systemActions"][0]["resource"]
+    return updated
+
+
+def refusal(answer: Any) -> dict[str, Any]:
+    """A DTR source data error: a 4xx OperationOutcome, as Inferno's 3.6.02 asks."""
+    assert answer.status_code == 422, answer.text
+    assert answer.headers["content-type"].startswith("application/fhir+json")
+    body: dict[str, Any] = answer.json()
+    assert body["resourceType"] == "OperationOutcome"
+    [issue] = body["issue"]
+    assert (issue["severity"], issue["code"]) == ("error", "not-found")
+    return body
+
+
+@pytest.fixture
+def client(tmp_path: Any) -> Any:
+    from fastapi.testclient import TestClient
+
+    from mendari.server.app import create_app
+
+    return TestClient(create_app(db_path=tmp_path / "dtr.db"))
+
+
+def test_an_unknown_questionnaire_next_to_an_order_is_a_warning_beside_its_package(
+    client: Any,
+) -> None:
+    """oper-9 whether or not a package is built: Inferno's 3.6.01 adds a questionnaire that
+    cannot be found to a request that worked, and looks for a warning."""
+    order = signed_order(client, "acme", "Back pain for two weeks.", _order("mri", "FX101"))
+    plain = client.post(PACKAGE, json=package_request({"name": "order", "resource": order}))
+    assert [p["name"] for p in plain.json()["parameter"]] == ["packagebundle"]  # as before
+    answer = client.post(
+        PACKAGE,
+        json=package_request(
+            {"name": "order", "resource": order},
+            {"name": "questionnaire", "valueCanonical": ELSEWHERE},
+        ),
+    )
+    assert answer.status_code == 200, answer.text
+    [package] = [p["resource"] for p in answer.json()["parameter"] if p["name"] == "packagebundle"]
+    form = package["entry"][0]["resource"]  # the order's questionnaire, as without it
+    assert form["url"].endswith("/Questionnaire/lumbar_mri-acme")
+    [issue] = outcome(answer.json())
+    assert (issue["severity"], issue["code"]) == ("warning", "not-found")
+    assert issue["diagnostics"] == f"questionnaire not found: {ELSEWHERE}"
+
+
+def test_a_questionnaire_not_found_alone_is_a_warning_and_no_package() -> None:
+    pack = resolve_pack(PA)
+    known = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
+    made_up = f"https://mendari.co/packs/{PA}/Questionnaire/foo-bar"  # not the pack's labels
+    no_pack = "https://mendari.co/packs/mendari/nope/Questionnaire/x"
+    for canonical in (ELSEWHERE, made_up, no_pack):
+        answer = davinci.questionnaire_package(
+            package_request({"name": "questionnaire", "valueCanonical": canonical}),
+            lambda _: None,
+            {PA: pack},
+            "2026-10-17T00:00:00+00:00",
+        )
+        [issue] = outcome(answer)
+        assert issue == {
+            "severity": "warning",
+            "code": "not-found",
+            "diagnostics": f"questionnaire not found: {canonical}",
+        }
+    both = davinci.questionnaire_package(
+        package_request(
+            {"name": "questionnaire", "valueCanonical": known},
+            {"name": "questionnaire", "valueCanonical": made_up},
+        ),
+        lambda _: None,
+        {PA: pack},
+        "2026-10-17T00:00:00+00:00",
+    )
+    assert [p["name"] for p in both["parameter"]] == ["packagebundle", "outcome"]
+    assert [i["severity"] for i in outcome(both)] == ["warning"]
+
+
+def test_a_context_or_an_order_that_names_no_decision_is_a_422(client: Any) -> None:
+    """spec-130 (Inferno's 3.6.02): source data that cannot be resolved is a 4xx with an
+    OperationOutcome. A 422, not a 404: the operation exists and the request is well formed, its
+    content names nothing here, as the route's missing Coverage is a 422 too. The answer never
+    repeats the id."""
+    unknown = refusal(
+        client.post(PACKAGE, json=package_request({"name": "context", "valueString": "nope-42"}))
+    )
+    assert "nope-42" not in json.dumps(unknown)
+    order = signed_order(client, "acme", "Back pain for two weeks.", _order("mri", "FX101"))
+    decision_id = davinci.assertion_id(order)
+    assert decision_id is not None
+    forged = json.loads(json.dumps(order).replace(decision_id, "0" * len(decision_id)))
+    unsigned = _order("mri", "FX101")  # no coverage information: never signed through CRD
+    for orders in ([forged], [unsigned], [forged, unsigned]):
+        given = [{"name": "order", "resource": o} for o in orders]
+        assert refusal(client.post(PACKAGE, json=package_request(*given))) == unknown
+    with_elsewhere = package_request(
+        {"name": "context", "valueString": "nope-42"},
+        {"name": "questionnaire", "valueCanonical": ELSEWHERE},
+    )
+    assert refusal(client.post(PACKAGE, json=with_elsewhere)) == unknown  # still no package
+    pack = resolve_pack(PA)
+    known = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
+    asked = package_request(
+        {"name": "context", "valueString": "nope-42"},
+        {"name": "questionnaire", "valueCanonical": known},
+    )
+    answered = client.post(PACKAGE, json=asked)  # a package to return: as before
+    assert [p["name"] for p in answered.json()["parameter"]] == ["packagebundle"]
+
+
+def test_a_decided_order_that_needs_no_documentation_is_a_note(client: Any) -> None:
+    """oper-8: the order was decided, but the payer asks for no documentation for it (no
+    authorization needed): no package, and an information note that says so, never a 4xx."""
+    order = signed_order(client, "beacon", "Loud snoring.", _order("psg", "FX301"))
+    unsigned = _order("lab", "FX904")  # an order the pack did not decide stays silent
+    answer = client.post(
+        PACKAGE,
+        json=package_request(
+            {"name": "order", "resource": order}, {"name": "order", "resource": unsigned}
+        ),
+    )
+    assert answer.status_code == 200, answer.text
+    assert outcome(answer.json()) == [
+        {
+            "severity": "information",
+            "code": "informational",
+            "diagnostics": "the payer needs no documentation for this order",
+        }
+    ]
+    asks_nothing = client.post(PACKAGE, json=package_request())
+    assert asks_nothing.status_code == 400  # oper-6: an order, a context or a questionnaire
+    assert asks_nothing.json()["issue"][0]["code"] == "required"

@@ -22,7 +22,7 @@ from mendari.core.decision import DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import CoverageInformation
-from mendari.errors import FhirError
+from mendari.errors import FhirError, FhirRequestError, FhirSourceNotFound
 from mendari.standards.fhir import display
 
 CRD = "http://hl7.org/fhir/us/davinci-crd"
@@ -278,13 +278,52 @@ def _coding(pack: Pack, question: str, label: str) -> dict[str, str]:
 
 Lookup = Callable[[str], tuple[Pack, dict[str, str]] | None]
 
+# What the operation answers, besides its packages (`outcome`, DTR oper-8 and oper-9), and when
+# no package can be built for the source data (spec-130, a 4xx). The refusal names no id, so an
+# id that is unknown and one of another organization's get the same answer.
+NO_DOCUMENTATION = "the payer needs no documentation for this order"
+NO_DECISION = (
+    "no Mendari decision for these orders or this context: sign the order first (CDS Hooks "
+    "order-sign), then send the order with the coverage information it came back with"
+)
+
+
+def asked_for(canonical: str, packs: Mapping[str, Pack]) -> tuple[Pack, dict[str, str]] | None:
+    """The pack and the context answers a questionnaire canonical names (as `questionnaire_url`
+    makes it; its version is not read), or None when it names no questionnaire here: another
+    server's url, a pack not served or without a questionnaire, or names that are not one label
+    of each context question (`any`: a question the decision had no answer to)."""
+    url = canonical.split("|", 1)[0]
+    if not url.startswith(f"{PACKS}/"):
+        return None
+    pack_id, _, names = url.removeprefix(f"{PACKS}/").rpartition("/Questionnaire/")
+    pack = packs.get(pack_id)
+    hooks = pack.manifest.cds_hooks if pack is not None else None
+    dtr = hooks.questionnaire if hooks is not None else None
+    if pack is None or dtr is None:
+        return None
+    given = names.split("-")
+    if len(given) != len(dtr.context):
+        return None
+    for key, name in zip(dtr.context, given, strict=True):
+        if name != "any" and name not in pack.manifest.questions[key].labels:
+            return None
+    return pack, dict(zip(dtr.context, given, strict=True))
+
 
 def questionnaire_package(
     parameters: Mapping[str, Any], lookup: Lookup, packs: Mapping[str, Pack], authored: str
 ) -> dict[str, Any]:
     """`Questionnaire/$questionnaire-package`: a package Bundle for each order the pack decided
     (found by CRD's assertion id on the order, or the `context` id), else for each `questionnaire`
-    canonical asked for, unanswered. `lookup(decision id)` gives the decision's pack and answers.
+    canonical asked for, unanswered. `lookup(decision id)` gives the decision's pack and answers,
+    the caller's organization's only.
+
+    `outcome` notes a decided order that needs no documentation (DTR oper-8, information) and
+    warns of each questionnaire asked for that is not found here (oper-9, `not-found`), with
+    packages or without. Orders or a context that name no decision, with no package to return,
+    are `FhirSourceNotFound` (spec-130: a 4xx); a request that names no order, context or
+    questionnaire is `FhirRequestError` (oper-6), and one without the Coverage `FhirError`.
     """
     given = [p for p in parameters.get("parameter") or [] if isinstance(p, Mapping)]
     coverage = next((p.get("resource") for p in given if p.get("name") == "coverage"), None)
@@ -309,21 +348,34 @@ def questionnaire_package(
         for p in given
         if p.get("name") == "questionnaire" and p.get("valueCanonical")
     ]
+    if not orders and context is None and not asked:
+        raise FhirRequestError(
+            [
+                {
+                    "code": "required",
+                    "expression": "Parameters.parameter",
+                    "diagnostics": "$questionnaire-package needs an `order`, a `context` or a "
+                    "`questionnaire` (DTR oper-6)",
+                }
+            ]
+        )
     beneficiary = (
         coverage.get("beneficiary") if isinstance(coverage.get("beneficiary"), Mapping) else None
     )
 
     bundles: list[dict[str, Any]] = []
-    notes: list[str] = []
+    issues: list[dict[str, str]] = []
+    decided = False  # a source named a decision of the caller's (packaged or not)
     wanted = [(order, assertion_id(order) or context) for order in orders] or [(None, context)]
     for order, decision_id in wanted:
         found = lookup(decision_id) if decision_id else None
         if found is None:
             continue
+        decided = True
         pack, answers = found
         form = questionnaire(pack, context_of(pack, answers))
         if form is None:
-            notes.append("the payer needs no documentation for this order")
+            issues.append(_issue("information", "informational", NO_DOCUMENTATION))
             continue
         subject = (order or {}).get("subject") or beneficiary or {"reference": "Patient/unknown"}
         order_ref = {"reference": f"{order['resourceType']}/{order.get('id')}"} if order else None
@@ -337,48 +389,40 @@ def questionnaire_package(
             authored=authored,
         )
         bundles.append(package(form, response))
-    if not bundles:
-        for canonical in asked:
-            url = canonical.split("|", 1)[0]
-            prefix = f"{PACKS}/"
-            pack_id, _, names = url.removeprefix(prefix).rpartition("/Questionnaire/")
-            known = packs.get(pack_id)
-            hooks = known.manifest.cds_hooks if known is not None else None
-            dtr = hooks.questionnaire if hooks is not None else None
-            if known is None or dtr is None or not url.startswith(prefix):
-                notes.append(f"unknown questionnaire {url}")
-                continue
-            form = questionnaire(known, dict(zip(dtr.context, names.split("-"), strict=False)))
-            if form is None:
-                notes.append(f"{url} asks for nothing")
-                continue
-            subject = beneficiary or {"reference": "Patient/unknown"}
-            response = questionnaire_response(
-                known,
-                form,
-                {},
-                subject=subject,
-                coverage=coverage_ref,
-                order=None,
-                authored=authored,
-            )
-            bundles.append(package(form, response))
+    for_orders = bool(bundles)
+    for canonical in asked:
+        named = asked_for(canonical, packs)
+        form = questionnaire(*named) if named is not None else None
+        if named is None or form is None:  # none here, or none needed: no such questionnaire
+            why = "" if named is None else " (the payer needs no documentation there)"
+            text = f"questionnaire not found: {canonical}{why}"
+            issues.append(_issue("warning", "not-found", text))
+            continue
+        if for_orders:
+            continue  # the orders' packages answer: a questionnaire asked for is not added
+        response = questionnaire_response(
+            named[0],
+            form,
+            {},
+            subject=beneficiary or {"reference": "Patient/unknown"},
+            coverage=coverage_ref,
+            order=None,
+            authored=authored,
+        )
+        bundles.append(package(form, response))
+    if not bundles and (orders or context is not None) and not decided:
+        raise FhirSourceNotFound(NO_DECISION)
     output: list[dict[str, Any]] = [{"name": "packagebundle", "resource": b} for b in bundles]
-    if notes or not bundles:
-        text = "; ".join(notes) or "no Mendari decision for these orders: sign the order first"
+    if issues:
         output.append(
-            {
-                "name": "outcome",
-                "resource": {
-                    "resourceType": "OperationOutcome",
-                    "issue": [
-                        {"severity": "information", "code": "informational", "diagnostics": text}
-                    ],
-                },
-            }
+            {"name": "outcome", "resource": {"resourceType": "OperationOutcome", "issue": issues}}
         )
     return {
         "resourceType": "Parameters",
         "meta": {"profile": [f"{DTR}/StructureDefinition/dtr-qpackage-output-parameters"]},
         "parameter": output,
     }
+
+
+def _issue(severity: str, code: str, diagnostics: str) -> dict[str, str]:
+    return {"severity": severity, "code": code, "diagnostics": diagnostics}
