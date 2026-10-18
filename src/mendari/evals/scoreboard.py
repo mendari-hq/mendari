@@ -32,8 +32,9 @@ standing: a public set is a regression check, never ranked or graded. `body_sha2
 SHA-256 of its canonical bytes without any signature.
 
 `board` shows entries one table per pack and set. Freshness is worked out there, when the board
-is built, and never stored: no clock is read, so every entry shows the date it goes stale.
-Nothing here reads a clock, a setting or the network, and nothing names a case.
+is built, and never stored: no clock is read, so every entry shows the date it goes stale. Its
+ranking and each entry's grade come from `bands.ranking` and `grade.grade` (LP-17j): on a public
+set, off and None. Nothing here reads a clock, a setting or the network, and nothing names a case.
 """
 
 from __future__ import annotations
@@ -49,16 +50,16 @@ from typing import Any
 from mendari.core.pack import Pack
 from mendari.core.status import NOT_REVIEWED, SYNTHETIC_EXAMPLE, status_label
 from mendari.errors import MendariError
-from mendari.evals import arms, method, metrics, runs, stats
-from mendari.evals.canonical import NORM_VERSION, normalised_input
+from mendari.evals import arms, bands, grade, method, metrics, runs, stats
+from mendari.evals.canonical import NORM_VERSION
 from mendari.evals.harness import Dataset
 from mendari.evals.ledger import Ledger, canonical, case_hash
 from mendari.evals.result import ERROR, PREDICTED, PROBABILITIES, TRUTH, result_from_ledger
 from mendari.providers import MODEL_TYPES
 
 FORMAT = "mendari.scoreboard/1"
-PUBLIC = "public"
-PUBLIC_SET = "public set: regression check, not a ranking"
+PUBLIC = grade.PUBLIC  # every shipped set's kind: never ranked or graded
+PUBLIC_SET = grade.PUBLIC_SET
 NOT_CLINICAL = "engineering evaluation, not clinical validation"
 NO_MODEL_PROVIDER = "no model provider"
 DISCLOSURE_PENDING = "not published: disclosure pending"
@@ -69,7 +70,7 @@ NOT_REPRODUCIBLE = "measured on the runner, not reproducible"
 TOO_FEW = "too few"
 AS_SAMPLED = "as sampled"
 NOT_ESTIMABLE = "not_estimable"
-SUFFICIENT, INSUFFICIENT = "sufficient", "insufficient evidence"
+SUFFICIENT, INSUFFICIENT = "sufficient", grade.INSUFFICIENT
 MEASURED, NOT_MEASURED = "measured", "not measured"
 UNSIGNED = "unsigned"
 DRAFT = "method draft, not in effect"
@@ -134,7 +135,7 @@ def entry(
     _refuse_another(ledger, dataset, pack, arm, configuration, record)
 
     result = result_from_ledger(ledger, seed=method.SEED, resamples=method.RESAMPLES)
-    group_of = [normalised_input(found["input"]) for found in dataset.records]
+    group_of = bands.groups_of(dataset.records)
     measured_on = datetime.date.fromisoformat(record["date"])
     metered = sorted(MODEL_TYPES.intersection(configuration.remote_types))
     cost = _cost(cases, record, metered, prices)
@@ -190,8 +191,8 @@ def entry(
         },
         "seeds": {"bootstrap": method.SEED, "resamples": method.RESAMPLES, "level": method.LEVEL},
         "scope": scope,
-        "ranking": {"status": "off", "reason": PUBLIC_SET},
-        "grade": None,
+        "ranking": bands.off(PUBLIC_SET),
+        "grade": None,  # a public set is never graded (`grade.grade`)
         "figures": figures,
     }
     return {**found, "body_sha256": body_sha256(found)}
@@ -292,12 +293,7 @@ def _critical(
     found = []
     for index, (question, label) in enumerate(header["critical"]):
         counted = result["decisions"]["critical"][index]
-        detected_groups: dict[str, bool] = {}  # group: every positive case in it detected
-        for number, case in enumerate(cases):
-            if index in case["k"]:
-                hit = _predicted(case, question) == label
-                key = group_of[number]
-                detected_groups[key] = detected_groups.get(key, True) and hit
+        detected_groups = bands.detected_groups(cases, group_of, index, question, label)
         distinct = len(detected_groups)
         distinct_detected = sum(detected_groups.values())
         found.append(
@@ -625,13 +621,15 @@ def short_of_evidence(found: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) -> dict[str, Any]:
     """The board of `entries`: one table per pack and set (by pack id, then set name), each with
-    its standing (a public set: a regression check, not a ranking), the insufficient-evidence
-    banner when any entry's critical label is short, each arm's status (measured, "not measured"
-    or "not applicable", from `current`), and its entries in a listing order (by arm, then
-    configuration, then date), never an order of any figure. Each entry's marks are worked out
-    here and never stored: "unsigned", "method draft, not in effect", why it is stale (its
-    pack, set or method is not `current`'s, or a later run of its configuration reports another
-    model of a type) and the date it goes stale.
+    its ranking (`bands.ranking`: off on a public set, a regression check, not a ranking), the
+    insufficient-evidence banner when any entry's critical label is short, each arm's status
+    (measured, "not measured" or "not applicable", from `current`), and its entries in a listing
+    order (by arm, then configuration, then date), never an order of any figure, each with its
+    grade (`grade.grade`: None on a public set). A hidden set's arms are ranked only from their
+    ledgers, which a board does not hold, so a hidden table of two or more entries is refused.
+    Each entry's marks are worked out here and never stored: "unsigned", "method draft, not in
+    effect", why it is stale (its pack, set or method is not `current`'s, or a later run of its
+    configuration reports another model of a type) and the date it goes stale.
 
     Each entry is read as its canonical bytes hold it (`ledger.canonical`: keys sorted), so the
     board of entries just built is the board of the same entries read back from a store: a
@@ -667,7 +665,7 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
             {
                 "pack": pack_id,
                 "set": set_name,
-                "ranking": {"status": "off", "reason": PUBLIC_SET},
+                "ranking": bands.ranking(listed),
                 "evaluation": NOT_CLINICAL,
                 "banner": {"short": short} if short else None,
                 "arms": statuses,
@@ -676,6 +674,7 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
                         "entry": dict(found),
                         "arm_name": arms.ARMS.get(found["arm"], found["arm"]),
                         "configuration": _label(found),
+                        "grade": grade.grade(found),
                         "marks": _marks(found, now, later_models),
                         "stale_after": stale_after(found),
                         "published": found["scope"]["disclosure"]["status"] != DISCLOSURE_PENDING,
@@ -690,8 +689,7 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
 def _label(found: Mapping[str, Any]) -> str:
     """`slot=variant` pairs, its slots in sorted order: as an entry's canonical bytes hold them,
     whatever order it was built in."""
-    providers = found["configuration"]["providers"]
-    return ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
+    return bands.configuration_name(found)
 
 
 def _listing(found: Mapping[str, Any]) -> tuple[Any, ...]:

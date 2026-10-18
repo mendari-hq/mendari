@@ -1241,6 +1241,17 @@ description, cost comes from tokens and the table (never a pack's or a provider'
 a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
 entries yet: the store and the page come with LP-17f.
 
+A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
+evidence, never a letter or a score: no critical case automated, each critical label's recall
+floor, and the false-automation ceiling. "Insufficient evidence" means that even a perfect
+result on those cases could not meet it. A ranking (`mendari.evals.bands`) orders the declared
+arms graded in one read on a band tuple fixed by the method (the worst critical label's bound,
+false automation, accuracy, Brier, then cost), lists an arm that fails a safety attestation or
+lacks its evidence unranked, and gives each ranked arm a rank interval from a stated Holm family,
+which never reorders the ranks. ECE and latency never enter it. Both are given only on frozen
+hidden sets: on a public set the grade is null and the ranking is off. Nothing grades a hidden
+set with them yet: the hidden-set scoreboard comes with LP-17k.
+
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
 the key holder's, on their own machine, and refuses to run when `CI` or `GITHUB_ACTIONS` is set.
@@ -1506,7 +1517,7 @@ src/mendari/
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
 │                a hidden set's grading result, the scoreboard's arms, entries and run records,
-│                signed scoreboard results
+│                signed scoreboard results, grades and band ranking
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
