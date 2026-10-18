@@ -1,7 +1,7 @@
 # ADR-0011: Hidden evaluation sets, blind labelling and agreement
 
 ## Status
-Proposed (2026-10-09). Built (LP-11, 11a to 11o, 2026-10-09 to 2026-10-17) by the defaults of
+Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them; accepted
 once the seven owner decisions still open there (how labellers reach the hosted site among
 them) confirm or change those defaults. Gate G2-3's prerequisite `labelling-underway` and gate
@@ -126,6 +126,16 @@ still waits for the owner's attestation. What each step built, in the order they
   them, shown and retired, then `mendari audit verify --evalsets` and `mendari evalset rotate
   --check` pass and the set's chain holds its events in the lifecycle's order; no answer, log
   or command output holds a case's content but a labeller's own next case its input).
+- 11p, what 11o's review found no commitment covered: each draw chains a salted commitment to
+  every drawn case's weight by its keyed hash (`weight_refs` on `evalset.sampled`, new at each
+  draw, so the chain does not show whose weight changed), and each store of a set's aggregates a
+  commitment to them (`aggregates_ref` on `evalset.measured` and `evalset.frozen`, the salt
+  sealed with them); a case's status is checked against its labels and the set's latest draw. A
+  draw takes what the chain drew before, never a status; `freeze` and `measure` refuse a set
+  whose statuses or weights do not hold, naming no case; `show` and the curators' read refuse
+  aggregates their commitment does not cover, naming the set; `mendari audit verify --evalsets`
+  and `rotate --check` check all three, and count the rows from before these commitments
+  (`predating`), read as before.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
@@ -205,12 +215,15 @@ until LP-17 decides on remote ones.
   leaves included.
 - The database refuses no write itself: its DDL holds no trigger (Postgres splits it on `;`),
   so the refusals are the store's. An edit made by SQL to what a chained commitment covers (a
-  case's input and own attributes, a label, a frozen set's content) is caught when the set is
-  next read or verified, not prevented. What no commitment covers is not caught at all: until a
-  set is frozen, its header, each case's status and each drawn case's weight, and in every
-  state its stored aggregates. Freezing commits to a draft's rows as they are, so a disputed
-  case's status edited to `agreed` passes verification and is frozen with its first labeller's
-  answer, never adjudicated.
+  case's input and own attributes, a label, each drawn case's weight, which every draw commits to
+  again, a set's stored aggregates, a frozen set's content) is caught when the set is next read
+  or verified, not prevented. A case's status has no commitment of its own: verification and
+  `rotate --check` check it against its labels and the set's latest draw, and freezing and
+  measuring refuse a set whose statuses or weights do not hold, so a disputed case edited to
+  `agreed` is found and never frozen with its first labeller's answer (LP-11p). What no
+  commitment covers is not caught at all: until a set is frozen, its header; and the rows of a
+  draw or a store from before LP-11p, read as before and counted (`predating`), whose weights,
+  and whether an unlabelled case was drawn, are taken as they are.
 - The freeze commitment is a salted hash, not a signature, until LP-17 decides the grading key.
 - Paraphrases of public text pass the equality check; the hand-written rule (`template` null)
   and review stand against them. The threat model's residual risks name this risk and the

@@ -5103,12 +5103,14 @@ class AuditStore(RateBuckets):
     def _evalset_rows(self, db: _Session, after: int) -> dict[str, Any]:
         """What `_check_evalsets` reads, after the events (in `_verify`'s session): every set
         (with its lifecycle's state, commitment, rotation rule and freeze time, LP-11i) and case
-        row, then every assignment and label row (LP-11h), then the set, case, assignment, label
-        and lifecycle events chained since the last one read (`after`), and the evaluation-set
-        keys this database knows. A row is written, and a case deleted with its assignments and
-        labels, in the transaction that chains its event, so a row read here whose event came
-        too late for the events read, or a case deleted since, has that event in the later ones:
-        a write that runs beside a verification never reads as a break. A database without the
+        row, then every assignment and label row (LP-11h), then the set, case, draw, assignment,
+        label, measure and lifecycle events chained since the last one read (`after`), and the
+        evaluation-set keys this database knows. A row is written, and a case deleted with its
+        assignments and labels, in the transaction that chains its event (a case's status and
+        weight with the label or the draw that sets them, a set's aggregates with the event that
+        stores them, LP-11p), so a row read here whose event came too late for the events read,
+        or a case deleted since, has that event in the later ones: a write that runs beside a
+        verification never reads as a break. A database without the
         tables (an older one, read as it is) has no rows. Each row's sealed values are its
         table's `SEALED_COLUMNS` (LP-11f), so a sealed column added later is verified too."""
         from mendari.core.evalsets import SEALED_COLUMNS  # that module imports this one
@@ -5136,14 +5138,16 @@ class AuditStore(RateBuckets):
             (str(row["event"]), json.loads(row["payload"]))
             for row in db.all(
                 "SELECT event, payload FROM audit_events WHERE seq > ? AND event IN "
-                "(?, ?, ?, ?, ?, ?, ?, ?) ORDER BY seq",
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ORDER BY seq",
                 (
                     after,
                     "evalset.created",
                     "evalset.case_added",
                     "evalset.case_removed",
+                    "evalset.sampled",
                     "evalset.assigned",
                     "evalset.labelled",
+                    "evalset.measured",
                     "evalset.frozen",
                     "evalset.activated",
                     "evalset.retired",
@@ -5173,8 +5177,9 @@ class AuditStore(RateBuckets):
     ) -> tuple[dict[str, Any] | None, dict[str, int]]:
         """The hidden evaluation sets against the chain (LP-11e, LP-11h): why they fail (None
         when they hold), and how many sets were found, how many cases were checked, left
-        `unchecked` (without `keys`; labels too) or removed since they were added, and how many
-        assignments and labels were checked.
+        `unchecked` (without `keys`; labels too) or removed since they were added, how many
+        assignments and labels were checked, and how many rows a draw or a store from before
+        LP-11p's commitments holds (`predating`: read as before, never a break).
 
         Every `evalset.created` has its set and every `evalset.case_added` its case (found by
         the keyed case hash it chained), in that set and organization, unless an
@@ -5206,8 +5211,14 @@ class AuditStore(RateBuckets):
         (`frozen_holds`): its header, limits and freeze time, each case's input, final labels,
         status and attributes (a weight re-sealed, a status changed, a case added, each break
         it at its `evalset.frozen`; an input or a label changed breaks it earlier, at that
-        case's or label's own event); counted `frozen`, or `unchecked` without keys. Counts
-        and ids only: no value is returned."""
+        case's or label's own event); counted `frozen`, or `unchecked` without keys.
+
+        A draft's draws and statuses, and every set's stored aggregates (LP-11p,
+        `_check_rows`): with `keys`, each case's status is the one its labels and its set's
+        latest draw give it, each drawn case's weight the one that draw's `evalset.sampled`
+        committed to, and each set's stored aggregates those the latest event storing them
+        committed to; the earliest of these that fails, or of a lifecycle's, is `broken_at`.
+        Counts and ids only: no value is returned."""
         from mendari.core.evalsets import (  # that module imports this one
             SEALED_COLUMNS,
             case_ref,
@@ -5223,7 +5234,14 @@ class AuditStore(RateBuckets):
             "assignments": 0,
             "labels": 0,
             "frozen": 0,
+            "predating": 0,
         }
+        # What the events below opened and found as chained, for the rows' own checks after
+        # them (`_check_rows`, LP-11p): each set's sealed values, each case's attributes and
+        # each label's values, by id.
+        opened_sets: dict[str, dict[str, Any] | None] = {}
+        opened_cases: dict[str, Any] = {}
+        opened_labels: dict[str, Any] = {}
         unopenable: Counter[str] = Counter()
         unopenable_sets: set[str] = set()  # sets a value of which this ring cannot open
         missing = set(held["known"]) - ring.ring_ids if ring is not None else set()
@@ -5314,7 +5332,7 @@ class AuditStore(RateBuckets):
                 counts["sets"] += 1
                 if ring is not None:
                     try:
-                        opened_row(ring, "evalset_sets", sets[set_id], set_id)
+                        opened_sets[set_id] = opened_row(ring, "evalset_sets", sets[set_id], set_id)
                     except MendariError:
                         return broken, counts
                 continue
@@ -5388,6 +5406,7 @@ class AuditStore(RateBuckets):
                     return broken, counts
                 if made != ref.get("sha256"):
                     return broken, counts
+                opened_labels[label_id] = body.get("values")
                 counts["labels"] += 1
                 continue
             chained_cases.add(str(case))
@@ -5408,11 +5427,18 @@ class AuditStore(RateBuckets):
                 return broken, counts
             if made != payload.get("case_ref"):
                 return broken, counts
+            opened_cases[case_id] = body
             counts["checked"] += 1
-        refused, unchained_states = _check_frozen(held, stages, ring, unopenable_sets, counts)
-        if refused is not None:
-            return refused, counts
         listed = chained_sets | created_later
+        refused, unchained_states = _check_frozen(held, stages, ring, unopenable_sets, counts)
+        checked_values = {"sets": opened_sets, "cases": opened_cases, "labels": opened_labels}
+        mismatched, unchained_rows = _check_rows(
+            held, stages, listed, unopenable_sets, checked_values, counts
+        )
+        breaks = [at for at in (refused, mismatched) if at is not None]
+        if breaks:  # the earliest event a set's lifecycle or a row's commitment breaks at
+            return min(breaks, key=lambda at: int(at["broken_at"])), counts
+        unchained_states += unchained_rows
         unchained = (
             unchained_states
             + sum(
@@ -5548,6 +5574,108 @@ def _check_frozen(
             return {"broken_at": seq}, unchained
         counts["frozen"] += 1
     return None, unchained
+
+
+def _check_rows(
+    held: Mapping[str, Any],
+    stages: Mapping[str, Mapping[str, list[tuple[int, Mapping[str, Any]]]]],
+    listed: set[str],
+    unopenable_sets: set[str],
+    opened: Mapping[str, Mapping[str, Any]],
+    counts: dict[str, int],
+) -> tuple[dict[str, Any] | None, int]:
+    """Each set's rows against what LP-11p's commitments cover (`_check_evalsets`), in every
+    state: the earliest event they break at (None when they hold), and how many sets hold
+    aggregates that no event stored. `stages` is each set's events among those read, by kind;
+    `listed` the sets chained; `opened` what the events' checks opened and found as chained
+    (each set's sealed values, each case's attributes, each label's values, by id: none
+    without a ring, and none of a set holding a value the ring cannot open).
+
+    A set's stored aggregates give the commitment its latest `evalset.measured` or
+    `evalset.frozen` chained (`stored_aggregates`), else break there (re-sealed, put back from
+    an earlier copy, or gone). Each case's status is the one its labels and the set's latest
+    `evalset.sampled` give it, and each drawn case's weight the one that draw committed to,
+    with none on a case it did not draw (`row_mismatches`): a status or a stray weight breaks
+    at the case's `evalset.case_added`, a drawn case's weight at that draw; in a frozen set,
+    either breaks at its `evalset.frozen`, as its content does. A draw or a store from before
+    the commitments is read as before: its rows are counted `predating` (each case the store
+    took as drawn, by its status; each set's aggregates), and a status is then checked against
+    its labels alone. A draw, a store or a label chained since the events read (`later`)
+    excuses the rows it wrote; aggregates without any event that stores them are counted
+    `unchained`."""
+    from mendari.core.evalsets import (  # that module imports this one
+        ADJUDICATION,
+        DRAFT,
+        FIRST,
+        STORING,
+        row_mismatches,
+        stored_aggregates,
+        weight_refs_of,
+    )
+
+    later = held["later"]
+    drawn_later = {p.get("set") for k, p in later if k == "evalset.sampled"}
+    stored_later = {p.get("set") for k, p in later if k in STORING}
+    rounds = {str(found["id"]): str(found["round"]) for found in held["assignments"]}
+    labels_of: dict[str, list[Mapping[str, Any]]] = {}
+    for label in held["labels"]:
+        labels_of.setdefault(str(label["case_id"]), []).append(label)
+    cases_of: dict[str, list[Mapping[str, Any]]] = {}
+    for case in held["cases"]:
+        cases_of.setdefault(str(case["set_id"]), []).append(case)
+    opened_sets, opened_cases, opened_labels = opened["sets"], opened["cases"], opened["labels"]
+    breaks: list[int] = []
+    unchained = 0
+    for row in sorted(held["sets"], key=lambda row: str(row["id"])):
+        set_id = str(row["id"])
+        staged = stages.get(set_id, {})
+        frozen = staged.get("evalset.frozen", [])
+        stored = sorted([*staged.get("evalset.measured", []), *frozen], key=lambda at: at[0])
+        if set_id in listed and set_id not in stored_later:
+            last = stored[-1] if stored else None
+            held_aggregates = row["aggregates"] is not None
+            if last is None:
+                unchained += int(held_aggregates)  # stored without the event that stores them
+            elif "aggregates_ref" not in last[1]:
+                counts["predating"] += int(held_aggregates)  # stored before the commitments
+            elif set_id in opened_sets and set_id not in unopenable_sets:
+                values = opened_sets[set_id] or {}
+                try:
+                    stored_aggregates(set_id, values.get("aggregates"), last[1])
+                except MendariError:
+                    breaks.append(last[0])
+        if set_id in drawn_later:
+            continue  # drawn beside this verification: its rows may be that draw's
+        draws = staged.get("evalset.sampled", [])
+        committed = weight_refs_of(draws[-1][1]) if draws else {}
+        cases = cases_of.get(set_id, [])
+        if committed is None:
+            counts["predating"] += sum(1 for case in cases if str(case["status"]) != DRAFT)
+        if set_id in unopenable_sets:
+            continue  # counted by key id: this ring cannot check its rows
+        added = {str(p.get("case")): at for at, p in staged.get("evalset.case_added", [])}
+        for case in cases:
+            case_id, hashed = str(case["id"]), str(case["case_hash"])
+            mine = labels_of.get(case_id, [])
+            if case_id not in opened_cases or hashed not in added:
+                continue  # not checked above: no ring, removed, added since, or unchained
+            if any(str(label["id"]) not in opened_labels for label in mine):
+                continue  # a label chained since, or not checked above
+            by_round = [(rounds.get(str(label["assignment_id"])), label) for label in mine]
+            first = [opened_labels[str(label["id"])] for r, label in by_round if r == FIRST]
+            third = [opened_labels[str(label["id"])] for r, label in by_round if r == ADJUDICATION]
+            problems = row_mismatches(set_id, case, opened_cases[case_id], first, third, committed)
+            if not problems:
+                continue
+            if frozen:
+                breaks.append(frozen[0][0])
+                continue
+            drawn = committed is not None and hashed in committed
+            if "status" in problems or not drawn:
+                breaks.append(added[hashed])
+            else:
+                breaks.append(draws[-1][0])  # its weight: at the draw that committed to it
+    return ({"broken_at": min(breaks)} if breaks else None), unchained
 
 
 def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:

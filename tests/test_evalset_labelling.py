@@ -46,7 +46,9 @@ from mendari.core.evalsets import (
     AGGREGATES_FORMAT,
     NO_ASSIGNMENT,
     EvalsetStore,
+    aggregates_ref,
     label_ref,
+    weight_ref,
 )
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.registry import resolve_pack
@@ -84,15 +86,16 @@ TABLES = (
 )
 # The keys each labelling event's payload holds, and a label's commitment's.
 PAYLOADS = {
-    "evalset.sampled": {"set", "org", "n", "seed"},
+    "evalset.sampled": {"set", "org", "n", "seed", "weight_refs"},
     "evalset.assigned": {"set", "org", "case", "assignment", "labeller", "round"},
     "evalset.case_read": {"set", "org", "case", "assignment", "labeller"},
     "evalset.labelled": {"set", "org", "case", "label_ref", "labeller", "round"},
-    "evalset.measured": {"set", "org", "n"},
+    "evalset.measured": {"set", "org", "n", "aggregates_ref"},
 }
 USER = re.compile(r"^user:[0-9a-f]{16}$")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 CASE_HASH = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 Script = Callable[[int, int], Mapping[str, str]]  # (a case's number, its labels so far) -> one
 
@@ -491,7 +494,19 @@ def test_sampling_is_seeded_within_strata_and_records_weights(world: World) -> N
         for case in weights
     }
     (event,) = events(store, "evalset.sampled")
+    refs = event["payload"].pop("weight_refs")
     assert event["payload"] == {"set": world.set_id, "org": CLINIC, "n": 4, "seed": 7}
+    # Each drawn case's weight, committed to by its keyed hash with the salt sealed beside it
+    # (LP-11p); an undrawn case holds neither.
+    hashed = {row["id"]: row["case_hash"] for row in rows(store, "evalset_cases")}
+    assert set(refs) == {hashed[case] for case in sampled}
+    for case, body in attributes_of(world).items():
+        if case in sampled:
+            salt = base64.b64decode(body["weight_salt"])
+            made = weight_ref(salt, world.set_id, case, body["weight"])
+            assert len(salt) == 32 and refs[hashed[case]] == made
+        else:
+            assert "weight_salt" not in body
     # A second draw, of 3 in all, shared out by what is left (4 and 2): 2 and 1.
     assert hidden.sample(world.set_id, cases=3, seed=1)["sampled"] == 7
     weights = {case: body.get("weight") for case, body in attributes_of(world).items()}
@@ -513,10 +528,17 @@ def test_sampling_is_seeded_within_strata_and_records_weights(world: World) -> N
             hidden.sample(
                 world.set_id, per_stratum=given.get("per_stratum"), cases=given.get("cases")
             )
-    # The weights sit beside the attributes, outside each case's commitment.
+    # The weights sit beside the attributes, outside each case's commitment, each draw
+    # committing to every drawn case's weight anew: no commitment repeats, so the chain does not
+    # show whose weight changed (which would show who shares a stratum).
     assert store.verify(evalsets=world.keys)["ok"]
+    draws = [e["payload"]["weight_refs"] for e in events(store, "evalset.sampled")]
+    assert [len(refs) for refs in draws] == [4, 7, 10]
+    committed = [ref for refs in draws for ref in refs.values()]
+    assert len(set(committed)) == len(committed)
     text = json.dumps([e["payload"] for e in events(store, "evalset.sampled")])
     assert "ward" not in text and "home" not in text
+    assert not any(str(weight) in text for weight in (3.0, 2.0, 6 / 4, 4 / 3, 1.0))
 
 
 @pytest.mark.parametrize(
@@ -678,6 +700,12 @@ def test_no_label_value_or_label_word_is_in_the_chain(world: World, db_target: s
                 assert UUID.fullmatch(payload["assignment"])
             if "label_ref" in payload:
                 assert set(payload["label_ref"]) == {"id", "sha256"}
+            if "weight_refs" in payload:  # each drawn case's weight, as a commitment (LP-11p)
+                assert payload["weight_refs"]
+                for hashed, ref in payload["weight_refs"].items():
+                    assert CASE_HASH.fullmatch(hashed) and SHA256.fullmatch(ref)
+            if "aggregates_ref" in payload:
+                assert SHA256.fullmatch(payload["aggregates_ref"])
             if "round" in payload:
                 assert payload["round"] in ("first", "adjudication")
     stored = dump(world.store)
@@ -700,7 +728,7 @@ def test_audit_verify_recomputes_each_label_and_finds_it_altered(world: World) -
     checked = store.verify(evalsets=keys)
     assert checked["ok"] and checked["evalsets"] == {
         "sets": 1, "checked": 3, "removed": 0, "unchecked": 0, "assignments": 8, "labels": 8,
-        "frozen": 0,
+        "frozen": 0, "predating": 0,
     }  # fmt: skip
     without = store.verify(evalsets=True)
     assert without["ok"] and without["evalsets"]["unchecked"] == 3 + 8
@@ -839,7 +867,7 @@ def test_audit_verify_passes_after_labelling_and_adjudication(
     assert code == 0 and status["ok"]
     assert status["evalsets"] == {
         "sets": 1, "checked": 3, "removed": 0, "unchecked": 0, "assignments": 8, "labels": 8,
-        "frozen": 0,
+        "frozen": 0, "predating": 0,
     }  # fmt: skip
     assert LABEL_WORD.search(out) is None
     assert run(capsys, "audit", "verify", *db)[0] == 0
@@ -990,10 +1018,20 @@ def test_measure_gives_what_rater_agreement_and_coverage_give_on_the_same_labels
                         "labels": with_derived(manifest, settled) if settled else {}})  # fmt: skip
     expected = coverage(manifest, Dataset(world.set_id, Path("x"), records, ""), pack=INBOX)
     assert measured["coverage"] == {**expected, "dataset": {"name": world.set_id}}
+    # Sealed with a salt of their own, which the commitment the event chains is made with
+    # (LP-11p).
     (head,) = rows(store, "evalset_sets", id=world.set_id)
-    assert world.keys.open("aggregates", head["aggregates"], world.set_id)[0] == measured
+    stored, _ = world.keys.open("aggregates", head["aggregates"], world.set_id)
+    assert set(stored) == {"salt", "aggregates"} and stored["aggregates"] == measured
+    salt = base64.b64decode(stored["salt"])
     (event,) = events(store, "evalset.measured")
-    assert event["payload"] == {"set": world.set_id, "org": CLINIC, "n": 5}
+    assert event["payload"] == {
+        "set": world.set_id,
+        "org": CLINIC,
+        "n": 5,
+        "aggregates_ref": aggregates_ref(salt, world.set_id, measured),
+    }
+    assert len(salt) == 32 and hidden.show(world.set_id)["aggregates"] == measured
     guard = resolve_pack("mendari/ai-guard")
     with pytest.raises(MendariError, match="does not ask the set's questions"):
         hidden.measure(world.set_id, pack=guard)

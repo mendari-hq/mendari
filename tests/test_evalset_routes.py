@@ -714,7 +714,8 @@ def test_the_two_organizations_answers_stay_their_own_when_the_other_works(
 def test_each_draw_and_assignment_is_chained_and_logged_by_set_id_only(
     world: World, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A draw chains `evalset.sampled` (how many, the seed) and each assignment
+    """A draw chains `evalset.sampled` (how many, the seed, each drawn case's weight's
+    commitment by its keyed hash) and each assignment
     `evalset.assigned`; the security log says `evalset.sampled`, `evalset.assigned` and
     `evalset.adjudication.assigned` with the set's id and how many, the reads say nothing but
     their access lines (the routes' templates), and no line holds a case, an assignment, a
@@ -758,7 +759,9 @@ def test_each_draw_and_assignment_is_chained_and_logged_by_set_id_only(
         assert private not in written, private
     assert LABEL_WORD.search(written) is None
     (drawn,) = events(world.store, "evalset.sampled")
+    weights = drawn["payload"].pop("weight_refs")  # each drawn case's, committed to (LP-11p)
     assert drawn["payload"] == {"set": set_id, "org": CLINIC, "n": 2, "seed": 3}
+    assert sorted(weights) == sorted(case_hashes(world, set_id))
     assert len(events(world.store, "evalset.assigned")) == 6
     guide = (Path(__file__).resolve().parents[1] / "docs" / "deploying-with-phi.md").read_text()
     assert [event for event, *_ in said if event != "request" and f"`{event}`" not in guide] == []
