@@ -603,9 +603,17 @@ A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.nam
 token, then a query with no `/`, `?`, `#`, backslash or whitespace), with no `..` anywhere: no
 absolute URL, `//`, leading `/`, operation (`$everything`) or fragment. A pack the deployment does
 not own is invalid with any other; any other pack loads with a warning, and `mendari validate`
-refuses it. The reference runtime fetches a declared prefetch key the request leaves out only
-from a `fhirServer` the deployment allows (`MENDARI_FHIR_ALLOWED_SERVERS`), and requires it
-otherwise. For the order
+refuses it. The reference runtime fetches a declared prefetch key the request leaves out (or
+sends empty) only from a `fhirServer` the deployment allows (`MENDARI_FHIR_ALLOWED_SERVERS`); with
+no `fhirServer` the request is refused with `412`, as CDS Hooks 2.0 says. A key whose value is
+null has no data and is not fetched. A declared key that cannot be read (a failed read, an
+OperationOutcome, a value that is not a resource, a resource or search page the runtime read that
+is not R4 JSON), and a `base64_text` attachment that is only a `url` or whose data does not
+decode, make the decision `ABSTAIN` before any provider runs, with the reason
+`could not read <key>: <reason>` (a closed set of reason codes); refused input still gives
+`BLOCK`. The hook still answers, with a card that says so whatever `show` says. Every decision
+made from FHIR records what the mapping looked for and found, as counts (`data_coverage`,
+`mendari.data-coverage/1`). For the order
 hooks (`order-select`, `order-sign`), the orders come in `context.draftOrders`: every draft order
 that is a focus resource gets its own decision, with the prefetched record, and its own card. A
 draft with none of them returns no cards. A pack MAY word

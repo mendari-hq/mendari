@@ -5,9 +5,19 @@ The EHR sends the data via `prefetch` (resources or search Bundles), and for ord
 orders in `context.draftOrders`. A prefetch key the EHR left out is fetched from the request's
 `fhirServer` with its `fhirAuthorization` token, using the pack's own prefetch template, but only
 when that server is on the deployment's allow-list (`MENDARI_FHIR_ALLOWED_SERVERS`, empty by
-default; see `fhir_client`). Card wording comes from the pack's `cds_hooks.card`; without it, the
-card describes a routing decision. A pack that declares `coverage_information` also returns, for
-each decided order, a Da Vinci CRD system action (`standards/davinci.py`).
+default; see `fhir_client`). A key sent empty (`{}`, `[]`, `""`) counts as left out, as before. A
+key left out with no `fhirServer` is a `412` (`PrefetchRequired`), as CDS Hooks 2.0 says; a key
+whose value is null is "no data" and is not fetched, and one whose value is neither null nor a
+resource cannot be read. What the client sent goes through the structural R4 check, every
+value of it (a `400`), before any of it is set aside.
+
+The hook always answers (LP-23d). A key that could not be read (each read on its own: a failed
+fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
+cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
+whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it,
+the card describes a routing decision. A pack that declares `coverage_information` also returns,
+for each decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate`
+for a technical reason when the order abstained over unreadable data and the Coverage was read.
 """
 
 from __future__ import annotations
@@ -25,8 +35,15 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, Priority
 from mendari.core.templates import fill
-from mendari.errors import CdsHooksError, FhirError
-from mendari.standards import davinci
+from mendari.errors import (
+    CdsHooksError,
+    FhirError,
+    FhirStructureError,
+    PrefetchRequired,
+    ReadReason,
+)
+from mendari.standards import davinci, fhir_structure
+from mendari.standards.data_coverage import source_type
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
 
@@ -37,6 +54,13 @@ ORDER_HOOKS = ("order-select", "order-sign")
 MAX_ORDERS = 50
 _TOKEN = re.compile(r"\{\{\s*context\.(\w+)\s*\}\}")
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")  # a FHIR id
+# What an ABSTAIN over a record that could not be read says on its card (owner decision 6): fixed
+# words, then each key and its reason; never a URL, a query or what a server answered.
+UNREADABLE_SUMMARY = "No recommendation: part of the record could not be read"
+UNREADABLE_DETAIL = (
+    "Mendari could not read part of this patient's record, so it made no recommendation and a "
+    "person decides. Not read:"
+)
 
 
 def service_id(pack: Pack) -> str:
@@ -101,19 +125,45 @@ def invoke(
             )
     if charge is not None:
         charge(len(orders) if hooks.hook in ORDER_HOOKS else 1)
-    prefetch = dict(_object(request, "prefetch"))
-    missing = [key for key in hooks.prefetch if not prefetch.get(key)]
+    sent = _object(request, "prefetch")
+    # A key left out, or sent empty, is fetched, as before; a null value is "no data" (CDS
+    # Hooks 2.0), never fetched.
+    missing = [key for key in hooks.prefetch if _left_out(sent, key)]
+    found: dict[str, Any] = {}
+    unreadable: dict[str, ReadReason] = {}
     if missing:
-        prefetch.update(fetch(hooks.prefetch, missing, request))
+        found, unreadable = fetch(hooks.prefetch, missing, request)
+    # Every value the client sent goes through the structural R4 check before any is set aside,
+    # as before: a structure error is the request's fault (a `400`), whatever the value is.
+    _require_r4(sent)
+    prefetch: dict[str, Any] = {}
+    for key, value in sent.items():
+        if value is None or key in missing:
+            continue
+        if key in hooks.prefetch and _outcome(value):
+            unreadable[key] = "operation_outcome"  # the client's own read failed
+            continue
+        if key in hooks.prefetch and not _resource(value):
+            # Neither data nor "no data" (a string, a list, an object with no resourceType):
+            # nothing is decided on it, but it stays as sent, so a required resource it does not
+            # hold is still refused (`decide_fhir`), as before.
+            unreadable[key] = "unsupported_type"
+        prefetch[key] = value
+    prefetch.update(found)
+    templates = hooks.prefetch
     if hooks.hook in ORDER_HOOKS:
-        decided = [decision.decide_fhir(prefetch, focus=order) for order in orders]
+        decided = [
+            decision.decide_fhir(prefetch, focus=order, unreadable=unreadable, sources=templates)
+            for order in orders
+        ]
     else:
-        decided = [decision.decide_fhir(prefetch)]
+        decided = [decision.decide_fhir(prefetch, unreadable=unreadable, sources=templates)]
     template = hooks.card
     cards = []
     for result, task in decided:
         shown = result.recommendation or "none"
-        if template is not None and template.show is not None and shown not in template.show:
+        hidden = template is not None and template.show is not None and shown not in template.show
+        if hidden and not result.abstained_unreadable:
             continue  # decided and audited, but nothing worth interrupting the user for
         cards.append(card(decision.pack, result, task))
     response: dict[str, Any] = {"cards": cards}
@@ -121,6 +171,10 @@ def invoke(
     if coverage is not None:
         actions = []
         for order, (result, _) in zip(orders, decided, strict=True):
+            if result.abstained_unreadable:  # the requirements were not checked: CRD's way
+                extension = davinci.indeterminate(result, coverage, clock.today())
+                actions.append(davinci.system_action(order, extension))
+                continue
             info = hooks.coverage_information.get(result.recommendation or "")
             if info is not None:
                 form = None
@@ -141,11 +195,17 @@ def invoke(
 
 def fetch(
     templates: Mapping[str, str], keys: list[str], request: Mapping[str, Any]
-) -> dict[str, Any]:
-    """The prefetch the EHR left out, read from its `fhirServer` (allow-listed servers only)."""
+) -> tuple[dict[str, Any], dict[str, ReadReason]]:
+    """The prefetch the EHR left out, read from its `fhirServer` (allow-listed servers only):
+    what was read, and each key that could not be read with its reason (`read_each`).
+
+    A request fault raises, before anything is read: no `fhirServer` (`PrefetchRequired`, a
+    `412`), a `fhirAuthorization` that is not a Bearer token, a context that cannot fill a
+    template. So does a server off the allow-list: that is configuration, not the patient's
+    data, so nothing is fetched or recorded."""
     server = request.get("fhirServer")
     if not server:
-        raise FhirError(
+        raise PrefetchRequired(
             f"prefetch required for: {', '.join(keys)} (and no fhirServer to fetch from)"
         )
     authorization = _object(request, "fhirAuthorization")
@@ -157,7 +217,84 @@ def fetch(
     context = _object(request, "context")
     queries = {key: fill_template(templates[key], context) for key in keys}
     with FhirClient(str(server), token=token) as client:
-        return {key: client.read(query) for key, query in queries.items()}
+        return read_each(client, templates, queries)
+
+
+def read_each(
+    client: FhirClient,
+    templates: Mapping[str, str],
+    queries: Mapping[str, str],
+    *,
+    fatal: Callable[[FhirError], bool] | None = None,
+) -> tuple[dict[str, Any], dict[str, ReadReason]]:
+    """Read each prefetch key's query on its own (`queries`, filled from `templates`): the keys
+    read, and the keys that could not be, each with its reason. A search is read whole (a page
+    cap is `cap`). What comes back must be what was asked for: an OperationOutcome is
+    `operation_outcome`, another resource type (or a resource for a search) `unsupported_type`,
+    and a resource that fails the structural R4 check (`fhir_structure`), or a search page whose
+    `entry` or `link` is not R4's shape (`FhirClient.read`), `not_r4`, so nothing is decided on
+    it. An error `fatal` says so (SMART's `401`: the launch has ended) is raised."""
+    found: dict[str, Any] = {}
+    unreadable: dict[str, ReadReason] = {}
+    for key, query in queries.items():
+        try:
+            value = client.read(query, complete=True)
+        except FhirError as error:
+            if fatal is not None and fatal(error):
+                raise
+            unreadable[key] = error.reason or "network"
+            continue
+        reason = _unread(templates[key], value)
+        if reason is None:
+            found[key] = value
+        else:
+            unreadable[key] = reason
+    return found, unreadable
+
+
+def _unread(template: str, value: Mapping[str, Any]) -> ReadReason | None:
+    """Why a value Mendari read for `template` cannot be used, or None."""
+    if _outcome(value):
+        return "operation_outcome"
+    search = "?" in template or "/" not in template
+    wanted = "Bundle" if search else source_type(template)
+    if value.get("resourceType") != wanted:
+        return "unsupported_type"
+    if fhir_structure.blocking(fhir_structure.check(value)):
+        return "not_r4"
+    return None
+
+
+def _left_out(sent: Mapping[str, Any], key: str) -> bool:
+    """A prefetch key the client did not send, or sent empty (`{}`, `[]`, `""`): it is fetched,
+    or with no `fhirServer` a `412`, as an empty value was before. A null value is not left out:
+    it says there is no data (CDS Hooks 2.0)."""
+    if key not in sent:
+        return True
+    value = sent[key]
+    return value is not None and not value
+
+
+def _require_r4(sent: Mapping[str, Any]) -> None:
+    """The structural R4 check on the prefetch the client sent (`fhir_structure`): a blocking
+    issue is the request's fault, a `FhirStructureError` (`400`), paths only."""
+    malformed = fhir_structure.blocking(fhir_structure.check(sent))
+    if malformed:
+        raise FhirStructureError(
+            [
+                {"code": i.code, "expression": i.expression, "diagnostics": i.diagnostics}
+                for i in malformed
+            ]
+        )
+
+
+def _outcome(value: Any) -> bool:
+    return isinstance(value, Mapping) and value.get("resourceType") == "OperationOutcome"
+
+
+def _resource(value: Any) -> bool:
+    """A resource or a Bundle: what a prefetch key's value is when it is not null."""
+    return isinstance(value, Mapping) and isinstance(value.get("resourceType"), str)
 
 
 def _object(request: Mapping[str, Any], key: str) -> Mapping[str, Any]:
@@ -198,6 +335,9 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
     template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
     target = result.recommendation or "manual triage"
     key = result.recommendation or "none"
+    if result.abstained_unreadable:
+        detail = _unreadable_detail(pack, result)
+        return _card(pack, result, task, "info", UNREADABLE_SUMMARY, detail)
     if result.priority is Priority.STAT:
         indicator = "critical"
     elif template is not None and key in template.indicators:
@@ -218,7 +358,6 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
         summary = f"{verb} to {target}" + (
             f" ({result.priority.value})" if result.priority.value != "routine" else ""
         )
-    label = template.suggestion if template is not None else f"Create routing task for {target}"
     confidence = "n/a" if result.confidence is None else f"{result.confidence:.0%}"
     detail = "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", ""]
@@ -226,6 +365,31 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
         + [f"- {reason}" for reason in result.reasons]
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
+    return _card(pack, result, task, indicator, summary, detail)
+
+
+def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
+    """An unreadable ABSTAIN's detail: the pack's status and the notice, the fixed words, and
+    each key with its reason code (the pack's own names and a closed set: nothing from the
+    record, the request or a server)."""
+    return "\n".join(
+        [f"*{pack.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
+        + [f"- {key}: {reason}" for key, reason in result.unreadable]
+        + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
+    )
+
+
+def _card(
+    pack: Pack,
+    result: DecisionResult,
+    task: Mapping[str, Any],
+    indicator: str,
+    summary: str,
+    detail: str,
+) -> dict[str, Any]:
+    template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
+    target = result.recommendation or "manual triage"
+    label = template.suggestion if template is not None else f"Create routing task for {target}"
     return {
         "uuid": str(uuid.uuid4()),
         "summary": summary[:140],

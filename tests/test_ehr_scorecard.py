@@ -155,8 +155,9 @@ def _shallow() -> bool:
 def test_a_test_not_at_the_graded_commit_is_cited_only_where_the_row_names_23a() -> None:
     """The scope line says `COMMIT` with LP-23a. A test a row names (as its evidence, or in its
     last column) is a test function at `COMMIT`, or the row's last column says it rests on
-    LP-23a's work; and a row that says so names a test LP-23a added. Skipped in a shallow clone,
-    which holds no history."""
+    LP-23a's work, or, for a met criterion, on the work of the LP-23 step that met it (`23d: ...`,
+    as each step updates the rows it meets); and a row that says so names such a test. Skipped
+    in a shallow clone, which holds no history."""
     if _shallow():
         pytest.skip("a shallow clone holds no history")
     files: dict[str, str] = {}
@@ -171,7 +172,8 @@ def test_a_test_not_at_the_graded_commit_is_cited_only_where_the_row_names_23a()
                     files[file] = found.stdout if found.returncode == 0 else ""
                 if not re.search(rf"^def {name}\(", files[file], flags=re.MULTILINE):
                     new.append(node)
-            assert bool(new) is row.waits_on.startswith("23a: "), (row.id, new)
+            step = r"23[a-m]: " if row.status == "met" else r"23a: "
+            assert bool(new) is bool(re.match(step, row.waits_on)), (row.id, new)
 
 
 def test_the_scorecard_shows_no_percentage_or_fraction() -> None:
