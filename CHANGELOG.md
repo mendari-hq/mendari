@@ -352,6 +352,16 @@ The first release (not yet published).
   `mendari.evals.method` pins the version, the document's SHA-256 and the parameters; nothing
   uses it yet, so no figure, format or decision changes, and the leaderboards still rank public
   sets with `mendari.rank/1` until LP-17g. Gate `grading-method` now probes the document.
+- **Arms by provider class** (`mendari.arms/1`, LP-17c, for the scoreboard):
+  `mendari scoreboard arms PACK [--json]` lists a pack's provider configurations, one variant
+  per slot, in four arms by the models they ask through any slot or composite member: "Mendari
+  only", "+ specialised classifier" (Jev), "+ general LLM" and "+ both". Each configuration
+  says whether it runs on the machine, or names the types it calls off it (CQL asks no model
+  but is remote). An arm no configuration reaches is "not applicable". It reads the manifest
+  alone and writes nothing. Of the reference packs, Patient Inbox Router has 25 configurations,
+  Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
+  Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
+  `docs/spec/evaluation-reports.md`, Arms.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

@@ -191,6 +191,7 @@ uv run mendari test mendari/patient-inbox-router         # the pack's own behavi
 uv run mendari decide mendari/patient-inbox-router --text "Can I pay my bill online?"
 uv run mendari eval mendari/patient-inbox-router --dataset datasets/local-site-example.jsonl
 uv run mendari card mendari/patient-inbox-router         # render the Decision Card
+uv run mendari scoreboard arms mendari/referral-router   # its configurations, by arm
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
 uv run mendari --version
@@ -1185,6 +1186,13 @@ configurations on public sets (`mendari.rank/1`) until LP-17g relabels them. It 
 not in effect, until the owner sets its effective date; `mendari.evals.method` pins its hash and
 every number it sets ([ADR-0013](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0013-scoreboard-and-scoped-grades.md)).
 It is an engineering evaluation, not clinical validation.
+
+`mendari scoreboard arms PACK` lists a pack's provider configurations (one variant per slot) in
+the scoreboard's four arms, by the models they ask through any slot: "Mendari only" (no
+model), "+ specialised classifier" (Jev), "+ general LLM" and "+ both". It reads the manifest
+alone, and says of each configuration whether it runs on the machine or what it calls off it
+(CQL asks no model but calls Mendari's CQL engine). An arm a pack cannot build is
+"not applicable" ([the format](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md)).
 
 ## Feedback loop
 

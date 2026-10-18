@@ -2,7 +2,8 @@
 """`audit verify`, `audit export`, `feedback export` and `monitor` open the server's database
 read-only (LP-15): a mistyped --db is one line and exit 1, never a new empty database that
 "verifies"; another application's database is refused, untouched; the server's database is left
-exactly as it was; and a database written by an older Mendari is verified as it is."""
+exactly as it was; and a database written by an older Mendari is verified as it is. A command
+that reads only a pack (`scoreboard arms`, LP-17c) takes no database and writes nothing."""
 
 from __future__ import annotations
 
@@ -34,6 +35,12 @@ COMMANDS = {
     "audit export": ["audit", "export"],
     "feedback export": ["feedback", "export", "mendari/patient-inbox-router", "--out", "{out}"],
     "monitor": ["monitor", "--pack", "mendari/patient-inbox-router"],
+}
+# Commands that read a pack's files and nothing else: no --db, nothing written anywhere.
+PACK_ONLY = {
+    # A pack's configurations by arm (LP-17c), from its manifest.
+    "scoreboard arms": ["scoreboard", "arms", "mendari/patient-inbox-router"],
+    "scoreboard arms --json": ["scoreboard", "arms", "mendari/patient-inbox-router", "--json"],
 }
 
 
@@ -88,6 +95,22 @@ def test_the_servers_database_is_left_exactly_as_it_was(
     assert db.read_bytes() == before
     with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+
+
+@pytest.mark.parametrize("command", sorted(PACK_ONLY))
+def test_a_command_that_reads_only_a_pack_writes_nothing(
+    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack
+) -> None:
+    files = sorted(path for path in inbox_pack.root.rglob("*") if path.is_file())
+    before = [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files]
+    monkeypatch.chdir(tmp_path)
+    assert main(PACK_ONLY[command]) == 0
+    # Nothing here, nor in the Hub's config and cache folders, which conftest puts here.
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+    assert sorted(path for path in inbox_pack.root.rglob("*") if path.is_file()) == files
+    assert [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files] == before
+    assert main([*PACK_ONLY[command], "--db", str(tmp_path / "mendari.db")]) == 1  # takes none
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
 
 
 def test_a_read_only_file_verifies(tmp_path: Path, inbox_pack: Pack) -> None:
