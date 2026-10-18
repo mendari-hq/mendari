@@ -903,7 +903,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
       2026-10-07; the PR's Preview health is checked after CI, before merging. Review: the
       README, the authoring guide and the deploy steps say an `llm` variant needs `LLM_MODEL`.
 
-- [ ] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed).
+- [x] **LP-11** Evaluation-set store and blind labelling (ADR-0011, Proposed; built 2026-10-17; gates `labelling-underway` and `hidden-sets-frozen` probed by tests, owner attestations open).
   **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the
   hidden-case index live only in the hosted engine's own database (locally, a developer's SQLite or
   Postgres with synthetic sets), in tables prefixed `evalset_`; never in this repository, a pack
@@ -924,7 +924,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
 
   Planned by a mapping workflow (2026-10-09) as fifteen PRs, each safe alone, the feature off
-  without both keys; the full plan, its 55 conflicts with the default each PR follows, and the
+  without both keys; the full plan, its 57 conflicts with the default each PR follows, and the
   risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
   no-leak sweep land before any evaluation-set route exists.
   - [x] **11a** (#220, merged 2026-10-09) One canonical form of a case's input (`evals/canonical.py`: the strict
@@ -1029,7 +1029,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_landing` and the 11g sweep, which labels through the routes and allows a case's input
     only in a labeller's own next case; `evalsets_are_on` asserts the routes in memberships
     mode; the runbook's "How a labeller labels".
-  - [ ] **11k** (PR open) The set-management routes (`curate`, mounted as 11j's: memberships
+  - [x] **11k** (#248, merged 2026-10-16) The set-management routes (`curate`, mounted as 11j's: memberships
     mode with both keys): `GET /api/evalsets` (the organization's sets: id, name, pack, state,
     when made, cases), `GET /api/evalsets/{set_id}` (name, pack and questions; state,
     commitment, rule, runs used and left; cases by status and each labeller's work by user id;
@@ -1049,7 +1049,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     whose administrators draw, assign, adjudicate and read through the routes (conflict 57
     amended: a set's answer to its curators may name label words); threat model I13 and E11;
     the runbook's "Curating from the dashboard API".
-  - [ ] **11l** (PR open) The grading route and the aggregates-only result (`grade`):
+  - [x] **11l** (#250, merged 2026-10-16) The grading route and the aggregates-only result (`grade`):
     `POST /api/evalsets/{set_id}/runs` (`{pack, variants?}`), mounted with both keys in both
     account modes (its path out of `_MEMBERSHIPS_ONLY`, its `*` rule before the curators'); only
     an organization's grading key passes, for its own sets (another's, an unknown and a malformed
@@ -1089,7 +1089,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
     phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
     gate probe changes (11o replaces `labelling-underway`'s).
-  - [ ] **11n** (PR open) The management screen (`#evalsets[/<set id>[/<tab>]]`,
+  - [x] **11n** (#251, merged 2026-10-17) The management screen (`#evalsets[/<set id>[/<tab>]]`,
     `dashboard/evalsets.js`, "Hidden sets" in the section list, over 11k's routes and the members
     list only): available, link included, only to a signed-in person holding `curate` in
     memberships mode where `/api/health` names the evaluation-set keys (`state.evalsets`, read
@@ -1112,9 +1112,39 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in claims mode; axe in both themes; phone and `UNDER_24` on every tab; the import lines)
     and `test_invite_page` (the screen's labeller rule and evidence threshold are the
     server's). The Access tab lists are unchanged.
-  - [ ] **11o** Close-out (gates, threat model rows, the review packet).
+  - [x] **11o** (#254) Close-out, tests and docs only: G2-3's `labelling-underway` and
+    G3-4's `hidden-sets-frozen` lose their `pending` probes for `tests` probes (29 and 21 tests,
+    named without their cases: the 11g, 11h, 11j, 11k, 11m and 11n tests, and the 11a, 11g, 11i,
+    11k, 11l and 11n tests, each with the end-to-end test; browser tests included), both
+    attestations left empty and no prerequisite added. The threat model's residual risks: the
+    key holder decrypts offline; an administrator links one case's events by its keyed hash and
+    sees who read and labelled it, and the chain keeps those user ids; adjudication shows which
+    cases and pairs disagreed; until a set freezes, no commitment covers its header, its cases'
+    statuses or their weights (a status edited by SQL passes verify and is frozen as it is), and
+    none covers a set's stored aggregates, so a gate's positives come from `freeze`'s output;
+    paraphrased public cases pass the public-source rule. The
+    runbook's owner's steps (both keys made with the command, kept off the laptop, Production
+    only and why, redeploy and the health check, the `0600` file, what claims mode mounts, a
+    lost key, the grading key's `--days` and expiry, each set's rotation numbers, how to fill
+    both attestations) and "A set from start to end", each checked against the code (every
+    writing command, not only `create`, `add` and `remove-case`, refuses a database no server
+    used). ADR-0011's status (built 11a to 11o; accepted once the owner's decisions below confirm
+    or change its defaults), its 11m and 11o steps and its consequences; the README and the
+    CHANGELOG (11m's entry, which #241 lacked, and the close-out).
+    `tests/test_evalset_end_to_end.py` (SQLite and Postgres): two organizations made on the
+    command line, the deployment in use with the keys on, a set made and filled with `mendari
+    evalset create` and `add`, drawn, assigned and adjudicated through the curators' routes,
+    labelled blind through the labellers' (one case disputed, then resolved) and followed with
+    `progress`, measured (`agreement`, `coverage`), frozen, shown and retired by the runbook's
+    lines, graded once through the grading route with a key and a body as the runbook writes
+    them (the other organization's key answered `no_set`; a second run after retiring
+    `not_gradable`), then `mendari audit verify --evalsets` passes, `rotate --check` is ready and
+    the set's chain holds its events in the lifecycle's order; no answer, log line or command
+    output holds a case's input, author or author's id but each labeller's own next case its
+    input. The review packet (`docs/security/review-packet.md`) is not updated: neither the
+    plan's 11o nor LP-12's close-out touched it.
 
-  **Owner decisions still open** (none blocks 11a to 11l; the hosted site mounts no labelling
+  **Owner decisions still open** (none blocked the build; the hosted site mounts no labelling
   or curating route until the first is settled): how labellers reach the hosted site
   (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
   rotation numbers (maximum grading runs and age, both required at freeze); what settles a

@@ -3,17 +3,53 @@
 A **hidden evaluation set** is a set of hand-written cases that a pack's authors never see, kept
 to measure the pack honestly (LP-11,
 [ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)). Clinicians label its cases blind,
-and a grading run answers aggregates only. This runbook covers what is built so far: making
-a set, adding and removing its cases, drawing them for labelling, assigning them to labellers,
-following the labelling, adjudicating disputes and measuring agreement and coverage, freezing a
-set under its rotation rule, reading it, retiring it, listing sets and verifying them, rotating
-the keys, rebuilding the hidden-case index and the sealed export, all from the key holder's
-command line; how a labeller labels, through their own routes (LP-11j); and how an
-organization's administrators list and read its sets and draw, assign and adjudicate their
-cases through theirs (LP-11k); how the organization's grading key grades a pack against a
-frozen set through its route (LP-11l, [Grading a hidden set](#grading-a-hidden-set)); and the
-dashboard's Labelling and Hidden sets screens over the labellers' and curators' routes
-(LP-11m, LP-11n).
+and a grading run answers aggregates only. This runbook covers all of LP-11 (11a to 11o): the
+owner's steps for the keys and the launch gates; making a set, adding and removing its cases,
+drawing them for labelling, assigning them to labellers, following the labelling, adjudicating
+disputes and measuring agreement and coverage, freezing a set under its rotation rule, reading
+it, retiring it, listing sets and verifying them, rotating the keys, rebuilding the hidden-case
+index and the sealed export, all from the key holder's command line; how a labeller labels,
+through their own routes (LP-11j); how an organization's administrators list and read its sets
+and draw, assign and adjudicate their cases through theirs (LP-11k); how the organization's
+grading key grades a pack against a frozen set through its route (LP-11l); and the dashboard's
+Labelling and Hidden sets screens over the labellers' and curators' routes (LP-11m, LP-11n).
+
+## A set from start to end
+
+The whole lifecycle, in the order it runs. `tests/test_evalset_end_to_end.py` runs these steps
+in this order, through the command line and the routes, on SQLite and Postgres.
+
+1. **The keys and the deployment.** The owner has set both keys
+   ([The owner's steps](#the-owners-steps)). The deployment runs with sign-in, and in
+   memberships mode for labelling and curating ([accounts](accounts.md)). It has served at least
+   once: its first decision records its deployment, and the commands that write take only a
+   server's database.
+2. **The organization and its people.** The organization has its record (`mendari access org
+   create`), an administrator (who manages its sets and never labels), and labellers (members
+   with the `labeller` role), named by user id.
+3. **Make the set and add its cases**: `mendari evalset create`, then `add`
+   ([Making a set and adding its cases](#making-a-set-and-adding-its-cases)). The set now holds
+   the cases sealed: keep the file of cases as you would the set, or delete it.
+4. **Draw and assign**: `sample`, then `assign`, or an administrator through the curators'
+   routes or the dashboard's **Hidden sets** ([Labelling a set](#labelling-a-set), steps 1 and 2).
+5. **Label**: each labeller through their routes or the dashboard's **Labelling**
+   ([How a labeller labels](#how-a-labeller-labels)). Follow with `progress` or the Progress
+   tab.
+6. **Adjudicate** each disputed case: `adjudicate`, or the Adjudicate tab
+   ([Labelling a set](#labelling-a-set), step 4). Its third labeller labels it as above.
+7. **Measure**: `agreement` and `coverage` ([Labelling a set](#labelling-a-set), step 5). The
+   aggregates are stored sealed, then shown to the set organization's administrators.
+8. **Freeze**: `freeze` with both limits of the rotation rule ([Freezing a set](#freezing-a-set)).
+   Keep the commitment, and read it back with `show`.
+9. **Grade**: when LP-17 needs it, the operator mints the organization's grading key, and each
+   run goes through the grading route, counted against the rule
+   ([Grading a hidden set](#grading-a-hidden-set)).
+10. **Retire** it when its rule is spent or a new set takes over
+    ([Retiring a set](#retiring-a-set)), and start the next one
+    ([A second lifecycle](#a-second-lifecycle)).
+11. **Verify** with `mendari audit verify --evalsets` between any two steps, and before a key
+    changes check with `mendari evalset rotate --check` ([Verifying](#verifying),
+    [Rotating the evaluation-set key](#rotating-the-evaluation-set-key)).
 
 ## Where sets live
 
@@ -65,10 +101,11 @@ strata and languages, as aggregates that name no case.
 ## The keys
 
 The feature is off unless both `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` are set
-([Deploying with PHI](../deploying-with-phi.md), section 8). The owner makes them, keeps a copy off the laptop,
-and sets them as Secret for the hosted Production environment only; the commands below run with
-the same two values in the shell. The index key keys the hidden-case index and the chained case
-hashes, never a label; the two differ from each other and from every PHI key.
+([Deploying with PHI](../deploying-with-phi.md), section 8). The owner makes them, keeps a copy
+off the laptop, and sets them as Secret for the hosted Production environment only
+([The owner's steps](#the-owners-steps)); the commands below run with the same two values in the
+shell. The index key keys the hidden-case index and the chained case hashes, never a label; the
+two differ from each other and from every PHI key.
 
 The database remembers the evaluation-set keys a writer held, so a stray key is caught. Before
 every write, and when a server with the keys starts, Mendari refuses:
@@ -87,12 +124,58 @@ under it before the old one is dropped. A PHI key or input hash key the database
 evaluation-set key is refused too, and never marked a PHI key: a server with one does not
 start, and the sets stay writable with their own keys.
 
+### The owner's steps
+
+Production has neither key until the owner sets them, so the feature is off there. Before the
+first real set:
+
+1. **Make the two keys** on a machine you trust, one at a time, each 32 random bytes in base64
+   (`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`): one for
+   `MENDARI_EVALSET_KEY`, one for `MENDARI_EVALSET_INDEX_KEY`. They differ from each other and
+   from every other key of the deployment (the PHI key and its read keys, the input hash key,
+   the checkpoint key): a server or command given two equal ones stops, naming the variables,
+   never a value.
+2. **Keep both in your secret manager, and a copy off the laptop**, beside the deployment's
+   other keys. A lost key cannot be made again. Without the evaluation-set key nothing it sealed
+   opens again: every set sealed under it is lost, and so is every sealed export of them. A new
+   key in its place is refused, by a server when it starts and by every command that writes,
+   while a set the lost key sealed is in the database, since the database knows none of the new
+   keys. A lost index key is replaced by a new one and a reindex
+   ([A new index key](#rotating-the-evaluation-set-key)), which needs the evaluation-set key.
+3. **Set both as Secret for the hosted Production environment only**, never Preview or
+   Development, then redeploy. A Preview runs on a copy of the database, which must hold the
+   sets as ciphertext it cannot open. So on Vercel a server with the keys refuses to start
+   outside Production (`VERCEL_ENV` not `production`), and where `VERCEL_ENV` is missing: keep
+   Vercel's system environment variables exposed in the project's settings. A server without
+   sign-in refuses them too. Once it is up, sign in and read `/api/health`: to someone who may
+   read, it shows the keys' ids as `evalset_keys` (`current`, `read`, `index`), never a key.
+4. **What the hosted site then serves.** In claims mode, as the hosted site runs today, the
+   keys mount the grading route only (`POST /api/evalsets/{set_id}/runs`,
+   [Grading a hidden set](#grading-a-hidden-set)). A labeller's routes, the curators' routes
+   and the dashboard's Labelling and Hidden sets need memberships mode
+   ([accounts](accounts.md)). How labellers reach the hosted site, and get past Vercel
+   Authentication, is the owner's decision still open (decision 1): settle it before
+   contracting labellers.
+5. **For the commands**, keep the same two values in a file only you may read (`0600`), as for
+   the PHI key's rotation, and read it into the shell you run `mendari evalset` from, with
+   `DATABASE_URL` (or `--db`) naming the deployment's database. `mendari access grader-key`
+   also needs the deployment's `MENDARI_INPUT_HASH_KEY` there, as every `mendari access`
+   command that writes does on a protected database ([accounts](accounts.md)). Unset them when
+   you are done.
+6. **Mint a grading key only when LP-17 needs one.** An organization's grading key is the only
+   credential a frozen set is graded with, so none should exist before the grading runner that
+   uses it. How long it lives, and what to do before it expires:
+   [Grading a hidden set](#grading-a-hidden-set).
+7. **Choose each set's rotation rule** when you freeze it ([Freezing a set](#freezing-a-set)),
+   and attest the launch gates when they are true ([The launch gates](#the-launch-gates)).
+
 ## Making a set and adding its cases
 
-Each command takes the server's database from `--db` or `$DATABASE_URL`. `create`, `add` and
-`remove-case` refuse a database that is not the server's (one that never held a decision, a
-deployment, a hold or a set). `list` opens it read-only and refuses one that is not Mendari's;
-an unused one lists nothing.
+Each command takes the server's database from `--db` or `$DATABASE_URL`. Each one that writes
+(every `mendari evalset` command but `list`, `progress`, `show`, `export` and `rotate --check`)
+refuses a database that is not the server's: one that never held a decision, a deployment, a
+hold or a set (a server records its deployment at its first decision with a pack). `list`
+opens it read-only and refuses one that is not Mendari's; an unused one lists nothing.
 
 ```bash
 mendari evalset create mendari/patient-inbox-router --org clinic-a --name "Inbox, spring" --db "$DATABASE_URL"
@@ -203,8 +286,8 @@ mendari evalset adjudicate <set id> --labeller user:0123456789abcdef --labeller 
 Each disputed case goes to a labeller named who is not one of its first two, so the list must
 hold such a person for every disputed case, or the whole run refuses and nothing is written:
 with three first-pass labellers, name all three. The adjudicator is shown what the first
-labellers were, the input and the questions only, never their labels. The same refusals and
-withdrawals apply. An unresolved case keeps the set from being frozen
+labellers were shown, the input and the questions only, never their labels. The same refusals
+and withdrawals apply. An unresolved case keeps the set from being frozen
 ([Freezing a set](#freezing-a-set)) until it is removed (`mendari evalset remove-case`), which
 removes its assignments and labels with it; what settles a three-way split instead is the
 owner's decision still open.
@@ -328,7 +411,10 @@ the freeze's own transaction, chaining `evalset.case_removed` for each. The draw
 the weights their draws gave them, so the weights still stand for the cases left out.
 
 `--max-runs` and `--max-age-days` are the [rotation rule](#the-rotation-rule): both are
-required, and there is no default (the owner's decision, for each set).
+required, and there is no default (the owner's decision, for each set). The 20 runs and 180
+days above are an example, not a house default: until the owner sets one (owner decision 2,
+still open), choose both for each set. Keep them with the set's records, beside its commitment;
+`evalset.frozen` chains them and `show` reads them back.
 
 Freezing takes each case's final labels (an agreed case's, a resolved case's majority on each
 question) and the labels the pack derives from them, and hashes the set's content
@@ -389,11 +475,16 @@ that key reaches it, and only the operator makes one, from the command line:
 mendari access grader-key --org <org> --reason "LP-17's runner" --db "$DATABASE_URL"
 ```
 
-It holds `grade` and nothing else, for 365 days at most, and its secret is printed once: keep it
-as you would the sets. No person (an administrator included), other key or token reaches the
-route (`403`, `grading_only`); an EHR launch's cookie is no credential there (`401`), and a
-server without sign-in never starts with the keys. An administrator lists and revokes the key
-(the Access view, `DELETE /api/auth/keys/{id}`), never rotates it.
+It holds `grade` and nothing else. It lives 90 days unless `--days` says otherwise (1 to 365).
+Its secret is printed once and kept nowhere: give it only to the grading runner, as a secret
+where the runner runs (its secret manager, never a file in a repository), and keep it as you
+would the sets. Mint one only when LP-17's grading runner needs it
+([The owner's steps](#the-owners-steps)). No person (an administrator included), other key or
+token reaches the route (`403`, `grading_only`); an EHR launch's cookie is no credential there
+(`401`), and a server without sign-in never starts with the keys. An administrator lists and
+revokes the key (the Access view, `DELETE /api/auth/keys/{id}`), never rotates it (`409`). So
+before it expires, the operator mints the next one with the same command, the runner takes it,
+and the old one is revoked; an expired key grades nothing.
 
 ```bash
 curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
@@ -504,9 +595,16 @@ round; each label opens under its own set, case and id and gives the commitment 
 the verification at its event (`broken_at`); a row, or a set's state, without its event is counted
 (`unchained`); a row sealed under a key this database knew and the shell lacks is counted by key id
 (`unopenable`). The counts are of sets, cases checked, removed and unchecked, assignments, labels
-and frozen sets recomputed. A draft set's header is only checked to open under its own set id: it
-has no chained commitment until the set is frozen, so a draft's header re-sealed by someone holding
-the key passes; a frozen set's header is part of its content. Without the keys, each case, each
+and frozen sets recomputed. What no chained commitment covers is only checked to open under its own
+set id, and a case's status is not checked at all. Until a set is frozen, that is its header, each
+case's status and each drawn case's weight: a status edited behind the store's back, a header or a
+weight re-sealed by someone holding the key, or a case's attributes put back from an earlier copy
+of its row (from before a draw gave it its weight) pass, and freezing commits to them as they are
+(a frozen set's header, statuses and weights are part of its content). In every state, it is the
+set's stored aggregates, which `show` and the curators' route read, so a gate's positives come from
+`freeze`'s own output ([The launch gates](#the-launch-gates); the
+[threat model](../security/threat-model.md#residual-risks-and-assumptions) names this residual
+risk). Without the keys, each case, each
 label and each frozen set is counted `unchecked`, never a break. It reads only, marks nothing, and
 cannot be combined with `--since-checkpoint`.
 
@@ -618,3 +716,24 @@ work on kept inputs and notes only.
 are never PHI keys.
 There is no erasure path for a hidden case yet; one is needed before B20 brings de-identified
 cases.
+
+## The launch gates
+
+Two prerequisites of the launch gates (`launch/gates.yaml`) are hidden sets'. Each names the
+tests that hold what was built (`uv run python scripts/check_gates.py` runs them) and waits for
+the owner's attestation: only the owner writes their name (`by`) and the date (`date`,
+YYYY-MM-DD) there, once it is true. The facts behind each stay with the owner's records,
+outside the repository.
+
+- **`labelling-underway`** (gate G2-3): "the labellers contracted and the sets in labelling".
+  The contracts stay outside the repository. `mendari evalset list` shows each set in
+  labelling, a `draft` with its cases; `mendari evalset progress` shows its drawn cases by
+  status and each labeller's assignments by user id, with labels coming in.
+- **`hidden-sets-frozen`** (gate G3-4): "each set's id, freeze hash and positives per critical
+  label (100 or more)", for each frozen set. Its id is the one `mendari evalset list` prints.
+  Its freeze hash is its commitment (no signature yet: LP-17), which `freeze` prints and `show`
+  reads back. Its positives per critical label are `freeze`'s `critical` list, the `distinct`
+  count of each label, computed from the labels as the set freezes; `show` reads the stored
+  coverage instead, which no commitment covers ([Verifying](#verifying)). A set counts only when
+  none of its critical labels is `insufficient` (fewer than 100 distinct positives): a set
+  frozen with that warning does not.

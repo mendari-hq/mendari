@@ -210,7 +210,40 @@ gates:
         what: "Hidden-set labelling under way: clinician labellers working in A8's labelling workflow"
         owner: owner
         probes:
-          - pending: "LP-11 (the labelling workflow), after LP-10"
+          # LP-11's labelling workflow (notes/lp11-plan.md): the no-leak sweep (11g), blind
+          # labelling, adjudication and agreement in the store (11h), a labeller's routes (11j)
+          # and screen (11m), the curators' routes (11k) and screen (11n), and the end-to-end
+          # test (11o). The owner attests the labellers and the sets.
+          - tests:
+              - tests/test_evalset_leaks.py::test_no_answer_log_export_or_command_shows_a_hidden_set
+              - tests/test_evalset_leaks.py::test_no_label_word_is_in_a_log_or_an_evalset_command
+              - tests/test_evalset_leaks.py::test_each_exception_is_as_narrow_as_its_conflict
+              - tests/test_evalset_leaks.py::test_the_scanner_finds_a_mark_however_it_is_written
+              - tests/test_evalset_labelling.py::test_a_second_labeller_never_sees_the_first_labellers_answer_or_model_output
+              - tests/test_evalset_labelling.py::test_blind_adjudication_the_majority_rule_and_an_unresolved_case
+              - tests/test_evalset_labelling.py::test_separation_of_duties_refuses_anyone_but_a_labeller_who_does_not_curate
+              - tests/test_evalset_labelling.py::test_sampling_is_seeded_within_strata_and_records_weights
+              - tests/test_evalset_labelling.py::test_pairs_and_labellers_are_balanced_and_deterministic
+              - tests/test_evalset_labelling.py::test_a_labellers_read_is_chained_before_the_case_is_returned
+              - tests/test_evalset_labelling.py::test_no_label_value_or_label_word_is_in_the_chain
+              - tests/test_evalset_labelling.py::test_audit_verify_passes_after_labelling_and_adjudication
+              - tests/test_evalset_labelling.py::test_a_second_labelling_round_by_the_documented_steps
+              - tests/test_evalset_labelling.py::test_measure_gives_what_rater_agreement_and_coverage_give_on_the_same_labels
+              - tests/test_labelling_routes.py::test_a_second_labeller_never_sees_the_first_labellers_answer_or_any_model_output
+              - tests/test_labelling_routes.py::test_three_labellers_through_a_set_over_http
+              - tests/test_labelling_routes.py::test_each_read_and_label_is_chained_and_logged_by_set_id_only
+              - tests/test_labelling_routes.py::test_someone_elses_assignment_answers_as_an_unknown_one_does
+              - tests/test_labelling_routes.py::test_only_a_person_holding_label_reaches_them
+              - tests/test_labelling_routes.py::test_whoever_manages_the_sets_labels_nothing_and_is_never_assigned
+              - tests/test_evalset_routes.py::test_a_curator_lists_reads_draws_assigns_and_adjudicates_their_sets
+              - tests/test_evalset_routes.py::test_a_curator_cannot_assign_themselves_or_any_administrator
+              - tests/browser/test_labelling.py::test_a_labeller_labels_case_after_case_blind_until_nothing_waits
+              - tests/browser/test_labelling.py::test_the_labelling_screen_passes_axe
+              - tests/browser/test_labelling.py::test_the_labelling_screen_fits_a_phone
+              - tests/browser/test_access.py::test_a_member_who_only_labels_is_told_so_and_the_page_asks_for_nothing_else
+              - tests/browser/test_evalsets.py::test_a_curator_draws_assigns_adjudicates_and_follows_the_labelling
+              - tests/browser/test_evalsets.py::test_labellers_and_the_other_roles_never_see_the_screen
+              - tests/test_evalset_end_to_end.py::test_a_hidden_set_from_creation_to_retirement_through_the_cli_and_http
           - attested: {what: "the labellers contracted and the sets in labelling", by: "", date: ""}
       - id: trademark-filed
         what: "The trademark application for Mendari filed (B05)"
@@ -274,7 +307,33 @@ gates:
         what: "Hidden evaluation sets frozen, with 100 or more positives per critical label (B34)"
         owner: owner
         probes:
-          - pending: "LP-11 (set freezing and the coverage report)"
+          # LP-11's freezing and coverage report (notes/lp11-plan.md): distinct positives per
+          # critical label under `norm/v1` (11a), the no-leak sweep over every state of a set
+          # (11g), the freeze, its commitment and rotation rule (11i), graded and shown (11k,
+          # 11l, 11n), and the end-to-end test (11o). The owner attests each set's id, its
+          # commitment (the freeze hash) and its positives (docs/operations/evalsets.md).
+          - tests:
+              - tests/test_canonical.py::test_norm_v1_is_pinned
+              - tests/test_coverage.py::test_duplicates_count_once_under_norm_v1
+              - tests/test_coverage.py::test_a_critical_label_with_100_distinct_positives_is_enough
+              - tests/test_coverage.py::test_the_command_prints_counts_never_a_cases_text
+              - tests/test_coverage.py::test_ai_guards_test_set_has_30_distinct_blocks_of_164
+              - tests/test_evalset_leaks.py::test_no_answer_log_export_or_command_shows_a_hidden_set
+              - tests/test_evalset_lifecycle.py::test_freezing_fixes_the_content_hash
+              - tests/test_evalset_lifecycle.py::test_freezing_is_refused_until_every_drawn_case_is_settled_and_both_limits_are_given
+              - tests/test_evalset_lifecycle.py::test_any_change_after_freeze_is_refused
+              - tests/test_evalset_lifecycle.py::test_a_direct_edit_breaks_verify_check_grading_and_retiring
+              - tests/test_evalset_lifecycle.py::test_the_rotation_rule_refuses_exhausted_runs_an_exceeded_age_and_a_retired_set
+              - tests/test_evalset_lifecycle.py::test_the_unsalted_content_hash_never_leaves_the_sealed_store
+              - tests/test_evalset_lifecycle.py::test_audit_verify_passes_after_labelling_adjudication_and_freeze
+              - tests/test_evalset_lifecycle.py::test_a_second_lifecycle_by_the_documented_steps
+              - tests/test_evalset_lifecycle.py::test_freeze_derives_labels_from_the_pack_s_decision_table
+              - tests/test_evalset_lifecycle.py::test_show_reads_without_writing_and_without_the_keys
+              - tests/test_evalset_routes.py::test_aggregates_appear_only_after_evalset_agreement_or_freeze
+              - tests/test_evalset_grading.py::test_a_tampered_set_is_refused_without_naming_the_case
+              - tests/test_evalset_grading.py::test_runs_are_counted_and_the_rotation_rule_refuses
+              - tests/browser/test_evalsets.py::test_the_stored_aggregates_are_counts_and_coefficients_in_words
+              - tests/test_evalset_end_to_end.py::test_a_hidden_set_from_creation_to_retirement_through_the_cli_and_http
           - attested: {what: "each set's id, freeze hash and positives per critical label (100 or more)", by: "", date: ""}
       - id: grading-method
         what: "The grading method published as a versioned document, with 30 days' notice before a change (B30)"
