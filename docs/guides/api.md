@@ -64,7 +64,9 @@ clinical resources.
 ```
 
 **CDS Hooks.** `GET /cds-services` lists the services, one per pack that declares a hook, and
-`POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards.
+`POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards. An
+EHR calls them with a Mendari key (the `cds-hooks` preset), or, once registered, with its own
+signed token: [Connecting an EHR](connecting-an-ehr.md).
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.
@@ -92,7 +94,9 @@ The same check in Python, without a server:
 ## Authentication
 
 **Open mode** (the default, without `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`): anyone
-who can reach the server can call every operation, and the `Authorization` header is ignored.
+who can reach the server can call every operation, and the `Authorization` header is ignored,
+but for a JWT on `/cds-services`: that is a CDS client's token, verified as with sign-in on, and
+refused unless an EHR is registered for it.
 
 **With sign-in on:**
 
@@ -111,6 +115,9 @@ who can reach the server can call every operation, and the `Authorization` heade
   is a preset (`"preset": "fhir"`, `"cds-hooks"`, …) with the role and scope it needs:
   [the list](../deploying-with-phi.md#2-sign-in-and-roles). The dashboard's Access view (API
   keys) makes keys from these presets, shows each once, and rotates and revokes them.
+- An EHR registered in `MENDARI_CDS_CLIENTS` calls the CDS Hooks services with its own signed
+  token (RS384 or ES384, `aud` the URL it calls, a `jti` used once), as the principal
+  `cds:<id>`, which reaches nothing else: [Connecting an EHR](connecting-an-ehr.md).
 - With SMART Backend Services on, a registered client exchanges a signed assertion (RS384 or
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`. A client keeps
   its id when its public keys change (`POST /api/auth/clients/{id}/keys`, or the Access view's

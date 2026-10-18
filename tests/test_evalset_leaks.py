@@ -15,7 +15,8 @@ frozen the same way: one left frozen (until the sweep grades it through the grad
 LP-11l), one made active by a grading read at the store, one retired, each read with `evalset
 show` and by the administrator's route. What
 the store makes of all this is a mark too: each case's id, its salt and each label's, each
-frozen set's freeze salt and its unsalted content hash, every sealed token (before and after a
+drawn case's weight's salt and each set's stored aggregates' (LP-11p), each frozen set's freeze
+salt and its unsalted content hash, every sealed token (before and after a
 rotation: inputs, attributes, headers, labels, aggregates, freeze records), the hidden-case
 index's hashes (whole and their digests alone) and the keys themselves. A text seen
 before the last of those marks is made (the first start's answers, the key holder's commands) is
@@ -328,6 +329,14 @@ SHAPES: dict[str, Any] = {
     # The lifecycle (LP-11i): a frozen set's salted commitment, its rotation rule, the grading
     # key a read was for, the pack's digest and the run's number.
     "commitment": matches(SHA256),
+    # A draft's draws and every set's stored aggregates, committed to (LP-11p): each drawn
+    # case's weight by its keyed hash, and the aggregates, each as a salted SHA-256.
+    "weight_refs": lambda value: (
+        isinstance(value, Mapping)
+        and bool(value)
+        and all(CASE_HASH.fullmatch(str(k)) and SHA256.fullmatch(str(v)) for k, v in value.items())
+    ),
+    "aggregates_ref": matches(SHA256),
     "max_runs": lambda value: isinstance(value, int) and not isinstance(value, bool),
     "max_age_days": lambda value: isinstance(value, int) and not isinstance(value, bool),
     "grader": matches(GRADER),
@@ -344,12 +353,14 @@ PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "evalset_index.epoch": frozenset({"key_id"}),
     "evalset.rotated": frozenset({"to", "from", "counts"}),
     "evalset_index.rebuilt": frozenset({"key_id", "count"}),
-    "evalset.sampled": frozenset({"set", "org", "n", "seed"}),
+    "evalset.sampled": frozenset({"set", "org", "n", "seed", "weight_refs"}),
     "evalset.assigned": frozenset({"set", "org", "case", "assignment", "labeller", "round"}),
     "evalset.case_read": frozenset({"set", "org", "case", "assignment", "labeller"}),
     "evalset.labelled": frozenset({"set", "org", "case", "label_ref", "labeller", "round"}),
-    "evalset.measured": frozenset({"set", "org", "n"}),
-    "evalset.frozen": frozenset({"set", "org", "commitment", "n", "max_runs", "max_age_days"}),
+    "evalset.measured": frozenset({"set", "org", "n", "aggregates_ref"}),
+    "evalset.frozen": frozenset(
+        {"set", "org", "commitment", "n", "max_runs", "max_age_days", "aggregates_ref"}
+    ),
     "evalset.activated": frozenset({"set", "org"}),
     "evalset.graded": frozenset({"set", "org", "commitment", "grader", "pack_digest", "n", "run"}),
     "evalset.retired": frozenset({"set", "org", "commitment"}),
@@ -921,8 +932,9 @@ def lifecycle(world: World, org: Org) -> None:
 def made(world: World, *, before_rotation: bool) -> None:
     """What the store made of each organization's cases, as marks: case ids, sealed tokens and
     index hashes as stored (before the rotation, the removed case's too), and each case's and
-    each label's salt and each frozen set's freeze salt and content hash (LP-11i), opened with
-    the key holder's own keys."""
+    each label's salt, each drawn case's weight's salt and each set's stored aggregates' (LP-11p)
+    and each frozen set's freeze salt and content hash (LP-11i), opened with the key holder's
+    own keys."""
     org_of = {set_id: org.name for org in world.orgs.values() for set_id in org.sets}
     keys = world.keys
     for table, sealed in SEALED_COLUMNS.items():
@@ -937,13 +949,19 @@ def made(world: World, *, before_rotation: bool) -> None:
                     body, _ = keys.open(
                         "attributes", str(row["attributes"]), str(row["set_id"]), str(row["id"])
                     )
-                    salt = base64.b64decode(body["salt"])
-                    world.mark("salt", org, body["salt"], salt.hex())
+                    # Its own salt, and a drawn case's weight's (LP-11p).
+                    for named in (body["salt"], body.get("weight_salt")):
+                        if named is not None:
+                            world.mark("salt", org, named, base64.b64decode(named).hex())
             if table == "evalset_labels" and before_rotation:
                 bound = (str(row["set_id"]), str(row["case_id"]), str(row["id"]))
                 body, _ = keys.open("label", str(row["body"]), *bound)
                 salt = base64.b64decode(body["salt"])
                 world.mark("salt", org, body["salt"], salt.hex())
+            if table == "evalset_sets" and before_rotation and row["aggregates"] is not None:
+                stored, _ = keys.open("aggregates", str(row["aggregates"]), str(row["id"]))
+                salt = base64.b64decode(stored["salt"])  # the aggregates' own (LP-11p)
+                world.mark("salt", org, stored["salt"], salt.hex())
             if table == "evalset_sets" and before_rotation and row["freeze_record"] is not None:
                 record, _ = keys.open("freeze", str(row["freeze_record"]), str(row["id"]))
                 salt = base64.b64decode(record["salt"])

@@ -40,6 +40,28 @@ The first release (not yet published).
   golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
   today, input hash included (`scripts/fhir_decisions_golden.py`,
   `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
+- **An EHR calls CDS Hooks with its own signed token** (LP-23b, ADR-0014). Register the EHR in
+  `MENDARI_CDS_CLIENTS`, a JSON list checked at startup: its `iss`, organization, the FHIR bases
+  it may send as `fhirServer` and its public keys, by value or from one `jwks_uri` on
+  `MENDARI_FHIR_ALLOWED_SERVERS` (kept an hour, fetched again at most once a minute, by each
+  instance, for a `kid` it does not know). `MENDARI_PUBLIC_URL` must be set. A token is verified
+  in full (RS384 or ES384; a header of `alg`, `kid`, `typ` and `jku` only, `jku` the registered
+  URL exactly; `aud` the public URL plus the path called; `exp`, `iat` and a `jti` used once, at
+  most 330 seconds; a pinned `sub` and `tenant`), and becomes the principal `cds:<id>` of the registered
+  organization, which lists and calls the CDS services and reaches nothing else, sends only its
+  registered `fhirServer` (else `403`, before anything is fetched), and is rate limited and
+  capped like any principal. Its decisions are chained as asked for by `cds <id>`. Every token
+  that does not verify is one `401`, its reason in the security log (`cds_<reason>`), and its
+  `jti` is claimed only after every check, the organization's record and the route's permission
+  included. **A change for open mode:** a JWT on `/cds-services` is now verified there too, and
+  refused without a registry, where before it was never read and a forged one got cards; a call
+  with no credential is answered as before, and off `/cds-services` open mode still reads no
+  credential. `AuditStore.smart_claim` now deletes up to 100 expired session-table rows, as each
+  put does, and the session table keys any string, a lone surrogate in a `jti` included (every
+  key made before is unchanged). Two fixes found on the way, each a `500` before: a JWK Set whose
+  `kty` or `key_ops` is of the wrong JSON type is refused as any bad key set is (a `422` when a
+  Backend Services client is registered), and a FHIR server's answer nested too deep to read is
+  refused as invalid JSON. See [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
@@ -123,6 +145,35 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets: a draft's statuses and weights, and every set's stored aggregates,
+  covered by commitments** (LP-11p, what 11o's review found nothing checked). Each draw
+  (`mendari evalset sample`, `POST /api/evalsets/{set}/sample`) chains a commitment to every
+  drawn case's weight by its keyed hash, each with a salt new at each draw (`weight_refs` on
+  `evalset.sampled`), and takes as drawn before what the latest draw committed to, never a
+  case's status. Each store of a set's aggregates (`evalset agreement`, `coverage` and `freeze`)
+  chains a commitment to them, with their salt sealed beside them (`aggregates_ref` on
+  `evalset.measured` and `evalset.frozen`). A case's status, still in the clear, is checked
+  against its labels and the set's latest draw; each label counts in the round and for the
+  labeller its `evalset.labelled` chained, never as an assignment row says now, every label the
+  chain recorded must be there, and an adjudicator's label settles only a case whose two
+  first-pass labels differ. So a status edited by SQL (a disputed case made `agreed`, which
+  freezing used to commit to with its first labeller's answer), a label deleted or an
+  assignment moved to another round, a weight re-sealed or put back from before a draw, and
+  aggregates re-sealed, put back or removed now break `mendari audit verify --evalsets` and
+  fail `mendari evalset rotate --check`; `freeze`, `agreement` and `coverage` refuse such a set,
+  counting its cases and naming none (a draw or a label landing while they read says "run it
+  again" instead); `assign` and `adjudicate` (and their curators' routes, a `400`), which still
+  open nothing, refuse a status the chain's draw and labels do not allow, so no case goes to a
+  labeller on it; and `mendari evalset show` and `GET /api/evalsets/{set}` refuse such
+  aggregates (a `400`), naming the set only. An agreed case's status edited to `disputed` still
+  reaches an adjudicator (telling it from a disputed one takes the labels' values), but that
+  label no longer settles it, so the edit stays found. Sets made before this release verify as
+  before: both checks count the rows no commitment covers yet (`predating`, a new count in their
+  answers, never an id), still check those sets' statuses against their labels, and take their
+  weights, whether an unlabelled case was drawn, and their aggregates as they are until the set
+  is drawn or measured again (a set frozen before it keeps its aggregates unchecked: take its
+  gate's positives from `freeze`'s output). A draft's header stays uncovered until it freezes.
+  The threat model, ADR-0011 and the runbook say what is covered and what is not.
 - **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
   keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
   Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from
@@ -138,7 +189,8 @@ The first release (not yet published).
   keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
   which cases were disputed; until a set freezes, no commitment covers its header, its cases'
   statuses or their weights, so freezing commits to them as they are, and none covers a set's
-  stored aggregates; and paraphrased public cases pass. The runbook
+  stored aggregates (LP-11p, above, covers all but the header); and paraphrased public cases
+  pass. The runbook
   (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
   lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
   attestations) and a set from start to end, and now says that every writing `mendari evalset`
@@ -362,6 +414,39 @@ The first release (not yet published).
   Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
   Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
   `docs/spec/evaluation-reports.md`, Arms.
+- **Scoreboard entries and run records** (LP-17d, `mendari.scoreboard/1` and `mendari.run/1`,
+  pure: nothing writes or shows them yet). An entry is one configuration's figures on one set,
+  computed only from its ledger, its dataset, its run record, a dated price table
+  (`mendari.prices/1`) and the grading method, so the same inputs give the same bytes
+  (`body_sha256`, without any signature). Each critical label's detection is raw k of n with its
+  interval, beside its distinct positives (cases grouped by input under `norm/v1`) and the
+  grade's bound (Clopper-Pearson at `1 - 0.05/L` over the distinct groups, a group detected only
+  when every positive case in it is). Evidence is decided on distinct positives, each label
+  needing the method's minimum (100, or 107 for the Clinical Trial Prescreener's six). An entry
+  also holds false automation, the AUTO error rate, automation and accuracy as k of n; macro-F1
+  (resampled within each true label), Brier and its reliability term with bootstrap intervals;
+  ECE as a description with no interval; cost per 1,000 decisions from the run record's tokens
+  and the table (never the ledger's, a pack's or a provider's price), or "0 (no metered calls)",
+  or "unknown"; latency p50 and p95 from the run record, "measured on the runner, not
+  reproducible"; the declared subgroups ("too few" under 10 cases); and Korn-Graubard weighted
+  figures beside the unweighted ones when a set carries sampling weights (detection is never
+  weighted). Its scope names the pack, the set, the models as reported, the method and whether it
+  is in effect, the date, "engineering evaluation, not clinical validation", the disclosure
+  ("not published: disclosure pending" withholds a remote entry's figures) and the pack's status
+  line. On a public set it reads "public set: regression check, not a ranking", with no rank and
+  no grade. A run record holds each case's latency and tokens by model type and the models
+  reported, never a key, an endpoint or case text, and an entry is refused unless it agrees with
+  its ledger: its tokens (more only on a case whose provider call failed) and its models (none the
+  answers do not name, none they name left out), so tokens are never priced as another model's.
+  A refusal of a run record, a price table or the disclosures never echoes a key the input chose.
+  A price table is refused from Mendari's code or a pack's directory, and cited only by an entry
+  priced from it. `board` reads each entry as its canonical bytes hold it, so entries just built
+  and read back show alike; it shows them one table per pack and set, with the
+  insufficient-evidence banner, each arm measured, "not measured" or "not applicable", and
+  freshness worked out when it is built and never stored ("unsigned", "method draft, not in
+  effect", "stale: pack changed" and the like, "stale after DATE"); `render.scoreboard_markdown`
+  writes it, with no Rank column and no bare percentage. No reference pack's figures, formats or
+  decisions change. Spec: `docs/spec/evaluation-reports.md`.
 - **Signed scoreboard results and the public verifier** (LP-17e, `mendari.evals.signing`; off
   without the key). A result (`mendari.scoreboard/1`, or a hidden set's
   `mendari.hidden_scoreboard/1`) is signed with an Ed25519 grading key the owner holds offline,

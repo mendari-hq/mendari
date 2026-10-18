@@ -562,12 +562,20 @@ is refused. A prefetch template is a read or search relative to that server (`Ty
 Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
 ([LLMs and local models](#llms-and-local-models)).
 
-**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
-Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
-Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
-Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
-`Authorization` header. How an EHR is to call with its own token, and what a hook does with a
-record it cannot read, is
+**An EHR's own token (LP-23b).** With sign-in on, the CDS Hooks services take Mendari's own
+credentials (a key made from the `cds-hooks` preset, or a SMART Backend Services token scoped to
+decide) and, once you register an EHR in `MENDARI_CDS_CLIENTS`, the short-lived JWT that EHR
+signs itself (CDS Hooks 2.0). A registered client names its `iss`, its organization, the FHIR
+bases it may send as `fhirServer`, and its public keys, by value or from one `jwks_uri` on
+`MENDARI_FHIR_ALLOWED_SERVERS`. A token must be RS384 or ES384, addressed (`aud`) to
+`MENDARI_PUBLIC_URL` plus the path it calls, live at most 330 seconds, and carry a `jti` used
+once. A verified token is the principal `cds:<id>` of the registered organization: it lists and
+calls the CDS services and reaches nothing else. Unset, a JWT on `/cds-services` is refused in
+every mode, open mode included, where before it was never read. Elsewhere a JWT is what it was:
+refused with sign-in on, and ignored in open mode, which reads no credential there. The rest of
+open mode is as before: it answers anyone, on any host, until LP-23c. How it works, field by field, is
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
+the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
 (Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
 is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
@@ -903,8 +911,9 @@ operator makes (`mendari access grader-key`): no person, administrator or other 
 The key holder keeps the sets from the command line (`mendari evalset create`, `add`,
 `remove-case` and `list`; [the runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md)):
 hand-written cases only, sealed in the deployment's own database, with ids, keyed case hashes
-and commitments in the chain, which `mendari audit verify --evalsets` checks the sealed cases
-against. Their key rotates as the PHI key does (`mendari evalset rotate`, then
+and commitments in the chain (each case, label, drawn case's weight and stored set of aggregates,
+and each frozen set's content), which `mendari audit verify --evalsets` checks the sealed rows
+against, each case's status against its labels and draw. Their key rotates as the PHI key does (`mendari evalset rotate`, then
 `rotate --check`), a new index key rebuilds the hidden-case index (`mendari evalset reindex`),
 and `mendari evalset export` copies the sealed sets as stored, needing no key. Its cases are
 labelled blind: `mendari evalset sample` draws them, seeded, within strata; `assign` gives each
@@ -945,8 +954,9 @@ With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoev
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
 and the dashboard shows them as the audit chain names them and offers only what their role may
 do. The chain names a person by their verified email, else by their identity provider's subject
-qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`
-and a Backend Services client as `client <id>`. In open mode the client names the reviewer,
+qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`,
+a Backend Services client as `client <id>`, and an EHR calling CDS Hooks with its own token as
+`cds <id>` (in open mode too). In open mode the client names the reviewer,
 reporter and approver, and each must be an identifier (no spaces, at most 100 characters). `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
@@ -1193,6 +1203,15 @@ model), "+ specialised classifier" (Jev), "+ general LLM" and "+ both". It reads
 alone, and says of each configuration whether it runs on the machine or what it calls off it
 (CQL asks no model but calls Mendari's CQL engine). An arm a pack cannot build is
 "not applicable" ([the format](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md)).
+
+A scoreboard entry (`mendari.scoreboard/1`, `mendari.evals.scoreboard`) is one configuration's
+figures on one set, computed only from its ledger, its dataset, its run record (`mendari.run/1`:
+each case's latency and tokens by model type, never a key, an endpoint or case text), a dated
+price table and the method, so the same inputs give the same bytes. Evidence is decided on
+distinct positives, the grade's bound is simultaneous across the critical labels, ECE is a
+description, cost comes from tokens and the table (never a pack's or a provider's price), and on
+a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
+entries yet: the store and the page come with LP-17f.
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
@@ -1458,7 +1477,8 @@ src/mendari/
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
-│                a hidden set's grading result, signed scoreboard results
+│                a hidden set's grading result, the scoreboard's arms, entries and run records,
+│                signed scoreboard results
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
