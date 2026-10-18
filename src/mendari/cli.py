@@ -419,6 +419,20 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scoreboard_arms(args: argparse.Namespace) -> int:
+    """A pack's provider configurations by arm (`mendari.arms/1`, LP-17c): Mendari only, with a
+    specialised classifier, with a general LLM, or with both. From the manifest alone: nothing
+    is run, called or written."""
+    from mendari.evals.arms import arms_report, arms_text
+
+    report = arms_report(resolve_pack(args.pack))
+    if args.json:
+        _print_json(report)
+    else:
+        print(arms_text(report))
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import card_of
 
@@ -2409,6 +2423,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     board.add_argument("--out", help="leaderboard file (default: <pack>/evals/leaderboard.json)")
     board.add_argument("--fresh", action="store_true", help="replace instead of merging")
+
+    scoreboard = sub.add_parser(
+        "scoreboard", help="the scoreboard: a pack's configurations by arm (read-only)"
+    ).add_subparsers(dest="scoreboard_command", required=True)
+    scoreboard_arms = scoreboard.add_parser(
+        "arms",
+        help="a pack's provider configurations by arm: Mendari only, + specialised classifier, "
+        "+ general LLM, + both (from its manifest; nothing runs)",
+    )
+    scoreboard_arms.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    scoreboard_arms.add_argument("--json", action="store_true", help="print the JSON report")
+    scoreboard_arms.set_defaults(handler=cmd_scoreboard_arms)
 
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")
