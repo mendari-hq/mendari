@@ -74,6 +74,9 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "leaderboard": (["mendari/ai-guard", "--report", "{missing}"], {}),
     "compare": (["{missing}", "{missing}", "--dataset", "test"], {}),
     "scoreboard arms": (["no/such-pack"], {}),
+    # Signing is the key holder's: refused in CI, and without the key (LP-17e).
+    "scoreboard sign": (["{missing}"], {}),
+    "scoreboard verify": (["{missing}"], {}),
     "card": (["no/such-pack"], {}),
     "schema": (["no/such-pack"], {}),
     "serve": (["--db", "{not_db}"], {}),
