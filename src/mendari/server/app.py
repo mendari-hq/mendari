@@ -122,7 +122,8 @@ from mendari.server.backend_services import (
     oauth_error,
     throttled,
 )
-from mendari.server.cds_clients import cds_clients, fhir_server_allowed
+from mendari.server.cds_clients import CdsOpenMode, cds_clients, cds_sandbox, fhir_server_allowed
+from mendari.server.cors import Cors
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
@@ -808,9 +809,13 @@ def create_app(
     ehrs = smart_ehrs()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
+    trusted = trusted_origins()  # this site's other origins: a malformed one fails here
     # The CDS clients whose own signed tokens are principals (LP-23b): unset, none; anything
     # wrong in the list (or a missing public URL) fails here, at startup, naming the entry.
-    cds = cds_clients(signed_in=sign_in is not None, ehrs=ehrs)
+    cds = cds_clients(signed_in=sign_in is not None, ehrs=ehrs, trusted=trusted)
+    # Open mode answers CDS Hooks on this machine only, or from anywhere under the sandbox flag
+    # (LP-23c), which fails here on Vercel or with sign-in on.
+    cds_open = CdsOpenMode(sandbox=cds_sandbox(signed_in=sign_in is not None))
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     launch = smart_options is not None  # a launch fetches the patient's record
     # and plaintext where it must not be: never with sign-in, never on the hosted site
@@ -864,8 +869,10 @@ def create_app(
         lifetime=session_lifetime,
         ehrs=ehrs if smart_options is not None else None,
         cds=cds,
+        cds_open=cds_open,
     )
-    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
+    cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
+    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted, cds_origins=cds_origins)
     limiter = Limiter(store, rate_limits)
     # The daily cap per principal (MENDARI_PRINCIPAL_DAILY_LIMIT): sign-in only.
     cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
@@ -2927,6 +2934,10 @@ def create_app(
         with acting:
             response: Response = await call_next(request)
         return response
+
+    # Outside the guard, so a registered origin's preflight is answered before it and its
+    # refusals carry CORS too; inside the security headers and the request log (LP-23c).
+    app.add_middleware(Cors, origins=cds_origins)
 
     csp = content_security_policy(page)
 

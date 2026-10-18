@@ -28,7 +28,7 @@ from mendari.errors import AuthError, MendariError
 from mendari.server import app as app_module
 from mendari.server import smart_routes
 from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
-from mendari.server.auth import permission_for
+from mendari.server.auth import CDS_PATH, permission_for
 from mendari.server.origin import (
     OWN_REQUEST,
     REACHABLE,
@@ -60,6 +60,7 @@ SITE = f"https://{HOST}"
 PUBLIC = "https://mendari.example.org"  # MENDARI_PUBLIC_URL: a name a proxy puts in front
 ALIAS = "https://alias.example.org"  # MENDARI_TRUSTED_ORIGINS
 COOKIE = {"cookie": "mendari_session=anything"}
+CDS_APP = "https://ehr-app.example.org"  # an origin a CDS client registered (LP-23c)
 
 # Every route another site's request may reach (with GET): the public routes and the pages. A
 # link to anything else, the API's reads included, is refused: an EHR launch's patient and
@@ -109,6 +110,10 @@ KINDS: list[tuple[str, dict[str, str]]] = [
     # Mendari's own header never outweighs what Fetch Metadata or `Origin` says.
     ("cross-site, Mendari's own", {"sec-fetch-site": "cross-site", OWN_REQUEST: "1"}),
     ("foreign origin, Mendari's own", {"origin": "https://evil.example", OWN_REQUEST: "1"}),
+    # A page on an origin a CDS client registered (LP-23c): another site, but on `/cds-services`
+    # and its children without a Mendari cookie.
+    ("registered CDS origin", {"sec-fetch-site": "cross-site", "origin": CDS_APP}),
+    ("registered CDS origin, no metadata", {"origin": CDS_APP}),
 ]
 
 
@@ -119,6 +124,8 @@ SAFE = ("GET", "HEAD")
 def expected(kind: str, method: str, path: str, *, cookie: bool = True) -> bool:
     """Whether a request of this kind with no `Authorization` passes: with a Mendari cookie, or
     (`cookie=False`) without one."""
+    if kind.startswith("registered CDS origin") and not cookie and CDS_PATH.match(path):
+        return True  # LP-23c: CORS lets the page read there, and the guard asks the rest
     if kind in ("same-origin", "own host, no metadata", "public URL, no metadata"):
         return True
     if kind in ("trusted alias, no metadata", "no browser headers, Mendari's own"):
@@ -184,8 +191,9 @@ def test_every_route_and_kind_of_request_gets_what_it_should(
     where reads are not checked but unsafe methods are (a browser leaves the SameSite=Lax cookie
     off another site's form POST, and the answer could still clear it)."""
     trusted = frozenset({PUBLIC, ALIAS})
-    signed = OriginCheck(open_mode=False, trusted=trusted)
-    open_mode = OriginCheck(open_mode=True, trusted=trusted)
+    registered = frozenset({CDS_APP})  # what CDS clients registered (LP-23c)
+    signed = OriginCheck(open_mode=False, trusted=trusted, cds_origins=registered)
+    open_mode = OriginCheck(open_mode=True, trusted=trusted, cds_origins=registered)
     assert {p for m, p in routes if m == "GET"} >= NAVIGABLE
     wrong = []
     for method, path in routes:
@@ -209,11 +217,30 @@ def test_every_route_and_kind_of_request_gets_what_it_should(
 def test_another_sites_requests_reach_exactly_the_public_routes_and_pages(
     routes: list[tuple[str, str]],
 ) -> None:
+    """...and a page on an origin a CDS client registered (LP-23c) reaches the CDS services
+    too, every method, without a Mendari cookie, and with one only what any other site does."""
     check = OriginCheck(open_mode=False, trusted=frozenset())
     cross = {**COOKIE, "sec-fetch-site": "cross-site"}
     reached = {(m, p) for m, p in routes if passes(check, m, p, cross)}
     assert {p for m, p in reached if m == "GET"} == NAVIGABLE
     assert reached == {(m, p) for m, p in routes if m in SAFE and p in NAVIGABLE}
+    cds = {(m, p) for m, p in routes if CDS_PATH.match(p)}
+    assert cds == {("GET", "/cds-services"), ("POST", "/cds-services/{service_id}")}
+    page = {"sec-fetch-site": "cross-site", "origin": CDS_APP}
+    other = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
+    reads = {(m, p) for m, p in routes if m in SAFE}
+    # With sign-in on, a read with no cookie is not checked (no credential rides along).
+    for open_mode, unchecked in ((True, set()), (False, reads)):
+        with_cds = OriginCheck(
+            open_mode=open_mode, trusted=frozenset(), cds_origins=frozenset({CDS_APP})
+        )
+
+        def reach(headers: dict[str, str], check: OriginCheck = with_cds) -> set[tuple[str, str]]:
+            return {(m, p) for m, p in routes if passes(check, m, p, headers)}
+
+        assert reach(page) == reached | cds | unchecked
+        assert reach({**COOKIE, **page}) == reached
+        assert reach(other) == reached | unchecked
     # HEAD reads like GET; the old cookie name and `__Host-` both count as Mendari's.
     assert passes(check, "HEAD", "/", cross)
     assert not passes(check, "HEAD", "/api/review", cross)

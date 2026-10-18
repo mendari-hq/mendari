@@ -72,6 +72,31 @@ def test_compose_trusts_x_forwarded_for_from_the_gateway_a_proxy_on_the_host_com
     assert example["FORWARDED_ALLOW_IPS"] == str(gateway)
 
 
+def test_only_the_sandbox_engine_answers_cds_hooks_from_the_network() -> None:
+    """Open mode answers CDS Hooks on its own machine only (LP-23c), and `MENDARI_CDS_SANDBOX=1`
+    lifts that for a sandbox on synthetic data. Only the synthetic sandbox's open engine sets it
+    (Docker's port publishing reaches it from a gateway, never from loopback): not its signed-in
+    engine (where the flag would stop startup), and nothing a site deploys from `deploy/` (the
+    on-prem compose file and its example settings, Kubernetes, Vercel) nor the hosted site."""
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    setting = "MENDARI_CDS_SANDBOX"
+    flagged = {
+        name
+        for name, service in compose["services"].items()
+        if setting in (service.get("environment") or {})
+    }
+    assert flagged == {"engine"}
+    engine = compose["services"]["engine"]["environment"]
+    assert engine[setting] == "1" and engine["MENDARI_PHI_MODE"] == "off"
+    assert "MENDARI_OIDC_ISSUER" not in engine  # open mode: the flag stops startup with sign-in
+    assert "MENDARI_OIDC_ISSUER" in compose["services"]["engine-signin"]["environment"]
+    onprem = yaml.safe_load((DEPLOY / "onprem" / "docker-compose.yml").read_text())
+    assert not any(setting in (s.get("environment") or {}) for s in onprem["services"].values())
+    deployed = [path for path in DEPLOY.rglob("*") if path.is_file()]
+    deployed += [ROOT / "vercel.json", ROOT / "app.py", ROOT / "Dockerfile"]
+    assert deployed and not [path for path in deployed if setting in path.read_text()]
+
+
 def test_every_setting_the_templates_use_is_documented() -> None:
     used = set()
     for path in DEPLOY.rglob("*"):

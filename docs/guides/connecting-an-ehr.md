@@ -11,7 +11,9 @@ An EHR calls Mendari's CDS Hooks services (`GET /cds-services` and
   private key. Mendari never holds that key. This page is about this way.
 
 Off until you register a client: with `MENDARI_CDS_CLIENTS` unset, a JWT on `/cds-services` is
-refused in every mode, open mode included, and everything else works as before. The decision behind it is
+refused in every mode, open mode included, and everything else works as before. Registered or
+not, with sign-in off the CDS services answer this machine only ([In open mode](#in-open-mode)).
+The decision behind it is
 [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md).
 
 ## Register the EHR
@@ -45,7 +47,7 @@ fictional):
 | `sub` | no | When set, every token must carry exactly this `sub`. |
 | `tenant` | no | When set, every token must carry exactly this `tenant`. When not set, a token with any `tenant` is refused: an EHR shared by several organizations is not supported yet. |
 | `iss_is_fhir_server` | no | `true`: the `fhirServer` a call sends must also be its `iss` (which must then be one of `fhir_servers`). |
-| `origins` | no | The browser origins the EHR calls from. Not used yet: CORS comes in a later step. |
+| `origins` | no | The browser origins (`https://host[:port]`, 0 to 20) the EHR's pages call from. A page there may call the CDS services and read their answers ([below](#from-a-browser)); a page anywhere else may not use this client's tokens. |
 
 Also set `MENDARI_PUBLIC_URL` to the address the EHR calls. A token's `aud` is that URL plus the
 path called, so without it the server does not start.
@@ -117,12 +119,47 @@ list the services and call them, and nothing else:
 With an `Authorization` header there is no fallback to a session cookie: the token decides
 alone.
 
+## From a browser
+
+Some CDS clients run in the browser: a page on the EHR's own origin calls the services
+directly. For that, list the page's origin in the client's `origins`. Then, on
+`/cds-services` and its children only:
+
+- The browser's preflight from that origin is answered before anything else, with `204`:
+  `Access-Control-Allow-Origin` that origin, `Access-Control-Allow-Methods: GET, POST, OPTIONS`,
+  `Access-Control-Allow-Headers: authorization, content-type`, `Access-Control-Max-Age: 600`.
+- Every answer to that origin names it in `Access-Control-Allow-Origin`, a refusal included, so
+  the page can read why. Every answer there carries `Vary: Origin`.
+- `Access-Control-Allow-Credentials` is never sent. The page sends the EHR's token, never a
+  cookie, and a call that carries a Mendari cookie is refused as another site's.
+- A token from a page must come from one of its own client's `origins`, or from Mendari's own
+  site. From any other origin, another client's included, the call is a `403`
+  (`this CDS client does not call from this origin`) before the token's `jti` is used.
+
+A page on an origin no client registered gets no CORS header, and its calls are refused as
+before. Nothing else Mendari serves is open to other origins.
+
 ## In open mode
 
-With sign-in off, a JWT on `/cds-services` is verified too, and without a registry it is
+With sign-in off, the CDS services answer this machine only: a call from a loopback address
+(`127.0.0.1`, `::1`), to a `Host` that names this machine (`localhost`, a `.localhost` name or a
+loopback address), with no forwarding header (`Forwarded`, `X-Forwarded-For`,
+`X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`, before any
+credential is read, a valid token included, and the security log says `open_mode_remote`. An
+EHR on a network calls a server with sign-in on. A proxy in front of an open-mode server makes
+every call it forwards look remote; a proxy that adds no forwarding header and sends
+`Host: localhost` would make them look local, so behind any proxy turn sign-in on.
+
+A synthetic sandbox reached over a network, such as the compose sandbox's open engine, which
+Docker reaches from its network's gateway, sets `MENDARI_CDS_SANDBOX=1`: it then answers from
+anywhere, and says so at startup. The server refuses to start with it on Vercel or with sign-in
+on.
+
+On this machine, a JWT on `/cds-services` is verified too, and without a registry it is
 refused. A request with no credential is answered as before, so a local demo that sends no
-token still works. Off `/cds-services` open mode reads no credential, a JWT included. A tool that always sends its own JWT, such as the public CDS Hooks Sandbox,
-has to be registered first, with `org` set to `default`.
+token still works. Off `/cds-services` open mode reads no credential, a JWT included. A tool
+that always sends its own JWT, such as the public CDS Hooks Sandbox, has to be registered first,
+with `org` set to `default`, and its page's origin in `origins`.
 
 ## Check it
 
@@ -152,13 +189,14 @@ has to be registered first, with `org` set to `default`.
 | `cds_no_organization_record` | Memberships mode: the client's organization has no record. |
 
 A `fhirServer` refused for a `cds` principal is an `auth.permission.refused` line, reason
-`cds_fhir_server_not_registered`.
+`cds_fhir_server_not_registered`. A token from a page on an origin that is not its client's is
+an `auth.origin.refused` line, reason `cds_origin`, with `cds:<id>`. In open mode, a call from
+another machine is an `auth.permission.refused` line, reason `open_mode_remote`.
 
 ## Not built yet
 
 These come in the next LP-23 steps:
 
-- Open mode answering CDS Hooks only on this machine, and CORS for the registered `origins`.
 - A hook that always answers: a record Mendari cannot read gives a recorded ABSTAIN with its
   reason, and every FHIR decision says what was read.
 - Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.

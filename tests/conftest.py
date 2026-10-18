@@ -33,6 +33,7 @@ from mendari.hub import archive
 from mendari.hub.registry import create_registry_app
 from mendari.providers import credentials, llm
 from mendari.providers.jev import JevProvider
+from mendari.server import app as server_app
 from mendari.server import sessions
 from mendari.server.origin import OWN_REQUEST
 
@@ -154,6 +155,24 @@ def _phi_mode_chosen(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("CRON_SECRET", raising=False)
     monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _cds_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Open mode answers CDS Hooks on this machine only (LP-23c), and Starlette's TestClient is
+    never this machine: it connects as `testclient`, with Host `testserver` or the test's base
+    URL. So the suite's servers run as the compose sandbox's engine does, as if
+    `MENDARI_CDS_SANDBOX=1`: in open mode they answer from anywhere. With sign-in on, or as the
+    hosted site, where that flag stops startup, they run as a deployment without it. The flag
+    itself is never set, so no server a test starts in a subprocess inherits it, nor one from
+    the developer's shell. `tests/test_cds_open_mode.py` takes this away, to test the rule and
+    the flag as they are."""
+    monkeypatch.delenv("MENDARI_CDS_SANDBOX", raising=False)
+
+    def as_the_flag_would(*, signed_in: bool) -> bool:
+        return not signed_in and not os.environ.get("VERCEL")
+
+    monkeypatch.setattr(server_app, "cds_sandbox", as_the_flag_would)
 
 
 @pytest.fixture(autouse=True)

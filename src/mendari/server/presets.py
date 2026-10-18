@@ -122,6 +122,7 @@ _ALL = [
         scope=DECIDE,
         calls=(("GET", "/cds-services"), ("POST", "/cds-services/{service_id}")),
         doc="guides/api.md#fhir-in-fhir-out",
+        examples=("cds/discover", "cds/hook"),
     ),
     Preset(
         id="da-vinci",

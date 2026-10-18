@@ -104,7 +104,8 @@ Inferno's Da Vinci CRD kit sends exactly those, with a header of `alg`, `typ`, `
 5. **Open mode answers on this machine only (23c).** With sign-in off, `/cds-services` answers a
    request only when it is local (a loopback client address, a local `Host` and no forwarding
    header) or when `MENDARI_CDS_SANDBOX=1` is set. That flag stops startup on Vercel or with
-   sign-in on, and only the compose sandbox's engine and the test suite set it. A verified token
+   sign-in on. Only the compose sandbox's open engine sets it, and the test suite runs its
+   servers as if it were set wherever it may be, without setting the variable. A verified token
    does not lift the rule.
 6. **CORS for registered origins (23c).** On `/cds-services` and its children only, for the exact
    origins the registry lists, and never with credentials. A preflight from a registered origin

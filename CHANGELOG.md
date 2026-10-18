@@ -101,6 +101,30 @@ The first release (not yet published).
   - **Changed: a CDS Hooks request with neither the prefetch nor a `fhirServer` answers `412`**
     (`PrefetchRequired`), as CDS Hooks 2.0 says. It answered `422`. A key sent empty counts as
     not sent here too, as it did.
+- **Who may call the CDS Hooks services from where (LP-23c, ADR-0014; a change for open mode
+  reached over a network).** With sign-in off, `/cds-services` and its children answer this
+  machine only: a call from a loopback address, to a `Host` that names this machine (`localhost`,
+  a `.localhost` name, a loopback address), with no forwarding header (`Forwarded`,
+  `X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`
+  with fixed words, before any credential is read, a valid EHR token included, logged
+  `open_mode_remote`. The rest of open mode answers any host, as before.
+  `MENDARI_CDS_SANDBOX=1` lifts this for a synthetic sandbox reached over a network, with a
+  warning at startup; the compose sandbox's open engine sets it (its signed-in engine, the
+  on-prem and Kubernetes templates and the hosted site do not), and the server refuses to start
+  with it on Vercel, with sign-in on, or with a value other than `1` or `0`. A registered CDS
+  client may now list `origins`, the browser origins its pages call from: on `/cds-services` and
+  its children only, a preflight from one is answered before the guard (`204`, `GET, POST,
+  OPTIONS`, the headers `authorization` and `content-type`, ten minutes), every answer to one
+  names it, every answer there varies by `Origin`, and none allows credentials; a page there
+  without a Mendari cookie passes the cross-site check on those paths only. A client's token
+  from a page on any other origin, another client's included, is a `403` (`cds_origin`) before
+  its `jti` is used. Any other origin gets no CORS header and is refused as before, and with no
+  origin registered nothing changes. **If you run open mode on a server others reach:** CDS
+  Hooks calls from them now get `403`; turn sign-in on, or for a synthetic sandbox set
+  `MENDARI_CDS_SANDBOX=1`. The API examples gain `cds.sh` (discovery and the inbox's hook), run
+  by CI in open mode on 127.0.0.1 with no flag, with a service key and with a `cds-hooks` key.
+  Threat-model rows I16 and E16; see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

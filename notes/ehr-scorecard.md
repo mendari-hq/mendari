@@ -47,16 +47,16 @@ Seven dimensions, each graded on five levels by named criteria:
 | Dimension | Level | Overall | Scope |
 |---|---|---|---|
 | 1. Client trust | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
-| 2. Who may call from where | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 2. Who may call from where | 3 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 3. Failure behaviour | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 4. Data shapes | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 5. Cards and workflow | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 6. Conformance evidence | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 7. Vendor fit | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 
-**Overall:** level 1, the lowest dimension (who may call from where, failure behaviour, and cards
-and workflow). Rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only,
-not a vendor certification.
+**Overall:** level 1, the lowest dimension (failure behaviour, and cards and workflow; who may
+call from where was level 1 too until LP-23c). Rubric v1, graded at `06d5332f` with LP-23a,
+synthetic data and test keys only, not a vendor certification.
 
 ## 1. Client trust
 
@@ -82,13 +82,13 @@ Which hosts and browser origins may reach the CDS services, with sign-in on and 
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
 | WC-2a | 2 | A request from another site reaches only the public routes and pages. | met | `tests/test_origin.py::test_another_sites_requests_reach_exactly_the_public_routes_and_pages` | A12.1d | |
-| WC-2b | 2 | With sign-in off (open mode), `/cds-services` answers only on this machine or under an explicit sandbox flag. | missing | missing | A12.1e | 23c: open mode answers on any host today, a forged token included |
-| WC-3a | 3 | CORS on `/cds-services` and its children only, for registered EHR origins, without credentials. | missing | missing | A12.1d | 23c |
-| WC-3b | 3 | A cross-site `Origin` on a CDS client's token must be one of that client's own origins. | missing | missing | A12.1d | 23c |
-| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23c, 23e |
+| WC-2b | 2 | With sign-in off (open mode), `/cds-services` answers only on this machine or under an explicit sandbox flag. | met | `tests/test_cds_open_mode.py::test_open_mode_answers_cds_hooks_on_this_machine_only`, `tests/test_cds_open_mode.py::test_a_spoofed_host_or_forwarded_header_is_not_this_machine`, `tests/test_cds_open_mode.py::test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_with_sign_in`, `tests/test_cds_open_mode.py::test_a_verified_token_does_not_lift_the_rule_in_open_mode` | A12.1e | 23c: a loopback address, a local `Host` and no forwarding header, else `403` (`open_mode_remote`); `MENDARI_CDS_SANDBOX=1` refused on Vercel and with sign-in on (open mode answered any host before, a forged token included until 23b) |
+| WC-3a | 3 | CORS on `/cds-services` and its children only, for registered EHR origins, without credentials. | met | `tests/test_cds_cors.py::test_a_registered_origin_gets_cors_on_cds_services_only`, `tests/test_cds_cors.py::test_a_preflight_is_answered_before_the_guard_without_credentials`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before`, `tests/browser/test_cds_cors.py::test_a_page_on_a_registered_origin_reads_a_hook_answer` | A12.1d | 23c: `server/cors.py`, the clients' `origins` |
+| WC-3b | 3 | A cross-site `Origin` on a CDS client's token must be one of that client's own origins. | met | `tests/test_cds_cors.py::test_an_origin_registered_for_another_client_is_refused`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before` | A12.1d | 23c: `CdsRegistry.from_its_origin`, a `403` (`cds_origin`) before the `jti` is claimed |
+| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23e: 23c set the flag on the compose sandbox's open engine alone; the call from another container in CI is 23e's |
 | WC-5a | 5 | Epic's sandbox reaches Mendari's CDS services from Epic's own servers. | missing | missing | A12.acc-3 | the owner: whether Epic's free sandbox can call an external CDS service at all (owner decision 15) |
 
-**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+**Grade:** level 3. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
 synthetic data and test keys only, not a vendor certification.
 
 ## 3. Failure behaviour

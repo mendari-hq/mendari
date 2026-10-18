@@ -1,7 +1,7 @@
 # Using the API
 
-Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, guarding
-a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
+Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, CDS
+Hooks, guarding a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
 its address filled in and a table of what every call needs; its full reference, with "Try it
 out", is `/docs/reference`.
 
@@ -78,6 +78,15 @@ JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` wi
 as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
 malformed field, a required resource you sent something else for) is still a `4xx`.
+
+List the services and call the inbox's hook, with a synthetic patient and message as prefetch.
+With sign-in off, the CDS services answer on this machine only (`127.0.0.1`, `localhost`): from
+anywhere else they are a `403`, whatever the request carries.
+
+<!-- check: include cds.sh -->
+```bash
+--8<-- "cds.sh"
+```
 
 **What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the
 SMART launch) carries `data_coverage` in its record, which `GET /api/audit/{id}` returns: for
