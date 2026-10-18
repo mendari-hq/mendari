@@ -159,3 +159,19 @@ def test_the_dashboard_role_list_is_the_servers() -> None:
     assert re.findall(r'\{ key: "([a-z_]+)"', ui) == list(accounts.MEMBERSHIP_ROLES)
     for path in [*DASHBOARD_DIR.glob("*.js"), *DASHBOARD_DIR.glob("*.html")]:
         assert not re.search(r"\bgrading\b", path.read_text(encoding="utf-8")), path.name
+
+
+def test_the_hidden_sets_screen_offers_whom_the_store_assigns_and_marks_too_few() -> None:
+    """The hidden sets' screen (LP-11n) offers as labellers the members the store may assign (the
+    labeller role, and no role that curates), and marks a critical label as the coverage report
+    does (fewer distinct positives than `MIN_POSITIVES`)."""
+    from mendari.evals.result import MIN_POSITIVES
+
+    screen = (DASHBOARD_DIR / "evalsets.js").read_text(encoding="utf-8")
+    labeller = re.search(r'^const LABELLER = "([a-z_]+)";$', screen, re.M)
+    curating = re.search(r"^const CURATING = \[([^\]]*)\];$", screen, re.M)
+    least = re.search(r"^const MIN_POSITIVES = (\d+);$", screen, re.M)
+    assert labeller is not None and curating is not None and least is not None
+    assert labeller[1] == accounts.LABELLER
+    assert re.findall(r'"([a-z_]+)"', curating[1]) == list(accounts.CURATING)
+    assert int(least[1]) == MIN_POSITIVES

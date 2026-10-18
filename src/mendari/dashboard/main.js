@@ -14,6 +14,7 @@ import "./try.js";
 import "./patient.js";
 import "./admin.js";
 import "./labelling.js";
+import "./evalsets.js";
 import { defaultPack, packOptions } from "./pack.js";
 import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
@@ -33,6 +34,7 @@ async function boot() {
   state.phiMode = health?.phi_mode ?? "off";
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
   state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
+  state.evalsets = Boolean(health?.evalset_keys); // hidden evaluation sets are on (evalsets.js)
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -73,6 +75,7 @@ async function boot() {
   showLaunch();
   showOrganization();
   showAdministration();
+  showEvalsets();
   showLabelling();
   if ((state.noAccess || state.labelOnly) && !state.launchOnly) {
     $(".pack-picker").hidden = true;
@@ -189,6 +192,12 @@ function showOrganization() {
 // Backend Services clients and, in memberships mode, its people (admin.js). Never in open mode.
 function showAdministration() {
   $('.nav a[data-view="admin"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.admin.available();
+}
+
+// An administrator who signed in, in memberships mode where hidden evaluation sets are on (LP-11n):
+// their organization's sets (evalsets.js). Never a labeller, another role or claims mode.
+function showEvalsets() {
+  $('.nav a[data-view="evalsets"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.evalsets.available();
 }
 
 // Someone holding `label` where the labelling routes are served (LP-11m): the labelling screen.

@@ -20,6 +20,7 @@ const SHAPES = {
   access: () => `${bar("form")}`,
   admin: () => `${bar("tabs")}${bar("toolbar")}${rows(5)}`,
   labelling: () => `${rows(2)}${bar("form")}`,
+  evalsets: () => `${bar("tabs")}${rows(5)}`,
 };
 
 export function skeleton(view) {

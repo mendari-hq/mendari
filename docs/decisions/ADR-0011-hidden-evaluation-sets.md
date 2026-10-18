@@ -92,6 +92,17 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   organization's grading key may name label words, as aggregates, and the 11g sweep grades each
   organization's frozen set through the route in both modes, its answer holding no mark
   (conflict 35).
+- 11n, the management screen (`#evalsets`, `dashboard/evalsets.js`, over 11k's routes and the
+  members list only): shown, with its link, only to a person who signed in holding `curate` in
+  memberships mode where the deployment has the keys (never a labeller, another role, claims
+  mode or a deployment without them, whose pages ask for no set); the organization's sets, then
+  one set's facts and tabs (the Access view's pattern, copied): its progress by status and by
+  labeller (named from the members list), the draw, the first and third assignments (only
+  labellers holding no curating role are offered), and the stored agreement and coverage
+  (percent agreement as k of n with its exact interval, kappa and alpha as numbers, "not
+  estimable" in words, the insufficient-evidence mark); a set that is no longer a draft shows no
+  form. Ids, counts, names and stored aggregates only; the wording says "in use" and "evaluation
+  runs".
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

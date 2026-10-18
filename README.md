@@ -892,11 +892,17 @@ commitment and runs left, its cases by status, each labeller's work by user id, 
 aggregates the key holder stored; never a case), and `POST /api/evalsets/{id}/sample`,
 `/assignments` and `/adjudication` draw, assign and adjudicate as the commands do; another
 organization's set is a `404` like an unknown one, and no route measures, freezes or retires.
+In the dashboard, a labeller labels in **Labelling**, and the administrators run their sets in
+**Hidden sets** (`#evalsets`, over those routes and the members list only): each set's state and
+evaluation runs left, its cases by status and each labeller's work by name, drawing, assigning
+and adjudicating, and the agreement (percent agreement as k of n with its interval, kappa and
+alpha, "not estimable" in words) and coverage the key holder stored; never a case.
+
 The organization's grading key grades a pack against one of its frozen sets through
 `POST /api/evalsets/{id}/runs`, mounted with both keys in either account mode: with local
 providers only, each run counted against the set's rotation rule and chained before its cases
 are read, nothing stored, and answered with aggregates only (`mendari.hidden_result/1`, never a
-case). The dashboard's management screen comes in a later step.
+case).
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),

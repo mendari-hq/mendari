@@ -1087,7 +1087,29 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     storage empty, unanswered, `422`, `404`, other roles' link, keys off, axe in both themes,
     phone and `UNDER_24`, the import lines pinned); `test_access`'s labeller case updated. No
     gate probe changes (11o replaces `labelling-underway`'s).
-  - [ ] **11n** The management screen.
+  - [ ] **11n** (PR open) The management screen (`#evalsets[/<set id>[/<tab>]]`,
+    `dashboard/evalsets.js`, "Hidden sets" in the section list, over 11k's routes and the members
+    list only): available, link included, only to a signed-in person holding `curate` in
+    memberships mode where `/api/health` names the evaluation-set keys (`state.evalsets`, read
+    at boot: no extra request); labellers, other roles, claims mode and a deployment without the
+    keys never see it and ask for no set. The list (name, id, pack, state, cases), then a set's
+    facts (state as Draft, Frozen, In use or Retired; commitment; evaluation runs used and left)
+    and tabs copied from admin.js's pattern: Progress (cases by status, first and third labels
+    by labeller, named from the members list, read again on each tab), Sample, Assign and
+    Adjudicate (a draft's only; seeded; only labellers holding no curating role offered; a
+    refusal said in the form), Agreement (percent agreement k of n through `figureHtml`, kappa
+    and alpha as numbers or "not estimable" with the reason) and Coverage (stats, warnings,
+    critical labels with the evidence mark, labels, mix); "Not measured yet" until the key
+    holder stores them; an unknown or another organization's set "No such set". Tokens only;
+    single-line imports of `router.js`, `table.js` and `ui.js`. `tests/browser/test_evalsets.py`
+    (draw, assign, adjudicate and follow; refusals, each describing the fields it marks; a
+    draw's button busy until the set is read again; the set the address names, by its latest
+    read; aggregates in words and `BARE_PERCENT`; a frozen set, and one frozen while open;
+    another organization's set, and `.`; `pins()` for a labeller, every other membership role
+    but an administrator's, a labeller who also reads, an administrator without the keys and one
+    in claims mode; axe in both themes; phone and `UNDER_24` on every tab; the import lines)
+    and `test_invite_page` (the screen's labeller rule and evidence threshold are the
+    server's). The Access tab lists are unchanged.
   - [ ] **11o** Close-out (gates, threat model rows, the review packet).
 
   **Owner decisions still open** (none blocks 11a to 11l; the hosted site mounts no labelling
