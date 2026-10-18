@@ -792,7 +792,7 @@ Connect) is not supported yet.
     adversarial security review).
   - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
     for registered origins.
-  - [x] **23d** (this PR) A hook that always answers: an unreadable record gives a recorded ABSTAIN
+  - [x] **23d** (#264) A hook that always answers: an unreadable record gives a recorded ABSTAIN
     with its reason, and every FHIR decision carries its data-coverage record. Each prefetch key
     is read on its own (`cds_hooks.read_each`, shared with the SMART launch's decide); a key that
     could not be read, an OperationOutcome, a fetched resource that is not R4 (`not_r4`), and a
