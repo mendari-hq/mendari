@@ -13,6 +13,7 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -343,6 +344,59 @@ def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -
     # Linux only: the images CI builds (amd64) and a local run on Apple silicon (arm64).
     platforms = lock.split("\nPLATFORMS\n", 1)[1].split("\n\n", 1)[0].split()
     assert platforms == ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"]
+
+
+def test_the_inferno_kit_validates_without_a_terminology_server() -> None:
+    """No resource Inferno validates goes to tx.fhir.org, the kit's default
+    (sandbox/inferno/README.md, "What leaves the machine"): the image puts
+    offline_terminology.rb at the top of the kit's lib/, where Inferno loads it at boot, after
+    the kit, and the override takes the terminology server from every validator of every suite,
+    group and test."""
+    copies = [
+        line.split()[1:]
+        for line in (INFERNO / "Dockerfile").read_text().splitlines()
+        if line.split()[:1] == ["COPY"]
+    ]
+    (target,) = [words[-1] for words in copies if words[0] == "offline_terminology.rb"]
+    assert re.fullmatch(r"lib/[\w.-]+\.rb", target), target
+    override = (INFERNO / "offline_terminology.rb").read_text()
+    assert "require_relative 'davinci_dtr_test_kit'" in override  # the kit's validators first
+    kinds = re.search(r"^\[(.+)\]\.each do \|kind\|$", override, re.M)
+    assert kinds is not None
+    entities = {f"Inferno::Entities::{kind}" for kind in ("TestSuite", "TestGroup", "Test")}
+    assert {kind.strip() for kind in kinds[1].split(",")} == entities
+    assert "kind.descendants.each do |runnable|" in override
+    assert "validator.validation_context { txServer nil }" in override
+
+
+def test_the_inferno_harness_reaches_only_its_own_services() -> None:
+    """Inferno is given only the compose file's own addresses (sandbox/inferno/README.md): each
+    URL it is configured with names one of the file's services, INFERNO_HOST is the internal
+    nginx, and the ONC reference server, which the payer suite does not use, is a dead loopback
+    URL. What is published binds this machine only, and the engine runs open on synthetic data,
+    PHI mode off, with no credential of any kind."""
+    services = yaml.safe_load((INFERNO / "docker-compose.yml").read_text())["services"]
+    loopback = {"127.0.0.1", "localhost", "::1"}
+    for name, service in services.items():
+        assert not {"network_mode", "env_file", "secrets", "extra_hosts"} & set(service), name
+        for port in service.get("ports", []):
+            assert isinstance(port, str) and port.startswith("127.0.0.1:"), (name, port)
+    for name in ("inferno", "worker"):
+        environment = services[name]["environment"]
+        urls = {key: urlsplit(str(value)) for key, value in environment.items() if "://" in value}
+        assert {"INFERNO_HOST", "FHIR_REFERENCE_SERVER"} <= set(urls), name
+        for key, url in urls.items():
+            assert url.hostname in set(services) | loopback, (name, key, url.geturl())
+        assert urls["INFERNO_HOST"].hostname == "nginx"
+        reference = urls["FHIR_REFERENCE_SERVER"]
+        assert reference.hostname in loopback and reference.port == 9  # discard: no listener
+    engine = services["engine"]
+    assert engine["build"] == {"context": "../.."}  # the repository's own Dockerfile
+    # Open mode, PHI mode off: nothing that turns sign-in on or carries a key, token or secret.
+    environment = engine["environment"]
+    assert set(environment) == {"MENDARI_PHI_MODE", "MENDARI_PACKS", "MENDARI_PUBLIC_URL"}
+    assert environment["MENDARI_PHI_MODE"] == "off"
+    assert urlsplit(environment["MENDARI_PUBLIC_URL"]).hostname == "engine"
 
 
 def test_the_image_installs_exactly_the_lock() -> None:

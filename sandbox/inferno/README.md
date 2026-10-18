@@ -33,7 +33,8 @@ Services) is left out until LP-23, whose CRD suite (its PR 23l) reuses this harn
 
 The HL7-DaVinci/dtr reference app is never run. Given a questionnaire canonical, it builds the
 operation's URL from the canonical's origin, so it would POST to https://mendari.co. It also
-reads the package under DTR 2.0.1's parameter name and would not see a 2.2.0 package.
+looks for the package under the parameter name `PackageBundle`, which neither DTR version uses
+(2.0.1 names it `return`, 2.2.0 `packagebundle`), so it would not see Mendari's package.
 
 ## The expected results
 
@@ -60,8 +61,9 @@ own result for them, with the reason too.
 
 ## What leaves the machine
 
-- Building: the base images (by digest), the kit's source (from GitHub, by commit), Bundler and
-  the gems (from rubygems.org, each checked against its sha256 in `Gemfile.lock`).
+- Building: the base images (by digest), the kit's source (from GitHub, by commit), Bundler
+  (from rubygems.org, checked against `BUNDLER_SHA256` in the `Dockerfile`) and the gems (from
+  rubygems.org, each checked against its sha256 in `Gemfile.lock`).
 - Running: the validator downloads the implementation guides it loads from packages.fhir.org.
   Nothing else: every validator in the kit runs without a terminology server
   (`offline_terminology.rb`; the validator's log says "No Terminology Server"), so no resource
@@ -112,7 +114,9 @@ The kit's images and gems are pinned here, not by Dependabot: a bump can change 
 1. Set `KIT_COMMIT` in the `Dockerfile` to the new release's commit.
 2. Regenerate `Gemfile.lock` from the kit's own, in the pinned Ruby image, with the pinned
    Bundler: `bundle lock --add-platform aarch64-linux-gnu`, then `bundle lock --remove-platform`
-   for each platform that is not Linux, then `bundle lock --add-checksums`.
+   for each platform that is not Linux, then `bundle lock --add-checksums`. The lock holds no
+   checksum for Bundler itself: if it is `BUNDLED WITH` a new version, set `BUNDLER_VERSION` and
+   `BUNDLER_SHA256` in the `Dockerfile` to that version and the sha256 rubygems.org lists for it.
 3. Build and run, then refresh the expected results from the run with `--write` (each reason
    whose result did not change is kept), and write a reason for each new result that is not a
    pass. Review the differences like any other change in behaviour.
