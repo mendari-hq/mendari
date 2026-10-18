@@ -853,6 +853,14 @@ logs, at startup, each slot the Jev defaults turn on.
   once). Each run of `GET /api/internal/monitor` first sends the due ones again;
   `mendari monitor` records nothing and sends none again, so a deployment that wants pending
   alerts tried again schedules the route, with `CRON_SECRET`.
+  After setting the webhook, check it with `mendari alerts test`, on your own machine with the
+  deployment's `MENDARI_ALERT_WEBHOOK`, `MENDARI_ALERT_SECRET` and `MENDARI_ALERT_FORMAT` in its
+  environment. It posts one test alert there through the same delivery, in that format and
+  signed as every alert is: `event` `alerts.test`, with no alerts in it (a receiver treats it as
+  nothing to do). It is tried once and recorded nowhere. It prints whether it was delivered and
+  the webhook's answer, never the URL or the secret, and exits 1 when it was not delivered. It
+  refuses without a webhook, and in CI (`CI` or `GITHUB_ACTIONS` set), so no job posts to a
+  real webhook.
   A receiver checks the signature over the raw body:
 
   <!-- receiver: the recipe tests/test_alerts.py runs -->
@@ -1045,6 +1053,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       response carried, and no line holds a key, a query value or case text.
 - [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled (§3, *Checkpoints*);
       `mendari audit verify` passes.
+- [ ] With the alert webhook set, `mendari alerts test` says `delivered`, and the receiver
+      accepts its signature (§6, *Alerts*).
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:

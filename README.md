@@ -995,6 +995,12 @@ answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not 
 mendari monitor --db "$DATABASE_URL" --each-org --webhook https://alerts.example.org/hook
 ```
 
+After setting the webhook, `mendari alerts test` posts one test alert to
+`MENDARI_ALERT_WEBHOOK` (`event` `alerts.test`, with no alerts in it), in its format and signed
+with `MENDARI_ALERT_SECRET` as every alert is, tried once and recorded nowhere. It prints
+whether it was delivered and the webhook's answer, never the URL or the secret, exits 1 when it
+was not delivered, and refuses in CI (`CI` or `GITHUB_ACTIONS` set).
+
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
 from the audit chain. Only signed-in reviewers and admins read them, and each read is chained
@@ -1345,6 +1351,11 @@ about 3.5 seconds) and answers `503` while the database does not answer or no pa
 where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
 settings, which read the database, so it fails during an outage too)
 ([deploying with PHI](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
+`python scripts/status_checks.py --export json --api <url>` prints the status checks
+(`deploy/status/checks.yaml`) ready to set up in a status provider, sending nothing: each
+check's absolute URL, method, body, interval and what is up, with redirects not followed and
+the decide key's variable named, never its value
+([status checks](https://github.com/mendari-hq/mendari/blob/main/docs/operations/status-checks.md)).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers

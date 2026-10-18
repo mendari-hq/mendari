@@ -11,11 +11,18 @@ set, sign-in off or not known). Exit 1 when any check failed. Give `--api` the d
 public address (`MENDARI_PUBLIC_URL`): sign-in elsewhere first moves there. The decide check's
 key comes from the environment variable the file names (`STATUS_DECIDE_KEY`), never an
 argument; nothing printed holds a key, a body, a cookie or a header's value.
+
+    python scripts/status_checks.py --export json --api https://mendari.example.org ...
+
+prints the checks instead, sending nothing: each one whose base URL is given, ready to set up in
+a status provider (`export`), as JSON on stdout; the ones left out are a line each on stderr. A
+key the export does not know is refused, never dropped.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -31,6 +38,16 @@ import yaml
 CHECKS = Path(__file__).resolve().parent.parent / "deploy" / "status" / "checks.yaml"
 TIMEOUT_S = 10.0
 _BASE = re.compile(r"^\{(api|registry|hub)\}")
+# Every key of a check the export knows, and the field it gives each `expect` key the checker
+# enforces (`_problem`): tests/test_status_checks.py holds what `run` and `_problem` read to
+# these, so a key the checker starts to read fails until it is exported.
+CHECK_KEYS = frozenset({"name", "what", "request", "expect", "only_with_sign_in"})
+REQUEST_KEYS = frozenset({"method", "url", "json", "key_from"})
+EXPECT_FIELDS = {
+    "status": "expected_statuses",
+    "location_leaves": "location_leaves_host",
+    "json_has": "body_keyword",
+}
 
 
 @dataclass(frozen=True)
@@ -127,14 +144,108 @@ def _problem(answer: httpx.Response, expect: Mapping[str, Any], root: str) -> st
     return None
 
 
+def export(
+    spec: Mapping[str, Any], bases: Mapping[str, str | None]
+) -> tuple[list[dict[str, Any]], list[Result]]:
+    """Each check of `spec` whose base URL `bases` gives, for a status provider to run as the
+    checker does: its absolute URL, method, JSON body and interval; redirects never followed
+    (the checker judges the answer itself, and a redirect followed to a sign-in page would look
+    up); the statuses that are up; the host the redirect's Location must leave; `json_has` as a
+    keyword of the body (the key, quoted, and its colon); and headers that name the key's
+    environment variable, never its value. Then the checks left out, with why. Raises
+    ValueError on a key it does not know, rather than leave it out."""
+    exported, left = [], []
+    for check in spec["checks"]:
+        name = check.get("name", "?")
+        _known(check, CHECK_KEYS, f"check {name}")
+        request, expect = check["request"], check["expect"]
+        _known(request, REQUEST_KEYS, f"check {name}, request")
+        _known(expect, EXPECT_FIELDS, f"check {name}, expect")
+        url, base = _absolute(request["url"], bases)
+        if url is None:
+            left.append(Result(name, "skipped", f"no --{base} given"))
+            continue
+        entry: dict[str, Any] = {
+            "name": name,
+            "what": check["what"],
+            "method": request["method"],
+            "url": url,
+            "interval_seconds": spec["interval_seconds"],
+            "follow_redirects": False,
+        }
+        headers = {}
+        if "json" in request:
+            headers["Content-Type"] = "application/json"
+            entry["json_body"] = request["json"]
+        if "key_from" in request:
+            headers["Authorization"] = f"Bearer ${{{request['key_from']}}}"
+            entry["secret_from_environment"] = request["key_from"]
+        if headers:
+            entry["headers"] = headers
+        entry[EXPECT_FIELDS["status"]] = list(expect["status"])
+        if "location_leaves" in expect:
+            there, base = _absolute(expect["location_leaves"], bases)
+            if there is None:
+                left.append(Result(name, "skipped", f"no --{base} given"))
+                continue
+            entry[EXPECT_FIELDS["location_leaves"]] = urlsplit(there).netloc
+        if "json_has" in expect:
+            entry[EXPECT_FIELDS["json_has"]] = f'"{expect["json_has"]}":'
+        if check.get("only_with_sign_in"):
+            entry["only_with_sign_in"] = True
+        exported.append(entry)
+    return exported, left
+
+
+def _known(part: Mapping[str, Any], keys: Any, where: str) -> None:
+    unknown = sorted(set(part) - set(keys))
+    if unknown:
+        raise ValueError(
+            f"{where}: the export does not know {', '.join(unknown)}; export it "
+            "(scripts/status_checks.py) before the checks file uses it"
+        )
+
+
+def _absolute(template: str, bases: Mapping[str, str | None]) -> tuple[str | None, str]:
+    """`template` with its base URL in place, and the base's name; None when it is not given."""
+    found = _BASE.match(template)
+    if not found:
+        raise ValueError(f"{template} does not start with {{api}}, {{registry}} or {{hub}}")
+    root = bases.get(found.group(1))
+    if not root:
+        return None, found.group(1)
+    return template.replace(found.group(0), root.rstrip("/"), 1), found.group(1)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the status checks against a deployment.")
     parser.add_argument("--api", help="the deployment's base URL")
     parser.add_argument("--registry", help="the pack registry's base URL")
     parser.add_argument("--hub", help="the Hub's base URL")
     parser.add_argument("--checks", type=Path, default=CHECKS, help="the checks file")
+    parser.add_argument(
+        "--export",
+        choices=["json"],
+        help="print the checks for a status provider instead of running them (nothing is sent)",
+    )
     args = parser.parse_args(argv)
     bases = {"api": args.api, "registry": args.registry, "hub": args.hub}
+    if args.export:
+        for base, root in bases.items():
+            parts = urlsplit(root or "")
+            if root and (parts.scheme not in ("http", "https") or not parts.netloc):
+                parser.error(
+                    f"--{base} must be an absolute URL, such as https://{base}.example.org"
+                )
+        try:
+            exported, left = export(load(args.checks), bases)
+        except ValueError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
+        print(json.dumps({"checks": exported}, indent=2))
+        for result in left:
+            print(f"{result.name}: {result.outcome} ({result.detail})", file=sys.stderr)
+        return 0
     with httpx.Client(timeout=TIMEOUT_S) as client:
         results = run(load(args.checks), bases, lambda base: client)
     for result in results:
