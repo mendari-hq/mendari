@@ -620,13 +620,17 @@ A pack declares this with `cds_hooks.coverage_information`.
 `POST /fhir/Questionnaire/$questionnaire-package` (with the Coverage and the order) returns it: the
 documentation the payer asks for, for that service and payer, pre-answered from the pack's
 decision, which is found by the CRD assertion id on the order. A clinician completes only what is
-missing. A questionnaire asked for that is not found here is a warning in `outcome`, beside any
-package. Orders or a `context` that name no decision of the caller's organization, with nothing
-to return, are a `422` OperationOutcome (`not-found`): DTR asks for a 4xx, and an unknown id and
-another organization's get the same answer. A decided order that needs no documentation gets an
-information note instead. The answers are profile-validated against DTR 2.2.0 (HL7 validator,
-offline) in CI, which checks their structure, not how the operation behaves; the tests check
-that. A pack declares it with `cds_hooks.questionnaire`.
+missing. A questionnaire asked for by its canonical comes beside the orders' packages,
+unanswered, and each questionnaire version comes once (an order's package holds its own). A
+questionnaire that is not found here is a warning in `outcome`, beside any package; so is a
+version other than the pack's, the only one served. An order or a `context` that names no
+decision of the caller's organization is a warning too. Orders or a `context` that name no
+decision, with nothing to return, are a `422` OperationOutcome (`not-found`): DTR asks for a
+4xx. An unknown id and another organization's get the same answer, which names neither. A
+decided order that needs no documentation gets an information note instead. The answers are
+profile-validated against DTR 2.2.0 (HL7 validator, offline) in CI, which checks their
+structure, not how the operation behaves; the tests check that. A pack declares it with
+`cds_hooks.questionnaire`.
 
 **Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
 `mendari pas build`) builds the PAS request Bundle. It holds a `preauthorization` Claim, the

@@ -359,21 +359,142 @@ def test_a_context_or_an_order_that_names_no_decision_is_a_422(client: Any) -> N
         {"name": "questionnaire", "valueCanonical": ELSEWHERE},
     )
     assert refusal(client.post(PACKAGE, json=with_elsewhere)) == unknown  # still no package
+
+
+def undecided(source: str, index: int) -> dict[str, Any]:
+    """The warning for an order, or the context, that names no decision of the caller's: the
+    parameter by its place in the request, and no id."""
+    return {
+        "severity": "warning",
+        "code": "not-found",
+        "diagnostics": f"no Mendari decision for this {source}: {davinci.SIGN_FIRST}",
+        "expression": [f"Parameters.parameter[{index}]"],
+    }
+
+
+def test_an_order_or_a_context_that_names_no_decision_beside_a_package_is_a_warning(
+    client: Any,
+) -> None:
+    """DTR, after oper-9: an order it cannot understand is a warning, with packages too. The
+    warning names the parameter, not the id, so an unknown id and another organization's read
+    the same (tests/test_two_organizations.py)."""
+    order = signed_order(client, "acme", "Back pain for two weeks.", _order("mri", "FX101"))
+    decision_id = davinci.assertion_id(order)
+    assert decision_id is not None
+    forged = json.loads(json.dumps(order).replace(decision_id, "0" * len(decision_id)))
+    unsigned = _order("scope", "FX202")  # no coverage information: never signed through CRD
+    for other in (forged, unsigned):
+        answer = client.post(
+            PACKAGE,
+            json=package_request(
+                {"name": "order", "resource": order}, {"name": "order", "resource": other}
+            ),
+        )
+        assert answer.status_code == 200, answer.text
+        [package] = [
+            p["resource"] for p in answer.json()["parameter"] if p["name"] == "packagebundle"
+        ]
+        assert package["entry"][0]["resource"]["url"].endswith("/Questionnaire/lumbar_mri-acme")
+        assert outcome(answer.json()) == [undecided("order", 2)]
     pack = resolve_pack(PA)
     known = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
     asked = package_request(
         {"name": "context", "valueString": "nope-42"},
         {"name": "questionnaire", "valueCanonical": known},
     )
-    answered = client.post(PACKAGE, json=asked)  # a package to return: as before
-    assert [p["name"] for p in answered.json()["parameter"]] == ["packagebundle"]
+    answered = client.post(PACKAGE, json=asked)  # the canonical's package, and the warning
+    assert answered.status_code == 200, answered.text
+    assert [p["name"] for p in answered.json()["parameter"]] == ["packagebundle", "outcome"]
+    assert outcome(answered.json()) == [undecided("context", 1)]
+    assert "nope-42" not in answered.text
+
+
+def crd_link(order: dict[str, Any]) -> str:
+    """The questionnaire CRD linked on the order it updated (`url|version`)."""
+    [link] = coverage_info({"resource": order})["questionnaire"]
+    return str(link)
+
+
+def test_the_packages_are_the_union_of_the_orders_and_the_questionnaires_asked_for(
+    client: Any,
+) -> None:
+    """DTR's OperationDefinition: the union of what each parameter names, each Questionnaire
+    version once. The order's own questionnaire, with its version or without, is the order's
+    pre-answered package; another comes unanswered beside it."""
+    order = signed_order(client, "acme", "Back pain for two weeks.", _order("mri", "FX101"))
+    linked = crd_link(order)
+    pack = resolve_pack(PA)
+    sleep = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
+    canonicals = (linked, linked.partition("|")[0], sleep, f"{sleep}|{pack.version}")
+    answer = client.post(
+        PACKAGE,
+        json=package_request(
+            {"name": "order", "resource": order},
+            *({"name": "questionnaire", "valueCanonical": c} for c in canonicals),
+        ),
+    )
+    assert answer.status_code == 200, answer.text
+    parameters = answer.json()["parameter"]
+    assert [p["name"] for p in parameters] == ["packagebundle", "packagebundle"]  # no outcome
+    mri, sleep_study = ([e["resource"] for e in p["resource"]["entry"]] for p in parameters)
+    assert f"{mri[0]['url']}|{mri[0]['version']}" == linked
+    assert {i["linkId"]: i["answer"][0]["valueCoding"]["code"] for i in mri[1]["item"]} == {
+        "diagnosis_supports": "yes",
+        "conservative_therapy": "no",  # pre-answered from the order's decision
+        "prior_imaging": "yes",
+    }
+    assert sleep_study[0]["url"] == sleep and "item" not in sleep_study[1]
+
+
+def test_a_questionnaire_version_not_served_is_not_found(client: Any) -> None:
+    """oper-9 for a version-specific canonical: only the pack's version is served, so another
+    is not found, alone or beside an order's package, and never answered with the current one.
+    A canonical without a version asks for the current one."""
+    pack = resolve_pack(PA)
+    url = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
+
+    def ask(canonical: str) -> dict[str, Any]:
+        return davinci.questionnaire_package(
+            package_request({"name": "questionnaire", "valueCanonical": canonical}),
+            lambda _: None,
+            {PA: pack},
+            "2026-10-17T00:00:00+00:00",
+        )
+
+    for canonical in (url, f"{url}|{pack.version}"):
+        [bundle] = [p["resource"] for p in ask(canonical)["parameter"]]
+        assert bundle["entry"][0]["resource"]["version"] == pack.version
+    for version in ("9.9.9", "0.0.0-not-a-version"):
+        answer = ask(f"{url}|{version}")
+        assert [p["name"] for p in answer["parameter"]] == ["outcome"]
+        assert outcome(answer) == [
+            {
+                "severity": "warning",
+                "code": "not-found",
+                "diagnostics": f"questionnaire not found: {url}|{version}",
+            }
+        ]
+    order = signed_order(client, "acme", "Back pain for two weeks.", _order("mri", "FX101"))
+    stale = f"{crd_link(order).partition('|')[0]}|9.9.9"
+    answer = client.post(
+        PACKAGE,
+        json=package_request(
+            {"name": "order", "resource": order},
+            {"name": "questionnaire", "valueCanonical": stale},
+        ),
+    )
+    assert answer.status_code == 200, answer.text
+    assert [p["name"] for p in answer.json()["parameter"]] == ["packagebundle", "outcome"]
+    [issue] = outcome(answer.json())
+    assert issue["diagnostics"] == f"questionnaire not found: {stale}"
 
 
 def test_a_decided_order_that_needs_no_documentation_is_a_note(client: Any) -> None:
     """oper-8: the order was decided, but the payer asks for no documentation for it (no
-    authorization needed): no package, and an information note that says so, never a 4xx."""
+    authorization needed): no package, and an information note that says so, never a 4xx. An
+    order beside it that the pack did not decide is a warning."""
     order = signed_order(client, "beacon", "Loud snoring.", _order("psg", "FX301"))
-    unsigned = _order("lab", "FX904")  # an order the pack did not decide stays silent
+    unsigned = _order("lab", "FX904")
     answer = client.post(
         PACKAGE,
         json=package_request(
@@ -386,7 +507,8 @@ def test_a_decided_order_that_needs_no_documentation_is_a_note(client: Any) -> N
             "severity": "information",
             "code": "informational",
             "diagnostics": "the payer needs no documentation for this order",
-        }
+        },
+        undecided("order", 2),
     ]
     asks_nothing = client.post(PACKAGE, json=package_request())
     assert asks_nothing.status_code == 400  # oper-6: an order, a context or a questionnaire

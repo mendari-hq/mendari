@@ -42,12 +42,16 @@ The first release (not yet published).
   of every questionnaire asked for that is not found here, beside any package (oper-9); it was
   an information note, and only when no package was built. A canonical of Mendari's form whose
   names are not the pack's labels is not found too: it no longer gets a questionnaire made up
-  for it. Orders or a `context` that name no decision of the caller's organization, with
-  nothing to return, are a `422` OperationOutcome (`not-found`, spec-130), not a `200`; an
-  unknown id and another organization's get the same answer, which repeats neither. A request
-  that names no order, context or questionnaire is a `400` (oper-6). A decided order that needs
-  no documentation keeps its information note (oper-8), and a package that was built is as
-  before. `scripts/davinci_sample.py` writes a tenth sample, a package with the warning, for
+  for it. Nor is one with a version other than the pack's: it got the current version before.
+  A questionnaire that is found comes beside the orders' packages, the union DTR asks for, each
+  questionnaire version once; it was dropped whenever an order had a package. An order or a
+  `context` that names no decision of the caller's organization is a warning too, which points
+  at the parameter and names no id; it was silent. With nothing to return, they are a `422`
+  OperationOutcome (`not-found`, spec-130), not a `200`; an unknown id and another
+  organization's get the same answer, which repeats neither. A request that names no order,
+  context or questionnaire is a `400` (oper-6). A decided order that needs no documentation
+  keeps its information note (oper-8), and a package that was built is as before.
+  `scripts/davinci_sample.py` writes a tenth sample, a package with both warnings, for
   `fhir-conformance`. "Validated against DTR 2.2.0" now reads profile-validated (HL7 validator,
   offline): that checks the answers' structure, not how the operation behaves.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,

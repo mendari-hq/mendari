@@ -180,9 +180,10 @@ against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
 - A **CQL** provider (a CQL engine as a pack provider type).
 - **OMOP** CDM → pack inputs, for population-level evaluation.
 - **Da Vinci CRD / DTR / PAS** wired into PA Preflight. Since 2026-10-17, DTR's
-  `$questionnaire-package` answers errors as DTR 2.2.0 asks: a warning for a questionnaire not
-  found (oper-9), and a `422` OperationOutcome for orders or a context that name no decision
-  (spec-130).
+  `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
+  questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
+  names no decision, and a `422` OperationOutcome for orders or a context that name no
+  decision, with nothing to return (spec-130).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
 _Built 2026-09-30 (#96–#101). The security scans, docs build, pack-PR eval gate and README

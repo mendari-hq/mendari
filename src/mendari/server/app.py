@@ -2537,10 +2537,11 @@ def create_app(
     )
     def questionnaire_package(payload: JsonBody) -> JSONResponse:
         """Da Vinci DTR: the documentation the payer asks for, for orders a pack decided (found by
-        CRD's assertion id), pre-answered from the decision (`standards/davinci.py`). A
-        questionnaire asked for and not found here is a warning in `outcome`; orders or a
-        `context` that name no decision of yours, with nothing to return, are a `422`
-        OperationOutcome (`not-found`)."""
+        CRD's assertion id), pre-answered from the decision, and the questionnaires asked for,
+        each version once (`standards/davinci.py`). A questionnaire not found here, or an order
+        or a `context` that names no decision of yours, is a warning in `outcome`; orders or a
+        `context` that name no decision, with nothing to return, are a `422` OperationOutcome
+        (`not-found`)."""
 
         def lookup(decision_id: str) -> tuple[Pack, dict[str, str]] | None:
             record = store.get(decision_id)

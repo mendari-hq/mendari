@@ -2573,9 +2573,11 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [ ] **Da Vinci verification** (brief of 2026-10-17, DV-a to DV-e). Mendari's DTR route is the
   payer side (the "DTR Server"), so a payer never calls it: the counterpart is a DTR client, the
   Inferno DTR test kit v0.18.0 (suite `dtr_payer_server_v220`, Inferno as the client).
-  - [x] DV-a: `$questionnaire-package` error semantics. A questionnaire not found is a warning
-    (`not-found`) in `outcome`, with packages or without (oper-9); orders or a context that name
-    no decision of the caller's organization, with nothing to return, are a `422`
+  - [x] DV-a: `$questionnaire-package` error semantics. A questionnaire not found (a version
+    other than the pack's too) is a warning (`not-found`) in `outcome`, with packages or without
+    (oper-9), and so is an order or a context that names no decision; the packages are the union
+    of the orders' and the questionnaires asked for, each version once. Orders or a context
+    that name no decision of the caller's organization, with nothing to return, are a `422`
     OperationOutcome (`not-found`, spec-130), one answer for an unknown id and another
     organization's; a decided order that needs no documentation keeps its information note
     (oper-8); a request that names no order, context or questionnaire is a `400` (oper-6).

@@ -153,9 +153,11 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         definition=DTR_QUESTIONNAIRE_PACKAGE,
         documentation="Da Vinci DTR: the documentation a payer asks for an order a pack decided "
         "(found by the CRD assertion id), pre-answered from the decision. Reads coverage, order, "
-        "context and questionnaire; ignores changedsince. A questionnaire asked for and not "
-        "found is a warning in outcome; orders or a context that name no decision, with nothing "
-        "to return, are a 422 OperationOutcome. DTR's other payer operations "
+        "context and questionnaire, and returns the union of what they name, each questionnaire "
+        "version once; ignores changedsince. A questionnaire not found (a version other than "
+        "the pack's too), or an order or a context that names no decision, is a warning in "
+        "outcome; orders or a context that name no decision, with nothing to return, are a 422 "
+        "OperationOutcome. DTR's other payer operations "
         "($next-question, $log-questionnaire-errors, ValueSet/$expand) are not implemented.",
         serves=_has_questionnaire,
     ),
