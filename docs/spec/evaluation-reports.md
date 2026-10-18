@@ -149,6 +149,37 @@ Python prints for 2,401 figures and 601 bounds, including the exact rounding tie
 JavaScript's `toFixed` and Python's formatting disagree. Its bounds' last bits are the
 platform's maths library's, so it is checked by what it prints, never byte for byte.
 
+## Statistics: `mendari.evals.stats`
+
+Every interval and test on this page comes from one module, written with Python's standard
+library only and checked against scipy and statsmodels (`tests/test_stats.py`). Its bootstrap
+resamples come from `random.Random(seed)`, the one part of Python's random module whose
+sequence is fixed for a seed, so anyone with the cases and the seed draws the same resamples.
+
+Three functions were added for the scoreboard (LP-17). No format on this page uses them yet, so
+no stored result changes:
+
+- **The stratified bootstrap** (`stratified_bootstrap`) draws each case of a resample from its
+  own stratum's cases, from the same seeded draws. Every stratum keeps its size, and with one
+  stratum it is the plain bootstrap. It is for macro-F1, resampled within each true label, so
+  every label keeps its support and every resample's macro-F1 is defined.
+- **A weighted share** (`weighted_proportion`) is for cases drawn with unequal probabilities,
+  such as a hidden set's sampling weights (N_h / n_h). It gives the Hájek estimate (the hits'
+  weight over the total weight), Kish's effective n (the total weight squared over the sum of
+  the squared weights) and the Korn-Graubard interval: Clopper-Pearson at the effective counts,
+  x hits and effective n - x misses, where x is the estimate times the effective n. The counts
+  are used as they are, not rounded, so at no hits and at all hits it is Korn-Graubard's too.
+  The beta quantile takes shapes of 1 or more only: where x is under 1 the lower bound is 0,
+  and where the misses are under 1 the upper bound is 1, wider than Korn-Graubard's there and
+  never narrower. The sums are exact, so with one weight for every case it is the exact
+  interval of k of n. A weighted share is shown beside the unweighted k of n, never in its
+  place.
+- **The Brier score's reliability term** (`brier_reliability`) is Murphy's: over ten
+  equal-mass bins of top-label confidence (a case's largest probability), the sum of each
+  bin's share of the cases times the squared distance between its mean forecast and how often
+  each label was the truth there. Tied confidences are averaged, as the calibration error's
+  are, and it is not estimable, as that error is, when a bin would hold fewer than 30 cases.
+
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
 A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and

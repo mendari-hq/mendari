@@ -66,8 +66,9 @@ HASH_KEY_B64 = base64.b64encode(INPUT_HASH_KEY).decode()
 PHI_KEY = secrets.token_bytes(32)  # test keys for PHI mode `encrypt` (`encrypt_mode`)
 PHI_KEY_B64 = base64.b64encode(PHI_KEY).decode()
 # The edit loop, `uv run pytest -m core` (about 20 s; the full suite takes about 6 min): pack
-# loading, decisions, policy and the audit. Only files in tests/ itself: `-m core` replaces the
-# default marker filter, so a browser or slow test here would run.
+# loading, decisions, policy, the audit and the statistics. Only files in tests/ itself, and
+# never a slow test in one: `-m core` replaces the default marker filter, so a browser or slow
+# test marked core would run.
 CORE = {
     "test_spec.py", "test_spec_02.py", "test_pack_status.py", "test_input_schema.py",
     "test_patterns.py", "test_templates.py", "test_community_caps.py", "test_new_pack.py",
@@ -76,13 +77,14 @@ CORE = {
     "test_referral_pack.py", "test_trial_pack.py", "test_prior_auth_pack.py",
     "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
     "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
-    "test_rater_agreement.py",
+    "test_rater_agreement.py", "test_stats.py",
 }  # fmt: skip
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
-        if item.path.parent == ROOT / "tests" and item.path.name in CORE:
+        core = item.path.parent == ROOT / "tests" and item.path.name in CORE
+        if core and item.get_closest_marker("slow") is None:
             item.add_marker(pytest.mark.core)
 
 
