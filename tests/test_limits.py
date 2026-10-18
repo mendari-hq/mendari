@@ -1099,13 +1099,17 @@ def test_each_draft_order_counts_against_the_cap_all_or_none(
 def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A person, an API key (on the AI guard), a Backend Services client (on FHIR) and an EHR
-    launch each have their own cap; a request counts whatever it answers (a launch's empty body
-    is a 422, a bare record on /fhir/$decide a 400: both count)."""
+    """A person, an API key (on the AI guard), a Backend Services client (on FHIR), an EHR
+    launch and a CDS client's own token (on CDS Hooks, LP-23b) each have their own cap; a
+    request counts whatever it answers (a launch's empty body is a 422, a bare record on
+    /fhir/$decide a 400: both count)."""
+    from tests.test_cds_clients import entry, register
+    from tests.test_cds_clients import token as cds_token
+
     capped(monkeypatch, 1)
     backend_on(monkeypatch)
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
-    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    register(monkeypatch, entry())  # the EHR's own tokens, its base the launch's
     monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
     db = str(tmp_path / "kinds.db")
     client = TestClient(create_app(db_path=db), base_url=PUBLIC_URL)
@@ -1131,6 +1135,19 @@ def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
         first = client.post(path, json=body, headers=headers)
         assert first.status_code != 429, (who, first.text)  # counted, whatever it answers
         assert_retry_after(client.post(path, json=body, headers=headers))
+    # A CDS client's token is good for one request (its jti): a fresh one each time.
+    assert client.get("/api/health", headers=person(db, "admin")).json()["cds_clients"] == ["epic"]
+    for answered in (200, 429):
+        signed = cds(cds_token(path=REFERRAL_HOOK))
+        hooked = client.post(REFERRAL_HOOK, json=order_sign(1), headers=signed)
+        assert hooked.status_code == answered, hooked.text
+    assert_retry_after(hooked)
+    with AuditStore(db) as store:
+        assert store.principal_usage("cds:epic") == 1
+
+
+def cds(sent: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {sent}"}
 
 
 def test_only_what_decides_counts_against_the_cap(

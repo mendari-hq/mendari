@@ -9,8 +9,8 @@ client or an approval) is in the hash chain already; this is for incident respon
 **Fields come from an allow-list** (`FIELDS`), and anything else is dropped by the formatter:
 `ts`, `event`, `outcome`, `reason` (a fixed code), `request_id`, `method`, `route` (the route's
 template, `/api/audit/{decision_id}`: never the raw path or its query), `status`, `actor` (a
-`Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `ehr:<hash>` (an EHR launch), `open`
-or `anonymous`), `org`, `ip`,
+`Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `ehr:<hash>` (an EHR launch),
+`cds:<id>` (a CDS client's verified token), `open` or `anonymous`), `org`, `ip`,
 `ids` (decision, key, client or approval ids; a hidden evaluation set's id only, never a
 case's, an assignment's or a label's), `count`, `latency_ms`, and for an unhandled
 exception its `error` type and `frames` (file, line, function). Never a credential, a token, an
@@ -27,10 +27,14 @@ a person can quote it and the line be found.
 (probes) or static files.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships
-mode adds the reason `no_organization_record`), `auth.permission.refused` (and the reasons
-`no_organization`, `org_changed` and `not_a_member`), `auth.organization.selected` and
-`auth.access.requested` (memberships mode: a person choosing one of their organizations, and
-asking to join one, refused as `unknown_organization`, `member` or `open_requests`),
+mode adds the reason `no_organization_record`; a CDS client's token refused, `cds_<reason>`,
+with the client its `iss` names as `cds:<id>` once it names one), `auth.permission.refused`
+(and the reasons `no_organization`, `org_changed`, `not_a_member`, `cds_only` and
+`cds_fhir_server_not_registered`), `cds.jwks.refused` (a CDS client's keys could not be
+fetched, `unreachable`, or were not public signing keys, `invalid_keys`),
+`auth.organization.selected` and `auth.access.requested` (memberships mode: a person choosing
+one of their organizations, and asking to join one, refused as `unknown_organization`, `member`
+or `open_requests`),
 `auth.invitation.accepted` (memberships mode, refused as `unverified`, `invalid`,
 `other_address` or `member`, with no organization),
 `admin.invitation.created|revoked`, `admin.membership.roles_changed|removed` and

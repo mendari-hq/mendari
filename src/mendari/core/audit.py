@@ -667,7 +667,8 @@ SEALED_KINDS = frozenset({"session", "pending", "member"})
 # The session-table kinds the break-glass ends (`end_sessions`), by group: people's sessions
 # (claims mode's `user`, memberships mode's `member`) with the sign-ins under way
 # (`oidc-pending`), and EHR launches' sessions (`session`) with the launches under way
-# (`pending`). Never a claim (`jti`): ending one would let the assertion it refused be replayed.
+# (`pending`). Never a claim (`jti`, `cds-jti`): ending one would let the assertion or the CDS
+# client's token it refused be replayed.
 SESSION_GROUPS: dict[str, tuple[str, ...]] = {
     "people": ("member", "oidc-pending", "user"),
     "launches": ("pending", "session"),
@@ -1250,8 +1251,9 @@ class AuditStore(RateBuckets):
         quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
         pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
         (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
-        caller's own answer (`/decide`) is unchanged. With sign-in on, the chained event also
-        names who asked (`requested_by`, the principal's chain name, `tenancy.requester`)."""
+        caller's own answer (`/decide`) is unchanged. With sign-in on (and, in open mode, for a
+        CDS client's verified token), the chained event also names who asked (`requested_by`,
+        the principal's chain name, `tenancy.requester`)."""
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"
@@ -1290,7 +1292,9 @@ class AuditStore(RateBuckets):
             )
             created: dict[str, Any] = {"record_sha256": _sha(record)}
             requester = tenancy.requester()
-            if requester is not None:  # sign-in on: who asked; never in open mode
+            # Who asked: with sign-in on, and in open mode for a CDS client's verified token
+            # (`cds <id>`, LP-23b); never anyone else in open mode.
+            if requester is not None:
                 created["requested_by"] = requester
             self._append(
                 db, result.id, "decision.created", self._bound("decision.created", created, org)
@@ -2640,9 +2644,9 @@ class AuditStore(RateBuckets):
     # Each row is keyed by sha256(kind || 0x00 || value), the value being the state, session id
     # or claim the caller holds: the table alone cannot be replayed, and a value of one kind can
     # never name a row of another (a kind is a short name without NUL). Every read, take and
-    # delete is scoped to its kind. Rows expire; each put purges up to 100 expired ones. Not part
-    # of the audit chain, so no operation here takes the chain's lock: a take is one
-    # `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
+    # delete is scoped to its kind. Rows expire; each put and each claim purges up to 100 expired
+    # ones. Not part of the audit chain, so no operation here takes the chain's lock: a take is
+    # one `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
     # Rows keyed before the kind was in the digest are never found again and expire.
     # Rows of `SEALED_KINDS` are sealed under `secret` (by default the row's own value): a row
     # that does not open (another row's data, a changed byte, plaintext from before sealing) is
@@ -2765,8 +2769,9 @@ class AuditStore(RateBuckets):
         (`SESSION_GROUPS`, or `all` of them), so the next request with one of their cookies, on
         any instance, finds none and is signed out (nothing is cached in memory). Chained in the
         same transaction as `sessions.ended` (the kinds, how many live ones ended, who and why)
-        under `SESSIONS_CHAIN`. Claims (`jti`) are never touched. A member's and a launch's rows
-        are sealed under their cookie, so whose they are cannot be read here: a whole kind."""
+        under `SESSIONS_CHAIN`. Claims (`jti`, `cds-jti`) are never touched. A member's and a
+        launch's rows are sealed under their cookie, so whose they are cannot be read here: a
+        whole kind."""
         if group != "all" and group not in SESSION_GROUPS:
             raise ValueError(f"end the sessions of one of {sorted(SESSION_GROUPS)} or all")
         why = break_glass_reason(reason)
@@ -2790,14 +2795,22 @@ class AuditStore(RateBuckets):
         return ended
 
     def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
-        """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
-        claim, False while that claim lasts; an expired claim can be made again. One statement,
-        so concurrent claims through any number of connections or instances have one winner."""
+        """Claim `value` once until `expires_at` (e.g. an assertion's `jti`, or a CDS client's
+        token's): True for the first claim, False while that claim lasts; an expired claim can be
+        made again. One statement, so concurrent claims through any number of connections or
+        instances have one winner. Each claim first deletes up to `SESSION_PURGE_BATCH` expired
+        rows, as each put does: a CDS client's every call leaves a claim, which would otherwise
+        stay in the table for good."""
         row_key = _session_key(kind, value)
         now = int(time.time())
         if expires_at <= now:
             raise ValueError("a claim must expire in the future")
         with self._db.session(exclusive=False) as db:
+            db.all(
+                "DELETE FROM smart_sessions WHERE key_sha256 IN (SELECT key_sha256 FROM "
+                "smart_sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)",
+                (now, SESSION_PURGE_BATCH),
+            )
             won = db.all(
                 "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
                 "VALUES (?, ?, ?, '{}') "
@@ -5932,10 +5945,14 @@ _SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
 # A bucket's start for the next request: its `tat`, or now if that has passed (GCRA's max).
 def _session_key(kind: str, value: str) -> str:
     """A session-table row's key: sha256(kind || 0x00 || value). Kinds are short lowercase names
-    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal."""
+    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal. A value
+    is any string: one decoded from JSON (a token's `jti`) may hold a lone surrogate, which
+    `surrogatepass` encodes as no valid string encodes, so the bytes of every other value, and
+    so every key made before, are unchanged."""
     if not _SESSION_KIND.fullmatch(kind):
         raise ValueError(f"not a session kind: {kind!r}")
-    return hashlib.sha256(kind.encode() + b"\x00" + value.encode()).hexdigest()
+    raw = value.encode("utf-8", "surrogatepass")
+    return hashlib.sha256(kind.encode() + b"\x00" + raw).hexdigest()
 
 
 def _opener(kind: str, key: str, secret: str | None) -> str | None:

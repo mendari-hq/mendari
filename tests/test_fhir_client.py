@@ -168,6 +168,14 @@ def test_a_next_link_to_another_server_is_refused() -> None:
             httpx.Response(200, text="[1]", headers={"content-type": "application/json"}),
             "other than a JSON object",
         ),
+        (  # nested too deep to read: a FhirError, never a RecursionError
+            httpx.Response(200, text="[" * 100_000, headers={"content-type": "application/json"}),
+            "invalid JSON",
+        ),
+        (
+            httpx.Response(400, text="[" * 100_000, headers={"content-type": "application/json"}),
+            "HTTP 400",
+        ),
     ],
 )
 def test_failures_fail_closed_without_echoing_the_server(
