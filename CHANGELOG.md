@@ -362,6 +362,24 @@ The first release (not yet published).
   Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
   Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
   `docs/spec/evaluation-reports.md`, Arms.
+- **Signed scoreboard results and the public verifier** (LP-17e, `mendari.evals.signing`; off
+  without the key). A result (`mendari.scoreboard/1`, or a hidden set's
+  `mendari.hidden_scoreboard/1`) is signed with an Ed25519 grading key the owner holds offline,
+  `MENDARI_GRADING_SIGNING_KEY`, over `mendari-grading-result-v1`, a zero byte and its canonical
+  JSON without its signature, so no checkpoint, archive or recall signature verifies as a
+  result's. The key must differ from every other key Mendari uses (the checkpoint and registry
+  keys, the PHI key and its read keys, the input hash key and the three evaluation-set keys,
+  which now refuse to equal it too); a malformed or reused one stops the command, naming the
+  variable, never the value. `mendari scoreboard sign FILE ...` is the key holder's: it refuses
+  in CI (`CI` or `GITHUB_ACTIONS` set) and without the key, checks every file before writing
+  any, and adds the signature in place, leaving the body and its SHA-256 as they were.
+  `mendari scoreboard verify FILE ... [--keys FILE | --public-key B64]` needs no secret and
+  writes nothing: it refuses another format, a body that is not canonical JSON (a key twice,
+  NaN or an infinity), a method hash that is not its version's, a key not in
+  `scoreboard/keys.json` (`mendari.grading-keys/1`, empty until the owner adds one) or not
+  valid on the day the result was measured, a publisher's or a registry's key this machine
+  pinned, and any changed byte. No result is signed yet. Guide: `docs/grading/verifying.md`;
+  threat model S20 and E14. No figure, format or decision changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

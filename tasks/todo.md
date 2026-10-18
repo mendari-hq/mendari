@@ -1844,8 +1844,21 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     arms PACK`).
   - [ ] **17d** Scoreboard entries (`mendari.scoreboard/1`) and run records (`mendari.run/1`),
     pure; the price table (`mendari.prices/1`) and the disclosures file.
-  - [ ] **17e** Signing and the public verifier (`MENDARI_GRADING_SIGNING_KEY`, off without it;
-    `mendari scoreboard sign|verify`; `docs/grading/verifying.md`).
+  - [x] **17e** (this PR) Signing and the public verifier (`mendari.evals.signing`; off without
+    the key). `MENDARI_GRADING_SIGNING_KEY` (Ed25519, 32 bytes in base64, the owner's, offline):
+    unset is off, a malformed or reused one stops the command naming no value; it must differ from
+    the checkpoint, registry, PHI (and each read key), input hash and three evaluation-set keys,
+    and the evaluation-set keys refuse to equal it (`OTHER_KEYS`); the test suite removes it
+    (`LIVE_SETTINGS`). A signature (`signature: {key_id, value}`) covers
+    `mendari-grading-result-v1`, a zero byte and `ledger.canonical` of the result without it; it
+    reads `scope.method` (version and sha256) and `scope.measured_on`. `mendari scoreboard sign
+    FILE ...` refuses in CI and without the key, and with a key pinned as a publisher's;
+    `mendari scoreboard verify FILE ... [--keys | --public-key]` needs no secret and names each
+    refusal (another format, a body that is not canonical, a method hash not its version's, a key
+    unknown, outside its dates or a publisher's, a changed byte). `scoreboard/keys.json`
+    (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
+    S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
+    commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
   - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
     and the early scoreboard (stage 3): every local configuration on the 15 public scoring sets,
     unranked and unsigned, on a generated page.

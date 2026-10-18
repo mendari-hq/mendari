@@ -3,7 +3,8 @@
 
 The method is a document, `docs/grading/method-1.0.md`; this module pins its version, the SHA-256
 of its bytes and its parameters, so the code that grades (from LP-17d on) cites these and no
-number of its own. Nothing imports this module yet.
+number of its own. The verifier (`evals/signing.py`, LP-17e) reads `METHOD` and `METHOD_SHA256`,
+to refuse a result whose method hash is not its version's.
 
 The document is not in the wheel or the sdist (pyproject.toml ships `src/`, `packs/` and
 `datasets/`; the documentation site is built from the repository), so an installed package cannot
