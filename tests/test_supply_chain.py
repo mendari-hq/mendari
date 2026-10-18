@@ -19,7 +19,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-COMPOSE_FILES = [ROOT / "docker-compose.yml", ROOT / "deploy" / "onprem" / "docker-compose.yml"]
+INFERNO = ROOT / "sandbox" / "inferno"
+COMPOSE_FILES = [
+    ROOT / "docker-compose.yml",
+    ROOT / "deploy" / "onprem" / "docker-compose.yml",
+    INFERNO / "docker-compose.yml",
+]
+# Each Dockerfile, with the least number of FROM lines it has (the engine's is multi-stage).
+DOCKERFILES = {ROOT / "Dockerfile": 2, INFERNO / "Dockerfile": 1}
 
 COMMIT_PIN = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 # The comment Dependabot keeps in step with the SHA, and the only way a reader sees the version.
@@ -124,7 +131,7 @@ def _docker_built_tags(script: str) -> set[str]:
 
 def test_the_workflows_and_files_are_there() -> None:
     names = {p.name for p in WORKFLOWS}
-    assert {"ci.yml", "release.yml", "packs.yml"} <= names
+    assert {"ci.yml", "release.yml", "packs.yml", "conformance.yml"} <= names
     assert "images.yml" not in names  # images are published by release.yml, after its build
     assert all(p.exists() for p in COMPOSE_FILES)
 
@@ -278,10 +285,11 @@ def test_every_compose_image_is_pinned_by_digest(path: Path) -> None:
         assert DIGEST_PIN.search(image), f"{path.name}: {name} uses {image}"
 
 
-def test_every_dockerfile_base_is_pinned_by_digest() -> None:
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_dockerfile_base_is_pinned_by_digest(path: Path) -> None:
     stages: set[str] = set()
     froms = 0
-    for line in (ROOT / "Dockerfile").read_text().splitlines():
+    for line in path.read_text().splitlines():
         words = line.split()
         if words[:1] == ["FROM"]:
             froms += 1
@@ -292,7 +300,49 @@ def test_every_dockerfile_base_is_pinned_by_digest() -> None:
         if words[:1] == ["COPY"] and words[1].startswith("--from="):
             source = words[1].removeprefix("--from=")
             assert source in stages or DIGEST_PIN.search(source), line
-    assert froms >= 2
+    assert froms >= DOCKERFILES[path]
+
+
+def _gem_specs(lock: str, section: str, indent: int) -> list[str]:
+    """The lines a Gemfile.lock section lists at one indent: each gem's `name (version)`, with
+    its checksum in CHECKSUMS."""
+    block = lock.split(f"\n{section}\n", 1)[1].split("\n\n", 1)[0]
+    return [line.strip() for line in block.splitlines() if re.match(rf"^ {{{indent}}}\S", line)]
+
+
+def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -> None:
+    """The Inferno kit publishes no image and its own Dockerfile pins nothing (LP-23 reuses this
+    one): its source is fetched by commit SHA and checked against it, Bundler is checked against
+    its sha256 before it is installed, and every gem is installed from Mendari's Gemfile.lock,
+    whose CHECKSUMS Bundler checks (a changed sha256 fails the build), frozen."""
+    dockerfile = (INFERNO / "Dockerfile").read_text()
+    commit = re.search(r"^ARG KIT_COMMIT=([0-9a-f]{40})$", dockerfile, re.M)
+    assert commit is not None
+    for line in (
+        'git fetch --quiet --depth 1 "$KIT_REPOSITORY" "$KIT_COMMIT"',
+        'test "$(git rev-parse HEAD)" = "$KIT_COMMIT"',
+        'echo "${BUNDLER_SHA256}  /tmp/bundler.gem" | sha256sum -c -',
+        "gem install --local --no-document /tmp/bundler.gem",
+        "BUNDLE_FROZEN=true",
+        "COPY Gemfile.lock ./Gemfile.lock",
+    ):
+        assert line in dockerfile, line
+    assert re.search(r"^ARG BUNDLER_SHA256=[0-9a-f]{64}$", dockerfile, re.M)
+    assert "gem install bundler" not in dockerfile  # never an unchecked download
+    bundler = re.search(r"^ARG BUNDLER_VERSION=(\S+)$", dockerfile, re.M)
+    assert bundler is not None
+    lock = (INFERNO / "Gemfile.lock").read_text()
+    assert lock.rstrip().endswith(f"BUNDLED WITH\n   {bundler[1]}")
+    gems = _gem_specs(lock, "GEM\n  remote: https://rubygems.org/\n  specs:", 4)
+    listed = _gem_specs(lock, "CHECKSUMS", 2)
+    checked = dict(line.rsplit(" sha256=", 1) for line in listed if " sha256=" in line)
+    assert len(gems) > 100 and set(gems) == set(checked)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in checked.values())
+    # The only gem without a checksum is the kit itself, fetched by commit above.
+    assert [line for line in listed if " sha256=" not in line] == ["davinci_dtr_test_kit (0.18.0)"]
+    # Linux only: the images CI builds (amd64) and a local run on Apple silicon (arm64).
+    platforms = lock.split("\nPLATFORMS\n", 1)[1].split("\n\n", 1)[0].split()
+    assert platforms == ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"]
 
 
 def test_the_image_installs_exactly_the_lock() -> None:

@@ -71,6 +71,23 @@ The first release (not yet published).
   `scripts/davinci_sample.py` writes a tenth sample, a package with both warnings, for
   `fhir-conformance`. "Validated against DTR 2.2.0" now reads profile-validated (HL7 validator,
   offline): that checks the answers' structure, not how the operation behaves.
+- **Da Vinci DTR: how `$questionnaire-package` behaves, checked by Inferno** (DV-c; CI and
+  sandbox files only, no product change). A new workflow, `conformance.yml`, runs weekly and by
+  hand, never on a pull request and not as a required check: the Inferno Da Vinci DTR test kit
+  v0.18.0, suite `dtr_payer_server_v220` (groups 1, 3 and 4; group 2, Backend Services, waits for
+  LP-23), plays the DTR client against the engine in open mode on synthetic data.
+  `sandbox/inferno/` holds Mendari's own build of the kit (the Ruby base by digest, the kit by
+  commit, Bundler by sha256, every gem from a lockfile with checksums), a compose file with
+  every image pinned by digest, and the expected results: every test with its result and, for
+  each that is not a pass, its requirement ids and reason. `scripts/inferno_dtr_inputs.py`
+  builds Inferno's inputs over HTTP against the engine, and `scripts/inferno_check.py` gives the
+  verdict: any difference fails, an unexpected pass included. The first run: 3.6.01
+  (questionnaire not found, oper-9) and 3.6.02 (source data error, spec-130) pass; the known gaps
+  are 1.01 (conf-1), 3.4.01 (spec-17), 3.4.04 (spec-54), 3.5.01 (oper-5, skipped), 3.6.03
+  (spec-147), 3.7.02 to 3.7.04 (conf-2) and 4.01 (oper-1). Validation runs with no terminology
+  server, so no resource goes to tx.fhir.org; the validator fetches the implementation guides it
+  loads from packages.fhir.org. The raw output is kept for 7 days as an artifact, never
+  committed.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.
