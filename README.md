@@ -599,6 +599,19 @@ by declared system with any other system as one count, what could not be read by
 never holds a value, an id, text, a patient's code or a system the pack does not declare. A JSON
 decision carries none.
 
+**Cards and feedback (LP-23f).** A card's `uuid` is its decision's id, and a card with its
+suggestion says `selectionBehavior: at-most-one` and offers three override reasons (not
+relevant, already addressed, clinical judgement) from Mendari's own CodeSystem. Its summary uses
+the pack's display names and fits 140 characters, checked when the pack loads; its detail is the
+pack's status, the notice and one plain sentence, never a percentage. With `MENDARI_PUBLIC_URL`
+set, the reasons are behind a link to the decision in the audit trail, and a launch-registered
+EHR of the same organization gets a `smart` link that opens the pack. The prior authorization
+service declares Da Vinci CRD's version and its `coverage-info` option in discovery, and honours
+`coverage-info: false`. The EHR may send back what the clinician did with each card
+(`POST /cds-services/{id}/feedback`): each is chained as `card.feedback`, codes and ids only, and
+the comment is never kept. A card from another organization, another pack or another caller is
+one `404`. In the dashboard, a FHIR decision's record shows what it read, as counts.
+
 **An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
 Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
 Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential

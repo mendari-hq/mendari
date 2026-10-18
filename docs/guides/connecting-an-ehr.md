@@ -1,7 +1,7 @@
 # Connecting an EHR
 
-An EHR calls Mendari's CDS Hooks services (`GET /cds-services` and
-`POST /cds-services/{id}`) in one of two ways:
+An EHR calls Mendari's CDS Hooks services (`GET /cds-services`, `POST /cds-services/{id}` and
+its card feedback, `POST /cds-services/{id}/feedback`) in one of two ways:
 
 - **With a Mendari key.** An administrator makes a key from the `cds-hooks` preset and the
   EHR sends it as `Authorization: Bearer ohk_…`
@@ -102,7 +102,7 @@ hook call refused for its `fhirServer` (below) has passed all of them, so its `j
 ## What a client may do
 
 A verified token is a principal of kind `cds`, in the client's registered organization. It may
-list the services and call them, and nothing else:
+list the services, call them and send feedback on their cards, and nothing else:
 
 - It reaches `/cds-services` and its children only. On any other route the token is not a
   credential: with sign-in on the answer is the same `401` as for any other credential Mendari
@@ -154,6 +154,79 @@ has to be registered first, with `org` set to `default`.
 A `fhirServer` refused for a `cds` principal is an `auth.permission.refused` line, reason
 `cds_fhir_server_not_registered`.
 
+## The cards
+
+Each card is CDS Hooks 2.0's:
+
+- Its `uuid` is the id of the decision it shows. Its one suggestion has its own `uuid`, and the
+  card says `selectionBehavior: at-most-one`.
+- It offers three override reasons, from
+  `https://mendari.co/fhir/CodeSystem/card-override-reasons` (served at
+  `/fhir/CodeSystem/card-override-reasons`): `not-relevant`, `already-addressed` and
+  `clinical-judgement`, each with its display.
+- The summary uses the pack's display names, at most 140 characters. The detail is the pack's
+  status, the notice and one plain sentence for the outcome, and never a percentage: the
+  confidence the card used to show as one is gone.
+- The prior authorization service is a Da Vinci CRD service. Its discovery entry declares
+  `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
+  is `coverage-info` in `source.topic`. A request with
+  `"extension": {"davinci-crd.configuration": {"coverage-info": false}}` gets no cards and no
+  system actions. Each order is still decided and recorded.
+
+The links on a card need `MENDARI_PUBLIC_URL`:
+
+| Link | When | Where it goes |
+|---|---|---|
+| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link. |
+| The pack (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#card`, the pack's card. |
+| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<pack>`. The EHR adds `iss` and `launch`. |
+
+Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail. A
+clinician without a Mendari account sees no reasons behind the link: give pilot clinicians
+accounts, or open the pack from the EHR (the launch link).
+
+## Card feedback
+
+When the clinician acts on a card, the EHR may send CDS Hooks 2.0 feedback to
+`POST /cds-services/{id}/feedback`, with a token for that URL (or the `cds-hooks` key):
+
+```json
+{
+  "feedback": [
+    {
+      "card": "<the card's uuid>",
+      "outcome": "accepted",
+      "acceptedSuggestions": [{"id": "<its suggestion's uuid>"}],
+      "outcomeTimestamp": "2026-10-18T12:00:00-04:00"
+    },
+    {
+      "card": "<another card's uuid>",
+      "outcome": "overridden",
+      "overrideReason": {
+        "reason": {
+          "system": "https://mendari.co/fhir/CodeSystem/card-override-reasons",
+          "code": "clinical-judgement"
+        }
+      },
+      "outcomeTimestamp": "2026-10-18T12:01:00-04:00"
+    }
+  ]
+}
+```
+
+- 1 to 50 cards in one request, each once. The answer is `{"recorded": <n>}`.
+- `accepted` names the card's one suggestion. `overridden` names one of the card's reasons, or
+  none. Anything the card did not offer, or a field CDS Hooks 2.0 does not define, is a `422`.
+- Each card must be a decision of that service, in the caller's organization, and, with sign-in
+  on (or for a CDS client's token), one the same caller asked for. Otherwise the answer is one
+  `404` for all of them, whichever it was.
+- It is all or nothing: a refused request records nothing.
+- Each card's feedback is chained on its decision as `card.feedback`: the service, the outcome,
+  the suggestion taken, the reason's system and code, the time and who sent it. `userComment`
+  is never kept.
+- It counts against the decide rate limit, as `cds:<id>`, and not against the daily cap: it
+  decides nothing.
+
 ## Not built yet
 
 These come in the next LP-23 steps:
@@ -161,5 +234,4 @@ These come in the next LP-23 steps:
 - Open mode answering CDS Hooks only on this machine, and CORS for the registered `origins`.
 - A hook that always answers: a record Mendari cannot read gives a recorded ABSTAIN with its
   reason, and every FHIR decision says what was read.
-- Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
 - Inferno's CRD kit calling Mendari as the CDS client in CI.

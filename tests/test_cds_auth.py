@@ -43,6 +43,8 @@ from tests.test_fhir_client import allow_ehr, referral_ehr
 from tests.test_limits import order_sign
 
 NOT_VALID = {"error": "AuthError", "detail": "the credential is not valid"}
+FEEDBACK = f"{HOOK}/feedback"  # the hook's card feedback (LP-23f)
+OUTCOME_AT = "2026-10-18T12:00:00-04:00"
 
 
 def bearer(sent: str) -> dict[str, str]:
@@ -170,7 +172,11 @@ def test_a_cds_client_reaches_nothing_but_cds_services(
         for method in route.methods or ()
     )
     cds = [r for r in routes if CDS_PATH.match(r[1])]
-    assert cds == [("GET", "/cds-services"), ("POST", "/cds-services/{service_id}")]
+    assert cds == [
+        ("GET", "/cds-services"),
+        ("POST", "/cds-services/{service_id}"),
+        ("POST", "/cds-services/{service_id}/feedback"),  # LP-23f
+    ]
     elsewhere = [r for r in routes if not CDS_PATH.match(r[1]) and permission_for(*r) != "public"]
     assert len(elsewhere) > 60
     capsys.readouterr()
@@ -189,7 +195,15 @@ def test_a_cds_client_reaches_nothing_but_cds_services(
     assert served.http.get(DISCOVERY, headers=bearer(token())).status_code == 200
     hooked = served.http.post(HOOK, json=order_sign(1), headers=bearer(token(path=HOOK)))
     assert hooked.status_code == 200
-    assert callers(capsys.readouterr().out) == ["cds:epic", "cds:epic"]
+    (card,) = hooked.json()["cards"]
+    feedback = {
+        "feedback": [
+            {"card": card["uuid"], "outcome": "overridden", "outcomeTimestamp": OUTCOME_AT}
+        ]
+    }
+    answered = served.http.post(FEEDBACK, json=feedback, headers=bearer(token(path=FEEDBACK)))
+    assert answered.status_code == 200, answered.text
+    assert callers(capsys.readouterr().out) == ["cds:epic", "cds:epic", "cds:epic"]
 
 
 def test_open_mode_refuses_an_unverified_jwt_on_cds_services(

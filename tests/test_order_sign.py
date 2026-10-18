@@ -82,7 +82,7 @@ def test_one_card_per_referral_and_other_orders_are_ignored(router: Decision) ->
     lab = order("lab-1", "Annual labs", LAB)
     cards = cds_hooks.invoke(router, request(order("r1", "Exertional chest pain"), lab, MEDICATION))
     assert [c["summary"] for c in cards["cards"]] == [
-        "Referral to cardiology is missing information"
+        "Referral to Cardiology is missing information"  # a display name; the Task keeps labels
     ]
     task = cards["cards"][0]["suggestions"][0]["actions"][0]["resource"]
     assert task["focus"] == {"reference": "ServiceRequest/r1"}
@@ -98,15 +98,15 @@ def test_two_referrals_give_two_cards(router: Decision) -> None:
     )
     summaries = [c["summary"] for c in cds_hooks.invoke(router, both)["cards"]]
     assert summaries == [
-        "Referral to cardiology: ready to schedule",
-        "Referral to dermatology: ready to schedule",
+        "Referral to Cardiology: ready to schedule",
+        "Referral to Dermatology: ready to schedule",
     ]
 
 
 def test_urgent_marking_and_no_referral(router: Decision) -> None:
     urgent = request(order("r1", "Changing mole", priority="urgent"))
     card = cds_hooks.invoke(router, urgent)["cards"][0]
-    assert card["summary"] == "Urgent dermatology referral: review today"
+    assert card["summary"] == "Urgent Dermatology referral: review today"
     assert cds_hooks.invoke(router, request(order("lab-1", "Labs", LAB), MEDICATION)) == {
         "cards": []
     }

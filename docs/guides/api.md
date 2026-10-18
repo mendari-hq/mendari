@@ -79,14 +79,47 @@ as `could not read labs: timeout`, it is recorded, and its card is an `info` car
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
 malformed field, a required resource you sent something else for) is still a `4xx`.
 
+**Cards and feedback.** A card's `uuid` is its decision's id. Its one suggestion has a `uuid` of
+its own, and the card says `selectionBehavior: at-most-one` and offers three `overrideReasons`
+(`https://mendari.co/fhir/CodeSystem/card-override-reasons`: not relevant, already addressed,
+clinical judgement, each with its display). The summary uses the pack's display names, and the
+detail says the pack's status, the notice and one plain sentence for the outcome. When the
+deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to the decision in
+the audit trail (which needs a Mendari sign-in), `source.url` is the pack's card, and, when SMART
+is on and your `fhirServer` is registered for launches in your organization, a `smart` link
+opens the pack. Without it, the reasons are in the detail. The prior authorization service is a
+Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
+and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
+cards and no system actions, while each order is still decided and recorded.
+
+`POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback, 1 to 50 cards: each `accepted`
+with the suggestion taken (`acceptedSuggestions`), or `overridden` with one of the card's
+reasons or none, and its `outcomeTimestamp`. Each is chained on the decision as `card.feedback`,
+with codes and ids only: `userComment` is never kept. It is all or nothing. A suggestion or a
+reason the card did not offer is a `422`. A card that is not a decision of that service in your
+organization, or, with sign-in on, not one your own credential asked for, is one `404` for all
+of them. It needs the decide scope and counts against the decide rate limit, not the daily cap.
+
+<!-- check: skip placeholder: the card's uuid is one a hook gave your EHR -->
+```bash
+curl -s -X POST "$MENDARI/cds-services/mendari.referral-router/feedback" \
+  -H "authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
+  -d '{"feedback": [{"card": "<card uuid>", "outcome": "overridden",
+       "overrideReason": {"reason": {"system": "https://mendari.co/fhir/CodeSystem/card-override-reasons",
+                                     "code": "already-addressed"}},
+       "outcomeTimestamp": "2026-10-18T12:00:00-04:00"}]}'
+# {"recorded": 1}
+```
+
 **What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the
 SMART launch) carries `data_coverage` in its record, which `GET /api/audit/{id}` returns: for
 each mapped field and list, the paths it looked for, the code systems the pack declares, the
 pack's own codes, and what it found, as counts, with what could not be read counted by reason.
 It holds no value, id or text. The answers of `fhir/decide` and the SMART launch's decide hold it
-too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id
-(`extension.mendari.decision_id`, the GuidanceResponse `identifier`). A decision on JSON input
-carries `null`.
+too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id (the
+card's `uuid` and `extension.mendari.decision_id`, the GuidanceResponse `identifier`). In the
+dashboard, a FHIR decision's record shows it as "What it read": counts by field and by reason.
+A decision on JSON input carries `null`.
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.

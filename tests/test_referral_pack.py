@@ -214,5 +214,5 @@ def test_order_sign_gives_one_card_per_referral(router: Decision) -> None:
         "prefetch": _record(),
     }
     cards = cds_hooks.invoke(router, request)["cards"]
-    assert [c["summary"] for c in cards] == ["Possibly urgent cardiology referral: review today"]
+    assert [c["summary"] for c in cards] == ["Possibly urgent Cardiology referral: review today"]
     assert cards[0]["indicator"] == "critical"

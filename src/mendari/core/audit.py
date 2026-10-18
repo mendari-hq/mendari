@@ -46,6 +46,7 @@ from mendari.errors import (
     NoteError,
     ProviderError,
     ReviewError,
+    UnknownCard,
 )
 
 Rating = Literal["up", "down"]
@@ -129,6 +130,8 @@ _APPEND_BATCH = 500
 # it, the command line's and a claims-mode server's included, names in each event the
 # organization of the row it is about (`_bound`), and `verify` checks that name against the row.
 ORG_BOUND = "org_bound"
+# What a CDS Hooks card's feedback chains (LP-23f, `record_card_feedback`).
+CARD_FEEDBACK = "card.feedback"
 # Each kind of event by what it is about. On a decision: the kinds the FHIR export reads
 # (standards/audit_fhir.py `_EVENTS`), whose organization is the decision's.
 DECISION_KINDS = frozenset(
@@ -142,6 +145,8 @@ DECISION_KINDS = frozenset(
         "input.purged",
         "input.erased",
         "note.erased",
+        # A clinician's feedback on a CDS Hooks card (LP-23f): codes and ids only.
+        CARD_FEEDBACK,
     }
 )
 # On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
@@ -227,7 +232,7 @@ DEPLOYMENT_KINDS = frozenset(
 # names it always.
 BOUND_WHEN_MARKED = frozenset(
     {
-        *DECISION_KINDS,
+        *(DECISION_KINDS - {CARD_FEEDBACK}),  # LP-23f's names it always
         "governance.revoked",
         "automation.lifted",
         "key.rotated",
@@ -1432,6 +1437,63 @@ class AuditStore(RateBuckets):
                 raise ReviewError(f"unknown decision {decision_id}")
             chained = {**payload, "note_ref": self._keep_note(db, decision_id, event, note)}
             self._append(db, decision_id, event, self._bound(event, chained, _org_of(row["org"])))
+
+    def record_card_feedback(
+        self, pack_id: str, service: str, items: Sequence[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """What clinicians did with CDS Hooks cards (`POST /cds-services/{id}/feedback`, LP-23f),
+        one `card.feedback` event per item, all or none, in one transaction. An item is its card
+        (the card's uuid is its decision's id) and what the feedback says, as codes and ids:
+        `outcome`, `accepted_suggestions`, `override_reason` (`{system, code}` or None) and
+        `outcome_timestamp`. Each chained event also names the `service` and who sent the
+        feedback (`reporter`, `tenancy.requester`, None in open mode), never a comment.
+
+        Every card must be a decision of `pack_id` in the organization this request acts for
+        and, when the request names who asks (`tenancy.requester`: sign-in on, or a CDS client's
+        verified token), one that same caller asked for (its chained `requested_by`). Otherwise
+        `UnknownCard`, one refusal whichever it is, naming the cards as sent, and nothing is
+        chained. The events, as chained."""
+        cards = [str(item["card"]) for item in items]
+        requester = tenancy.requester()
+        with self._db.session(exclusive=True) as db:
+            scope, scoped = _scope()
+            marks = ", ".join("?" for _ in cards)
+            rows = {
+                row["id"]: row
+                for row in db.all(
+                    f"SELECT id, org, pack_id FROM decisions d WHERE id IN ({marks}) AND {scope}",
+                    (*cards, *scoped),
+                )
+                if row["pack_id"] == pack_id
+            }
+            if requester is not None and rows:
+                asked = {
+                    row["decision_id"]: json.loads(row["payload"]).get("requested_by")
+                    for row in db.all(
+                        "SELECT decision_id, payload FROM audit_events "
+                        f"WHERE event = 'decision.created' AND decision_id IN ({marks})",
+                        tuple(cards),
+                    )
+                }
+                rows = {id_: row for id_, row in rows.items() if asked.get(id_) == requester}
+            unknown = list(dict.fromkeys(card for card in cards if card not in rows))
+            if unknown:
+                raise UnknownCard(f"no card of this service: {', '.join(unknown)}")
+            entries = []
+            for item in items:
+                card = str(item["card"])
+                payload = {
+                    "service": service,
+                    "outcome": item["outcome"],
+                    "accepted_suggestions": list(item.get("accepted_suggestions") or []),
+                    "override_reason": item.get("override_reason"),
+                    "outcome_timestamp": item["outcome_timestamp"],
+                    "reporter": requester,
+                }
+                entries.append(
+                    (card, self._bound(CARD_FEEDBACK, payload, _org_of(rows[card]["org"])))
+                )
+            return self._append_many(db, "card.feedback", entries)
 
     def record_feedback(
         self,

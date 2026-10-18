@@ -2,7 +2,7 @@
 """The audit trail as FHIR R4: an AuditEvent per chained event, a Provenance per activity.
 
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,
-  `outcome.recorded`, `feedback.recorded`):
+  `outcome.recorded`, `feedback.recorded`, `card.feedback` and the others in `_EVENTS`):
   - who acted: the engine running the pack, or the reviewer, reporter, reader, requester, or
     whoever recorded a downstream outcome (the signed-in person or API key); a decision made
     with sign-in on also names who asked for it (`requested_by`), as the requestor;
@@ -84,6 +84,7 @@ _EVENTS = {
     "input.erased": ("D", "Encrypted input deleted on request"),
     "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
+    "card.feedback": ("C", "Card feedback recorded (CDS Hooks)"),
 }
 # The activities that create or change a decision's result: each gets a Provenance and makes a
 # new version of the decision's Task (task_fhir.py). Other events change neither. The store's
@@ -100,6 +101,8 @@ _DETAILS = {
     "pas.submitted": ("outcome",),
     "note.erased": ("reason",),
     "input.erased": ("reason",),
+    # What a clinician did with a CDS Hooks card (LP-23f): codes and ids, never a comment.
+    "card.feedback": ("service", "outcome", "accepted_suggestions", "override_reason"),
 }
 
 
@@ -297,8 +300,14 @@ def _facts(event: Mapping[str, Any]) -> Iterator[tuple[str, str]]:
         value = source.get(key)
         if value is None:
             continue
-        if isinstance(value, Mapping):  # a thumbs-down's right answer
+        if isinstance(value, Mapping) and "code" in value:  # a card's override reason
+            value = f"{value.get('system')}|{value.get('code')}"
+        elif isinstance(value, Mapping):  # a thumbs-down's right answer
             value = f"{value.get('question')}={value.get('label')}"
+        elif isinstance(value, list):  # a card's accepted suggestions
+            if not value:
+                continue
+            value = ", ".join(str(item) for item in value)
         yield key, str(value).lower() if isinstance(value, bool) else str(value)
 
 

@@ -177,8 +177,12 @@ def test_the_inbox_card_wording_is_unchanged(router: Decision) -> None:
         "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
     }
     card = cds_hooks.invoke(router, request)["cards"][0]
-    assert card["summary"] == "Review: route to nurse (stat)"
-    assert card["suggestions"][0]["label"] == "Create routing task for nurse"
+    # The default wording, with the recommendation's display name since LP-23f (the Task's
+    # performer code stays the label); 23j gives the inbox its own template.
+    assert card["summary"] == "Review: route to Nurse (stat)"
+    assert card["suggestions"][0]["label"] == "Create routing task for Nurse"
+    task = card["suggestions"][0]["actions"][0]["resource"]
+    assert task["performerType"][0]["coding"][0]["code"] == "nurse"
 
 
 def test_card_keys_must_be_recommendations() -> None:

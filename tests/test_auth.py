@@ -430,6 +430,9 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     }
     assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
     assert permission_for("POST", "/fhir/$decide") == "decide"
+    # CDS Hooks card feedback (LP-23f): its own rule before the catch-all, which needs `admin`.
+    assert permission_for("POST", "/cds-services/s1/feedback") == "decide"
+    assert permission_for("POST", "/cds-services/s1/other") == "admin"
     assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
     assert permission_for("GET", "/fhir/Patient/p1") == "admin"  # not a conformance resource
     assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
@@ -617,6 +620,7 @@ ROUTE_SCOPE = {
     ("POST", "/api/packs/{namespace}/{name}/fhir/decide"): DECIDE,
     ("POST", "/api/packs/{namespace}/{name}/pas"): DECIDE,
     ("POST", "/cds-services/{service_id}"): DECIDE,
+    ("POST", "/cds-services/{service_id}/feedback"): DECIDE,  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): DECIDE,
     ("POST", "/fhir/Questionnaire/$questionnaire-package"): DECIDE,
     ("POST", "/api/audit/{decision_id}/outcome"): OUTCOME,
@@ -892,11 +896,12 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     ]
     assert wrong == []
     # Not vacuous: the registry was on, and each of the three kinds a valid token is verified
-    # for (sign-in on alone and with a session, open mode) was let through on both CDS routes.
+    # for (sign-in on alone and with a session, open mode) was let through on the three CDS
+    # routes (discovery, a hook and its card feedback, LP-23f).
     assert signed.cds is registry and registry.clients
     with store._db.session(exclusive=False) as db:
         claimed = db.one("SELECT COUNT(*) AS n FROM smart_sessions WHERE kind = 'cds-jti'")
-    assert claimed is not None and claimed["n"] == 3 * 2
+    assert claimed is not None and claimed["n"] == 3 * 3
     reached = {
         (method, path)
         for kind, role, scope, headers in principals

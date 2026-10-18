@@ -15,7 +15,12 @@ from typing import Annotated, Any, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from mendari.core.templates import unknown_placeholders
+from mendari.core.templates import (
+    display_choices,
+    longest,
+    template_problems,
+    unknown_placeholders,
+)
 
 SPEC_VERSION = "0.2"
 MAX_VERSION_CHARS = 64
@@ -566,6 +571,11 @@ class AuditConfig(_Strict):
     store_input: Literal["full", "hash"] = "full"
 
 
+# A CDS Hooks card's summary: at most 140 characters (CDS Hooks 2.0), checked at load for every
+# text a pack's summary can give (`card_summary_problems`).
+SUMMARY_CHARS = 140
+
+
 class CdsCard(_Strict):
     """Card wording for one pack. Keys are the primary question's labels, or `none` when the
     decision has no recommendation; `{recommendation}` and `{priority}` are filled in."""
@@ -871,6 +881,28 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         and m.evaluation.benchmark_dataset not in m.evaluation.datasets
     ):
         problems.append("evaluation.benchmark_dataset must name one of evaluation.datasets")
+    return problems
+
+
+def card_summary_problems(m: PackManifest) -> list[str]:
+    """Each card summary (`cds_hooks.card.summaries`) that can read longer than `SUMMARY_CHARS`
+    once its placeholders are filled as a card fills them, with display names
+    (`templates.fill_display`): every expansion is measured, through its longest
+    (`templates.longest`). A summary that is not bare is `template_problems`' to report."""
+    card = m.cds_hooks.card if m.cds_hooks is not None else None
+    if card is None or m.policy.primary not in m.questions:
+        return []
+    choices = display_choices(m)
+    problems = []
+    for key, summary in card.summaries.items():
+        if template_problems(summary, m.questions):
+            continue
+        most = len(longest(summary, choices))
+        if most > SUMMARY_CHARS:
+            problems.append(
+                f"cds_hooks.card.summaries.{key} can read {most} characters with display names; "
+                f"a card's summary is at most {SUMMARY_CHARS}"
+            )
     return problems
 
 

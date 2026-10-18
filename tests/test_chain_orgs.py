@@ -87,6 +87,17 @@ def acting(org: str | None) -> Iterator[None]:
         yield
 
 
+def card_feedback(decision_id: str) -> dict[str, Any]:
+    """One CDS Hooks card's feedback as the store takes it (`record_card_feedback`, LP-23f)."""
+    return {
+        "card": decision_id,
+        "outcome": "overridden",
+        "accepted_suggestions": [],
+        "override_reason": None,
+        "outcome_timestamp": "2026-10-18T16:00:00+00:00",
+    }
+
+
 def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, Any]:
     """Each kind of event the store writes for an organization's rows, with the organization
     acting (`org`), or with none, as the command line and the scheduled purge write; the ids
@@ -98,6 +109,7 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
         store.record_event(first, "pas.submitted", {"outcome": "queued"}, note="the payer's")
+        store.record_card_feedback(pack.id, "s", [card_feedback(first)])  # `card.feedback`
         store.get(first, reader="rn-7")  # `input.read`
         second = Decision(pack, store=store)(message(URGENT)).id
         third = Decision(pack, store=store)(message(URGENT)).id
@@ -442,6 +454,7 @@ LATER = (
     "input.purged",
     "input.erased",
     "note.erased",
+    "card.feedback",
 )
 
 
@@ -472,6 +485,9 @@ def test_verify_finds_a_decision_moved_after_a_bound_later_event(
         "input.purged": lambda s: s.purge(0, source="command"),
         "input.erased": lambda s: s.erase_input(decision_id, erased_by="dpo", reason="request"),
         "note.erased": lambda s: s.erase_note(rated["id"], erased_by="dpo", reason="request"),
+        "card.feedback": lambda s: s.record_card_feedback(
+            inbox_pack.id, "s", [card_feedback(decision_id)]
+        ),
     }
     with keeping(db_target, bind_org=True) as store:
         with tenancy.acting_for(CLINIC):
@@ -524,6 +540,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
         store.record_event(first, "pas.submitted", {"outcome": "queued"})
+        store.record_card_feedback(inbox_pack.id, "s", [card_feedback(first)])
         store.get(first, reader="rn-7")  # `input.read`
         store.erase_note(rating["id"], erased_by="dpo", reason="request")
         store.erase_input(first, erased_by="dpo", reason="request")

@@ -86,6 +86,7 @@ from mendari.errors import (
     ReviewError,
     ScopeError,
     SmartError,
+    UnknownCard,
 )
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.compare import FROM_REGISTRY, not_compared
@@ -143,7 +144,7 @@ from mendari.standards.pas import X12_CODE, PasError
 from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
 from mendari.standards.search import stored as stored_instant
-from mendari.standards.smart import smart_ehrs, smart_settings
+from mendari.standards.smart import registration, smart_ehrs, smart_settings
 from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -167,6 +168,7 @@ _STATUS = {
     LabelError: 422,  # names the question, never the value
     NoEvalset: 404,  # unknown or another organization's set: one answer (LP-11k)
     CdsHooksError: 400,
+    UnknownCard: 404,  # card feedback: unknown, another's or another caller's, one answer
     RateLimited: 429,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
@@ -2520,7 +2522,54 @@ def create_app(
                 if capped is not None:
                     raise capped
 
-        return cds_hooks.invoke(decision_for(pack.id), request, most=most_orders, charge=charge)
+        links = card_links(caller, request.get("fhirServer"))
+        return cds_hooks.invoke(
+            decision_for(pack.id), request, most=most_orders, charge=charge, links=links
+        )
+
+    def card_links(caller: Principal, fhir_server: object) -> cds_hooks.CardLinks:
+        """Where this request's cards may link (LP-23f): the audit view under
+        `MENDARI_PUBLIC_URL`, read on each request as the FHIR base is, and the pack's SMART
+        launch only when SMART is on and the request's `fhirServer` is registered for launches
+        (`MENDARI_SMART_EHRS`) to the caller's own organization."""
+        public = os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/") or None
+        if public is None or urlsplit(public).scheme not in ("http", "https"):
+            return cds_hooks.CardLinks()
+        found = (
+            registration(ehrs, fhir_server)
+            if smart_options is not None and isinstance(fhir_server, str)
+            else None
+        )
+        org = caller.org if caller.org is not None else tenancy.DEFAULT_ORG
+        return cds_hooks.CardLinks(public_url=public, launch=found is not None and found.org == org)
+
+    @app.post(
+        "/cds-services/{service_id}/feedback",
+        tags=["FHIR and CDS Hooks"],
+        summary="Feedback on a CDS Hooks service's cards",
+    )
+    def cds_feedback(service_id: str, body: cds_hooks.CardFeedback) -> dict[str, Any]:
+        """CDS Hooks 2.0 feedback: what the clinician did with each card (1 to 50), accepted with
+        the suggestion taken or overridden, with one of the reasons the card offered or none,
+        and when. Each is chained on the card's decision as `card.feedback`, codes and ids only:
+        `userComment` is never kept. All or nothing: a suggestion or reason the card did not
+        offer is a `422`; a card that is not a decision of this service's pack in your
+        organization, or, with sign-in on (and for a CDS client's token), not one you asked
+        for, is one `404` for them all, and nothing is recorded. Not counted against the daily
+        cap: it decides nothing."""
+        pack = next(
+            (
+                p
+                for p in packs.values()
+                if p.manifest.cds_hooks is not None and cds_hooks.service_id(p) == service_id
+            ),
+            None,
+        )
+        if pack is None:  # a pack with no hook makes no card
+            raise PackNotFoundError(f"no CDS service {service_id!r}")
+        items = [item.chained() for item in body.feedback]
+        recorded = store.record_card_feedback(pack.id, service_id, items)
+        return {"recorded": len(recorded)}
 
     @app.post(
         "/api/packs/{namespace}/{name}/pas",

@@ -839,7 +839,42 @@ Connect) is not supported yet.
     that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
-  - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+  - [x] **23f** (this PR) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+    `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
+    `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three
+    neutral `overrideReasons` (owner decision 8) from the new CodeSystem
+    `https://mendari.co/fhir/CodeSystem/card-override-reasons`, defined in `terminology.py`
+    (served, pinned, written by `scripts/fhir_terminology.py` for `fhir-conformance`). Summaries
+    from the card-only `templates.fill_display` with `Question.name_of` (the default verb table
+    too; `fill`, Task text and performer codes unchanged), every expansion checked to fit 140
+    characters at load (`spec.card_summary_problems` through `templates.longest`, in
+    `manifest_template_problems`: refused from a registry, warned when owned, refused by
+    `mendari validate`). The detail is the status, the notice and one plain sentence; the
+    confidence percentage is gone. With `MENDARI_PUBLIC_URL`: an `absolute` link to
+    `/?pack=<pack>#audit/<id>`, the reasons behind it, `source.url` the pack's card; a `smart`
+    link to `/smart/launch?pack=<pack>` only with SMART on and the `fhirServer` a
+    `MENDARI_SMART_EHRS` base of the caller's organization (`CardLinks`). Discovery declares
+    `davinci-crd.version` `["2.2"]` and the `coverage-info` option for packs with
+    `coverage_information`; `coverage-info: false` sends neither cards nor system actions, and
+    still decides. `POST /cds-services/{service_id}/feedback`: a `decide` rule before the
+    catch-all, DECIDE in `_ROUTE_SCOPES`, the `cds-hooks` preset's calls; a closed body
+    (`cds_hooks.CardFeedback`: 1 to 50 cards, each once, accepted with the card's suggestion or
+    overridden with one of its reasons, an aware `outcomeTimestamp`; `userComment` dropped); all
+    or nothing in one transaction (`AuditStore.record_card_feedback`): the service's pack, the
+    caller's organization and, when the caller is named, its chained `requested_by`, else one
+    `404` (`UnknownCard`); the decide bucket, no daily cap. `card.feedback` joins
+    `DECISION_KINDS`, `audit_fhir._EVENTS` and the audit-event CodeSystem (its pin moved); it
+    names its organization on every database (it is not one of `BOUND_WHEN_MARKED`). The audit
+    view's data-coverage panel ("What it read", counts by field and reason; tokens only, no new
+    CSS). Threat-model rows R5 and I18; the scorecard's CW-2d and CW-3a to CW-3d are met, so
+    cards and workflow is at level 2 (CW-3e waits on 23j; the overall stays level 1). Tests:
+    `tests/test_cds_cards.py`, `tests/test_cds_feedback.py` (SQLite and Postgres), a browser
+    case with axe and the bare-percentage scan, and the route, scope, limit, preset, chained-event,
+    two-organization and leak-sweep inventories. Beyond the plan's letter: `source.topic`
+    (`coverage-info`) is set on a CRD service's cards, since CRD 2.2.1's base response profile
+    requires it (checked at the IG's 2.2.1 tag), and so `coverage-info: false` drops those cards
+    too, as CRD says; the audit link carries `?pack=`, so the dashboard opens on the decision's
+    pack; each `card.feedback` names who sent it (`reporter`).
   - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
   - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
   - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
