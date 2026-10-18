@@ -35,8 +35,9 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 - **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
   - a CQL provider, with the trial criteria in CQL agreeing with `criteria` on every case;
   - OMOP CDM inputs with population reports;
-  - Da Vinci CRD, DTR and PAS around the PA pack, each validated by the HL7 validator against
-    its guide in CI.
+  - Da Vinci CRD, DTR and PAS around the PA pack, each profile-validated against its guide in
+    CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
+    produces, not how its operations behave or whether a payer accepts them.
 
 - **v1.0 Public open-source launch, built** ([plan][plan-v1.0], #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
@@ -174,11 +175,15 @@ committee approves a level 2 pack, and monitoring and the chain check out._
 
 ### v0.7 Later standards ✅
 _Built and verified 2026-09-30 (#90–#95). The CQL port agrees with `criteria` on 750 cases in
-CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples pass the HL7 validator
-against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1._
+CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples are profile-validated
+against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
 - A **CQL** provider (a CQL engine as a pack provider type).
 - **OMOP** CDM → pack inputs, for population-level evaluation.
-- **Da Vinci CRD / DTR / PAS** wired into PA Preflight.
+- **Da Vinci CRD / DTR / PAS** wired into PA Preflight. Since 2026-10-17, DTR's
+  `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
+  questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
+  names no decision, and a `422` OperationOutcome for orders or a context that name no
+  decision, with nothing to return (spec-130).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
 _Built 2026-09-30 (#96–#101). The security scans, docs build, pack-PR eval gate and README

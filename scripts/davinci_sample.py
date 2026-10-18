@@ -6,8 +6,10 @@
   CRD `coverage-information` (a complete request, one with documentation missing, and a service
   the payer doesn't require authorization for).
 - `dtr-*.json`: `Questionnaire/$questionnaire-package` answers: for the order with documentation
-  missing (found by its CRD assertion id, pre-answered from the decision), and for a
-  questionnaire asked for by its canonical alone.
+  missing (found by its CRD assertion id, pre-answered from the decision), for a
+  questionnaire asked for by its canonical alone, and for that order with a questionnaire that
+  is not found here and an order Mendari did not decide (`dtr-package-not-found.json`: its
+  package and two warnings in `outcome`, DTR oper-9 and the order not understood).
 - `pas-request.json`, `pas-response.json`: the PAS request Bundle for the complete request, with
   every X12 code a site may set, and the sandbox payer's answer to it with a review action code;
   `pas-request-required.json`, `pas-response-no-review-code.json`: the same request with only the
@@ -171,25 +173,35 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
 
     coverage = prefetch("acme", "")["coverage"]["entry"][0]["resource"]
     authored = datetime.now(UTC).isoformat(timespec="seconds")
+    ordered = {"name": "order", "resource": updated["crd-needs-attention"]}
+    unsigned = {"name": "order", "resource": order("mri3", "FX101")}  # never signed: no decision
+    elsewhere = "https://payer.example.org/Questionnaire/not-here"  # synthetic, found nowhere
     asks = {
-        "dtr-package": [{"name": "order", "resource": updated["crd-needs-attention"]}],
-        "dtr-package-blank": [
-            {
-                "name": "questionnaire",
-                "valueCanonical": davinci.questionnaire_url(
-                    pack, {"service": "knee_arthroscopy", "payer": "acme"}
-                ),
-            }
-        ],
+        "dtr-package": ([ordered], ["packagebundle"]),
+        "dtr-package-blank": (
+            [
+                {
+                    "name": "questionnaire",
+                    "valueCanonical": davinci.questionnaire_url(
+                        pack, {"service": "knee_arthroscopy", "payer": "acme"}
+                    ),
+                }
+            ],
+            ["packagebundle"],
+        ),
+        "dtr-package-not-found": (
+            [ordered, unsigned, {"name": "questionnaire", "valueCanonical": elsewhere}],
+            ["packagebundle", "outcome"],
+        ),
     }
-    for name, extra in asks.items():
+    for name, (extra, expected) in asks.items():
         request = {
             "resourceType": "Parameters",
             "parameter": [{"name": "coverage", "resource": coverage}, *extra],
         }
         answer = davinci.questionnaire_package(request, lookup, {pack.id: pack}, authored)
-        if [p["name"] for p in answer["parameter"]] != ["packagebundle"]:
-            sys.exit(f"{name}: expected one package bundle")
+        if [p["name"] for p in answer["parameter"]] != expected:
+            sys.exit(f"{name}: expected {', '.join(expected)}")
         (out / f"{name}.json").write_text(json.dumps(answer, indent=2) + "\n", encoding="utf-8")
     print(f"{len(asks)} DTR packages written to {out}")
 

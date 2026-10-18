@@ -2,13 +2,16 @@
 """A running server honours its registries' recalls (LP-18e, ADR-0012).
 
 For each pack it serves that came from a registry, the server reads that registry's list of
-recalled versions (`GET /v1/yanks`) every `MENDARI_REGISTRY_RECALL_CHECK_S` seconds (300 unless
-set), in a thread of its own, so no decision waits for it. A pack the list recalls (its id,
-version and digest) stops automating, and its own BLOCK goes to a person, as before its
-organization approved it (`core/decision.py`). So does a pack whose registry has not been read
-in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one whose registry was never
-read since the server started, and one whose verified marker names no registry (pulled before
-LP-18d: pull it again): what cannot be checked is treated as recalled, the safe direction.
+recalled versions (`GET /v1/yanks`) in a thread of its own, so no decision waits for it. A
+decision for one of the registry's packs starts the read once the last one is older than
+`MENDARI_REGISTRY_RECALL_CHECK_S` seconds (300 unless set); that decision, and any made while
+the read runs, use the list read before, and nothing reads while no decision is made. A pack the
+list recalls (its id, version and digest) stops automating, and its own BLOCK goes to a person,
+as before its organization approved it (`core/decision.py`). So does a pack whose registry has
+not been read in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one whose
+registry was never read since the server started, and one whose verified marker names no
+registry (pulled before LP-18d: pull it again): what cannot be checked is treated as recalled,
+the safe direction.
 
 A registry is read over https only (plain http to this machine alone), with a short timeout,
 and its answer is read as data: a recall it lists is honoured whether or not its signature can

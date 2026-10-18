@@ -14,5 +14,8 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`overnight-log.md`](overnight-log.md) | The log of the v0.4–v1.0 build, PR by PR |
 | [`bug-audit-2026-10-15.md`](bug-audit-2026-10-15.md) | The bug audit of the whole source tree (2026-10-15): what was fixed, and the behaviour decisions left for the owner |
 | [`vision-audit.md`](vision-audit.md) | The audit of the repository against the launch plan (2026-10-05): gaps, corrections to the plan, the Definition of shipped and the build prompts LP-01 to LP-23; full evidence in [`vision-audit-evidence.md`](vision-audit-evidence.md) |
+| [`lp23-plan.md`](lp23-plan.md) | The build plan for LP-23, EHR pilot readiness (2026-10-17): thirteen pull requests, the conflicts written before building and the owner's decisions |
+| [`ehr-scorecard.md`](ehr-scorecard.md) | The EHR scorecard, rubric v1: seven dimensions graded by named criteria, each with the test that shows it; updated by each LP-23 step |
+| [`epic-sandbox-checklist.md`](epic-sandbox-checklist.md) | What the owner registers in Epic's sandbox for LP-23, and what to note back |
 
 Plan and status: [`tasks/todo.md`](../tasks/todo.md). Lessons: [`tasks/lessons.md`](../tasks/lessons.md).

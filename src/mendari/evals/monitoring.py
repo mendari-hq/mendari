@@ -21,9 +21,11 @@ every decision of the version.
 - **The reference.** The pack's benchmark counts only when it measured this build of the pack
   (its digest), with the providers that run here (each slot's variant, and its model where the
   server knows it), under the same governance (an approval in force here, or none, as when it
-  was measured). Otherwise there is none: `benchmark.comparable` is false and `benchmark.reason`
-  says why (`no_benchmark`, `another_build`, `providers_unknown`, `other_providers`,
-  `other_policy`), and only the checks that need no benchmark run: automated decisions rated
+  was measured). A pack pulled from a registry has none, whatever it carries: its benchmark is
+  its publisher's upload, never a reference (ADR-0012), so it is not read. Otherwise there is
+  none: `benchmark.comparable` is false and `benchmark.reason` says why (`from_registry`,
+  `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and
+  only the checks that need no benchmark run: automated decisions rated
   wrong, an override rate that doubled, and operational health. Accuracy is compared stratum by
   stratum, as the benchmark measured it:
   - reviewed decisions (sent to a person, who kept or changed the recommendation) against the
@@ -243,8 +245,10 @@ def _benchmark(
     approved: bool,
 ) -> dict[str, Any]:
     """The benchmark as measured (`accuracy`: the primary question over every case), whether it
-    is comparable here and why not, and the strata's figures the alerts compare with."""
-    report = _mapping(benchmark(pack))
+    is comparable here and why not, and the strata's figures the alerts compare with. A pack
+    from a registry has none: what it carries is its publisher's upload (ADR-0012)."""
+    from_registry = pack.origin == "hub"
+    report = _mapping(None if from_registry else benchmark(pack))
     reference = _mapping(_mapping(report.get("questions")).get(pack.manifest.policy.primary))
     measured = _mapping(report.get("decisions"))
     review = _mapping(measured.get("review"))
@@ -254,8 +258,10 @@ def _benchmark(
     automated_accuracy = _number(automation.get("accuracy"))
     ran = {str(slot): _mapping(info) for slot, info in _mapping(report.get("providers")).items()}
     governed = _mapping(report.get("policy")).get("governance_override") is not None
-    if not report:
-        reason: str | None = "no_benchmark"
+    if from_registry:
+        reason: str | None = "from_registry"
+    elif not report:
+        reason = "no_benchmark"
     elif _mapping(report.get("pack")).get("digest") != pack.digest:
         reason = "another_build"
     elif providers is None:

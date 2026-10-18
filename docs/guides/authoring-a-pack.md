@@ -314,7 +314,13 @@ into one page. Share it with your AI or clinical decision support committee. At 
 - **In your own deployment:** keep the folder anywhere and put its parent on
   `MENDARI_PACKS_PATH`. The packs in `packs/` are the ones Mendari maintains.
 - **On a registry:** `mendari push refill-router --key my-key.pem` signs the pack and
-  publishes it, and others `mendari pull my-clinic/refill-router` and verify it.
+  publishes it, and others `mendari pull my-clinic/refill-router` and verify it. The registry
+  renders the pack's card itself and shows no benchmark, leaderboard or card you upload; it
+  runs its own regression check on `evaluation.benchmark_dataset` and shows it as your own test
+  set, never a ranking. Whoever serves the pack approves its digest before it automates.
+  `mendari yank my-clinic/refill-router@1.0.0 --reason "..." --severity high --key my-key.pem`
+  recalls a version, and servers that pulled it stop automating it
+  ([Running a pack registry](../operations/registry.md)).
 
 ## Checklist before real use
 
