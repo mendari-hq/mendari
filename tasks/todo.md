@@ -2959,7 +2959,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     "Validated against DTR 2.2.0" now says profile-validated (HL7 validator, offline).
   - [ ] DV-b: pin the implementation guide packages by checksum (each packages.fhir.org tarball
     with its sha256, `sha256sum -c`, a local `-ig path.tgz`); today only the validator's jar is.
-  - [x] DV-c (this PR): the Inferno DTR payer-suite job, `conformance.yml` (job `dtr-payer`),
+  - [x] DV-c (#265): the Inferno DTR payer-suite job, `conformance.yml` (job `dtr-payer`),
     weekly and by hand, not a required check: groups 1, 3 and 4 against the open engine on
     synthetic data, from Mendari's own `sandbox/inferno/Dockerfile` (Ruby by digest, the kit by
     commit, Bundler by sha256, gems from a lockfile with CHECKSUMS) and compose file (every image
