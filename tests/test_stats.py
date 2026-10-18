@@ -376,21 +376,21 @@ def _bounds(found: stats.WeightedProportion) -> tuple[float, float, float, float
 def test_weighted_proportion_matches_scipy_beta_at_the_effective_counts() -> None:
     # By hand: weights 1, 1, 2 and 4, hits on the first and third. The total weight is 8, the
     # hits' 3 and the squares' 22: estimate 3/8, effective n 64/22, x = 24/22 hits and 40/22
-    # misses. Each floors to 1, where the beta quantile has a closed form.
+    # misses. Both counts are 1 or more, so both bounds are Korn-Graubard's at those counts.
     found = stats.weighted_proportion([True, False, True, False], [1, 1, 2, 4.0])
     estimate, effective_n, low, high = _bounds(found)
     assert estimate == 3 / 8 and effective_n == pytest.approx(64 / 22, rel=1e-15)
-    assert low == pytest.approx(1 - 0.975 ** (22 / 64), rel=1e-12)
-    assert high == pytest.approx(0.975 ** (22 / 64), rel=1e-12)
+    assert abs(low - st.beta.ppf(0.025, 24 / 22, 40 / 22 + 1)) < EXACT
+    assert abs(high - st.beta.ppf(0.975, 24 / 22 + 1, 40 / 22)) < EXACT
     assert found.to_dict() == {
-        "n": 4, "estimate": 0.375, "effective_n": 2.909091, "low": 0.008665, "high": 0.991335,
+        "n": 4, "estimate": 0.375, "effective_n": 2.909091, "low": 0.012474, "high": 0.926301,
     }  # fmt: skip
     rng = random.Random(17)
     for _ in range(300):
         n = rng.randint(1, 400)
         # Weights as a stratified draw makes them (N_h / n_h), and arbitrary ones.
         weights = [rng.choice([rng.uniform(0.5, 40.0), 600 / rng.randint(1, 60)]) for _ in range(n)]
-        share = rng.random()
+        share = rng.choice([0.0, 1.0, rng.random(), rng.random()])  # no hits and all hits too
         hits = [rng.random() < share for _ in range(n)]
         level = rng.choice([0.9, 0.95, 0.99])
         estimate, effective_n, low, high = _bounds(stats.weighted_proportion(hits, weights, level))
@@ -399,16 +399,61 @@ def test_weighted_proportion_matches_scipy_beta_at_the_effective_counts() -> Non
         x = float((w * y).sum() / w.sum() * model_n)
         assert estimate == pytest.approx((w * y).sum() / w.sum(), rel=1e-13)
         assert effective_n == pytest.approx(model_n, rel=1e-13)
-        lower_hits, upper_misses = math.floor(round(x, 9)), math.floor(round(model_n - x, 9))
-        alpha = 1 - level
+        # Korn-Graubard at the real counts, a bound clamped where its count is under 1.
+        alpha, misses = 1 - level, model_n - x
         model_low = 0.0
-        if lower_hits:
-            model_low = st.beta.ppf(alpha / 2, lower_hits, model_n - lower_hits + 1)
+        if round(x, 9) >= 1:
+            model_low = st.beta.ppf(alpha / 2, x, misses + 1)
         model_high = 1.0
-        if upper_misses:
-            model_high = st.beta.ppf(1 - alpha / 2, model_n - upper_misses + 1, upper_misses)
+        if round(misses, 9) >= 1:
+            model_high = st.beta.ppf(1 - alpha / 2, x + 1, misses)
         assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (n, level)
         assert low <= estimate <= high
+
+
+def test_weighted_proportion_is_korn_graubard_at_no_hits_and_at_all_hits() -> None:
+    # No false automation is the usual figure, so this upper bound is the one most read. At no
+    # hits Korn-Graubard's upper bound is Beta(1, n*)'s quantile, 1 - (alpha/2)^(1/n*), and at
+    # all hits the lower bound is its mirror, (alpha/2)^(1/n*). Neither rounds the counts to
+    # whole numbers, which would widen it (0.032198 for 0.027287 in the first set).
+    for weights, model_n in [
+        ([1.0] * 250 + [7.0] * 50, 600**2 / 2700),  # squares: 250 + 50 * 49
+        ([1.0] * 30 + [3.0], 33**2 / 39),
+        ([1, 1, 2, 4.0], 64 / 22),
+    ]:
+        n = len(weights)
+        for level in (0.9, 0.95, 0.99):
+            tail = (1 - level) / 2
+            estimate, effective_n, low, high = _bounds(
+                stats.weighted_proportion([False] * n, weights, level)
+            )
+            assert (estimate, low) == (0.0, 0.0)
+            assert effective_n == pytest.approx(model_n, rel=1e-15)
+            assert high == pytest.approx(1 - tail ** (1 / model_n), rel=1e-12)
+            assert abs(high - st.beta.ppf(1 - tail, 1, model_n)) < EXACT
+            estimate, _, low, high = _bounds(stats.weighted_proportion([True] * n, weights, level))
+            assert (estimate, high) == (1.0, 1.0)
+            assert low == pytest.approx(tail ** (1 / model_n), rel=1e-12)
+            assert abs(low - st.beta.ppf(tail, model_n, 1)) < EXACT
+    assert stats.weighted_proportion([False] * 300, [1.0] * 250 + [7.0] * 50).to_dict() == {
+        "n": 300, "estimate": 0.0, "effective_n": 133.333333, "low": 0.0, "high": 0.027287,
+    }  # fmt: skip
+    assert stats.weighted_proportion([True] * 31, [1.0] * 30 + [3.0]).to_dict() == {
+        "n": 31, "estimate": 1.0, "effective_n": 27.923077, "low": 0.876246, "high": 1.0,
+    }  # fmt: skip
+
+
+def test_weighted_proportion_clamps_a_bound_only_where_its_count_is_under_one() -> None:
+    # Weights 1 and 3: effective n 8/5. A hit on the light case is 2/5 of a hit, where
+    # beta_ppf takes no shape, so the lower bound is 0, wider than Korn-Graubard's (scipy takes
+    # shapes under 1); its 6/5 misses are 1 or more, so the upper bound is Korn-Graubard's.
+    _, _, low, high = _bounds(stats.weighted_proportion([True, False], [1, 3.0]))
+    assert low == 0.0 < st.beta.ppf(0.025, 2 / 5, 6 / 5 + 1)
+    assert abs(high - st.beta.ppf(0.975, 2 / 5 + 1, 6 / 5)) < EXACT
+    # The mirror: a hit on the heavy case leaves 2/5 of a miss, so the upper bound is 1.
+    _, _, low, high = _bounds(stats.weighted_proportion([False, True], [1, 3.0]))
+    assert abs(low - st.beta.ppf(0.025, 6 / 5, 2 / 5 + 1)) < EXACT
+    assert high == 1.0 > st.beta.ppf(0.975, 6 / 5 + 1, 2 / 5)
 
 
 def test_weighted_proportion_with_unit_weights_is_clopper_pearson() -> None:

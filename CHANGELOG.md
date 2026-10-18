@@ -81,12 +81,13 @@ The first release (not yet published).
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),
   for macro-F1 within each true label; a weighted share for cases drawn with unequal
-  probabilities (the Hájek estimate, Kish's effective n and the Korn-Graubard interval,
-  Clopper-Pearson at the effective counts, which is the exact interval of k of n when every case
-  has one weight); and the Brier score's reliability term (Murphy's, over ten equal-mass bins of
-  top-label confidence, not estimable under 30 cases a bin). Each is checked against numpy,
-  scipy or statsmodels, and `tests/test_stats.py` joins the edit loop (`pytest -m core`)
-  without its slow tests.
+  probabilities (the Hájek estimate, Kish's effective n and the Korn-Graubard interval:
+  Clopper-Pearson at the effective counts, unrounded, so no hits and all hits get Korn-Graubard's
+  bounds too; a bound is 0 or 1 only where its count is under one, and one weight for every case
+  gives the exact interval of k of n); and the Brier score's reliability term (Murphy's, over ten
+  equal-mass bins of top-label confidence, not estimable under 30 cases a bin). Each is checked
+  against numpy, scipy or statsmodels, and `tests/test_stats.py` joins the edit loop
+  (`pytest -m core`) without its slow tests.
 - **Hidden evaluation sets in the dashboard: the Hidden sets screen** (LP-11n, `#evalsets`).
   An administrator who signed in, in memberships mode where hidden sets are on (their keys'
   ids in `/api/health`), finds **Hidden sets** in the section list; labellers, other roles,

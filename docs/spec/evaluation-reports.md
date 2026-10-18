@@ -151,11 +151,13 @@ no stored result changes:
   such as a hidden set's sampling weights (N_h / n_h). It gives the Hájek estimate (the hits'
   weight over the total weight), Kish's effective n (the total weight squared over the sum of
   the squared weights) and the Korn-Graubard interval: Clopper-Pearson at the effective counts,
-  x hits of the effective n, where x is the estimate times the effective n. The lower bound
-  takes floor(x) hits and the upper bound floor(effective n - x) misses, so the interval is
-  never narrower than at x. The sums are exact, so with one weight for every case it is the
-  exact interval of k of n. A weighted share is shown beside the unweighted k of n, never in
-  its place.
+  x hits and effective n - x misses, where x is the estimate times the effective n. The counts
+  are used as they are, not rounded, so at no hits and at all hits it is Korn-Graubard's too.
+  The beta quantile takes shapes of 1 or more only: where x is under 1 the lower bound is 0,
+  and where the misses are under 1 the upper bound is 1, wider than Korn-Graubard's there and
+  never narrower. The sums are exact, so with one weight for every case it is the exact
+  interval of k of n. A weighted share is shown beside the unweighted k of n, never in its
+  place.
 - **The Brier score's reliability term** (`brier_reliability`) is Murphy's: over ten
   equal-mass bins of top-label confidence (a case's largest probability), the sum of each
   bin's share of the cases times the squared distance between its mean forecast and how often

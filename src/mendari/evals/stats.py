@@ -671,13 +671,17 @@ def weighted_proportion(
     - estimate: Hájek's ratio, sum(w * hit) / sum(w);
     - effective_n: Kish's, sum(w)^2 / sum(w^2);
     - low, high: Korn & Graubard's (1998) interval, Clopper-Pearson at the effective counts,
-      x = estimate * effective_n hits of effective_n, with Kish's n as the effective sample size
-      (no degrees-of-freedom factor). x is rarely whole, so the lower bound takes floor(x) hits
-      and the upper bound floor(effective_n - x) misses: never narrower than at x, and every
-      beta shape stays at 1 or more (`beta_ppf`'s domain).
+      x = estimate * effective_n hits and effective_n - x misses, with Kish's n as the effective
+      sample size (no degrees-of-freedom factor): low is the Beta(x, misses + 1) quantile at
+      alpha/2 and high the Beta(x + 1, misses) quantile at 1 - alpha/2, at the real counts.
+      `beta_ppf` takes shapes of 1 or more only, so where a count is under 1 its bound is
+      clamped: low is 0 when x < 1, and high is 1 when misses < 1. A clamped bound is wider than
+      Korn-Graubard's, never narrower, and every other bound is Korn-Graubard's, at no hits and
+      at all hits too.
 
-    The sums are exact (fractions of the weights' binary values) and each figure is rounded
-    once, so unit weights, or one weight for every case, give clopper_pearson(k, n) exactly.
+    The sums are exact (fractions of the weights' binary values) and each figure and shape is
+    rounded once, so unit weights, or one weight for every case, give clopper_pearson(k, n)
+    exactly.
     """
     n = len(hits)
     if len(weights) != n:
@@ -700,15 +704,10 @@ def weighted_proportion(
     squares = sum((w * w for w in exact), Fraction(0))
     effective_n = total * total / squares
     x = total * hit_total / squares  # estimate * effective_n, exactly
-    lower_hits = math.floor(x)
-    upper_misses = math.floor(effective_n - x)
+    misses = effective_n - x
     tail = (1.0 - level) / 2.0
-    low = 0.0
-    if lower_hits:
-        low = beta_ppf(lower_hits, float(effective_n - lower_hits + 1), tail)
-    high = 1.0
-    if upper_misses:
-        high = beta_ppf(float(effective_n - upper_misses + 1), upper_misses, 1.0 - tail)
+    low = beta_ppf(float(x), float(misses + 1), tail) if x >= 1 else 0.0
+    high = beta_ppf(float(x + 1), float(misses), 1.0 - tail) if misses >= 1 else 1.0
     return WeightedProportion(n, float(hit_total / total), float(effective_n), low, high, level)
 
 
