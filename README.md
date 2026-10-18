@@ -1195,6 +1195,15 @@ alone, and says of each configuration whether it runs on the machine or what it 
 (CQL asks no model but calls Mendari's CQL engine). An arm a pack cannot build is
 "not applicable" ([the format](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md)).
 
+A scoreboard entry (`mendari.scoreboard/1`, `mendari.evals.scoreboard`) is one configuration's
+figures on one set, computed only from its ledger, its dataset, its run record (`mendari.run/1`:
+each case's latency and tokens by model type, never a key, an endpoint or case text), a dated
+price table and the method, so the same inputs give the same bytes. Evidence is decided on
+distinct positives, the grade's bound is simultaneous across the critical labels, ECE is a
+description, cost comes from tokens and the table (never a pack's or a provider's price), and on
+a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
+entries yet: the store and the page come with LP-17f.
+
 ## Feedback loop
 
 Anyone using the dashboard can rate any decision, automated ones included, as right (thumbs
@@ -1450,7 +1459,7 @@ src/mendari/
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
-│                a hidden set's grading result
+│                a hidden set's grading result, the scoreboard's arms, entries and run records
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo

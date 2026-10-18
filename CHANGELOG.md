@@ -392,6 +392,39 @@ The first release (not yet published).
   Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
   Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
   `docs/spec/evaluation-reports.md`, Arms.
+- **Scoreboard entries and run records** (LP-17d, `mendari.scoreboard/1` and `mendari.run/1`,
+  pure: nothing writes or shows them yet). An entry is one configuration's figures on one set,
+  computed only from its ledger, its dataset, its run record, a dated price table
+  (`mendari.prices/1`) and the grading method, so the same inputs give the same bytes
+  (`body_sha256`, without any signature). Each critical label's detection is raw k of n with its
+  interval, beside its distinct positives (cases grouped by input under `norm/v1`) and the
+  grade's bound (Clopper-Pearson at `1 - 0.05/L` over the distinct groups, a group detected only
+  when every positive case in it is). Evidence is decided on distinct positives, each label
+  needing the method's minimum (100, or 107 for the Clinical Trial Prescreener's six). An entry
+  also holds false automation, the AUTO error rate, automation and accuracy as k of n; macro-F1
+  (resampled within each true label), Brier and its reliability term with bootstrap intervals;
+  ECE as a description with no interval; cost per 1,000 decisions from the run record's tokens
+  and the table (never the ledger's, a pack's or a provider's price), or "0 (no metered calls)",
+  or "unknown"; latency p50 and p95 from the run record, "measured on the runner, not
+  reproducible"; the declared subgroups ("too few" under 10 cases); and Korn-Graubard weighted
+  figures beside the unweighted ones when a set carries sampling weights (detection is never
+  weighted). Its scope names the pack, the set, the models as reported, the method and whether it
+  is in effect, the date, "engineering evaluation, not clinical validation", the disclosure
+  ("not published: disclosure pending" withholds a remote entry's figures) and the pack's status
+  line. On a public set it reads "public set: regression check, not a ranking", with no rank and
+  no grade. A run record holds each case's latency and tokens by model type and the models
+  reported, never a key, an endpoint or case text, and an entry is refused unless it agrees with
+  its ledger: its tokens (more only on a case whose provider call failed) and its models (none the
+  answers do not name, none they name left out), so tokens are never priced as another model's.
+  A refusal of a run record, a price table or the disclosures never echoes a key the input chose.
+  A price table is refused from Mendari's code or a pack's directory, and cited only by an entry
+  priced from it. `board` reads each entry as its canonical bytes hold it, so entries just built
+  and read back show alike; it shows them one table per pack and set, with the
+  insufficient-evidence banner, each arm measured, "not measured" or "not applicable", and
+  freshness worked out when it is built and never stored ("unsigned", "method draft, not in
+  effect", "stale: pack changed" and the like, "stale after DATE"); `render.scoreboard_markdown`
+  writes it, with no Rank column and no bare percentage. No reference pack's figures, formats or
+  decisions change. Spec: `docs/spec/evaluation-reports.md`.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
