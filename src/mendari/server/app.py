@@ -69,6 +69,7 @@ from mendari.errors import (
     CdsHooksError,
     ClientError,
     FhirError,
+    FhirSourceNotFound,
     FhirStructureError,
     GradingRefused,
     InvitationRefused,
@@ -152,6 +153,7 @@ _STATUS = {
     ReviewError: 409,
     NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
+    FhirSourceNotFound: 422,  # issue type not-found: unknown or another organization's, one answer
     FhirError: 422,
     PackValidationError: 422,
     PasError: 422,
@@ -2535,7 +2537,11 @@ def create_app(
     )
     def questionnaire_package(payload: JsonBody) -> JSONResponse:
         """Da Vinci DTR: the documentation the payer asks for, for orders a pack decided (found by
-        CRD's assertion id), pre-answered from the decision (`standards/davinci.py`)."""
+        CRD's assertion id), pre-answered from the decision, and the questionnaires asked for,
+        each version once (`standards/davinci.py`). A questionnaire not found here, or an order
+        or a `context` that names no decision of yours, is a warning in `outcome`; orders or a
+        `context` that name no decision, with nothing to return, are a `422` OperationOutcome
+        (`not-found`)."""
 
         def lookup(decision_id: str) -> tuple[Pack, dict[str, str]] | None:
             record = store.get(decision_id)
@@ -3398,7 +3404,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
-    if isinstance(error, PackNotFoundError):
+    if isinstance(error, PackNotFoundError | FhirSourceNotFound):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
 

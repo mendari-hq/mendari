@@ -2587,10 +2587,45 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
   criteria in CQL, checked against `criteria` in CI (job `cql`; `mendari agreement`)
 - [x] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
-- [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response (validated
-  against CRD 2.2.1)
-- [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
-- [x] Da Vinci PAS: request Bundle and submission to a mock payer (validated against PAS 2.2.1)
+- [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response
+  (profile-validated against CRD 2.2.1 with the HL7 validator, offline)
+- [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (profile-validated against DTR
+  2.2.0 with the HL7 validator, offline)
+- [x] Da Vinci PAS: request Bundle and submission to a mock payer (profile-validated against PAS
+  2.2.1 with the HL7 validator, offline)
+- [ ] **Da Vinci verification** (brief of 2026-10-17, DV-a to DV-e). Mendari's DTR route is the
+  payer side (the "DTR Server"), so a payer never calls it: the counterpart is a DTR client, the
+  Inferno DTR test kit v0.18.0 (suite `dtr_payer_server_v220`, Inferno as the client).
+  - [x] DV-a: `$questionnaire-package` error semantics. A questionnaire not found (a version
+    other than the pack's too) is a warning (`not-found`) in `outcome`, with packages or without
+    (oper-9), and so is an order or a context that names no decision; the packages are the union
+    of the orders' and the questionnaires asked for, each version once. Orders or a context
+    that name no decision of the caller's organization, with nothing to return, are a `422`
+    OperationOutcome (`not-found`, spec-130), one answer for an unknown id and another
+    organization's; a decided order that needs no documentation keeps its information note
+    (oper-8); a request that names no order, context or questionnaire is a `400` (oper-6).
+    "Validated against DTR 2.2.0" now says profile-validated (HL7 validator, offline).
+  - [ ] DV-b: pin the implementation guide packages by checksum (each packages.fhir.org tarball
+    with its sha256, `sha256sum -c`, a local `-ig path.tgz`); today only the validator's jar is.
+  - [ ] DV-c: the Inferno DTR payer-suite job, weekly and by hand, not a required check: groups
+    1, 3 and 4 against the open engine on synthetic data, from Mendari's own Dockerfile and
+    compose file pinned by digest and SHA, compared with a known-gaps file that may only shrink.
+    Expected gaps: 1.01 (conf-1), 3.4.04 (spec-54), the CQL design tests, 3.7.x must-support,
+    4.01 (oper-1). 3.6.01 and 3.6.02 must pass.
+  - [ ] DV-d (optional): the Inferno PAS client suite's approval workflow, the closest stand-in
+    for a payer, attested from the decision's `pas.submitted` event.
+  - [ ] DV-e is LP-23's 23l: DTR group 2 (Backend Services) and the CRD server suite, once
+    LP-23 verifies EHR tokens.
+  - Conflicts, defaults taken: the kits validate through tx.fhir.org, so `fhir-conformance`
+    stays the offline gate (`-tx n/a`) and Inferno runs weekly with synthetic resources only;
+    Mendari pins the kits' images and gems itself; `$next-question`, `$log-questionnaire-errors`,
+    `ValueSet/$expand` and CQL population stay listed gaps, not advertised; no new launch gate;
+    the HL7 DTR reference app is never run (it would POST to https://mendari.co).
+  - **Owner decisions:** whether a weekly job may send synthetic resources to tx.fhir.org or
+    must stay offline; a fuller DTR payer service or a declared partial one; whether PAS
+    attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for `needs_attention`.
+    Real acceptance is the owner's alone: a payer's PAS sandbox with credentials, a payer's
+    written requirements, an EHR's DTR client (B38).
 
 ## Done: v0.6 Readiness for health organizations ([plan](../notes/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
