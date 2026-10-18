@@ -1593,12 +1593,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     benchmark for a pack from a registry (`benchmark.reason: from_registry`, its figures null,
     only the checks that need none run; the dashboard says why), and the evaluation route and
     `mendari eval` attach `comparison: {status: unknown, reason}` instead of comparing with the
-    benchmark it carries (`--baseline report.json` is still compared); every other pack as
-    before. Gate a10's LP-18 half is its tests, in five probes by the prompt's Tests (the card,
-    the two groups and the engine's uploaded benchmark; recalls, deletions and a server
-    honouring them; the pulled-pack cap and the Decision Card's approval; limits and headers,
-    the Hub's half pinned by `test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner`
-    and `test_zap_check_fails_on_a_medium_or_high_risk_only`; plain publisher text and the
+    benchmark it carries (`--baseline report.json` is still compared), and `mendari demo` says
+    the same of a pulled copy of its pack; every other pack as before. Gate a10's LP-18 half is
+    its tests, in five probes by the prompt's Tests (the card, the two groups and the engine's
+    uploaded benchmark; recalls, deletions and a server honouring them; the pulled-pack cap and
+    the Decision Card's approval; limits and headers, the Hub's half pinned by
+    `test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner` and
+    `test_zap_check_fails_on_a_medium_or_high_risk_only`; plain publisher text and the
     chain); its `pending` probe names LP-19 alone, so a10 stays unmet. Threat model rows S18,
     S19, T7, R3, D11, D12, E12 and E13, with E1, E3, S4, the trust boundaries, the header and
     the Pack content part amended, and residual risks (the admin token until LP-19, unverified
@@ -1608,7 +1609,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `docs/operations/registry.md` (in the nav), README, CHANGELOG, SECURITY.md, the
     evaluation-reports spec (the registry's `figures` always null), the review packet's scope
     (the registry and the Hub in it), architecture and the authoring guide;
-    `scripts/zap_check.py`'s docstring names both jobs. **LP-18 is built.**
+    `scripts/zap_check.py`'s docstring names both jobs. The review: the registry's 500 carries
+    HSTS as every answer does, and the docs say what a server's recall read is (a decision
+    starts it once the last is five minutes old, and uses the list read before, so the
+    first decision after a quiet spell can still automate; a hold acts within seconds).
+    **LP-18 is built.**
 
   **Defaults each PR follows** (the owner may choose otherwise):
   1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes

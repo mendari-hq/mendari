@@ -177,6 +177,27 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
     assert own["status"] in ("ok", "warning", "degraded") and "baseline" in own
 
 
+def test_the_demo_never_compares_a_pulled_copy_with_the_benchmark_it_carries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The LP-18h review: `mendari demo` takes its pack from the search path, the pack cache
+    first, and compared a pulled copy of the reference pack with the benchmark the copy carries,
+    whatever its publisher put there. Now it says the copy is not compared; the bundled pack is
+    compared as before."""
+    from mendari.evals.compare import FROM_REGISTRY
+    from mendari.sandbox.demo import PACK_ID, run_demo
+
+    run_demo(example_datasets_dir())
+    assert "Public benchmark (test, n=600):" in capsys.readouterr().out
+    # The reference pack's own bytes, in the cache: not refused as a shadow, and from a registry.
+    shutil.copytree(INBOX_DIR, client.packs_cache() / PACK_ID / SHIPPED)
+    assert resolve_pack(PACK_ID).origin == "hub"
+    run_demo(example_datasets_dir())
+    shown = capsys.readouterr().out
+    assert f"Comparison unavailable: {FROM_REGISTRY}" in shown
+    assert "Public benchmark" not in shown and "degradation" not in shown
+
+
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

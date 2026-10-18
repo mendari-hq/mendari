@@ -11,12 +11,7 @@ words MUST, SHOULD and MAY are used as in that spec.
 A report has two parts.
 
 - **The result:** every key except `run`, `comparison`, `result_sha256` and `figures` (what a
-  server serves beside a report, never stored). `comparison` is the local validation against
-  the pack's benchmark; for a pack pulled from a registry it is never made with the benchmark
-  the pack carries, which is its publisher's upload
-  ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it is
-  `{"status": "unknown", "reason": ..., "findings": []}`, as for a benchmark that cannot be
-  compared, and says why. It MUST be computed
+  server serves beside a report, never stored). It MUST be computed
   only from the run's ledger and the seeds it names, so two runs on the same cases with the same
   pack, providers and seeds give byte-identical results (canonical JSON: sorted keys, no spaces),
   and anyone holding the ledger can recompute it.
@@ -24,6 +19,13 @@ A report has two parts.
   `created_at`, `latency_ms` (mean, p50, p95, max), the engine version, and a governance
   override's approver (kept locally, never in the result). `result_sha256` is the SHA-256 of the
   canonical result.
+
+`comparison`, outside the result, is the local validation against the pack's benchmark. For a
+pack pulled from a registry it is never made with the benchmark the pack carries, which is its
+publisher's upload
+([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it is
+`{"status": "unknown", "reason": ..., "findings": []}`, as for a benchmark that cannot be
+compared, and says why.
 
 The result MUST carry everything a `mendari.eval/1` report carries, except case ids, and adds:
 

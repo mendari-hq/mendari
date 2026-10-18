@@ -274,6 +274,7 @@ gates:
               - tests/test_registry.py::test_a_version_published_before_the_registry_rendered_cards_serves_nothing_uploaded
               - tests/test_hub_client.py::test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served
               - tests/test_hub_client.py::test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_against
+              - tests/test_hub_client.py::test_the_demo_never_compares_a_pulled_copy_with_the_benchmark_it_carries
               - tests/test_hub_client.py::test_search_shows_no_figure_a_registry_sends
               - tests/test_monitoring.py::test_a_pack_from_a_registry_is_never_compared_with_the_benchmark_it_carries
               - tests/test_registry_regression.py::test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking

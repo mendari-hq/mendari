@@ -308,11 +308,13 @@ The first release (not yet published).
   Automation approval section shows where it came from, a recall recorded at pull, the
   approval in force and every earlier one; approving takes a reference and a dialog that names
   the digest and what it never lifts, and revoking is one button, both only with `approve`.
-- **A running server honours its registries' recalls** (LP-18e, `server/recalls.py`). It reads
-  each registry's `GET /v1/yanks` every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set),
-  over https, bounded in time and size, and holds a recalled pack as an unapproved one is
-  held, and every pack of a registry it has not read for `MENDARI_REGISTRY_RECALL_STALE_S`
-  (a day unless set). The full `/api/health` shows `registry_recalls`.
+- **A running server honours its registries' recalls** (LP-18e, `server/recalls.py`). A
+  decision for one of a registry's packs starts a read of its `GET /v1/yanks` in a thread of its
+  own once the last is older than `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set; that
+  decision uses the list read before), over https, bounded in time and size, and the server
+  holds a recalled pack as an unapproved one is held, and every pack of a registry it has not
+  read for `MENDARI_REGISTRY_RECALL_STALE_S` (a day unless set). The full `/api/health` shows
+  `registry_recalls`.
 - **Rate limits and headers on the registry and the Hub** (LP-18f). The registry limits reads
   per address and writes and site reports per token, in its own database, before a body is
   read (`MENDARI_REGISTRY_RATE_LIMITS`); every registry answer and Hub page carries a strict CSP
@@ -328,9 +330,10 @@ The first release (not yet published).
   `/api/monitoring` take no benchmark for a pack from a registry (`benchmark.reason:
   from_registry`, its benchmark figures null) and run only the checks that need none; the
   evaluation route and `mendari eval` attach no comparison with the benchmark it carries and
-  say why (`comparison.status: unknown`), while a report given with `--baseline` is still
-  compared. Every other pack is monitored and compared as before. The runbook for running a
-  registry is [`docs/operations/registry.md`](docs/operations/registry.md).
+  say why (`comparison.status: unknown`), as `mendari demo` does for a pulled copy of its pack
+  in the pack cache, while a report given with `--baseline` is still compared. Every other pack
+  is monitored and compared as before. The runbook for running a registry is
+  [`docs/operations/registry.md`](docs/operations/registry.md).
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

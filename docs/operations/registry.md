@@ -67,16 +67,21 @@ version and removes a cached copy.
 1. **Recall it.** The publisher runs
    `mendari yank ns/name@1.2.0 --reason "misroutes refills" --severity high --key keys/publisher.key`,
    or the administrator posts to `…/yank` with a reason and a severity.
-2. **Servers stop automating it.** Every running server reads `GET /v1/yanks` of each registry
-   its served packs came from, every `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set). A
-   recalled pack no longer automates, and its own rule's BLOCK goes to a person, whether or not
-   its organization approved it, and each held decision says why in its reasons. The server's
-   full `/api/health` (signed in, or in open mode) shows, under `registry_recalls`, each
-   registry's last read (`checked_s_ago`), how many versions it recalls (`recalled`) and the
-   error type while reads fail (`failing`). The Decision Card shows a recall the last pull
-   recorded; one read since shows in health and in the decisions' reasons.
-3. **Not soon enough?** Hold the pack on each deployment now
-   ([Holding automation](automation-hold.md)): a hold takes effect within seconds.
+2. **Servers stop automating it, from their next read.** A server reads `GET /v1/yanks` of a
+   registry its served packs came from in a thread of its own. A decision for one of that
+   registry's packs starts the read, once the last one is older than
+   `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set); that decision, and any made while the
+   read runs, use the list read before. From then on a recalled pack no longer automates, and
+   its own rule's BLOCK goes to a person, whether or not its organization approved it, and each
+   held decision says why in its reasons. A server that decides all day has the recall within
+   about five minutes; on a quiet one, the first decision after the recall can still automate.
+   The server's full `/api/health` (signed in, or in open mode) shows, under `registry_recalls`,
+   each registry's last read (`checked_s_ago`, which grows while no decision starts a read), how
+   many versions it recalls (`recalled`) and the error type while reads fail (`failing`). The
+   Decision Card shows a recall the last pull recorded; one read since shows in health and in
+   the decisions' reasons.
+3. **Not soon enough, or a quiet server?** Hold the pack on each deployment now
+   ([Holding automation](automation-hold.md)): a hold takes effect within seconds, with no read.
 4. **Afterwards**, remove the recalled version from each server's pack cache
    (`packs/<namespace>/<name>/<version>` under `MENDARI_CACHE_DIR`), or pull a fixed version.
    A new version has a new digest, so it waits for its organization's approval.
@@ -99,7 +104,7 @@ lasts until revoked. It never lifts a recall, a hold or a risk level's cap.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How often a server reads each registry's recalls |
+| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How old a server's last read of a registry's recalls may be before a decision for one of its packs starts another (that decision uses the last list) |
 | `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (at least twice the check) | After this long without a successful read, every pack from that registry is held |
 
 These reads go only to the registry a pack's verified marker names, over https (plain http to

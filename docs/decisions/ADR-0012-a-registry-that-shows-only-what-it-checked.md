@@ -57,8 +57,9 @@ Nothing on a pack's page comes from the uploader unchecked.
      nothing.
    - The engine treats a pulled pack's uploaded benchmark the same way (18h): its pack detail
      and card show none, its monitor has no benchmark for it (`benchmark.reason:
-     from_registry`), and its evaluation route and `mendari eval` attach no comparison with it,
-     saying why (a report given with `--baseline` is the caller's own and is compared).
+     from_registry`), and its evaluation route, `mendari eval` and `mendari demo` make no
+     comparison with it, saying why (a report given with `--baseline` is the caller's own and is
+     compared).
 2. **Two groups on every version, in the API and on the Hub (18a).**
    - `checked`, what the registry verified itself: the signing key's id, the archive's SHA-256,
      the pack digest the signed manifest names and the pack loaded with, the engine it was
@@ -114,13 +115,14 @@ Nothing on a pack's page comes from the uploader unchecked.
    the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
    `mendari decide` never do. A library caller (`Decision.from_hub`) is capped unless it passes
    `origin_approval`.
-7. **A running server honours recalls (18e).** For each registry its served packs came from,
-   a server reads `GET /v1/yanks` every five minutes (`MENDARI_REGISTRY_RECALL_CHECK_S`) in a
-   thread of its own, over https. A pack it lists is held as an unapproved one is. What cannot
-   be checked is treated the same: a registry not read in a day
-   (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or not recorded
-   beside the pack. A recall is honoured whether or not its signature can be checked here: it
-   only lowers automation.
+7. **A running server honours recalls (18e).** For each registry its served packs came from, a
+   server reads `GET /v1/yanks` in a thread of its own, over https, started by a decision for
+   one of that registry's packs once the last read is five minutes old
+   (`MENDARI_REGISTRY_RECALL_CHECK_S`); that decision uses the list read before. A pack it lists
+   is held as an unapproved one is. What cannot be checked is treated the same: a registry not
+   read in a day (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or
+   not recorded beside the pack. A recall is honoured whether or not its signature can be
+   checked here: it only lowers automation.
 8. **Limits and headers (18f).** The registry limits reads per address and writes and site
    reports per token, in its own database (the engine's `Limiter` and buckets), refusing before
    a body is read. Every registry answer carries a CSP that loads nothing, and the Hub's pages

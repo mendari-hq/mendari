@@ -101,8 +101,9 @@
   writes where it came from beside itself (`mendari.origin/1`), and served it never automates
   until its organization approves its digest (`registry_approvals`), nor while its registry
   recalls it. A recall is a signed record (`hub/yank.py`); a running server reads each
-  registry's recalls every five minutes (`server/recalls.py`) and holds a pack whose registry it
-  could not read for a day. The Decision Card shows the origin and the approval.
+  registry's recalls in a thread of its own, started by a decision for one of its packs once the
+  last read is five minutes old (`server/recalls.py`), and holds a pack whose registry it could
+  not read for a day. The Decision Card shows the origin and the approval.
 - **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that

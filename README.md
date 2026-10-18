@@ -754,13 +754,14 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   Served, a pulled pack never automates until your organization approves its exact digest, on
   its Decision Card or with `POST /api/registry-approvals` (chained; `DELETE` revokes it), at
   any risk level, and never while the registry recalled it; nothing in the pack lifts that. A
-  running server reads its registries' recalls every five minutes and holds a recalled pack the
-  same way, and one whose registry it could not read for a day; its full `/api/health` shows
-  each registry's last read under `registry_recalls`. `mendari test` and `mendari eval` check
-  the pack's own policy, and neither `mendari eval`, the evaluation route nor the Monitoring
-  view compares a pulled pack with the benchmark it carries (its publisher's upload). The
-  verified marker beside a pulled pack records the registry, namespace, publisher type and
-  key it came from
+  running server reads a registry's recalls again when a decision for one of its packs finds the
+  last read five minutes old (that decision uses the list read before), and holds a recalled
+  pack the same way, and one whose registry it could not read for a day; its full `/api/health`
+  shows each registry's last read under `registry_recalls`. `mendari test` and `mendari eval`
+  check the pack's own policy, and neither `mendari eval`, `mendari demo`, the evaluation route
+  nor the Monitoring view compares a pulled pack with the benchmark it carries (its publisher's
+  upload). The verified marker beside a pulled pack records the registry, namespace, publisher
+  type and key it came from
   ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means

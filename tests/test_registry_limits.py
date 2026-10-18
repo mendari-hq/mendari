@@ -153,16 +153,23 @@ def test_made_up_tokens_share_their_senders_bucket(
     assert codes == [401, 401, 429, 429]
 
 
+@pytest.mark.parametrize(
+    ("origin", "hsts"),
+    [("https://hub.example.org", "max-age=63072000"), ("http://localhost", None)],
+)
 def test_an_unhandled_error_is_a_bare_500_with_the_headers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, origin: str, hsts: str | None
 ) -> None:
+    """Every header every answer carries, HSTS too but on this machine (the LP-18h review: the
+    500 is answered outside the middleware, and had no HSTS)."""
     app = create_registry_app(tmp_path / "a.db")
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app, base_url=origin, raise_server_exceptions=False) as client:
         monkeypatch.setattr(RegistryStore, "latest", lambda self: 1 / 0)
         answer = client.get("/v1/search")
     assert answer.status_code == 500 and answer.json()["detail"] == "internal error"
     for name, value in EXPECTED.items():
         assert answer.headers.get(name) == value, name
+    assert answer.headers.get("strict-transport-security") == hsts
 
 
 def test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner() -> None:
@@ -170,16 +177,22 @@ def test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner() -> None:
     publisher text is inert) runs only in CI's `hub-site`: the registry seeded with the hostile
     example, the Hub's Playwright tests (`headers.spec.ts`, and the smoke test on publisher
     text), then the pinned ZAP baseline over the local site and `scripts/zap_check.py`, which
-    fails on a medium or high risk. A step dropped, reordered or allowed to fail fails here."""
+    fails on a medium or high risk. A step dropped, reordered, allowed to fail or switched off
+    with `if:`, the job switched off, or `npm test` made to run fewer tests fails here."""
     ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert "pull_request" in ci[True]  # YAML reads the key `on` as true
     job = ci["jobs"]["hub-site"]
     steps = job["steps"]
     assert "continue-on-error" not in job
     assert not [step for step in steps if step.get("continue-on-error")]
+    needs = job.get("needs", [])
+    for name in ["hub-site", *([needs] if isinstance(needs, str) else needs)]:
+        assert "if" not in ci["jobs"][name], name  # a skipped job it needs skips it too
 
     def step(matches: Any) -> int:
         found = [i for i, s in enumerate(steps) if matches(s)]
         assert len(found) == 1, found
+        assert "if" not in steps[found[0]], steps[found[0]]
         return found[0]
 
     seed = step(lambda s: "scripts/hub_seed.py --registry" in s.get("run", ""))
@@ -199,7 +212,14 @@ def test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner() -> None:
     smoke = (HUB_TESTS / "smoke.spec.ts").read_text()
     title = "publisher text is shown as text: no script runs and no unsafe link is made"
     assert f'test("{title}"' in smoke
-    assert 'testDir: "tests"' in (ROOT / "hub" / "playwright.config.ts").read_text()
+    for spec in (headers, smoke):  # no test skipped, and no `.only` that leaves the rest out
+        assert not re.search(r"\.(only|skip|fixme)\(", spec)
+    # `npm test` runs every test under hub/tests, whatever its file is called.
+    package = json.loads((ROOT / "hub" / "package.json").read_text())
+    assert package["scripts"]["test"] == "playwright test"
+    config = (ROOT / "hub" / "playwright.config.ts").read_text()
+    assert 'testDir: "tests"' in config
+    assert not re.search(r"\b(testMatch|testIgnore|grep|grepInvert|shard)\b", config)
 
 
 def _zap_check() -> ModuleType:

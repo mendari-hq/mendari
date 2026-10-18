@@ -280,9 +280,11 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   or `POST /api/registry-approvals`; chained, revoked at once), at any risk level, and its own
   rule's BLOCK goes to a person until then. A recall is a signed record (`mendari yank`, or the
   registry's own key): a recalled version leaves the latest and search, and every running server
-  that serves it stops automating it at its next read of the registry (every five minutes
-  unless set), as it does for a pack whose registry it could not read for a day. Nothing in a
-  pack lifts this, a copy of a reference pack included. The runbook is
+  that serves it stops automating it from its next read of the registry, as it does for a pack
+  whose registry it could not read for a day. A decision for one of the registry's packs starts
+  that read once the last is five minutes old (unless set), and it and any made while the read
+  runs use the list read before; a hold stops a pack within seconds. Nothing in a pack lifts
+  this, a copy of a reference pack included. The runbook is
   [`docs/operations/registry.md`](docs/operations/registry.md).
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.
