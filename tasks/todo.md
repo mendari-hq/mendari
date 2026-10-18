@@ -1586,7 +1586,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     place in the dashboard chooses a model (`JEV_MODEL` is the deployment's), the card already
     names the deployed model, and the list would be a call to Jev on every card for nothing to
     act on.
-  - [x] **18h** (this PR) Close-out. The engine no longer uses a pulled pack's uploaded
+  - [x] **18h** (#255) Close-out. The engine no longer uses a pulled pack's uploaded
     benchmark, the gap in the acceptance check that needed code (18a left the monitor as is,
     and nothing covered the evaluation's comparison; the others are residual risks in the
     threat model): `/api/monitoring` and `mendari monitor` take no
