@@ -62,6 +62,45 @@ The first release (not yet published).
   `kty` or `key_ops` is of the wrong JSON type is refused as any bad key set is (a `422` when a
   Backend Services client is registered), and a FHIR server's answer nested too deep to read is
   refused as invalid JSON. See [Connecting an EHR](docs/guides/connecting-an-ehr.md).
+- **A hook that always answers (LP-23d; two changes in behaviour).** A CDS Hooks service reads
+  each prefetch key on its own. When a key cannot be read (a failed read with its reason:
+  `network`, `timeout`, `http_status`, `unauthorized`, `not_json`, `too_large`, `off_server`, a
+  search past the page cap `cap`; an OperationOutcome sent or read, `operation_outcome`; a
+  resource or search page Mendari read that is not R4 JSON, `not_r4`, or not the type asked
+  for, `unsupported_type`), the decision is ABSTAIN before any provider runs, its reasons
+  `could not read <key>: <reason>`, never a URL, a query or what a server answered. The hook
+  answers `200` instead of the `422` it gave before (or the `500`, for a search page whose
+  `entry` or `link` was not R4's shape), the decision is recorded like any other, and its card is
+  an `info` card naming the keys, whatever the pack's `show` says. Refused input still BLOCKs, a
+  request fault stays a `4xx`, the structural R4 check on every value the client sent (an
+  OperationOutcome among them) stays a `400`, and a `fhirServer` off the allow-list is still
+  refused with nothing fetched or recorded. A key whose value is null is "no data" (CDS Hooks
+  2.0) and is no longer fetched; a key sent empty (`{}`, `[]`, `""`) still counts as left out,
+  as before. A value that is none of these and not a resource (a string, a number, a list, an
+  object with no `resourceType`) is unreadable (`unsupported_type`): it used to be read as no
+  data, or for a list as the resources it held, and a required resource it stands in for is
+  still refused (`422`), as before. For Da Vinci CRD, an order that abstained this way gets
+  `covered: indeterminate` for a `technical` reason, with fixed text, when its Coverage was
+  read; without the Coverage there is no system action. The SMART launch's decide reads its
+  record the same way (a `401` still ends the launch, and a focus resource that cannot be read is
+  an error, as before). Every FHIR decision now carries `data_coverage`
+  (`mendari.data-coverage/1`) in its chained record (`GET /api/audit/{id}`), and in the answer of
+  `fhir/decide` and of the SMART launch's decide; a CDS Hooks card and `$decide`'s
+  GuidanceResponse carry the decision id that finds it (`extension.mendari.decision_id`, the
+  `identifier`), not the record itself. For each mapped field and list it holds the paths looked
+  for, the code systems the pack declares, the pack's own codes, and what was found, as counts,
+  with what could not be read counted by reason. It never holds a value, an id, text, a
+  patient's code or a system the pack does not declare. A decision on JSON input carries `null`,
+  and older records still verify.
+  - **Changed: decisions on notes Mendari cannot read move from a possible AUTO to ABSTAIN.** A
+    `base64_text` attachment that is only a `url`, or whose data does not decode to text, used
+    to read as no notes, so the decision was made as if the record held none, and could
+    automate. It now abstains (`not_fetched`, `undecodable`) in every pack and on every FHIR
+    route (CDS Hooks, `fhir/decide`, `$decide`, the SMART launch, `mendari decide --fhir`).
+    Readable input decides byte for byte as before (the 23a golden is unchanged).
+  - **Changed: a CDS Hooks request with neither the prefetch nor a `fhirServer` answers `412`**
+    (`PrefetchRequired`), as CDS Hooks 2.0 says. It answered `422`. A key sent empty counts as
+    not sent here too, as it did.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
@@ -464,6 +503,27 @@ The first release (not yet published).
   effect", "stale: pack changed" and the like, "stale after DATE"); `render.scoreboard_markdown`
   writes it, with no Rank column and no bare percentage. No reference pack's figures, formats or
   decisions change. Spec: `docs/spec/evaluation-reports.md`.
+- **Signed scoreboard results and the public verifier** (LP-17e, `mendari.evals.signing`; off
+  without the key). A result (`mendari.scoreboard/1`, or a hidden set's
+  `mendari.hidden_scoreboard/1`) is signed with an Ed25519 grading key the owner holds offline,
+  `MENDARI_GRADING_SIGNING_KEY`, over `mendari-grading-result-v1`, a zero byte and its canonical
+  JSON without its signature, so no checkpoint, archive or recall signature verifies as a
+  result's. The key must differ from every other key Mendari uses (the checkpoint and registry
+  keys, the PHI key and its read keys, the input hash key and the three evaluation-set keys,
+  which now refuse to equal it too); a malformed or reused one stops the command, naming the
+  variable, never the value. `mendari scoreboard sign FILE ...` is the key holder's: it refuses
+  in CI (`CI` or `GITHUB_ACTIONS` set) and without the key, checks every file before writing
+  any, and adds the signature in place, leaving the body and its SHA-256 as they were.
+  `mendari scoreboard verify FILE ... [--keys FILE | --public-key B64]` needs no secret and
+  writes nothing: it refuses another format, a body that is not canonical JSON (a key twice,
+  NaN or an infinity), a method hash that is not its version's, a key not in
+  `scoreboard/keys.json` (`mendari.grading-keys/1`, empty until the owner adds one) or not
+  valid on the day the result was measured, a publisher's or a registry's key this machine
+  pinned, and any changed byte. Each result is its own line, a file it cannot read included, and
+  the keys file is read as strictly as a result (a field twice is refused). No result is signed
+  yet. Guide: `docs/grading/verifying.md`, which also says how to sign without the key reaching
+  the shell's history, and what to do when a key leaks (run its results again; a result is
+  signed once); threat model S20 and E14. No figure, format or decision changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

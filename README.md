@@ -576,6 +576,34 @@ refused with sign-in on, and ignored in open mode, which reads no credential the
 open mode is as before: it answers anyone, on any host, until LP-23c. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
+
+**A record Mendari cannot read (LP-23d).** A hook always answers. Each prefetch key is read on its
+own. A key the request leaves out (or sends empty), with no `fhirServer` to read it from, is a
+`412`, as CDS Hooks 2.0 says (it was a `422`). A key whose value is null has no data and is not
+read. Everything the client sends goes through the structural R4 check, as before (a `400`). When
+a key cannot be read (a failed read, an OperationOutcome, a value that is not a resource, a
+resource or search page Mendari read that is not R4 JSON, a search past the page cap), or a note
+is only a link or its data does not decode, the decision is ABSTAIN before any provider runs. Its
+reasons read `could not read <key>: <reason>`, with a reason from a closed set (`timeout`,
+`unauthorized`, `not_fetched` and the others), never a URL, a query or what a server answered.
+The hook answers `200`, the decision is recorded like any other, and its card is an `info` card
+that names the keys, whatever the pack's `show` says. Input that is refused still BLOCKs, and a
+request fault stays a `4xx` (a required resource the client sent something else for among them).
+A Da Vinci CRD order whose Coverage was read gets `covered: indeterminate` for a `technical`
+reason. The SMART launch's decide reads its record the same way. Every FHIR decision carries
+`data_coverage` (`mendari.data-coverage/1`) in its record (`GET /api/audit/{id}`; the answers of
+`fhir/decide` and the SMART launch's decide hold it too, while a card and `$decide` give the
+decision id): for each mapped field and list, the paths it looked for, the code systems the pack
+declares, the pack's own codes, and what it found, as counts (resources by type, values, codings
+by declared system with any other system as one count, what could not be read by reason). It
+never holds a value, an id, text, a patient's code or a system the pack does not declare. A JSON
+decision carries none.
+
+**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
+Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
+Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
+Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
+`Authorization` header. How an EHR is to call with its own token is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
 (Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
 is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
@@ -1222,6 +1250,15 @@ description, cost comes from tokens and the table (never a pack's or a provider'
 a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
 entries yet: the store and the page come with LP-17f.
 
+Scoreboard results are signed by Mendari's owner with a grading key held offline
+(`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
+the key holder's, on their own machine, and refuses to run when `CI` or `GITHUB_ACTIONS` is set.
+Anyone can check one with `mendari scoreboard verify FILE`, which needs no secret: it reads the
+public keys in `scoreboard/keys.json` (none yet, so every result reads "unsigned"), refuses a
+publisher's or a registry's key, and fails on any changed byte. The signature covers a prefix of
+its own, so no checkpoint, archive or recall signature passes as a result's
+([Verifying a scoreboard result](https://github.com/mendari-hq/mendari/blob/main/docs/grading/verifying.md)).
+
 ## Feedback loop
 
 Anyone using the dashboard can rate any decision, automated ones included, as right (thumbs
@@ -1477,7 +1514,8 @@ src/mendari/
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
-│                a hidden set's grading result, the scoreboard's arms, entries and run records
+│                a hidden set's grading result, the scoreboard's arms, entries and run records,
+│                signed scoreboard results
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
@@ -1485,6 +1523,7 @@ packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
+scoreboard/      the scoreboard's public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```

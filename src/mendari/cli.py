@@ -439,6 +439,130 @@ def cmd_scoreboard_arms(args: argparse.Namespace) -> int:
     return 0
 
 
+def _scoreboard_json(path: str, where: str) -> Any:
+    """A scoreboard file (a result, or the keys file), read strictly (`signing.read`): a key
+    twice or a NaN is refused, never read as one of its meanings. Whatever stops it being read
+    (missing, not UTF-8, not that JSON) is one `MendariError` line that starts with `where`."""
+    from mendari.evals import signing
+
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise MendariError(f"{where}: not UTF-8 text; save it as UTF-8") from None
+    except OSError as error:
+        problem = error.strerror or type(error).__name__
+        raise MendariError(f"{where}: {problem}; check the path") from None
+    try:
+        return signing.read(text)
+    except MendariError as error:
+        raise MendariError(f"{where}: {error}") from None
+
+
+def _scoreboard_result(path: str) -> Any:
+    """A result file, read strictly; a line that says why it cannot be read names the file."""
+    return _scoreboard_json(path, _path_shown(path))
+
+
+def cmd_scoreboard_sign(args: argparse.Namespace) -> int:
+    """For the key holder only, on their own machine (LP-17e): sign scoreboard results in place
+    with $MENDARI_GRADING_SIGNING_KEY. Refused in CI (`CI` or `GITHUB_ACTIONS` set), without the
+    key, and with a key this machine pinned as a publisher's. Every file is checked before any
+    is written, and a file is replaced whole, so a refusal leaves each as it was. What it prints
+    names the key's id and public half, never the key."""
+    from mendari.core.checkpoint import key_id, public_text
+    from mendari.evals import signing
+    from mendari.hub.client import config_dir
+
+    signing.refuse_in_ci()
+    key = signing.grading_key()
+    if key is None:
+        raise MendariError(
+            f"{signing.KEY_ENV} is not set: signing is the key holder's, on their own machine "
+            "(docs/grading/verifying.md)"
+        )
+    signer = key_id(key.public_key())
+    if signer in signing.read_pins(config_dir() / "trusted_keys.json"):
+        raise MendariError(
+            f"{signing.KEY_ENV} is {signer}, which this machine pinned as a publisher's or a "
+            "registry's key: a grading key is its own"
+        )
+    planned = []
+    for path in args.files:
+        target = Path(path)
+        if target.is_symlink():  # the write would land wherever the link points
+            raise MendariError(f"{_path_shown(path)} is a symbolic link; not writing through it")
+        result = _scoreboard_result(path)
+        try:
+            signed = signing.sign(result, key)
+        except MendariError as error:
+            raise MendariError(f"{_path_shown(path)}: {error}") from None
+        planned.append((target, signed))
+    for target, signed in planned:
+        staged = target.with_name(f".{target.name}.signing")
+        staged.write_text(signing.dump(signed), encoding="utf-8")
+        os.replace(staged, target)
+        print(f"signed {_path_shown(str(target))} (body {signing.body_sha256(signed)})")
+    print(
+        f"with {signer}, public key {public_text(key.public_key())}: list it once in "
+        f"{signing.KEYS_PATH} with the dates it is valid for"
+    )
+    return 0
+
+
+def cmd_scoreboard_verify(args: argparse.Namespace) -> int:
+    """Check signed scoreboard results (LP-17e) against public keys only: the keys file
+    (`scoreboard/keys.json`, from the repository's root, unless --keys names another) or one key
+    (--public-key). A key this machine pinned as a publisher's or a registry's is refused, even
+    one the keys list. Needs no secret and writes nothing. Exit 0 when every result verifies,
+    1 when one does not. Each result is its own line, one that cannot be read included, so one
+    broken file hides no other's; a keys file that cannot be read, or is not one, stops the run.
+    The keys file is read as strictly as a result: a field twice is refused, never read as its
+    last value."""
+    from mendari.evals import signing
+    from mendari.hub.client import config_dir
+
+    if args.public_key is not None:
+        keys = signing.given_key(args.public_key)
+    else:
+        source = args.keys or signing.KEYS_PATH
+        if args.keys is None and not Path(source).is_file():
+            raise MendariError(
+                f"no keys file at {source}: run this from the repository's root, or give --keys "
+                "or --public-key"
+            )
+        where = f"--keys {_path_shown(source)}"
+        listing = _scoreboard_json(source, where)
+        try:
+            keys = signing.load_keys(listing)
+        except MendariError as error:
+            raise MendariError(f"{where}: {error}") from None
+    publishers = signing.read_pins(config_dir() / "trusted_keys.json")
+    debug = getattr(args, "debug", False) or (
+        os.environ.get("MENDARI_DEBUG", "").strip().lower() in _DEBUG_ON
+    )
+    failed = False
+    for path in args.files:
+        try:
+            result = _scoreboard_result(path)
+        except MendariError as error:
+            if debug:
+                raise
+            failed = True
+            print(f"error: {_one_line(str(error))}", file=sys.stderr)
+            continue
+        found = signing.problem(result, keys, publisher_ids=publishers)
+        if found is not None:
+            failed = True
+            print(f"error: {_path_shown(path)}: {found}", file=sys.stderr)
+            continue
+        key = keys[result["signature"]["key_id"]]
+        print(
+            f"verified: {_path_shown(path)}, signed with {key.key_id} ({key.dates}), under "
+            f"{result['scope']['method']['version']}"
+        )
+    return 1 if failed else 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import card_of
 
@@ -2468,7 +2592,8 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument("--fresh", action="store_true", help="replace instead of merging")
 
     scoreboard = sub.add_parser(
-        "scoreboard", help="the scoreboard: a pack's configurations by arm (read-only)"
+        "scoreboard",
+        help="the scoreboard: a pack's configurations by arm; signing and verifying results",
     ).add_subparsers(dest="scoreboard_command", required=True)
     scoreboard_arms = scoreboard.add_parser(
         "arms",
@@ -2478,6 +2603,24 @@ def build_parser() -> argparse.ArgumentParser:
     scoreboard_arms.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
     scoreboard_arms.add_argument("--json", action="store_true", help="print the JSON report")
     scoreboard_arms.set_defaults(handler=cmd_scoreboard_arms)
+    scoreboard_sign = scoreboard.add_parser(
+        "sign",
+        help="the key holder's: sign scoreboard results in place with "
+        "$MENDARI_GRADING_SIGNING_KEY (never in CI)",
+    )
+    scoreboard_sign.add_argument("files", nargs="+", metavar="FILE", help="a result file")
+    scoreboard_sign.set_defaults(handler=cmd_scoreboard_sign)
+    scoreboard_verify = scoreboard.add_parser(
+        "verify",
+        help="check signed scoreboard results against public keys only (needs no secret)",
+    )
+    scoreboard_verify.add_argument("files", nargs="+", metavar="FILE", help="a result file")
+    trusted = scoreboard_verify.add_mutually_exclusive_group()
+    trusted.add_argument(
+        "--keys", help="the public keys file (default: scoreboard/keys.json, from the root)"
+    )
+    trusted.add_argument("--public-key", help="one public key instead: 32 bytes in base64")
+    scoreboard_verify.set_defaults(handler=cmd_scoreboard_verify)
 
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")

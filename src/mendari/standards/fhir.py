@@ -16,7 +16,7 @@ from __future__ import annotations
 import base64
 import html
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -132,12 +132,17 @@ class FhirAdapter:
         return cls(pack, mapping)
 
     def index(
-        self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
+        self,
+        resources: Mapping[str, Any],
+        *,
+        focus: Mapping[str, Any] | None = None,
+        excused: Collection[str] = (),
     ) -> Indexed:
         """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch).
 
         With `focus` (e.g. one draft order), the record is indexed around that resource and any
-        other resource of the focus type in `resources` is ignored."""
+        other resource of the focus type in `resources` is ignored. A required resource type in
+        `excused` may be missing: its read failed, and the decision abstains (LP-23d)."""
         indexed: Indexed = {}
         seen: set[tuple[str, str]] = set()
         for resource in iter_resources(resources if focus is None else [resources, focus]):
@@ -155,7 +160,9 @@ class FhirAdapter:
                 raise FhirError(f"expected exactly one {kind}, got several")
             indexed.setdefault(kind, []).append(dict(resource))
         missing = [
-            k for k, rule in self.mapping.resources.items() if rule.required and k not in indexed
+            k
+            for k, rule in self.mapping.resources.items()
+            if rule.required and k not in indexed and k not in excused
         ]
         if missing:
             raise FhirError(f"missing required FHIR resources: {', '.join(missing)}")
@@ -184,17 +191,8 @@ class FhirAdapter:
             if value is not None:
                 _put(result, target, value)
         for target, spec in self.mapping.lists.items():
-            items = []
-            for resource in _as_list(indexed.get(spec.resource)):
-                item = {}
-                for name, field in spec.fields.items():
-                    values = select({spec.resource: resource}, f"{spec.resource}.{field.path}")
-                    value = _apply(field, values)
-                    if value is not None:
-                        item[name] = value
-                if item:
-                    items.append(item)
-            _put(result, target, items)
+            items = [list_item(spec, resource) for resource in _as_list(indexed.get(spec.resource))]
+            _put(result, target, [item for item in items if item])
         return result
 
     @property
@@ -314,6 +312,18 @@ def select(indexed: Mapping[str, Any], path: str) -> list[Any]:
             collected = collected[int(index) : int(index) + 1]
         current = collected
     return current
+
+
+def list_item(spec: ListMapping, resource: Mapping[str, Any]) -> dict[str, Any]:
+    """One resource as an item of a mapped list: each field that has a value (an empty item is
+    left out of the list)."""
+    item = {}
+    for name, field in spec.fields.items():
+        values = select({spec.resource: resource}, f"{spec.resource}.{field.path}")
+        value = _apply(field, values)
+        if value is not None:
+            item[name] = value
+    return item
 
 
 def _apply(field: FieldMapping, values: list[Any]) -> Any:

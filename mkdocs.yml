@@ -75,6 +75,7 @@ nav:
       - Architecture: architecture.md
   - Grading:
       - Grading method 1.0 (draft): grading/method-1.0.md
+      - Verifying a scoreboard result: grading/verifying.md
   - Security:
       - Threat model: security/threat-model.md
       - External review packet: security/review-packet.md

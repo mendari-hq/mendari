@@ -19,9 +19,10 @@ Both keys set: the feature is on. Both unset: off (`evalset_keys` returns None),
 changes. Anything else stops the server and every command that reads them: a key that is not 32
 bytes in base64, one set without the other, read keys without the key, or any two equal, among
 these and every other key of the deployment (the PHI key and its read keys, the input hash key,
-the checkpoint key), whatever the PHI mode. A message names variables and positions, never a
-value. The owner sets both as Secret for the hosted Production environment only, so a Preview
-copy of the database holds only ciphertext (the server refuses them elsewhere on Vercel)."""
+the checkpoint key) and the scoreboard's grading key (LP-17e, held offline, never a server's),
+whatever the PHI mode. A message names variables and positions, never a value. The owner sets
+both as Secret for the hosted Production environment only, so a Preview copy of the database
+holds only ciphertext (the server refuses them elsewhere on Vercel)."""
 
 from __future__ import annotations
 
@@ -40,8 +41,14 @@ from mendari.errors import MendariError
 KEY_ENV = "MENDARI_EVALSET_KEY"
 READ_ENV = "MENDARI_EVALSET_READ_KEYS"
 INDEX_ENV = "MENDARI_EVALSET_INDEX_KEY"
-# Every other key a deployment holds: an evaluation-set key may equal none of them.
-OTHER_KEYS = ("MENDARI_PHI_KEY", "MENDARI_INPUT_HASH_KEY", "MENDARI_CHECKPOINT_KEY")
+# Every other key a deployment holds, and the grading key (`evals/signing.py`, which no server
+# holds): an evaluation-set key may equal none of them.
+OTHER_KEYS = (
+    "MENDARI_PHI_KEY",
+    "MENDARI_INPUT_HASH_KEY",
+    "MENDARI_CHECKPOINT_KEY",
+    "MENDARI_GRADING_SIGNING_KEY",
+)
 OTHER_RINGS = ("MENDARI_PHI_READ_KEYS",)
 
 Kind = Literal["header", "input", "attributes", "label", "freeze", "aggregates"]
