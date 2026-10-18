@@ -762,6 +762,153 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
+- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Proposed). Planned by a mapping workflow
+  (2026-10-17, against main `06d5332f`) as thirteen PRs, 23a to 23m, each safe alone; the full
+  plan, its 60 conflicts with the default each PR follows, the owner decisions and the risks are
+  in `notes/lp23-plan.md`. An EHR calls the CDS Hooks services with its own signed token, and
+  Mendari reads EHR-shaped data and decides, or records what it could not read, abstains and
+  still answers. Off until the owner acts: with `MENDARI_CDS_CLIENTS` unset no JWT is accepted
+  anywhere and sign-in behaves as today; with `MENDARI_SITE_CODES` unset no code is translated;
+  `MENDARI_CDS_SANDBOX` is set only by the compose sandbox engine and the test suite; no shipped
+  pack declares spec 0.3 until 23k; Production gets none of these settings until a pilot is
+  signed. No database table is added. LP-23 computes no statistic and ranks nothing: the
+  scorecard shows rubric levels with their scope, a data-coverage record counts per field for one
+  decision, and Inferno results are each test's own outcome.
+  - [ ] **23a** (this PR) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
+    ADR-0006's rule that the narrow EHR principal is for SMART launches only), the Epic sandbox
+    checklist B38 says Claude sends (`notes/epic-sandbox-checklist.md`), the EHR scorecard
+    (`notes/ehr-scorecard.md`: rubric v1, seven dimensions, graded at `06d5332f`; overall level
+    1, from who may call from where and cards and workflow), synthetic FHIR for the trial and
+    prior-auth packs (`sandbox/fhir_records.py` `trial_entries`, `prior_auth_entries`: US Core
+    6.1.0, deterministic, no SNOMED CT, deciding as their records do), and a golden of today's
+    FHIR decisions (`scripts/fhir_decisions_golden.py`, `tests/fixtures/fhir/decisions-golden.json`:
+    every case of the four mapped packs' local-site examples, 1,150 cases; 41 prior-auth orders
+    with no requirement set are refused through FHIR, as today). Nothing changes how a pack decides.
+  - [ ] **23b** Signed CDS client tokens: the registry, the verifier and the `cds` principal (one
+    adversarial security review).
+  - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
+    for registered origins.
+  - [ ] **23d** A hook that always answers: an unreadable record gives a recorded ABSTAIN with its
+    reason, and every FHIR decision carries its data-coverage record.
+  - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
+    first end-to-end result).
+  - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+  - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+  - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
+  - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
+    automated.
+  - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
+    **The owner confirms the `show` list.**
+  - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
+    changes FHIR-path decisions in three packs.
+  - [ ] **23l** Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the SMART
+    App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
+    schedule, and the vendor scope check.
+  - [ ] **23m** Close-out: gate `a12-ehr-pilot` names its tests and keeps one owner `pending:`
+    line for the Epic run; ADR-0014 Accepted; the scorecard graded again at the close-out commit.
+
+  **Order:** 23a first; then 23b, 23d and 23g in parallel; 23c after 23b; 23f after 23b and 23d;
+  23e after 23b, 23c and 23d; 23h and 23i in parallel, after 23d and 23g; 23j after 23f; 23k after
+  23e, 23h and 23i; 23l after 23b and 23d, beside 23e to 23k; 23m last.
+
+  **Conflicts written before building, and the default each PR follows** (in brief; each in full,
+  with the code it rests on, in `notes/lp23-plan.md`; the owner may choose otherwise):
+  - 23a (1, 59): the launch plan's EHR grade and its rubric are in no file or commit (A12.goal),
+    so rubric v1 is graded at main, the overall grade is the lowest dimension, every grade carries
+    its scope and the old grade is not reproduced. Whether Epic's free sandbox can call an
+    external CDS service is unverified: the checklist asks.
+  - 23b (2 to 14): a JWT-shaped bearer credential up to 8 KiB is recognised on `/cds-services`
+    only (`ohk_` and `mat_` unchanged); the CDS branch runs above open mode's shortcut, so a JWT
+    is verified in both modes, without a registry it gets `401`, and with sign-in off every
+    registered organization is `default` (the public CDS Hooks Sandbox must then be registered
+    even for a local demo); `aud` is `MENDARI_PUBLIC_URL` plus the path, exact, never the `Host`
+    header; `iss`, keys and FHIR bases are registered apart, with an optional
+    `iss_is_fhir_server`; `sub` is checked only when pinned and an unregistered `tenant` claim is
+    refused (no Community Connect); `iat` is required, a token lives at most 330 s; the header is
+    `alg`, `kid`, `typ` (`JWT`) and `jku` only, Backend Services unchanged; `jku` equals the
+    registered `jwks_uri` on the allow-list, keys come through `GuardedHttp`, kept 3,600 s, an
+    unknown `kid` refetches at most once a minute per client, a private key caches nothing; the
+    registry is `MENDARI_CDS_CLIENTS`, checked at startup; "the same credential" is the same
+    client and keys (a `jti` is single-use); kind `cds` holds discover and decide, confined to
+    `/cds-services`, outside the notice gate, daily-capped and limited by `cds:<id>`;
+    `smart_claim` gains `smart_put`'s bounded purge; a `fhirServer` off the allow-list or not the
+    client's is refused (`403` for a `cds` principal before charging or fetching, else `422` as
+    today), never abstained on.
+  - 23c (15, 16): "local" is a loopback client address, a local `Host` and no forwarding header;
+    otherwise only `MENDARI_CDS_SANDBOX=1`, refused on Vercel or with sign-in on, and a verified
+    token does not lift it. CORS on `/cds-services` only, for exact registered origins, without
+    credentials, the preflight before the guard; CORP unchanged.
+  - 23d (17 to 26): neither prefetch nor `fhirServer` is `412`, a failed read from an allowed
+    server is `200` with a recorded ABSTAIN; a null prefetch value is no data and is not fetched,
+    an OperationOutcome is unreadable; every declared key that could not be read abstains with a
+    fixed reason, request faults stay `4xx`, the client's structure errors `400`, and fetched ones
+    `not_r4`; `decide(..., unreadable=)` still BLOCKs refused input and abstains before any
+    provider; a link-only or undecodable note abstains (`_decode` unchanged, the CHANGELOG says
+    so); `data_coverage` (`mendari.data-coverage/1`) holds declared systems, the pack's own codes,
+    counts and reason codes only, on every FHIR decision, null on JSON ones, old records still
+    verifying; SMART decide shares the per-key read, a failed focus read keeps today's error; an
+    unreadable ABSTAIN always shows an `info` card; CRD gets `indeterminate` and `technical` only
+    when the Coverage was read.
+  - 23e (27, 28): the vendor profile uses fictional site systems, ICD-10-CM, LOINC and RxNorm,
+    no SNOMED CT, shaped after public vendor documentation; it stands in for Epic's patients,
+    whose run is the owner's acceptance (A12.acc-3), a pending line in the gate.
+  - 23f (29 to 36): a card-only `fill_display` with display names, every summary expansion
+    checked to fit 140 characters, Task text unchanged; the bare confidence percentage leaves the
+    card; the trace goes behind the audit link only with `MENDARI_PUBLIC_URL` set; the launch link
+    is a `?pack=` URL only when fully configured; the card's uuid is the decision id; feedback is a
+    `decide` rule (same pack and organization, and with sign-in on the same requester; one `404`
+    otherwise; all or nothing; the decide bucket, no daily cap; `card.feedback`, codes and ids
+    only); `userComment` is dropped; `source.topic` only if Inferno needs it.
+  - 23g (37 to 39): spec 0.3 in its own document, 0.1 and 0.2 packs loading and mapping as
+    before, 0.3 keys refused in older packs and bounded at load for packs the deployment does not
+    own; a MedicationRequest starts at `boundsPeriod.start`, else `authoredOn`, and stops at
+    `boundsPeriod.end`, else unknown, never inferred from its status (B21 clinician review still
+    owed).
+  - 23h (40, 41): Binary is read as FHIR JSON under the `fhirServer` base only, plain text and
+    HTML only, at most 20 reads of 1 MiB per decision, never from `fhir/decide` or `$decide`; the
+    payer by `payor[0].reference`, then its Organization's identifier, then the site map.
+  - 23i (42 to 44): the site map translates in the adapter (logic files and digests untouched),
+    per organization in the environment, its version and sha256 recorded; a `site_code` cap keeps
+    those decisions at HUMAN_REVIEW until G5-6 `site-validation`; 23i rebuilds the reference packs
+    and expects no diff, 23j and 23k commit their rebuilt artifacts.
+  - 23j (45, 46): the inbox pack gets a template and stays off Inferno's list; the referral
+    `show` list is `[return_for_info, urgent_review]`.
+  - 23k (47): built, its merge held for the owner's go-ahead.
+  - 23l (48 to 56): Mendari's own Inferno Dockerfile and overlay, pinned by digest and commit; a
+    separate report-only `conformance.yml`; test 1.01 (TLS) and CRD's standard prefetch forms
+    are expected results with their reasons; Mendari writes the v2.2.1 session and its golden;
+    token refusal is proven by Mendari's own tests; a terminology server on a schedule only; the
+    SMART client suite headless if it can be, else by hand; the scope check says `unknown` when
+    nothing is published.
+  - 23m and requirement 8 (57, 58): the gate's pending probe is replaced by the tests and one
+    owner `pending:` line, with no count changing; no refresh tokens or iframe mode are built
+    until the sandbox shows the need.
+  - Numbers (60): ADR-0014 and threat-model rows S21, T9, R5, I16, I17, I18, D13, D14, E15 and
+    E16 are LP-23's.
+
+  **Owner decisions** (defaults first; none blocks 23a to 23i): (1) the CDS client registry in
+  `MENDARI_CDS_CLIENTS` for the pilot, a database-backed one before a second EHR; (2) the site
+  code map in `MENDARI_SITE_CODES`, site-mapped decisions capped at HUMAN_REVIEW until G5-6
+  `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
+  scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, before 23j merges;
+  (5) the go-ahead for 23k, with a clinician's note on the MedicationRequest rule (B21); (6) an
+  unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
+  from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
+  addressed, clinical judgement); (9) attachments: plain text and HTML only, 20 reads of 1 MiB;
+  (10) conformance jobs required after four consecutive green weekly runs; (11) the engine trace
+  behind Mendari sign-in; (12) the card's launch link as `?pack=`; (13) neither refresh tokens
+  nor iframe mode unless Epic needs them (any change amends ADR-0006); (14) the Epic run as an
+  owner `pending:` line on `a12-ehr-pilot`, not a seventh G5-6 prerequisite; (15) if Epic's free
+  sandbox cannot call an external CDS service, a pilot site's own environment, Oracle Health's
+  sandbox as the backup, and test keys and Inferno until then.
+
+  **Owner actions** (not decisions): sign up for Epic's sandbox from
+  `notes/epic-sandbox-checklist.md` and note back its `iss`, `jku`, `aud` form, `sub` and
+  `tenant`, feedback support, scopes and launch handling; put Epic's JWKS origin and FHIR base on
+  `MENDARI_FHIR_ALLOWED_SERVERS`; set `MENDARI_CDS_CLIENTS` (and any site codes) for Production
+  only once a pilot is signed; run `mendari smart check` against Epic; do the Epic sandbox run
+  that lets a build PR remove the gate's pending line.
+
 **Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
 owner received in October 2026, no image goes to GHCR until it carries what the licences of
 everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are

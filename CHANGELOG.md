@@ -23,6 +23,20 @@ The first release (not yet published).
   built wheel and sdist, and any number written as a SNOMED CT concept id in Mendari's own files
   there (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
+- **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
+  `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
+  dimensions, each at a level from 1 to 5 by named criteria, each criterion with the test that
+  shows it or "missing"; the overall grade is the lowest dimension's (level 1 at `06d5332f`), and
+  every grade says its scope (synthetic data and test keys only, not a vendor certification).
+  ADR-0014 (Proposed) records how an EHR is to call the CDS Hooks services with its own signed
+  token, and `notes/epic-sandbox-checklist.md` what the owner registers in Epic's sandbox and
+  notes back. The sandbox now builds synthetic US Core FHIR for the trial and prior-authorization
+  packs too (`trial_entries`, `prior_auth_entries`: the same entries on every run, no SNOMED CT,
+  deciding as their records do; an order the prior-auth pack has no requirements for is refused
+  through FHIR, as before), and `inbox_entries` takes the time its message is sent. A
+  golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
+  today, input hash included (`scripts/fhir_decisions_golden.py`,
+  `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

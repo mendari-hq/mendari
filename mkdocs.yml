@@ -87,5 +87,6 @@ nav:
       - "ADR-0010: Operations for a public service": decisions/ADR-0010-operations-for-a-public-service.md
       - "ADR-0011: Hidden evaluation sets, blind labelling and agreement": decisions/ADR-0011-hidden-evaluation-sets.md
       - "ADR-0012: A registry that shows only what it checked": decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md
+      - "ADR-0014: A CDS client is a principal": decisions/ADR-0014-a-cds-client-is-a-principal.md
   - Project:
       - Roadmap: roadmap.md
