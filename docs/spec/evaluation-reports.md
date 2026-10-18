@@ -6,6 +6,13 @@ ledger its result is computed from (`mendari.ledger/1`), and a paired comparison
 [Decision Pack spec 0.2](decision-pack-0.2.md) (`mendari.eval/1`), which still loads. The key
 words MUST, SHOULD and MAY are used as in that spec.
 
+The scoreboard and its scoped grades (LP-17) follow the
+[grading method 1.0](../grading/method-1.0.md), a draft not in effect: the arms, the figures and
+their statistics, the evidence rule, and why, under it, a public set is a regression check, never
+a ranking. The formats on this page do not change with it, and the leaderboards below are not
+made under it: until LP-17g relabels them, they still rank rows on public sets with
+`mendari.rank/1`, as their section says.
+
 ## The report: `mendari.eval/2`
 
 A report has two parts.

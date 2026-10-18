@@ -1173,6 +1173,20 @@ vercel curl /api/packs/mendari/patient-inbox-router/evals --deployment <url> -- 
 uv run mendari leaderboard mendari/patient-inbox-router --report jev-test.json
 ```
 
+The scoreboard and its scoped grades (LP-17, being built) follow a method written down before
+their code: the [grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
+(`mendari.grading/1.0`). It sets the arms by provider class, which figures carry which interval,
+the statistics (Clopper-Pearson simultaneous across a pack's critical labels, exact McNemar, the
+paired bootstrap, Holm), the attestations a grade is made of (never a letter or a score), the
+bands a ranking uses, the evidence rule (enough distinct positives for each critical label, never
+fewer than 100) and the scope statement every result carries. Under it, grades and ranks are
+given only on frozen hidden sets, and a public set is a regression check, never a ranking. The
+leaderboard above is not made under it: `mendari leaderboard` and the Decision Cards still rank
+configurations on public sets (`mendari.rank/1`) until LP-17g relabels them. It is a draft,
+not in effect, until the owner sets its effective date; `mendari.evals.method` pins its hash and
+every number it sets ([ADR-0013](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0013-scoreboard-and-scoped-grades.md)).
+It is an engineering evaluation, not clinical validation.
+
 `mendari scoreboard arms PACK` lists a pack's provider configurations (one variant per slot) in
 the scoreboard's four arms, by the models they ask through any slot: "Mendari only" (no
 model), "+ specialised classifier" (Jev), "+ general LLM" and "+ both". It reads the manifest
