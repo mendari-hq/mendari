@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -62,6 +63,7 @@ NOT_CLINICAL = "engineering evaluation, not clinical validation"
 NO_MODEL_PROVIDER = "no model provider"
 DISCLOSURE_PENDING = "not published: disclosure pending"
 NO_METERED_CALLS = "0 (no metered calls)"
+PRICED = "priced"
 UNKNOWN = "unknown"
 NOT_REPRODUCIBLE = "measured on the runner, not reproducible"
 TOO_FEW = "too few"
@@ -135,11 +137,12 @@ def entry(
     group_of = [normalised_input(found["input"]) for found in dataset.records]
     measured_on = datetime.date.fromisoformat(record["date"])
     metered = sorted(MODEL_TYPES.intersection(configuration.remote_types))
+    cost = _cost(cases, record, metered, prices)
     figures = {
         "critical": _critical(header, cases, result, group_of),
         **_proportions(result),
         **_means(header, cases, result),
-        "cost_per_1000": _cost(cases, record, metered, prices),
+        "cost_per_1000": cost,
         "latency_ms": _latency(record),
         "subgroups": _subgroups(header, cases),
         "weighted": _weighted(header, cases, dataset),
@@ -178,11 +181,11 @@ def entry(
                 "replicate": record["replicate"],
                 "engine": record["engine"],
             },
-            # Cited only when it priced something: a configuration with no metered call is the
-            # same entry whichever table is at hand.
-            "prices": None
-            if prices is None or not metered
-            else {"sha256": prices.sha256, "date": prices.date},
+            # Cited only when the cost is priced from it: an entry it did not price (no metered
+            # call, a failed call, a model it lacks) is the same whichever table is at hand.
+            "prices": {"sha256": prices.sha256, "date": prices.date}
+            if prices is not None and cost["status"] == PRICED
+            else None,
             "method": method.METHOD_SHA256,
         },
         "seeds": {"bootstrap": method.SEED, "resamples": method.RESAMPLES, "level": method.LEVEL},
@@ -221,6 +224,11 @@ def _refuse_another(
     for key, value in expected.items():
         if on.get(key) != value:
             raise MendariError(f"the ledger {ledger.id} is of another dataset (its {key} differs)")
+    if len(ledger.cases) != len(dataset.records):
+        raise MendariError(
+            f"the ledger {ledger.id} holds {len(ledger.cases)} cases and {dataset.name} "
+            f"{len(dataset.records)}"
+        )
     if not dataset.case_key:
         raise MendariError(f"{dataset.name}: no case key (load the dataset with load_dataset)")
     for number, (found, line) in enumerate(zip(dataset.records, ledger.cases, strict=True), 1):
@@ -416,23 +424,34 @@ def _cost(
     prices: runs.Prices | None,
 ) -> dict[str, Any]:
     """Cost per 1,000 decisions, from each case's tokens by type and the dated table: "0 (no
-    metered calls)" for a configuration that calls no model, else "unknown" when any call failed
-    (a provider error in the ledger), there is no table, or a type's model is not in it (or it
-    reported more than one, whose tokens the record does not split). Never a price the ledger,
-    a pack or a provider holds."""
+    metered calls)" for a configuration that calls no model, or whose model types made no call
+    on this set; else "unknown" when any call failed (a provider error in the ledger), there is
+    no table, or a type that spent tokens reported no model (a composite kept none of its
+    answers) or more than one (whose tokens the record does not split), or its model is not in
+    the table. A type that spent no token costs nothing, whatever its model. Never a price the
+    ledger, a pack or a provider holds."""
+    none = {"status": "none", "text": NO_METERED_CALLS}
     if not metered:
-        return {"status": "none", "text": NO_METERED_CALLS}
+        return none
 
     def unknown(reason: str) -> dict[str, Any]:
         return {"status": UNKNOWN, "reason": reason}
 
     if any(found[ERROR] is not None for case in cases for found in case["q"].values()):
         return unknown("a provider call failed")
+    called = sorted({kind for case in record["cases"] for kind in case["tokens"]})
+    if not called:
+        return none
     if prices is None:
         return unknown("no price table")
     rates: dict[str, tuple[float, float]] = {}
-    for kind in metered:
+    for kind in called:
+        if not any(any(case["tokens"].get(kind, ())) for case in record["cases"]):
+            rates[kind] = (0.0, 0.0)  # no token spent: nothing to price
+            continue
         models = record["models"].get(kind, [])
+        if not models:
+            return unknown(f"{kind}: tokens spent, and no answer kept names its model")
         if len(models) != 1:
             return unknown(f"{kind}: {len(models)} models reported, not one")
         rate = prices.rate(kind, models[0])
@@ -450,7 +469,7 @@ def _cost(
     estimate, low, high = stats.bootstrap(
         per_case, resamples=method.RESAMPLES, seed=method.SEED, level=method.LEVEL
     )
-    return {"status": "priced", "currency": "USD", **_interval(estimate, low, high)}
+    return {"status": PRICED, "currency": "USD", **_interval(estimate, low, high)}
 
 
 def _latency(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -612,7 +631,12 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
     configuration, then date), never an order of any figure. Each entry's marks are worked out
     here and never stored: "unsigned", "method draft, not in effect", why it is stale (its
     pack, set or method is not `current`'s, or a later run of its configuration reports another
-    model of a type) and the date it goes stale."""
+    model of a type) and the date it goes stale.
+
+    Each entry is read as its canonical bytes hold it (`ledger.canonical`: keys sorted), so the
+    board of entries just built is the board of the same entries read back from a store: a
+    configuration is written `slot=variant`, its slots in sorted order."""
+    entries = [json.loads(canonical(dict(found))) for found in entries]
     later_models = _later_models(entries)
     tables: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
     for found in entries:
@@ -664,8 +688,10 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
 
 
 def _label(found: Mapping[str, Any]) -> str:
+    """`slot=variant` pairs, its slots in sorted order: as an entry's canonical bytes hold them,
+    whatever order it was built in."""
     providers = found["configuration"]["providers"]
-    return ",".join(f"{slot}={variant}" for slot, variant in providers.items())
+    return ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
 
 
 def _listing(found: Mapping[str, Any]) -> tuple[Any, ...]:

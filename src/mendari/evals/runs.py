@@ -8,8 +8,9 @@ record (`mendari.run/1`), the dated price table (`mendari.prices/1`) and the dis
   each model type reported, and per case, in the ledger's order, its latency and each model
   type's input and output tokens. It never holds a key, an endpoint or case text. Its bytes are
   its canonical JSON and a newline, and its SHA-256 is of those bytes. `agrees` says whether it
-  is of a ledger: the ledger's id, its number of cases, and per case token sums that are the
-  ledger's `u`.
+  is of a ledger: the ledger's id, its number of cases, per case token sums that are the
+  ledger's `u` (or more, on a case where a provider call failed), and the models the ledger's
+  answers name.
 - **The price table** is per model type and model id, in USD per 1,000 input tokens and per
   1,000 output tokens, with its date and source. It is cited by the SHA-256 of its bytes. It is
   a file outside Mendari's code (`scoreboard/prices/<date>.json`): one read from the package, or
@@ -41,6 +42,7 @@ from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
 from mendari.errors import MendariError
 from mendari.evals import method
 from mendari.evals.ledger import Ledger, canonical
+from mendari.evals.result import ERROR
 from mendari.evals.share import JOINERS
 from mendari.providers import MODEL_TYPES, PROVIDER_TYPES
 
@@ -136,14 +138,28 @@ class DisclosureFile(_Closed):
     statements: dict[RemoteType, Annotated[str, Field(min_length=1, max_length=2000)]]
 
 
+# What a refusal may name of where it fails: the schemas' own fields, the types, and pydantic's
+# mark for a dict's key. Anything else in a location is a key the input chose (a model id, an
+# extra field), and may be a URL, a secret or case text: it is named `<key>`, never echoed.
+_NAMED = frozenset(
+    {"[key]", *MODEL_TYPES, *REMOTE_TYPES}.union(
+        *(schema.model_fields for schema in (RunCase, RunRecord, Price, PriceTable, DisclosureFile))
+    )
+)
+
+
 def _checked(model: type[BaseModel], data: Any, where: str) -> BaseModel:
-    """`data` as `model`, or a `MendariError` that names where it fails, never a value."""
+    """`data` as `model`, or a `MendariError` that names where it fails, never a value: a key the
+    input chose is `<key>` (`_NAMED`)."""
     try:
         return model.model_validate(data)
     except ValidationError as error:
         first = error.errors()[0]
-        at = ".".join(str(part) for part in first["loc"]) or "the top level"
-        raise MendariError(f"{where}: {at}: {first['msg']}") from None
+        at = ".".join(
+            str(part) if isinstance(part, int) or part in _NAMED else "<key>"
+            for part in first["loc"]
+        )
+        raise MendariError(f"{where}: {at or 'the top level'}: {first['msg']}") from None
 
 
 # --------------------------------------------------------------------------------------------
@@ -185,24 +201,95 @@ def run_sha256(record: Mapping[str, Any]) -> str:
 
 def disagreement(record: Mapping[str, Any], ledger: Ledger) -> str | None:
     """Why `record` is not the run record of `ledger`, or None when it is: another ledger's id,
-    another number of cases, or a case whose tokens, summed over its model types, are not the
-    ledger's `u` (input and output tokens). Names case numbers, never a case."""
+    another number of cases, a case whose tokens are not the ledger's, or models that are not
+    the ledger's answers'. Names case numbers and types, never a case or a model.
+
+    - **Tokens:** a case's tokens, summed over its model types, are the ledger's `u` (input and
+      output tokens). On a case where a provider call failed they may be more: a call whose
+      answer was refused still spent its tokens, and only the run record counts them (`u` holds
+      the answers' tokens). Its cost is unknown either way.
+    - **Models:** every model the record names is one the ledger's answers name (an answer's
+      model, or a composite member's in its `member:model`), and every model the ledger's
+      answers name is the record's, or a deterministic provider's (`_deterministic`)."""
     run = check_run(record)
     if run["ledger"] != ledger.id:
         return f"it is the run record of another ledger ({run['ledger']}, not {ledger.id})"
     if len(run["cases"]) != len(ledger.cases):
         return f"it holds {len(run['cases'])} cases and the ledger {len(ledger.cases)}"
     for number, (case, line) in enumerate(zip(run["cases"], ledger.cases, strict=True), start=1):
-        spent = [sum(pair[0] for pair in case["tokens"].values())]
-        spent.append(sum(pair[1] for pair in case["tokens"].values()))
-        if spent != [line["u"][1], line["u"][2]]:
+        spent = [sum(pair[side] for pair in case["tokens"].values()) for side in (0, 1)]
+        answered = [line["u"][1], line["u"][2]]
+        failed = any(found[ERROR] is not None for found in line["q"].values())
+        more = all(found >= held for found, held in zip(spent, answered, strict=True))
+        if spent != answered and not (failed and more):
             return f"case {number}'s tokens are not the ledger's"
-    return None
+    return _models_problem(run, ledger)
 
 
 def agrees(record: Mapping[str, Any], ledger: Ledger) -> bool:
     """Whether `record` is the run record of `ledger` (`disagreement`)."""
     return disagreement(record, ledger) is None
+
+
+# What a composite writes for a member that reported no model: `member:None`
+# (`CompositeProvider.combined`) or `member:<its type>` (a vote's). Neither is a model.
+_PLACEHOLDERS = frozenset({"None", *PROVIDER_TYPES})
+
+
+def _deterministic(model: str) -> bool:
+    """Whether `model` is a deterministic provider's: its type (with a CQL library's name), "@"
+    and its pack file's fingerprint (`rules@…`, `cql:<library>@…`, `providers.base.fingerprint`).
+    A model provider's id never holds an "@" (Jev's and the LLM's `MODEL_PATTERN`)."""
+    return "@" in model
+
+
+def _composites(header: Mapping[str, Any]) -> list[tuple[str, frozenset[str]]]:
+    """Each composite slot in a ledger's header: how it joins its members' `member:model`, and
+    its members' names, from its own model as the header lists it."""
+    found = []
+    for provider in header["providers"].values():
+        if not isinstance(provider, Mapping):
+            continue
+        joiner, model = JOINERS.get(str(provider.get("type"))), provider.get("model")
+        if joiner is not None and isinstance(model, str):
+            names = frozenset(part.partition(":")[0] for part in model.split(joiner))
+            found.append((joiner, names))
+    return found
+
+
+def _readings(model: str, composites: Sequence[tuple[str, frozenset[str]]]) -> list[list[str]]:
+    """The ways a model a ledger's answer names reads as a composite's answer: for each composite
+    whose members it names, those members' models."""
+    found = []
+    for joiner, names in composites:
+        parts = [part.partition(":") for part in model.split(joiner)]
+        if all(colon and name in names for name, colon, _ in parts):
+            found.append([member_model for _, _, member_model in parts])
+    return found
+
+
+def _models_problem(run: Mapping[str, Any], ledger: Ledger) -> str | None:
+    """Why `run`'s models are not the ones `ledger`'s answers name (`disagreement`), or None."""
+    composites = _composites(ledger.header)
+    answered: dict[str, list[list[str]]] = {}
+    for model in ledger.header["models"]:
+        if not isinstance(model, str):
+            return "the ledger's answers name a model that is not a model id"
+        answered[model] = _readings(model, composites)
+    named = set(answered) | {m for found in answered.values() for one in found for m in one}
+    for kind, models in run["models"].items():
+        if not set(models) <= named:
+            return f"its {kind} models are not ones the ledger's answers name"
+    claimed = {model for models in run["models"].values() for model in models}
+
+    def kept(member: str) -> bool:
+        return member in claimed or _deterministic(member) or member in _PLACEHOLDERS
+
+    for model, readings in answered.items():
+        alone = model in claimed or (_deterministic(model) and not readings)
+        if not alone and not any(all(kept(member) for member in one) for one in readings):
+            return "the ledger's answers name a model of a model type it does not list"
+    return None
 
 
 def record(

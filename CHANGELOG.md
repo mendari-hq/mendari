@@ -384,12 +384,17 @@ The first release (not yet published).
   line. On a public set it reads "public set: regression check, not a ranking", with no rank and
   no grade. A run record holds each case's latency and tokens by model type and the models
   reported, never a key, an endpoint or case text, and an entry is refused unless it agrees with
-  its ledger; a price table is refused from Mendari's code or a pack's directory. `board` shows
-  entries one table per pack and set, with the insufficient-evidence banner, each arm measured,
-  "not measured" or "not applicable", and freshness worked out when it is built and never stored
-  ("unsigned", "method draft, not in effect", "stale: pack changed" and the like, "stale after
-  DATE"); `render.scoreboard_markdown` writes it, with no Rank column and no bare percentage. No
-  reference pack's figures, formats or decisions change. Spec: `docs/spec/evaluation-reports.md`.
+  its ledger: its tokens (more only on a case whose provider call failed) and its models (none the
+  answers do not name, none they name left out), so tokens are never priced as another model's.
+  A refusal of a run record, a price table or the disclosures never echoes a key the input chose.
+  A price table is refused from Mendari's code or a pack's directory, and cited only by an entry
+  priced from it. `board` reads each entry as its canonical bytes hold it, so entries just built
+  and read back show alike; it shows them one table per pack and set, with the
+  insufficient-evidence banner, each arm measured, "not measured" or "not applicable", and
+  freshness worked out when it is built and never stored ("unsigned", "method draft, not in
+  effect", "stale: pack changed" and the like, "stale after DATE"); `render.scoreboard_markdown`
+  writes it, with no Rank column and no bare percentage. No reference pack's figures, formats or
+  decisions change. Spec: `docs/spec/evaluation-reports.md`.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

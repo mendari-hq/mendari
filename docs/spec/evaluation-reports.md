@@ -268,8 +268,8 @@ store comes with LP-17f.
 An entry is refused, with a message that names ids and hashes and never a case, when:
 
 - the ledger is of another pack (its id, version or digest) or another dataset (its name,
-  SHA-256, size or `limit`), or its case hashes are not the dataset's cases in the dataset's
-  order;
+  SHA-256, size or `limit`), holds another number of cases than the dataset, or its case hashes
+  are not the dataset's cases in the dataset's order;
 - the configuration is not the ledger's (slot by slot), or not in the arm named;
 - the run record is not the ledger's (see [run records](#run-records-mendarirun1)), or names
   tokens or models of a type the configuration does not call.
@@ -278,7 +278,7 @@ An entry is refused, with a message that names ids and hashes and never a case, 
 |---|---|
 | `format` | `mendari.scoreboard/1`. |
 | `arm`, `configuration` | The arm (`mendari.arms/1`), and the configuration: `providers` (slot to variant), `local` and `remote_types`. |
-| `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date (null when the entry priced nothing), and the method's SHA-256. |
+| `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date when the cost is priced from it (else null, so an entry no table priced is the same whichever table is at hand), and the method's SHA-256. |
 | `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
 | `scope` | What the figures are of (below). |
 | `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null. |
@@ -322,9 +322,12 @@ its scope is shown and its figures are not.
   Prescreener's 6. Every critical label needs enough, not just one.
 - **Cost** is priced from the run record's tokens, per case and per model type, and the dated
   price table. It is never the ledger's cost, a price a pack sets or one built into a provider.
-  It is "0 (no metered calls)" for a configuration that calls no model (CQL included), and
-  "unknown" when any provider call failed, there is no table, or a type's model is not in it
-  (or the type reported more than one model, whose tokens a run record does not split).
+  It is "0 (no metered calls)" for a configuration that calls no model (CQL included), or whose
+  model types made no call on the set (a cascade whose first member was sure of every case). It
+  is "unknown" when any provider call failed, or there is no table, or a type that spent tokens
+  reported no model (a composite kept none of its answers), more than one (whose tokens a run
+  record does not split), or a model that is not in the table. A type that spent no token costs
+  nothing, whatever its model.
 - **Latency** is read from the run record, never measured again, and never ranked.
 - **Weighted figures:** detection is never weighted. A set with weights on some records and not
   others is refused.
@@ -333,7 +336,10 @@ its scope is shown and its figures are not.
 
 `board(entries, current)` shows entries one table per pack and set, in a listing order (by arm,
 then configuration, then date), never an order of any figure. `current` is, per pack, its
-digest, its arms' statuses and its sets' SHA-256 (`Current.of(pack)`). Each table holds:
+digest, its arms' statuses and its sets' SHA-256 (`Current.of(pack)`). It reads each entry as its
+canonical JSON holds it (keys sorted), so entries just built and the same entries read back from
+a store give the same board. A configuration is written `slot=variant`, its slots in sorted
+order. Each table holds:
 
 - its standing, "public set: regression check, not a ranking", and the words "engineering
   evaluation, not clinical validation";
@@ -359,7 +365,9 @@ column, no bare percentage, and names no case.
 A run record holds what a ledger does not, and what no rebuild reproduces (`evals/runs.py`). It
 is a closed schema: anything else in it is refused. It never holds a key, an endpoint or case
 text. Its bytes are its canonical JSON (sorted keys, no spaces, no NaN) and a newline, and its
-SHA-256 is of those bytes: a record whose bytes are not canonical is refused when read.
+SHA-256 is of those bytes: a record whose bytes are not canonical is refused when read. A
+refusal names the field that fails and never a value: a key the input chose (a model id, a type,
+an extra field) is named `<key>` unless it is one of the schema's own words.
 
 | Field | What it holds |
 |---|---|
@@ -377,9 +385,20 @@ composite's answer names its member and the member's model, and a member of a mo
 as that type. A model whose answers a composite never kept is not reported, so a cost that needs
 it is unknown, never guessed.
 
-`runs.agrees(run, ledger)` holds when the record names the ledger's id, has its number of cases,
-and each case's tokens, summed over its types, are the ledger's `u` (input and output tokens).
-An entry is never made from a record that does not agree.
+`runs.agrees(run, ledger)` holds when the record names the ledger's id and has its number of
+cases, and:
+
+- **its tokens:** each case's tokens, summed over its types, are the ledger's `u` (input and
+  output tokens). On a case where a provider call failed they may be more, never fewer: a call
+  whose answer was refused still spent its tokens, and `u` holds only the answers'. That case's
+  cost is unknown either way.
+- **its models:** every model it names is one the ledger's answers name (an answer's model, or a
+  composite member's in the answer's `member:model`), and every model the ledger's answers name
+  is in it, unless it is a deterministic provider's: its type, `@` and the fingerprint of its
+  pack file (`rules@…`, `cql:<library>@…`). Jev's and the LLM's model ids never hold an `@`.
+
+An entry is never made from a record that does not agree, so its tokens are never priced as
+another model's.
 
 ## Price tables and disclosures: `mendari.prices/1` and `mendari.disclosures/1`
 
@@ -395,7 +414,8 @@ pack's directory is refused before it is read.
 
 The disclosures file (`scoreboard/disclosures.json`) holds `format` (`mendari.disclosures/1`), its
 `date`, and `statements`: per remote provider type (`jev`, `llm`, `cql`), the statement of any
-commercial relationship between Mendari and that provider.
+commercial relationship between Mendari and that provider. Both are closed schemas, and a
+refusal of either names a key the input chose as `<key>`, as a run record's does.
 
 ## Paired comparisons: `mendari.compare/1`
 

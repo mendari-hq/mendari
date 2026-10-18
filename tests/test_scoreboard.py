@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import itertools
 import json
 import math
 import re
@@ -19,6 +20,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from scipy.stats import beta
 from statsmodels.stats.proportion import proportion_confint
@@ -34,8 +36,10 @@ from mendari.evals.coverage import coverage
 from mendari.evals.harness import Dataset, load_dataset, resolve_dataset
 from mendari.evals.ledger import Ledger, canonical
 from mendari.evals.render import scoreboard_markdown
-from mendari.evals.result import ERROR, PREDICTED
-from tests.conftest import ROOT, calm_jev
+from mendari.evals.result import ERROR, MODEL, PREDICTED
+from mendari.providers import jev, llm
+from mendari.providers.jev import JevProvider
+from tests.conftest import CALM, ROOT, calm_jev
 
 DATE = datetime.date(2026, 10, 18)
 INBOX = "mendari/patient-inbox-router"
@@ -93,11 +97,58 @@ def run_for(ledger: Ledger, like: dict[str, Any], **changes: Any) -> dict[str, A
     return runs.check_run({**like, "ledger": ledger.id, **changes})
 
 
-def edited(ledger: Ledger, edit: Callable[[list[dict[str, Any]]], None]) -> Ledger:
-    """A copy of `ledger` whose case lines `edit` changes (a test's own ledger)."""
+def edited(
+    ledger: Ledger,
+    edit: Callable[[list[dict[str, Any]]], None] | None = None,
+    *,
+    header: Callable[[dict[str, Any]], None] | None = None,
+) -> Ledger:
+    """A copy of `ledger` whose case lines `edit` changes, and whose header `header` changes (a
+    test's own ledger)."""
     cases = json.loads(json.dumps(ledger.cases))
-    edit(cases)
-    return Ledger(json.loads(json.dumps(ledger.header)), cases)
+    found = json.loads(json.dumps(ledger.header))
+    if edit is not None:
+        edit(cases)
+    if header is not None:
+        header(found)
+    return Ledger(found, cases)
+
+
+def renamed(ledger: Ledger, model: str, to: str) -> Ledger:
+    """`ledger` as if its answers had named `to` where they named `model`."""
+
+    def rename(header: dict[str, Any]) -> None:
+        header["models"] = [found.replace(model, to) for found in header["models"]]
+
+    return edited(ledger, header=rename)
+
+
+def refusing_jev(monkeypatch: pytest.MonkeyPatch, on_call: int) -> None:
+    """`calm_jev`, but its `on_call`th call answers urgency with a choice that is not one of its
+    labels: Jev's answer is refused (`invalid_response`), and the call's tokens are spent."""
+    original = JevProvider.__init__
+    calm_jev(monkeypatch)  # its settings
+    calls = itertools.count(1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        refused = next(calls) == on_call
+        answers = {}
+        for key in json.loads(request.content)["questions"]:
+            choice = max(CALM[key], key=lambda label: CALM[key][label])
+            answers[key] = {
+                "type": "choice",
+                "choice": "not-a-label" if refused else choice,
+                "confidence": CALM[key][choice],
+                "probabilities": CALM[key],
+            }
+        usage = {"input_tokens": 100, "output_tokens": 10}
+        return httpx.Response(200, json={"model": "jev-9.9.9", "answers": answers, "usage": usage})
+
+    def init(self: JevProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(JevProvider, "__init__", init)
 
 
 def written(tmp_path: Path, name: str, records: list[dict[str, Any]]) -> Dataset:
@@ -184,7 +235,7 @@ def test_twenty_emergency_positives_show_insufficient_evidence(holdout: Built) -
                 "label": "urgent",
                 "positives": 20,
                 "needed": 100,
-                "configuration": "safety_screen=rules,router=naive_bayes",
+                "configuration": "router=naive_bayes,safety_screen=rules",
             }
         ]
     }
@@ -423,7 +474,8 @@ def test_cost_per_1000_is_from_tokens_and_the_dated_table_or_unknown(
     }
     assert found["inputs"]["prices"] == {"sha256": table.sha256, "date": "2026-10-18"}
     other = price_table(tmp_path, {"jev": {"jev-1.0": {"input_per_1000": 1, "output_per_1000": 0}}})
-    assert jev_run.entry(prices=other)["figures"]["cost_per_1000"] == {
+    unpriced = jev_run.entry(prices=other)
+    assert unpriced["figures"]["cost_per_1000"] == {
         "status": "unknown",
         "reason": "jev: its model is not in the price table",
     }
@@ -439,7 +491,15 @@ def test_cost_per_1000_is_from_tokens_and_the_dated_table_or_unknown(
     }
     local = holdout.entry(prices=table)
     assert local["figures"]["cost_per_1000"] == {"status": "none", "text": "0 (no metered calls)"}
-    assert local["inputs"]["prices"] is None  # a table that priced nothing is not cited
+    # A table that priced nothing is not cited, so the entry is the same whichever is at hand.
+    for found in (local, unpriced, with_error):
+        assert found["inputs"]["prices"] is None
+    after = price_table(
+        tmp_path, {"jev": {"jev-2.0": {"input_per_1000": 1, "output_per_1000": 0}}}, "2026-10-19"
+    )
+    assert jev_run.entry(prices=after)["body_sha256"] == unpriced["body_sha256"]
+    failed_again = jev_run.entry(ledger=ledger, run=run_for(ledger, jev_run.run), prices=other)
+    assert failed_again["body_sha256"] == with_error["body_sha256"]
     disclosed = jev_run.entry(prices=table, disclosures=stated(jev="No relationship."))
     text = scoreboard_markdown(scoreboard.board([disclosed], {}))
     assert f"| USD {each:.4f} [{each:.4f}-{each:.4f}] |" in text
@@ -472,6 +532,56 @@ def test_a_pack_set_or_built_in_price_is_never_used(jev_run: Built, tmp_path: Pa
         runs.load_prices(pack_dir / "prices.json")
 
 
+def test_a_model_type_that_made_no_call_costs_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The inbox's cascade asks Jev only when naive Bayes is under 95% sure: on cases where it
+    never is, Jev is never called, so the cost is "0 (no metered calls)", with no table cited,
+    and never "unknown" for want of a model it never reported."""
+    records = records_of(INBOX, "test")
+    local = Decision(resolve_pack(INBOX))
+    sure = [
+        record
+        for record in records
+        if local.decide(record["input"]).answers["destination"].confidence >= 0.95
+    ][:40]
+    assert len(sure) == 40
+    calm_jev(monkeypatch)
+    cascade = build(INBOX, written(tmp_path, "sure", sure), {"router": "cascade"})
+    assert cascade.configuration.remote_types == ("jev",)
+    assert all(case["tokens"] == {} for case in cascade.run["cases"])
+    assert cascade.run["models"] == {}
+    table = price_table(
+        tmp_path, {"jev": {"jev-9.9.9": {"input_per_1000": 0.5, "output_per_1000": 1.5}}}
+    )
+    for prices in (table, None):
+        found = cascade.entry(prices=prices)
+        assert found["figures"]["cost_per_1000"] == {
+            "status": "none",
+            "text": "0 (no metered calls)",
+        }
+        assert found["inputs"]["prices"] is None
+    # A type that was called and spent no token costs nothing, whatever its model.
+    called = [{**case, "tokens": {"jev": [0, 0]}} for case in cascade.run["cases"]]
+    zero = cascade.entry(run=run_for(cascade.ledger, cascade.run, cases=called), prices=table)
+    assert zero["figures"]["cost_per_1000"] == {
+        "status": "priced",
+        "currency": "USD",
+        "estimate": 0.0,
+        "low": 0.0,
+        "high": 0.0,
+    }
+    # Jev called on every case and none of its answers kept (the screen's rules always win on
+    # red flags): its tokens are of no model an answer names, so the cost is unknown.
+    screened = build(INBOX, "red_flags_holdout", {"safety_screen": "rules_and_jev"})
+    assert screened.run["models"] == {}
+    assert all(case["tokens"] == {"jev": [100, 10]} for case in screened.run["cases"])
+    assert screened.entry(prices=table)["figures"]["cost_per_1000"] == {
+        "status": "unknown",
+        "reason": "jev: tokens spent, and no answer kept names its model",
+    }
+
+
 def test_latency_comes_from_the_run_record_and_is_never_ranked(holdout: Built) -> None:
     slow = run_for(
         holdout.ledger,
@@ -495,13 +605,35 @@ def test_latency_comes_from_the_run_record_and_is_never_ranked(holdout: Built) -
         entries = [rules.entry(run=second_run), holdout.entry(run=first_run)]
         (table,) = scoreboard.board(entries, {})["tables"]
         assert [item["configuration"] for item in table["entries"]] == [
-            "safety_screen=rules,router=naive_bayes",
-            "safety_screen=rules,router=rules",
+            "router=naive_bayes,safety_screen=rules",
+            "router=rules,safety_screen=rules",
         ]
     assert fast["ranking"] == {
         "status": "off",
         "reason": "public set: regression check, not a ranking",
     }
+
+
+def test_a_board_is_the_same_for_entries_just_built_and_read_back(holdout: Built) -> None:
+    """A store keeps an entry's canonical bytes (keys sorted): the board of those, with its
+    labels, its listing and its subgroups, is the board of the entries just built."""
+    rules = build(INBOX, "red_flags_holdout", {"router": "rules"})
+    live = [rules.entry(), holdout.entry()]
+    assert list(live[0]["configuration"]["providers"]) == ["safety_screen", "router"]
+    stored = [json.loads(canonical(found)) for found in live]
+    assert [canonical(found) for found in stored] == [canonical(found) for found in live]
+    current = {INBOX: scoreboard.Current.of(holdout.pack)}
+    shown_live, shown_stored = scoreboard.board(live, current), scoreboard.board(stored, current)
+    assert scoreboard_markdown(shown_live) == scoreboard_markdown(shown_stored)
+    assert canonical(shown_live) == canonical(shown_stored)
+    (table,) = shown_live["tables"]
+    assert [item["configuration"] for item in table["entries"]] == [
+        "router=naive_bayes,safety_screen=rules",
+        "router=rules,safety_screen=rules",
+    ]
+    groups = table["entries"][0]["entry"]["figures"]["subgroups"]
+    assert list(groups) == ["age_band", "channel", "language", "topic"]
+    assert holdout.ledger.header["subgroups"] == ["language", "channel", "age_band", "topic"]
 
 
 def test_a_run_record_must_agree_with_its_ledger(holdout: Built) -> None:
@@ -521,6 +653,98 @@ def test_a_run_record_must_agree_with_its_ledger(holdout: Built) -> None:
     for replicate in (0, method.MAX_REPLICATES + 1):
         with pytest.raises(MendariError, match="replicate"):
             run_for(holdout.ledger, holdout.run, replicate=replicate)
+
+
+def test_a_run_record_names_the_models_its_ledgers_answers_name(
+    jev_run: Built, tmp_path: Path
+) -> None:
+    """A run record that names another model is refused, so its tokens are never priced at that
+    model's rate; one that leaves out a model the answers name is refused too."""
+    table = price_table(
+        tmp_path,
+        {
+            "jev": {
+                "jev-9.9.9": {"input_per_1000": 2, "output_per_1000": 1},
+                "jev-cheap": {"input_per_1000": 0.001, "output_per_1000": 0},
+            }
+        },
+    )
+    assert jev_run.entry(prices=table)["figures"]["cost_per_1000"]["estimate"] == 210.0
+    cheap = run_for(jev_run.ledger, jev_run.run, models={"jev": ["jev-cheap"]})
+    assert not runs.agrees(cheap, jev_run.ledger)
+    with pytest.raises(MendariError, match="its jev models are not ones the ledger's answers name"):
+        jev_run.entry(run=cheap, prices=table)
+    both = run_for(jev_run.ledger, jev_run.run, models={"jev": ["jev-9.9.9", "jev-cheap"]})
+    assert not runs.agrees(both, jev_run.ledger)
+    assert runs.agrees(jev_run.run, jev_run.ledger)
+    with pytest.raises(MendariError, match="name a model of a model type it does not list"):
+        jev_run.entry(run=run_for(jev_run.ledger, jev_run.run, models={}), prices=table)
+
+    # Answers that name two models: a record of both agrees, and its cost is unknown; one that
+    # leaves either out is refused.
+    def second_model(header: dict[str, Any]) -> None:
+        header["models"].append("jev-cheap")
+
+    def half_on_it(cases: list[dict[str, Any]]) -> None:
+        for case in cases[::2]:
+            case["q"]["urgency"][MODEL] = len(jev_run.ledger.header["models"])
+
+    two = edited(jev_run.ledger, half_on_it, header=second_model)
+    honest = run_for(two, jev_run.run, models={"jev": ["jev-9.9.9", "jev-cheap"]})
+    assert runs.agrees(honest, two)
+    assert jev_run.entry(ledger=two, run=honest, prices=table)["figures"]["cost_per_1000"] == {
+        "status": "unknown",
+        "reason": "jev: 2 models reported, not one",
+    }
+    for kept in ("jev-9.9.9", "jev-cheap"):
+        with pytest.raises(MendariError, match="name a model of a model type it does not list"):
+            jev_run.entry(ledger=two, run=run_for(two, honest, models={"jev": [kept]}))
+
+    # Through a composite: a cascade's answer names its member's model (`jev:jev-9.9.9`), with
+    # the fake Jev `jev_run` set up.
+    cascade = build(INBOX, "red_flags_holdout", {"router": "cascade"})
+    assert cascade.entry()["scope"]["models"]["by_type"] == {"jev": ["jev-9.9.9"]}
+    for forged in ({}, {"jev": ["jev-cheap"]}):
+        assert not runs.agrees(run_for(cascade.ledger, cascade.run, models=forged), cascade.ledger)
+    # A deterministic provider's model (`naive_bayes@…`) is never the run record's.
+    assert any("naive_bayes@" in found for found in cascade.ledger.header["models"])
+    assert not re.fullmatch(jev.MODEL_PATTERN, "naive_bayes@0123456789ab")
+    assert not re.fullmatch(llm.MODEL_PATTERN, "naive_bayes@0123456789ab")
+
+
+def test_a_failed_call_spent_tokens_the_ledger_does_not_hold(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Jev's third answer is refused (not one of its labels): the call spent 100 and 10 tokens,
+    which the ledger's `u` does not hold (it holds the answers'), and the run record does. The
+    record still agrees, and its cost is unknown, as a failed call's is."""
+    refusing_jev(monkeypatch, on_call=3)
+    built = build(INBOX, "red_flags_holdout", {"safety_screen": "jev"})
+    failed = built.ledger.cases[2]
+    assert failed["q"]["urgency"][ERROR] == "invalid_response"
+    assert failed["u"][1:] == [0, 0]
+    assert built.run["cases"][2]["tokens"] == {"jev": [100, 10]}
+    assert runs.agrees(built.run, built.ledger)
+    table = price_table(
+        tmp_path, {"jev": {"jev-9.9.9": {"input_per_1000": 0.5, "output_per_1000": 1.5}}}
+    )
+    found = built.entry(prices=table)
+    assert found["figures"]["cost_per_1000"] == {
+        "status": "unknown",
+        "reason": "a provider call failed",
+    }
+    # Only on a failed case, and never fewer than the answers spent.
+    cases = [dict(case) for case in built.run["cases"]]
+    cases[3] = {**cases[3], "tokens": {"jev": [200, 20]}}
+    with pytest.raises(MendariError, match="case 4's tokens are not the ledger's"):
+        built.entry(run=run_for(built.ledger, built.run, cases=cases))
+
+    def answered_too(lines: list[dict[str, Any]]) -> None:
+        lines[2]["u"] = [0.0, 150, 10]
+
+    more = edited(built.ledger, answered_too)
+    with pytest.raises(MendariError, match="case 3's tokens are not the ledger's"):
+        built.entry(ledger=more, run=run_for(more, built.run))
 
 
 def test_a_run_record_holds_no_key_endpoint_or_case_text(jev_run: Built) -> None:
@@ -556,6 +780,39 @@ def test_a_run_record_holds_no_key_endpoint_or_case_text(jev_run: Built) -> None
         assert "jev.test" not in str(refused.value) and "chest" not in str(refused.value)
     with pytest.raises(MendariError, match="not in canonical form"):
         runs.loads_run(json.dumps(jev_run.run, indent=1).encode())
+
+
+def test_a_refusal_never_echoes_a_key_the_input_chose(jev_run: Built) -> None:
+    """A dict's key in a run record, a price table or the disclosures is the input's: a URL, a
+    secret or case text there is named `<key>`, never echoed."""
+    secret, url, text = "sk-SECRET123", "https://jev.test/v1?key=SECRET", "patient has chest pain"
+    case = jev_run.run["cases"][0]
+    for bad, where in (
+        ({**jev_run.run, "models": {url: ["jev-9.9.9"]}}, "models.<key>.[key]"),
+        ({**jev_run.run, "cases": [{**case, "tokens": {text: [1, 1]}}]}, "cases.0.tokens.<key>"),
+        ({**jev_run.run, secret: 1}, "<key>"),
+    ):
+        with pytest.raises(MendariError) as refused:
+            runs.check_run(bad)
+        message = str(refused.value)
+        assert where in message
+        assert not any(found in message for found in ("SECRET", "jev.test", "chest"))
+    price = {"input_per_1000": 1, "output_per_1000": 1}
+    for prices in (
+        {"llm": {f"https://api.example.com/v1?key={secret}": price}},
+        {"jev": {secret: {**price, "input_per_1000": -1}}},
+    ):
+        table = {"format": runs.PRICES_FORMAT, "date": "2026-10-18", "source": "a test"}
+        with pytest.raises(MendariError, match=r"price table: prices\.\w+\.<key>") as refused:
+            runs.prices(json.dumps({**table, "prices": prices}).encode())
+        assert "SECRET" not in str(refused.value) and "example.com" not in str(refused.value)
+    disclosed = {"format": runs.DISCLOSURES_FORMAT, "date": "2026-10-18"}
+    with pytest.raises(MendariError, match=r"disclosures: statements\.<key>") as refused:
+        runs.disclosures(json.dumps({**disclosed, "statements": {secret: "x"}}).encode())
+    assert "SECRET" not in str(refused.value)
+    # The schemas' own fields and the types are named as they are.
+    with pytest.raises(MendariError, match=r"run record: cases\.0\.tokens\.jev\.0: "):
+        runs.check_run({**jev_run.run, "cases": [{**case, "tokens": {"jev": [-1, 1]}}]})
 
 
 def test_a_run_record_names_the_models_its_answers_report(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -737,8 +994,9 @@ def test_freshness_is_worked_out_when_shown_and_never_stored(
     # A later run of the same configuration that reports another model makes the earlier stale.
     calm_jev(monkeypatch)
     jev = build(INBOX, "red_flags_holdout", {"safety_screen": "jev"})
-    later = run_for(jev.ledger, jev.run, date="2026-10-20", models={"jev": ["jev-10.0.0"]})
-    earlier_entry, later_entry = jev.entry(), jev.entry(run=later)
+    later_ledger = renamed(jev.ledger, "jev-9.9.9", "jev-10.0.0")
+    later = run_for(later_ledger, jev.run, date="2026-10-20", models={"jev": ["jev-10.0.0"]})
+    earlier_entry, later_entry = jev.entry(), jev.entry(ledger=later_ledger, run=later)
     assert [m[2:] for m in marks([later_entry, earlier_entry])] == [
         ["stale: another model reported", "stale after 2026-12-02"],
         ["stale after 2026-12-04"],
@@ -770,6 +1028,20 @@ def test_a_ledger_of_another_digest_or_dataset_is_refused(holdout: Built, tmp_pa
     reordered = replace(holdout.dataset, records=list(reversed(holdout.dataset.records)))
     with pytest.raises(MendariError, match="case 1 is not red_flags_holdout's case 1"):
         holdout.entry(dataset=reordered)
+
+    # A ledger whose header says 30 cases of the set and holds 29 case lines (its own count
+    # lowered to match, as `Ledger.loads` checks it).
+    def last_dropped(cases: list[dict[str, Any]]) -> None:
+        del cases[-1]
+
+    def one_less(header: dict[str, Any]) -> None:
+        header["cases"]["n"] -= 1
+
+    short = Ledger.loads(edited(holdout.ledger, last_dropped, header=one_less).dumps())
+    with pytest.raises(MendariError, match="holds 29 cases and red_flags_holdout 30"):
+        holdout.entry(
+            ledger=short, run=run_for(short, holdout.run, cases=holdout.run["cases"][:-1])
+        )
     rules = next(c for c in arms.configurations(holdout.pack) if c.providers["router"] == "rules")
     with pytest.raises(MendariError, match="another configuration"):
         holdout.entry(configuration=rules)

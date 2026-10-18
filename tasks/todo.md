@@ -1847,7 +1847,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     refused from Mendari's code or a pack's directory) and the disclosures file
     (`mendari.disclosures/1`). An entry is a pure function of its ledger, dataset, run record,
     price table and method (`body_sha256`), refused for a ledger of another pack, dataset or
-    configuration, or a run record that disagrees with its ledger. Evidence on distinct
+    configuration, or a run record that disagrees with its ledger (its cases, tokens or
+    models). Evidence on distinct
     positives, each critical label needing `method.min_positives`; the grade's bound at
     `1 - 0.05/L` over distinct groups; every proportion k of n with its interval and every mean
     with its bootstrap interval; ECE a description; cost from tokens and the dated table, or "0
