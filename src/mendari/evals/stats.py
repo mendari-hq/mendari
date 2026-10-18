@@ -12,14 +12,22 @@ Every function is deterministic; the random ones take a seed, written into what 
   `bootstrap_defined` for a statistic a resample can leave undefined, counting those it drops.
 - `holm`: Holm-Bonferroni over a named family of comparisons.
 - `equal_mass_ece`: calibration error over equal-count bins, "not estimable" when they are small.
+
+For the scoreboard (LP-17), used by no format yet:
+
+- `stratified_bootstrap`: the percentile interval over seeded resamples within each stratum.
+- `weighted_proportion`: a share of weighted cases, with Kish's effective n and the
+  Korn-Graubard interval (`WeightedProportion`).
+- `brier_reliability`: Murphy's reliability term of the Brier score, over equal-mass bins.
 """
 
 from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from functools import lru_cache
 from statistics import NormalDist
 from typing import Any, TypeVar
@@ -409,6 +417,51 @@ def paired_bootstrap(
     return estimate, percentile(diffs, tail), percentile(diffs, 1.0 - tail), p_value
 
 
+def stratified_resample_indices(
+    strata: Sequence[Hashable], resamples: int, seed: int
+) -> Iterator[list[int]]:
+    """The stratified bootstrap's index matrix, one row (resample) at a time: row r, column i
+    is pool[floor(U * m)], where pool holds the m cases of case i's stratum in input order and U
+    is the (r*n + i)-th draw of random.Random(seed).random(), as in `resample_indices`. Each
+    column keeps its case's stratum, so every stratum keeps its size and its places; with one
+    stratum the rows are `resample_indices`'s. Strata are told apart by equality."""
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError("seed must be an integer")
+    members: dict[Hashable, list[int]] = {}
+    for i, stratum in enumerate(strata):
+        members.setdefault(stratum, []).append(i)
+    pools = [members[stratum] for stratum in strata]
+    draw = random.Random(seed).random
+    for _ in range(resamples):
+        yield [pool[int(draw() * len(pool))] for pool in pools]
+
+
+def stratified_bootstrap(
+    records: Sequence[T],
+    strata: Sequence[Hashable],
+    statistic: Callable[[Sequence[T]], float],
+    resamples: int = 2000,
+    seed: int = 0,
+    level: float = 0.95,
+) -> tuple[float, float, float]:
+    """(estimate, low, high): `bootstrap` with each case resampled within its stratum
+    (`stratified_resample_indices`; strata[i] is records[i]'s). A statistic that needs every
+    stratum, as macro-F1 needs each true label's support, stays defined on every resample. With
+    one stratum it is `bootstrap`."""
+    n = len(records)
+    if n == 0:
+        raise ValueError("no records")
+    if len(strata) != n:
+        raise ValueError("records and strata differ in length")
+    estimate = statistic(records)
+    values = sorted(
+        statistic([records[i] for i in row])
+        for row in stratified_resample_indices(strata, resamples, seed)
+    )
+    tail = (1.0 - level) / 2.0
+    return estimate, percentile(values, tail), percentile(values, 1.0 - tail)
+
+
 # --------------------------------------------------------------------------------------------
 # Equal-mass ECE
 # --------------------------------------------------------------------------------------------
@@ -474,6 +527,81 @@ def equal_mass_ece(
     return {**base, "ece": math.fsum(terms) / n, "status": "ok", "bins": table}
 
 
+def brier_reliability(
+    distributions: Sequence[Mapping[str, float]],
+    truths: Sequence[str],
+    labels: Sequence[str],
+    bins: int = 10,
+    min_bin_size: int = 30,
+) -> dict[str, object]:
+    """Murphy's (1973) reliability term of the multi-class Brier score (`metrics.brier`'s scale,
+    0 best), over equal-mass bins of top-label confidence.
+
+    A case's forecast is its distribution over `labels`, its outcome the one-hot vector of its
+    truth, and its top-label confidence its largest probability. Cases are cut into bins by that
+    confidence as `equal_mass_ece` cuts them, and tied confidences are exchangeable here too:
+    each case's forecast and outcome are replaced by their means over every case sharing its
+    confidence, so the result is the same for any order of the input. The term is the sum over
+    bins of (bin size / n) times the squared distance between the bin's mean forecast and its
+    outcome frequencies. Not estimable, as `equal_mass_ece` is, when the smallest bin, n // bins,
+    is under min_bin_size. Sums are math.fsum, so the value is independent of order and platform.
+    """
+    n = len(distributions)
+    if len(truths) != n:
+        raise ValueError("distributions and truths differ in length")
+    names = list(labels)
+    if not names or len(set(names)) != len(names):
+        raise ValueError("labels must be one or more distinct names")
+    if bins < 1 or min_bin_size < 1:
+        raise ValueError("bins and min_bin_size must be at least 1")
+    rows: list[tuple[float, list[float], list[float]]] = []
+    for distribution, truth in zip(distributions, truths, strict=True):
+        if set(distribution) != set(names):
+            raise ValueError("each distribution must give every label's probability, and no other")
+        if truth not in distribution:
+            raise ValueError("each truth must be one of the labels")
+        forecast = [float(distribution[label]) for label in names]
+        if not all(math.isfinite(p) for p in forecast):
+            raise ValueError("probabilities must be finite")
+        rows.append((max(forecast), forecast, [float(label == truth) for label in names]))
+    base = {"method": "equal-mass", "bins_requested": bins, "min_bin_size": min_bin_size, "n": n}
+    if n // bins < min_bin_size:
+        return {
+            **base,
+            "reliability": None,
+            "status": "not_estimable",
+            "reason": f"{n} scored cases; {bins} equal-mass bins of at least {min_bin_size} "
+            f"need {bins * min_bin_size}",
+        }
+    rows.sort(key=lambda row: row[0])
+    width = len(names)
+    smoothed: list[tuple[list[float], list[float]]] = []  # each case's tie-group means
+    i = 0
+    while i < n:
+        j = i
+        while j < n and rows[j][0] == rows[i][0]:
+            j += 1
+        group = rows[i:j]
+        forecast = [math.fsum(row[1][c] for row in group) / (j - i) for c in range(width)]
+        outcome = [math.fsum(row[2][c] for row in group) / (j - i) for c in range(width)]
+        smoothed.extend([(forecast, outcome)] * (j - i))
+        i = j
+    size, extra = divmod(n, bins)
+    terms = []
+    start = 0
+    for index in range(bins):
+        stop = start + size + (1 if index < extra else 0)
+        members = smoothed[start:stop]
+        m = stop - start
+        gaps = [
+            math.fsum(f[c] for f, _ in members) / m - math.fsum(o[c] for _, o in members) / m
+            for c in range(width)
+        ]
+        terms.append(m * math.fsum(gap * gap for gap in gaps))
+        start = stop
+    return {**base, "reliability": math.fsum(terms) / n, "status": "ok"}
+
+
 @dataclass(frozen=True)
 class Proportion:
     """k of n with its exact Clopper-Pearson interval (None when n is 0: no cases)."""
@@ -509,6 +637,79 @@ def proportion(k: int, n: int, level: float = LEVEL) -> Proportion:
         return Proportion(k, n, None, None, level)
     low, high = clopper_pearson(k, n, level)
     return Proportion(k, n, low, high, level)
+
+
+@dataclass(frozen=True)
+class WeightedProportion:
+    """A share of weighted cases (`weighted_proportion`): the Hájek estimate, Kish's effective n
+    and the Korn-Graubard interval, all None when there are no cases. It is shown beside the
+    unweighted k of n, never in its place."""
+
+    n: int
+    estimate: float | None
+    effective_n: float | None
+    low: float | None
+    high: float | None
+    level: float = LEVEL
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n": self.n,
+            "estimate": _stored(self.estimate),
+            "effective_n": _stored(self.effective_n),
+            "low": _stored(self.low),
+            "high": _stored(self.high),
+        }
+
+
+def weighted_proportion(
+    hits: Sequence[bool], weights: Sequence[float], level: float = LEVEL
+) -> WeightedProportion:
+    """The share of hits among cases drawn with unequal probabilities, each case weighted (a
+    hidden set's sampling weight, N_h / n_h).
+
+    - estimate: Hájek's ratio, sum(w * hit) / sum(w);
+    - effective_n: Kish's, sum(w)^2 / sum(w^2);
+    - low, high: Korn & Graubard's (1998) interval, Clopper-Pearson at the effective counts,
+      x = estimate * effective_n hits of effective_n, with Kish's n as the effective sample size
+      (no degrees-of-freedom factor). x is rarely whole, so the lower bound takes floor(x) hits
+      and the upper bound floor(effective_n - x) misses: never narrower than at x, and every
+      beta shape stays at 1 or more (`beta_ppf`'s domain).
+
+    The sums are exact (fractions of the weights' binary values) and each figure is rounded
+    once, so unit weights, or one weight for every case, give clopper_pearson(k, n) exactly.
+    """
+    n = len(hits)
+    if len(weights) != n:
+        raise ValueError("hits and weights differ in length")
+    if not 0.0 < level < 1.0:
+        raise ValueError("level must be in (0, 1)")
+    if not all(isinstance(hit, bool) for hit in hits):
+        raise TypeError("each hit must be a bool")
+    exact: list[Fraction] = []
+    for weight in weights:
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+            raise TypeError("each weight must be a number")
+        if not (math.isfinite(weight) and weight > 0):
+            raise ValueError("each weight must be finite and positive")
+        exact.append(Fraction(weight))
+    if n == 0:
+        return WeightedProportion(0, None, None, None, None, level)
+    total = sum(exact, Fraction(0))
+    hit_total = sum((w for w, hit in zip(exact, hits, strict=True) if hit), Fraction(0))
+    squares = sum((w * w for w in exact), Fraction(0))
+    effective_n = total * total / squares
+    x = total * hit_total / squares  # estimate * effective_n, exactly
+    lower_hits = math.floor(x)
+    upper_misses = math.floor(effective_n - x)
+    tail = (1.0 - level) / 2.0
+    low = 0.0
+    if lower_hits:
+        low = beta_ppf(lower_hits, float(effective_n - lower_hits + 1), tail)
+    high = 1.0
+    if upper_misses:
+        high = beta_ppf(float(effective_n - upper_misses + 1), upper_misses, 1.0 - tail)
+    return WeightedProportion(n, float(hit_total / total), float(effective_n), low, high, level)
 
 
 def holm_family(p_values: Mapping[str, float], alpha: float = 0.05) -> dict[str, dict[str, Any]]:

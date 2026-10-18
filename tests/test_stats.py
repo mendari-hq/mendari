@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Hashable, Sequence
 from fractions import Fraction
 from typing import Any
 
@@ -17,7 +18,7 @@ from statsmodels.stats.contingency_tables import mcnemar
 from statsmodels.stats.multitest import multipletests
 from statsmodels.stats.proportion import proportion_confint
 
-from mendari.evals import stats
+from mendari.evals import metrics, stats
 
 EXACT = 1e-12
 
@@ -262,6 +263,305 @@ def test_equal_mass_ece_is_not_estimable_on_small_bins() -> None:
     result = stats.equal_mass_ece([0.9] * 299, [True] * 299)
     assert result["ece"] is None and result["status"] == "not_estimable"
     assert "need 300" in str(result["reason"])
+
+
+# --------------------------------------------------------------------------------------------
+# For the scoreboard (LP-17b): the stratified bootstrap, weighted shares, Brier reliability
+# --------------------------------------------------------------------------------------------
+
+
+def _labelled(n: int, labels: int, seed: int) -> tuple[list[str], list[str], list[str]]:
+    """Label names, truths in strata of uneven size, and predictions right about 2 times in 3."""
+    rng = random.Random(seed)
+    names = [f"label{j}" for j in range(labels)]
+    truths = [rng.choice(names[: 1 + rng.randrange(labels)]) for _ in range(n)]
+    predictions = [t if rng.random() < 0.65 else rng.choice(names) for t in truths]
+    return names, truths, predictions
+
+
+def _macro_f1(pairs: Sequence[tuple[str, str]], names: list[str]) -> float:
+    found = metrics.classification([t for t, _ in pairs], [p for _, p in pairs], names)
+    assert isinstance(found["macro_f1"], float)
+    return found["macro_f1"]
+
+
+def _macro_f1_rows(
+    truths: list[str], predictions: list[str], names: list[str], matrix: np.ndarray[Any, Any]
+) -> np.ndarray[Any, Any]:
+    """Macro-F1 of each resample (row) in numpy: per label present, 2 tp / (predicted + support),
+    which is 2PR / (P + R), and 0 when nothing of it is found."""
+    truth, predicted = np.asarray(truths)[matrix], np.asarray(predictions)[matrix]
+    f1s = []
+    for name in names:
+        support = (truth == name).sum(axis=1)
+        if support.any():
+            hits = ((truth == name) & (predicted == name)).sum(axis=1)
+            f1s.append(2 * hits / ((predicted == name).sum(axis=1) + support))
+    return np.asarray(np.mean(f1s, axis=0))
+
+
+@pytest.mark.parametrize(("n", "labels", "seed"), [(60, 3, 0), (200, 5, 1), (333, 2, 2026)])
+def test_stratified_bootstrap_matches_numpy_on_the_same_resamples(
+    n: int, labels: int, seed: int
+) -> None:
+    names, truths, predictions = _labelled(n, labels, seed)
+    # The index matrix, built again in numpy from the same draws of random.Random(seed).
+    rng = random.Random(seed)
+    draws = np.array([rng.random() for _ in range(500 * n)]).reshape(500, n)
+    strata = np.asarray(truths)
+    expected = np.empty((500, n), dtype=int)
+    for i in range(n):
+        pool = np.flatnonzero(strata == strata[i])
+        expected[:, i] = pool[(draws[:, i] * len(pool)).astype(int)]
+    matrix = np.array(list(stats.stratified_resample_indices(truths, 500, seed)))
+    assert (matrix == expected).all()
+    # Macro-F1 resampled within each true label, as the scoreboard resamples it.
+    pairs = list(zip(truths, predictions, strict=True))
+    estimate, low, high = stats.stratified_bootstrap(
+        pairs, truths, lambda sample: _macro_f1(sample, names), resamples=500, seed=seed
+    )
+    whole = _macro_f1_rows(truths, predictions, names, np.arange(n)[np.newaxis, :])[0]
+    f1s = _macro_f1_rows(truths, predictions, names, matrix)
+    assert abs(estimate - whole) < EXACT
+    assert abs(low - np.quantile(f1s, 0.025)) < EXACT
+    assert abs(high - np.quantile(f1s, 0.975)) < EXACT
+    # A mean, to the ulp, as the plain bootstrap's test checks it.
+    values = [rng.random() for _ in range(n)]
+    _, low, high = stats.stratified_bootstrap(values, truths, stats.mean, resamples=500, seed=seed)
+    means = np.asarray(values)[matrix].mean(axis=1)
+    assert abs(low - np.quantile(means, 0.025)) < 1e-15
+    assert abs(high - np.quantile(means, 0.975)) < 1e-15
+
+
+def _share_of_b(sample: Sequence[Hashable]) -> float:
+    return sum(1 for stratum in sample if stratum == "b") / len(sample)
+
+
+def test_stratified_bootstrap_keeps_each_stratums_size() -> None:
+    strata: list[Hashable] = ["a"] * 12 + ["b"] * 30 + [None] * 3 + [("x", 1)]
+    random.Random(8).shuffle(strata)
+    drawn: dict[Hashable, set[int]] = {}
+    for row in stats.stratified_resample_indices(strata, 300, 6):
+        assert [strata[j] for j in row] == strata  # each place keeps its case's stratum
+        for j in row:
+            drawn.setdefault(strata[j], set()).add(j)
+    for stratum in set(strata):  # and every case of a stratum is drawn in some resample
+        assert drawn[stratum] == {i for i, s in enumerate(strata) if s == stratum}
+    # So a figure of the strata alone never varies: its interval is its estimate.
+    assert stats.stratified_bootstrap(strata, strata, _share_of_b, resamples=200, seed=1) == (
+        30 / 46,
+        30 / 46,
+        30 / 46,
+    )
+
+
+def test_stratified_bootstrap_with_one_stratum_is_the_plain_bootstrap() -> None:
+    rng = random.Random(4)
+    for n, seed in [(1, 0), (25, 3), (150, 2026)]:
+        values = [rng.random() for _ in range(n)]
+        one = ["all"] * n
+        rows = list(stats.stratified_resample_indices(one, 300, seed))
+        assert rows == list(stats.resample_indices(n, 300, seed))
+        assert stats.stratified_bootstrap(
+            values, one, stats.mean, resamples=300, seed=seed
+        ) == stats.bootstrap(values, resamples=300, seed=seed)
+
+
+def _bounds(found: stats.WeightedProportion) -> tuple[float, float, float, float]:
+    assert found.estimate is not None and found.effective_n is not None
+    assert found.low is not None and found.high is not None
+    return found.estimate, found.effective_n, found.low, found.high
+
+
+def test_weighted_proportion_matches_scipy_beta_at_the_effective_counts() -> None:
+    # By hand: weights 1, 1, 2 and 4, hits on the first and third. The total weight is 8, the
+    # hits' 3 and the squares' 22: estimate 3/8, effective n 64/22, x = 24/22 hits and 40/22
+    # misses. Each floors to 1, where the beta quantile has a closed form.
+    found = stats.weighted_proportion([True, False, True, False], [1, 1, 2, 4.0])
+    estimate, effective_n, low, high = _bounds(found)
+    assert estimate == 3 / 8 and effective_n == pytest.approx(64 / 22, rel=1e-15)
+    assert low == pytest.approx(1 - 0.975 ** (22 / 64), rel=1e-12)
+    assert high == pytest.approx(0.975 ** (22 / 64), rel=1e-12)
+    assert found.to_dict() == {
+        "n": 4, "estimate": 0.375, "effective_n": 2.909091, "low": 0.008665, "high": 0.991335,
+    }  # fmt: skip
+    rng = random.Random(17)
+    for _ in range(300):
+        n = rng.randint(1, 400)
+        # Weights as a stratified draw makes them (N_h / n_h), and arbitrary ones.
+        weights = [rng.choice([rng.uniform(0.5, 40.0), 600 / rng.randint(1, 60)]) for _ in range(n)]
+        share = rng.random()
+        hits = [rng.random() < share for _ in range(n)]
+        level = rng.choice([0.9, 0.95, 0.99])
+        estimate, effective_n, low, high = _bounds(stats.weighted_proportion(hits, weights, level))
+        w, y = np.asarray(weights), np.asarray(hits, dtype=float)
+        model_n = float(w.sum() ** 2 / (w * w).sum())
+        x = float((w * y).sum() / w.sum() * model_n)
+        assert estimate == pytest.approx((w * y).sum() / w.sum(), rel=1e-13)
+        assert effective_n == pytest.approx(model_n, rel=1e-13)
+        lower_hits, upper_misses = math.floor(round(x, 9)), math.floor(round(model_n - x, 9))
+        alpha = 1 - level
+        model_low = 0.0
+        if lower_hits:
+            model_low = st.beta.ppf(alpha / 2, lower_hits, model_n - lower_hits + 1)
+        model_high = 1.0
+        if upper_misses:
+            model_high = st.beta.ppf(1 - alpha / 2, model_n - upper_misses + 1, upper_misses)
+        assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (n, level)
+        assert low <= estimate <= high
+
+
+def test_weighted_proportion_with_unit_weights_is_clopper_pearson() -> None:
+    for k, n in _grid():
+        hits = [True] * k + [False] * (n - k)
+        for level in (0.95, 0.99):
+            estimate, effective_n, low, high = _bounds(
+                stats.weighted_proportion(hits, [1.0] * n, level)
+            )
+            assert estimate == k / n and effective_n == n
+            assert (low, high) == stats.clopper_pearson(k, n, level), (k, n, level)
+            model_low, model_high = proportion_confint(k, n, alpha=1 - level, method="beta")
+            assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (k, n, level)
+    # One weight for every case, whatever it is, gives the same share: the sums are exact.
+    for weight in (2, 0.1, 600 / 7, 1e-3):
+        found = stats.weighted_proportion([True] * 37 + [False] * 563, [weight] * 600)
+        assert _bounds(found) == (37 / 600, 600.0, *stats.clopper_pearson(37, 600))
+    assert stats.weighted_proportion([], []).to_dict() == {
+        "n": 0, "estimate": None, "effective_n": None, "low": None, "high": None,
+    }  # fmt: skip
+
+
+def _reliability_reference(
+    distributions: list[dict[str, float]], truths: list[str], labels: list[str], bins: int
+) -> float:
+    """An independent reliability term in numpy: tie groups of top-label confidence averaged
+    (forecasts and outcomes), then numpy.array_split."""
+    forecast = np.array([[d[label] for label in labels] for d in distributions])
+    outcome = np.array([[float(label == t) for label in labels] for t in truths])
+    confidence = forecast.max(axis=1)
+    order = np.argsort(confidence, kind="stable")
+    forecast, outcome, confidence = forecast[order], outcome[order], confidence[order]
+    _, inverse, counts = np.unique(confidence, return_inverse=True, return_counts=True)
+
+    def tie_means(matrix: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+        sums = np.zeros((len(counts), matrix.shape[1]))
+        np.add.at(sums, inverse, matrix)
+        return np.asarray((sums / counts[:, np.newaxis])[inverse])
+
+    total = 0.0
+    for f_bin, o_bin in zip(
+        np.array_split(tie_means(forecast), bins),
+        np.array_split(tie_means(outcome), bins),
+        strict=True,
+    ):
+        total += len(f_bin) * float(((f_bin.mean(axis=0) - o_bin.mean(axis=0)) ** 2).sum())
+    return total / len(forecast)
+
+
+def _forecasts(rng: random.Random, labels: list[str], n: int) -> list[dict[str, float]]:
+    """Half from a coarse grid (tied top-label confidences over different forecasts), half
+    continuous."""
+    distributions = []
+    for _ in range(n):
+        if rng.random() < 0.5:
+            raw = [float(rng.choice([1, 2, 3, 6])) for _ in labels]
+        else:
+            raw = [rng.random() + 1e-3 for _ in labels]
+        total = math.fsum(raw)
+        distributions.append({label: p / total for label, p in zip(labels, raw, strict=True)})
+    return distributions
+
+
+def test_brier_reliability_matches_an_independent_numpy_implementation() -> None:
+    rng = random.Random(19)
+    for _ in range(60):
+        labels = ["a", "b", "c", "d"][: rng.randint(2, 4)]
+        n = rng.randint(300, 700)
+        distributions = _forecasts(rng, labels, n)
+        truths = [
+            rng.choices(labels, weights=[d[label] for label in labels])[0]
+            if rng.random() < 0.7
+            else rng.choice(labels)
+            for d in distributions
+        ]
+        result = stats.brier_reliability(distributions, truths, labels)
+        assert result["status"] == "ok"
+        value = result["reliability"]
+        assert isinstance(value, float)
+        assert abs(value - _reliability_reference(distributions, truths, labels, 10)) < EXACT
+        pairs = list(zip(distributions, truths, strict=True))
+        rng.shuffle(pairs)
+        shuffled = stats.brier_reliability([d for d, _ in pairs], [t for _, t in pairs], labels)
+        assert shuffled["reliability"] == value  # the same for any order
+    # Where each bin holds one forecast, Murphy's decomposition is exact:
+    # Brier = reliability - resolution + uncertainty.
+    labels = ["a", "b", "c"]
+    distributions, truths = [], []
+    for j in range(10):
+        top = 0.4 + 0.05 * j
+        forecast = {label: (1 - top) / 2 for label in labels} | {labels[j % 3]: top}
+        for _ in range(30):
+            distributions.append(forecast)
+            truths.append(rng.choices(labels, weights=[forecast[label] for label in labels])[0])
+    reliability = stats.brier_reliability(distributions, truths, labels)["reliability"]
+    assert isinstance(reliability, float)
+    outcome = np.array([[float(label == t) for label in labels] for t in truths])
+    bins = outcome.reshape(10, 30, 3).mean(axis=1)  # the forecasts come grouped, as bins are
+    base_rate = outcome.mean(axis=0)
+    resolution = float(((bins - base_rate) ** 2).sum(axis=1).mean())
+    uncertainty = float((base_rate * (1 - base_rate)).sum())
+    brier = metrics.brier(distributions, truths)
+    assert brier is not None
+    assert abs(brier - (reliability - resolution + uncertainty)) < EXACT
+
+
+def test_brier_reliability_is_not_estimable_under_30_per_bin() -> None:
+    labels = ["yes", "no"]
+    distributions = [{"yes": 0.8, "no": 0.2}] * 300
+    truths = ["yes"] * 240 + ["no"] * 60
+    small = stats.brier_reliability(distributions[:299], truths[:299], labels)
+    assert small["reliability"] is None and small["status"] == "not_estimable"
+    assert "need 300" in str(small["reason"])
+    assert stats.brier_reliability(distributions, truths, labels)["reliability"] == 0.0
+    five = stats.brier_reliability(distributions[:150], truths[:150], labels, bins=5)
+    assert five["status"] == "ok"
+    strict = stats.brier_reliability(distributions, truths, labels, bins=5, min_bin_size=61)
+    assert strict["status"] == "not_estimable" and "need 305" in str(strict["reason"])
+    # A forecast of 0.8 met half the time is 0.3 off on each label: 0.09 + 0.09.
+    half = stats.brier_reliability(distributions, ["yes", "no"] * 150, labels)["reliability"]
+    assert half == pytest.approx(0.18, abs=1e-15)
+
+
+def test_the_scoreboards_statistics_refuse_what_they_cannot_compute() -> None:
+    with pytest.raises(ValueError, match="no records"):
+        stats.stratified_bootstrap([], [], stats.mean)
+    with pytest.raises(ValueError, match="differ in length"):
+        stats.stratified_bootstrap([0.1, 0.2], ["a"], stats.mean)
+    with pytest.raises(TypeError, match="seed"):
+        next(stats.stratified_resample_indices(["a"], 1, True))
+    for weights in ([0.0], [-1.0], [math.inf], [math.nan]):
+        with pytest.raises(ValueError, match="finite and positive"):
+            stats.weighted_proportion([True], weights)
+    with pytest.raises(ValueError, match="differ in length"):
+        stats.weighted_proportion([True, False], [1.0])
+    with pytest.raises(ValueError, match="level"):
+        stats.weighted_proportion([True], [1.0], level=1.0)
+    with pytest.raises(TypeError, match="hit"):
+        stats.weighted_proportion([1], [1.0])  # type: ignore[list-item]  # a count is not a hit
+    with pytest.raises(TypeError, match="weight"):
+        stats.weighted_proportion([True], [True])  # a bool is not a weight
+    one = [{"a": 0.6, "b": 0.4}]
+    for distributions, truths, labels, reason in [
+        (one, ["c"], ["a", "b"], "one of the labels"),
+        ([{"a": 1.0}], ["a"], ["a", "b"], "every label"),
+        (one, ["a", "b"], ["a", "b"], "differ in length"),
+        (one, ["a"], ["a", "a"], "distinct"),
+        ([{"a": math.nan, "b": 0.4}], ["a"], ["a", "b"], "finite"),
+    ]:
+        with pytest.raises(ValueError, match=reason):
+            stats.brier_reliability(distributions, truths, labels)
+    with pytest.raises(ValueError, match="at least 1"):
+        stats.brier_reliability(one, ["a"], ["a", "b"], bins=0)
 
 
 @pytest.mark.slow

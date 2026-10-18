@@ -77,6 +77,16 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
+  format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
+  from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),
+  for macro-F1 within each true label; a weighted share for cases drawn with unequal
+  probabilities (the Hájek estimate, Kish's effective n and the Korn-Graubard interval,
+  Clopper-Pearson at the effective counts, which is the exact interval of k of n when every case
+  has one weight); and the Brier score's reliability term (Murphy's, over ten equal-mass bins of
+  top-label confidence, not estimable under 30 cases a bin). Each is checked against numpy,
+  scipy or statsmodels, and `tests/test_stats.py` joins the edit loop (`pytest -m core`)
+  without its slow tests.
 - **Hidden evaluation sets in the dashboard: the Hidden sets screen** (LP-11n, `#evalsets`).
   An administrator who signed in, in memberships mode where hidden sets are on (their keys'
   ids in `/api/health`), finds **Hidden sets** in the section list; labellers, other roles,
