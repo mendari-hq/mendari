@@ -1213,6 +1213,15 @@ description, cost comes from tokens and the table (never a pack's or a provider'
 a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
 entries yet: the store and the page come with LP-17f.
 
+Scoreboard results are signed by Mendari's owner with a grading key held offline
+(`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
+the key holder's, on their own machine, and refuses to run when `CI` or `GITHUB_ACTIONS` is set.
+Anyone can check one with `mendari scoreboard verify FILE`, which needs no secret: it reads the
+public keys in `scoreboard/keys.json` (none yet, so every result reads "unsigned"), refuses a
+publisher's or a registry's key, and fails on any changed byte. The signature covers a prefix of
+its own, so no checkpoint, archive or recall signature passes as a result's
+([Verifying a scoreboard result](https://github.com/mendari-hq/mendari/blob/main/docs/grading/verifying.md)).
+
 ## Feedback loop
 
 Anyone using the dashboard can rate any decision, automated ones included, as right (thumbs
@@ -1468,13 +1477,15 @@ src/mendari/
 ├── providers/   rules, naive_bayes (local ML), jev
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
-│                a hidden set's grading result, the scoreboard's arms, entries and run records
+│                a hidden set's grading result, the scoreboard's arms, entries and run records,
+│                signed scoreboard results
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
 packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
+scoreboard/      the scoreboard's public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```
