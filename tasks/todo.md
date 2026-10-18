@@ -2962,11 +2962,16 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     and URL (packages.fhir.org; packages2.fhir.org for VSAC 0.18.0 and 0.19.0, which only it
     serves): US Core 6.1.0, CRD 2.2.1, DTR 2.2.0, PAS 2.2.1, what validator 6.10.4 loads by
     itself, and every dependency of theirs (US Core 3.1.1 and 7.0.0 for DV-c among them).
-    `fhir-conformance` checks each with `sha256sum -c`, builds the validator's package cache
-    from them (`scripts/fhir_packages.py install`, which refuses a lock that is not exactly the
-    closure) and runs the validator with no HTTP access (`--offline`); the Da Vinci guides go in
-    as local `-ig path.tgz`; `tests/test_workflow_safety.py` fails a workflow that names a
-    package by version alone. DV-c can mount the same cache into Inferno's validator.
+    `fhir-conformance` checks each with `sha256sum -c`; each validator run gets a package cache
+    of its own from them, with only what it loads and what that needs
+    (`scripts/fhir_packages.py install`, which refuses a lock that is not exactly the closure),
+    and runs with no HTTP access (`--offline`). So the US Core run holds US Core 6.1.0 alone: a
+    resource that cites a Da Vinci canonical cannot pull DTR's tree (US Core 7.0.0 among it)
+    into it, and the CapabilityStatement, which cites DTR 2.2.0's operation, is checked in the
+    Da Vinci run. The Da Vinci guides go in as local `-ig path.tgz`;
+    `tests/test_workflow_safety.py` fails a workflow that names a package by version alone, in
+    any form. DV-c can build Inferno's validator a cache the same way
+    (`install --cache DIR NAME#VERSION ...`, only what it loads).
   - [ ] DV-c: the Inferno DTR payer-suite job, weekly and by hand, not a required check: groups
     1, 3 and 4 against the open engine on synthetic data, from Mendari's own Dockerfile and
     compose file pinned by digest and SHA, compared with a known-gaps file that may only shrink.

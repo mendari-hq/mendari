@@ -2,11 +2,12 @@
 # One package per line: its name, its version, the sha256 of its tarball, and the URL CI
 # downloads it from (packages.fhir.org; packages2.fhir.org for what only it serves).
 # CI checks each download with `sha256sum -c` and fails on a mismatch. Then
-# `scripts/fhir_packages.py install` puts them in the validator's package cache, and the
-# validator runs with no HTTP access (`scripts/fhir_validate.py --offline`): it loads these
-# packages and nothing else. The list is what `ROOTS` in scripts/fhir_packages.py needs, with
-# every dependency of theirs (core packages aside, which the validator never loads as a
-# dependency); `install` refuses a lock that is not exactly that.
+# `scripts/fhir_validate.py --offline` gives each validator run a package cache of its own,
+# with what that run loads and every package that needs (`scripts/fhir_packages.py install`),
+# and runs the validator with no HTTP access: it loads these packages and nothing else. The
+# list is what `ROOTS` in scripts/fhir_packages.py needs, with every dependency of theirs (core
+# packages aside, which the validator never loads as a dependency); `install` refuses a lock
+# that is not exactly that.
 # Written by `uv run python scripts/fhir_packages.py lock`; do not edit by hand.
 hl7.fhir.r4.core                       4.0.1             ebd7731df7d36b5b7d39d5fb6c9d77b44bb7fe5742f1a2e87f164738c3289d44  https://packages.fhir.org/hl7.fhir.r4.core/4.0.1
 hl7.fhir.r4.examples                   4.0.1             e18b31e7a52145a31f1f3f409cf6847583b08b7306cc4e9460a95a7b5efba930  https://packages.fhir.org/hl7.fhir.r4.examples/4.0.1

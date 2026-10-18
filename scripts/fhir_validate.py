@@ -23,11 +23,14 @@ or from the eclipse-temurin image with `--docker`. Set `FHIR_VALIDATOR_JAR` to t
 `var/validator/validator_cli.jar`).
 
 `--offline` runs the validator with no HTTP access (`-no-http-access`; with `--docker`, in a
-container with no network too), so it loads FHIR packages only from its package cache, which
-`scripts/fhir_packages.py install` fills with the packages `scripts/fhir_packages.lock` pins, each
-checked against its sha256. That is how CI runs it: a package by name then resolves to the locked
-one, a package the lock lacks fails the run, and so does one the validator put in its cache while
-it ran.
+container with no network too), so it loads FHIR packages only from its package cache. Each run
+gets a cache of its own, holding only what it loads (the validator's own packages, US Core and
+each `--ig` package) and every package they need, from the tarballs `scripts/fhir_packages.lock`
+pins, each checked against its sha256 (`scripts/fhir_packages.py install`). That is how CI runs
+it: a package by name then resolves to the locked one, a package the lock lacks fails the run,
+and so does one the validator put in its cache while it ran. A resource that cites a canonical
+of a guide the run does not load (a Da Vinci operation in the US Core run) cannot pull that
+guide in, with another US Core it needs, for the files after it.
 """
 
 from __future__ import annotations
@@ -168,20 +171,22 @@ def run_validator(
     local = _mounted if docker else str
     loaded = [local(Path(ig)) if Path(ig).exists() else ig for ig in igs or []]
     args = [*ARGS, *([OFFLINE] if offline else []), *(p for ig in loaded for p in ("-ig", ig))]
-    cache = DOCKER_HOME / ".fhir/packages" if docker else fhir_packages.CACHE
-    before = _cached(cache)
     (ROOT / "var").mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=ROOT / "var") as scratch:
         out = Path(scratch) / "out.json"
         log = Path(scratch) / "validator.log"
+        # The package cache follows user.home (Java ignores HOME). Offline, the run has a cache
+        # of its own with only what it loads, so a resource that cites another package's
+        # canonical finds nothing more to load (scripts/fhir_packages.py, GUIDES).
+        home = Path(scratch) / "home" if offline else DOCKER_HOME if docker else Path.home()
+        cache = home / ".fhir" / "packages"
+        installed = _install(cache, igs or []) if offline else set()
+        command = ["java", f"-Duser.home={local(home)}", "-jar", local(JAR)]
         if docker:
-            home = _mounted(DOCKER_HOME)
-            command = ["docker", "run", "--rm", *(["--network", "none"] if offline else [])]
-            command += ["-v", f"{ROOT}:/work", "-e", f"HOME={home}"]
-            command += [IMAGE, "java", f"-Duser.home={home}", "-jar", _mounted(JAR)]
-            command += [*args, *map(_mounted, files), "-output", _mounted(out)]
-        else:
-            command = ["java", "-jar", str(JAR), *args, *map(str, files), "-output", str(out)]
+            network = ["--network", "none"] if offline else []
+            container = ["docker", "run", "--rm", *network, "-v", f"{ROOT}:/work"]
+            command = [*container, "-e", f"HOME={local(home)}", IMAGE, *command]
+        command += [*args, *map(local, files), "-output", local(out)]
         with log.open("wb") as handle:
             subprocess.run(command, check=False, stdout=handle, stderr=subprocess.STDOUT)
         if not out.exists():
@@ -189,14 +194,12 @@ def run_validator(
             print("\n".join(tail), file=sys.stderr)
             sys.exit("the validator produced no report; the end of its output is above")
         report = json.loads(out.read_text(encoding="utf-8"))
-    if offline:
-        locked = {package.ref for package in fhir_packages.read_lock()}
-        fetched = sorted(_cached(cache) - before - locked)
-        if fetched:
-            sys.exit(
-                f"the validator put {', '.join(fetched)} in its package cache ({cache}), which "
-                "scripts/fhir_packages.lock does not pin"
-            )
+        fetched = sorted(_cached(cache) - installed) if offline else []
+    if fetched:
+        sys.exit(
+            f"the validator put {', '.join(fetched)} in its package cache, which this run's "
+            "packages from scripts/fhir_packages.lock do not include"
+        )
     outcomes = [e["resource"] for e in report["entry"]] if "entry" in report else [report]
     issues: dict[str, list[dict[str, str]]] = {}
     for outcome, path in zip(outcomes, files, strict=True):
@@ -221,6 +224,37 @@ def run_validator(
 def _mounted(path: Path) -> str:
     """Where a file under the repository is in the container (mounted at /work)."""
     return f"/work/{path.resolve().relative_to(ROOT)}"
+
+
+def loads(igs: list[str]) -> list[str]:
+    """The packages a run loads, as `name#version`: the validator's own, US Core (`ARGS`) and
+    each `--ig` package (a tarball the lock pins, or `name#version`; a folder of resources is
+    none)."""
+    lock = fhir_packages.read_lock(fhir_packages.LOCK)
+    tarballs = {(fhir_packages.DOWNLOADS / p.tarball).resolve(): p.ref for p in lock}
+    found = [*fhir_packages.VALIDATOR_ROOTS]
+    found += [ARGS[i + 1] for i, arg in enumerate(ARGS) if arg == "-ig"]
+    for ig in igs:
+        if ig.endswith(".tgz"):
+            if Path(ig).resolve() not in tarballs:
+                sys.exit(f"--ig {ig}: not a tarball scripts/fhir_packages.lock pins")
+            found.append(tarballs[Path(ig).resolve()])
+        elif not Path(ig).is_dir():
+            found.append(ig)
+    return found
+
+
+def _install(cache: Path, igs: list[str]) -> set[str]:
+    """Put in `cache` what the run loads and every package that needs, from the tarballs the
+    lock pins, and return what it holds."""
+    try:
+        chosen = fhir_packages.install(
+            cache, fhir_packages.DOWNLOADS, fhir_packages.LOCK, fhir_packages.ROOTS, loads(igs)
+        )
+    except fhir_packages.LockError as error:
+        sys.exit(str(error))
+    print(f"package cache ({len(chosen)} locked packages): {', '.join(p.ref for p in chosen)}")
+    return {package.ref for package in chosen}
 
 
 def _cached(cache: Path) -> set[str]:

@@ -78,14 +78,23 @@ The first release (not yet published).
   what validator 6.10.4 loads by itself (R4 core, its terminology and extensions), and every
   package they need (US Core 3.1.1 and 7.0.0, HRex, SDC, THO and VSAC among them). The job
   `fhir-conformance` downloads each, checks it with `sha256sum -c` and fails on a mismatch, a
-  cached tarball too; it builds the validator's package cache from the checked tarballs
+  cached tarball too. Each validator run then gets a package cache of its own, built from the
+  checked tarballs with only what that run loads and what that needs
   (`scripts/fhir_packages.py install`, which also refuses a lock that misses a dependency or
-  holds a package nothing needs), and runs the validator with no HTTP access
-  (`scripts/fhir_validate.py --offline`), so the validator loads nothing else and the job fails
-  if it put another package in its cache. `--ig` takes a package tarball, and CI passes the Da
-  Vinci guides as tarballs; a test fails any workflow that names a package by version alone.
-  The job's cache key follows the lock. No version changes. `scripts/fhir_packages.py lock`
-  writes the lock again after a validator or guide version changes.
+  holds a package nothing needs), and runs with no HTTP access (`scripts/fhir_validate.py
+  --offline`), so the validator loads nothing else and the job fails if it put another package
+  in its cache. One cache for both runs would not do: a resource that cites a guide's canonical
+  makes the validator load that guide, and what it needs, for the files after it, so the
+  CapabilityStatement, which cites DTR 2.2.0's `$questionnaire-package`, would bring DTR's
+  tree, US Core 7.0.0 among it, into the US Core run. The US Core run's cache holds US Core
+  6.1.0 and what it needs, and nothing else; the CapabilityStatement is checked in the Da Vinci
+  run (`var/fhir-samples/davinci/capability.json`). `--ig` takes a package tarball, and CI
+  passes the Da Vinci guides as tarballs; a test fails any workflow that names a package by
+  version alone, the value on the next line or the flag in quotes too. The job's cache key
+  follows the lock. The guides' versions are as before, but for one: the CapabilityStatement's
+  DTR operation was checked against the newest DTR on the registry (3.0.1), and is now checked
+  against DTR 2.2.0, the version it cites. `scripts/fhir_packages.py lock` writes the lock again
+  after a validator or guide version changes.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.

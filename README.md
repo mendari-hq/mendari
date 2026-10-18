@@ -683,7 +683,9 @@ the audit export. Everything
 Mendari treats as conforming must pass it, and everything the in-process checks flag must
 fail it. The validator loads only the FHIR packages `scripts/fhir_packages.lock` pins, each
 downloaded from the FHIR package registries and checked against its sha256 (`sha256sum -c`), and
-runs with no HTTP access, so its verdict depends on nothing fetched by version alone.
+runs with no HTTP access, so its verdict depends on nothing fetched by version alone. Each run
+has a package cache of its own with only what it loads, so the US Core run checks against US
+Core 6.1.0 and no other version.
 `scripts/fhir_packages.py lock` writes the lock again after a validator or guide version changes.
 
 ## Documentation

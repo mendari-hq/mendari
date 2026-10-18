@@ -152,6 +152,8 @@ jobs:
     # terminology is loaded as a folder, so a code it emits that its CodeSystem lacks is an error.
     # The validator loads only the FHIR packages scripts/fhir_packages.lock pins, each checked
     # against its sha256, and runs with no HTTP access (--offline), so it can fetch nothing else.
+    # Each run has a package cache of its own with only what it loads, so the US Core run holds
+    # no other US Core and no Da Vinci guide for a canonical a resource cites to pull in.
     runs-on: ubuntu-latest
     env:
       VALIDATOR_VERSION: "6.10.4"
@@ -169,8 +171,8 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        # Only downloads, each checked against its sha256 below on every run; the validator's
-        # package cache (~/.fhir) is built afresh from them, so nothing unchecked is restored.
+        # Only downloads, each checked against its sha256 below on every run; each validator
+        # run's package cache is built afresh from them, so nothing unchecked is restored.
         with:
           path: |
             var/validator/validator_cli.jar
@@ -196,8 +198,6 @@ jobs:
             echo "${sha256}  $file" | sha256sum -c -
           done < <(grep -Ev '^(#|$)' scripts/fhir_packages.lock)
       - run: uv sync --locked
-      - name: Put the checked packages in the validator's package cache, the only place it loads them from
-        run: uv run python scripts/fhir_packages.py install
       - run: uv run python scripts/fhir_terminology.py var/fhir-terminology
       - run: uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
       - run: uv run python scripts/task_fhir_sample.py var/fhir-samples
@@ -210,6 +210,7 @@ jobs:
           --invalid tests/fixtures/us-core/invalid/*.json
       - run: uv run python scripts/davinci_sample.py var/fhir-samples/davinci
       - name: Da Vinci resources conform to their implementation guides
+        # With the CapabilityStatement (scripts/fhir_output_sample.py), which cites DTR's operation.
         run: >-
           uv run python scripts/fhir_validate.py --offline
           --ig var/fhir-terminology

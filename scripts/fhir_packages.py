@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """The FHIR packages the HL7 validator loads in CI, pinned by sha256 (`scripts/fhir_packages.lock`).
 
-    uv run python scripts/fhir_packages.py install [--cache DIR]
+    uv run python scripts/fhir_packages.py install [--cache DIR] [NAME#VERSION ...]
     uv run python scripts/fhir_packages.py lock
 
 `install` puts the package tarballs CI downloaded and checked with `sha256sum -c`
-(`var/fhir-packages/<name>-<version>.tgz`, job `fhir-conformance`) into the validator's package
-cache: `~/.fhir/packages` by default, `var/validator/cache/.fhir/packages` for
-`scripts/fhir_validate.py --docker`. Each goes where the validator would put it,
+(`var/fhir-packages/<name>-<version>.tgz`, job `fhir-conformance`) into a validator's package
+cache (`~/.fhir/packages` by default): the packages a run loads, given by name, and every
+package they need, or the whole lock. Each goes where the validator would put it,
 `<name>#<version>/`. Before it writes anything it checks each tarball's sha256 again, that the
 tarball is the package the lock names, and that the lock is exactly what `ROOTS` needs: every
 dependency of every locked package is locked (a core package aside, which the validator never
 loads as a dependency), and every locked package is needed. `scripts/fhir_validate.py --offline`
-then runs the validator with no HTTP access, so it loads these packages and nothing else.
+does this for each run, in a cache of the run's own, and runs the validator with no HTTP
+access, so it loads what that run needs and nothing else.
 
 `lock` writes the lock again after a change to `ROOTS` (a validator or guide version). It
 downloads every package of the closure from packages.fhir.org, else packages2.fhir.org, to read
@@ -47,10 +48,10 @@ REGISTRIES = (
 )
 # The validator release `ROOTS` was read from (ci.yml's VALIDATOR_VERSION must match).
 VALIDATOR = "6.10.4"
-ROOTS = (
-    # What the validator loads by itself (ValidationEngine and ValidationService at its tag): the
-    # R4 definitions for `-version 4.0.1`, the cross-version extensions, and its working versions
-    # of the terminology and the extensions.
+# What the validator loads by itself (ValidationEngine and ValidationService at its tag): the R4
+# definitions for `-version 4.0.1`, the cross-version extensions, and its working versions of
+# the terminology and the extensions.
+VALIDATOR_ROOTS = (
     "hl7.fhir.r4.core#4.0.1",
     "hl7.fhir.xver-extensions#0.1.0",
     "hl7.terminology.r4#6.2.0",
@@ -59,12 +60,21 @@ ROOTS = (
     # in its cache. These are the newest of 2026-10-18.
     "hl7.terminology#7.4.0",
     "hl7.fhir.uv.extensions#5.3.0",
-    # US Core (`ARGS` in scripts/fhir_validate.py) and the Da Vinci guides (ci.yml).
+)
+# The guides it is told to load: US Core (`ARGS` in scripts/fhir_validate.py) and the Da Vinci
+# guides (ci.yml). While it validates, it also loads by canonical: a resource that cites a
+# canonical of a package it has not loaded (`...|2.2.0` or not) makes it load the newest version
+# of that package in its cache, with everything that package needs, for every file after that
+# one. So each run gets a cache of its own, with only what that run loads
+# (`scripts/fhir_validate.py --offline`): the US Core run's holds US Core 6.1.0 and what it needs,
+# no other US Core and no Da Vinci guide, and a profile it cites resolves to US Core 6.1.0's.
+GUIDES = (
     "hl7.fhir.us.core#6.1.0",
     "hl7.fhir.us.davinci-crd#2.2.1",
     "hl7.fhir.us.davinci-dtr#2.2.0",
     "hl7.fhir.us.davinci-pas#2.2.1",
 )
+ROOTS = (*VALIDATOR_ROOTS, *GUIDES)
 # The validator never loads a core package as a dependency (VersionUtilities.isCorePackage): it
 # loads hl7.fhir.r4.core itself, as the definitions, and no other.
 CORE = frozenset(
@@ -88,11 +98,12 @@ HEADER = """\
 # One package per line: its name, its version, the sha256 of its tarball, and the URL CI
 # downloads it from (packages.fhir.org; packages2.fhir.org for what only it serves).
 # CI checks each download with `sha256sum -c` and fails on a mismatch. Then
-# `scripts/fhir_packages.py install` puts them in the validator's package cache, and the
-# validator runs with no HTTP access (`scripts/fhir_validate.py --offline`): it loads these
-# packages and nothing else. The list is what `ROOTS` in scripts/fhir_packages.py needs, with
-# every dependency of theirs (core packages aside, which the validator never loads as a
-# dependency); `install` refuses a lock that is not exactly that.
+# `scripts/fhir_validate.py --offline` gives each validator run a package cache of its own,
+# with what that run loads and every package that needs (`scripts/fhir_packages.py install`),
+# and runs the validator with no HTTP access: it loads these packages and nothing else. The
+# list is what `ROOTS` in scripts/fhir_packages.py needs, with every dependency of theirs (core
+# packages aside, which the validator never loads as a dependency); `install` refuses a lock
+# that is not exactly that.
 # Written by `uv run python scripts/fhir_packages.py lock`; do not edit by hand.
 """
 
@@ -177,6 +188,18 @@ def dependencies(found: dict[str, Any]) -> set[str]:
     return {f"{name}#{version}" for name, version in declared.items() if name not in CORE}
 
 
+def closure(manifests: dict[str, dict[str, Any]], roots: Iterable[str]) -> set[str]:
+    """`roots` and every package they need, of the packages in `manifests` (by `name#version`)."""
+    reached: set[str] = set()
+    queue = [root for root in roots if root in manifests]
+    while queue:
+        ref = queue.pop()
+        if ref not in reached:
+            reached.add(ref)
+            queue.extend(d for d in dependencies(manifests[ref]) if d in manifests)
+    return reached
+
+
 def closure_problems(
     manifests: dict[str, dict[str, Any]], roots: Iterable[str] = ROOTS
 ) -> list[str]:
@@ -189,16 +212,9 @@ def closure_problems(
     for ref, found in sorted(manifests.items()):
         for needed in sorted(dependencies(found) - set(manifests)):
             problems.append(f"{ref} needs {needed}, which the lock does not pin")
-    reached: set[str] = set()
-    queue = [root for root in roots if root in manifests]
-    while queue:
-        ref = queue.pop()
-        if ref not in reached:
-            reached.add(ref)
-            queue.extend(d for d in dependencies(manifests[ref]) if d in manifests)
     problems += [
         f"{ref} is in the lock but nothing in ROOTS needs it"
-        for ref in sorted(set(manifests) - reached)
+        for ref in sorted(set(manifests) - closure(manifests, roots))
     ]
     return problems
 
@@ -249,19 +265,33 @@ def extract(data: bytes, target: Path) -> None:
 
 
 def install(
-    cache: Path, downloads: Path = DOWNLOADS, lock: Path = LOCK, roots: Iterable[str] = ROOTS
-) -> int:
-    """Put the locked packages in `cache`, once every check has passed."""
+    cache: Path,
+    downloads: Path = DOWNLOADS,
+    lock: Path = LOCK,
+    roots: Iterable[str] = ROOTS,
+    loads: Iterable[str] | None = None,
+) -> list[Package]:
+    """Put in `cache` what a validator run `loads` (`name#version`; by default `roots`, so the
+    whole lock) and every package that needs, once every check has passed. Returns what it
+    put there."""
     packages = read_lock(lock)
     # Everything is checked before anything is written; each tarball is read (and checked)
     # again as it is unpacked.
-    problems = closure_problems({p.ref: verified(p, downloads)[1] for p in packages}, roots)
+    manifests = {p.ref: verified(p, downloads)[1] for p in packages}
+    roots = tuple(roots)
+    loads = roots if loads is None else tuple(loads)
+    problems = closure_problems(manifests, roots) + [
+        f"the run loads {ref}, which the lock does not pin"
+        for ref in loads
+        if ref not in manifests and ref not in roots  # a root is said to be missing above
+    ]
     if problems:
         raise LockError("\n".join(problems))
-    for package in packages:
+    needed = closure(manifests, loads)
+    chosen = [package for package in packages if package.ref in needed]
+    for package in chosen:
         extract(verified(package, downloads)[0], cache / package.ref)
-    print(f"{len(packages)} packages in {cache}, each the tarball {lock.name} pins")
-    return 0
+    return chosen
 
 
 def fetch_from_registries(name: str, version: str) -> tuple[bytes, str]:
@@ -323,11 +353,16 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     install_command = commands.add_parser("install", help="the locked packages into the cache")
     install_command.add_argument("--cache", type=Path, default=CACHE, help=f"default {CACHE}")
+    install_command.add_argument(
+        "loads", nargs="*", help="what the run loads, as name#version (default: the whole lock)"
+    )
     commands.add_parser("lock", help="write the lock again from the registries")
     args = parser.parse_args(argv)
     try:
         if args.command == "install":
-            return install(args.cache, DOWNLOADS, LOCK, ROOTS)
+            chosen = install(args.cache, DOWNLOADS, LOCK, ROOTS, args.loads or None)
+            print(f"{len(chosen)} packages in {args.cache}, each the tarball {LOCK.name} pins")
+            return 0
         return lock(DOWNLOADS, LOCK)
     except LockError as error:
         print(error, file=sys.stderr)

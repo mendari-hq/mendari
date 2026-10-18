@@ -393,8 +393,11 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
 # -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------
 
 PACKAGE_LOCK = ROOT / "scripts" / "fhir_packages.lock"
-# `--ig VALUE` to scripts/fhir_validate.py, or `-ig VALUE` (`-defn`) to the validator itself.
-IG_ARGUMENT = re.compile(r"(?<!\S)(?:--ig|-ig|-defn)(?:=|\s+)[\"']?([^\s\"']+)")
+# `--ig VALUE` to scripts/fhir_validate.py, or `-ig VALUE` (`-defn`) to the validator itself,
+# the flag quoted or not, the value after `=` or a space, quoted or not.
+IG_ARGUMENT = re.compile(r"(?<!\S)[\"']?(?:--ig|-ig|-defn)[\"']?(?:=|\s+)[\"']?([^\s\"']+)")
+# The shell joins a line that ends in a backslash with the next one.
+CONTINUED = re.compile(r"\\\r?\n")
 
 
 def _locked_tarballs() -> set[str]:
@@ -408,7 +411,7 @@ def _unpinned_igs(script: str, locked: set[str]) -> list[str]:
     knows, or a tarball the lock does not name. A folder of resources is the repository's own."""
     return [
         value
-        for value in IG_ARGUMENT.findall(script)
+        for value in IG_ARGUMENT.findall(CONTINUED.sub(" ", script))
         if "#" in value or "$" in value or (value.endswith(".tgz") and value not in locked)
     ]
 
@@ -440,13 +443,27 @@ def test_the_package_check_catches_a_package_by_name() -> None:
         "x --ig var/fhir-terminology --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz",
         locked,
     )
+    # The value on the next line, after a backslash, and a quoted flag.
+    continued = "uv run python scripts/fhir_validate.py --offline \\\n  --ig \\\n  {}\n"
+    assert _unpinned_igs(continued.format("hl7.fhir.us.davinci-crd#2.2.1"), locked) == [
+        "hl7.fhir.us.davinci-crd#2.2.1"
+    ]
+    assert _unpinned_igs("x --ig \\\r\n hl7.fhir.us.core#6.1.0", locked)
+    assert not _unpinned_igs(continued.format(next(iter(locked))), locked)
+    assert _unpinned_igs('java -jar v.jar "-ig" "hl7.fhir.us.core#6.1.0"', locked) == [
+        "hl7.fhir.us.core#6.1.0"
+    ]
+    assert _unpinned_igs("x '--ig' hl7.fhir.us.core#6.1.0", locked)
+    assert _unpinned_igs("x '--ig=hl7.fhir.us.core#6.1.0'", locked)
+    assert not _unpinned_igs("x --ignore a#1 --igloo b#2", locked)  # not the flag
 
 
 def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     """The fhir-conformance job downloads each package the lock pins and checks it with
-    `sha256sum -c`, every run (a cached tarball too), then builds the validator's package cache
-    from them, before the validator first runs. Its cache key follows the lock, and the
-    validator's package cache itself is never restored."""
+    `sha256sum -c`, every run (a cached tarball too), before the validator first runs; each
+    validator run then builds a package cache of its own from them (`--offline`), so no step
+    fills a cache the runs share. Its cache key follows the lock, and no validator's package
+    cache is ever restored."""
     job = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
     steps = job["steps"]
     (cache,) = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
@@ -461,10 +478,10 @@ def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     assert 'curl -sSfL --retry 3 -o "$file" "$url"' in script
     assert 'echo "${sha256}  $file" | sha256sum -c -' in script
     assert script.index("fi\n") < script.index("sha256sum -c")  # checked, downloaded or cached
-    (install,) = [i for i, run in enumerate(runs) if "scripts/fhir_packages.py" in run]
-    assert runs[install] == "uv run python scripts/fhir_packages.py install"
+    assert not [run for run in runs if "scripts/fhir_packages.py" in run]
     validations = [i for i, run in enumerate(runs) if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2 and download < install < min(validations)
+    assert len(validations) == 2 and download < min(validations)
+    assert all("--offline" in runs[i].split() for i in validations)
     # The validator these packages were read from is the one the job downloads.
     lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
     assert f'VALIDATOR = "{job["env"]["VALIDATOR_VERSION"]}"' in lock_script
