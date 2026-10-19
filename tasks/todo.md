@@ -811,7 +811,7 @@ Connect) is not supported yet.
     `cds_claims`; the session table keys a lone surrogate (`_session_key`, every older key
     unchanged); `cds_issued_at` folded into `cds_claims` and `cds_not_yet_valid`. Open mode still
     answers on any host until 23c.
-  - [x] **23c** (this PR) Open mode answers CDS Hooks on this machine or under the sandbox flag
+  - [x] **23c** (#269) Open mode answers CDS Hooks on this machine or under the sandbox flag
     only; CORS for registered origins. `server/cds_clients.py`: `on_this_machine` (a loopback
     `client_ip`, IPv4-mapped included; no `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or
     `X-Real-IP`; one `Host` naming this machine), `CdsOpenMode`, and `cds_sandbox`
