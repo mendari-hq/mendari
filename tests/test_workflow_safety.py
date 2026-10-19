@@ -29,8 +29,9 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch", "schedule"}
 # A schedule runs the default branch's own workflow and code, no one's input: only the weekly scan
-# of every ref and the sweep of Neon preview branches no pull request needs use one.
-SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml"}
+# of every ref, the sweep of Neon preview branches no pull request needs and the weekly Inferno
+# conformance run use one.
+SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml", "conformance.yml"}
 # The only write permissions, each on a job that publishes from its own environment in a
 # workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
 # their environments must have reviewers) and the docs deploy (`github-pages`, which allows only
@@ -388,6 +389,37 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
     assert build["steps"][0]["with"]["fetch-depth"] == 0
     runs = [step.get("run", "") for step in build["steps"]]
     assert runs.index(SCAN["run"]) < runs.index("uv build")
+
+
+def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing() -> None:
+    """conformance.yml (sandbox/inferno/README.md): Inferno against the open engine on synthetic
+    data, never on a pull request, with a read-only token and no secret. The checker's verdict
+    is the job's: only Inferno's own exit status (3 when a test does not pass) is set aside, and
+    the raw output, which can quote payloads, is an artifact for 7 days, never committed."""
+    path = ROOT / ".github" / "workflows" / "conformance.yml"
+    workflow = _workflow(path)
+    assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    text = path.read_text()
+    for unwanted in (r"secrets\.", r"git (push|commit)", r"\bgh\s", "continue-on-error"):
+        assert not re.search(unwanted, text), unwanted
+    (job,) = workflow["jobs"].values()
+    assert "permissions" not in job and "if" not in job
+    steps = job["steps"]
+    (execute,) = [s for s in steps if "inferno execute" in s.get("run", "")]
+    assert "--groups 1 3 4" in execute["run"]  # group 2, Backend Services, waits for LP-23
+    assert execute["run"].rstrip().endswith('|| echo "inferno execute exited $?"')
+    (verdict,) = [s for s in steps if "inferno_check.py" in s.get("run", "")]
+    assert "if" not in verdict and "||" not in verdict["run"]
+    assert "--expected sandbox/inferno/dtr_payer_server_v220_expected.json" in verdict["run"]
+    assert steps.index(execute) < steps.index(verdict)
+    (upload,) = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
+    assert upload["with"]["path"] == "var/inferno/" and upload["with"]["retention-days"] <= 7
+    assert "/var/" in (ROOT / ".gitignore").read_text().splitlines()  # never committed
+    assert steps[-1] == {
+        "if": "always()",
+        "run": "docker compose -f sandbox/inferno/docker-compose.yml down --volumes",
+    }
 
 
 # -- the pack workflow ----------------------------------------------------------------------------
