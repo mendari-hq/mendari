@@ -13,13 +13,21 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-COMPOSE_FILES = [ROOT / "docker-compose.yml", ROOT / "deploy" / "onprem" / "docker-compose.yml"]
+INFERNO = ROOT / "sandbox" / "inferno"
+COMPOSE_FILES = [
+    ROOT / "docker-compose.yml",
+    ROOT / "deploy" / "onprem" / "docker-compose.yml",
+    INFERNO / "docker-compose.yml",
+]
+# Each Dockerfile, with the least number of FROM lines it has (the engine's is multi-stage).
+DOCKERFILES = {ROOT / "Dockerfile": 2, INFERNO / "Dockerfile": 1}
 
 COMMIT_PIN = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 # The comment Dependabot keeps in step with the SHA, and the only way a reader sees the version.
@@ -124,7 +132,7 @@ def _docker_built_tags(script: str) -> set[str]:
 
 def test_the_workflows_and_files_are_there() -> None:
     names = {p.name for p in WORKFLOWS}
-    assert {"ci.yml", "release.yml", "packs.yml"} <= names
+    assert {"ci.yml", "release.yml", "packs.yml", "conformance.yml"} <= names
     assert "images.yml" not in names  # images are published by release.yml, after its build
     assert all(p.exists() for p in COMPOSE_FILES)
 
@@ -278,10 +286,11 @@ def test_every_compose_image_is_pinned_by_digest(path: Path) -> None:
         assert DIGEST_PIN.search(image), f"{path.name}: {name} uses {image}"
 
 
-def test_every_dockerfile_base_is_pinned_by_digest() -> None:
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_dockerfile_base_is_pinned_by_digest(path: Path) -> None:
     stages: set[str] = set()
     froms = 0
-    for line in (ROOT / "Dockerfile").read_text().splitlines():
+    for line in path.read_text().splitlines():
         words = line.split()
         if words[:1] == ["FROM"]:
             froms += 1
@@ -292,7 +301,102 @@ def test_every_dockerfile_base_is_pinned_by_digest() -> None:
         if words[:1] == ["COPY"] and words[1].startswith("--from="):
             source = words[1].removeprefix("--from=")
             assert source in stages or DIGEST_PIN.search(source), line
-    assert froms >= 2
+    assert froms >= DOCKERFILES[path]
+
+
+def _gem_specs(lock: str, section: str, indent: int) -> list[str]:
+    """The lines a Gemfile.lock section lists at one indent: each gem's `name (version)`, with
+    its checksum in CHECKSUMS."""
+    block = lock.split(f"\n{section}\n", 1)[1].split("\n\n", 1)[0]
+    return [line.strip() for line in block.splitlines() if re.match(rf"^ {{{indent}}}\S", line)]
+
+
+def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -> None:
+    """The Inferno kit publishes no image and its own Dockerfile pins nothing (LP-23 reuses this
+    one): its source is fetched by commit SHA and checked against it, Bundler is checked against
+    its sha256 before it is installed, and every gem is installed from Mendari's Gemfile.lock,
+    whose CHECKSUMS Bundler checks (a changed sha256 fails the build), frozen."""
+    dockerfile = (INFERNO / "Dockerfile").read_text()
+    commit = re.search(r"^ARG KIT_COMMIT=([0-9a-f]{40})$", dockerfile, re.M)
+    assert commit is not None
+    for line in (
+        'git fetch --quiet --depth 1 "$KIT_REPOSITORY" "$KIT_COMMIT"',
+        'test "$(git rev-parse HEAD)" = "$KIT_COMMIT"',
+        'echo "${BUNDLER_SHA256}  /tmp/bundler.gem" | sha256sum -c -',
+        "gem install --local --no-document /tmp/bundler.gem",
+        "BUNDLE_FROZEN=true",
+        "COPY Gemfile.lock ./Gemfile.lock",
+    ):
+        assert line in dockerfile, line
+    assert re.search(r"^ARG BUNDLER_SHA256=[0-9a-f]{64}$", dockerfile, re.M)
+    assert "gem install bundler" not in dockerfile  # never an unchecked download
+    bundler = re.search(r"^ARG BUNDLER_VERSION=(\S+)$", dockerfile, re.M)
+    assert bundler is not None
+    lock = (INFERNO / "Gemfile.lock").read_text()
+    assert lock.rstrip().endswith(f"BUNDLED WITH\n   {bundler[1]}")
+    gems = _gem_specs(lock, "GEM\n  remote: https://rubygems.org/\n  specs:", 4)
+    listed = _gem_specs(lock, "CHECKSUMS", 2)
+    checked = dict(line.rsplit(" sha256=", 1) for line in listed if " sha256=" in line)
+    assert len(gems) > 100 and set(gems) == set(checked)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in checked.values())
+    # The only gem without a checksum is the kit itself, fetched by commit above.
+    assert [line for line in listed if " sha256=" not in line] == ["davinci_dtr_test_kit (0.18.0)"]
+    # Linux only: the images CI builds (amd64) and a local run on Apple silicon (arm64).
+    platforms = lock.split("\nPLATFORMS\n", 1)[1].split("\n\n", 1)[0].split()
+    assert platforms == ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"]
+
+
+def test_the_inferno_kit_validates_without_a_terminology_server() -> None:
+    """No resource Inferno validates goes to tx.fhir.org, the kit's default
+    (sandbox/inferno/README.md, "What leaves the machine"): the image puts
+    offline_terminology.rb at the top of the kit's lib/, where Inferno loads it at boot, after
+    the kit, and the override takes the terminology server from every validator of every suite,
+    group and test."""
+    copies = [
+        line.split()[1:]
+        for line in (INFERNO / "Dockerfile").read_text().splitlines()
+        if line.split()[:1] == ["COPY"]
+    ]
+    (target,) = [words[-1] for words in copies if words[0] == "offline_terminology.rb"]
+    assert re.fullmatch(r"lib/[\w.-]+\.rb", target), target
+    override = (INFERNO / "offline_terminology.rb").read_text()
+    assert "require_relative 'davinci_dtr_test_kit'" in override  # the kit's validators first
+    kinds = re.search(r"^\[(.+)\]\.each do \|kind\|$", override, re.M)
+    assert kinds is not None
+    entities = {f"Inferno::Entities::{kind}" for kind in ("TestSuite", "TestGroup", "Test")}
+    assert {kind.strip() for kind in kinds[1].split(",")} == entities
+    assert "kind.descendants.each do |runnable|" in override
+    assert "validator.validation_context { txServer nil }" in override
+
+
+def test_the_inferno_harness_reaches_only_its_own_services() -> None:
+    """Inferno is given only the compose file's own addresses (sandbox/inferno/README.md): each
+    URL it is configured with names one of the file's services, INFERNO_HOST is the internal
+    nginx, and the ONC reference server, which the payer suite does not use, is a dead loopback
+    URL. What is published binds this machine only, and the engine runs open on synthetic data,
+    PHI mode off, with no credential of any kind."""
+    services = yaml.safe_load((INFERNO / "docker-compose.yml").read_text())["services"]
+    loopback = {"127.0.0.1", "localhost", "::1"}
+    for name, service in services.items():
+        assert not {"network_mode", "env_file", "secrets", "extra_hosts"} & set(service), name
+        for port in service.get("ports", []):
+            assert isinstance(port, str) and port.startswith("127.0.0.1:"), (name, port)
+    for name in ("inferno", "worker"):
+        environment = services[name]["environment"]
+        urls = {key: urlsplit(str(value)) for key, value in environment.items() if "://" in value}
+        assert {"INFERNO_HOST", "FHIR_REFERENCE_SERVER"} <= set(urls), name
+        for key, url in urls.items():
+            assert url.hostname in set(services) | loopback, (name, key, url.geturl())
+        assert urls["INFERNO_HOST"].hostname == "nginx"
+        reference = urls["FHIR_REFERENCE_SERVER"]
+        assert reference.hostname in loopback and reference.port == 9  # discard: no listener
+    engine = services["engine"]
+    assert engine["build"] == {"context": "../.."}  # the repository's own Dockerfile
+    # Open mode, PHI mode off: nothing that turns sign-in on or carries a key, token or secret.
+    environment = engine["environment"]
+    assert set(environment) == {"MENDARI_PHI_MODE", "MENDARI_PACKS", "MENDARI_PUBLIC_URL"}
+    assert environment["MENDARI_PHI_MODE"] == "off"
+    assert urlsplit(environment["MENDARI_PUBLIC_URL"]).hostname == "engine"
 
 
 def test_the_image_installs_exactly_the_lock() -> None:
@@ -350,7 +454,8 @@ def test_every_download_is_checked_against_a_pinned_sha256(path: Path) -> None:
 def test_the_download_scan_finds_the_validator() -> None:
     ci = ROOT / ".github" / "workflows" / "ci.yml"
     found = {target for script in _scripts(ci) for target in _downloads(script)}
-    assert found == {"var/validator/validator_cli.jar"}
+    # And `$file`: each FHIR package scripts/fhir_packages.lock pins, in a loop over its lines.
+    assert found == {"var/validator/validator_cli.jar", "$file"}
     assert list(_downloads("curl -sf http://127.0.0.1:8000/api/health > /dev/null")) == []
 
 
