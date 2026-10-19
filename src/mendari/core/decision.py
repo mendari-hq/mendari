@@ -75,6 +75,10 @@ class DecisionResult:
     # Base R4 and US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths,
     # no values.
     input_issues: tuple[dict[str, str], ...] = ()
+    # What a FHIR decision looked for in the record and found (`standards/data_coverage.py`,
+    # `mendari.data-coverage/1`): counts, reason codes and the pack's own words, never a value.
+    # None for a decision on JSON input.
+    data_coverage: dict[str, Any] | None = None
     # Why the input was refused before any provider ran (`$decide` reports these as failure).
     # In memory only: not in `to_dict`, so the audit record keeps its shape.
     rejected: bool = field(default=False, compare=False)
@@ -86,6 +90,17 @@ class DecisionResult:
     # Its remote calls by provider type (`providers.base.Meter`), for the usage ledger
     # (`AuditStore.record`). In memory only, like `rejected`.
     usage: Mapping[str, Metered] = field(default_factory=dict, compare=False)
+    # The parts of a FHIR record that could not be read, as (key, reason) pairs, sorted: a
+    # prefetch key or a mapped field, and a `ReadReason`. A decision with any abstains unless
+    # its input is refused (`decide`). In memory only, like `rejected`; the reasons and the
+    # data-coverage record say the same in the record.
+    unreadable: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+
+    @property
+    def abstained_unreadable(self) -> bool:
+        """An ABSTAIN because part of the record could not be read (a CDS card always shows
+        it, and CRD says `indeterminate`)."""
+        return self.outcome is Outcome.ABSTAIN and bool(self.unreadable)
 
     @property
     def confidence(self) -> float | None:
@@ -117,6 +132,7 @@ class DecisionResult:
             "input_hash": self.input_hash,
             "governance": self.governance,
             "input_issues": list(self.input_issues),
+            "data_coverage": self.data_coverage,
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -393,10 +409,20 @@ class Decision:
         input_issues: Sequence[Mapping[str, str]] = (),
         rejected: Sequence[str] = (),
         labels: Mapping[str, str] | None = None,
+        unreadable: Sequence[tuple[str, str]] = (),
+        data_coverage: Mapping[str, Any] | None = None,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
         `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
-        `labels` says how the stored record names the resources they name (`to_record`)."""
+        `labels` says how the stored record names the resources they name (`to_record`).
+
+        `unreadable` names the parts of a FHIR record that could not be read, as (key, reason)
+        pairs (`errors.ReadReason`). Input that is refused still BLOCKs; otherwise the decision
+        is ABSTAIN, before any provider runs, its reasons `could not read <key>: <reason>`, and
+        recorded like any other (LP-23d). `data_coverage` is the FHIR decision's record of what
+        it looked for and found (`standards/data_coverage.py`), kept as given."""
+        unread = tuple(sorted(set(unreadable)))
+        unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
         manifest = self.pack.manifest
         if self.store is not None and manifest.audit.store_input == "full":
@@ -452,7 +478,19 @@ class Decision:
                     outcome=Outcome.BLOCK,
                     recommendation=None,
                     priority=manifest.policy.default_priority,
-                    reasons=tuple(f"input rejected: {problem}" for problem in problems),
+                    reasons=(
+                        *(f"input rejected: {problem}" for problem in problems),
+                        *unread_reasons,
+                    ),
+                )
+            elif unread:
+                # Part of the record could not be read: a person decides, and no provider is
+                # asked about a record known to be incomplete (policy only lowers automation).
+                policy = PolicyResult(
+                    outcome=Outcome.ABSTAIN,
+                    recommendation=None,
+                    priority=manifest.policy.default_priority,
+                    reasons=unread_reasons,
                 )
             else:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
@@ -527,17 +565,24 @@ class Decision:
             input_hash=hashed,
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
+            data_coverage=None if data_coverage is None else dict(data_coverage),
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
             labels=dict(labels or {}),
             usage=meter.totals(),
+            unreadable=unread,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
         return result
 
     def decide_fhir(
-        self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
+        self,
+        resources: Mapping[str, Any],
+        *,
+        focus: Mapping[str, Any] | None = None,
+        unreadable: Mapping[str, str] | None = None,
+        sources: Mapping[str, str] | None = None,
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
@@ -546,11 +591,28 @@ class Decision:
         malformed primitive) raises `FhirStructureError` whatever the mode. A complex element R4
         requires, a code outside its required value set, and US Core's own rules are issues under
         `fhir_validation`: under `warn` they are recorded in the result; under `enforce` an error
-        blocks the input before any provider."""
-        from mendari.standards import fhir_structure, us_core
+        blocks the input before any provider.
+
+        `unreadable` names the prefetch keys that could not be read, each with its reason
+        (`errors.ReadReason`), and `sources` the prefetch templates they were read with (the
+        pack's own by default), so a required resource whose read failed is not refused as
+        missing. A key that still holds what the client sent (a value that is not a resource)
+        excuses nothing: a required resource it does not hold is refused, as before. Those keys,
+        and a note whose data does not decode or that is only a link, make the decision ABSTAIN
+        unless its input is refused (`decide`). The result carries its data-coverage record
+        (`standards/data_coverage.py`) in every case."""
+        from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
+        failed = dict(unreadable or {})
+        hooks = self.pack.manifest.cds_hooks
+        templates = dict(sources if sources is not None else (hooks.prefetch if hooks else {}))
+        excused = {
+            data_coverage.source_type(templates[key])
+            for key in failed
+            if key in templates and resources.get(key) is None
+        }
         given = resources if focus is None else [resources, focus]
         base = fhir_structure.check(given)
         malformed = fhir_structure.blocking(base)
@@ -564,7 +626,7 @@ class Decision:
         issues = []
         if self.fhir_validation != "off":
             issues = fhir_structure.merge(base, us_core.validate(given))
-        indexed = adapter.index(resources, focus=focus)
+        indexed = adapter.index(resources, focus=focus, excused=excused)
         rejected = []
         if self.fhir_validation == "enforce":
             rejected = [
@@ -572,11 +634,25 @@ class Decision:
                 f"{issue.diagnostics}"
                 for issue in us_core.errors(issues)[:10]
             ]
+        notes = data_coverage.unreadable_notes(adapter.mapping, indexed)
+        unread = [
+            *failed.items(),
+            *((field, reason) for field, counts in notes.items() for reason in counts),
+        ]
+        coverage = data_coverage.measure(
+            adapter.mapping,
+            indexed,
+            unreadable=failed,
+            systems=[use.url for use in self.pack.manifest.code_systems],
+            sources=templates,
+        )
         result = self.decide(
             adapter.to_input(indexed),
             input_issues=[issue.to_dict() for issue in issues],
             rejected=rejected,
             labels=us_core.record_labels(given, issues),
+            unreadable=unread,
+            data_coverage=coverage,
         )
         return result, adapter.to_task(result, indexed)
 

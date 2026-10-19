@@ -27,6 +27,24 @@ ProviderErrorCode = Literal[
 DERIVED_INPUT_UNAVAILABLE = "derived_input_unavailable"
 # Every code a decision may record a question's failure under.
 FAILURE_CODES = frozenset({*get_args(ProviderErrorCode), DERIVED_INPUT_UNAVAILABLE})
+# Why part of a FHIR record could not be read (LP-23d): a closed set, held by its type, so a
+# decision's reasons and its data-coverage record (`standards/data_coverage.py`) name one of
+# these and never a URL, a query or what a server answered.
+ReadReason = Literal[
+    "cap",  # more than the reads or pages a decision may make
+    "http_status",  # the server answered with an error status, or redirected
+    "network",  # the server could not be reached
+    "not_fetched",  # data held only by a link (a note's `url`), not read
+    "not_json",  # the answer was not a JSON object
+    "not_r4",  # a resource Mendari read failed the structural R4 check
+    "off_server",  # a request or link that left the server's base URL
+    "operation_outcome",  # an OperationOutcome where the data belongs
+    "timeout",  # the answer did not arrive in time
+    "too_large",  # the answer was over the size cap
+    "unauthorized",  # the server refused the token (401 or 403)
+    "undecodable",  # data present that does not decode (a note's base64 that is not text)
+    "unsupported_type",  # a resource of another type than the one asked for
+]
 
 
 class MendariError(Exception):
@@ -101,11 +119,20 @@ class GradingRefused(MendariError):
 class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when
-    it answered with one (a `401`: the token it was sent no longer works)."""
+    it answered with one (a `401`: the token it was sent no longer works); `reason` why a read
+    failed, when it is one (`standards/fhir_client.py` sets it at each raise)."""
 
-    def __init__(self, *args: object, status: int | None = None):
+    def __init__(self, *args: object, status: int | None = None, reason: ReadReason | None = None):
         self.status = status
+        self.reason: ReadReason | None = reason
         super().__init__(*args)
+
+
+class PrefetchRequired(FhirError):
+    """A CDS Hooks request that leaves out prefetch the service needs, with no `fhirServer` to
+    read it from: a `412`, as CDS Hooks 2.0 says (the client sends the prefetch, or a server to
+    read it from). A read that fails from a server that is given is no error: the decision
+    abstains (LP-23d)."""
 
 
 class FhirStructureError(FhirError):

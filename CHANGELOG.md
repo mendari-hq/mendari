@@ -40,6 +40,67 @@ The first release (not yet published).
   golden pins how the four packs with a FHIR mapping decide each of their synthetic FHIR cases
   today, input hash included (`scripts/fhir_decisions_golden.py`,
   `tests/fixtures/fhir/decisions-golden.json`), for the LP-23 steps that change the FHIR path.
+- **An EHR calls CDS Hooks with its own signed token** (LP-23b, ADR-0014). Register the EHR in
+  `MENDARI_CDS_CLIENTS`, a JSON list checked at startup: its `iss`, organization, the FHIR bases
+  it may send as `fhirServer` and its public keys, by value or from one `jwks_uri` on
+  `MENDARI_FHIR_ALLOWED_SERVERS` (kept an hour, fetched again at most once a minute, by each
+  instance, for a `kid` it does not know). `MENDARI_PUBLIC_URL` must be set. A token is verified
+  in full (RS384 or ES384; a header of `alg`, `kid`, `typ` and `jku` only, `jku` the registered
+  URL exactly; `aud` the public URL plus the path called; `exp`, `iat` and a `jti` used once, at
+  most 330 seconds; a pinned `sub` and `tenant`), and becomes the principal `cds:<id>` of the registered
+  organization, which lists and calls the CDS services and reaches nothing else, sends only its
+  registered `fhirServer` (else `403`, before anything is fetched), and is rate limited and
+  capped like any principal. Its decisions are chained as asked for by `cds <id>`. Every token
+  that does not verify is one `401`, its reason in the security log (`cds_<reason>`), and its
+  `jti` is claimed only after every check, the organization's record and the route's permission
+  included. **A change for open mode:** a JWT on `/cds-services` is now verified there too, and
+  refused without a registry, where before it was never read and a forged one got cards; a call
+  with no credential is answered as before, and off `/cds-services` open mode still reads no
+  credential. `AuditStore.smart_claim` now deletes up to 100 expired session-table rows, as each
+  put does, and the session table keys any string, a lone surrogate in a `jti` included (every
+  key made before is unchanged). Two fixes found on the way, each a `500` before: a JWK Set whose
+  `kty` or `key_ops` is of the wrong JSON type is refused as any bad key set is (a `422` when a
+  Backend Services client is registered), and a FHIR server's answer nested too deep to read is
+  refused as invalid JSON. See [Connecting an EHR](docs/guides/connecting-an-ehr.md).
+- **A hook that always answers (LP-23d; two changes in behaviour).** A CDS Hooks service reads
+  each prefetch key on its own. When a key cannot be read (a failed read with its reason:
+  `network`, `timeout`, `http_status`, `unauthorized`, `not_json`, `too_large`, `off_server`, a
+  search past the page cap `cap`; an OperationOutcome sent or read, `operation_outcome`; a
+  resource or search page Mendari read that is not R4 JSON, `not_r4`, or not the type asked
+  for, `unsupported_type`), the decision is ABSTAIN before any provider runs, its reasons
+  `could not read <key>: <reason>`, never a URL, a query or what a server answered. The hook
+  answers `200` instead of the `422` it gave before (or the `500`, for a search page whose
+  `entry` or `link` was not R4's shape), the decision is recorded like any other, and its card is
+  an `info` card naming the keys, whatever the pack's `show` says. Refused input still BLOCKs, a
+  request fault stays a `4xx`, the structural R4 check on every value the client sent (an
+  OperationOutcome among them) stays a `400`, and a `fhirServer` off the allow-list is still
+  refused with nothing fetched or recorded. A key whose value is null is "no data" (CDS Hooks
+  2.0) and is no longer fetched; a key sent empty (`{}`, `[]`, `""`) still counts as left out,
+  as before. A value that is none of these and not a resource (a string, a number, a list, an
+  object with no `resourceType`) is unreadable (`unsupported_type`): it used to be read as no
+  data, or for a list as the resources it held, and a required resource it stands in for is
+  still refused (`422`), as before. For Da Vinci CRD, an order that abstained this way gets
+  `covered: indeterminate` for a `technical` reason, with fixed text, when its Coverage was
+  read; without the Coverage there is no system action. The SMART launch's decide reads its
+  record the same way (a `401` still ends the launch, and a focus resource that cannot be read is
+  an error, as before). Every FHIR decision now carries `data_coverage`
+  (`mendari.data-coverage/1`) in its chained record (`GET /api/audit/{id}`), and in the answer of
+  `fhir/decide` and of the SMART launch's decide; a CDS Hooks card and `$decide`'s
+  GuidanceResponse carry the decision id that finds it (`extension.mendari.decision_id`, the
+  `identifier`), not the record itself. For each mapped field and list it holds the paths looked
+  for, the code systems the pack declares, the pack's own codes, and what was found, as counts,
+  with what could not be read counted by reason. It never holds a value, an id, text, a
+  patient's code or a system the pack does not declare. A decision on JSON input carries `null`,
+  and older records still verify.
+  - **Changed: decisions on notes Mendari cannot read move from a possible AUTO to ABSTAIN.** A
+    `base64_text` attachment that is only a `url`, or whose data does not decode to text, used
+    to read as no notes, so the decision was made as if the record held none, and could
+    automate. It now abstains (`not_fetched`, `undecodable`) in every pack and on every FHIR
+    route (CDS Hooks, `fhir/decide`, `$decide`, the SMART launch, `mendari decide --fhir`).
+    Readable input decides byte for byte as before (the 23a golden is unchanged).
+  - **Changed: a CDS Hooks request with neither the prefetch nor a `fhirServer` answers `412`**
+    (`PrefetchRequired`), as CDS Hooks 2.0 says. It answered `422`. A key sent empty counts as
+    not sent here too, as it did.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
@@ -147,6 +208,35 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets: a draft's statuses and weights, and every set's stored aggregates,
+  covered by commitments** (LP-11p, what 11o's review found nothing checked). Each draw
+  (`mendari evalset sample`, `POST /api/evalsets/{set}/sample`) chains a commitment to every
+  drawn case's weight by its keyed hash, each with a salt new at each draw (`weight_refs` on
+  `evalset.sampled`), and takes as drawn before what the latest draw committed to, never a
+  case's status. Each store of a set's aggregates (`evalset agreement`, `coverage` and `freeze`)
+  chains a commitment to them, with their salt sealed beside them (`aggregates_ref` on
+  `evalset.measured` and `evalset.frozen`). A case's status, still in the clear, is checked
+  against its labels and the set's latest draw; each label counts in the round and for the
+  labeller its `evalset.labelled` chained, never as an assignment row says now, every label the
+  chain recorded must be there, and an adjudicator's label settles only a case whose two
+  first-pass labels differ. So a status edited by SQL (a disputed case made `agreed`, which
+  freezing used to commit to with its first labeller's answer), a label deleted or an
+  assignment moved to another round, a weight re-sealed or put back from before a draw, and
+  aggregates re-sealed, put back or removed now break `mendari audit verify --evalsets` and
+  fail `mendari evalset rotate --check`; `freeze`, `agreement` and `coverage` refuse such a set,
+  counting its cases and naming none (a draw or a label landing while they read says "run it
+  again" instead); `assign` and `adjudicate` (and their curators' routes, a `400`), which still
+  open nothing, refuse a status the chain's draw and labels do not allow, so no case goes to a
+  labeller on it; and `mendari evalset show` and `GET /api/evalsets/{set}` refuse such
+  aggregates (a `400`), naming the set only. An agreed case's status edited to `disputed` still
+  reaches an adjudicator (telling it from a disputed one takes the labels' values), but that
+  label no longer settles it, so the edit stays found. Sets made before this release verify as
+  before: both checks count the rows no commitment covers yet (`predating`, a new count in their
+  answers, never an id), still check those sets' statuses against their labels, and take their
+  weights, whether an unlabelled case was drawn, and their aggregates as they are until the set
+  is drawn or measured again (a set frozen before it keeps its aggregates unchecked: take its
+  gate's positives from `freeze`'s output). A draft's header stays uncovered until it freezes.
+  The threat model, ADR-0011 and the runbook say what is covered and what is not.
 - **Hidden evaluation sets, end to end** (LP-11 built, 11a to 11o; off until the owner sets both
   keys). One test takes a set through its whole lifecycle in the runbook's order, on SQLite and
   Postgres (`tests/test_evalset_end_to_end.py`): two organizations, a set made and filled from
@@ -162,7 +252,8 @@ The first release (not yet published).
   keyed hash and see who labelled it, and the chain keeps labellers' user ids; adjudication shows
   which cases were disputed; until a set freezes, no commitment covers its header, its cases'
   statuses or their weights, so freezing commits to them as they are, and none covers a set's
-  stored aggregates; and paraphrased public cases pass. The runbook
+  stored aggregates (LP-11p, above, covers all but the header); and paraphrased public cases
+  pass. The runbook
   (`docs/operations/evalsets.md`) gains the owner's steps (the two keys, why Production only, a
   lost key, the grading key's life and expiry, each set's rotation numbers, the two gates'
   attestations) and a set from start to end, and now says that every writing `mendari evalset`
@@ -386,6 +477,60 @@ The first release (not yet published).
   Referral Router 20, Clinical Trial Prescreener 10, and Prior Authorization Preflight and AI
   Guard 5 each. Only the two routers reach "+ both", across two slots. Spec:
   `docs/spec/evaluation-reports.md`, Arms.
+- **Scoreboard entries and run records** (LP-17d, `mendari.scoreboard/1` and `mendari.run/1`,
+  pure: nothing writes or shows them yet). An entry is one configuration's figures on one set,
+  computed only from its ledger, its dataset, its run record, a dated price table
+  (`mendari.prices/1`) and the grading method, so the same inputs give the same bytes
+  (`body_sha256`, without any signature). Each critical label's detection is raw k of n with its
+  interval, beside its distinct positives (cases grouped by input under `norm/v1`) and the
+  grade's bound (Clopper-Pearson at `1 - 0.05/L` over the distinct groups, a group detected only
+  when every positive case in it is). Evidence is decided on distinct positives, each label
+  needing the method's minimum (100, or 107 for the Clinical Trial Prescreener's six). An entry
+  also holds false automation, the AUTO error rate, automation and accuracy as k of n; macro-F1
+  (resampled within each true label), Brier and its reliability term with bootstrap intervals;
+  ECE as a description with no interval; cost per 1,000 decisions from the run record's tokens
+  and the table (never the ledger's, a pack's or a provider's price), or "0 (no metered calls)",
+  or "unknown"; latency p50 and p95 from the run record, "measured on the runner, not
+  reproducible"; the declared subgroups ("too few" under 10 cases); and Korn-Graubard weighted
+  figures beside the unweighted ones when a set carries sampling weights (detection is never
+  weighted). Its scope names the pack, the set, the models as reported, the method and whether it
+  is in effect, the date, "engineering evaluation, not clinical validation", the disclosure
+  ("not published: disclosure pending" withholds a remote entry's figures) and the pack's status
+  line. On a public set it reads "public set: regression check, not a ranking", with no rank and
+  no grade. A run record holds each case's latency and tokens by model type and the models
+  reported, never a key, an endpoint or case text, and an entry is refused unless it agrees with
+  its ledger: its tokens (more only on a case whose provider call failed) and its models (none the
+  answers do not name, none they name left out), so tokens are never priced as another model's.
+  A refusal of a run record, a price table or the disclosures never echoes a key the input chose.
+  A price table is refused from Mendari's code or a pack's directory, and cited only by an entry
+  priced from it. `board` reads each entry as its canonical bytes hold it, so entries just built
+  and read back show alike; it shows them one table per pack and set, with the
+  insufficient-evidence banner, each arm measured, "not measured" or "not applicable", and
+  freshness worked out when it is built and never stored ("unsigned", "method draft, not in
+  effect", "stale: pack changed" and the like, "stale after DATE"); `render.scoreboard_markdown`
+  writes it, with no Rank column and no bare percentage. No reference pack's figures, formats or
+  decisions change. Spec: `docs/spec/evaluation-reports.md`.
+- **Signed scoreboard results and the public verifier** (LP-17e, `mendari.evals.signing`; off
+  without the key). A result (`mendari.scoreboard/1`, or a hidden set's
+  `mendari.hidden_scoreboard/1`) is signed with an Ed25519 grading key the owner holds offline,
+  `MENDARI_GRADING_SIGNING_KEY`, over `mendari-grading-result-v1`, a zero byte and its canonical
+  JSON without its signature, so no checkpoint, archive or recall signature verifies as a
+  result's. The key must differ from every other key Mendari uses (the checkpoint and registry
+  keys, the PHI key and its read keys, the input hash key and the three evaluation-set keys,
+  which now refuse to equal it too); a malformed or reused one stops the command, naming the
+  variable, never the value. `mendari scoreboard sign FILE ...` is the key holder's: it refuses
+  in CI (`CI` or `GITHUB_ACTIONS` set) and without the key, checks every file before writing
+  any, and adds the signature in place, leaving the body and its SHA-256 as they were.
+  `mendari scoreboard verify FILE ... [--keys FILE | --public-key B64]` needs no secret and
+  writes nothing: it refuses another format, a body that is not canonical JSON (a key twice,
+  NaN or an infinity), a method hash that is not its version's, a key not in
+  `scoreboard/keys.json` (`mendari.grading-keys/1`, empty until the owner adds one) or not
+  valid on the day the result was measured, a publisher's or a registry's key this machine
+  pinned, and any changed byte. Each result is its own line, a file it cannot read included, and
+  the keys file is read as strictly as a result (a field twice is refused). No result is signed
+  yet. Guide: `docs/grading/verifying.md`, which also says how to sign without the key reaching
+  the shell's history, and what to do when a key leaks (run its results again; a result is
+  signed once); threat model S20 and E14. No figure, format or decision changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

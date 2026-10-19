@@ -55,7 +55,8 @@ Each bullet is one control; the threat model names the row and the tests behind 
   default, "all except custom domains", leaves the production domain public.
 - **Sign-in and API keys.** Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`, and every
   route needs a role (deny by default). Machines (an EHR calling CDS Hooks, a worker) use API
-  keys, sent as `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides
+  keys (or, for an EHR you register, its own signed CDS Hooks token, below), sent as
+  `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides
   alone (no fallback to the session cookie), a credential in a URL or a form is refused, and
   refusals carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. A key is
   a `viewer` or a `service`, expires (90 days unless asked, 365 at most; keys from before this
@@ -134,8 +135,22 @@ Each bullet is one control; the threat model names the row and the tests behind 
   (`POST /api/auth/clients/{id}/keys`, people only) drops its tokens in the same transaction, and
   a token issued against the old keys while it ran is refused (each token carries the version of
   the key set its assertion was checked against). Registering, replacing keys and revoking
-  clients are chained, with keys by id and thumbprint. Mendari fetches no client key (no JWKS
-  URLs).
+  clients are chained, with keys by id and thumbprint. Mendari fetches no Backend Services
+  client's key (no JWKS URLs).
+- **An EHR's own CDS Hooks token (off by default).** `MENDARI_CDS_CLIENTS`, a JSON list checked
+  at startup (refused without `MENDARI_PUBLIC_URL`), registers the EHRs that call CDS Hooks with
+  the short-lived JWT they sign themselves (CDS Hooks 2.0): each one's `iss`, organization, the
+  FHIR bases it may send as `fhirServer`, and its public keys, by value or from one `jwks_uri` on
+  `MENDARI_FHIR_ALLOWED_SERVERS` (kept an hour, fetched again at most once a minute per
+  instance). A token is RS384 or ES384, its header `alg`, `kid`, `typ` and `jku` only (`jku` the
+  registered URL exactly, never followed), `aud` exactly `MENDARI_PUBLIC_URL` plus the path
+  called, living at most 330 seconds, with a `jti` claimed once per client across instances,
+  after every other check. A verified token is the principal `cds:<id>` of the registered
+  organization: it holds `discover` and `decide`, reaches `/cds-services` only, and sends only
+  its registered `fhirServer`. Every token that does not verify is the one `401`, its reason in
+  the security log (`cds_<reason>`). Unset, a JWT on `/cds-services` is refused in every mode,
+  open mode included; elsewhere a JWT is never a credential
+  ([Connecting an EHR](docs/guides/connecting-an-ehr.md), threats S21, D13 and E15).
 - **What a caller without a credential can do.** Public routes cost little and take no lock:
   `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
   that may read), `/fhir/metadata` reads its version without the audit chain's lock, and

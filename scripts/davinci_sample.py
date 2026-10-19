@@ -3,8 +3,10 @@
 `fhir-conformance`), each checked against its implementation guide.
 
 - `crd-*.json`: the orders a Prior Authorization Preflight `order-sign` response updates with
-  CRD `coverage-information` (a complete request, one with documentation missing, and a service
-  the payer doesn't require authorization for).
+  CRD `coverage-information` (a complete request, one with documentation missing, a service
+  the payer doesn't require authorization for, and `crd-indeterminate.json`: an order whose
+  record holds a note that is only a link, so the decision abstains and the coverage is
+  `indeterminate` for a `technical` reason, LP-23d).
 - `dtr-*.json`: `Questionnaire/$questionnaire-package` answers: for the order with documentation
   missing (found by its CRD assertion id, pre-answered from the decision), for a
   questionnaire asked for by its canonical alone, and for that order with a questionnaire that
@@ -53,7 +55,10 @@ def order(id_: str, code: str) -> dict[str, Any]:
     }
 
 
-def prefetch(payer: str, note: str) -> dict[str, Any]:
+def prefetch(payer: str, note: str | None) -> dict[str, Any]:
+    """The order-sign prefetch; a `note` of None is a note held only by a link (a `Binary`),
+    which Mendari does not read, so the decision abstains."""
+
     def bundle(*resources: dict[str, Any]) -> dict[str, Any]:
         return {
             "resourceType": "Bundle",
@@ -105,7 +110,9 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
                 "status": "current",
                 "content": [
                     {
-                        "attachment": {
+                        "attachment": {"contentType": "text/plain", "url": "Binary/pa-b1"}
+                        if note is None
+                        else {
                             "contentType": "text/plain",
                             "data": base64.b64encode(note.encode()).decode(),
                         }
@@ -124,7 +131,7 @@ def main(out: Path) -> None:
 
 
 def write(out: Path, decision: Decision, store: AuditStore) -> None:
-    cases = {
+    cases: dict[str, tuple[str, str | None, dict[str, Any]]] = {
         "crd-submit-ready": (
             "acme",
             "Completed 8 weeks of physical therapy.",
@@ -140,6 +147,7 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
             "Loud snoring and daytime sleepiness.",
             order("psg", "FX301"),
         ),
+        "crd-indeterminate": ("acme", None, order("mri4", "FX101")),
     }
     out.mkdir(parents=True, exist_ok=True)
     updated: dict[str, dict[str, Any]] = {}

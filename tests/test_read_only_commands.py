@@ -3,21 +3,27 @@
 read-only (LP-15): a mistyped --db is one line and exit 1, never a new empty database that
 "verifies"; another application's database is refused, untouched; the server's database is left
 exactly as it was; and a database written by an older Mendari is verified as it is. A command
-that reads only a pack (`scoreboard arms`, LP-17c) takes no database and writes nothing."""
+that reads only a pack (`scoreboard arms`, LP-17c) takes no database and writes nothing, and
+neither does checking a signed scoreboard result (`scoreboard verify`, LP-17e)."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from mendari import Decision
 from mendari.cli import main
 from mendari.core.audit import AuditStore
+from mendari.core.checkpoint import public_text
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
+from mendari.evals import signing
+from tests.test_scoreboard_signing import keys_file, result
 
 COMMANDS = {
     "audit verify": ["audit", "verify"],
@@ -41,6 +47,12 @@ PACK_ONLY = {
     # A pack's configurations by arm (LP-17c), from its manifest.
     "scoreboard arms": ["scoreboard", "arms", "mendari/patient-inbox-router"],
     "scoreboard arms --json": ["scoreboard", "arms", "mendari/patient-inbox-router", "--json"],
+}
+# Commands that read the files they are given and nothing else: no --db, nothing written. A
+# signed scoreboard result checked against a keys file, or one public key (LP-17e).
+FILES_ONLY = {
+    "scoreboard verify --keys": ["scoreboard", "verify", "{result}", "--keys", "{keys}"],
+    "scoreboard verify --public-key": ["scoreboard", "verify", "{result}", "--public-key", "{key}"],
 }
 
 
@@ -111,6 +123,33 @@ def test_a_command_that_reads_only_a_pack_writes_nothing(
     assert [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files] == before
     assert main([*PACK_ONLY[command], "--db", str(tmp_path / "mendari.db")]) == 1  # takes none
     assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("command", sorted(FILES_ONLY))
+def test_a_command_that_reads_only_its_files_writes_nothing(
+    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = Ed25519PrivateKey.generate()
+    given = tmp_path / "given"
+    given.mkdir()
+    (given / "result.json").write_text(signing.dump(signing.sign(result(), key)), encoding="utf-8")
+    (given / "keys.json").write_text(json.dumps(keys_file(key)), encoding="utf-8")
+    files = sorted(given.iterdir())
+    before = [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files]
+    monkeypatch.chdir(tmp_path)
+    places = {
+        "result": str(given / "result.json"),
+        "keys": str(given / "keys.json"),
+        "key": public_text(key.public_key()),
+    }
+    argv = [part.format(**places) for part in FILES_ONLY[command]]
+    assert main(argv) == 0
+    # Nothing here but what it was given, nor in the Hub's config folder (its pins are read).
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["given"]
+    assert sorted(given.iterdir()) == files
+    assert [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files] == before
+    assert main([*argv, "--db", str(tmp_path / "mendari.db")]) == 1  # takes none
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["given"]
 
 
 def test_a_read_only_file_verifies(tmp_path: Path, inbox_pack: Pack) -> None:
