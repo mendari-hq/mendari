@@ -100,6 +100,12 @@ def test_no_lab_value_date_or_patient_id_is_stored(
     assert item is not None
     assert [issue["resource"] for issue in item["record"]["input_issues"]] == ["Patient (entry 1)"]
     assert all(answer["evidence"] == [] for answer in item["record"]["answers"].values())
+    # The data-coverage record (LP-23d) counts what the mapping found, in every mode: the same
+    # for the caller and the trail, and never a value, a date or an id.
+    coverage = item["record"]["data_coverage"]
+    assert coverage == result.data_coverage and coverage["lists"]["observations"]["resources"] == 1
+    for mark in (LAB_VALUE, LAB_DATE, MRN):
+        assert not planted(mark, json.dumps(coverage)), mark
     assert store.verify()["ok"] is True
     store.close()
 

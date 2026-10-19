@@ -68,7 +68,7 @@ from mendari.errors import FhirError, PackNotFoundError, SmartError
 from mendari.server import security_log, sessions
 from mendari.server.auth import Auth, chain_name, ehr_id
 from mendari.standards import smart
-from mendari.standards.cds_hooks import fill_template
+from mendari.standards.cds_hooks import fill_template, read_each
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import SmartSettings
@@ -444,7 +444,10 @@ def decide_for(
     decision: Decision, fhir: FhirClient, patient_id: str, focus_ref: str
 ) -> tuple[Any, dict[str, Any]]:
     """Decide one of the patient's focus resources, with the record the pack's CDS prefetch
-    templates describe, read with the session's token."""
+    templates describe, read with the session's token. Each prefetch read stands alone, as a
+    CDS hook's do (`cds_hooks.read_each`): one that fails makes the decision ABSTAIN with its
+    reason (LP-23d), but a `401` still ends the launch (`ehr`). A focus resource that cannot be
+    read is an error, as before: there is nothing to decide about."""
     adapter = FhirAdapter.for_pack(decision.pack)
     kind, _, resource_id = focus_ref.partition("/")
     if kind != adapter.mapping.focus or not _ID.match(resource_id):
@@ -456,14 +459,16 @@ def decide_for(
     context = {"patientId": patient_id, f"{kind[0].lower()}{kind[1:]}Id": resource_id}
     hooks = decision.pack.manifest.cds_hooks
     templates = dict(hooks.prefetch) if hooks else {"patient": "Patient/{{context.patientId}}"}
-    prefetch = {}
+    queries = {}
     for key, template in templates.items():
         try:
-            query = fill_template(template, context)
+            queries[key] = fill_template(template, context)
         except FhirError:
             continue  # a template for context this launch doesn't have
-        prefetch[key] = fhir.read(query)
-    return decision.decide_fhir(prefetch, focus=focus)
+    prefetch, unreadable = read_each(
+        fhir, templates, queries, fatal=lambda error: error.status == 401
+    )
+    return decision.decide_fhir(prefetch, focus=focus, unreadable=unreadable, sources=templates)
 
 
 def _subject_id(resource: Mapping[str, Any]) -> str | None:

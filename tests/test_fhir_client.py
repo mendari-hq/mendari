@@ -151,6 +151,66 @@ def test_a_next_link_to_another_server_is_refused() -> None:
         fhir.read("Observation")
 
 
+NEXT = f"{EHR}/Observation?page=2"
+
+
+@pytest.mark.parametrize(
+    ("page", "reason"),
+    [
+        ({"link": "next"}, "not_r4"),
+        ({"link": ["next"]}, "not_r4"),
+        ({"link": {"relation": "next", "url": NEXT}}, "not_r4"),
+        ({"link": [{"relation": "next", "url": 5}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": [NEXT]}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": f"{NEXT}\x01"}]}, "not_r4"),
+        ({"link": [{"relation": "next", "url": "https://[ehr.example.org/fhir/x"}]}, "off_server"),
+        ({"entry": 5}, "not_r4"),
+        ({"entry": {"resource": {"resourceType": "Observation"}}}, "not_r4"),
+    ],
+)
+def test_a_search_page_that_is_not_r4_is_a_fhir_error_never_a_crash(
+    page: dict[str, Any], reason: str
+) -> None:
+    """A search page whose `link` is not a list of objects, whose `next` URL is not printable
+    text (or does not parse), or whose `entry` is not a list fails with its reason in every
+    mode (LP-23d), where it crashed before with an error a hook did not catch (a `500`)."""
+    first = {"resourceType": "Bundle", "type": "searchset", **page}
+    with client(lambda r: fhir_json(first)) as fhir:
+        for complete in (False, True):
+            with pytest.raises(FhirError) as error:
+                fhir.read("Observation?patient=p1", complete=complete)
+            assert error.value.reason == reason
+
+
+@pytest.mark.parametrize(
+    ("second", "reason"),
+    [
+        ({"resourceType": "OperationOutcome", "issue": []}, "operation_outcome"),
+        ({"resourceType": "Patient", "id": "p1"}, "not_r4"),
+        ({"resourceType": "Bundle", "entry": 5}, "not_r4"),
+    ],
+)
+def test_a_following_page_that_is_not_a_bundle_is_not_a_complete_record(
+    second: dict[str, Any], reason: str
+) -> None:
+    """A decision's record is read whole (`complete`): a later page that is not a Bundle fails
+    with its reason, never read as the first pages alone. Other reads keep their first pages,
+    as before, unless the page's shape is not R4."""
+    first = {
+        "resourceType": "Bundle",
+        "entry": [{"resource": {"id": "1"}}],
+        "link": [{"relation": "next", "url": NEXT}],
+    }
+    pages = {f"{EHR}/Observation?patient=p1": first, NEXT: second}
+    with client(lambda r: fhir_json(pages[str(r.url)])) as fhir:
+        with pytest.raises(FhirError) as error:
+            fhir.read("Observation?patient=p1", complete=True)
+        assert error.value.reason == reason
+        if second["resourceType"] != "Bundle":
+            bundle = fhir.read("Observation?patient=p1")
+            assert [e["resource"]["id"] for e in bundle["entry"]] == ["1"]
+
+
 @pytest.mark.parametrize(
     ("response", "message"),
     [
@@ -167,6 +227,14 @@ def test_a_next_link_to_another_server_is_refused() -> None:
         (
             httpx.Response(200, text="[1]", headers={"content-type": "application/json"}),
             "other than a JSON object",
+        ),
+        (  # nested too deep to read: a FhirError, never a RecursionError
+            httpx.Response(200, text="[" * 100_000, headers={"content-type": "application/json"}),
+            "invalid JSON",
+        ),
+        (
+            httpx.Response(400, text="[" * 100_000, headers={"content-type": "application/json"}),
+            "HTTP 400",
         ),
     ],
 )
@@ -299,13 +367,16 @@ def test_a_server_off_the_list_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_without_a_fhir_server_prefetch_is_still_required(tmp_path: Path) -> None:
+    """Neither the prefetch nor a server to read it from: a `412`, as CDS Hooks 2.0 says
+    (LP-23d; it was a `422`), and nothing is decided or recorded."""
     request, _, _, _ = referral_ehr()
     del request["fhirServer"]
-    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/mendari.referral-router", json=request
-    )
-    assert response.status_code == 422
+    app = TestClient(create_app(db_path=tmp_path / "a.db"))
+    response = app.post("/cds-services/mendari.referral-router", json=request)
+    assert response.status_code == 412
+    assert response.json()["error"] == "PrefetchRequired"
     assert "prefetch required for: patient, documents, reports, labs" in response.text
+    assert app.get("/api/audit").json() == []
 
 
 @pytest.mark.parametrize("patient_id", ["p1&_include=*", "../Admin", "", None])

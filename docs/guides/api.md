@@ -64,7 +64,29 @@ clinical resources.
 ```
 
 **CDS Hooks.** `GET /cds-services` lists the services, one per pack that declares a hook, and
+`POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards. An
+EHR calls them with a Mendari key (the `cds-hooks` preset), or, once registered, with its own
+signed token: [Connecting an EHR](connecting-an-ehr.md).
+
 `POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards.
+A prefetch key you leave out, or send empty (`{}`, `[]`, `""`), is read from your `fhirServer`,
+if the deployment allows it; with no `fhirServer` the request is a `412`. A null value means you
+have no data, and it is not read. Every value you send goes through the structural R4 check: a
+structure error is a `400`. A hook always answers: when a key cannot be read (a failed read, an
+OperationOutcome, a value that is not a resource, a resource or search page that is not R4
+JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
+as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
+Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
+malformed field, a required resource you sent something else for) is still a `4xx`.
+
+**What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the
+SMART launch) carries `data_coverage` in its record, which `GET /api/audit/{id}` returns: for
+each mapped field and list, the paths it looked for, the code systems the pack declares, the
+pack's own codes, and what it found, as counts, with what could not be read counted by reason.
+It holds no value, id or text. The answers of `fhir/decide` and the SMART launch's decide hold it
+too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id
+(`extension.mendari.decision_id`, the GuidanceResponse `identifier`). A decision on JSON input
+carries `null`.
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.
@@ -92,7 +114,9 @@ The same check in Python, without a server:
 ## Authentication
 
 **Open mode** (the default, without `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`): anyone
-who can reach the server can call every operation, and the `Authorization` header is ignored.
+who can reach the server can call every operation, and the `Authorization` header is ignored,
+but for a JWT on `/cds-services`: that is a CDS client's token, verified as with sign-in on, and
+refused unless an EHR is registered for it.
 
 **With sign-in on:**
 
@@ -111,6 +135,9 @@ who can reach the server can call every operation, and the `Authorization` heade
   is a preset (`"preset": "fhir"`, `"cds-hooks"`, …) with the role and scope it needs:
   [the list](../deploying-with-phi.md#2-sign-in-and-roles). The dashboard's Access view (API
   keys) makes keys from these presets, shows each once, and rotates and revokes them.
+- An EHR registered in `MENDARI_CDS_CLIENTS` calls the CDS Hooks services with its own signed
+  token (RS384 or ES384, `aud` the URL it calls, a `jti` used once), as the principal
+  `cds:<id>`, which reaches nothing else: [Connecting an EHR](connecting-an-ehr.md).
 - With SMART Backend Services on, a registered client exchanges a signed assertion (RS384 or
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`. A client keeps
   its id when its public keys change (`POST /api/auth/clients/{id}/keys`, or the Access view's

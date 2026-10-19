@@ -30,8 +30,16 @@ from mendari.errors import AuthError, MendariError
 from mendari.server import auth as auth_module
 from mendari.server import scopes as scopes_module
 from mendari.server.app import MAX_SEARCH_FORM_BYTES, create_app
-from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_for, read_body
+from mendari.server.auth import (
+    CDS_PATH,
+    Auth,
+    AuthSettings,
+    auth_settings,
+    permission_for,
+    read_body,
+)
 from mendari.server.backend_services import check_jwks, default_scope
+from mendari.server.cds_clients import CdsClient, CdsRegistry
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
@@ -48,6 +56,8 @@ from tests.conftest import (
     signed_in,
     without_request_id,
 )
+from tests.jwt_signers import cds_token, forged
+from tests.test_cds_clients import BASE, EHR, RSA_EHR
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -651,6 +661,17 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
     permission = permission_for(method, path)
     if kind == "open" or permission == "public":
         return 200, ""
+    if kind.startswith(("cds", "jwt")):  # a CDS client's token (LP-23b)
+        on_cds = CDS_PATH.match(path) is not None
+        if kind == "jwt-open":  # open mode without a registry: no JWT there, nothing else read
+            return (401, INVALID) if on_cds else (200, "")
+        if kind == "cds-open" and not on_cds:
+            return 200, ""
+        if kind == "cds+junk" or not on_cds:  # anywhere else it is not a credential
+            return 401, INVALID
+        if permission in {"discover", "decide"}:
+            return 200, ""
+        return 403, f'{REALM}, error="insufficient_scope"'
     if kind == "ehr+key":
         return expected("key", role, scope, method, path)
     if kind == "ehr+junk":
@@ -722,8 +743,11 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     scopes), and EHR launches at each level, alone, with a person's session, and with a bearer
     header, valid or not. A scope only narrows, and a scoped key or a token reaches only the
     routes `ROUTE_SCOPE` names, with that scope. Only an EHR launch reaches the launch's
-    routes, and nothing else with its cookie. Hidden evaluation sets are on, so the routes
-    they mount are in the matrix (LP-11g)."""
+    routes, and nothing else with its cookie. A CDS client's token (LP-23b), made for the very
+    URL it is sent to, reaches the CDS services and nothing else, with sign-in on (alone, and
+    with a person's session) and in open mode; a forged one, or any JWT in open mode without a
+    registry, is refused there. Hidden evaluation sets are on, so the routes they mount are in
+    the matrix (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -821,21 +845,58 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         junk = {"authorization": "Bearer ohk_not-a-key", "cookie": cookie}
         principals.append(("ehr+junk", "", None, junk))
 
-    guards = {"open": Auth(None, store, ehrs=ehrs)}
-    signed = Auth(settings, store, tokens=True, ehrs=ehrs)
+    # CDS clients' tokens (LP-23b): one registered client, its key by value; each request gets
+    # a fresh token addressed to the URL it is sent to.
+    epic = CdsClient(
+        id="epic", title="EHR", iss=EHR, org="default", fhir_servers=(BASE,),
+        jwks=tuple(check_jwks({"keys": [RSA_EHR.jwk]})),
+    )  # fmt: skip
+    registry = CdsRegistry(public_url="https://mendari.test", clients=[epic])
+
+    def cds(path: str) -> dict[str, str]:
+        minted = cds_token(RSA_EHR, EHR, f"https://mendari.test{re.sub(r'{[^}]+}', 'x1', path)}")
+        return {"authorization": f"Bearer {minted}"}
+
+    unsigned = forged({"alg": "RS384", "typ": "JWT", "kid": "ehr-rsa"}, {"iss": EHR})
+    person_cookie = signed_in(store, role="admin")["cookie"]
+    tokens: dict[str, Any] = {
+        "cds": cds,
+        "cds+user": lambda path: {**cds(path), "cookie": person_cookie},
+        "cds+junk": lambda path: {"authorization": f"Bearer {unsigned}"},
+        "cds-open": cds,
+        "jwt-open": cds,
+    }
+    principals += [(kind, "", None, {}) for kind in tokens]
+
+    guards = {
+        "open": Auth(None, store, ehrs=ehrs),
+        "cds-open": Auth(None, store, ehrs=ehrs, cds=registry),
+        "jwt-open": Auth(None, store, ehrs=ehrs),
+    }
+    signed = Auth(settings, store, tokens=True, ehrs=ehrs, cds=registry)
+
+    def sent(kind: str, headers: dict[str, str], path: str) -> dict[str, str]:
+        return dict(tokens[kind](path)) if kind in tokens else headers
+
     wrong = [
         (kind, role, scope, method, path, got, want)
         for kind, role, scope, headers in principals
         for method, path in routes
         for got, want in [
             (
-                attempt(guards.get(kind, signed), method, path, headers),
+                attempt(guards.get(kind, signed), method, path, sent(kind, headers, path)),
                 expected(kind, role, scope, method, path),
             )
         ]
         if got != want
     ]
     assert wrong == []
+    # Not vacuous: the registry was on, and each of the three kinds a valid token is verified
+    # for (sign-in on alone and with a session, open mode) was let through on both CDS routes.
+    assert signed.cds is registry and registry.clients
+    with store._db.session(exclusive=False) as db:
+        claimed = db.one("SELECT COUNT(*) AS n FROM smart_sessions WHERE kind = 'cds-jti'")
+    assert claimed is not None and claimed["n"] == 3 * 2
     reached = {
         (method, path)
         for kind, role, scope, headers in principals

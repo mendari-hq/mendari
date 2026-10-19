@@ -7,7 +7,9 @@ system action that updates the order with CRD's `coverage-information` extension
 not, whether prior authorization is needed, which documentation is needed and why, the patient's
 Coverage, the date and an assertion id. The assertion id is the decision id, so the assertion
 traces back to its audit record. Cards are unchanged, so an EHR that ignores system actions sees
-what it saw before.
+what it saw before. An order that abstained because part of the record could not be read gets
+`covered: indeterminate` for a `technical` reason instead (`indeterminate`, LP-23d), when the
+Coverage itself was read.
 """
 
 from __future__ import annotations
@@ -67,6 +69,38 @@ def coverage_information(
         {"url": "coverage-assertion-id", "valueString": result.id},
     ]
     return {"url": COVERAGE_INFORMATION, "extension": parts}
+
+
+# CRD's reason for a determination that could not be made for technical reasons (CRD 2.2.1's
+# `coverageAssertionReasons` value set, from its CodeSystem `temp`), and the fixed words that go
+# with it: never the key, the reason code or anything the EHR answered.
+TECHNICAL = {"system": f"{CRD}/CodeSystem/temp", "code": "technical"}
+TECHNICAL_TEXT = (
+    "Mendari could not read part of the patient's record from the EHR, so it did not check the "
+    "coverage requirements for this order. A person checks them."
+)
+
+
+def indeterminate(
+    result: DecisionResult, coverage: Mapping[str, str], today: date
+) -> dict[str, Any]:
+    """The `coverage-information` extension for an order that abstained because part of the
+    record could not be read (LP-23d): `covered` is `indeterminate`, for a `technical` reason
+    with its text (crd-ci-q9). The engine emits it; a pack cannot declare it
+    (`CoverageInformation.covered`)."""
+    return {
+        "url": COVERAGE_INFORMATION,
+        "extension": [
+            {"url": "coverage", "valueReference": dict(coverage)},
+            {"url": "covered", "valueCode": "indeterminate"},
+            {
+                "url": "reason",
+                "valueCodeableConcept": {"coding": [dict(TECHNICAL)], "text": TECHNICAL_TEXT},
+            },
+            {"url": "date", "valueDate": today.isoformat()},
+            {"url": "coverage-assertion-id", "valueString": result.id},
+        ],
+    }
 
 
 def system_action(order: Mapping[str, Any], extension: Mapping[str, Any]) -> dict[str, Any]:

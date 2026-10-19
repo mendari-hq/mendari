@@ -24,7 +24,7 @@ from __future__ import annotations
 import base64
 import html
 import re
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
@@ -306,13 +306,22 @@ SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 
 
 @dataclass(frozen=True)
-class _Reading:
+class Reading:
     """What a mapping reads a record with: the record indexed (for references), the mapping's
-    code sets and a site's translations into them."""
+    code sets and a site's translations into them. `FhirAdapter.to_input` reads with one, and
+    the data-coverage record (`data_coverage.measure`) reads the same way."""
 
     record: Indexed
     code_sets: Mapping[str, CodeSet]
     site_codes: SiteCodes
+
+    @classmethod
+    def of(
+        cls, mapping: FhirMapping, record: Mapping[str, Any], site_codes: SiteCodes | None = None
+    ) -> Reading:
+        """`record` read with `mapping`: references resolve in the record indexed by id once
+        (`Indexed.of`), not by a scan for each."""
+        return cls(Indexed.of(record), mapping.code_sets, site_codes or {})
 
 
 class FhirAdapter:
@@ -351,12 +360,17 @@ class FhirAdapter:
         return cls(pack, mapping)
 
     def index(
-        self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
+        self,
+        resources: Mapping[str, Any],
+        *,
+        focus: Mapping[str, Any] | None = None,
+        excused: Collection[str] = (),
     ) -> Indexed:
         """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch).
 
         With `focus` (e.g. one draft order), the record is indexed around that resource and any
-        other resource of the focus type in `resources` is ignored."""
+        other resource of the focus type in `resources` is ignored. A required resource type in
+        `excused` may be missing: its read failed, and the decision abstains (LP-23d)."""
         indexed = Indexed()
         kept = indexed.ids  # by type and id: a resource seen again is the first one
         for url, resource in iter_entries(resources if focus is None else [resources, focus]):
@@ -379,7 +393,9 @@ class FhirAdapter:
             if url is not None:
                 indexed.urls.setdefault(url, copy)
         missing = [
-            k for k, rule in self.mapping.resources.items() if rule.required and k not in indexed
+            k
+            for k, rule in self.mapping.resources.items()
+            if rule.required and k not in indexed and k not in excused
         ]
         if missing:
             raise FhirError(f"missing required FHIR resources: {', '.join(missing)}")
@@ -407,62 +423,27 @@ class FhirAdapter:
         """The pack's input from an indexed record. `site_codes` (LP-23i) are a site's
         translations into the mapping's code sets, read by `code_set` selectors only; without
         them a code set matches its own codes only. Nothing else reads them."""
-        # References resolve in the record indexed by id once, not by a scan for each.
-        reading = _Reading(Indexed.of(indexed), self.mapping.code_sets, site_codes or {})
+        reading = Reading.of(self.mapping, indexed, site_codes)
         result: dict[str, Any] = {}
         for target, mapped in self.mapping.fields.items():
-            value = _field_value(mapped, indexed, None, reading)
+            value = read_field(mapped, indexed, None, reading).value
             if value is not None:
                 _put(result, target, value)
         for target, spec in self.mapping.lists.items():
             items = []
             for kind, source in spec.sources().items():
                 for resource in _as_list(indexed.get(kind)):
-                    item = _item(kind, source, resource, reading)
+                    item = list_item(kind, source, resource, reading)
                     if item:
                         items.append(item)
             _put(result, target, items)
         return result
 
     def looked_for(self) -> dict[str, Any]:
-        """What each mapped field and list looks for, from the mapping alone, never the record
-        (LP-23g, for the data-coverage record LP-23d builds, `data_coverage.measure`):
-
-            {"fields": {<target>: LookedFor},
-             "lists": {<target>: {<resource type>: {<item key>: LookedFor}}}}
-
-        Each `LookedFor` holds the full paths in the order they are tried (a list's fields with
-        their resource type in front), the Reference followed first if any, the code systems the
-        field selects on (its `[system=…]` predicates' and its code set's) and the pack's own
-        codes it looks for (its code set's, and its `map`'s keys), both sorted. A
-        `medication_period` appears as its two keys, with the paths of its derivation. Targets,
-        types and keys are in the mapping's order; nothing comes from a record, so it holds no
-        value, id or text of a patient's."""
-        mapping = self.mapping
-        lists: dict[str, dict[str, dict[str, LookedFor]]] = {}
-        for target, spec in mapping.lists.items():
-            lists[target] = {}
-            for kind, source in spec.sources().items():
-                keys = {
-                    name: _looked_for(mapped, kind, mapping.code_sets)
-                    for name, mapped in source.fields.items()
-                }
-                period = source.medication_period
-                if period is not None:
-                    for key, paths in (
-                        (period.start, MEDICATION_START),
-                        (period.end, MEDICATION_END),
-                    ):
-                        derived = [f"{kind}.{path}" for path in paths]
-                        keys[key] = LookedFor(follow=None, paths=derived, systems=[], codes=[])
-                lists[target][kind] = keys
-        return {
-            "fields": {
-                target: _looked_for(mapped, None, mapping.code_sets)
-                for target, mapped in mapping.fields.items()
-            },
-            "lists": lists,
-        }
+        """What each mapped field and list looks for, from the mapping alone, never the record:
+        `looked_for` of the adapter's mapping (LP-23g), which the data-coverage record LP-23d
+        builds (`data_coverage.measure`) counts against."""
+        return looked_for(self.mapping)
 
     @property
     def performer_template(self) -> str:
@@ -731,14 +712,7 @@ def pick_code(
     of another system counts only through `translations` (a site's `{system, code, as}`,
     LP-23i), and then only as an `as` the set lists; a coding of the set's own system wins over
     a translated one wherever it is. None when no coding matches."""
-    codings: list[Mapping[str, Any]] = []
-    for value in values:
-        if not isinstance(value, Mapping):
-            continue
-        if isinstance(value.get("coding"), list):
-            codings += [coding for coding in value["coding"] if isinstance(coding, Mapping)]
-        else:
-            codings.append(value)
+    codings = codings_of(values)
     own = set(code_set.codes)
     for coding in codings:
         code = coding.get("code")
@@ -757,6 +731,20 @@ def pick_code(
         if key is not None and key in table:
             return str(table[key])
     return None
+
+
+def codings_of(values: Iterable[Any]) -> list[Mapping[str, Any]]:
+    """The codings among `values` as a `code_set` selector reads them (`pick_code`): a
+    CodeableConcept's codings, a Coding as it is; anything that is not an object is left out."""
+    codings: list[Mapping[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        if isinstance(value.get("coding"), list):
+            codings += [coding for coding in value["coding"] if isinstance(coding, Mapping)]
+        else:
+            codings.append(value)
+    return codings
 
 
 def _system_code(coding: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -786,41 +774,64 @@ def _absolute(kind: str | None, path: str) -> str:
     return path if kind is None else f"{kind}.{path}"
 
 
-def _field_value(
-    mapped: FieldMapping, scope: Mapping[str, Any], kind: str | None, reading: _Reading
-) -> Any:
-    """A field's value: each of its paths in order, the first that gives one. `scope` is what
-    its paths are read in (the record, or one list resource as {its type: it}), and `kind` a
-    list resource's type, which its relative paths start from. A `follow` is resolved once for
-    the field, whatever number of paths it tries."""
-    reached = None if mapped.follow is None else _followed(mapped.follow, scope, kind, reading)
+@dataclass(frozen=True)
+class FieldRead:
+    """How a field was read in one scope (`read_field`): its value (None when it got none) and
+    each path it read, in order, as `select` reads it, with what it was read in and what it
+    found there (each value with the resource it was read from). That is every path it tries
+    when none gives a value, else those up to the one that did. With `follow`, how many
+    references the field found and how many resources they reached inside the record."""
+
+    value: Any
+    reads: tuple[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]], ...]
+    references: int = 0
+    reached: int = 0
+
+
+def read_field(
+    mapped: FieldMapping, scope: Mapping[str, Any], kind: str | None, reading: Reading
+) -> FieldRead:
+    """A field read in `scope` (the record, or one list resource as {its type: it}; `kind` is a
+    list resource's type, which its relative paths start from): each of its paths in order, the
+    first that gives a value winning, so a later path is not read at all. A `follow` is resolved
+    once for the field, whatever number of paths it tries, and the paths are read in the
+    resources it reached."""
+    references, reached = 0, None
+    if mapped.follow is not None:
+        references, reached = _followed(mapped.follow, scope, kind, reading.record)
+    reads: list[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]]] = []
+    value = None
     for path in mapped.tried:
         if reached is None:
-            pairs = _walk(scope, _absolute(kind, path))
+            where, at = scope, _absolute(kind, path)
         else:
             wanted = split_path(path)[0]  # the type the path reads, among what was reached
-            pairs = _walk({wanted: [r for r in reached if r.get("resourceType") == wanted]}, path)
-        value = _value(mapped, pairs, reading)
+            where, at = {wanted: [r for r in reached if r.get("resourceType") == wanted]}, path
+        found = _walk(where, at)
+        reads.append((at, where, found))
+        value = _value(mapped, found, reading)
         if value is not None:
-            return value
-    return None
+            break
+    return FieldRead(value, tuple(reads), references, len(reached or ()))
 
 
 def _followed(
-    follow: str, scope: Mapping[str, Any], kind: str | None, reading: _Reading
-) -> list[Mapping[str, Any]]:
-    """What `follow` reaches inside the record, in order, each once."""
+    follow: str, scope: Mapping[str, Any], kind: str | None, record: Indexed
+) -> tuple[int, list[Mapping[str, Any]]]:
+    """How many references `follow` finds, and what they reach inside the record, in order,
+    each once."""
     reached: list[Mapping[str, Any]] = []
     seen: set[int] = set()  # by identity: a resource reached twice is read once
-    for container, reference in _walk(scope, _absolute(kind, follow)):
-        found = resolve(reference, container, reading.record)
+    references = _walk(scope, _absolute(kind, follow))
+    for container, reference in references:
+        found = resolve(reference, container, record)
         if found is not None and id(found) not in seen:
             seen.add(id(found))
             reached.append(found)
-    return reached
+    return len(references), reached
 
 
-def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: _Reading) -> Any:
+def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: Reading) -> Any:
     if mapped.transform == "attachment_text":  # each attachment with the resource holding it
         texts = [read_attachment(v, container=c, record=reading.record)[0] for c, v in pairs]
         return "\n\n".join(text for text in texts if text) or None
@@ -832,15 +843,16 @@ def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: _Reading
     return _apply(mapped, values)
 
 
-def _item(kind: str, source: ListSource, resource: Any, reading: _Reading) -> dict[str, Any]:
-    """One list item from one resource; empty for a MedicationRequest entered in error when
-    the source derives its period."""
+def list_item(kind: str, source: ListSource, resource: Any, reading: Reading) -> dict[str, Any]:
+    """One resource of type `kind` as an item of a mapped list, by its source's fields and its
+    `medication_period`: each key that has a value. An empty item is left out of the list, and
+    a MedicationRequest entered in error is empty when its source derives its period."""
     period = source.medication_period
     if period is not None and _object(resource).get("status") == ENTERED_IN_ERROR:
         return {}
     item: dict[str, Any] = {}
     for name, mapped in source.fields.items():
-        value = _field_value(mapped, {kind: resource}, kind, reading)
+        value = read_field(mapped, {kind: resource}, kind, reading).value
         if value is not None:
             item[name] = value
     if period is not None:
@@ -985,6 +997,44 @@ def mapping_problems(mapping: FhirMapping, manifest: PackManifest, *, held: bool
             if source.medication_period is not None and kind != "MedicationRequest":
                 problems.append(f"{where}.medication_period is a MedicationRequest's only")
     return problems
+
+
+def looked_for(mapping: FhirMapping) -> dict[str, Any]:
+    """What each mapped field and list looks for, from the mapping alone, never the record
+    (LP-23g; `FhirAdapter.looked_for`, and the data-coverage record LP-23d builds,
+    `data_coverage.measure`):
+
+        {"fields": {<target>: LookedFor},
+         "lists": {<target>: {<resource type>: {<item key>: LookedFor}}}}
+
+    Each `LookedFor` holds the full paths in the order they are tried (a list's fields with
+    their resource type in front), the Reference followed first if any, the code systems the
+    field selects on (its `[system=…]` predicates' and its code set's) and the pack's own
+    codes it looks for (its code set's, and its `map`'s keys), both sorted. A
+    `medication_period` appears as its two keys, with the paths of its derivation. Targets,
+    types and keys are in the mapping's order; nothing comes from a record, so it holds no
+    value, id or text of a patient's."""
+    lists: dict[str, dict[str, dict[str, LookedFor]]] = {}
+    for target, spec in mapping.lists.items():
+        lists[target] = {}
+        for kind, source in spec.sources().items():
+            keys = {
+                name: _looked_for(mapped, kind, mapping.code_sets)
+                for name, mapped in source.fields.items()
+            }
+            period = source.medication_period
+            if period is not None:
+                for key, paths in ((period.start, MEDICATION_START), (period.end, MEDICATION_END)):
+                    derived = [f"{kind}.{path}" for path in paths]
+                    keys[key] = LookedFor(follow=None, paths=derived, systems=[], codes=[])
+            lists[target][kind] = keys
+    return {
+        "fields": {
+            target: _looked_for(mapped, None, mapping.code_sets)
+            for target, mapped in mapping.fields.items()
+        },
+        "lists": lists,
+    }
 
 
 def _looked_for(

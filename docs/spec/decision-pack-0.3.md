@@ -133,7 +133,11 @@ An attachment that cannot be read adds no text, and the reason is one of three:
 | `undecodable` | `data` that is not base64, or not UTF-8 once decoded |
 | `not_fetched` | Only a `url`, to a Binary the record does not hold |
 
-A runtime that records what it could not read (a data-coverage record) uses these reasons.
+A runtime that records what it could not read (a data-coverage record) uses these reasons. The
+reference runtime counts each in the decision's data-coverage record and, as for a 0.2
+`base64_text` note it cannot read (0.2 §9), makes the decision ABSTAIN, with the reason
+`could not read <field>: <reason>`. An attachment with neither `data` nor a `url` has nothing to
+read, and counts for nothing.
 
 ### 2.5 Code sets (0.3)
 
@@ -194,7 +198,11 @@ A runtime MAY report, for each field and list item key, what it looks for: its p
 order tried, the reference it follows, the code systems it selects on and the pack's own codes
 it looks for (its code set's, and its map's keys). Such a report comes from the mapping alone,
 so it holds no patient's value, id or text. The reference runtime's is
-`FhirAdapter.looked_for`, for the data-coverage record.
+`FhirAdapter.looked_for`, and its data-coverage record (`mendari.data-coverage/1`) counts what
+each field found against it: the values and codings at the paths it read (in order, until one
+gave the field its value), and with `follow` the references it found and how many it reached. A
+list of several types has a record for each type (`sources`), a `medication_period`'s two keys
+among its fields.
 
 ## 3. Versions
 

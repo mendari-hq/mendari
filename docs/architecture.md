@@ -63,7 +63,10 @@
 ## Request lifecycle
 
 1. The input arrives as JSON, a FHIR Bundle, or a CDS Hooks request with prefetch. FHIR is
-   mapped onto the pack input by `fhir/mapping.yaml`.
+   mapped onto the pack input by `fhir/mapping.yaml`, and the decision records what the mapping
+   looked for and found, as counts (`standards/data_coverage.py`). A part of the record that
+   could not be read (a prefetch read that failed, a note that is only a link) makes the
+   decision `ABSTAIN` after step 2, before any provider runs.
 2. JSON Schema validation. Invalid input becomes `BLOCK`, and no provider sees it.
 3. Each provider slot answers its questions. A provider error is recorded per question and
    never raised to the caller. Derived questions are then computed from their members'
