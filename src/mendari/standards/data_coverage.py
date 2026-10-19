@@ -240,14 +240,17 @@ def _read(
     """What one field found across `scopes`, read as the mapping reads it (`fhir.read_field`):
     the values at the paths it read, the codings of the concepts they read (each coding once, by
     declared system or `other`), its unreadable attachments by reason and, with `follow`, the
-    references it found and what they reached. `declared` None counts no codings."""
+    references it found and what they reached. `declared` None counts no codings. A null is not
+    a value: R4 JSON pads a primitive array with nulls to line it up with its `_x` sibling, so a
+    null counts for nothing and is never an undecodable note, as LP-23d counted."""
     found = _Found()
     for scope in scopes:
         read = read_field(mapped, scope, kind, reading)
         found.references += read.references
         found.reached += read.reached
         counted: set[int] = set()  # the codings an earlier path of the field counted
-        for path, where, pairs in read.reads:
+        for path, where, read_pairs in read.reads:
+            pairs = [(container, value) for container, value in read_pairs if value is not None]
             values = [value for _, value in pairs]
             found.values += len(values)
             if declared is not None:
@@ -337,7 +340,8 @@ def _notes(
     pairs: list[tuple[Any, Any]],
     reading: Reading,
 ) -> Counter[str]:
-    """The attachments a note field's path read that could not be read, by reason."""
+    """The attachments a note field's path read that could not be read, by reason. `pairs` are
+    the path's values with their resources, nulls dropped (`_read`)."""
     counts: Counter[str] = Counter()
     if mapped.transform == "attachment_text":
         for container, attachment in pairs:

@@ -24,7 +24,7 @@ from mendari.cli import main
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
 from mendari.server.smart_routes import decide_for
-from mendari.standards import data_coverage
+from mendari.standards import data_coverage, fhir_structure
 from mendari.standards.data_coverage import FORMAT, OTHER
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
@@ -354,6 +354,47 @@ def test_the_unreadable_notes_are_counted_by_reason() -> None:
         "notes": {"not_fetched": 2, "undecodable": 1}
     }
     assert prefetch_of(pack, [])["patient"] is None  # the helper's read of nothing
+
+
+# A Patient whose name and address arrays are padded, as R4 JSON allows a primitive array to be
+# so that it lines up with its `_x` sibling: each null is a slot whose extension has no value.
+PADDING = {
+    "extension": [{"url": "https://site.example/fhir/StructureDefinition/x", "valueCode": "a"}]
+}
+
+
+def padded(given: list[Any]) -> dict[str, Any]:
+    return {
+        **PATIENT,
+        "name": [{"given": given, "_given": [None, PADDING]}],
+        "address": [{"line": ["1 Main St", None], "_line": [None, PADDING]}],
+    }
+
+
+def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None:
+    """A null in a primitive array is R4 JSON's padding for its `_x` sibling, which the
+    structure check passes: it is no value, and a `base64_text` null is no undecodable note, so a
+    0.2 pack's record counts what LP-23d counted and its decision does not ABSTAIN on it."""
+    lists = {"addresses": {"resource": "Patient", "fields": {"line": {"path": "address[0].line"}}}}
+    fields = {"name": {"path": "Patient.name[0].given", "transform": "join"}}
+    pack = load_pack(mini(tmp_path / "join", {"fields": fields, "lists": lists}))
+    adapter = FhirAdapter.for_pack(pack)
+    record = bundle(padded(["Ann", None]))
+    assert fhir_structure.blocking(fhir_structure.check(record)) == []  # R4 allows the nulls
+    coverage = data_coverage.measure(adapter.mapping, adapter.index(record), unreadable={})
+    assert coverage["fields"]["name"]["values"] == 1
+    assert coverage["lists"]["addresses"]["fields"]["line"]["values"] == 1
+
+    notes = {"notes": {"path": "Patient.name[0].given", "transform": "base64_text"}}
+    decision = Decision(load_pack(mini(tmp_path / "notes", {"fields": notes})))
+    adapter = FhirAdapter.for_pack(decision.pack)
+    record = bundle(padded([b64("Ann"), None]))
+    assert data_coverage.unreadable_notes(adapter.mapping, adapter.index(record)) == {}
+    result, _ = decision.decide_fhir(record)
+    assert result.outcome.value != "ABSTAIN" and result.unreadable == ()
+    assert result.data_coverage is not None
+    assert result.data_coverage["fields"]["notes"]["values"] == 1
+    assert result.data_coverage["fields"]["notes"]["unreadable"] == {}
 
 
 MARK = "ID7f3"  # in every id and text of the 0.3 record below: none may reach its coverage
