@@ -1265,8 +1265,26 @@ each case's latency and tokens by model type, never a key, an endpoint or case t
 price table and the method, so the same inputs give the same bytes. Evidence is decided on
 distinct positives, the grade's bound is simultaneous across the critical labels, ECE is a
 description, cost comes from tokens and the table (never a pack's or a provider's price), and on
-a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
-entries yet: the store and the page come with LP-17f.
+a public set an entry is a regression check with no rank and no grade.
+
+Results are kept in the repository, in an append-only store under `scoreboard/`: each result
+named by its body's SHA-256, beside its ledger and its run record, each named by its own hash.
+`mendari scoreboard run PACK [--dataset NAME] [--config slot=variant | --every-local]` runs a
+local configuration of a pack Mendari maintains over its public scoring sets (never `train`,
+`calibration`, a file or a hidden set; a remote configuration is refused) and stores the
+result, unsigned; one still current is kept, and a new one supersedes the old.
+`mendari scoreboard add FILE` stores a result made elsewhere, never over another file.
+`./scripts/build-scoreboard.sh` runs every local configuration of the five reference packs on
+their 15 public scoring sets (18 results, about 2.7 MB) and writes the
+[early scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md):
+one table per pack and set, a regression check with no Rank column, each figure with its
+interval, the insufficient-evidence banner (only the Referral Router's `test` set has enough
+distinct positives on every critical label) and the marks "unsigned" and "method draft, not in
+effect". CI's `reference-pack` job checks that nothing stored is removed or changed (but for a
+valid signature added), that each result is what its inputs give, that each local ledger
+re-runs to the same bytes and that a new result is of a local configuration
+(`scripts/check_scoreboard.py`), and that the page is the store's
+([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
@@ -1533,7 +1551,7 @@ src/mendari/
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
 │                a hidden set's grading result, the scoreboard's arms, entries and run records,
-│                signed scoreboard results
+│                signed scoreboard results, the results store
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
@@ -1541,7 +1559,8 @@ packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
-scoreboard/      the scoreboard's public grading keys (keys.json)
+scoreboard/      the results store: scoreboard results, their ledgers and run records, and the
+                 public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```
@@ -1558,6 +1577,8 @@ uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py   # the API examples against a local server (curl, jq)
 ./scripts/build-reference-pack.sh      # regenerate data → train → test → benchmark → card
+uv run python scripts/check_scoreboard.py --base origin/main  # the results store: append-only
+uv run python scripts/scoreboard_page.py --check   # the scoreboard's page is the store's
 ```
 
 ## Roadmap

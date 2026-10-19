@@ -66,6 +66,7 @@ nav:
       - Organizations and memberships: operations/accounts.md
       - Status checks: operations/status-checks.md
       - Hidden evaluation sets: operations/evalsets.md
+      - Running the scoreboard: operations/scoreboard.md
       - Running a pack registry: operations/registry.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
@@ -75,6 +76,7 @@ nav:
       - Architecture: architecture.md
   - Grading:
       - Grading method 1.0 (draft): grading/method-1.0.md
+      - Scoreboard (public sets): grading/scoreboard.md
       - Verifying a scoreboard result: grading/verifying.md
   - Security:
       - Threat model: security/threat-model.md

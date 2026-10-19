@@ -1996,9 +1996,35 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
-  - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
-    and the early scoreboard (stage 3): every local configuration on the 15 public scoring sets,
-    unranked and unsigned, on a generated page.
+  - [x] **17f** (#267) The results store (`mendari.evals.results_store`, `scoreboard/`) and
+    the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
+    and run records (each named by its own hash), append-only; `supersedes` (a new field of the
+    entry's body) names an earlier result of the same pack, set, arm and configuration, one
+    current result each. `mendari scoreboard run PACK [--dataset] [--config | --every-local]
+    [--again]` (local configurations of maintained packs on their public scoring sets only;
+    remote, `train`, `calibration`, files and hidden sets refused; a current result kept) and
+    `mendari scoreboard add FILE [--supersedes HASH]` (a local configuration's result only), each
+    reading the pack from the repository's `packs/`, never `MENDARI_PACKS_PATH` or the registry
+    cache. `scripts/build-scoreboard.sh`: 18
+    entries (every local configuration on the 15 public scoring sets), 2.7 MB, all unsigned;
+    the prescreener's `structured=cql` reads "not measured yet". `scripts/check_scoreboard.py
+    --base` and `scripts/scoreboard_page.py --check` are steps of the required `reference-pack`
+    job (fetch-depth 0): names are hashes, nothing removed or changed but a valid signature
+    added, links form a forest, current signatures verify, every public result recomputes byte
+    for byte and every local ledger on its current digest re-runs (older digests recomputed and
+    kept, a changed set or method kept; new results local, on the current ones and measured no
+    later than today; a remote disclosure from `scoreboard/disclosures.json`). The page check
+    runs before the build. A publisher's or a registry's key is refused where it is pinned (CI
+    pins none: the keys file's review keeps one out). The page
+    `docs/grading/scoreboard.md` (nav: "Scoreboard (public sets)"): only the Referral Router's
+    `test` set has no banner (113 and 124 distinct positives). `board` gains a measured arm's
+    configurations not measured yet. Runbook `docs/operations/scoreboard.md`,
+    `scoreboard/README.md`, the spec's results-store section; threat model T8 and R4.
+    `tests/test_scoreboard_store.py`, `tests/test_scoreboard_page.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard run` and `scoreboard add`. A PR that changes a
+    reference pack now regenerates the page (its results show "stale: pack changed"):
+    `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
+    derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
   - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
     the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
     comparison sections become stale).
