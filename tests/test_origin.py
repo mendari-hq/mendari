@@ -225,7 +225,11 @@ def test_another_sites_requests_reach_exactly_the_public_routes_and_pages(
     assert {p for m, p in reached if m == "GET"} == NAVIGABLE
     assert reached == {(m, p) for m, p in routes if m in SAFE and p in NAVIGABLE}
     cds = {(m, p) for m, p in routes if CDS_PATH.match(p)}
-    assert cds == {("GET", "/cds-services"), ("POST", "/cds-services/{service_id}")}
+    assert cds == {
+        ("GET", "/cds-services"),
+        ("POST", "/cds-services/{service_id}"),
+        ("POST", "/cds-services/{service_id}/feedback"),  # LP-23f
+    }
     page = {"sec-fetch-site": "cross-site", "origin": CDS_APP}
     other = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
     reads = {(m, p) for m, p in routes if m in SAFE}

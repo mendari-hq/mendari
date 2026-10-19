@@ -292,10 +292,11 @@ def test_the_rest_of_open_mode_is_unchanged(
     assert refused == {
         ("GET", "/cds-services"),
         ("POST", "/cds-services/{service_id}"),
+        ("POST", "/cds-services/{service_id}/feedback"),  # LP-23f's card feedback
     }
     assert all(CDS_PATH.match(path) for _, path in refused)
     reasons = [reason for _, reason in refusals(capsys.readouterr().out)]
-    assert reasons.count("open_mode_remote") == 2
+    assert reasons.count("open_mode_remote") == 3
     assert remote.get("/api/packs").status_code == 200
     decided = remote.post(
         "/api/packs/mendari/patient-inbox-router/decide",
