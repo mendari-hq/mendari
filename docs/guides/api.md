@@ -113,6 +113,7 @@ curl -s -X POST "$MENDARI/cds-services/mendari.referral-router/feedback" \
                                      "code": "already-addressed"}},
        "outcomeTimestamp": "2026-10-18T12:00:00-04:00"}]}'
 # {"recorded": 1}
+```
 
 List the services and call the inbox's hook, with a synthetic patient and message as prefetch.
 With sign-in off, the CDS services answer on this machine only (`127.0.0.1`, `localhost`): from
