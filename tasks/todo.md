@@ -839,7 +839,7 @@ Connect) is not supported yet.
     that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
-  - [x] **23f** (this PR) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+  - [x] **23f** (#270) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
     `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
     `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three
     neutral `overrideReasons` (owner decision 8) from the new CodeSystem
