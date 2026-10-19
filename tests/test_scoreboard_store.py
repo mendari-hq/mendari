@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -22,12 +23,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from mendari import Pack, load_pack
 from mendari.cli import main
+from mendari.core import clock
 from mendari.core.checkpoint import key_id
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
-from mendari.evals import arms, results_store, scoreboard, signing
+from mendari.evals import arms, results_store, runs, scoreboard, signing
+from mendari.evals.harness import resolve_dataset
 from mendari.evals.ledger import canonical
 from mendari.evals.results_store import Store
+from tests.conftest import calm_jev
+from tests.test_scoreboard import build, edited, run_for
 from tests.test_scoreboard_signing import keys_file
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,7 +197,11 @@ def test_only_adding_a_valid_signature_may_change_a_result(store: Store, inbox: 
     assert any("its signature does not verify" in line for line in problems(store, signed_base))
 
 
-def test_supersedes_names_an_earlier_result_of_the_same_entry(store: Store, inbox: Pack) -> None:
+def test_supersedes_names_an_earlier_result_of_the_same_entry(
+    store: Store, inbox: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Runs on later days, past the first result's stale date: the clock is moved on with them.
+    monkeypatch.setattr(clock, "today", lambda: DATE + datetime.timedelta(days=60))
     first = stored(store, inbox)
     base = files(store)
     later = results_store.record_run(
@@ -314,6 +323,145 @@ def test_a_ledger_on_an_older_digest_is_kept_and_not_rerun(
     assert "stale: pack changed" in table["entries"][0]["marks"]
 
 
+def test_a_ledger_made_up_to_fit_its_result_is_found_by_a_new_run(
+    store: Store, inbox: Pack
+) -> None:
+    """A ledger edited by hand, stored under its own id with a run record and a result built
+    from it: every name and every figure agrees, and only running the configuration again
+    shows it is not what was decided."""
+    measured = results_store.measure(inbox, SET, naive_bayes(inbox), date=DATE)
+
+    def flip(cases: list[dict[str, Any]]) -> None:
+        cases[0]["o"] = "HUMAN_REVIEW" if cases[0]["o"] == "AUTO" else "AUTO"
+
+    made_up = edited(measured.ledger, flip)
+    run = run_for(made_up, measured.run)
+    entry = scoreboard.entry(
+        made_up,
+        resolve_dataset(inbox, SET),
+        run,
+        pack=scoreboard.PackScope.of(inbox),
+        arm=naive_bayes(inbox).arm,
+        configuration=naive_bayes(inbox),
+        prices=None,
+        disclosures=None,
+    )
+    store.put_ledger(made_up)
+    store.put_run(run)
+    found = results_store.held(entry)
+    assert canonical(results_store.recompute(found, store, inbox)) == canonical(entry)
+    refusal = f"results/{found.name}.json ({found.shown}): its ledger is not what a new run gives"
+    with pytest.raises(MendariError, match=re.escape(refusal)):
+        store.add(entry)
+    assert not (store.root / "results").exists()
+    # Written past `add`: the check re-runs it, new against the base or stored in it.
+    path = result_file(store, found.name)
+    path.parent.mkdir()
+    path.write_text(signing.dump(entry), encoding="utf-8")
+    for base in ({}, files(store)):
+        assert problems(store, base) == [f"{refusal} (re-run, a byte differs)"]
+
+
+def test_a_remote_configurations_result_is_never_stored_here(
+    store: Store, inbox: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remote configuration's ledger could not be re-run without a call off the machine, so
+    nothing would check its decisions: `add` refuses its result, and so does the check while it
+    is new against the base. Recomputed, its disclosure is the store's disclosures file's
+    (pending while there is none), never one the result brings."""
+    calm_jev(monkeypatch)
+    built = build(INBOX, SET, {"safety_screen": "jev"})
+    store.put_ledger(built.ledger)
+    store.put_run(built.run)
+    made_up = built.entry(disclosures=runs.Disclosures("", {"jev": "Made up by whoever ran it."}))
+    found = results_store.held(made_up)
+    assert not found.local
+    pending = {"status": scoreboard.DISCLOSURE_PENDING, "statements": {"jev": None}}
+    assert results_store.recompute(found, store, inbox)["scope"]["disclosure"] == pending
+    stated = {"jev": "No commercial relationship."}
+    disclosures = {"format": runs.DISCLOSURES_FORMAT, "date": "2026-10-18", "statements": stated}
+    (store.root / "disclosures.json").write_text(json.dumps(disclosures), encoding="utf-8")
+    assert results_store.recompute(found, store, inbox)["scope"]["disclosure"] == {
+        "status": "stated",
+        "statements": stated,
+    }
+    honest = built.entry(disclosures=store.disclosures())
+    held = results_store.held(honest)
+    assert canonical(results_store.recompute(held, store, inbox)) == canonical(honest)
+    # Neither is stored, whatever its disclosure.
+    for result in (made_up, honest):
+        with pytest.raises(MendariError, match="a remote configuration's result: its ledger"):
+            store.add(result)
+    assert not (store.root / "results").exists()
+    # Written past `add`: refused while it is new against the base. One the base holds stays,
+    # recomputed with the statements it holds, its ledger never re-run.
+    path = result_file(store, held.name)
+    path.parent.mkdir()
+    path.write_text(signing.dump(honest), encoding="utf-8")
+    assert any("a remote configuration's result" in line for line in problems(store, {}))
+    found_now = results_store.check(store, base=files(store))
+    assert (found_now.problems, found_now.recomputed, found_now.rerun) == ([], 1, 0)
+    assert found_now.kept == [f"{held.name}: its ledger not re-run (a remote configuration)"]
+    # A disclosures file that is not one is named.
+    (store.root / "disclosures.json").write_text("{}", encoding="utf-8")
+    assert any(line.startswith("disclosures.json") for line in problems(store, files(store)))
+
+
+def test_a_result_measured_after_today_is_refused(store: Store, inbox: Pack) -> None:
+    """Dated after today, a result would show a stale date far off, and no honest later run
+    could supersede it (it would be measured before it): it is refused while it is new."""
+    future = datetime.date(2099, 1, 1)
+    # On a machine whose clock is wrong: refused, and nothing left behind.
+    with pytest.raises(MendariError, match="measured on 2099-01-01, after today"):
+        results_store.record_run(store, inbox, SET, naive_bayes(inbox), date=future)
+    assert [path.name for path in store.root.rglob("*") if path.is_file()] == ["keys.json"]
+    measured = results_store.measure(inbox, SET, naive_bayes(inbox), date=future)
+    store.put_ledger(measured.ledger)
+    store.put_run(measured.run)
+    with pytest.raises(MendariError, match=r"measured on 2099-01-01, after today \(2026-10-18\)"):
+        store.add(measured.entry, today=DATE)
+    assert store.add(measured.entry, today=future) == measured.name
+    assert any("after today (2026-10-18)" in line for line in problems(store, {}, today=DATE))
+    assert problems(store, files(store), today=DATE) == []  # stored before: it stays
+    # A day of the calendar, never only its shape.
+    no_such_day = json.loads(signing.dump(measured.entry))
+    no_such_day["scope"]["measured_on"] = "2026-02-30"
+    no_such_day["body_sha256"] = scoreboard.body_sha256(no_such_day)
+    with pytest.raises(MendariError, match="names no day it was measured"):
+        results_store.held(no_such_day)
+
+
+def test_the_store_is_run_and_checked_against_the_repositorys_packs(
+    store: Store,
+    inbox: Pack,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A newer copy of a reference pack on `MENDARI_PACKS_PATH` (or pulled from a registry)
+    comes first on the search path; the store never reads it."""
+    name = stored(store, inbox)
+    copy = tmp_path / "elsewhere" / "patient-inbox-router"
+    shutil.copytree(inbox.root, copy)
+    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
+    newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
+    assert newer != manifest
+    (copy / "pack.yaml").write_text(newer, encoding="utf-8")
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(copy.parent))
+    assert resolve_pack(INBOX).root == copy.resolve()
+    assert results_store.maintained_pack(INBOX).digest == inbox.digest
+    found = results_store.check(store, base={})
+    assert (found.problems, found.rerun) == ([], 1)
+    argv = ["scoreboard", "run", INBOX, "--dataset", SET, "--config", "router=naive_bayes"]
+    assert main([*argv, "--store", str(store.root)]) == 0
+    assert capsys.readouterr().out.startswith(f"kept: {INBOX} {SET} ")
+    assert list(store.results()) == [name]
+    with pytest.raises(MendariError, match="not a pack Mendari maintains"):
+        results_store.maintained_pack("mendari/no-such-pack")
+    with pytest.raises(MendariError, match="not a pack Mendari maintains"):
+        results_store.maintained_pack(str(copy))  # a directory is never a pack's id
+
+
 def test_running_a_remote_configuration_is_refused(
     store: Store, inbox: Pack, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -398,6 +546,13 @@ def test_the_reference_pack_job_checks_the_store_and_the_page() -> None:
     }
     assert "uv run python scripts/scoreboard_page.py --check" in runs
     assert not {"if", "continue-on-error"} & {key for step in job["steps"] for key in step}
+    # The build writes the page again (a pack change makes its results stale), so the page is
+    # checked before it, as committed.
+    order = [step.get("run") for step in job["steps"]]
+    page = order.index("uv run python scripts/scoreboard_page.py --check")
+    assert page < order.index("./scripts/build-reference-pack.sh")
+    build = (ROOT / "scripts" / "build-reference-pack.sh").read_text(encoding="utf-8")
+    assert build.rstrip().splitlines()[-2] == "uv run python scripts/scoreboard_page.py"
 
 
 def _page_script() -> Any:

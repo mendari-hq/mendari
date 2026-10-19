@@ -436,6 +436,7 @@ a publisher's pack could carry a forged result. Each file is named by its conten
 | `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
 | `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
+| `disclosures.json` | The disclosures (`mendari.disclosures/1`): none yet, so every remote type's statement is pending. |
 
 - **Append-only.** Nothing stored changes, except that a valid signature may be added to an
   unsigned result whose body stays the same. `mendari scoreboard add FILE [--supersedes HASH]`
@@ -451,22 +452,28 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
   stale date) is kept unless `--again`; a new one supersedes it. It refuses a remote
   configuration, a fitting set and anything but a set the pack names, so a file or a hidden set
-  is never run.
+  is never run. The pack is read from the repository's `packs/` (the bundled packs), never from
+  `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
 - **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
   `reference-pack` job, names each file whose name is not its content's, each result of the base
   removed or changed (but for a valid signature added), each `supersedes` link that breaks the
-  rules above, and each current result whose signature does not verify against `keys.json`. It
+  rules above, and each current result whose signature does not verify against `keys.json`, or
+  was made with a publisher's or a registry's key this machine pinned (CI pins none). It
   recomputes every public result from its stored ledger, its dataset (SHA-256 checked), its run
   record, its price table and the method, byte for byte, and re-runs every local ledger on its
   pack's current digest. A result of an older digest is recomputed and kept, never re-run; one
-  whose set or method changed is kept as it is, and shown stale. A new result must be on its
-  pack's current digest, set and method. A superseded result keeps the signature it had, so a
-  key taken out of the keys file leaves what it signed as history.
+  whose set or method changed is kept as it is, and shown stale. A new result must be of a local
+  configuration (a remote one's ledger could not be re-run without a call off the machine), on
+  its pack's current digest, set and method, and measured no later than today. A remote
+  configuration's disclosure is recomputed from `disclosures.json` while its result is new, never
+  taken from the result; once stored, it keeps the statements it holds. A superseded result
+  keeps the signature it had, so a key taken out of the keys file leaves what it signed as
+  history.
 - **The page.** `scripts/scoreboard_page.py` writes
   [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
   and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
-  `reference-pack`) fails when the page is not the store's. Its bytes depend only on the
-  repository.
+  `reference-pack`, before `scripts/build-reference-pack.sh` writes the page again) fails when
+  the page is not the store's. Its bytes depend only on the repository: the store and `packs/`.
 
 ## Paired comparisons: `mendari.compare/1`
 

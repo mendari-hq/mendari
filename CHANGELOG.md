@@ -521,7 +521,9 @@ The first release (not yet published).
   from its decisions; it refuses a remote configuration before anything runs, never reads
   `MENDARI_PROVIDERS`, and keeps a result that is still current unless `--again`, a new one
   superseding it. `mendari scoreboard add FILE [--supersedes HASH]` stores a result made
-  elsewhere, never over another file. `./scripts/build-scoreboard.sh` runs every local
+  elsewhere, never over another file, of a local configuration only. The pack is always the
+  repository's (`packs/`), never one on `MENDARI_PACKS_PATH` or pulled from a registry.
+  `./scripts/build-scoreboard.sh` runs every local
   configuration of the five reference packs on their 15 public scoring sets: 18 results, 2.7 MB
   with their ledgers and run records, all unsigned, measured on 2026-10-18. Its page,
   `docs/grading/scoreboard.md` ("Scoreboard (public sets)" in the site's Grading section), is
@@ -538,9 +540,13 @@ The first release (not yet published).
   `supersedes` link that breaks the rules above, and a current result whose signature does not
   verify; it recomputes every public result from its stored inputs byte for byte and re-runs
   every local ledger on its pack's current digest (a result of an older digest is recomputed and
-  kept, one whose set or method changed kept as it is; a new one must be on the current ones);
-  and `scripts/scoreboard_page.py --check` fails when the page is not the store's. So a pull
-  request that changes a reference pack also regenerates the page, which then names its stale
+  kept, one whose set or method changed kept as it is; a new one must be of a local
+  configuration, on the current ones, and measured no later than today); a remote
+  configuration's disclosure is recomputed from `scoreboard/disclosures.json`, never taken from
+  the result; and `scripts/scoreboard_page.py --check`, run before the build, fails when the page
+  is not the store's. A publisher's or a registry's key is refused where it is pinned; CI pins
+  none. `./scripts/build-reference-pack.sh` now writes the page last, so a pull request that
+  changes a reference pack commits the page with its artifacts, and the page names its stale
   results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
   pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
   the dashboard and the leaderboards are as they were.

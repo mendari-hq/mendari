@@ -19,6 +19,7 @@ scoreboard/
   runs/<sha256>.json       each result's run record: every case's latency and tokens
   prices/<date>.json       a dated price table (none yet: no local configuration is priced)
   keys.json                the public grading keys (none yet)
+  disclosures.json         the disclosures (none yet: every remote type's statement is pending)
   README.md
 ```
 
@@ -65,6 +66,8 @@ uv run python scripts/scoreboard_page.py
 - `--again` runs a result that is still current again. The new result supersedes it.
 - `--store DIR` uses another store. Without it, the command must be run from the repository's
   root: it never makes a new store.
+- The pack is the repository's, from `packs/`. A copy on `MENDARI_PACKS_PATH`, or a pack pulled
+  from a registry, is never run, checked or shown, whatever its version.
 
 ## Adding a result made elsewhere
 
@@ -75,9 +78,12 @@ uv run mendari scoreboard add RESULT.json --supersedes <sha256>
 
 `add` stores a result under its body's SHA-256, and never writes over a file. A public set's
 result is stored only when its ledger and run record are in the store already and it is what
-they give, on its pack's current digest, set and method. `--supersedes` names the stored result
-it replaces. The link is part of the result's body, so it is refused for a signed result: link
-it first, then sign it.
+they give, on its pack's current digest, set and method, measured no later than today. It must
+be of a local configuration: a remote one's ledger could not be re-run without a call off the
+machine, so nothing would check its decisions. A remote configuration's disclosure is the one in
+`scoreboard/disclosures.json`, never one the result brings. `--supersedes` names the stored
+result it replaces. The link is part of the result's body, so it is refused for a signed result:
+link it first, then sign it.
 
 ## What CI checks
 
@@ -85,11 +91,12 @@ Two steps of the required `reference-pack` job, against the pull request's base 
 the commit it was pushed onto):
 
 ```bash
-uv run python scripts/check_scoreboard.py --base origin/main
 uv run python scripts/scoreboard_page.py --check
+uv run python scripts/check_scoreboard.py --base origin/main
 ```
 
-The first fails when:
+The first fails when the page is not what the store gives. It runs before
+`scripts/build-reference-pack.sh`, which writes the page again. The second fails when:
 
 - a file's name is not its content's hash, or its bytes are not in that kind's form;
 - a result of the base is removed or changed, but for a valid signature added to an unsigned
@@ -97,13 +104,18 @@ The first fails when:
 - a `supersedes` link names no stored result, one of another pack, set, arm or configuration,
   one measured later, or one another result supersedes too; or one pack, set, arm and
   configuration has two current results;
-- a current result's signature does not verify against `scoreboard/keys.json`, or was made with
-  a publisher's or a registry's key;
+- a current result's signature does not verify against `scoreboard/keys.json`;
 - a public result is not what its stored inputs give, byte for byte, or its ledger does not
-  re-run to the same bytes.
+  re-run to the same bytes;
+- a new result is of a remote configuration, or is measured after today.
 
-It needs no secret, writes nothing and calls nothing off the machine. The second step fails when
-the page is not what the store gives.
+It needs no secret, writes nothing and calls nothing off the machine. Both read the packs from
+the repository's `packs/`, never from `MENDARI_PACKS_PATH` or the registry cache.
+
+A result signed with a publisher's or a registry's key is refused where that key is pinned:
+by `mendari scoreboard verify`, and by the check run on a machine that pulled packs from that
+registry (`mendari pull` pins its keys). CI pins none. There, the review of each change to
+`scoreboard/keys.json` is what keeps such a key out of the keys file.
 
 ## When a pack, a set or the method changes
 
@@ -111,6 +123,8 @@ A pack change gives the pack another digest, and its results go stale. The check
 it recomputes them from their own inputs, and does not re-run their ledgers, which were made
 by the earlier digest. The page shows them as "stale: pack changed". So a pull request that
 changes a pack also regenerates the page, and the page names the stale results.
+`./scripts/build-reference-pack.sh` writes it last, after the packs' data, models, benchmarks
+and cards, and runs no result: commit the page with them.
 
 A result whose set or method changed is kept as it is, and shown as "stale: set changed" or
 "stale: method changed". Any edit to the method re-pins its hash while it is a draft, so every

@@ -5,8 +5,9 @@
 # set's holdout), stored unsigned in the results store (scoreboard/), then the page written from
 # it (docs/grading/scoreboard.md). A result still current (the pack's digest, the set and the
 # method unchanged, and not past its stale date) is kept, never run again; a stale one is run
-# again, and the new result supersedes it. Never part of build-reference-pack.sh: a run record
-# holds each case's latency, which no rebuild reproduces. Commit scoreboard/ and the page together.
+# again, and the new result supersedes it. Its runs are never part of build-reference-pack.sh,
+# which writes only the page: a run record holds each case's latency, which no rebuild
+# reproduces. Commit scoreboard/ and the page together.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

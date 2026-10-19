@@ -571,11 +571,12 @@ def cmd_scoreboard_run(args: argparse.Namespace) -> int:
     past its stale date) is kept, not run again, unless --again; a new one supersedes the stored
     one. Refused before anything runs: a remote configuration, a fitting set (`train`,
     `calibration`), anything but a set the pack names (so no file and no hidden set), and a
-    pack Mendari does not maintain."""
+    pack Mendari does not maintain: the pack is read from the bundled packs alone (the
+    repository's `packs/`), never from `MENDARI_PACKS_PATH` or the registry cache."""
     from mendari.evals import results_store
 
     store = results_store.Store.at(args.store)
-    pack = resolve_pack(args.pack)
+    pack = results_store.maintained_pack(args.pack)
     if args.every_local:
         configurations = results_store.local_configurations(pack)
     else:
@@ -602,8 +603,9 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
     never over another file. `--supersedes HASH` names the stored result it replaces, which
     becomes part of its body: refused for a signed result, whose signature would no longer
-    hold. A public result must be what its stored inputs give, on its pack's current digest,
-    set and method; a signed one must verify against the store's keys."""
+    hold. A public result must be of a local configuration, on its pack's current digest, set
+    and method, measured no later than today, and what its stored inputs give; a signed one
+    must verify against the store's keys."""
     from mendari.evals import results_store, scoreboard, signing
     from mendari.hub.client import config_dir
 

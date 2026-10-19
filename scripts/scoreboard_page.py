@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """The early scoreboard's page (LP-17f; the grading method's section 14): writes
-docs/grading/scoreboard.md from the results store (scoreboard/) and the packs alone, so its bytes
-depend only on the repository. It shows the current results (`results_store.heads`) one table
+docs/grading/scoreboard.md from the results store (scoreboard/) and the repository's packs
+(packs/, never `MENDARI_PACKS_PATH` or the registry cache) alone, so its bytes depend only on the
+repository. It shows the current results (`results_store.heads`) one table
 per pack and set (`scoreboard.board`, `render.scoreboard_markdown`): the scope statement, the
 insufficient-evidence banner where it applies, the arms as measured, "not measured" or "not
 applicable", and the marks "unsigned", "method draft, not in effect" and "stale after DATE" (or
@@ -11,7 +12,8 @@ no bare percentage.
     uv run python scripts/scoreboard_page.py           # write the page
     uv run python scripts/scoreboard_page.py --check   # exit 1 when it is not the store's
 
-CI's `reference-pack` job runs --check.
+CI's `reference-pack` job runs --check before scripts/build-reference-pack.sh, which writes the
+page again (a pack change makes its results stale, and the page says so).
 """
 
 from __future__ import annotations
@@ -22,12 +24,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from mendari.core.pack import Pack
-from mendari.core.registry import resolve_pack
 from mendari.evals import method, results_store, scoreboard
 from mendari.evals.render import scoreboard_markdown
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / results_store.ROOT
+PACKS = ROOT / "packs"
 PAGE = ROOT / "docs" / "grading" / "scoreboard.md"
 TITLE = "# Scoreboard (public sets)"
 GENERATED = (
@@ -36,7 +38,12 @@ GENERATED = (
 )
 
 
-def page(store: results_store.Store, packs: Callable[[str], Pack] = resolve_pack) -> str:
+def repository_pack(ref: str) -> Pack:
+    """The pack `ref` names, from the repository's packs/ alone (`maintained_pack`)."""
+    return results_store.maintained_pack(ref, PACKS)
+
+
+def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_pack) -> str:
     """The page's text: from the store's results and the packs they are of, nothing else."""
     results = store.results()
     current = results_store.heads(results)

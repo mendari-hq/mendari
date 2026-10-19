@@ -9,11 +9,15 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
 - `supersedes` links name earlier results of the same pack, set, arm and configuration, and
   form a forest, with one current result for each;
 - each current result's signature verifies against scoreboard/keys.json, and none is a
-  publisher's or a registry's key this machine pinned;
+  publisher's or a registry's key this machine pinned (`mendari pull` pins them; CI pins none,
+  so there the review of each change to keys.json is what keeps such a key out);
 - each public result recomputes byte for byte from its stored ledger, its dataset (SHA-256
   checked), its run record, its price table and the method, and each local ledger on its pack's
   current digest re-runs to the same bytes; a result of an older digest is recomputed and kept,
-  one whose set or method changed is kept as it is; a new one must be on the current ones.
+  one whose set or method changed is kept as it is; a new one must be of a local configuration,
+  on the current ones, and measured no later than today.
+
+The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.
 
     uv run python scripts/check_scoreboard.py --base origin/main   # against another commit
     uv run python scripts/check_scoreboard.py --base HEAD          # what is not committed yet
@@ -33,6 +37,7 @@ from mendari.hub.client import config_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / results_store.ROOT
+PACKS = ROOT / "packs"
 
 
 def base_results(base: str, store: Path = STORE) -> dict[str, bytes]:
@@ -72,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         store,
         base=base_results(args.base),
         publisher_ids=signing.read_pins(config_dir() / "trusted_keys.json"),
+        packs=lambda ref: results_store.maintained_pack(ref, PACKS),
     )
     for line in found.kept:
         print(f"kept: {line}")

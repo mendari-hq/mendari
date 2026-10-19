@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,23 @@ def tables(text: str) -> dict[tuple[str, str], str]:
 
 def test_the_page_is_regenerated_from_the_store(text: str) -> None:
     assert page_script.PAGE.read_text(encoding="utf-8") == text
+    assert page_script.main(["--check"]) == 0
+
+
+def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
+    text: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A newer copy of a reference pack on `MENDARI_PACKS_PATH` (or pulled from a registry)
+    comes first on the search path; the page and its check never read it."""
+    copy = tmp_path / "ai-guard"
+    shutil.copytree(ROOT / "packs" / "ai-guard", copy)
+    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
+    newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
+    assert newer != manifest
+    (copy / "pack.yaml").write_text(newer, encoding="utf-8")
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path))
+    assert resolve_pack("mendari/ai-guard").root == copy.resolve()
+    assert page_script.page(Store.at(ROOT / "scoreboard")) == text
     assert page_script.main(["--check"]) == 0
 
 

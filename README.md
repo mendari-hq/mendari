@@ -1254,8 +1254,9 @@ one table per pack and set, a regression check with no Rank column, each figure 
 interval, the insufficient-evidence banner (only the Referral Router's `test` set has enough
 distinct positives on every critical label) and the marks "unsigned" and "method draft, not in
 effect". CI's `reference-pack` job checks that nothing stored is removed or changed (but for a
-valid signature added), that each result is what its inputs give and that each local ledger
-re-runs to the same bytes (`scripts/check_scoreboard.py`), and that the page is the store's
+valid signature added), that each result is what its inputs give, that each local ledger
+re-runs to the same bytes and that a new result is of a local configuration
+(`scripts/check_scoreboard.py`), and that the page is the store's
 ([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline

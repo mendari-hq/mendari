@@ -10,6 +10,8 @@ under `scoreboard/`, outside the wheel, the sdist and the site.
       runs/<sha256>.json      a run record (`mendari.run/1`), named by the SHA-256 of its bytes
       prices/<date>.json      a dated price table (`mendari.prices/1`), cited by its SHA-256
       keys.json               the public grading keys (`mendari.grading-keys/1`, LP-17e)
+      disclosures.json        the disclosures (`mendari.disclosures/1`): none yet, so every
+                              remote type's statement is pending
 
 A result may name the earlier result it supersedes (`supersedes`, in its body): one of the same
 pack, set, arm and configuration, measured no later. Both stay in the store; the later is the
@@ -19,8 +21,11 @@ in the required `reference-pack` job) refuses a result removed or changed agains
 except a valid signature added to an unsigned result whose body stays the same. It recomputes
 every public result from its stored inputs, and re-runs every local ledger on its pack's current
 digest. A result of an older digest is recomputed and kept, never re-run; one whose set or
-method changed is kept as it is. A new result must be on its pack's current digest, set and
-method, so that all of it is checked.
+method changed is kept as it is. A new result must be of a local configuration (a remote one's
+ledger could not be re-run without a call off the machine), on its pack's current digest, set
+and method, and measured no later than today, so that all of it is checked. The packs are the
+ones Mendari maintains, read from the bundled packs alone (`maintained_pack`: the repository's
+`packs/` in a checkout), never from `MENDARI_PACKS_PATH` or the registry cache.
 
 `measure` runs one local configuration of a maintained pack over one of its public scoring sets
 (every set it declares but its fitting sets, `train` and `calibration`), and gives its ledger,
@@ -41,11 +46,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
+from mendari.core.origin import Origin
 from mendari.core.pack import Pack
-from mendari.core.registry import resolve_pack
-from mendari.core.spec import is_pack_id
-from mendari.errors import MendariError
+from mendari.core.reference import bundled_dir
+from mendari.core.registry import SearchPath, discover
+from mendari.core.spec import is_pack_id, version_key
+from mendari.errors import MendariError, PackNotFoundError
 from mendari.evals import arms, method, runs, scoreboard, signing
 from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems, resolve_dataset
@@ -53,14 +61,14 @@ from mendari.evals.ledger import Ledger, canonical
 
 ROOT = "scoreboard"  # from the repository's root
 RESULTS, LEDGERS, RUNS, PRICES = "results", "ledgers", "runs", "prices"
-KEYS = "keys.json"
+KEYS, DISCLOSURES = "keys.json", "disclosures.json"
 # The formats the store holds. A hidden set's answer (`mendari.hidden_scoreboard/1`) joins with
 # LP-17k, with its closed schema.
 FORMATS = (scoreboard.FORMAT,)
 # A pack's sets that fit its models (naive Bayes is trained on one, calibrated on the other):
 # never scored. Every other set it declares is a public scoring set.
 FITTING_SETS = ("train", "calibration")
-MAINTAINED = "maintained"  # the `Pack.origin` of the packs Mendari maintains
+MAINTAINED: Origin = "maintained"  # the `Pack.origin` of the packs Mendari maintains
 KEPT, STORED = "kept", "stored"
 _BODY = re.compile(r"sha256:[0-9a-f]{64}")
 _HEX = re.compile(r"[0-9a-f]{64}")
@@ -73,6 +81,31 @@ NAMES = {
     PRICES: re.compile(r"\d{4}-\d{2}-\d{2}\.json"),
 }
 PackSource = Callable[[str], Pack]
+
+
+def maintained_pack(ref: str, root: Path | None = None) -> Pack:
+    """The pack Mendari maintains that `ref` names (`namespace/name`, its newest version, or
+    `namespace/name@version`), read from the bundled packs alone: `root`, or `bundled_dir()`
+    (the repository's `packs/` in a checkout). Never from `MENDARI_PACKS_PATH`, the registry
+    cache or the community packs, and never a directory `ref` might also name, so the store is
+    run, checked and shown against the packs the repository holds, whatever the search path."""
+    where = root if root is not None else bundled_dir()
+    pack_id, _, version = ref.partition("@")
+    found = (
+        []
+        if where is None
+        else [
+            pack
+            for pack in discover([SearchPath(where, MAINTAINED)]).packs
+            if pack.id == pack_id and (not version or pack.version == version)
+        ]
+    )
+    if not found:
+        raise PackNotFoundError(
+            f"{ref} is not a pack Mendari maintains: the store holds the reference packs' "
+            "results (give one by its id)"
+        )
+    return max(found, key=lambda pack: version_key(pack.version))
 
 
 def scoring_sets(pack: Pack) -> list[str]:
@@ -216,7 +249,7 @@ def held(result: Any, *, name: str | None = None) -> Held:
     ]
     if not all(isinstance(text, str) for text in texts) or not isinstance(values.local, bool):
         raise MendariError("a field the store reads is not of its type")
-    if not _DAY.fullmatch(values.measured_on):
+    if _day(values.measured_on) is None:
         raise MendariError("its scope names no day it was measured (YYYY-MM-DD)")
     if not is_pack_id(values.pack_id):
         raise MendariError("its scope names no pack id (namespace/name)")
@@ -229,6 +262,16 @@ def held(result: Any, *, name: str | None = None) -> Held:
     if supersedes is not None and not (isinstance(supersedes, str) and _BODY.fullmatch(supersedes)):
         raise MendariError("supersedes names a result by its body's SHA-256 (sha256:<64 hex>)")
     return replace(values, supersedes=None if supersedes is None else supersedes[len("sha256:") :])
+
+
+def _day(text: str) -> datetime.date | None:
+    """The day `text` names (YYYY-MM-DD, a day of the calendar), or None."""
+    if not _DAY.fullmatch(text):
+        return None
+    try:
+        return datetime.date.fromisoformat(text)
+    except ValueError:  # the right shape, but no such day (2026-02-30)
+        return None
 
 
 # --------------------------------------------------------------------------------------------
@@ -311,21 +354,35 @@ class Store:
             raise MendariError(f"{KEYS} cannot be read") from None
         return signing.load_keys(signing.read(text))
 
+    def disclosures(self) -> runs.Disclosures | None:
+        """The disclosures (`disclosures.json`, `mendari.disclosures/1`), or None while the store
+        has none: every remote type's statement is then pending."""
+        path = self.root / DISCLOSURES
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise MendariError(f"{DISCLOSURES}: {error.strerror}") from None
+        return runs.disclosures(raw, where=DISCLOSURES)
+
     def add(
         self,
         result: Mapping[str, Any],
         *,
         publisher_ids: Iterable[str] = (),
-        packs: PackSource = resolve_pack,
+        packs: PackSource = maintained_pack,
+        today: datetime.date | None = None,
     ) -> str:
         """Store `result` under its name, and give that name. Refused, writing nothing: a result
         the store does not hold (`held`); one stored already (the store never overwrites); a
         `supersedes` that names no stored result of the same pack, set, arm and configuration
         measured no later, or one another result supersedes already; a second current result of
         one pack, set, arm and configuration (a new one supersedes the old); a signature that
-        does not verify against `keys.json`; and a public result that is not what its stored
-        inputs give, on its pack's current digest, set and method, with a ledger that re-runs to
-        the same bytes (`check`'s rules for a new result)."""
+        does not verify against `keys.json`; and a public result that is not of a local
+        configuration, on its pack's current digest, set and method, measured no later than
+        `today` (the clock's, by default), and what its stored inputs give, with a ledger that
+        re-runs to the same bytes (`check`'s rules for a new result)."""
         found = held(result)
         path = self.root / RESULTS / f"{found.name}.json"
         if path.exists():
@@ -345,7 +402,8 @@ class Store:
             if signature is not None:
                 problem = f"its signature does not verify: {signature}"
         if problem is None:
-            problem = _public(found, self, packs, new=True, reruns={}).problem
+            day = clock.today() if today is None else today
+            problem = _public(found, self, packs, new=True, reruns={}, today=day).problem
         if problem is not None:
             raise MendariError(problem)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -632,12 +690,15 @@ def record_run(
 # --------------------------------------------------------------------------------------------
 
 
-def recompute(found: Held, store: Store, pack: Pack) -> dict[str, Any]:
+def recompute(found: Held, store: Store, pack: Pack, *, new: bool = True) -> dict[str, Any]:
     """The entry `found`'s stored inputs give: its ledger, its run record and its price table
-    from the store, its dataset from `pack` (the pack it is of, as it is now), the method, its
-    disclosure statements and its `supersedes` link. A result of an older digest is recomputed
-    with its own pack scope and configuration, as it holds them; one on the current digest with
-    the pack's own."""
+    from the store, its dataset from `pack` (the pack it is of, as it is now), the method, the
+    disclosures and its `supersedes` link. A result of an older digest is recomputed with its
+    own pack scope and configuration, as it holds them; one on the current digest with the
+    pack's own. A remote configuration's disclosure statements are, for a `new` result, the
+    store's (`disclosures.json`; none while there is no file, so every remote type's is
+    pending), never the ones the result brings; one stored before keeps those it holds, which
+    were the store's when it was added."""
     scope = found.result["scope"]
     if found.pack_digest == pack.digest:
         pack_scope = scoreboard.PackScope.of(pack)
@@ -652,12 +713,12 @@ def recompute(found: Held, store: Store, pack: Pack) -> dict[str, Any]:
             local=bool(stored["local"]),
             remote_types=tuple(stored["remote_types"]),
         )
-    # The statements are an input the entry holds whole: the ones it was given.
-    statements = {
-        kind: text
-        for kind, text in scope["disclosure"]["statements"].items()
-        if isinstance(text, str)
-    }
+    disclosures: runs.Disclosures | None = None  # a local configuration: "no model provider"
+    if configuration.remote_types and new:
+        disclosures = store.disclosures()
+    elif configuration.remote_types:
+        statements = _held_statements(scope)
+        disclosures = runs.Disclosures(date="", statements=statements) if statements else None
     return scoreboard.entry(
         store.ledger(found.ledger),
         resolve_dataset(pack, found.set_name),
@@ -666,9 +727,19 @@ def recompute(found: Held, store: Store, pack: Pack) -> dict[str, Any]:
         arm=found.arm,
         configuration=configuration,
         prices=None if found.prices is None else store.prices(found.prices),
-        disclosures=runs.Disclosures(date="", statements=statements) if statements else None,
+        disclosures=disclosures,
         supersedes=found.result["supersedes"],
     )
+
+
+def _held_statements(scope: Mapping[str, Any]) -> dict[str, str]:
+    """The disclosure statements a stored result's scope holds, by remote type (a pending
+    type's is null, and left out)."""
+    disclosure = scope.get("disclosure")
+    statements = disclosure.get("statements") if isinstance(disclosure, Mapping) else None
+    if not isinstance(statements, Mapping):
+        return {}
+    return {kind: text for kind, text in statements.items() if isinstance(text, str)}
 
 
 def rerun(found: Held, pack: Pack) -> Ledger:
@@ -691,16 +762,34 @@ class Verdict:
 
 
 def _public(
-    found: Held, store: Store, packs: PackSource, *, new: bool, reruns: dict[str, bool]
+    found: Held,
+    store: Store,
+    packs: PackSource,
+    *,
+    new: bool,
+    reruns: dict[str, bool],
+    today: datetime.date,
 ) -> Verdict:
-    """Whether a public result is what its stored inputs give. A `new` one must be on its pack's
-    current digest, set and method, so that it is recomputed and its ledger re-run. One stored
-    before is recomputed while its set and method are current, and its ledger re-run while its
-    digest is too; otherwise it is kept. Its inputs must be in the store either way. `reruns`
-    holds each ledger re-run already, by id: two results that share a ledger run it once."""
+    """Whether a public result is what its stored inputs give. A `new` one must be of a local
+    configuration, on its pack's current digest, set and method, and measured no later than
+    `today`, so that it is recomputed and its ledger re-run, and a later run can supersede it.
+    One stored before is recomputed while its set and method are current, and its ledger re-run
+    while its digest is too and it is local; otherwise it is kept. Its inputs must be in the
+    store either way. `reruns` holds each ledger re-run already, by id: two results that share a
+    ledger run it once."""
     where = f"{RESULTS}/{found.name}.json ({found.shown})"
     if found.set_kind != scoreboard.PUBLIC:
         return Verdict(f"{where}: not a public set's result")
+    if new and found.measured_on > today.isoformat():
+        return Verdict(
+            f"{where}: it is measured on {found.measured_on}, after today ({today.isoformat()}): "
+            "a result is dated the day it is run"
+        )
+    if new and not found.local:
+        return Verdict(
+            f"{where}: a remote configuration's result: its ledger could not be re-run without "
+            "a call off this machine, so only a local configuration's result is stored"
+        )
     try:
         store.ledger(found.ledger)
         store.run(found.run)
@@ -718,15 +807,17 @@ def _public(
     if stale is not None and stale != scoreboard.STALE_PACK:
         return Verdict(kept=f"{found.name}: kept as it is, not recomputed ({stale})")
     try:
-        again = recompute(found, store, pack)
+        again = recompute(found, store, pack, new=new)
     except MendariError as error:
         return Verdict(f"{where}: it cannot be recomputed from its inputs: {error}")
     if canonical(again) != canonical(signing.body(found.result)):
         return Verdict(f"{where}: it is not what its inputs give (recomputed, a byte differs)")
     if stale is not None:
         return Verdict(recomputed=True, kept=f"{found.name}: its ledger not re-run ({stale})")
-    if not found.local:
-        return Verdict(recomputed=True)  # a remote configuration is never re-run: no call is made
+    if not found.local:  # stored before: a remote configuration is never re-run, no call is made
+        return Verdict(
+            recomputed=True, kept=f"{found.name}: its ledger not re-run (a remote configuration)"
+        )
     if found.ledger not in reruns:
         try:
             reruns[found.ledger] = rerun(found, pack).dumps() == store.ledger(found.ledger).dumps()
@@ -787,27 +878,29 @@ def check(
     *,
     base: Mapping[str, bytes],
     publisher_ids: Iterable[str] = (),
-    packs: PackSource = resolve_pack,
+    packs: PackSource = maintained_pack,
+    today: datetime.date | None = None,
 ) -> Check:
     """Check the store against `base`: the base commit's result files, by name (their file
-    name without `.json`), with their bytes. It needs no secret, and names a problem for each of
-    these:
+    name without `.json`), with their bytes, on `today` (the clock's, by default). It needs no
+    secret, and names a problem for each of these:
 
     - a file whose name is not its content's (a result's body SHA-256, a ledger's id, the
       SHA-256 of a run record's bytes, a price table's date), or whose bytes are not in that
-      kind's form;
+      kind's form (the keys file's and the disclosures file's too);
     - a result of `base` removed, or changed in any way but a valid signature added to an
       unsigned result whose body stays the same;
     - a `supersedes` link to no stored result, to one of another pack, set, arm or
       configuration, to one measured later, to one another result supersedes too, or in a
       cycle; more than one current result of one pack, set, arm and configuration;
     - a signature that does not verify against `keys.json`, or that a publisher's or a
-      registry's key made (`publisher_ids`), on a current result, a result new against `base`,
-      or a result whose signature is new against it (a superseded result keeps the signature
-      it had, so a key taken out of the keys file leaves it as history);
+      registry's key made (`publisher_ids`: the ones this machine pinned, none in CI), on a
+      current result, a result new against `base`, or a result whose signature is new against
+      it (a superseded result keeps the signature it had, so a key taken out of the keys file
+      leaves it as history);
     - a public result that is not what its stored inputs give, or whose ledger does not re-run
-      to the same bytes, or a new one not on its pack's current digest, set and method
-      (`_public`)."""
+      to the same bytes; or a new one of a remote configuration, not on its pack's current
+      digest, set and method, or measured after `today` (`_public`)."""
     found = Check()
     problems = found.problems
     listed: dict[str, dict[str, bytes]] = {}
@@ -848,6 +941,10 @@ def check(
     except MendariError as error:
         problems.append(f"{KEYS}: {error}")
         keys = {}
+    try:
+        store.disclosures()
+    except MendariError as error:
+        problems.append(str(error))
     publishers = frozenset(publisher_ids)
     for name, old in sorted(base.items()):
         problem = _base_problem(old, now.get(name), keys, publishers)
@@ -862,8 +959,10 @@ def check(
         if signature is not None:
             problems.append(f"{RESULTS}/{name}.json: its signature does not verify: {signature}")
     reruns: dict[str, bool] = {}
+    day = clock.today() if today is None else today
     for name, held_result in sorted(results.items()):
-        verdict = _public(held_result, store, packs, new=name not in base, reruns=reruns)
+        new = name not in base
+        verdict = _public(held_result, store, packs, new=new, reruns=reruns, today=day)
         if verdict.problem is not None:
             problems.append(verdict.problem)
         if verdict.kept is not None:
