@@ -2095,8 +2095,19 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     freshness, the canary and disclosures; built, and refusing to start in CI.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
-  - [ ] **17j** Grades (attestations: met, not met or insufficient evidence) and band ranking,
-    with the Holm family and rank intervals (pure).
+  - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
+    insufficient evidence, never a letter, score or composite; draft while the method is not in
+    effect) and band ranking (`evals/bands.py`), pure. The attestations: no critical case
+    automated, each critical label's recall floor on its simultaneous bound over distinct
+    groups, the false-automation ceiling on its 95% upper bound; insufficient when a perfect
+    result could not meet one (`method.min_positives`, and `method.min_labelled`, 183 for 0.02).
+    The band tuple (worst critical label's bound, false automation, accuracy, Brier, cost), each
+    value read as the decimal it is written as; unranked arms with their reasons; competition
+    ranks; the Holm family per pack and set (every pair by each critical label's detection,
+    false automation, accuracy and Brier), named with its size; rank intervals from its
+    decisions, which never reorder the ranks. Given only on frozen hidden sets, from paired
+    ledgers: on a public set the ranking is off and the grade null, wired into `board` (which
+    refuses a hidden table of two or more, holding no ledger). `tests/test_scoreboard_rank.py`.
   - [ ] **17k** The hidden-set scoreboard through the existing grading route
     (`mendari.hidden_scoreboard/1`, every declared arm in one grading read).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.

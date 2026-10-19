@@ -640,6 +640,28 @@ The first release (not yet published).
   yet. Guide: `docs/grading/verifying.md`, which also says how to sign without the key reaching
   the shell's history, and what to do when a key leaks (run its results again; a result is
   signed once); threat model S20 and E14. No figure, format or decision changes.
+- **Grades and band ranking** (LP-17j, `mendari.evals.grade` and `mendari.evals.bands`, pure:
+  nothing grades a hidden set with them yet, LP-17k will). A grade is a set of attestations
+  under the grading method, each met, not met or insufficient evidence, with no letter, score or
+  composite: no critical case automated (a positive decided AUTO makes it not met whatever the
+  evidence), each critical label's recall floor on the grade's bound, and the false-automation
+  ceiling on its 95% upper bound. Insufficient evidence means a perfect result on those cases
+  could not meet it: under 100 distinct positives, under `method.min_positives` for the floor,
+  or under 183 labelled cases for the 0.02 ceiling (`method.min_labelled`, new). Every bound is
+  worked out from k and n, never a stored figure, and an entry of another method is refused. A
+  ranking orders the declared arms graded in one read, their ledgers paired case by case, on the
+  method's band tuple (the worst critical label's bound, false automation, accuracy, Brier, then
+  cost, each value read as the decimal it is written as); an arm that fails a safety attestation
+  or lacks its evidence is listed unranked with each reason; equal tuples share a competition
+  rank (1, 2, 2, 4); ECE, latency and subgroups never enter it. The Holm family is every pair of
+  ranked arms by each critical label's detection (exact McNemar on distinct positive groups),
+  false automation, accuracy (exact McNemar) and Brier (the paired bootstrap), named with its
+  size, and its decisions set each arm's rank interval without ever reordering the ranks. Both
+  are draft while the method is not in effect, and both are given only on frozen hidden sets:
+  on a public set the ranking is off ("public set: regression check, not a ranking") and the
+  grade null, and a board, which holds no ledger, refuses to rank a hidden table of two or more.
+  No figure, format or decision changes: a public entry's bytes are what they were. Spec:
+  `docs/spec/evaluation-reports.md`, Grades and band ranking.
 - **The results store and the early scoreboard** (LP-17f, `mendari.evals.results_store`,
   `scoreboard/`; the grading method's sections 11, 12 and 14). Results are kept in the
   repository, outside the wheel, the sdist and the site, append-only: each named by its body's
