@@ -236,7 +236,8 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   tries to run a script among them: its Playwright tests and the OWASP ZAP baseline), `pilot-check` (a pilot organization end to end against a mock identity
   provider, PHI mode `encrypt`), `sandbox-e2e` (SMART launches from smart-launcher-v2, in open
   mode and into an engine with sign-in on and the launcher registered) and `fhir-conformance`
-  (the HL7 validator).
+  (the HL7 validator). Weekly and by hand, `conformance.yml` runs the Inferno DTR payer suite
+  against the open engine on synthetic data (`sandbox/inferno/README.md`).
 - **How to deploy safely:** [`deploying-with-phi.md`](../deploying-with-phi.md), with the
   settings in one table (§8) and the go-live checklist (§9). `SECURITY.md` at the repository's
   root lists the controls in one place.

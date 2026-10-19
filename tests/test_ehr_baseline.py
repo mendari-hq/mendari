@@ -175,7 +175,10 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
     for writer in ("audit_fhir", "task_fhir", "sandbox_fhir", "fhir_output"):
         assert f"uv run python scripts/{writer}_sample.py var/fhir-samples" in runs, writer
     valid = "tests/fixtures/us-core/*.json var/fhir-samples/*.json var/fhir-terminology/*.json"
-    validated = f"uv run python scripts/fhir_validate.py --ig var/fhir-terminology --valid {valid}"
+    validated = (
+        "uv run python scripts/fhir_validate.py --offline --ig var/fhir-terminology "
+        f"--valid {valid}"
+    )
     assert f"{validated} --invalid tests/fixtures/us-core/invalid/*.json" in runs
     arguments = _script("scripts/fhir_validate.py").ARGS
     assert arguments[arguments.index("-tx") + 1] == "n/a"  # offline: no terminology server
