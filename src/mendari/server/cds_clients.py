@@ -17,7 +17,9 @@ sign-in behaves as before. Set, it is a JSON list checked at startup (`cds_clien
   whose origin is on `MENDARI_FHIR_ALLOWED_SERVERS`, so one allow-list governs every call
   Mendari makes to an EHR.
 - Optionally `sub` and `tenant`, which its tokens must then carry exactly, `iss_is_fhir_server`
-  (the `fhirServer` it sends must then be its `iss`), and `origins` (for CORS, LP-23c).
+  (the `fhirServer` it sends must then be its `iss`), and `origins`: the browser origins it calls
+  from (LP-23c). A page there reads the answers through CORS (`server/cors.py`), and a page on
+  any other site's origin, another client's included, may not use its token (`from_its_origin`).
 
 With sign-in off every organization must be `default`, and `MENDARI_PUBLIC_URL` must be set: a
 token's `aud` is that URL plus the path called. A refusal at startup names the setting, the
@@ -42,6 +44,13 @@ and what was kept for that client is dropped. Each failed fetch is one `cds.jwks
 in the security log, with the client's id and a fixed reason. The cache is each process's own
 (each instance on Vercel), so that limit is per instance, and an instance fetches a client's
 keys at its first token.
+
+**Open mode answers CDS Hooks on this machine only** (LP-23c, `CdsOpenMode`): with sign-in off,
+a request to `/cds-services` goes on only when it comes from this machine (`on_this_machine`: a
+loopback address, a `Host` that names this machine, and no forwarding header), whatever
+credential it carries, a verified token included. Anything else is a `403`.
+`MENDARI_CDS_SANDBOX=1` (`cds_sandbox`) lifts the rule for a sandbox on synthetic data reached
+over a network (the compose sandbox's engine); it stops the server on Vercel and with sign-in on.
 """
 
 from __future__ import annotations
@@ -50,6 +59,7 @@ import base64
 import binascii
 import ipaddress
 import json
+import logging
 import math
 import os
 import re
@@ -61,17 +71,26 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import jwt
+from starlette.requests import Request
 
 from mendari.core.audit import AuditStore
 from mendari.errors import ClientError, FhirError, MendariError
 from mendari.server import security_log
 from mendari.server.auth import DEFAULT_ORG, CdsRefused
 from mendari.server.backend_services import ALGORITHMS, MAX_ASSERTION_BYTES, MAX_JTI, check_jwks
+from mendari.server.limits import client_ip
+from mendari.server.origin import is_local_host, is_this_site, trusted_origins
 from mendari.server.origin import origin_of as browser_origin
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
 from mendari.standards.smart import Registration, normalize_base
 
 ENV = "MENDARI_CDS_CLIENTS"
+SANDBOX_ENV = "MENDARI_CDS_SANDBOX"  # open mode answers CDS Hooks from anywhere (LP-23c)
+# Headers a proxy adds to say it forwarded a request: with any of them, the request is not this
+# machine's, whatever address it came from (a proxy on this machine connects from loopback).
+FORWARDING = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
+_HOST = re.compile(r"(?P<name>\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?")
+logger = logging.getLogger("mendari.auth")
 SKEW = 30  # seconds of clock skew tolerated on exp, iat and nbf
 MAX_LIFETIME = 300  # Inferno's tokens live 300 s; with the skew, 330 s at most
 KEYS_SECONDS = 3600  # keys from a jwks_uri are kept this long, as the OIDC discovery is
@@ -402,7 +421,8 @@ def _seconds(value: object) -> float | None:
 
 class CdsRegistry:
     """The registered CDS clients, by `iss` and by id, the public URL their tokens are addressed
-    to, and their keys."""
+    to, their keys, and the browser origins they call from (`origins`, the union of theirs: what
+    CORS serves, LP-23c); `trusted` are this site's other origins (`origin.trusted_origins`)."""
 
     def __init__(
         self,
@@ -411,12 +431,15 @@ class CdsRegistry:
         clients: Sequence[CdsClient],
         allowed: Collection[str] = (),
         keys: JwksCache | None = None,
+        trusted: Collection[str] = (),
     ):
         self.public_url = public_url.rstrip("/")
         self.clients = tuple(clients)
         self.by_iss = {client.iss: client for client in self.clients}
         self.by_id = {client.id: client for client in self.clients}
         self.keys = keys or JwksCache(allowed=allowed)
+        self.trusted = frozenset(trusted)
+        self.origins = frozenset(origin for client in self.clients for origin in client.origins)
 
     def audience(self, path: str) -> str:
         """What a token for `path` must carry as `aud`: the public URL and the path, never the
@@ -425,6 +448,19 @@ class CdsRegistry:
 
     def client(self, client_id: str) -> CdsClient | None:
         return self.by_id.get(client_id)
+
+    def from_its_origin(self, client: CdsClient, request: Request) -> bool:
+        """Whether a request with `client`'s token may come from where it says (LP-23c): from no
+        browser page (no `Origin`), from this site (the request's own host, `MENDARI_PUBLIC_URL`
+        or `MENDARI_TRUSTED_ORIGINS`), or from one of the client's own `origins`. A page on any
+        other origin, `null` and another client's included, may not use the token."""
+        sent = request.headers.getlist("origin")
+        if not sent:
+            return True
+        origin = browser_origin(sent[0]) if len(sent) == 1 else None
+        if origin is None:
+            return False
+        return origin in client.origins or is_this_site(origin, request, self.trusted)
 
     def ids(self, org: str | None) -> list[str]:
         """The clients' ids, of `org` only (None: every organization's, open mode)."""
@@ -453,15 +489,21 @@ class CdsRegistry:
 
 
 def cds_clients(
-    *, signed_in: bool, ehrs: Mapping[str, Registration], allowed: Collection[str] | None = None
+    *,
+    signed_in: bool,
+    ehrs: Mapping[str, Registration],
+    allowed: Collection[str] | None = None,
+    trusted: Collection[str] | None = None,
 ) -> CdsRegistry | None:
     """`MENDARI_CDS_CLIENTS`, checked: None when it is unset (no JWT is accepted anywhere).
     Anything wrong in it stops the server here, at startup, with a message that names the entry
-    and the field, never a value."""
+    and the field, never a value. `allowed` (the FHIR allow-list) and `trusted` (this site's
+    other origins) are read from the environment when not given."""
     raw = os.environ.get(ENV, "").strip()
     if not raw:
         return None
     servers = allowed_servers() if allowed is None else frozenset(allowed)
+    this_site = trusted_origins() if trusted is None else frozenset(trusted)
     try:
         entries = json.loads(raw)
     except (ValueError, RecursionError):
@@ -477,7 +519,74 @@ def cds_clients(
         if any(other.iss == client.iss for other in clients):
             raise MendariError(f"{ENV} entry {number}: its iss is another entry's too")
         clients.append(client)
-    return CdsRegistry(public_url=public_url, clients=clients, allowed=servers)
+    return CdsRegistry(public_url=public_url, clients=clients, allowed=servers, trusted=this_site)
+
+
+# -- where open mode answers (LP-23c) -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CdsOpenMode:
+    """Where open mode (sign-in off) answers CDS Hooks: on this machine only, or, with `sandbox`
+    (`MENDARI_CDS_SANDBOX=1`, `cds_sandbox`), from anywhere."""
+
+    sandbox: bool = False
+
+    def answers(self, request: Request) -> bool:
+        return self.sandbox or on_this_machine(request)
+
+
+def on_this_machine(request: Request) -> bool:
+    """Whether a request comes from this machine, sent to it by a name of this machine. All three
+    must hold: the caller's address (`limits.client_ip`) is a loopback address; no proxy says it
+    forwarded the request (`FORWARDING`: a proxy on this machine connects from loopback too);
+    and the one `Host` header names this machine (`origin.is_local_host`), since a page that
+    points another name at 127.0.0.1 (DNS rebinding) sends that name. A `Host` alone is what the
+    caller says, and an address alone could be such a page's or a proxy's. A proxy on this
+    machine that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1) passes
+    all three for whoever it forwards: behind any proxy, sign-in goes on (threat E16)."""
+    if any(name in request.headers for name in FORWARDING):
+        return False
+    try:
+        address = ipaddress.ip_address(client_ip(request))  # `unknown` is not an address
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped  # ::ffff:127.0.0.1, from a dual-stack socket
+    if not address.is_loopback:
+        return False
+    hosts = request.headers.getlist("host")
+    named = _HOST.fullmatch(hosts[0].strip()) if len(hosts) == 1 else None
+    return named is not None and is_local_host(named["name"])
+
+
+def cds_sandbox(*, signed_in: bool) -> bool:
+    """`MENDARI_CDS_SANDBOX`: `1` lets open mode answer CDS Hooks from any host, for a sandbox on
+    synthetic data that is reached over a network (the compose sandbox's engine, which Docker's
+    port publishing reaches from its gateway, never from loopback); unset or `0`, from this
+    machine only. Anything else, and `1` on Vercel or with sign-in on, stops the server here:
+    the hosted site must never answer as a sandbox, and with sign-in on every caller needs a
+    credential, so a flag left set would only wait for sign-in to be turned off."""
+    raw = os.environ.get(SANDBOX_ENV, "").strip()
+    if raw in ("", "0"):
+        return False
+    if raw != "1":
+        raise MendariError(f"{SANDBOX_ENV} must be 1 (on), or 0 or unset (off)")
+    if os.environ.get("VERCEL"):
+        raise MendariError(
+            f"{SANDBOX_ENV}=1 is for a sandbox on synthetic data, never the hosted site: unset it"
+        )
+    if signed_in:
+        raise MendariError(
+            f"{SANDBOX_ENV}=1 is for open mode only: with sign-in on, every caller needs a "
+            "credential, so unset it"
+        )
+    logger.warning(
+        "%s=1: open mode answers CDS Hooks from any host that reaches it, so use synthetic data "
+        "only (docs/deploying-with-phi.md)",
+        SANDBOX_ENV,
+    )
+    return True
 
 
 def _public_url() -> str:

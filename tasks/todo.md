@@ -811,8 +811,30 @@ Connect) is not supported yet.
     `cds_claims`; the session table keys a lone surrogate (`_session_key`, every older key
     unchanged); `cds_issued_at` folded into `cds_claims` and `cds_not_yet_valid`. Open mode still
     answers on any host until 23c.
-  - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
-    for registered origins.
+  - [x] **23c** (#269) Open mode answers CDS Hooks on this machine or under the sandbox flag
+    only; CORS for registered origins. `server/cds_clients.py`: `on_this_machine` (a loopback
+    `client_ip`, IPv4-mapped included; no `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or
+    `X-Real-IP`; one `Host` naming this machine), `CdsOpenMode`, and `cds_sandbox`
+    (`MENDARI_CDS_SANDBOX`: `1` or `0`, `1` stops startup on Vercel or with sign-in on, with a
+    warning when on); `CdsRegistry.origins` and `from_its_origin`. `server/auth.py`: with sign-in
+    off, `/cds-services` from elsewhere is a `403` (`open_mode_remote`) before any credential is
+    read, a verified token's too; a `cds` token from a page on an origin neither its client's nor
+    this site's is a `403` (`cds_origin`) before its `jti` is claimed. `server/cors.py` (new):
+    on `/cds-services` only, the registered origins' preflight answered before the guard,
+    `Access-Control-Allow-Origin` on their answers, `Vary: Origin`, never credentials.
+    `server/origin.py`: a registered origin passes on `/cds-services` only, without a Mendari
+    cookie (`is_this_site` shared). Only the compose sandbox's `engine` sets the flag
+    (`tests/test_deploy.py`); the suite runs as if it were set where it may be
+    (`tests/conftest.py` `_cds_sandbox`, which never sets the variable, so no subprocess server
+    inherits it), and `tests/test_cds_open_mode.py` takes that away. The API examples gain
+    `cds.sh` (discovery and the inbox's hook: README, the API guide, `/docs`, and the
+    `cds-hooks` preset's CI run). Tests: `tests/test_cds_open_mode.py`, `tests/test_cds_cors.py`
+    (SQLite and Postgres), `tests/browser/test_cds_cors.py`; the route matrix with open mode off
+    this machine, and the origin inventory with a registered origin. Threat-model rows I16 and
+    E16, E6 updated; the scorecard's WC-2b, WC-3a and WC-3b are met (who may call from where at
+    level 3; overall still level 1). Beyond the plan's letter: `X-Forwarded-Host` and
+    `X-Real-IP` count as forwarding headers too, and a registered origin passes the cross-site
+    check only without a Mendari cookie.
   - [x] **23d** (#264) A hook that always answers: an unreadable record gives a recorded ABSTAIN
     with its reason, and every FHIR decision carries its data-coverage record. Each prefetch key
     is read on its own (`cds_hooks.read_each`, shared with the SMART launch's decide); a key that

@@ -39,7 +39,7 @@ from mendari.server.auth import (
     read_body,
 )
 from mendari.server.backend_services import check_jwks, default_scope
-from mendari.server.cds_clients import CdsClient, CdsRegistry
+from mendari.server.cds_clients import CdsClient, CdsOpenMode, CdsRegistry
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
@@ -663,10 +663,16 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
     the principal everywhere else; with a bearer header (`ehr+key`, `ehr+junk`) the header
     decides alone, everywhere. A person's session alone is no credential on `/api/smart/`."""
     permission = permission_for(method, path)
-    if kind == "open" or permission == "public":
+    on_cds = CDS_PATH.match(path) is not None
+    if kind in ("open-remote", "cds-open-remote") and on_cds:
+        # Open mode answers CDS Hooks on this machine only (LP-23c), whatever is sent, a valid
+        # token included, and before any route is public there.
+        return 403, ""
+    if kind in ("open", "open-remote") or permission == "public":
         return 200, ""
     if kind.startswith(("cds", "jwt")):  # a CDS client's token (LP-23b)
-        on_cds = CDS_PATH.match(path) is not None
+        if kind == "cds-open-remote":  # off `/cds-services`, open mode reads no credential
+            return 200, ""
         if kind == "jwt-open":  # open mode without a registry: no JWT there, nothing else read
             return (401, INVALID) if on_cds else (200, "")
         if kind == "cds-open" and not on_cds:
@@ -750,8 +756,10 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     routes, and nothing else with its cookie. A CDS client's token (LP-23b), made for the very
     URL it is sent to, reaches the CDS services and nothing else, with sign-in on (alone, and
     with a person's session) and in open mode; a forged one, or any JWT in open mode without a
-    registry, is refused there. Hidden evaluation sets are on, so the routes they mount are in
-    the matrix (LP-11g)."""
+    registry, is refused there. Open mode without the sandbox flag answers the CDS services on
+    this machine only (LP-23c): from elsewhere (the guard's requests come from no machine) each
+    is a `403`, a valid token's too, which claims nothing, while every other route answers as
+    before. Hidden evaluation sets are on, so the routes they mount are in the matrix (LP-11g)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -869,13 +877,21 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         "cds+junk": lambda path: {"authorization": f"Bearer {unsigned}"},
         "cds-open": cds,
         "jwt-open": cds,
+        "cds-open-remote": cds,
     }
     principals += [(kind, "", None, {}) for kind in tokens]
+    principals.append(("open-remote", "admin", None, {}))
 
+    # Open mode as the suite runs it (the sandbox flag: the guard's requests come from no
+    # machine), and as it runs without the flag, where only this machine's requests reach the
+    # CDS services (LP-23c).
+    anywhere, here_only = CdsOpenMode(sandbox=True), CdsOpenMode()
     guards = {
-        "open": Auth(None, store, ehrs=ehrs),
-        "cds-open": Auth(None, store, ehrs=ehrs, cds=registry),
-        "jwt-open": Auth(None, store, ehrs=ehrs),
+        "open": Auth(None, store, ehrs=ehrs, cds_open=anywhere),
+        "cds-open": Auth(None, store, ehrs=ehrs, cds=registry, cds_open=anywhere),
+        "jwt-open": Auth(None, store, ehrs=ehrs, cds_open=anywhere),
+        "open-remote": Auth(None, store, ehrs=ehrs, cds=registry, cds_open=here_only),
+        "cds-open-remote": Auth(None, store, ehrs=ehrs, cds=registry, cds_open=here_only),
     }
     signed = Auth(settings, store, tokens=True, ehrs=ehrs, cds=registry)
 

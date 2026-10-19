@@ -1,7 +1,7 @@
 # Using the API
 
-Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, guarding
-a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
+Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, CDS
+Hooks, guarding a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
 its address filled in and a table of what every call needs; its full reference, with "Try it
 out", is `/docs/reference`.
 
@@ -113,6 +113,14 @@ curl -s -X POST "$MENDARI/cds-services/mendari.referral-router/feedback" \
                                      "code": "already-addressed"}},
        "outcomeTimestamp": "2026-10-18T12:00:00-04:00"}]}'
 # {"recorded": 1}
+
+List the services and call the inbox's hook, with a synthetic patient and message as prefetch.
+With sign-in off, the CDS services answer on this machine only (`127.0.0.1`, `localhost`): from
+anywhere else they are a `403`, whatever the request carries.
+
+<!-- check: include cds.sh -->
+```bash
+--8<-- "cds.sh"
 ```
 
 **What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the

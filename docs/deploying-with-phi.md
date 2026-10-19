@@ -248,6 +248,18 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
 - **Every token that does not verify** (another key or algorithm, the wrong `iss` or `aud`, too
   old, too long-lived, used before) is the one `401`, and the security log says why
   (`cds_<reason>`). Unset, no JWT is accepted anywhere, in open mode too.
+- **From a browser:** a client whose pages call from the browser lists their origins in
+  `origins`. On `/cds-services` and its children only, a page there gets CORS (its preflight
+  answered, its answers readable, never with credentials), and its client's token is refused
+  from a page on any other origin but this site's own (the request's host, `MENDARI_PUBLIC_URL`,
+  `MENDARI_TRUSTED_ORIGINS`). Nothing else is open to other origins.
+- **With sign-in off** the CDS services answer this machine only (a loopback address, a local
+  `Host`, no forwarding header), registered or not, and a call from anywhere else is a `403`
+  (`open_mode_remote`), a valid token's too. `MENDARI_CDS_SANDBOX=1` lifts that for a synthetic
+  sandbox reached over a network (the compose sandbox's open engine); the server refuses to
+  start with it on Vercel or with sign-in on. An EHR on a network calls a server with sign-in on,
+  and so does anything behind a proxy: a proxy on this machine that adds no forwarding header
+  (nginx's default among them) makes every call it forwards look local.
 - Each field, the token's rules and the log's reasons are in
   [Connecting an EHR](guides/connecting-an-ehr.md).
 
@@ -989,7 +1001,8 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
-| `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant` and `iss_is_fhir_server`. Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
+| `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
+| `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
@@ -1059,6 +1072,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       exactly the clients you registered for your organization; a hook the EHR calls is in
       that organization's audit trail, asked for by `cds <id>`; and a token signed with another
       key, or sent a second time, is refused with `401` and a `cds_<reason>` line in the log.
+      If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
+      <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
+      and the same with any other origin answers `403` with no `Access-Control-` header.
 - [ ] Only if you turn on EHR launches: a reviewer, signed in as usual, opens the launched
       decision's id (the one the clinician's window shows, "Recorded in your organization's
       audit trail as …") in the audit trail and sees it; a HUMAN_REVIEW one is in their review

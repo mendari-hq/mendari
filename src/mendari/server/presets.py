@@ -126,6 +126,7 @@ _ALL = [
             ("POST", "/cds-services/{service_id}/feedback"),
         ),
         doc="guides/api.md#fhir-in-fhir-out",
+        examples=("cds/discover", "cds/hook"),
     ),
     Preset(
         id="da-vinci",
