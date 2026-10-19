@@ -689,8 +689,17 @@ decision, with nothing to return, are a `422` OperationOutcome (`not-found`): DT
 4xx. An unknown id and another organization's get the same answer, which names neither. A
 decided order that needs no documentation gets an information note instead. The answers are
 profile-validated against DTR 2.2.0 (HL7 validator, offline) in CI, which checks their
-structure, not how the operation behaves; the tests check that. A pack declares it with
-`cds_hooks.questionnaire`.
+structure. How the operation behaves is checked by the Inferno DTR payer suite v0.18.0
+(`dtr_payer_server_v220`, Inferno as the DTR client), weekly and by hand, against the engine on
+synthetic data, with the gaps it lists: the CapabilityStatement claims `$questionnaire-package`
+only (no `$next-question`, `$log-questionnaire-errors` or `ValueSet/$expand`), no question
+depends on another's answer, answers are filled on the server rather than by CQL the EHR runs,
+and some must-support elements are unused. Every test's expected result, with the reason for
+each that is not a pass, is in
+[`sandbox/inferno/`](https://github.com/mendari-hq/mendari/blob/main/sandbox/inferno/README.md),
+with what the run cannot show: a payer's acceptance, an EHR's DTR client, X12 or CPT. The HL7
+DTR reference app is never run against Mendari: it would send its requests to https://mendari.co.
+A pack declares it with `cds_hooks.questionnaire`.
 
 **Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
 `mendari pas build`) builds the PAS request Bundle. It holds a `preauthorization` Claim, the
@@ -730,7 +739,12 @@ that it evaluates identically (in CI).
 The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
 the audit export. Everything
 Mendari treats as conforming must pass it, and everything the in-process checks flag must
-fail it.
+fail it. The validator loads only the FHIR packages `scripts/fhir_packages.lock` pins, each
+downloaded from the FHIR package registries and checked against its sha256 (`sha256sum -c`), and
+runs with no HTTP access, so its verdict depends on nothing fetched by version alone. Each run
+has a package cache of its own with only what it loads, so the US Core run checks against US
+Core 6.1.0 and no other version.
+`scripts/fhir_packages.py lock` writes the lock again after a validator or guide version changes.
 
 ## Documentation
 
@@ -1526,6 +1540,7 @@ src/mendari/
 packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
+sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
 scoreboard/      the scoreboard's public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
