@@ -542,7 +542,9 @@ def on_this_machine(request: Request) -> bool:
     forwarded the request (`FORWARDING`: a proxy on this machine connects from loopback too);
     and the one `Host` header names this machine (`origin.is_local_host`), since a page that
     points another name at 127.0.0.1 (DNS rebinding) sends that name. A `Host` alone is what the
-    caller says, and an address alone could be such a page's or a proxy's."""
+    caller says, and an address alone could be such a page's or a proxy's. A proxy on this
+    machine that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1) passes
+    all three for whoever it forwards: behind any proxy, sign-in goes on (threat E16)."""
     if any(name in request.headers for name in FORWARDING):
         return False
     try:
@@ -569,7 +571,7 @@ def cds_sandbox(*, signed_in: bool) -> bool:
     if raw in ("", "0"):
         return False
     if raw != "1":
-        raise MendariError(f"{SANDBOX_ENV} must be 1 or unset")
+        raise MendariError(f"{SANDBOX_ENV} must be 1 (on), or 0 or unset (off)")
     if os.environ.get("VERCEL"):
         raise MendariError(
             f"{SANDBOX_ENV}=1 is for a sandbox on synthetic data, never the hosted site: unset it"

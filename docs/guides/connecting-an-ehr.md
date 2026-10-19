@@ -146,14 +146,15 @@ With sign-in off, the CDS services answer this machine only: a call from a loopb
 loopback address), with no forwarding header (`Forwarded`, `X-Forwarded-For`,
 `X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`, before any
 credential is read, a valid token included, and the security log says `open_mode_remote`. An
-EHR on a network calls a server with sign-in on. A proxy in front of an open-mode server makes
-every call it forwards look remote; a proxy that adds no forwarding header and sends
-`Host: localhost` would make them look local, so behind any proxy turn sign-in on.
+EHR on a network calls a server with sign-in on, and so does anything behind a proxy. A proxy
+that adds a forwarding header makes every call it forwards look remote. A proxy on this machine
+that adds none makes every call it forwards look local, wherever it came from. nginx's default is
+one: `proxy_pass http://127.0.0.1:8000` sends `Host: 127.0.0.1:8000` and no forwarding header.
 
 A synthetic sandbox reached over a network, such as the compose sandbox's open engine, which
 Docker reaches from its network's gateway, sets `MENDARI_CDS_SANDBOX=1`: it then answers from
-anywhere, and says so at startup. The server refuses to start with it on Vercel or with sign-in
-on.
+anywhere, and says so at startup. `0` is off, as unset is. The server refuses to start with any
+other value, and with `1` on Vercel or with sign-in on.
 
 On this machine, a JWT on `/cds-services` is verified too, and without a registry it is
 refused. A request with no credential is answered as before, so a local demo that sends no

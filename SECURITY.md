@@ -154,9 +154,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   open mode included; elsewhere a JWT is never a credential. With sign-in off the CDS services
   answer this machine only (a loopback address, a local `Host`, no forwarding header), a valid
   token included, unless `MENDARI_CDS_SANDBOX=1`, which stops the server on Vercel and with
-  sign-in on. A client's registered `origins` get CORS there, and its token is refused from any
-  other origin ([Connecting an EHR](docs/guides/connecting-an-ehr.md), threats S21, D13, E15,
-  I16 and E16).
+  sign-in on. A client's registered `origins` get CORS there, and its token is refused from a
+  page on any origin but those and this site's own (the request's host, `MENDARI_PUBLIC_URL`,
+  `MENDARI_TRUSTED_ORIGINS`) ([Connecting an EHR](docs/guides/connecting-an-ehr.md), threats
+  S21, D13, E15, I16 and E16).
 - **What a caller without a credential can do.** Public routes cost little and take no lock:
   `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
   that may read), `/fhir/metadata` reads its version without the audit chain's lock, and

@@ -13,6 +13,7 @@ plays other machines' (it connects as any address it is given). Keys are made at
 
 from __future__ import annotations
 
+import re
 import socket
 import threading
 import time
@@ -208,7 +209,8 @@ def test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_w
 ) -> None:
     """`MENDARI_CDS_SANDBOX=1` in open mode: another machine lists the services and calls a hook,
     and the server says at startup that it answers any host. `0` is off. Any other value, and
-    `1` on Vercel or with sign-in on, stops the server, naming the setting."""
+    `1` on Vercel or with sign-in on, stops the server, naming the setting and, for a value, the
+    ones it takes."""
     monkeypatch.setenv(SANDBOX_ENV, "1")
     with caplog.at_level("WARNING", logger="mendari.auth"):
         app = create_app(db_path=tmp_path / "sandbox.db")
@@ -220,9 +222,11 @@ def test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_w
 
     monkeypatch.setenv(SANDBOX_ENV, "0")
     assert_refused(from_(create_app(db_path=tmp_path / "off.db"), ELSEWHERE).get(DISCOVERY))
-    for value in ("yes", "true", "on", "2"):
+    # The refusal names every value that starts, `0` among them.
+    accepted = re.escape(f"{SANDBOX_ENV} must be 1 (on), or 0 or unset (off)")
+    for value in ("yes", "true", "on", "2", "00"):
         monkeypatch.setenv(SANDBOX_ENV, value)
-        with pytest.raises(MendariError, match=f"{SANDBOX_ENV} must be 1 or unset"):
+        with pytest.raises(MendariError, match=f"^{accepted}$"):
             create_app(db_path=tmp_path / "bad.db")
 
     monkeypatch.setenv(SANDBOX_ENV, "1")

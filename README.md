@@ -616,8 +616,8 @@ network: the compose sandbox's open engine sets it, and the server refuses to st
 Vercel or with sign-in on. A registered client whose pages call from a browser lists their
 origins (`origins`). On `/cds-services` and its children only, a page there gets CORS: its
 preflight is answered, its answers are readable, and never with credentials. Its client's token
-is refused from any other origin, and a page on an origin nobody registered is refused as
-before. How it works, field by field, is
+is refused from a page on any other origin but Mendari's own, and a page on an origin nobody
+registered is refused as before. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)

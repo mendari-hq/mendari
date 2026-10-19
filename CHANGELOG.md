@@ -117,13 +117,16 @@ The first release (not yet published).
   OPTIONS`, the headers `authorization` and `content-type`, ten minutes), every answer to one
   names it, every answer there varies by `Origin`, and none allows credentials; a page there
   without a Mendari cookie passes the cross-site check on those paths only. A client's token
-  from a page on any other origin, another client's included, is a `403` (`cds_origin`) before
-  its `jti` is used. Any other origin gets no CORS header and is refused as before, and with no
-  origin registered nothing changes. **If you run open mode on a server others reach:** CDS
-  Hooks calls from them now get `403`; turn sign-in on, or for a synthetic sandbox set
-  `MENDARI_CDS_SANDBOX=1`. The API examples gain `cds.sh` (discovery and the inbox's hook), run
-  by CI in open mode on 127.0.0.1 with no flag, with a service key and with a `cds-hooks` key.
-  Threat-model rows I16 and E16; see
+  from a page on an origin that is neither its own nor this site's (the request's host,
+  `MENDARI_PUBLIC_URL`, `MENDARI_TRUSTED_ORIGINS`), another client's included, is a `403`
+  (`cds_origin`) before its `jti` is used. Any other origin gets no CORS header and is refused as
+  before, and with no origin registered nothing changes. **If you run open mode on a server
+  others reach:** CDS Hooks calls from them now get `403`; turn sign-in on, or for a synthetic
+  sandbox set `MENDARI_CDS_SANDBOX=1`. Behind a proxy, turn sign-in on: a proxy on this machine
+  that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1 among them) makes
+  every call it forwards look local. The API examples gain `cds.sh` (discovery and the inbox's
+  hook), run by CI in open mode on 127.0.0.1 with no flag, with a service key and with a
+  `cds-hooks` key. Threat-model rows I16 and E16; see
   [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no

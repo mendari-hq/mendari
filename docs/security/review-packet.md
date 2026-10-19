@@ -81,8 +81,8 @@ people only. Without sign-in (open mode) every caller is an admin, but for a JWT
 `/cds-services`, which is verified and is then a `cds` principal: that mode is for local use and
 the sandbox, and there `/cds-services` answers this machine only, unless the sandbox flag
 `MENDARI_CDS_SANDBOX=1` is set (threat E16, LP-23c). A CDS client's registered `origins` get
-CORS on `/cds-services` alone, never with credentials, and its token is refused from any other
-origin (threat I16).
+CORS on `/cds-services` alone, never with credentials, and its token is refused from a page on
+any origin but those and this site's own (threat I16).
 
 ## What changed in Phases 4 and 4b
 

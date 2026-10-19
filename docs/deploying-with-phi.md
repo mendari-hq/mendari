@@ -251,12 +251,15 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
 - **From a browser:** a client whose pages call from the browser lists their origins in
   `origins`. On `/cds-services` and its children only, a page there gets CORS (its preflight
   answered, its answers readable, never with credentials), and its client's token is refused
-  from any other origin. Nothing else is open to other origins.
+  from a page on any other origin but this site's own (the request's host, `MENDARI_PUBLIC_URL`,
+  `MENDARI_TRUSTED_ORIGINS`). Nothing else is open to other origins.
 - **With sign-in off** the CDS services answer this machine only (a loopback address, a local
   `Host`, no forwarding header), registered or not, and a call from anywhere else is a `403`
   (`open_mode_remote`), a valid token's too. `MENDARI_CDS_SANDBOX=1` lifts that for a synthetic
   sandbox reached over a network (the compose sandbox's open engine); the server refuses to
-  start with it on Vercel or with sign-in on. An EHR on a network calls a server with sign-in on.
+  start with it on Vercel or with sign-in on. An EHR on a network calls a server with sign-in on,
+  and so does anything behind a proxy: a proxy on this machine that adds no forwarding header
+  (nginx's default among them) makes every call it forwards look local.
 - Each field, the token's rules and the log's reasons are in
   [Connecting an EHR](guides/connecting-an-ehr.md).
 
