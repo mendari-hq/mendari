@@ -111,15 +111,18 @@ The first release (not yet published).
   decision in the audit trail (`/?pack=<pack>#audit/<id>`), where the engine's reasons now are,
   and `source.url` is the pack's card; when SMART is on and the request's `fhirServer` is
   registered for launches to the caller's organization, a `smart` link opens the pack
-  (`/smart/launch?pack=<pack>`). Without the public URL the reasons stay in the detail. A Da
+  (`/smart/launch?pack=<pack>`). Without the public URL the reasons stay in the detail, but for
+  the confidence thresholds' reason, whose figures carry no interval. A Da
   Vinci CRD service (the prior authorization pack) declares `davinci-crd.version` (`2.2`) and the
   `coverage-info` option in discovery, and each of its cards carries `source.topic`
   (`coverage-info`), which CRD 2.2.1's response profile requires; a request that sets
   `coverage-info` to false gets neither cards nor system actions, and is still decided and
   recorded. `POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback (1 to 50 cards, all
-  or nothing): a suggestion or reason the card did not offer is a `422`, and a card that is not a
-  decision of that service in the caller's organization, or, with sign-in on, not one the same
-  caller asked for, is one `404`. Each is chained as `card.feedback`, a new kind on a decision
+  or nothing): a suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not
+  define or an `outcomeTimestamp` with no time in UTC is a `422` (`extension`, which CDS Hooks
+  reserves for implementations, is accepted on any object and never kept), and a card that is
+  not a decision of that service in the caller's organization, or, with sign-in on, not one the
+  same caller asked for, is one `404`. Each is chained as `card.feedback`, a new kind on a decision
   (codes and ids, the sender, and its decision's organization on every database), exported as
   an AuditEvent; `userComment` is never kept. The route needs `decide` (the DECIDE scope, the
   `cds-hooks` preset, a CDS client's own token) and counts against the decide rate limit, never
@@ -130,11 +133,14 @@ The first release (not yet published).
     suggestion says `Create routing task for Nurse`; the Task a card suggests keeps its text
     and performer code. A card's detail is the pack's status, the notice and one plain sentence
     for the outcome: the line with the outcome code and the confidence as a bare percentage is
-    gone, in every configuration.
-  - **Changed: a card summary must fit 140 characters however it is filled.** Every text it can
-    give with display names is measured when the pack loads: a pack the deployment does not own
-    is refused for one that can read longer, your own pack is warned (`pack_warnings`; the card
-    cuts it at 140, as before), and `mendari validate` refuses both.
+    gone, and without the public URL the reasons leave out the confidence thresholds' (such as
+    `confidence 0.94 is below the auto threshold 0.95`), so no card shows the confidence, in
+    any configuration. The audit trail keeps every reason.
+  - **Changed: a card summary must be under 140 characters however it is filled**, as CDS
+    Hooks 2.0 says (Inferno's CRD kit fails a summary of 140). Every text it can give with
+    display names is measured when the pack loads: a pack the deployment does not own is
+    refused for one that can read 140 or more, your own pack is warned (`pack_warnings`; the
+    card cuts it to 139, where it cut at 140 before), and `mendari validate` refuses both.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

@@ -27,14 +27,17 @@ with suggestions says `selectionBehavior` (`at-most-one`) and offers the overrid
 never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are behind a link to
 the decision in the audit view, `source.url` is the pack's card, and when the EHR may launch the
 pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
-a `smart` link opens it; without the public URL the reasons stay in the detail. A Da Vinci CRD
-service (a pack with `coverage_information`) declares the CRD version and its one configuration
-option, `coverage-info`, in discovery, and sets every card's `source.topic`; a request that sets
-`coverage-info` to false gets neither its cards nor its system actions, and is still decided.
+a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
+confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A Da Vinci
+CRD service (a pack with `coverage_information`) declares the CRD version and its one
+configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
+request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
+still decided.
 
 **Feedback** (`CardFeedback`): what the clinician did with each card, accepted with the
 suggestion taken or overridden with one of the reasons offered, checked against what the card
-offered before anything is looked up; the comment is not kept.
+offered before anything is looked up, with nothing CDS Hooks 2.0 does not define but
+`extension`; neither the comment nor an extension is kept.
 """
 
 from __future__ import annotations
@@ -43,17 +46,18 @@ import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import quote
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari import notices
 from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
+from mendari.core.policy import threshold_reason
 from mendari.core.spec import SUMMARY_CHARS, Outcome, Priority
 from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
 from mendari.errors import (
@@ -130,9 +134,9 @@ COVERAGE_INFO_OPTION = {
 @dataclass(frozen=True)
 class CardLinks:
     """Where a card may link: Mendari's public address (`MENDARI_PUBLIC_URL`, None: no link and
-    the reasons in the detail), and whether the EHR may launch the pack's SMART view from the
-    card (SMART on, and the request's `fhirServer` registered for launches in the caller's
-    organization, `MENDARI_SMART_EHRS`)."""
+    the reasons in the detail, the confidence thresholds' left out), and whether the EHR may
+    launch the pack's SMART view from the card (SMART on, and the request's `fhirServer`
+    registered for launches in the caller's organization, `MENDARI_SMART_EHRS`)."""
 
     public_url: str | None = None
     launch: bool = False
@@ -464,8 +468,14 @@ def card(
         summary = f"{verb} to {_target(pack, result)}" + (
             f" ({result.priority.value})" if result.priority.value != "routine" else ""
         )
-    # The engine's reasons are behind the audit link when there is one, else in the detail.
-    reasons = [] if links.public_url else [f"- {reason}" for reason in result.reasons]
+    # The engine's reasons are behind the audit link when there is one, else in the detail, but
+    # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
+    # says what it decided.
+    reasons = (
+        []
+        if links.public_url
+        else [f"- {reason}" for reason in result.reasons if not threshold_reason(reason)]
+    )
     detail = "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
         + (["", *reasons] if reasons else [])
@@ -559,17 +569,22 @@ def _card(
 
 
 class _Closed(BaseModel):
+    """CDS Hooks 2.0's shape and nothing else: a field it does not define is refused, but for
+    `extension`, which it reserves for implementations (a JSON object), accepted on any object
+    and never kept."""
+
     model_config = ConfigDict(extra="forbid")
+
+    extension: dict[str, Any] | None = None
 
 
 class FeedbackCoding(_Closed):
-    """A Coding as a CDS client sends it back: the reason it chose, of those a card offered."""
+    """A Coding as a CDS client sends it back, CDS Hooks 2.0's (`system`, `code`, `display`):
+    the reason it chose, of those a card offered."""
 
     system: str = Field(min_length=1, max_length=200)
     code: str = Field(min_length=1, max_length=64)
     display: str | None = Field(default=None, max_length=250)
-    version: str | None = Field(default=None, max_length=64)
-    userSelected: bool | None = None
 
 
 class OverrideReason(_Closed):
@@ -596,6 +611,16 @@ class FeedbackItem(_Closed):
     overrideReason: OverrideReason | None = None
     outcomeTimestamp: AwareDatetime
 
+    @field_validator("outcomeTimestamp")
+    @classmethod
+    def _in_utc(cls, value: datetime) -> datetime:
+        """The time in UTC, as CDS Hooks says and the chain keeps it: one with no UTC time
+        (before year 1 or after year 9999 once its offset is taken off) is refused."""
+        try:
+            return value.astimezone(UTC)
+        except OverflowError:
+            raise ValueError("outcomeTimestamp has no time in UTC") from None
+
     @model_validator(mode="after")
     def _offered(self) -> FeedbackItem:
         if self.outcome == "accepted":
@@ -618,7 +643,7 @@ class FeedbackItem(_Closed):
 
     def chained(self) -> dict[str, Any]:
         """What the chain keeps of it: codes, ids and the time (`AuditStore.record_card_feedback`),
-        never the comment or a display."""
+        never the comment, a display or an extension."""
         reason = self.overrideReason.reason if self.overrideReason is not None else None
         return {
             "card": self.card,
@@ -627,7 +652,7 @@ class FeedbackItem(_Closed):
             "override_reason": None
             if reason is None
             else {"system": reason.system, "code": reason.code},
-            "outcome_timestamp": self.outcomeTimestamp.astimezone(UTC).isoformat(),
+            "outcome_timestamp": self.outcomeTimestamp.isoformat(),  # in UTC (`_in_utc`)
         }
 
 

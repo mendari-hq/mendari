@@ -2,10 +2,11 @@
 """CDS Hooks 2.0 card feedback (LP-23f, `POST /cds-services/{id}/feedback`): what a clinician did
 with each card, accepted with the suggestion taken or overridden with one of the reasons the card
 offered, chained on the card's decision as `card.feedback`, codes and ids only. All or nothing: a
-suggestion or reason the card did not offer is a `422`; a card that is not a decision of the
-service's pack in the caller's organization, or, when the caller is named, one it did not ask
-for, is one `404`, whichever it is. The comment is never kept. The route is a decide route, rate
-limited in the decide bucket and never counted against the daily cap."""
+suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not define (but
+`extension`, accepted and never kept) or a time with no UTC time is a `422`; a card that is not
+a decision of the service's pack in the caller's organization, or, when the caller is named,
+one it did not ask for, is one `404`, whichever it is. The comment is never kept. The route is a
+decide route, rate limited in the decide bucket and never counted against the daily cap."""
 
 from __future__ import annotations
 
@@ -242,11 +243,32 @@ def _broken(card: str, other: str) -> dict[str, dict[str, Any]]:
             "outcome": "overridden",
             "outcomeTimestamp": "2026-10-18T12:00:00",
         },
+        # Valid times whose UTC time is past year 9999 or before year 1: no time to keep.
+        "a time after year 9999 in UTC": {
+            "card": card,
+            "outcome": "overridden",
+            "outcomeTimestamp": "9999-12-31T23:59:59-14:00",
+        },
+        "a time before year 1 in UTC": {
+            "card": card,
+            "outcome": "overridden",
+            "outcomeTimestamp": "0001-01-01T00:00:00+14:00",
+        },
         "a field CDS Hooks has not": {**overridden(card), "note": COMMENT},
         "a coding field CDS Hooks has not": {
             **overridden(card),
             "overrideReason": {"reason": {**reason(), "text": COMMENT}},
         },
+        # FHIR's Coding has these; CDS Hooks 2.0's has only system, code and display.
+        "a coding's version": {
+            **overridden(card),
+            "overrideReason": {"reason": {**reason(), "version": COMMENT}},
+        },
+        "a coding's userSelected": {
+            **overridden(card),
+            "overrideReason": {"reason": {**reason(), "userSelected": True}},
+        },
+        "an extension that is not an object": {**overridden(card), "extension": [COMMENT]},
     }
 
 
@@ -286,6 +308,42 @@ def test_the_shape_of_the_request_as_a_whole_is_checked(tmp_path: Path) -> None:
         assert card_feedback(store) == []
     every = [overridden(card), accepted(other)]
     assert client.post(FEEDBACK, json=feedback(*every)).json() == {"recorded": 2}
+
+
+def test_an_extension_is_taken_on_any_object_and_never_kept(tmp_path: Path) -> None:
+    """CDS Hooks 2.0 reserves `extension` (a JSON object) for implementations: on the request,
+    an item, its override reason, the reason's Coding or a suggestion taken, it is accepted, and
+    what is chained is what it is without one; it is kept nowhere."""
+    db = tmp_path / "extension.db"
+    client = TestClient(create_app(db_path=db))
+    card, other = hooked(client)
+    mark = {"org.example.ehr-note": COMMENT}
+    taken = accepted(card)
+    taken["acceptedSuggestions"][0]["extension"] = mark
+    item = overridden(other, "not-relevant")
+    item["overrideReason"]["extension"] = mark
+    item["overrideReason"]["reason"]["extension"] = mark
+    body = {"feedback": [{**taken, "extension": mark}, item], "extension": mark}
+    sent = client.post(FEEDBACK, json=body)
+    assert sent.status_code == 200, sent.text
+    assert sent.json() == {"recorded": 2} and COMMENT not in sent.text
+    with AuditStore(db) as store:
+        payloads = [e["payload"] for e in card_feedback(store)]
+    assert [p["accepted_suggestions"] for p in payloads] == [[cds_hooks.suggestion_id(card)], []]
+    assert payloads[1]["override_reason"] == {
+        "system": OVERRIDE_REASONS_SYSTEM,
+        "code": "not-relevant",
+    }
+    with sqlite3.connect(db) as raw:
+        tables = [
+            row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        ]
+        held = [
+            t
+            for t in tables
+            if COMMENT in json.dumps(raw.execute(f'SELECT * FROM "{t}"').fetchall(), default=str)
+        ]
+    assert tables and held == []
 
 
 def test_the_comment_is_not_kept(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

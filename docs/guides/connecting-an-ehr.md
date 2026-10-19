@@ -164,7 +164,7 @@ Each card is CDS Hooks 2.0's:
   `https://mendari.co/fhir/CodeSystem/card-override-reasons` (served at
   `/fhir/CodeSystem/card-override-reasons`): `not-relevant`, `already-addressed` and
   `clinical-judgement`, each with its display.
-- The summary uses the pack's display names, at most 140 characters. The detail is the pack's
+- The summary uses the pack's display names, under 140 characters. The detail is the pack's
   status, the notice and one plain sentence for the outcome, and never a percentage: the
   confidence the card used to show as one is gone.
 - The prior authorization service is a Da Vinci CRD service. Its discovery entry declares
@@ -181,7 +181,10 @@ The links on a card need `MENDARI_PUBLIC_URL`:
 | The pack (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#card`, the pack's card. |
 | The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<pack>`. The EHR adds `iss` and `launch`. |
 
-Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail. A
+Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail, but for
+the confidence thresholds' reason (such as `confidence 0.94 is below the auto threshold 0.95`):
+its figures carry no interval, and the outcome's sentence says what it decided. The audit trail
+keeps it. A
 clinician without a Mendari account sees no reasons behind the link: give pilot clinicians
 accounts, or open the pack from the EHR (the launch link).
 
@@ -216,7 +219,10 @@ When the clinician acts on a card, the EHR may send CDS Hooks 2.0 feedback to
 
 - 1 to 50 cards in one request, each once. The answer is `{"recorded": <n>}`.
 - `accepted` names the card's one suggestion. `overridden` names one of the card's reasons, or
-  none. Anything the card did not offer, or a field CDS Hooks 2.0 does not define, is a `422`.
+  none. Anything the card did not offer, a field CDS Hooks 2.0 does not define (a Coding is
+  `system`, `code` and `display`), or an `outcomeTimestamp` with no time in UTC is a `422`.
+  `extension`, which CDS Hooks 2.0 reserves for implementations, is accepted on any object of
+  the body and never kept.
 - Each card must be a decision of that service, in the caller's organization, and, with sign-in
   on (or for a CDS client's token), one the same caller asked for. Otherwise the answer is one
   `404` for all of them, whichever it was.

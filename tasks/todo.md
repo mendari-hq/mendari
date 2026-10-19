@@ -846,11 +846,14 @@ Connect) is not supported yet.
     `https://mendari.co/fhir/CodeSystem/card-override-reasons`, defined in `terminology.py`
     (served, pinned, written by `scripts/fhir_terminology.py` for `fhir-conformance`). Summaries
     from the card-only `templates.fill_display` with `Question.name_of` (the default verb table
-    too; `fill`, Task text and performer codes unchanged), every expansion checked to fit 140
-    characters at load (`spec.card_summary_problems` through `templates.longest`, in
-    `manifest_template_problems`: refused from a registry, warned when owned, refused by
-    `mendari validate`). The detail is the status, the notice and one plain sentence; the
-    confidence percentage is gone. With `MENDARI_PUBLIC_URL`: an `absolute` link to
+    too; `fill`, Task text and performer codes unchanged), every expansion checked to be under
+    140 characters at load, as CDS Hooks 2.0 says (at most 139, `spec.SUMMARY_CHARS`, through
+    `spec.card_summary_problems` and `templates.longest`, in `manifest_template_problems`:
+    refused from a registry, warned when owned, refused by `mendari validate`; an owned pack's
+    card cuts it to 139). The detail is the status, the notice and one plain sentence; the
+    confidence is gone in every configuration (without `MENDARI_PUBLIC_URL` the reasons stay,
+    but for the confidence thresholds', `policy.threshold_reason`). With `MENDARI_PUBLIC_URL`: an
+    `absolute` link to
     `/?pack=<pack>#audit/<id>`, the reasons behind it, `source.url` the pack's card; a `smart`
     link to `/smart/launch?pack=<pack>` only with SMART on and the `fhirServer` a
     `MENDARI_SMART_EHRS` base of the caller's organization (`CardLinks`). Discovery declares
@@ -859,7 +862,9 @@ Connect) is not supported yet.
     still decides. `POST /cds-services/{service_id}/feedback`: a `decide` rule before the
     catch-all, DECIDE in `_ROUTE_SCOPES`, the `cds-hooks` preset's calls; a closed body
     (`cds_hooks.CardFeedback`: 1 to 50 cards, each once, accepted with the card's suggestion or
-    overridden with one of its reasons, an aware `outcomeTimestamp`; `userComment` dropped); all
+    overridden with one of its reasons, an aware `outcomeTimestamp` with a time in UTC, CDS Hooks
+    2.0's Coding (`system`, `code`, `display`), `extension` on any object, never kept;
+    `userComment` dropped); all
     or nothing in one transaction (`AuditStore.record_card_feedback`): the service's pack, the
     caller's organization and, when the caller is named, its chained `requested_by`, else one
     `404` (`UnknownCard`); the decide bucket, no daily cap. `card.feedback` joins
@@ -874,7 +879,10 @@ Connect) is not supported yet.
     (`coverage-info`) is set on a CRD service's cards, since CRD 2.2.1's base response profile
     requires it (checked at the IG's 2.2.1 tag), and so `coverage-info: false` drops those cards
     too, as CRD says; the audit link carries `?pack=`, so the dashboard opens on the decision's
-    pack; each `card.feedback` names who sent it (`reporter`).
+    pack; each `card.feedback` names who sent it (`reporter`). For the owner: conflict 30 (the
+    confidence leaves the card in every configuration) and conflict 31 (without the public URL
+    the reasons stay in the detail) are both kept by leaving out the one reason that gives the
+    confidence and a threshold as figures; the audit trail keeps it.
   - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
   - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
   - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never

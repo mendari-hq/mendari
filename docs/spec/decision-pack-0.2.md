@@ -582,13 +582,14 @@ are de-duplicated by type and id. Only the focus must be unique. The Task's `des
 it, so each label is its display name (the question's `names`, else the label as words:
 `lumbar_mri` reads `Lumbar MRI` with `names`, `cardiology` reads `Cardiology`), and no
 recommendation reads `manual triage`; a Task keeps the labels. Every text a card summary can
-give this way MUST fit 140 characters, CDS Hooks' limit, checked when the pack loads. Any other
-placeholder is refused when the pack loads. A placeholder is a bare name: no conversion (`{priority!r}`),
-format spec (`{priority:>9}`), attribute (`{priority.x}`) or index (`{priority[0]}`). A pack the
+give this way MUST be under 140 characters (at most 139), CDS Hooks' limit, checked when the
+pack loads. Any other placeholder is refused when the pack loads. A placeholder is a bare name:
+no conversion (`{priority!r}`), format spec (`{priority:>9}`), attribute (`{priority.x}`) or
+index (`{priority[0]}`). A pack the
 deployment does not own (a community pack, or one from a registry that is not a reference pack
 of the release) is invalid with one, its Task text included, or with a card summary that can
-read longer than 140 characters; any other pack loads with a warning for either in its card
-summaries (a card cuts a summary at 140 characters), its Task text renders as it always did, and
+read 140 characters or more; any other pack loads with a warning for either in its card
+summaries (a card cuts a summary to 139 characters), its Task text renders as it always did, and
 `mendari validate` refuses both.
 
 A mapping MAY declare `focus_where: {path, in: [...]}` to say which resources of the focus type
@@ -628,10 +629,11 @@ recommendations that produce a card at all (e.g. a `patient-view` service stays 
 patients who are clearly not eligible). The reference runtime's cards are CDS Hooks 2.0's: a
 card's `uuid` is its decision's id, its one suggestion lets the clinician take at most one
 (`selectionBehavior: at-most-one`), and it offers Mendari's override reasons. Its detail is the
-pack's status, the notice and one plain sentence for the outcome, never a percentage; where the
-deployment has a public address, the reasons are behind a link to the decision's record. The
-EHR MAY send back what the clinician did with each card (`POST /cds-services/{id}/feedback`),
-which is chained on the decision as codes and ids, never a comment.
+pack's status, the notice and one plain sentence for the outcome, never a percentage or the
+confidence; where the deployment has a public address, the reasons are behind a link to the
+decision's record. The EHR MAY send back what the clinician did with each card
+(`POST /cds-services/{id}/feedback`), which is chained on the decision as codes and ids, never a
+comment.
 
 An order-hook pack MAY map recommendations to **Da Vinci CRD coverage information** with
 `cds_hooks.coverage_information: {<primary label>: {covered, pa_needed, doc_needed, doc_purpose,
@@ -747,7 +749,7 @@ of these.
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 | Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
 | An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
-| A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names fits 140 characters: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
+| A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
 
 To migrate a pack:
 

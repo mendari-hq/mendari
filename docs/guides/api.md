@@ -87,7 +87,8 @@ detail says the pack's status, the notice and one plain sentence for the outcome
 deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to the decision in
 the audit trail (which needs a Mendari sign-in), `source.url` is the pack's card, and, when SMART
 is on and your `fhirServer` is registered for launches in your organization, a `smart` link
-opens the pack. Without it, the reasons are in the detail. The prior authorization service is a
+opens the pack. Without it, the reasons are in the detail, but for the confidence thresholds',
+whose figures carry no interval. The prior authorization service is a
 Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
 and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
 cards and no system actions, while each order is still decided and recorded.
@@ -96,9 +97,12 @@ cards and no system actions, while each order is still decided and recorded.
 with the suggestion taken (`acceptedSuggestions`), or `overridden` with one of the card's
 reasons or none, and its `outcomeTimestamp`. Each is chained on the decision as `card.feedback`,
 with codes and ids only: `userComment` is never kept. It is all or nothing. A suggestion or a
-reason the card did not offer is a `422`. A card that is not a decision of that service in your
-organization, or, with sign-in on, not one your own credential asked for, is one `404` for all
-of them. It needs the decide scope and counts against the decide rate limit, not the daily cap.
+reason the card did not offer is a `422`, and so is a field CDS Hooks 2.0 does not define or an
+`outcomeTimestamp` with no time in UTC. `extension`, which CDS Hooks 2.0 reserves for
+implementations, is accepted on any object and never kept. A card that is not a decision of that
+service in your organization, or, with sign-in on, not one your own credential asked for, is one
+`404` for all of them. It needs the decide scope and counts against the decide rate limit, not
+the daily cap.
 
 <!-- check: skip placeholder: the card's uuid is one a hook gave your EHR -->
 ```bash

@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Cards as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f): a card's uuid is its decision's id and
 its suggestion's a UUID 5 of it, a card with suggestions says its `selectionBehavior` and offers
-the override reasons, its summary reads display names (the Task's text keeps the labels) and fits
-140 characters however it is filled, its detail is the status, the notice and one plain
-sentence, never a percentage; with `MENDARI_PUBLIC_URL` the engine's reasons are behind a link to
-the audit view and, for a launch-registered EHR of the caller's organization, a `smart` link opens
-the pack. A CRD service declares its version and its `coverage-info` option in discovery, and a
-request that turns the option off gets no coverage information, its orders still decided."""
+the override reasons, its summary reads display names (the Task's text keeps the labels) and stays
+under 140 characters however it is filled, its detail is the status, the notice and one plain
+sentence, never a percentage or the confidence; with `MENDARI_PUBLIC_URL` the engine's reasons
+are behind a link to the audit view and, for a launch-registered EHR of the caller's
+organization, a `smart` link opens the pack. A CRD service declares its version and its
+`coverage-info` option in discovery, and a request that turns the option off gets no coverage
+information, its orders still decided."""
 
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_pack
 from mendari.core.pack import manifest_template_problems
+from mendari.core.policy import threshold_reason
 from mendari.core.spec import SUMMARY_CHARS, card_summary_problems
 from mendari.core.templates import (
     NO_RECOMMENDATION,
@@ -36,6 +38,7 @@ from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import validate_pack
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, terminology
+from tests import test_fhir_lists as lists
 from tests.conftest import INBOX_DIR, encrypt_mode
 from tests.test_davinci import COMPLETE, request
 from tests.test_fhir import COMMUNICATION, PATIENT
@@ -52,6 +55,7 @@ INBOX = "/cds-services/mendari.patient-inbox-router"
 EHR_A = "https://ehr-a.example.org/fhir"
 EHR_B = "https://ehr-b.example.org/fhir"
 BARE_PERCENT = re.compile(r"\d\s?%")
+FIGURE = re.compile(r"\d\.\d\d")  # a confidence or a threshold, as the policy writes them
 
 # CDS Hooks 2.0's Card, its parts closed (a field the specification does not define fails).
 _CODING = {
@@ -71,7 +75,7 @@ CARD = {
     "required": ["summary", "indicator", "source"],
     "properties": {
         "uuid": {"type": "string"},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 140},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 139},  # under 140
         "detail": {"type": "string"},
         "indicator": {"enum": ["info", "warning", "critical"]},
         "source": {
@@ -260,10 +264,11 @@ def test_card_summaries_use_display_names_and_task_text_is_unchanged(tmp_path: P
 
 
 def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
-    """Every text every reference pack's summaries can give, with display names, fits a card's
-    140 characters: each expansion counted here, and `longest` is the longest of them. A summary
-    that can read longer is refused from a registry, warned when owned, and refused by
-    `mendari validate`."""
+    """Every text every reference pack's summaries can give, with display names, is under a
+    card's 140 characters (CDS Hooks 2.0: "<140"; Inferno's CRD kit fails a summary of 140):
+    each expansion counted here, and `longest` is the longest of them. A summary that can read
+    140 or longer is refused from a registry, warned when owned, and refused by `mendari
+    validate`; an owned pack's card cuts it to 139."""
     roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "pack.yaml").is_file()]
     counted = 0
     for root in roots:
@@ -286,10 +291,16 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     assert len(longest(template, many)) == brute
     assert sum(1 for _ in itertools.product(*many.values())) == 5**6
 
-    long = with_wording(tmp_path, summary="Candidate: " + "x" * 120 + " ({t2d_diagnosis})")
+    # The longest display of `{t2d_diagnosis}` is "Unknown": 139 characters at most loads from a
+    # registry as it is, and 140 is refused.
+    assert SUMMARY_CHARS == 139
+    fits = with_wording(tmp_path / "fits", summary="Candidate: " + "x" * 118 + " ({t2d_diagnosis})")
+    loaded = load_pack(fits, origin="hub")
+    assert loaded.warnings == () and card_summary_problems(loaded.manifest) == []
+    long = with_wording(tmp_path / "long", summary="Candidate: " + "x" * 119 + " ({t2d_diagnosis})")
     problem = (
-        "cds_hooks.card.summaries.candidate can read 141 characters with display names; "
-        "a card's summary is at most 140"
+        "cds_hooks.card.summaries.candidate can read 140 characters with display names; "
+        "a card's summary is at most 139 (CDS Hooks: under 140)"
     )
     with pytest.raises(PackValidationError) as refused:
         load_pack(long, origin="hub")
@@ -299,6 +310,18 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     assert manifest_template_problems(owned.manifest) == [problem]
     with pytest.raises(PackValidationError, match=re.escape(problem)):
         validate_pack(owned)
+    # An owned pack's summary that reads longer is cut under 140 on its card.
+    cut = with_wording(tmp_path / "cut", summary="Candidate: " + "x" * 140 + " ({t2d_diagnosis})")
+    prefetch = {"patient": lists.PATIENT_9} | {
+        key: lists.searchset([r for r in lists.RECORD if r["resourceType"] == kind])
+        for key, kind in (
+            ("conditions", "Condition"),
+            ("observations", "Observation"),
+            ("notes", "DocumentReference"),
+        )
+    }
+    (made,) = cds_hooks.invoke(Decision.from_path(cut), lists.cds_request(prefetch))["cards"]
+    assert made["summary"] == ("Candidate: " + "x" * 140)[:139]
 
 
 @pytest.mark.parametrize("public", [None, PUBLIC])
@@ -306,26 +329,34 @@ def test_no_card_shows_a_bare_percentage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, public: str | None
 ) -> None:
     """The confidence left the card (it showed `confidence: 73%`): no card of any pack, linked
-    or not, holds a figure as a percentage, in any of its words."""
+    or not, holds a figure as a percentage, in any of its words, nor the confidence or a
+    threshold as a bare figure (the confidence thresholds' reason, which the trail keeps)."""
     if public is not None:
         monkeypatch.setenv("MENDARI_PUBLIC_URL", public)
     client = served(tmp_path)
+    thresholds = 0
     for path in HOOKS:
         for card in cards_of(client, path):
             decision = client.get(f"/api/audit/{card['uuid']}").json()["record"]
             assert decision["confidence"] is None or decision["confidence"] > 0
+            thresholds += sum(threshold_reason(reason) for reason in decision["reasons"])
             words = [card["summary"], card["detail"], card["source"]["label"]]
             words += [s["label"] for s in card["suggestions"]]
             words += [link["label"] for link in card.get("links", [])]
             assert [w for w in words if BARE_PERCENT.search(w)] == [], path
             assert "**confidence:**" not in card["detail"], path  # the old line, gone
+            shown = [card["summary"], card["detail"]]  # the source label has the pack version
+            assert [w for w in shown if FIGURE.search(w)] == [], path
+            assert "confidence" not in card["detail"], path
+    assert thresholds >= 3  # the referral, prior auth and trial decisions' reasons give them
 
 
 def test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without `MENDARI_PUBLIC_URL` (or with one that is no web address) a card has no link and
-    its reasons stay in its detail; with it, the detail is the status, the notice and one plain
+    its reasons stay in its detail, but for the confidence thresholds' (`threshold_reason`),
+    whose figures have no interval; with it, the detail is the status, the notice and one plain
     sentence, the reasons are behind an absolute link to the decision in the audit view, and
     `source.url` is the pack's card."""
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "ftp://mendari.test")
@@ -336,8 +367,10 @@ def test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made(
         for card in cards_of(client, REFERRAL):
             assert "links" not in card and "url" not in card["source"]
             reasons = client.get(f"/api/audit/{card['uuid']}").json()["record"]["reasons"]
-            assert reasons
-            assert all(f"- {reason}" in card["detail"] for reason in reasons)
+            kept = [reason for reason in reasons if not threshold_reason(reason)]
+            assert kept and len(kept) < len(reasons)  # one of each, to show both ways
+            assert all(f"- {reason}" in card["detail"] for reason in kept)
+            assert not any(reason in card["detail"] for reason in reasons if reason not in kept)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", f"{PUBLIC}/")
     client = served(tmp_path, "linked.db")
     for card in cards_of(client, REFERRAL):

@@ -571,9 +571,10 @@ class AuditConfig(_Strict):
     store_input: Literal["full", "hash"] = "full"
 
 
-# A CDS Hooks card's summary: at most 140 characters (CDS Hooks 2.0), checked at load for every
-# text a pack's summary can give (`card_summary_problems`).
-SUMMARY_CHARS = 140
+# The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140 (Inferno's CRD
+# kit fails a summary of 140), checked at load for every text a pack's summary can give
+# (`card_summary_problems`).
+SUMMARY_CHARS = 139
 
 
 class CdsCard(_Strict):
@@ -901,7 +902,7 @@ def card_summary_problems(m: PackManifest) -> list[str]:
         if most > SUMMARY_CHARS:
             problems.append(
                 f"cds_hooks.card.summaries.{key} can read {most} characters with display names; "
-                f"a card's summary is at most {SUMMARY_CHARS}"
+                f"a card's summary is at most {SUMMARY_CHARS} (CDS Hooks: under 140)"
             )
     return problems
 

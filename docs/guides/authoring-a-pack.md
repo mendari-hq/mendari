@@ -294,9 +294,9 @@ read or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}
 `Condition?patient={{context.patientId}}`): no absolute URL, `..`, operation (`$everything`) or
 fragment. A card summary or Task text uses bare placeholders (`{specialty}`, never
 `{specialty!r}` or `{specialty:>20}`). A card fills its summary with your display names (a
-question's `names`, else the label as words), and every text it can give must fit 140
-characters. `mendari validate` refuses anything else and a registry refuses it; your own server
-lists such a prefetch or card summary under `pack_warnings`.
+question's `names`, else the label as words), and every text it can give must be under 140
+characters, as CDS Hooks says. `mendari validate` refuses anything else and a registry refuses
+it; your own server lists such a prefetch or card summary under `pack_warnings`.
 
 ## 9. Publish the card
 

@@ -402,8 +402,8 @@ def manifest_template_problems(manifest: PackManifest) -> list[str]:
     """What a pack's manifest templates are held to beyond their shape (LP-16e): each CDS Hooks
     prefetch template is a read or search relative to the EHR's FHIR server
     (`spec.prefetch_problems`), and each card summary uses bare placeholders
-    (`templates.template_problems`; their names are checked with the manifest) and fits a
-    card's 140 characters however its placeholders are filled (`spec.card_summary_problems`,
+    (`templates.template_problems`; their names are checked with the manifest) and stays under
+    a card's 140 characters however its placeholders are filled (`spec.card_summary_problems`,
     LP-23f). `load_pack` refuses a pack the deployment does not own for any and warns an owned
     one; `mendari validate` refuses both. The FHIR Task text is the mapping's
     (`standards/fhir.py`)."""
