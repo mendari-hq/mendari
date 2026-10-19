@@ -37,7 +37,9 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   - OMOP CDM inputs with population reports;
   - Da Vinci CRD, DTR and PAS around the PA pack, each profile-validated against its guide in
     CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
-    produces, not how its operations behave or whether a payer accepts them.
+    produces. How DTR's `$questionnaire-package` behaves is checked weekly by the Inferno DTR
+    payer suite v0.18.0, with the gaps it lists (`sandbox/inferno/`). Neither shows whether a
+    payer accepts what Mendari sends.
 
 - **v1.0 Public open-source launch, built** ([plan][plan-v1.0], #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
@@ -183,7 +185,10 @@ against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
   `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
   questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
   names no decision, and a `422` OperationOutcome for orders or a context that name no
-  decision, with nothing to return (spec-130).
+  decision, with nothing to return (spec-130). Since 2026-10-18 the Inferno DTR payer suite
+  v0.18.0 runs against the engine weekly and by hand (CI workflow `conformance`), with Inferno
+  as the DTR client: every test must give its expected result, and each known gap has its
+  requirement id and reason (`sandbox/inferno/`).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
 _Built 2026-09-30 (#96–#101). The security scans, docs build, pack-PR eval gate and README

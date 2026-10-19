@@ -3079,20 +3079,34 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     `tests/test_workflow_safety.py` fails a workflow that names a package by version alone, in
     any form. DV-c can build Inferno's validator a cache the same way
     (`install --cache DIR NAME#VERSION ...`, only what it loads).
-  - [ ] DV-c: the Inferno DTR payer-suite job, weekly and by hand, not a required check: groups
-    1, 3 and 4 against the open engine on synthetic data, from Mendari's own Dockerfile and
-    compose file pinned by digest and SHA, compared with a known-gaps file that may only shrink.
-    Expected gaps: 1.01 (conf-1), 3.4.04 (spec-54), the CQL design tests, 3.7.x must-support,
-    4.01 (oper-1). 3.6.01 and 3.6.02 must pass.
+  - [x] DV-c (#265): the Inferno DTR payer-suite job, `conformance.yml` (job `dtr-payer`),
+    weekly and by hand, not a required check: groups 1, 3 and 4 against the open engine on
+    synthetic data, from Mendari's own `sandbox/inferno/Dockerfile` (Ruby by digest, the kit by
+    commit, Bundler by sha256, gems from a lockfile with CHECKSUMS) and compose file (every image
+    by digest). `scripts/inferno_dtr_inputs.py` builds the inputs over HTTP;
+    `scripts/inferno_check.py` compares every test with
+    `sandbox/inferno/dtr_payer_server_v220_expected.json` (pass, fail, skip or omit; requirement
+    ids and a reason for each that is not a pass) and fails on any difference, an unexpected pass
+    included. Run once locally end to end (2026-10-18, offline terminology): 3.6.01 and 3.6.02
+    pass; known gaps 1.01 (conf-1), 3.4.01 (spec-17, no `enableWhen`), 3.4.04 (spec-54), 3.5.01
+    skipped (oper-5), 3.6.03 (spec-147, no `$next-question`), 3.7.02 to 3.7.04 (conf-2) and 4.01
+    (oper-1); the adaptive, CQL, ValueSet and Binary tests are `omit`. No Mendari defect found
+    inside the DTR route. Inferno's validator still fetches its guides from packages.fhir.org
+    unpinned; DV-b's checked cache is not mounted into it yet (below).
+    - [ ] Follow-up: record the URL of the first green `conformance.yml` run on main.
+    - [ ] Follow-up: mount a cache built by DV-b's `fhir_packages.py install --cache` into
+      Inferno's validator, so it fetches nothing unpinned.
   - [ ] DV-d (optional): the Inferno PAS client suite's approval workflow, the closest stand-in
     for a payer, attested from the decision's `pas.submitted` event.
   - [ ] DV-e is LP-23's 23l: DTR group 2 (Backend Services) and the CRD server suite, once
     LP-23 verifies EHR tokens.
   - Conflicts, defaults taken: the kits validate through tx.fhir.org, so `fhir-conformance`
-    stays the offline gate (`-tx n/a`) and Inferno runs weekly with synthetic resources only;
-    Mendari pins the kits' images and gems itself; `$next-question`, `$log-questionnaire-errors`,
-    `ValueSet/$expand` and CQL population stay listed gaps, not advertised; no new launch gate;
-    the HL7 DTR reference app is never run (it would POST to https://mendari.co).
+    stays the offline gate (`-tx n/a`), and Mendari's Inferno run turns the terminology server
+    off for every validator in the kit (`sandbox/inferno/offline_terminology.rb`, DV-c), so it
+    sends nothing to tx.fhir.org; Mendari pins the kits' images and gems itself;
+    `$next-question`, `$log-questionnaire-errors`, `ValueSet/$expand` and CQL population stay
+    listed gaps, not advertised; no new launch gate; the HL7 DTR reference app is never run (it
+    would POST to https://mendari.co).
   - **Owner decisions:** whether a weekly job may send synthetic resources to tx.fhir.org or
     must stay offline; a fuller DTR payer service or a declared partial one; whether PAS
     attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for `needs_attention`.
