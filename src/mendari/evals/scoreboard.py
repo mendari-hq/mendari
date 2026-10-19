@@ -28,8 +28,9 @@ Every bootstrap is the method's: 2,000 resamples, seed 0, at 95%. Where `result_
 already computes a figure, it is reused. An entry also carries its scope (the pack, the set, the
 models as reported, the method and whether it is in effect, the date, the words "engineering
 evaluation, not clinical validation", the disclosure and the pack's status line) and its
-standing: a public set is a regression check, never ranked or graded. `body_sha256` is the
-SHA-256 of its canonical bytes without any signature.
+standing: a public set is a regression check, never ranked or graded. It may name the earlier
+result it supersedes in the results store (`supersedes`, LP-17f, `evals/results_store.py`).
+`body_sha256` is the SHA-256 of its canonical bytes without any signature.
 
 `board` shows entries one table per pack and set. Freshness is worked out there, when the board
 is built, and never stored: no clock is read, so every entry shows the date it goes stale. Its
@@ -43,8 +44,9 @@ import datetime
 import hashlib
 import json
 import math
+import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from mendari.core.pack import Pack
@@ -80,6 +82,7 @@ STALE_METHOD = "stale: method changed"
 STALE_MODEL = "stale: another model reported"
 # Not the body: what `body_sha256` is of leaves these out, and a signature (LP-17e) is added.
 BODY_EXCLUDED = ("body_sha256", "signature")
+_BODY_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 WEIGHT = "weight"  # the record attribute that holds a case's sampling weight
 DIGITS = stats.DIGITS
 STATUSES = (SYNTHETIC_EXAMPLE, NOT_REVIEWED)
@@ -120,19 +123,24 @@ def entry(
     configuration: arms.Configuration,
     prices: runs.Prices | None,
     disclosures: runs.Disclosures | None,
+    supersedes: str | None = None,
 ) -> dict[str, Any]:
     """The `mendari.scoreboard/1` entry of `configuration` (in `arm`) of `pack` on `dataset`, from
     its `ledger` and its `run` record, priced from `prices` (None: a metered cost is unknown),
-    with the statements of `disclosures` (None: every remote type's is pending).
+    with the statements of `disclosures` (None: every remote type's is pending). `supersedes`
+    names the earlier result it replaces in the results store (`sha256:` and its body's SHA-256,
+    LP-17f), or None: the link is part of the body, so its hash and any signature cover it.
 
     Refused, in a `MendariError` that names ids and hashes and never a case: a ledger of another
     pack (id, version or digest) or dataset (name, SHA-256, size, limit, or cases that are not
-    the dataset's in its order), another configuration or arm, or a run record that disagrees
+    the dataset's in its order), another configuration or arm, a run record that disagrees
     with the ledger (`runs.disagreement`) or holds tokens of a type the configuration does not
-    call."""
+    call, or a `supersedes` that is not a body's SHA-256."""
     record = runs.check_run(run)
     header, cases = ledger.header, ledger.cases
     _refuse_another(ledger, dataset, pack, arm, configuration, record)
+    if supersedes is not None and not _BODY_SHA256.fullmatch(supersedes):
+        raise MendariError("supersedes names a result by its body's SHA-256 (sha256:<64 hex>)")
 
     result = result_from_ledger(ledger, seed=method.SEED, resamples=method.RESAMPLES)
     group_of = bands.groups_of(dataset.records)
@@ -194,6 +202,7 @@ def entry(
         "ranking": bands.off(PUBLIC_SET),
         "grade": None,  # a public set is never graded (`grade.grade`)
         "figures": figures,
+        "supersedes": supersedes,
     }
     return {**found, "body_sha256": body_sha256(found)}
 
@@ -579,21 +588,28 @@ def _disclosure(
 @dataclass(frozen=True)
 class Current:
     """What is current for one pack when a board is built: its digest, its arms' statuses
-    (`arms.APPLICABLE` or `arms.NOT_APPLICABLE`) and its sets' SHA-256."""
+    (`arms.APPLICABLE` or `arms.NOT_APPLICABLE`), its sets' SHA-256, and each arm's
+    configurations, written `slot=variant` with their slots sorted (none: the board names no
+    configuration as not measured)."""
 
     digest: str
     arms: Mapping[str, str]
     sets: Mapping[str, str]
+    configurations: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     @classmethod
     def of(cls, pack: Pack) -> Current:
         datasets = pack.manifest.evaluation.datasets
+        chosen = arms.arms(pack).values()
         return cls(
             digest=pack.digest,
-            arms={arm.id: arm.status for arm in arms.arms(pack).values()},
+            arms={arm.id: arm.status for arm in chosen},
             sets={
                 name: hashlib.sha256(pack.read_bytes(path)).hexdigest()
                 for name, path in sorted(datasets.items())
+            },
+            configurations={
+                arm.id: tuple(_written(c.providers) for c in arm.configurations) for arm in chosen
             },
         )
 
@@ -623,13 +639,15 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
     """The board of `entries`: one table per pack and set (by pack id, then set name), each with
     its ranking (`bands.ranking`: off on a public set, a regression check, not a ranking), the
     insufficient-evidence banner when any entry's critical label is short, each arm's status
-    (measured, "not measured" or "not applicable", from `current`), and its entries in a listing
-    order (by arm, then configuration, then date), never an order of any figure, each with its
-    grade (`grade.grade`: None on a public set). A hidden set's arms are ranked only from their
-    ledgers, which a board does not hold, so a hidden table of two or more entries is refused.
-    Each entry's marks are worked out here and never stored: "unsigned", "method draft, not in
-    effect", why it is stale (its pack, set or method is not `current`'s, or a later run of its
-    configuration reports another model of a type) and the date it goes stale.
+    (measured, "not measured" or "not applicable", from `current`), the configurations of a
+    measured arm that have no entry here (`not_measured`, from `current`), and its entries in
+    a listing order (by arm, then configuration, then date), never an order of any figure,
+    each with its grade (`grade.grade`: None on a public set). A hidden set's arms are ranked
+    only from their ledgers, which a board does not hold, so a hidden table of two or more
+    entries is refused. Each entry's marks are worked out here and never stored: "unsigned",
+    "method draft, not in effect", why it is stale (its pack, set or method is not
+    `current`'s, or a later run of its configuration reports another model of a type) and
+    the date it goes stale.
 
     Each entry is read as its canonical bytes hold it (`ledger.canonical`: keys sorted), so the
     board of entries just built is the board of the same entries read back from a store: a
@@ -652,10 +670,18 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
             for label in short_of_evidence(found)
         ]
         measured = {found["arm"] for found in listed}
+        shown_configurations = {(found["arm"], _label(found)) for found in listed}
         statuses = []
+        not_measured = []
         for arm, name in arms.ARMS.items():
             if arm in measured:
                 status = MEASURED
+                held = () if now is None else now.configurations.get(arm, ())
+                not_measured += [
+                    {"arm": arm, "name": name, "configuration": label}
+                    for label in held
+                    if (arm, label) not in shown_configurations
+                ]
             elif now is not None and now.arms.get(arm) == arms.NOT_APPLICABLE:
                 status = arms.NOT_APPLICABLE
             else:
@@ -669,6 +695,7 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
                 "evaluation": NOT_CLINICAL,
                 "banner": {"short": short} if short else None,
                 "arms": statuses,
+                "not_measured": not_measured,
                 "entries": [
                     {
                         "entry": dict(found),
@@ -689,7 +716,12 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
 def _label(found: Mapping[str, Any]) -> str:
     """`slot=variant` pairs, its slots in sorted order: as an entry's canonical bytes hold them,
     whatever order it was built in."""
-    return bands.configuration_name(found)
+    return _written(found["configuration"]["providers"])
+
+
+def _written(providers: Mapping[str, str]) -> str:
+    """`slot=variant` pairs, the slots sorted, as `bands.configuration_name` writes an entry's."""
+    return ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
 
 
 def _listing(found: Mapping[str, Any]) -> tuple[Any, ...]:

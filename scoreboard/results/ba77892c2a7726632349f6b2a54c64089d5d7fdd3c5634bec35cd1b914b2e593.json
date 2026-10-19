@@ -1,0 +1,461 @@
+{
+  "arm": "deterministic",
+  "body_sha256": "sha256:ba77892c2a7726632349f6b2a54c64089d5d7fdd3c5634bec35cd1b914b2e593",
+  "configuration": {
+    "local": true,
+    "providers": {
+      "notes": "rules",
+      "structured": "criteria"
+    },
+    "remote_types": []
+  },
+  "figures": {
+    "accuracy": {
+      "high": 1.0,
+      "k": 600,
+      "low": 0.993871,
+      "n": 600
+    },
+    "auto_error_rate": {
+      "high": null,
+      "k": 0,
+      "low": null,
+      "n": 0
+    },
+    "automation": {
+      "high": 0.006129,
+      "k": 0,
+      "low": 0.0,
+      "n": 600
+    },
+    "brier": {
+      "estimate": 0.004226,
+      "high": 0.004568,
+      "low": 0.003889
+    },
+    "brier_reliability": {
+      "estimate": 0.002875,
+      "high": 0.003221,
+      "low": 0.002654,
+      "status": "ok"
+    },
+    "cost_per_1000": {
+      "status": "none",
+      "text": "0 (no metered calls)"
+    },
+    "critical": [
+      {
+        "automated": {
+          "high": 0.137185,
+          "k": 0,
+          "low": 0.0,
+          "n": 25
+        },
+        "bound": {
+          "high": 1.0,
+          "k": 25,
+          "labels": 1,
+          "level": 0.95,
+          "low": 0.862815,
+          "n": 25
+        },
+        "detected": {
+          "high": 1.0,
+          "k": 25,
+          "low": 0.862815,
+          "n": 25
+        },
+        "distinct": {
+          "detected": 25,
+          "positives": 25
+        },
+        "evidence": {
+          "needed": 100,
+          "status": "insufficient evidence"
+        },
+        "label": "yes",
+        "question": "red_flag"
+      }
+    ],
+    "ece": {
+      "status": "ok",
+      "value": 0.045001
+    },
+    "false_automation": {
+      "high": 0.006129,
+      "k": 0,
+      "low": 0.0,
+      "n": 600
+    },
+    "latency_ms": {
+      "note": "measured on the runner, not reproducible",
+      "p50": {
+        "estimate": 4.1855,
+        "high": 4.3595,
+        "low": 4.078937
+      },
+      "p95": {
+        "estimate": 7.73285,
+        "high": 8.617,
+        "low": 7.2433
+      }
+    },
+    "macro_f1": {
+      "estimate": 1.0,
+      "high": 1.0,
+      "low": 1.0
+    },
+    "subgroups": {
+      "age_band": {
+        "18-39": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 188,
+            "low": 0.98057,
+            "n": 188
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.01943,
+            "k": 0,
+            "low": 0.0,
+            "n": 188
+          },
+          "n": 188
+        },
+        "40-64": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 253,
+            "low": 0.985525,
+            "n": 253
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.014475,
+            "k": 0,
+            "low": 0.0,
+            "n": 253
+          },
+          "n": 253
+        },
+        "65+": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 159,
+            "low": 0.977067,
+            "n": 159
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.022933,
+            "k": 0,
+            "low": 0.0,
+            "n": 159
+          },
+          "n": 159
+        }
+      },
+      "payer": {
+        "acme": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 283,
+            "low": 0.98705,
+            "n": 283
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.01295,
+            "k": 0,
+            "low": 0.0,
+            "n": 283
+          },
+          "n": 283
+        },
+        "beacon": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 255,
+            "low": 0.985638,
+            "n": 255
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.014362,
+            "k": 0,
+            "low": 0.0,
+            "n": 255
+          },
+          "n": 255
+        },
+        "other": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 62,
+            "low": 0.942237,
+            "n": 62
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.057763,
+            "k": 0,
+            "low": 0.0,
+            "n": 62
+          },
+          "n": 62
+        }
+      },
+      "service": {
+        "knee_arthroscopy": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 160,
+            "low": 0.977208,
+            "n": 160
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.022792,
+            "k": 0,
+            "low": 0.0,
+            "n": 160
+          },
+          "n": 160
+        },
+        "lumbar_mri": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 214,
+            "low": 0.98291,
+            "n": 214
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.01709,
+            "k": 0,
+            "low": 0.0,
+            "n": 214
+          },
+          "n": 214
+        },
+        "other": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 89,
+            "low": 0.959399,
+            "n": 89
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.040601,
+            "k": 0,
+            "low": 0.0,
+            "n": 89
+          },
+          "n": 89
+        },
+        "sleep_study": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 137,
+            "low": 0.973433,
+            "n": 137
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.026567,
+            "k": 0,
+            "low": 0.0,
+            "n": 137
+          },
+          "n": 137
+        }
+      },
+      "sex": {
+        "female": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 277,
+            "low": 0.986771,
+            "n": 277
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.013229,
+            "k": 0,
+            "low": 0.0,
+            "n": 277
+          },
+          "n": 277
+        },
+        "male": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 323,
+            "low": 0.988644,
+            "n": 323
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.011356,
+            "k": 0,
+            "low": 0.0,
+            "n": 323
+          },
+          "n": 323
+        }
+      },
+      "site": {
+        "public": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 600,
+            "low": 0.993871,
+            "n": 600
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.006129,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+          },
+          "n": 600
+        }
+      },
+      "style": {
+        "prose": {
+          "accuracy": {
+            "high": 1.0,
+            "k": 600,
+            "low": 0.993871,
+            "n": 600
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.006129,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+          },
+          "n": 600
+        }
+      }
+    },
+    "weighted": {
+      "status": "as sampled"
+    }
+  },
+  "format": "mendari.scoreboard/1",
+  "grade": null,
+  "inputs": {
+    "dataset": "e74e45ea35d5201fc7572461aff45f9ddd97002ffef6e3db459d7150c5ac17f4",
+    "ledger": "sha256:666f40dac4a6de8468fe6eb9da47c5a63de6282110c349fd6566323c5bade394",
+    "method": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+    "prices": null,
+    "run": {
+      "engine": "0.1.0",
+      "replicate": 1,
+      "sha256": "sha256:8f7997ab84d950715ef0ffb7993de0726fea01542951ab38d1be0560d961199d"
+    }
+  },
+  "ranking": {
+    "reason": "public set: regression check, not a ranking",
+    "status": "off"
+  },
+  "scope": {
+    "disclosure": {
+      "statements": {},
+      "status": "no model provider"
+    },
+    "evaluation": "engineering evaluation, not clinical validation",
+    "measured_on": "2026-10-18",
+    "method": {
+      "in_effect": false,
+      "sha256": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+      "version": "mendari.grading/1.0"
+    },
+    "models": {
+      "answered": [
+        "criteria@8c16b7bdb387",
+        "rules@b8178fa43247"
+      ],
+      "by_type": {}
+    },
+    "pack": {
+      "digest": "sha256:39a8d52553b54b7f9f046409f460c4a43b6b5d42ca85b191f0c8008f4b9551a8",
+      "id": "mendari/prior-auth-preflight",
+      "version": "0.2.1"
+    },
+    "providers": {
+      "notes": {
+        "model": "rules@b8178fa43247",
+        "type": "rules",
+        "variant": "rules"
+      },
+      "structured": {
+        "model": "criteria@8c16b7bdb387",
+        "type": "criteria",
+        "variant": "criteria"
+      }
+    },
+    "set": {
+      "distinct_inputs": 599,
+      "kind": "public",
+      "n": 600,
+      "name": "test",
+      "norm": "norm/v1",
+      "sha256": "e74e45ea35d5201fc7572461aff45f9ddd97002ffef6e3db459d7150c5ac17f4"
+    },
+    "status": "Synthetic example. Not clinically reviewed. Not for patient care."
+  },
+  "seeds": {
+    "bootstrap": 0,
+    "level": 0.95,
+    "resamples": 2000
+  },
+  "supersedes": null
+}

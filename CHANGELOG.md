@@ -570,6 +570,49 @@ The first release (not yet published).
   grade null, and a board, which holds no ledger, refuses to rank a hidden table of two or more.
   No figure, format or decision changes: a public entry's bytes are what they were. Spec:
   `docs/spec/evaluation-reports.md`, Grades and band ranking.
+- **The results store and the early scoreboard** (LP-17f, `mendari.evals.results_store`,
+  `scoreboard/`; the grading method's sections 11, 12 and 14). Results are kept in the
+  repository, outside the wheel, the sdist and the site, append-only: each named by its body's
+  SHA-256, beside its ledger (named by its id) and its run record (named by the SHA-256 of its
+  bytes). A result may name the earlier result it supersedes (`supersedes`, a new field of
+  `mendari.scoreboard/1`, in its body, so its name and signature cover it): one of the same
+  pack, set, arm and configuration, measured no later; both stay, and one pack, set, arm and
+  configuration has one current result. `mendari scoreboard run PACK [--dataset NAME ...]
+  [--config slot=variant ... | --every-local] [--again]` runs a local configuration of a pack
+  Mendari maintains over its public scoring sets (every set but `train` and `calibration`; never
+  a file or a hidden set) and stores the result, unsigned, with each case's latency and tokens
+  from its decisions; it refuses a remote configuration before anything runs, never reads
+  `MENDARI_PROVIDERS`, and keeps a result that is still current unless `--again`, a new one
+  superseding it. `mendari scoreboard add FILE [--supersedes HASH]` stores a result made
+  elsewhere, never over another file, of a local configuration only. The pack is always the
+  repository's (`packs/`), never one on `MENDARI_PACKS_PATH` or pulled from a registry.
+  `./scripts/build-scoreboard.sh` runs every local
+  configuration of the five reference packs on their 15 public scoring sets: 18 results, 2.7 MB
+  with their ledgers and run records, all unsigned, measured on 2026-10-18. Its page,
+  `docs/grading/scoreboard.md` ("Scoreboard (public sets)" in the site's Grading section), is
+  written from the store by `scripts/scoreboard_page.py`: one table per pack and set, a
+  regression check with no Rank column and no bare percentage, each figure with its interval,
+  the scope statement, the insufficient-evidence banner (on every set but the Referral Router's
+  `test`, whose two critical labels have 113 and 124 distinct positives), each arm measured,
+  "not measured" or "not applicable", a measured arm's configurations not measured yet (the
+  Clinical Trial Prescreener's `structured=cql`, which calls Mendari's CQL engine), the marks
+  "unsigned", "method draft, not in effect" and "stale after 2026-12-02", and every superseded
+  result. Two new steps of CI's required `reference-pack` job (which now fetches the history):
+  `scripts/check_scoreboard.py --base` refuses a file whose name is not its content's, a result
+  of the base removed or changed but for a valid signature added to an unsigned one, a
+  `supersedes` link that breaks the rules above, and a current result whose signature does not
+  verify; it recomputes every public result from its stored inputs byte for byte and re-runs
+  every local ledger on its pack's current digest (a result of an older digest is recomputed and
+  kept, one whose set or method changed kept as it is; a new one must be of a local
+  configuration, on the current ones, and measured no later than today); a remote
+  configuration's disclosure is recomputed from `scoreboard/disclosures.json`, never taken from
+  the result; and `scripts/scoreboard_page.py --check`, run before the build, fails when the page
+  is not the store's. A publisher's or a registry's key is refused where it is pinned; CI pins
+  none. `./scripts/build-reference-pack.sh` now writes the page last, so a pull request that
+  changes a reference pack commits the page with its artifacts, and the page names its stale
+  results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
+  pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
+  the dashboard and the leaderboards are as they were.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
