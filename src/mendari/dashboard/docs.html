@@ -142,7 +142,8 @@
         <p>The FHIR base is <code>/fhir</code>. <a href="/fhir/metadata"><code>GET /fhir/metadata</code></a> is its CapabilityStatement, and <a href="/fhir/OperationDefinition/decide"><code>$decide</code>'s OperationDefinition</a> says what the operation takes. <code>POST /fhir/$decide</code> takes <code>Parameters</code> (<code>pack</code>, and <code>data</code> as a Bundle) and returns the decision as a FHIR Bundle, a <code>GuidanceResponse</code> first: act on its <code>outcome</code>, not its <code>status</code>. Decisions are read and searched as <code>Task</code>, and their audit trail as <code>AuditEvent</code> and <code>Provenance</code>, your organization's only. Mendari is a decision engine, not a FHIR data server: it stores and serves no clinical resources.</p>
         <ol class="docs-steps"><!-- landing:fhir --></ol>
         <h3 id="cds-hooks">CDS Hooks</h3>
-        <p><code>GET /cds-services</code> lists the services, one per pack that declares a hook (the <code>discover</code> permission: every role, and a key or token scoped to decide; never an EHR launch), and <code>POST /cds-services/{id}</code> decides on a hook's context and prefetch (<code>decide</code>), answering with cards.</p>
+        <p><code>GET /cds-services</code> lists the services, one per pack that declares a hook (the <code>discover</code> permission: every role, and a key or token scoped to decide; never an EHR launch), and <code>POST /cds-services/{id}</code> decides on a hook's context and prefetch (<code>decide</code>), answering with cards. With sign-in off, they answer on this machine only.</p>
+        <ol class="docs-steps"><!-- landing:cds --></ol>
         <h3 id="smart">SMART on FHIR</h3>
         <!-- landing:smart -->
       </section>

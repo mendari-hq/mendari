@@ -181,8 +181,8 @@ def test_order_sign_gives_a_card_per_covered_order(preflight: Decision) -> None:
     }
     cards = cds_hooks.invoke(preflight, request)["cards"]
     assert [c["summary"] for c in cards] == [
-        "Prior auth for lumbar_mri (acme): ready to submit",
-        "Prior auth for knee_arthroscopy (acme): ready to submit",
+        "Prior auth for Lumbar MRI (Acme): ready to submit",  # display names (LP-23f)
+        "Prior auth for Knee arthroscopy (Acme): ready to submit",
     ]
     task = cards[0]["suggestions"][0]["actions"][0]["resource"]
     assert task["focus"] == {"reference": "ServiceRequest/mri"}

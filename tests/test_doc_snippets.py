@@ -20,6 +20,7 @@ from mendari.core.registry import discover
 from mendari.evals.pack_tests import load_cases
 from mendari.server import api_docs, snippets
 from mendari.server.snippets import Step
+from mendari.standards import cds_hooks
 
 ROOT = Path(__file__).resolve().parents[1]
 README = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -47,6 +48,7 @@ def _curl_blocks(markdown: str) -> list[str]:
 
 
 STEPS = snippets.every()
+FHIR_ENTRIES = api_docs.FHIR_EXAMPLE["entry"]
 
 
 def test_every_file_has_named_steps() -> None:
@@ -131,7 +133,8 @@ def _packs() -> dict[str, Pack]:
 
 def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
     """A decide body is one of the pack's behaviour-test inputs, and the FHIR one is the API
-    reference's example: synthetic, and the same as what "Try it out" offers."""
+    reference's example: synthetic, and the same as what "Try it out" offers. The CDS hook's
+    prefetch is that example's patient and message, for the pack it is the example of."""
     packs = _packs()
     bodies = 0
     for step in STEPS:
@@ -150,11 +153,21 @@ def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
                 ],
             }
             continue
+        hooked = re.fullmatch(r"/cds-services/([^/]+)", path)
+        if hooked is not None:
+            (pack,) = [p for p in packs.values() if cds_hooks.service_id(p) == hooked.group(1)]
+            assert pack.id == api_docs.FHIR_EXAMPLE_PACK and pack.manifest.cds_hooks is not None
+            example = {e["resource"]["resourceType"]: e["resource"] for e in FHIR_ENTRIES}
+            patient, message = example["Patient"], example["Communication"]
+            assert body["hook"] == pack.manifest.cds_hooks.hook
+            assert body["prefetch"] == {"patient": patient, "communication": message}
+            assert body["context"] == {"patientId": patient["id"], "communicationId": message["id"]}
+            continue
         pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/(?:decide|guard)", path)
         assert pack_id is not None, f"{step.file}.sh {step.name}: a body for {path}"
         inputs = [case["input"] for case in load_cases(packs[pack_id.group(1)])]
         assert body in inputs, f"{step.file}.sh {step.name}: not one of the pack's examples"
-    assert bodies == 3  # the inbox's decision, the FHIR one and the AI Guard's draft
+    assert bodies == 4  # the inbox's decision, the FHIR one, the CDS hook's and the AI Guard's
 
 
 def test_the_key_pass_skips_only_what_a_service_key_may_not_do() -> None:

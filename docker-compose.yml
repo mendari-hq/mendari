@@ -52,6 +52,10 @@ services:
       # The EHR launch on needs a chosen PHI mode: `off` keeps inputs in plaintext, for this
       # sandbox's synthetic data only (docs/deploying-with-phi.md).
       MENDARI_PHI_MODE: "off"
+      # Open mode answers CDS Hooks on its own machine only (LP-23c); Docker's port publishing
+      # reaches this engine from its network's gateway, and the other containers by name, so this
+      # sandbox's engine answers from anywhere. Synthetic data only; never with sign-in on.
+      MENDARI_CDS_SANDBOX: "1"
       MENDARI_PUBLIC_URL: ${MENDARI_PUBLIC_URL:-http://engine:8000}
       # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
       MENDARI_CQL_URL: ${MENDARI_CQL_URL:-http://fhir:8080/fhir}

@@ -21,6 +21,7 @@ const EVENT_TEXT = {
   "input.erased": "Input erased",
   "pas.submitted": "Sent for prior authorization",
   "note.erased": "Note erased",
+  "card.feedback": "Card feedback from the EHR",
 };
 
 // A note is kept apart from the chain and shown only to those who may read inputs.
@@ -186,6 +187,7 @@ async function openRecord(id) {
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
+      ${r.data_coverage ? coveragePanel(id, r.data_coverage) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
@@ -194,6 +196,46 @@ async function openRecord(id) {
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });
   wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
+}
+
+// What a FHIR decision looked for in the record and found (its data-coverage record, LP-23d):
+// per mapped field and list, the resources read and the values found, as counts, and what could
+// not be read, by reason. Counts and the pack's own names only, never a value; never a share.
+const readReasons = (counts) => {
+  const parts = Object.entries(counts ?? {}).filter(([, n]) => n > 0).map(([reason, n]) => `${esc(reason)} ${num(n, 0)}`);
+  return parts.length ? parts.join(", ") : `<span class="muted">none</span>`;
+};
+const readFrom = (resources) => Object.entries(resources).map(([kind, n]) => `${esc(kind)} ${num(n, 0)}`).join(", ");
+const codings = (found) => {
+  const { other = 0, ...declared } = found ?? {};
+  const inDeclared = Object.values(declared).reduce((sum, n) => sum + n, 0);
+  if (!inDeclared && !other) return `<span class="muted">–</span>`;
+  return `${num(inDeclared, 0)} in declared systems, ${num(other, 0)} other`;
+};
+
+function coveragePanel(id, coverage) {
+  const rows = [
+    { name: `Focus: ${esc(coverage.focus.resource)}`, from: readFrom({ [coverage.focus.resource]: coverage.focus.resources }), found: null, codings: null, unreadable: coverage.focus.unreadable },
+    ...Object.entries(coverage.fields ?? {}).map(([name, f]) => ({ name: `<span class="mono">${esc(name)}</span>`, from: readFrom(f.resources ?? {}), found: f.values, codings: f.codings, unreadable: f.unreadable })),
+    ...Object.entries(coverage.lists ?? {}).map(([name, l]) => ({ name: `<span class="mono">${esc(name)}</span> (list)`, from: readFrom({ [l.resource]: l.resources }), found: l.items, codings: null, unreadable: l.unreadable })),
+  ];
+  const total = readReasons(coverage.unreadable);
+  return `<section class="coverage" aria-labelledby="coverage-${esc(id)}">
+    <h3 id="coverage-${esc(id)}">What it read</h3>
+    <p class="muted">From the FHIR record, for each field and list the pack maps: counts only, never a value. Could not read, in all: ${total}.</p>
+    ${tableHtml({
+      id: `coverage-table-${id}`,
+      caption: `<span class="sr-only">What the decision read from the FHIR record, by field</span>`,
+      rows,
+      columns: [
+        { key: "name", label: "Field", cell: (row) => row.name },
+        { key: "from", label: "Resources read", cell: (row) => row.from },
+        { key: "found", label: "Values found", numeric: true, cell: (row) => (row.found === null ? `<span class="muted">–</span>` : num(row.found, 0)) },
+        { key: "codings", label: "Codings", cell: (row) => (row.codings === null ? `<span class="muted">–</span>` : codings(row.codings)) },
+        { key: "unreadable", label: "Could not read", cell: (row) => readReasons(row.unreadable) },
+      ],
+    })}
+  </section>`;
 }
 
 // An event's note, when it has one: its text for those who may read it, else what became of it.

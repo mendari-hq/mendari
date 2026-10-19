@@ -13,6 +13,7 @@ Order of evaluation:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
@@ -22,6 +23,15 @@ from mendari.providers.base import Answer
 # Highest risk level at which AUTO is permitted without a governance override.
 MAX_AUTONOMOUS_RISK = RiskLevel.CLINICAL_INFORMATION
 OVERRIDABLE_RISK = (RiskLevel.CLINICAL_SUPPORT, RiskLevel.PATIENT_PREDICTION)
+# How the confidence thresholds' reason begins (step 2), in each of its three forms below.
+_THRESHOLD_REASON = re.compile(r"confidence \d\.\d\d (?:>=|<|is below) ")
+
+
+def threshold_reason(reason: str) -> bool:
+    """Whether `reason` is the confidence thresholds' (step 2): it gives the primary answer's
+    confidence and a threshold as bare figures, with no interval, so a CDS Hooks card leaves it
+    out (`standards/cds_hooks.py`). The audit trail keeps it as it is."""
+    return _THRESHOLD_REASON.match(reason) is not None
 
 
 @dataclass(frozen=True)

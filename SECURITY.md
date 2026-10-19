@@ -123,7 +123,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
   such as Safari before 16.4, following another site's link) reaches API routes only with
   `X-Mendari-Request`, which Mendari's own pages send and another site cannot add without a
   CORS preflight. Scripts that send neither header (curl, the pilot check) are affected only
-  there: their reads with a session cookie send `X-Mendari-Request: 1` too.
+  there: their reads with a session cookie send `X-Mendari-Request: 1` too. The one exception is
+  `/cds-services` and its children, for the origins CDS clients registered, without a Mendari
+  cookie: CORS lets such a page read the answers there, never with credentials (LP-23c).
 - **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
   sign-in and `MENDARI_PUBLIC_URL`) lets clients that a signed-in admin registers, with a public
   JWK Set by value, exchange a signed assertion (RS384 or ES384, `aud` exactly the token URL,
@@ -149,8 +151,13 @@ Each bullet is one control; the threat model names the row and the tests behind 
   organization: it holds `discover` and `decide`, reaches `/cds-services` only, and sends only
   its registered `fhirServer`. Every token that does not verify is the one `401`, its reason in
   the security log (`cds_<reason>`). Unset, a JWT on `/cds-services` is refused in every mode,
-  open mode included; elsewhere a JWT is never a credential
-  ([Connecting an EHR](docs/guides/connecting-an-ehr.md), threats S21, D13 and E15).
+  open mode included; elsewhere a JWT is never a credential. With sign-in off the CDS services
+  answer this machine only (a loopback address, a local `Host`, no forwarding header), a valid
+  token included, unless `MENDARI_CDS_SANDBOX=1`, which stops the server on Vercel and with
+  sign-in on. A client's registered `origins` get CORS there, and its token is refused from a
+  page on any origin but those and this site's own (the request's host, `MENDARI_PUBLIC_URL`,
+  `MENDARI_TRUSTED_ORIGINS`) ([Connecting an EHR](docs/guides/connecting-an-ehr.md), threats
+  S21, D13, E15, I16 and E16).
 - **What a caller without a credential can do.** Public routes cost little and take no lock:
   `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
   that may read), `/fhir/metadata` reads its version without the audit chain's lock, and

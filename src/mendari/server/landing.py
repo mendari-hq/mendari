@@ -148,6 +148,7 @@ def page(
             "setup": _code("code-setup", _SETUP, "name the server and your key"),
             "quickstart": _steps("quickstart", prints),
             "fhir": _steps("fhir", prints),
+            "cds": _steps("cds", prints),
             "guard": _steps("guard", prints) + _steps("guard", prints, language="python"),
             "smart": _smart(smart_launch, sign_in=sign_in),
             "auth": _auth(sign_in, token_url),

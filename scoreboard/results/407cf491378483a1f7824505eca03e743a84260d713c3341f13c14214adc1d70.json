@@ -1,0 +1,334 @@
+{
+  "arm": "deterministic",
+  "body_sha256": "sha256:407cf491378483a1f7824505eca03e743a84260d713c3341f13c14214adc1d70",
+  "configuration": {
+    "local": true,
+    "providers": {
+      "notes": "rules",
+      "structured": "criteria"
+    },
+    "remote_types": []
+  },
+  "figures": {
+    "accuracy": {
+      "high": 0.90227,
+      "k": 18,
+      "low": 0.532887,
+      "n": 24
+    },
+    "auto_error_rate": {
+      "high": null,
+      "k": 0,
+      "low": null,
+      "n": 0
+    },
+    "automation": {
+      "high": 0.142474,
+      "k": 0,
+      "low": 0.0,
+      "n": 24
+    },
+    "brier": {
+      "estimate": 0.437073,
+      "high": 0.723481,
+      "low": 0.151471
+    },
+    "brier_reliability": {
+      "reason": "24 scored cases; 10 equal-mass bins of at least 30 need 300",
+      "status": "not_estimable"
+    },
+    "cost_per_1000": {
+      "status": "none",
+      "text": "0 (no metered calls)"
+    },
+    "critical": [
+      {
+        "automated": {
+          "high": 0.459258,
+          "k": 0,
+          "low": 0.0,
+          "n": 6
+        },
+        "bound": {
+          "high": 0.881883,
+          "k": 3,
+          "labels": 1,
+          "level": 0.95,
+          "low": 0.118117,
+          "n": 6
+        },
+        "detected": {
+          "high": 0.881883,
+          "k": 3,
+          "low": 0.118117,
+          "n": 6
+        },
+        "distinct": {
+          "detected": 3,
+          "positives": 6
+        },
+        "evidence": {
+          "needed": 100,
+          "status": "insufficient evidence"
+        },
+        "label": "yes",
+        "question": "red_flag"
+      }
+    ],
+    "ece": {
+      "reason": "24 scored cases; 10 equal-mass bins of at least 30 need 300",
+      "status": "not_estimable"
+    },
+    "false_automation": {
+      "high": 0.142474,
+      "k": 0,
+      "low": 0.0,
+      "n": 24
+    },
+    "latency_ms": {
+      "note": "measured on the runner, not reproducible",
+      "p50": {
+        "estimate": 3.948,
+        "high": 4.094,
+        "low": 3.739
+      },
+      "p95": {
+        "estimate": 4.79045,
+        "high": 4.974,
+        "low": 4.183
+      }
+    },
+    "macro_f1": {
+      "estimate": 0.748252,
+      "high": 0.874783,
+      "low": 0.555556
+    },
+    "subgroups": {
+      "age_band": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.90227,
+            "k": 18,
+            "low": 0.532887,
+            "n": 24
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.142474,
+            "k": 0,
+            "low": 0.0,
+            "n": 24
+          },
+          "n": 24
+        }
+      },
+      "payer": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.90227,
+            "k": 18,
+            "low": 0.532887,
+            "n": 24
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.142474,
+            "k": 0,
+            "low": 0.0,
+            "n": 24
+          },
+          "n": 24
+        }
+      },
+      "service": {
+        "knee_arthroscopy": {
+          "n": 6,
+          "status": "too few"
+        },
+        "lumbar_mri": {
+          "accuracy": {
+            "high": 0.872402,
+            "k": 9,
+            "low": 0.35138,
+            "n": 14
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.231636,
+            "k": 0,
+            "low": 0.0,
+            "n": 14
+          },
+          "n": 14
+        },
+        "sleep_study": {
+          "n": 4,
+          "status": "too few"
+        }
+      },
+      "sex": {
+        "female": {
+          "accuracy": {
+            "high": 0.977169,
+            "k": 9,
+            "low": 0.482244,
+            "n": 11
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.284914,
+            "k": 0,
+            "low": 0.0,
+            "n": 11
+          },
+          "n": 11
+        },
+        "male": {
+          "accuracy": {
+            "high": 0.90908,
+            "k": 9,
+            "low": 0.385738,
+            "n": 13
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.247053,
+            "k": 0,
+            "low": 0.0,
+            "n": 13
+          },
+          "n": 13
+        }
+      },
+      "site": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.90227,
+            "k": 18,
+            "low": 0.532887,
+            "n": 24
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.142474,
+            "k": 0,
+            "low": 0.0,
+            "n": 24
+          },
+          "n": 24
+        }
+      },
+      "style": {
+        "unknown": {
+          "accuracy": {
+            "high": 0.90227,
+            "k": 18,
+            "low": 0.532887,
+            "n": 24
+          },
+          "auto_error_rate": {
+            "n": 0,
+            "status": "too few"
+          },
+          "automation": {
+            "high": 0.142474,
+            "k": 0,
+            "low": 0.0,
+            "n": 24
+          },
+          "n": 24
+        }
+      }
+    },
+    "weighted": {
+      "status": "as sampled"
+    }
+  },
+  "format": "mendari.scoreboard/1",
+  "grade": null,
+  "inputs": {
+    "dataset": "c01ba54a1df7a974126298bab1cd12c7f9579c642c7140d8f661c6193939ef2c",
+    "ledger": "sha256:010fe06402c50ba0809f2e1d4e6c6e317ed75de9a982d0c94c35459076ac1f67",
+    "method": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+    "prices": null,
+    "run": {
+      "engine": "0.1.0",
+      "replicate": 1,
+      "sha256": "sha256:51bcd5e78b6a15d182bea8d313ed60ec0f4db22f98c3f77c6021c80a08322d97"
+    }
+  },
+  "ranking": {
+    "reason": "public set: regression check, not a ranking",
+    "status": "off"
+  },
+  "scope": {
+    "disclosure": {
+      "statements": {},
+      "status": "no model provider"
+    },
+    "evaluation": "engineering evaluation, not clinical validation",
+    "measured_on": "2026-10-18",
+    "method": {
+      "in_effect": false,
+      "sha256": "59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a",
+      "version": "mendari.grading/1.0"
+    },
+    "models": {
+      "answered": [
+        "criteria@8c16b7bdb387",
+        "rules@b8178fa43247"
+      ],
+      "by_type": {}
+    },
+    "pack": {
+      "digest": "sha256:39a8d52553b54b7f9f046409f460c4a43b6b5d42ca85b191f0c8008f4b9551a8",
+      "id": "mendari/prior-auth-preflight",
+      "version": "0.2.1"
+    },
+    "providers": {
+      "notes": {
+        "model": "rules@b8178fa43247",
+        "type": "rules",
+        "variant": "rules"
+      },
+      "structured": {
+        "model": "criteria@8c16b7bdb387",
+        "type": "criteria",
+        "variant": "criteria"
+      }
+    },
+    "set": {
+      "distinct_inputs": 24,
+      "kind": "public",
+      "n": 24,
+      "name": "documentation_notes_holdout",
+      "norm": "norm/v1",
+      "sha256": "c01ba54a1df7a974126298bab1cd12c7f9579c642c7140d8f661c6193939ef2c"
+    },
+    "status": "Synthetic example. Not clinically reviewed. Not for patient care."
+  },
+  "seeds": {
+    "bootstrap": 0,
+    "level": 0.95,
+    "resamples": 2000
+  },
+  "supersedes": null
+}

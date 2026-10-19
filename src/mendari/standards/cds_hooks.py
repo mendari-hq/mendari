@@ -18,6 +18,26 @@ whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.c
 the card describes a routing decision. A pack that declares `coverage_information` also returns,
 for each decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate`
 for a technical reason when the order abstained over unreadable data and the Coverage was read.
+
+**Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
+suggestion's is `suggestion_id` of it, so feedback names them without anything stored; a card
+with suggestions says `selectionBehavior` (`at-most-one`) and offers the override reasons of
+`terminology.OVERRIDE_REASONS`. Its summary is the pack's words with display names
+(`templates.fill_display`), and its detail the pack's status, the notice and one plain sentence,
+never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are behind a link to
+the decision in the audit view, `source.url` is the pack's card, and when the EHR may launch the
+pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
+a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
+confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A Da Vinci
+CRD service (a pack with `coverage_information`) declares the CRD version and its one
+configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
+request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
+still decided.
+
+**Feedback** (`CardFeedback`): what the clinician did with each card, accepted with the
+suggestion taken or overridden with one of the reasons offered, checked against what the card
+offered before anything is looked up, with nothing CDS Hooks 2.0 does not define but
+`extension`; neither the comment nor an extension is kept.
 """
 
 from __future__ import annotations
@@ -25,16 +45,21 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Literal
 from urllib.parse import quote
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari import notices
 from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
-from mendari.core.spec import Outcome, Priority
-from mendari.core.templates import fill
+from mendari.core.policy import threshold_reason
+from mendari.core.spec import SUMMARY_CHARS, Outcome, Priority
+from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
 from mendari.errors import (
     CdsHooksError,
     FhirError,
@@ -46,12 +71,18 @@ from mendari.standards import davinci, fhir_structure
 from mendari.standards.data_coverage import source_type
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
+from mendari.standards.terminology import (
+    OVERRIDE_REASONS,
+    OVERRIDE_REASONS_SYSTEM,
+    override_reasons,
+)
 
 # Hooks whose context carries the orders being written (CDS Hooks `draftOrders`).
 ORDER_HOOKS = ("order-select", "order-sign")
 # The most draft orders one order hook request may decide: each is a decision (provider calls,
 # a chained record), so an unbounded list would multiply one request's cost.
 MAX_ORDERS = 50
+MAX_FEEDBACK = 50  # the most cards one feedback request may name
 _TOKEN = re.compile(r"\{\{\s*context\.(\w+)\s*\}\}")
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")  # a FHIR id
 # What an ABSTAIN over a record that could not be read says on its card (owner decision 6): fixed
@@ -61,6 +92,63 @@ UNREADABLE_DETAIL = (
     "Mendari could not read part of this patient's record, so it made no recommendation and a "
     "person decides. Not read:"
 )
+# A card's detail: the pack's status, the notice, and one plain sentence for its outcome.
+OUTCOME_SENTENCES = {
+    Outcome.AUTO: "Automated: the recommendation may be acted on without a person reviewing it.",
+    Outcome.HUMAN_REVIEW: (
+        "For review: a person confirms or corrects the recommendation before anyone acts on it."
+    ),
+    Outcome.ABSTAIN: "No recommendation: the existing workflow handles this case.",
+    Outcome.BLOCK: (
+        "Blocked: the action must not happen, because the input was invalid or a blocking rule "
+        "matched."
+    ),
+}
+# A card with suggestions lets the clinician take at most one (CDS Hooks 2.0).
+SELECTION_BEHAVIOR = "at-most-one"
+AUDIT_LINK = "Reasons and engine detail (Mendari audit trail)"
+LAUNCH_LINK = "Open in Mendari"
+# Da Vinci CRD (2.2.1): the versions a CRD service declares in discovery (its first two
+# numbers), its one configuration option, which the request's `davinci-crd.configuration` may
+# turn off, and the type every card of a CRD service says it is (`source.topic`).
+CRD_VERSIONS = ("2.2",)
+CRD_VERSION = "davinci-crd.version"
+CRD_OPTIONS = "davinci-crd.configuration-options"
+CRD_CONFIGURATION = "davinci-crd.configuration"
+COVERAGE_INFO = "coverage-info"
+CARD_TYPE = {
+    "system": "http://terminology.hl7.org/CodeSystem/cdshooks-card-type",
+    "code": COVERAGE_INFO,
+    "display": "Coverage Information",
+}
+COVERAGE_INFO_OPTION = {
+    "code": COVERAGE_INFO,
+    "type": "boolean",
+    "name": "Coverage Information",
+    "description": "Whether each order comes back with its coverage information and its card. "
+    "Off, the service sends neither, and still decides and records each order.",
+    "default": True,
+}
+
+
+@dataclass(frozen=True)
+class CardLinks:
+    """Where a card may link: Mendari's public address (`MENDARI_PUBLIC_URL`, None: no link and
+    the reasons in the detail, the confidence thresholds' left out), and whether the EHR may
+    launch the pack's SMART view from the card (SMART on, and the request's `fhirServer`
+    registered for launches in the caller's organization, `MENDARI_SMART_EHRS`)."""
+
+    public_url: str | None = None
+    launch: bool = False
+
+
+NO_LINKS = CardLinks()
+
+
+def suggestion_id(decision_id: str) -> str:
+    """The uuid of a card's one suggestion: a UUID 5 of its decision's id, so feedback that names
+    it is checked without anything stored."""
+    return str(uuid.uuid5(uuid.UUID(decision_id), "suggestion"))
 
 
 def service_id(pack: Pack) -> str:
@@ -84,16 +172,20 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
             usage = (
                 f"{COMMUNITY_LABEL}: it recommends, and a person confirms every decision. {usage}"
             )
-        services.append(
-            {
-                "hook": hooks.hook,
-                "id": service_id(pack),
-                "title": hooks.title,
-                "description": description,
-                "prefetch": hooks.prefetch,
-                "usageRequirements": usage,
+        service: dict[str, Any] = {
+            "hook": hooks.hook,
+            "id": service_id(pack),
+            "title": hooks.title,
+            "description": description,
+            "prefetch": hooks.prefetch,
+            "usageRequirements": usage,
+        }
+        if hooks.coverage_information:  # a Da Vinci CRD service
+            service["extension"] = {
+                CRD_VERSION: list(CRD_VERSIONS),
+                CRD_OPTIONS: [dict(COVERAGE_INFO_OPTION)],
             }
-        )
+        services.append(service)
     return {"services": services}
 
 
@@ -103,11 +195,12 @@ def invoke(
     *,
     most: int = MAX_ORDERS,
     charge: Callable[[int], None] | None = None,
+    links: CardLinks = NO_LINKS,
 ) -> dict[str, Any]:
     """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
     draft order the pack is about, at most `most` of them; `charge` is given the number of
     decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising."""
+    refuses by raising. `links` says where the cards may link."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
         raise FhirError(f"pack {decision.pack.id} is not a CDS service")
@@ -159,15 +252,19 @@ def invoke(
     else:
         decided = [decision.decide_fhir(prefetch, unreadable=unreadable, sources=templates)]
     template = hooks.card
+    # A CRD service the request turned `coverage-info` off for: decided and recorded, and
+    # nothing of that type sent back, neither cards nor system actions (CRD 2.2.1).
+    silenced = bool(hooks.coverage_information) and not coverage_info_wanted(request)
     cards = []
     for result, task in decided:
-        shown = result.recommendation or "none"
-        hidden = template is not None and template.show is not None and shown not in template.show
-        if hidden and not result.abstained_unreadable:
+        key = result.recommendation or "none"
+        hidden = template is not None and template.show is not None and key not in template.show
+        if silenced or (hidden and not result.abstained_unreadable):
             continue  # decided and audited, but nothing worth interrupting the user for
-        cards.append(card(decision.pack, result, task))
+        cards.append(card(decision.pack, result, task, links))
     response: dict[str, Any] = {"cards": cards}
-    coverage = davinci.coverage_reference(prefetch) if hooks.coverage_information else None
+    crd = bool(hooks.coverage_information) and not silenced
+    coverage = davinci.coverage_reference(prefetch) if crd else None
     if coverage is not None:
         actions = []
         for order, (result, _) in zip(orders, decided, strict=True):
@@ -191,6 +288,15 @@ def invoke(
         if actions:
             response["systemActions"] = actions
     return response
+
+
+def coverage_info_wanted(request: Mapping[str, Any]) -> bool:
+    """Whether a CRD request wants coverage information: unless its
+    `extension.davinci-crd.configuration` sets `coverage-info` to false. Configuration Mendari
+    does not support, or of another shape, is ignored, as CRD says."""
+    extension = request.get("extension")
+    configuration = extension.get(CRD_CONFIGURATION) if isinstance(extension, Mapping) else None
+    return not (isinstance(configuration, Mapping) and configuration.get(COVERAGE_INFO) is False)
 
 
 def fetch(
@@ -331,13 +437,17 @@ def source_label(pack: Pack) -> str:
     return f"{label} · {COMMUNITY_LABEL}" if pack.community else label
 
 
-def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[str, Any]:
+def card(
+    pack: Pack,
+    result: DecisionResult,
+    task: Mapping[str, Any],
+    links: CardLinks = NO_LINKS,
+) -> dict[str, Any]:
     template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
-    target = result.recommendation or "manual triage"
     key = result.recommendation or "none"
     if result.abstained_unreadable:
         detail = _unreadable_detail(pack, result)
-        return _card(pack, result, task, "info", UNREADABLE_SUMMARY, detail)
+        return _card(pack, result, task, "info", UNREADABLE_SUMMARY, detail, links)
     if result.priority is Priority.STAT:
         indicator = "critical"
     elif template is not None and key in template.indicators:
@@ -347,7 +457,7 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
     else:
         indicator = "warning"
     if template is not None and key in template.summaries:
-        summary = fill(template.summaries[key], result, recommendation=target)
+        summary = fill_display(template.summaries[key], result, pack.manifest)
     else:
         verb = {
             Outcome.AUTO: "Routed",
@@ -355,17 +465,30 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
             Outcome.ABSTAIN: "No recommendation;",
             Outcome.BLOCK: "Blocked;",
         }[result.outcome]
-        summary = f"{verb} to {target}" + (
+        summary = f"{verb} to {_target(pack, result)}" + (
             f" ({result.priority.value})" if result.priority.value != "routine" else ""
         )
-    confidence = "n/a" if result.confidence is None else f"{result.confidence:.0%}"
+    # The engine's reasons are behind the audit link when there is one, else in the detail, but
+    # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
+    # says what it decided.
+    reasons = (
+        []
+        if links.public_url
+        else [f"- {reason}" for reason in result.reasons if not threshold_reason(reason)]
+    )
     detail = "\n".join(
-        [f"*{pack.status_label}* *{notices.NOTICE}*", ""]
-        + [f"**Outcome:** {result.outcome.value} · **confidence:** {confidence}", ""]
-        + [f"- {reason}" for reason in result.reasons]
+        [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
+        + (["", *reasons] if reasons else [])
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
-    return _card(pack, result, task, indicator, summary, detail)
+    return _card(pack, result, task, indicator, summary, detail, links)
+
+
+def _target(pack: Pack, result: DecisionResult) -> str:
+    """Who a decision routes to, as a person reads it: the recommendation's display name."""
+    if result.recommendation is None:
+        return NO_RECOMMENDATION
+    return shown(pack.manifest, pack.manifest.policy.primary, result.recommendation)
 
 
 def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
@@ -386,25 +509,170 @@ def _card(
     indicator: str,
     summary: str,
     detail: str,
+    links: CardLinks,
 ) -> dict[str, Any]:
+    """A CDS Hooks 2.0 card for one decision: its uuid is the decision's id, its one
+    suggestion's `suggestion_id` of it."""
     template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
-    target = result.recommendation or "manual triage"
-    label = template.suggestion if template is not None else f"Create routing task for {target}"
-    return {
-        "uuid": str(uuid.uuid4()),
-        "summary": summary[:140],
+    label = (
+        template.suggestion
+        if template is not None
+        else f"Create routing task for {_target(pack, result)}"
+    )
+    source: dict[str, Any] = {"label": source_label(pack)}
+    shown_pack = quote(pack.id, safe="/")
+    public = links.public_url.rstrip("/") if links.public_url else None
+    if public is not None:
+        source["url"] = f"{public}/?pack={shown_pack}#card"
+    if pack.manifest.cds_hooks is not None and pack.manifest.cds_hooks.coverage_information:
+        source["topic"] = dict(CARD_TYPE)  # CRD 2.2.1: every card of a CRD service says its type
+    found: dict[str, Any] = {
+        "uuid": result.id,
+        "summary": summary[:SUMMARY_CHARS],
         "indicator": indicator,
         "detail": detail,
-        "source": {"label": source_label(pack)},
+        "source": source,
+        "selectionBehavior": SELECTION_BEHAVIOR,
         "suggestions": [
             {
                 "label": label,
-                "uuid": str(uuid.uuid4()),
+                "uuid": suggestion_id(result.id),
                 "isRecommended": result.outcome is not Outcome.BLOCK,
                 "actions": [
                     {"type": "create", "description": task["description"], "resource": task}
                 ],
             }
         ],
+        "overrideReasons": override_reasons(),
         "extension": {"mendari.decision_id": result.id},
     }
+    if public is not None:
+        found["links"] = [
+            {
+                "label": AUDIT_LINK,
+                "url": f"{public}/?pack={shown_pack}#audit/{quote(result.id, safe='')}",
+                "type": "absolute",
+            }
+        ]
+        if links.launch:
+            found["links"].append(
+                {
+                    "label": LAUNCH_LINK,
+                    "url": f"{public}/smart/launch?pack={shown_pack}",
+                    "type": "smart",
+                }
+            )
+    return found
+
+
+# -- feedback (CDS Hooks 2.0 `POST {service}/feedback`) ---------------------------------------
+
+
+class _Closed(BaseModel):
+    """CDS Hooks 2.0's shape and nothing else: a field it does not define is refused, but for
+    `extension`, which it reserves for implementations (a JSON object), accepted on any object
+    and never kept."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extension: dict[str, Any] | None = None
+
+
+class FeedbackCoding(_Closed):
+    """A Coding as a CDS client sends it back, CDS Hooks 2.0's (`system`, `code`, `display`):
+    the reason it chose, of those a card offered."""
+
+    system: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=64)
+    display: str | None = Field(default=None, max_length=250)
+
+
+class OverrideReason(_Closed):
+    reason: FeedbackCoding | None = None
+    # Free text (owner decision 7): accepted, and never kept.
+    userComment: str | None = None
+
+
+class AcceptedSuggestion(_Closed):
+    id: str = Field(min_length=1, max_length=64)
+
+
+class FeedbackItem(_Closed):
+    """What a clinician did with one card: accepted, with the suggestion taken (a card's
+    selection is at most one), or overridden, with one of the reasons the card offered or none.
+    Checked against what the card offered (its suggestion's `suggestion_id`, the codes of
+    `OVERRIDE_REASONS`) without anything looked up."""
+
+    card: str = Field(min_length=1, max_length=64)
+    outcome: Literal["accepted", "overridden"]
+    acceptedSuggestions: list[AcceptedSuggestion] | None = Field(
+        default=None, min_length=1, max_length=1
+    )
+    overrideReason: OverrideReason | None = None
+    outcomeTimestamp: AwareDatetime
+
+    @field_validator("outcomeTimestamp")
+    @classmethod
+    def _in_utc(cls, value: datetime) -> datetime:
+        """The time in UTC, as CDS Hooks says and the chain keeps it: one with no UTC time
+        (before year 1 or after year 9999 once its offset is taken off) is refused."""
+        try:
+            return value.astimezone(UTC)
+        except OverflowError:
+            raise ValueError("outcomeTimestamp has no time in UTC") from None
+
+    @model_validator(mode="after")
+    def _offered(self) -> FeedbackItem:
+        if self.outcome == "accepted":
+            if not self.acceptedSuggestions:
+                raise ValueError("an accepted card names the suggestion taken")
+            if self.overrideReason is not None:
+                raise ValueError("an accepted card has no override reason")
+            # A card id that is no decision's (not a UUID) is the store's to refuse, as unknown.
+            offered = _suggestion_of(self.card)
+            if offered is not None and any(t.id != offered for t in self.acceptedSuggestions):
+                raise ValueError("acceptedSuggestions names a suggestion the card did not offer")
+        elif self.acceptedSuggestions is not None:
+            raise ValueError("an overridden card names no accepted suggestion")
+        reason = self.overrideReason.reason if self.overrideReason is not None else None
+        if reason is not None and (
+            reason.system != OVERRIDE_REASONS_SYSTEM or reason.code not in OVERRIDE_REASONS
+        ):
+            raise ValueError("overrideReason.reason is not one of the reasons the card offered")
+        return self
+
+    def chained(self) -> dict[str, Any]:
+        """What the chain keeps of it: codes, ids and the time (`AuditStore.record_card_feedback`),
+        never the comment, a display or an extension."""
+        reason = self.overrideReason.reason if self.overrideReason is not None else None
+        return {
+            "card": self.card,
+            "outcome": self.outcome,
+            "accepted_suggestions": [taken.id for taken in self.acceptedSuggestions or []],
+            "override_reason": None
+            if reason is None
+            else {"system": reason.system, "code": reason.code},
+            "outcome_timestamp": self.outcomeTimestamp.isoformat(),  # in UTC (`_in_utc`)
+        }
+
+
+class CardFeedback(_Closed):
+    """CDS Hooks 2.0 feedback: 1 to `MAX_FEEDBACK` cards, each once."""
+
+    feedback: list[FeedbackItem] = Field(min_length=1, max_length=MAX_FEEDBACK)
+
+    @model_validator(mode="after")
+    def _each_card_once(self) -> CardFeedback:
+        cards = [item.card for item in self.feedback]
+        if len(set(cards)) != len(cards):
+            raise ValueError("each card is named once")
+        return self
+
+
+def _suggestion_of(card: str) -> str | None:
+    """The suggestion a card offered, or None for a card id that is not a UUID, so no
+    decision's."""
+    try:
+        return suggestion_id(card)
+    except ValueError:
+        return None

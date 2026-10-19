@@ -180,6 +180,7 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/fhir/(?P<type>[A-Za-z]+)/_search$", "s"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", DECIDE),
         ("POST", r"^/cds-services/[^/]+$", DECIDE),
+        ("POST", r"^/cds-services/[^/]+/feedback$", DECIDE),  # a card's feedback (LP-23f)
         ("POST", r"^/fhir/\$decide$", DECIDE),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", DECIDE),  # Da Vinci DTR
         ("POST", r"^/api/audit/[^/]+/outcome$", OUTCOME),

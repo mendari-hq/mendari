@@ -170,6 +170,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/fhir/decide"): ("decision.created",),
     (ENGINE, "POST", "/fhir/$decide"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
+    (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
     # The registry's own chain (`hub_events`, LP-18b).

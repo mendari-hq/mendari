@@ -381,7 +381,10 @@ labs. Referral dates are moved to today, so the windows the pack checks stay the
 starts the Mendari engine (REST, FHIR, CDS Hooks, Jev adapter, review queue, audit, dashboard at
 http://localhost:8000), a SMART launcher (smart-launcher-v2, in front of HAPI) and a workflow
 worker. The worker routes each in-progress Communication and writes a FHIR `Task` back to the
-server. No real PHI is involved.
+server. No real PHI is involved. The engine runs open mode with `MENDARI_CDS_SANDBOX=1`, so its
+CDS Hooks services answer the other containers and your browser, which Docker's port publishing
+brings in from its network's gateway; an open-mode server without it answers them on its own
+machine only.
 
 A SMART EHR launch, scripted end to end (EHR and browser in one), decides a patient's referrals
 or messages:
@@ -562,6 +565,36 @@ is refused. A prefetch template is a read or search relative to that server (`Ty
 Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
 ([LLMs and local models](#llms-and-local-models)).
 
+List the CDS services, and call the inbox's hook with a synthetic patient and message as
+prefetch (with sign-in on, `MENDARI_KEY` as in the [REST quickstart](#rest-api); in open mode,
+on this machine):
+
+<!-- check: snippet cds.sh/discover -->
+```bash
+curl -sS --fail-with-body "$MENDARI/cds-services" -H "Authorization: Bearer $MENDARI_KEY" \
+  | jq '[.services[] | {id, hook}]'
+```
+
+<!-- check: snippet cds.sh/hook -->
+```bash
+curl -sS --fail-with-body -X POST "$MENDARI/cds-services/mendari.patient-inbox-router" \
+  -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
+  -d '{"hook": "mendari-message-received", "hookInstance": "7f1c2a4e-0d1b-4c55-9a51-3c1e2d000003",
+    "context": {"patientId": "example-patient", "communicationId": "example-message"},
+    "prefetch": {
+      "patient": {
+        "resourceType": "Patient", "id": "example-patient",
+        "meta": {"tag": [{"system": "https://mendari.co/fhir/sandbox", "code": "synthetic"}]},
+        "identifier": [{"system": "https://mendari.co/fhir/synthetic-case", "value": "1"}],
+        "name": [{"family": "Synthetic", "given": ["Example"]}],
+        "gender": "unknown", "birthDate": "1984-06-15"},
+      "communication": {
+        "resourceType": "Communication", "id": "example-message", "status": "in-progress",
+        "subject": {"reference": "Patient/example-patient"}, "sent": "2026-09-29T13:00:00Z",
+        "payload": [{"contentString": "Can I get a refill of my blood pressure medicine?"}]}}}' \
+  | jq '.cards[] | {summary, indicator}'
+```
+
 **An EHR's own token (LP-23b).** With sign-in on, the CDS Hooks services take Mendari's own
 credentials (a key made from the `cds-hooks` preset, or a SMART Backend Services token scoped to
 decide) and, once you register an EHR in `MENDARI_CDS_CLIENTS`, the short-lived JWT that EHR
@@ -572,10 +605,24 @@ bases it may send as `fhirServer`, and its public keys, by value or from one `jw
 once. A verified token is the principal `cds:<id>` of the registered organization: it lists and
 calls the CDS services and reaches nothing else. Unset, a JWT on `/cds-services` is refused in
 every mode, open mode included, where before it was never read. Elsewhere a JWT is what it was:
-refused with sign-in on, and ignored in open mode, which reads no credential there. The rest of
-open mode is as before: it answers anyone, on any host, until LP-23c. How it works, field by field, is
+refused with sign-in on, and ignored in open mode, which reads no credential there.
+
+**Who may call from where (LP-23c).** With sign-in off, the CDS Hooks services answer this
+machine only: a call from a loopback address, to a `Host` that names this machine, with no
+forwarding header. From anywhere else every call is a `403`, before any credential is read, a
+valid token included (the security log says `open_mode_remote`); the rest of open mode answers
+any host, as before. `MENDARI_CDS_SANDBOX=1` lifts this for a synthetic sandbox reached over a
+network: the compose sandbox's open engine sets it, and the server refuses to start with it on
+Vercel or with sign-in on. A registered client whose pages call from a browser lists their
+origins (`origins`). On `/cds-services` and its children only, a page there gets CORS: its
+preflight is answered, its answers are readable, and never with credentials. Its client's token
+is refused from a page on any other origin but Mendari's own, and a page on an origin nobody
+registered is refused as before. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
+[ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
+(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
+is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
 
 **A record Mendari cannot read (LP-23d).** A hook always answers. Each prefetch key is read on its
 own. A key the request leaves out (or sends empty), with no `fhirServer` to read it from, is a
@@ -599,14 +646,18 @@ by declared system with any other system as one count, what could not be read by
 never holds a value, an id, text, a patient's code or a system the pack does not declare. A JSON
 decision carries none.
 
-**An EHR's own token (LP-23, not built yet).** With sign-in on, the CDS Hooks services take
-Mendari's own credentials only: a key made from the `cds-hooks` preset, or a SMART Backend
-Services token scoped to decide. An EHR's own signed CDS Hooks token is refused, as a credential
-Mendari did not issue. With sign-in off they answer anyone, on any host, and never read the
-`Authorization` header. How an EHR is to call with its own token is
-[ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
-(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
-is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
+**Cards and feedback (LP-23f).** A card's `uuid` is its decision's id, and a card with its
+suggestion says `selectionBehavior: at-most-one` and offers three override reasons (not
+relevant, already addressed, clinical judgement) from Mendari's own CodeSystem. Its summary uses
+the pack's display names and stays under 140 characters, checked when the pack loads; its detail
+is the pack's status, the notice and one plain sentence, never a percentage or the confidence.
+With `MENDARI_PUBLIC_URL` set, the reasons are behind a link to the decision in the audit trail,
+and a launch-registered EHR of the same organization gets a `smart` link that opens the pack. The
+prior authorization service declares Da Vinci CRD's version and its `coverage-info` option in
+discovery, and honours `coverage-info: false`. The EHR may send back what the clinician did with
+each card (`POST /cds-services/{id}/feedback`): each is chained as `card.feedback`, codes and ids
+only, and the comment is never kept. A card from another organization, another pack or another
+caller is one `404`. In the dashboard, a FHIR decision's record shows what it read, as counts.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
@@ -1252,8 +1303,26 @@ each case's latency and tokens by model type, never a key, an endpoint or case t
 price table and the method, so the same inputs give the same bytes. Evidence is decided on
 distinct positives, the grade's bound is simultaneous across the critical labels, ECE is a
 description, cost comes from tokens and the table (never a pack's or a provider's price), and on
-a public set an entry is a regression check with no rank and no grade. Nothing writes or shows
-entries yet: the store and the page come with LP-17f.
+a public set an entry is a regression check with no rank and no grade.
+
+Results are kept in the repository, in an append-only store under `scoreboard/`: each result
+named by its body's SHA-256, beside its ledger and its run record, each named by its own hash.
+`mendari scoreboard run PACK [--dataset NAME] [--config slot=variant | --every-local]` runs a
+local configuration of a pack Mendari maintains over its public scoring sets (never `train`,
+`calibration`, a file or a hidden set; a remote configuration is refused) and stores the
+result, unsigned; one still current is kept, and a new one supersedes the old.
+`mendari scoreboard add FILE` stores a result made elsewhere, never over another file.
+`./scripts/build-scoreboard.sh` runs every local configuration of the five reference packs on
+their 15 public scoring sets (18 results, about 2.7 MB) and writes the
+[early scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md):
+one table per pack and set, a regression check with no Rank column, each figure with its
+interval, the insufficient-evidence banner (only the Referral Router's `test` set has enough
+distinct positives on every critical label) and the marks "unsigned" and "method draft, not in
+effect". CI's `reference-pack` job checks that nothing stored is removed or changed (but for a
+valid signature added), that each result is what its inputs give, that each local ledger
+re-runs to the same bytes and that a new result is of a local configuration
+(`scripts/check_scoreboard.py`), and that the page is the store's
+([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
@@ -1520,7 +1589,7 @@ src/mendari/
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack tests, coverage,
 │                a hidden set's grading result, the scoreboard's arms, entries and run records,
-│                signed scoreboard results
+│                signed scoreboard results, the results store
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
@@ -1528,7 +1597,8 @@ packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
-scoreboard/      the scoreboard's public grading keys (keys.json)
+scoreboard/      the results store: scoreboard results, their ledgers and run records, and the
+                 public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```
@@ -1545,6 +1615,8 @@ uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py   # the API examples against a local server (curl, jq)
 ./scripts/build-reference-pack.sh      # regenerate data → train → test → benchmark → card
+uv run python scripts/check_scoreboard.py --base origin/main  # the results store: append-only
+uv run python scripts/scoreboard_page.py --check   # the scoreboard's page is the store's
 ```
 
 ## Roadmap

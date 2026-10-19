@@ -580,13 +580,19 @@ are de-duplicated by type and id. Only the focus must be unique. The Task's `des
 
 **Templates.** Task `description` and `performer`, and card `summaries`, are templates:
 `{recommendation}`, `{priority}` and `{<question>}` (that question's label, e.g.
-`{specialty}`) are replaced; an unanswered question reads `unknown`. Any other placeholder is
-refused when the pack loads. A placeholder is a bare name: no conversion (`{priority!r}`),
-format spec (`{priority:>9}`), attribute (`{priority.x}`) or index (`{priority[0]}`). A pack the
+`{specialty}`) are replaced; an unanswered question reads `unknown`. On a card, a person reads
+it, so each label is its display name (the question's `names`, else the label as words:
+`lumbar_mri` reads `Lumbar MRI` with `names`, `cardiology` reads `Cardiology`), and no
+recommendation reads `manual triage`; a Task keeps the labels. Every text a card summary can
+give this way MUST be under 140 characters (at most 139), CDS Hooks' limit, checked when the
+pack loads. Any other placeholder is refused when the pack loads. A placeholder is a bare name:
+no conversion (`{priority!r}`), format spec (`{priority:>9}`), attribute (`{priority.x}`) or
+index (`{priority[0]}`). A pack the
 deployment does not own (a community pack, or one from a registry that is not a reference pack
-of the release) is invalid with one, its Task text included; any other pack loads with a warning
-for one in its card summaries, its Task text renders as it always did, and `mendari validate`
-refuses both.
+of the release) is invalid with one, its Task text included, or with a card summary that can
+read 140 characters or more; any other pack loads with a warning for either in its card
+summaries (a card cuts a summary to 139 characters), its Task text renders as it always did, and
+`mendari validate` refuses both.
 
 A mapping MAY declare `focus_where: {path, in: [...]}` to say which resources of the focus type
 the pack is about, e.g. referrals among ServiceRequests (lab orders are ServiceRequests too):
@@ -622,7 +628,14 @@ draft with none of them returns no cards. A pack MAY word
 its cards with `cds_hooks.card`: a `summaries` template per recommendation (keys are primary
 labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
 recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
-patients who are clearly not eligible).
+patients who are clearly not eligible). The reference runtime's cards are CDS Hooks 2.0's: a
+card's `uuid` is its decision's id, its one suggestion lets the clinician take at most one
+(`selectionBehavior: at-most-one`), and it offers Mendari's override reasons. Its detail is the
+pack's status, the notice and one plain sentence for the outcome, never a percentage or the
+confidence; where the deployment has a public address, the reasons are behind a link to the
+decision's record. The EHR MAY send back what the clinician did with each card
+(`POST /cds-services/{id}/feedback`), which is chained on the decision as codes and ids, never a
+comment.
 
 An order-hook pack MAY map recommendations to **Da Vinci CRD coverage information** with
 `cds_hooks.coverage_information: {<primary label>: {covered, pa_needed, doc_needed, doc_purpose,
@@ -630,7 +643,11 @@ info_needed, reason}}` (CRD's codes; `reason` is plain words and MUST NOT carry 
 needs a `coverage` prefetch. For each decided order whose recommendation is mapped, the response
 adds a `systemActions` entry: an `update` of the draft order with CRD's `coverage-information`
 extension, naming the patient's Coverage, the date and an assertion id (the decision id). Labels
-without a mapping assert nothing, and cards are unchanged.
+without a mapping assert nothing, and cards are unchanged. Such a service declares CRD's version
+(`davinci-crd.version`) and one configuration option, `coverage-info`, in discovery, and each of
+its cards says it is `coverage-info` (`source.topic`); a request whose
+`extension.davinci-crd.configuration` sets `coverage-info` to false gets neither its cards nor
+its system actions, and each order is still decided and recorded.
 
 A pack whose primary question is derived MAY serve **Da Vinci DTR** questionnaires with
 `cds_hooks.questionnaire: {missing: <primary label>, context: [<questions>], title}`. For the
@@ -734,7 +751,7 @@ of these.
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 | Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
 | An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
-| A prefetch template is a read or search relative to the EHR's FHIR server, and a wording template's placeholders are bare names: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
+| A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
 
 To migrate a pack:
 

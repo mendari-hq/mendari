@@ -218,7 +218,8 @@ BOOTSTRAP = "value [95% bootstrap interval, 2,000 resamples, seed 0]"
 def scoreboard_markdown(board: Mapping[str, Any]) -> str:
     """A board (`scoreboard.board`) in Markdown: one section per pack and set, each with its
     standing ("public set: regression check, not a ranking"), the insufficient-evidence banner
-    where it applies, each arm's status, and a table with a column per entry: its marks, its
+    where it applies, each arm's status, a measured arm's configurations that have no entry, and
+    a table with a column per entry: its marks, its
     scope, then its figures. A proportion is k of n with its exact 95% interval (`shown`), a
     mean is its value with its bootstrap interval, the grade's bound is "lower bound X at Y%,
     simultaneous across L labels", and ECE is a description with no interval. An entry whose
@@ -251,7 +252,13 @@ def _board_table(table: Mapping[str, Any]) -> list[str]:
             for short in table["banner"]["short"]
         ]
     arms = "; ".join(f"{arm['name']}: {arm['status']}" for arm in table["arms"])
-    lines += ["", f"Arms: {arms}.", ""]
+    lines += ["", f"Arms: {arms}."]
+    if table.get("not_measured"):
+        listed = "; ".join(
+            f"{item['name']}: `{item['configuration']}`" for item in table["not_measured"]
+        )
+        lines += ["", f"Not measured yet, in an arm measured here: {listed}."]
+    lines.append("")
     shown_entries = table["entries"]
     heads = [f"{item['arm_name']}: `{item['configuration']}`" for item in shown_entries]
     lines += ["| | " + " | ".join(heads) + " |", "|---|" + "---|" * len(heads)]

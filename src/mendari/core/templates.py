@@ -5,6 +5,11 @@ A template may use `{recommendation}`, `{priority}`, and `{<question>}` for any 
 pack, which is replaced by that question's label, e.g. "Referral to {specialty} is missing
 information". A question without an answer (its provider failed) reads as "unknown".
 
+A CDS Hooks card is read by a person (`fill_display`, LP-23f): there each label reads as its
+display name (`Question.name_of`: the pack's `names`, else a readable form of the label), and no
+recommendation reads as "manual triage". A Task's text and its performer code (`fill`) keep the
+labels as they are.
+
 A placeholder is a bare name (`template_problems`): no conversion, format spec, attribute or
 index, which would let a template pad a label to any length or reach into what fills it. A pack
 the deployment does not own is refused for one; an owned pack is warned, and `fill` renders its
@@ -20,9 +25,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
+    from mendari.core.spec import PackManifest
 
 BUILT_IN = ("recommendation", "priority")
 UNKNOWN = "unknown"  # what a placeholder reads when its question has no answer
+NO_RECOMMENDATION = "manual triage"  # what a card says `{recommendation}` is without one
 SHOWN_CHARS = 40  # how much of a placeholder a problem shows
 
 
@@ -80,6 +87,60 @@ def fill(template: str, result: DecisionResult, *, recommendation: str) -> str:
     values = {question: answer.label for question, answer in result.answers.items()}
     values.update(recommendation=recommendation, priority=result.priority.value)
     return template.format_map(_Unknown(values))
+
+
+def fill_display(template: str, result: DecisionResult, manifest: PackManifest) -> str:
+    """A card's words: as `fill`, with each answer and the recommendation as a person reads it
+    (`shown`), and `NO_RECOMMENDATION` when there is none."""
+    values = {
+        question: shown(manifest, question, answer.label)
+        for question, answer in result.answers.items()
+    }
+    primary = manifest.policy.primary
+    recommendation = result.recommendation
+    values.update(
+        recommendation=NO_RECOMMENDATION
+        if recommendation is None
+        else shown(manifest, primary, recommendation),
+        priority=result.priority.value,
+    )
+    return template.format_map(_Unknown(values))
+
+
+def shown(manifest: PackManifest, question: str, label: str) -> str:
+    """One of a question's labels as a person reads it (`Question.name_of`); a question the pack
+    does not have keeps the label."""
+    found = manifest.questions.get(question)
+    return label if found is None else found.name_of(label)
+
+
+def display_choices(manifest: PackManifest) -> dict[str, list[str]]:
+    """Every text each placeholder of a card summary can read (`fill_display`): the primary
+    question's display names or `NO_RECOMMENDATION`, each priority, and each question's display
+    names or `UNKNOWN`."""
+    primary = manifest.questions[manifest.policy.primary]
+    from mendari.core.spec import Priority  # spec imports this module
+
+    return {
+        "recommendation": [
+            *(primary.name_of(label) for label in primary.labels),
+            NO_RECOMMENDATION,
+        ],
+        "priority": [priority.value for priority in Priority],
+        **{
+            key: [*(question.name_of(label) for label in question.labels), UNKNOWN]
+            for key, question in manifest.questions.items()
+        },
+    }
+
+
+def longest(template: str, choices: Mapping[str, Sequence[str]]) -> str:
+    """The longest text `template` can give (`expansions`) when each placeholder takes one of its
+    `choices`: each takes its longest choice, since a text's length is its words' plus each
+    placeholder's value, so one expansion is enough, however many a template has."""
+    picked = {name: [max(values, key=len)] for name, values in choices.items()}
+    ((text, _),) = expansions(template, picked)
+    return text
 
 
 def expansions(

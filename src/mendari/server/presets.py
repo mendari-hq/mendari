@@ -116,12 +116,17 @@ _ALL = [
     Preset(
         id="cds-hooks",
         title="CDS Hooks",
-        purpose="An EHR that lists the CDS services and calls them with a hook's context and "
-        "prefetch.",
+        purpose="An EHR that lists the CDS services, calls them with a hook's context and "
+        "prefetch, and sends back what the clinician did with each card.",
         role="service",
         scope=DECIDE,
-        calls=(("GET", "/cds-services"), ("POST", "/cds-services/{service_id}")),
+        calls=(
+            ("GET", "/cds-services"),
+            ("POST", "/cds-services/{service_id}"),
+            ("POST", "/cds-services/{service_id}/feedback"),
+        ),
         doc="guides/api.md#fhir-in-fhir-out",
+        examples=("cds/discover", "cds/hook"),
     ),
     Preset(
         id="da-vinci",

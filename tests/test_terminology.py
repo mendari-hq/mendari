@@ -42,7 +42,10 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 PINNED = {
     "0.1.0": {
         "CodeSystem/decision-outcome": "39fd51215c2eb221",
-        "CodeSystem/audit-event": "69760b971e953d00",
+        # Moved in LP-23f, before 0.1.0's release: `card.feedback`.
+        "CodeSystem/audit-event": "8e2b2ce5fb759d11",
+        # Added in LP-23f, a new url (no earlier content): why a card was overridden.
+        "CodeSystem/card-override-reasons": "289761ea34d8c87a",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
         # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
@@ -276,7 +279,13 @@ def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) 
         *(
             r
             for r in served.resources
-            if r["id"] in ("decision-outcome", "audit-event", "audit-administrative-event")
+            if r["id"]
+            in (
+                "decision-outcome",
+                "audit-event",
+                "audit-administrative-event",
+                "card-override-reasons",
+            )
         ),
         *(r for r in served.resources if r["resourceType"] == "NamingSystem"),
         *terminology.sandbox_resources(),

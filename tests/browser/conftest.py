@@ -38,7 +38,7 @@ def _forget_endpoints() -> None:
             cached.cache_clear()
 
 
-def _free_port() -> int:
+def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -71,9 +71,10 @@ def _seed(base: str) -> None:
 
 
 @contextmanager
-def serving(app: Any) -> Iterator[int]:
-    """`app` on a free port of 127.0.0.1 until the block ends; yields the port."""
-    port = _free_port()
+def serving(app: Any, port: int | None = None) -> Iterator[int]:
+    """`app` on a free port of 127.0.0.1 (or on `port`, chosen before the app is built, when
+    its settings name it) until the block ends; yields the port."""
+    port = port or free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()

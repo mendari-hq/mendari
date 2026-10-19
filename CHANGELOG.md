@@ -126,6 +126,73 @@ The first release (not yet published).
   `attachment_text` note that cannot be read (`unsupported_type`, `undecodable`, `not_fetched`)
   makes the decision ABSTAIN with its reason, as a `base64_text` one does. An engine that reads
   only 0.2 refuses a 0.3 pack.
+- **Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f; card wording
+  changes).** A card's `uuid` is now its decision's id (it was a random one, stored nowhere), and
+  its one suggestion's a UUID 5 of it. A card says `selectionBehavior: at-most-one` and offers
+  three neutral override reasons, each with its display, from a new CodeSystem,
+  `https://mendari.co/fhir/CodeSystem/card-override-reasons` (`not-relevant`,
+  `already-addressed`, `clinical-judgement`), served under `/fhir` and checked by the HL7
+  validator with Mendari's other terminology. With `MENDARI_PUBLIC_URL` set, a card links to its
+  decision in the audit trail (`/?pack=<pack>#audit/<id>`), where the engine's reasons now are,
+  and `source.url` is the pack's card; when SMART is on and the request's `fhirServer` is
+  registered for launches to the caller's organization, a `smart` link opens the pack
+  (`/smart/launch?pack=<pack>`). Without the public URL the reasons stay in the detail, but for
+  the confidence thresholds' reason, whose figures carry no interval. A Da
+  Vinci CRD service (the prior authorization pack) declares `davinci-crd.version` (`2.2`) and the
+  `coverage-info` option in discovery, and each of its cards carries `source.topic`
+  (`coverage-info`), which CRD 2.2.1's response profile requires; a request that sets
+  `coverage-info` to false gets neither cards nor system actions, and is still decided and
+  recorded. `POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback (1 to 50 cards, all
+  or nothing): a suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not
+  define or an `outcomeTimestamp` with no time in UTC is a `422` (`extension`, which CDS Hooks
+  reserves for implementations, is accepted on any object and never kept), and a card that is
+  not a decision of that service in the caller's organization, or, with sign-in on, not one the
+  same caller asked for, is one `404`. Each is chained as `card.feedback`, a new kind on a decision
+  (codes and ids, the sender, and its decision's organization on every database), exported as
+  an AuditEvent; `userComment` is never kept. The route needs `decide` (the DECIDE scope, the
+  `cds-hooks` preset, a CDS client's own token) and counts against the decide rate limit, never
+  the daily cap. The dashboard's audit record of a FHIR decision shows what it read: counts by
+  field and by reason.
+  - **Changed: card wording.** Summaries read the pack's display names (`Prior auth for Lumbar
+    MRI (Acme)`, `Referral to Cardiology`, `Review: route to Nurse (stat)`), and the default
+    suggestion says `Create routing task for Nurse`; the Task a card suggests keeps its text
+    and performer code. A card's detail is the pack's status, the notice and one plain sentence
+    for the outcome: the line with the outcome code and the confidence as a bare percentage is
+    gone, and without the public URL the reasons leave out the confidence thresholds' (such as
+    `confidence 0.94 is below the auto threshold 0.95`), so no card shows the confidence, in
+    any configuration. The audit trail keeps every reason.
+  - **Changed: a card summary must be under 140 characters however it is filled**, as CDS
+    Hooks 2.0 says (Inferno's CRD kit fails a summary of 140). Every text it can give with
+    display names is measured when the pack loads: a pack the deployment does not own is
+    refused for one that can read 140 or more, your own pack is warned (`pack_warnings`; the
+    card cuts it to 139, where it cut at 140 before), and `mendari validate` refuses both.
+- **Who may call the CDS Hooks services from where (LP-23c, ADR-0014; a change for open mode
+  reached over a network).** With sign-in off, `/cds-services` and its children answer this
+  machine only: a call from a loopback address, to a `Host` that names this machine (`localhost`,
+  a `.localhost` name, a loopback address), with no forwarding header (`Forwarded`,
+  `X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`
+  with fixed words, before any credential is read, a valid EHR token included, logged
+  `open_mode_remote`. The rest of open mode answers any host, as before.
+  `MENDARI_CDS_SANDBOX=1` lifts this for a synthetic sandbox reached over a network, with a
+  warning at startup; the compose sandbox's open engine sets it (its signed-in engine, the
+  on-prem and Kubernetes templates and the hosted site do not), and the server refuses to start
+  with it on Vercel, with sign-in on, or with a value other than `1` or `0`. A registered CDS
+  client may now list `origins`, the browser origins its pages call from: on `/cds-services` and
+  its children only, a preflight from one is answered before the guard (`204`, `GET, POST,
+  OPTIONS`, the headers `authorization` and `content-type`, ten minutes), every answer to one
+  names it, every answer there varies by `Origin`, and none allows credentials; a page there
+  without a Mendari cookie passes the cross-site check on those paths only. A client's token
+  from a page on an origin that is neither its own nor this site's (the request's host,
+  `MENDARI_PUBLIC_URL`, `MENDARI_TRUSTED_ORIGINS`), another client's included, is a `403`
+  (`cds_origin`) before its `jti` is used. Any other origin gets no CORS header and is refused as
+  before, and with no origin registered nothing changes. **If you run open mode on a server
+  others reach:** CDS Hooks calls from them now get `403`; turn sign-in on, or for a synthetic
+  sandbox set `MENDARI_CDS_SANDBOX=1`. Behind a proxy, turn sign-in on: a proxy on this machine
+  that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1 among them) makes
+  every call it forwards look local. The API examples gain `cds.sh` (discovery and the inbox's
+  hook), run by CI in open mode on 127.0.0.1 with no flag, with a service key and with a
+  `cds-hooks` key. Threat-model rows I16 and E16; see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
@@ -573,6 +640,49 @@ The first release (not yet published).
   yet. Guide: `docs/grading/verifying.md`, which also says how to sign without the key reaching
   the shell's history, and what to do when a key leaks (run its results again; a result is
   signed once); threat model S20 and E14. No figure, format or decision changes.
+- **The results store and the early scoreboard** (LP-17f, `mendari.evals.results_store`,
+  `scoreboard/`; the grading method's sections 11, 12 and 14). Results are kept in the
+  repository, outside the wheel, the sdist and the site, append-only: each named by its body's
+  SHA-256, beside its ledger (named by its id) and its run record (named by the SHA-256 of its
+  bytes). A result may name the earlier result it supersedes (`supersedes`, a new field of
+  `mendari.scoreboard/1`, in its body, so its name and signature cover it): one of the same
+  pack, set, arm and configuration, measured no later; both stay, and one pack, set, arm and
+  configuration has one current result. `mendari scoreboard run PACK [--dataset NAME ...]
+  [--config slot=variant ... | --every-local] [--again]` runs a local configuration of a pack
+  Mendari maintains over its public scoring sets (every set but `train` and `calibration`; never
+  a file or a hidden set) and stores the result, unsigned, with each case's latency and tokens
+  from its decisions; it refuses a remote configuration before anything runs, never reads
+  `MENDARI_PROVIDERS`, and keeps a result that is still current unless `--again`, a new one
+  superseding it. `mendari scoreboard add FILE [--supersedes HASH]` stores a result made
+  elsewhere, never over another file, of a local configuration only. The pack is always the
+  repository's (`packs/`), never one on `MENDARI_PACKS_PATH` or pulled from a registry.
+  `./scripts/build-scoreboard.sh` runs every local
+  configuration of the five reference packs on their 15 public scoring sets: 18 results, 2.7 MB
+  with their ledgers and run records, all unsigned, measured on 2026-10-18. Its page,
+  `docs/grading/scoreboard.md` ("Scoreboard (public sets)" in the site's Grading section), is
+  written from the store by `scripts/scoreboard_page.py`: one table per pack and set, a
+  regression check with no Rank column and no bare percentage, each figure with its interval,
+  the scope statement, the insufficient-evidence banner (on every set but the Referral Router's
+  `test`, whose two critical labels have 113 and 124 distinct positives), each arm measured,
+  "not measured" or "not applicable", a measured arm's configurations not measured yet (the
+  Clinical Trial Prescreener's `structured=cql`, which calls Mendari's CQL engine), the marks
+  "unsigned", "method draft, not in effect" and "stale after 2026-12-02", and every superseded
+  result. Two new steps of CI's required `reference-pack` job (which now fetches the history):
+  `scripts/check_scoreboard.py --base` refuses a file whose name is not its content's, a result
+  of the base removed or changed but for a valid signature added to an unsigned one, a
+  `supersedes` link that breaks the rules above, and a current result whose signature does not
+  verify; it recomputes every public result from its stored inputs byte for byte and re-runs
+  every local ledger on its pack's current digest (a result of an older digest is recomputed and
+  kept, one whose set or method changed kept as it is; a new one must be of a local
+  configuration, on the current ones, and measured no later than today); a remote
+  configuration's disclosure is recomputed from `scoreboard/disclosures.json`, never taken from
+  the result; and `scripts/scoreboard_page.py --check`, run before the build, fails when the page
+  is not the store's. A publisher's or a registry's key is refused where it is pinned; CI pins
+  none. `./scripts/build-reference-pack.sh` now writes the page last, so a pull request that
+  changes a reference pack commits the page with its artifacts, and the page names its stale
+  results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
+  pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
+  the dashboard and the leaderboards are as they were.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

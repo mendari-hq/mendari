@@ -66,10 +66,16 @@ server is open, as before (production sits behind Vercel Authentication). When c
   bearer credential (one with a `.`, which no credential Mendari issues has) is verified in
   every mode, before open mode's shortcut: without a registry it is refused, and so is every
   token that does not verify, with one answer and the reason in the security log
-  (`cds_<reason>`). Its organization's record (memberships mode) and the route's permission
-  are checked before its `jti` is claimed. Anywhere else a JWT is what it was before: refused
-  with sign-in on, and ignored in open mode, which reads no credential there. Mendari's own keys
-  and tokens do not change.
+  (`cds_<reason>`). Its organization's record (memberships mode), the route's permission and,
+  from a browser page, that the page is on one of the client's own `origins` or this site
+  (LP-23c) are checked before its `jti` is claimed. Anywhere else a JWT is what it was before:
+  refused with sign-in on, and ignored in open mode, which reads no credential there. Mendari's
+  own keys and tokens do not change.
+- **Open mode answers `/cds-services` on this machine only** (LP-23c, ADR-0014): with sign-in
+  off, before any credential is read, a request there goes on only from this machine
+  (`cds_clients.on_this_machine`: a loopback address, a local `Host` and no forwarding header)
+  or under `MENDARI_CDS_SANDBOX=1`; anything else is a `403` (`open_mode_remote`), a verified
+  token included. The rest of open mode is as before.
 - **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
   session cookie, nor to the launch cookie. The scheme is `Bearer` (any case), and the
   credential's prefix says what it is: `ohk_` a key, `mat_` an access token (refused unless
@@ -139,7 +145,7 @@ from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.smart import Registration
 
 if TYPE_CHECKING:  # server/cds_clients.py imports this module
-    from mendari.server.cds_clients import CdsClient, CdsRegistry
+    from mendari.server.cds_clients import CdsClient, CdsOpenMode, CdsRegistry
 
 COOKIE = sessions.SESSION  # `__Host-mendari_session` except on local hosts (server/sessions.py)
 REALM = "mendari"
@@ -199,6 +205,13 @@ LAUNCH_PATH = "/api/smart/"  # where the launch cookie is a credential (and on t
 CDS = "cds"
 CDS_PERMISSIONS = frozenset({"discover", "decide"})
 CDS_PATH = re.compile(r"^/cds-services(/|$)")
+# Open mode's answer on `/cds-services` to a request that is not from this machine (LP-23c), and
+# a CDS client's token used by a page on an origin that is neither the client's nor this site's.
+OPEN_MODE_REMOTE = (
+    "with sign-in off, the CDS services answer on this machine only: turn sign-in on for an EHR "
+    "that calls over a network (docs/deploying-with-phi.md)"
+)
+CDS_ORIGIN = "this CDS client does not call from this origin"
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
@@ -268,6 +281,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/notice/acknowledge$", "decide"),  # what deciding asks first
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
+        # CDS Hooks card feedback (LP-23f): what a clinician did with a card the caller asked for.
+        ("POST", r"^/cds-services/[^/]+/feedback$", "decide"),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
         ("POST", r"^/fhir/\$decide$", "decide"),
         # How to talk to this FHIR base: public, so clients can discover it. The SMART
@@ -832,10 +847,14 @@ class Auth:
         lifetime: sessions.Lifetime | None = None,
         ehrs: Mapping[str, Registration] | None = None,
         cds: CdsRegistry | None = None,
+        cds_open: CdsOpenMode | None = None,
     ):
         self.settings = settings
         # The registered CDS clients (`MENDARI_CDS_CLIENTS`, LP-23b); None: no JWT is accepted.
         self.cds = cds
+        # Where open mode answers `/cds-services` (LP-23c): this machine, or anywhere under
+        # `MENDARI_CDS_SANDBOX=1`; None (a guard made without it): from nowhere.
+        self.cds_open = cds_open
         self._replaced_seen: set[str] = set()  # rotated keys already logged in use
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
@@ -1114,9 +1133,16 @@ class Auth:
 
     def check(self, request: Request) -> Response | None:
         """None when the request may go on; otherwise the response that refuses it. On
-        `/cds-services` a JWT is a CDS client's token, verified first, in every mode: above open
-        mode's shortcut, so open mode never answers one it did not verify."""
+        `/cds-services` open mode answers this machine only (or anyone, under the sandbox flag),
+        before any credential is read; then a JWT there is a CDS client's token, verified first,
+        in every mode: above open mode's shortcut, so open mode never answers one it did not
+        verify."""
         if CDS_PATH.match(request.url.path):
+            if self.settings is None and (
+                self.cds_open is None or not self.cds_open.answers(request)
+            ):
+                _refused_permission(OPEN, "open_mode_remote")
+                raise AuthError(OPEN_MODE_REMOTE, 403)
             token = self._cds_token(request)
             if token is not None:
                 self._cds(request, token)
@@ -1209,11 +1235,13 @@ class Auth:
         `aud` is `MENDARI_PUBLIC_URL` plus the path), made a `cds` principal of the client's
         organization, which may list and call the CDS services and do nothing else. Every
         refusal of the token is the one `invalid_token` answer (`401`), its reason in the
-        security log; a route it holds no permission for is a `403`. The organization's record
-        and the route's permission are checked before the `jti` is claimed (`admit`), so a token
-        refused for either claims nothing."""
+        security log; a route it holds no permission for is a `403`, and so is a browser page on
+        an origin that is neither one of the client's own nor this site (LP-23c). The
+        organization's record, the route's permission and the page's origin are checked before
+        the `jti` is claimed (`admit`), so a token refused for any of them claims nothing."""
         path = request.url.path
-        if self.cds is None:
+        registry = self.cds
+        if registry is None:
             raise refused_credential("cds_unregistered")
         permission = self.permission(request.method, path)
 
@@ -1225,9 +1253,18 @@ class Auth:
                 _refused_permission(principal, permission)
                 scope = challenge("insufficient_scope")
                 raise AuthError(f"a CDS client may not {permission} here", 403, challenge=scope)
+            if not registry.from_its_origin(client, request):
+                security_log.event(
+                    "auth.origin.refused",
+                    outcome="refused",
+                    reason="cds_origin",
+                    actor=principal.id,
+                    org=principal.org,
+                )
+                raise AuthError(CDS_ORIGIN, 403)
 
         try:
-            caller = self.cds.verify(token, path=path, store=self.store, admit=admit)
+            caller = registry.verify(token, path=path, store=self.store, admit=admit)
         except CdsRefused as refused:
             named = None if refused.client_id is None else f"cds:{refused.client_id}"
             raise refused_credential(f"cds_{refused.reason}", actor=named) from None
@@ -1261,8 +1298,9 @@ def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
     `people_only`, `ehr_only`, `grading_only`, `out_of_scope`, `no_organization` (memberships
     mode: a person of none), `org_changed` (a window on another organization than the one
-    chosen since), `not_a_member` (choosing an organization one holds no membership of) or
-    `cds_only` (a CDS client off `/cds-services`)."""
+    chosen since), `not_a_member` (choosing an organization one holds no membership of),
+    `cds_only` (a CDS client off `/cds-services`) or `open_mode_remote` (open mode's
+    `/cds-services` asked from another machine, LP-23c)."""
     security_log.event(
         "auth.permission.refused",
         outcome="refused",

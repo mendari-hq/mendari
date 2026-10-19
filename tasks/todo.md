@@ -811,8 +811,30 @@ Connect) is not supported yet.
     `cds_claims`; the session table keys a lone surrogate (`_session_key`, every older key
     unchanged); `cds_issued_at` folded into `cds_claims` and `cds_not_yet_valid`. Open mode still
     answers on any host until 23c.
-  - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
-    for registered origins.
+  - [x] **23c** (#269) Open mode answers CDS Hooks on this machine or under the sandbox flag
+    only; CORS for registered origins. `server/cds_clients.py`: `on_this_machine` (a loopback
+    `client_ip`, IPv4-mapped included; no `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or
+    `X-Real-IP`; one `Host` naming this machine), `CdsOpenMode`, and `cds_sandbox`
+    (`MENDARI_CDS_SANDBOX`: `1` or `0`, `1` stops startup on Vercel or with sign-in on, with a
+    warning when on); `CdsRegistry.origins` and `from_its_origin`. `server/auth.py`: with sign-in
+    off, `/cds-services` from elsewhere is a `403` (`open_mode_remote`) before any credential is
+    read, a verified token's too; a `cds` token from a page on an origin neither its client's nor
+    this site's is a `403` (`cds_origin`) before its `jti` is claimed. `server/cors.py` (new):
+    on `/cds-services` only, the registered origins' preflight answered before the guard,
+    `Access-Control-Allow-Origin` on their answers, `Vary: Origin`, never credentials.
+    `server/origin.py`: a registered origin passes on `/cds-services` only, without a Mendari
+    cookie (`is_this_site` shared). Only the compose sandbox's `engine` sets the flag
+    (`tests/test_deploy.py`); the suite runs as if it were set where it may be
+    (`tests/conftest.py` `_cds_sandbox`, which never sets the variable, so no subprocess server
+    inherits it), and `tests/test_cds_open_mode.py` takes that away. The API examples gain
+    `cds.sh` (discovery and the inbox's hook: README, the API guide, `/docs`, and the
+    `cds-hooks` preset's CI run). Tests: `tests/test_cds_open_mode.py`, `tests/test_cds_cors.py`
+    (SQLite and Postgres), `tests/browser/test_cds_cors.py`; the route matrix with open mode off
+    this machine, and the origin inventory with a registered origin. Threat-model rows I16 and
+    E16, E6 updated; the scorecard's WC-2b, WC-3a and WC-3b are met (who may call from where at
+    level 3; overall still level 1). Beyond the plan's letter: `X-Forwarded-Host` and
+    `X-Real-IP` count as forwarding headers too, and a registered origin passes the cross-site
+    check only without a Mendari cookie.
   - [x] **23d** (#264) A hook that always answers: an unreadable record gives a recorded ABSTAIN
     with its reason, and every FHIR decision carries its data-coverage record. Each prefetch key
     is read on its own (`cds_hooks.read_each`, shared with the SMART launch's decide); a key that
@@ -839,7 +861,50 @@ Connect) is not supported yet.
     that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
-  - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+  - [x] **23f** (#270) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+    `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
+    `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three
+    neutral `overrideReasons` (owner decision 8) from the new CodeSystem
+    `https://mendari.co/fhir/CodeSystem/card-override-reasons`, defined in `terminology.py`
+    (served, pinned, written by `scripts/fhir_terminology.py` for `fhir-conformance`). Summaries
+    from the card-only `templates.fill_display` with `Question.name_of` (the default verb table
+    too; `fill`, Task text and performer codes unchanged), every expansion checked to be under
+    140 characters at load, as CDS Hooks 2.0 says (at most 139, `spec.SUMMARY_CHARS`, through
+    `spec.card_summary_problems` and `templates.longest`, in `manifest_template_problems`:
+    refused from a registry, warned when owned, refused by `mendari validate`; an owned pack's
+    card cuts it to 139). The detail is the status, the notice and one plain sentence; the
+    confidence is gone in every configuration (without `MENDARI_PUBLIC_URL` the reasons stay,
+    but for the confidence thresholds', `policy.threshold_reason`). With `MENDARI_PUBLIC_URL`: an
+    `absolute` link to
+    `/?pack=<pack>#audit/<id>`, the reasons behind it, `source.url` the pack's card; a `smart`
+    link to `/smart/launch?pack=<pack>` only with SMART on and the `fhirServer` a
+    `MENDARI_SMART_EHRS` base of the caller's organization (`CardLinks`). Discovery declares
+    `davinci-crd.version` `["2.2"]` and the `coverage-info` option for packs with
+    `coverage_information`; `coverage-info: false` sends neither cards nor system actions, and
+    still decides. `POST /cds-services/{service_id}/feedback`: a `decide` rule before the
+    catch-all, DECIDE in `_ROUTE_SCOPES`, the `cds-hooks` preset's calls; a closed body
+    (`cds_hooks.CardFeedback`: 1 to 50 cards, each once, accepted with the card's suggestion or
+    overridden with one of its reasons, an aware `outcomeTimestamp` with a time in UTC, CDS Hooks
+    2.0's Coding (`system`, `code`, `display`), `extension` on any object, never kept;
+    `userComment` dropped); all
+    or nothing in one transaction (`AuditStore.record_card_feedback`): the service's pack, the
+    caller's organization and, when the caller is named, its chained `requested_by`, else one
+    `404` (`UnknownCard`); the decide bucket, no daily cap. `card.feedback` joins
+    `DECISION_KINDS`, `audit_fhir._EVENTS` and the audit-event CodeSystem (its pin moved); it
+    names its organization on every database (it is not one of `BOUND_WHEN_MARKED`). The audit
+    view's data-coverage panel ("What it read", counts by field and reason; tokens only, no new
+    CSS). Threat-model rows R5 and I18; the scorecard's CW-2d and CW-3a to CW-3d are met, so
+    cards and workflow is at level 2 (CW-3e waits on 23j; the overall stays level 1). Tests:
+    `tests/test_cds_cards.py`, `tests/test_cds_feedback.py` (SQLite and Postgres), a browser
+    case with axe and the bare-percentage scan, and the route, scope, limit, preset, chained-event,
+    two-organization and leak-sweep inventories. Beyond the plan's letter: `source.topic`
+    (`coverage-info`) is set on a CRD service's cards, since CRD 2.2.1's base response profile
+    requires it (checked at the IG's 2.2.1 tag), and so `coverage-info: false` drops those cards
+    too, as CRD says; the audit link carries `?pack=`, so the dashboard opens on the decision's
+    pack; each `card.feedback` names who sent it (`reporter`). For the owner: conflict 30 (the
+    confidence leaves the card in every configuration) and conflict 31 (without the public URL
+    the reasons stay in the detail) are both kept by leaving out the one reason that gives the
+    confidence and a threshold as figures; the audit trail keeps it.
   - [x] **23g** (#271) Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
     `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping (`spec_version: "0.3"`, a
     nav entry, a pointer from 0.2): the `[system=<uri>]` predicate for a declared system,
@@ -1994,9 +2059,35 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
-  - [ ] **17f** The results store (`scoreboard/`, checked in the required `reference-pack` job)
-    and the early scoreboard (stage 3): every local configuration on the 15 public scoring sets,
-    unranked and unsigned, on a generated page.
+  - [x] **17f** (#267) The results store (`mendari.evals.results_store`, `scoreboard/`) and
+    the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
+    and run records (each named by its own hash), append-only; `supersedes` (a new field of the
+    entry's body) names an earlier result of the same pack, set, arm and configuration, one
+    current result each. `mendari scoreboard run PACK [--dataset] [--config | --every-local]
+    [--again]` (local configurations of maintained packs on their public scoring sets only;
+    remote, `train`, `calibration`, files and hidden sets refused; a current result kept) and
+    `mendari scoreboard add FILE [--supersedes HASH]` (a local configuration's result only), each
+    reading the pack from the repository's `packs/`, never `MENDARI_PACKS_PATH` or the registry
+    cache. `scripts/build-scoreboard.sh`: 18
+    entries (every local configuration on the 15 public scoring sets), 2.7 MB, all unsigned;
+    the prescreener's `structured=cql` reads "not measured yet". `scripts/check_scoreboard.py
+    --base` and `scripts/scoreboard_page.py --check` are steps of the required `reference-pack`
+    job (fetch-depth 0): names are hashes, nothing removed or changed but a valid signature
+    added, links form a forest, current signatures verify, every public result recomputes byte
+    for byte and every local ledger on its current digest re-runs (older digests recomputed and
+    kept, a changed set or method kept; new results local, on the current ones and measured no
+    later than today; a remote disclosure from `scoreboard/disclosures.json`). The page check
+    runs before the build. A publisher's or a registry's key is refused where it is pinned (CI
+    pins none: the keys file's review keeps one out). The page
+    `docs/grading/scoreboard.md` (nav: "Scoreboard (public sets)"): only the Referral Router's
+    `test` set has no banner (113 and 124 distinct positives). `board` gains a measured arm's
+    configurations not measured yet. Runbook `docs/operations/scoreboard.md`,
+    `scoreboard/README.md`, the spec's results-store section; threat model T8 and R4.
+    `tests/test_scoreboard_store.py`, `tests/test_scoreboard_page.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard run` and `scoreboard add`. A PR that changes a
+    reference pack now regenerates the page (its results show "stale: pack changed"):
+    `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
+    derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
   - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
     the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
     comparison sections become stale).

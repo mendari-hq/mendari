@@ -583,6 +583,7 @@ EXPECTED_CLASSES = {
     ("POST", "/api/packs/{namespace}/{name}/fhir/decide"): "decide",
     ("POST", "/api/packs/{namespace}/{name}/pas"): "decide",
     ("POST", "/cds-services/{service_id}"): "decide",
+    ("POST", "/cds-services/{service_id}/feedback"): "decide",  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): "decide",
     ("POST", "/fhir/Questionnaire/$questionnaire-package"): "decide",
     ("POST", "/api/packs/{namespace}/{name}/guard"): "guard",
@@ -1156,7 +1157,8 @@ def test_only_what_decides_counts_against_the_cap(
     """Every route that needs a permission to decide is counted by the guard, counted by its
     route (CDS Hooks, per draft order), or does not decide: the notice's acknowledgement (which
     must stay possible at the cap, or a person could neither review nor give feedback), a PAS
-    submission and a DTR package, both built from decisions made."""
+    submission and a DTR package, both built from decisions made, and a CDS Hooks card's
+    feedback (LP-23f), about one made."""
     from mendari.server.limits import DailyCap
 
     capped(monkeypatch, 0)
@@ -1177,6 +1179,7 @@ def test_only_what_decides_counts_against_the_cap(
         ("POST", "/api/notice/acknowledge"),
         ("POST", "/api/packs/{namespace}/{name}/pas"),
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
+        ("POST", "/cds-services/{service_id}/feedback"),
     }
     counted = {r for r in deciding if DailyCap.counts(r[0], re.sub(r"\{[^}]+\}", "x", r[1]))}
     assert counted | in_route | not_decisions == deciding
