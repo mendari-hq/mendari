@@ -840,7 +840,7 @@ Connect) is not supported yet.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
   - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
-  - [x] **23g** (#266) Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+  - [x] **23g** (#271) Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
     `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping (`spec_version: "0.3"`, a
     nav entry, a pointer from 0.2): the `[system=<uri>]` predicate for a declared system,
     fallback `paths`, one `follow` hop resolved inside the record and never fetched,
