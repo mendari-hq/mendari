@@ -1953,7 +1953,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
-  - [x] **17f** (this PR) The results store (`mendari.evals.results_store`, `scoreboard/`) and
+  - [x] **17f** (#267) The results store (`mendari.evals.results_store`, `scoreboard/`) and
     the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
     and run records (each named by its own hash), append-only; `supersedes` (a new field of the
     entry's body) names an earlier result of the same pack, set, arm and configuration, one
