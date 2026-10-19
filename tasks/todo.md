@@ -1963,7 +1963,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     freshness, the canary and disclosures; built, and refusing to start in CI.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
-  - [x] **17j** (this PR) Grades (`evals/grade.py`: attestations, each met, not met or
+  - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
     insufficient evidence, never a letter, score or composite; draft while the method is not in
     effect) and band ranking (`evals/bands.py`), pure. The attestations: no critical case
     automated, each critical label's recall floor on its simultaneous bound over distinct
