@@ -422,6 +422,103 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
     }
 
 
+# -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------
+
+PACKAGE_LOCK = ROOT / "scripts" / "fhir_packages.lock"
+# `--ig VALUE` to scripts/fhir_validate.py, or `-ig VALUE` (`-defn`) to the validator itself,
+# the flag quoted or not, the value after `=` or a space, quoted or not.
+IG_ARGUMENT = re.compile(r"(?<!\S)[\"']?(?:--ig|-ig|-defn)[\"']?(?:=|\s+)[\"']?([^\s\"']+)")
+# The shell joins a line that ends in a backslash with the next one.
+CONTINUED = re.compile(r"\\\r?\n")
+
+
+def _locked_tarballs() -> set[str]:
+    rows = [line.split() for line in PACKAGE_LOCK.read_text().splitlines()]
+    return {f"var/fhir-packages/{r[0]}-{r[1]}.tgz" for r in rows if r and not r[0].startswith("#")}
+
+
+def _unpinned_igs(script: str, locked: set[str]) -> list[str]:
+    """What a script asks the validator to load that the lock does not pin: a package by name
+    (`name#version`, which the validator would fetch by version alone), a value only the shell
+    knows, or a tarball the lock does not name. A folder of resources is the repository's own."""
+    return [
+        value
+        for value in IG_ARGUMENT.findall(CONTINUED.sub(" ", script))
+        if "#" in value or "$" in value or (value.endswith(".tgz") and value not in locked)
+    ]
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_no_workflow_loads_a_fhir_package_the_lock_does_not_pin(path: Path) -> None:
+    locked = _locked_tarballs()
+    for job in _workflow(path)["jobs"].values():
+        for step in job.get("steps", []):
+            script = step.get("run", "")
+            assert not _unpinned_igs(script, locked), f"{path.name}: {step.get('name', script)}"
+            # And the validator runs offline, so a dependency comes from the checked cache too.
+            if "scripts/fhir_validate.py" in script:
+                assert "--offline" in script.split(), f"{path.name}: {step.get('name', script)}"
+            if "validator_cli.jar" in script and "java " in script:
+                assert "-no-http-access" in script.split(), f"{path.name}: {script}"
+
+
+def test_the_package_check_catches_a_package_by_name() -> None:
+    locked = {"var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz"}
+    assert _unpinned_igs("x --ig hl7.fhir.us.davinci-crd#2.2.1 --ig var/a", locked) == [
+        "hl7.fhir.us.davinci-crd#2.2.1"
+    ]
+    assert _unpinned_igs("java -jar v.jar -ig hl7.fhir.us.core#6.1.0", locked)
+    assert _unpinned_igs("x --ig=hl7.fhir.us.core#6.1.0", locked)
+    assert _unpinned_igs('x --ig "$PACKAGE"', locked)
+    assert _unpinned_igs("x --ig var/fhir-packages/hl7.fhir.us.core-6.1.0.tgz", locked)
+    assert not _unpinned_igs(
+        "x --ig var/fhir-terminology --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz",
+        locked,
+    )
+    # The value on the next line, after a backslash, and a quoted flag.
+    continued = "uv run python scripts/fhir_validate.py --offline \\\n  --ig \\\n  {}\n"
+    assert _unpinned_igs(continued.format("hl7.fhir.us.davinci-crd#2.2.1"), locked) == [
+        "hl7.fhir.us.davinci-crd#2.2.1"
+    ]
+    assert _unpinned_igs("x --ig \\\r\n hl7.fhir.us.core#6.1.0", locked)
+    assert not _unpinned_igs(continued.format(next(iter(locked))), locked)
+    assert _unpinned_igs('java -jar v.jar "-ig" "hl7.fhir.us.core#6.1.0"', locked) == [
+        "hl7.fhir.us.core#6.1.0"
+    ]
+    assert _unpinned_igs("x '--ig' hl7.fhir.us.core#6.1.0", locked)
+    assert _unpinned_igs("x '--ig=hl7.fhir.us.core#6.1.0'", locked)
+    assert not _unpinned_igs("x --ignore a#1 --igloo b#2", locked)  # not the flag
+
+
+def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
+    """The fhir-conformance job downloads each package the lock pins and checks it with
+    `sha256sum -c`, every run (a cached tarball too), before the validator first runs; each
+    validator run then builds a package cache of its own from them (`--offline`), so no step
+    fills a cache the runs share. Its cache key follows the lock, and no validator's package
+    cache is ever restored."""
+    job = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
+    steps = job["steps"]
+    (cache,) = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
+    assert "hashFiles('scripts/fhir_packages.lock')" in cache["with"]["key"]
+    assert "${{ env.VALIDATOR_VERSION }}" in cache["with"]["key"]
+    assert cache["with"]["path"].split() == ["var/validator/validator_cli.jar", "var/fhir-packages"]
+    runs = [step.get("run", "") for step in steps]
+    (download,) = [i for i, run in enumerate(runs) if "scripts/fhir_packages.lock" in run]
+    script = runs[download]
+    assert "done < <(grep -Ev '^(#|$)' scripts/fhir_packages.lock)" in script
+    assert "while read -r name version sha256 url; do" in script
+    assert 'curl -sSfL --retry 3 -o "$file" "$url"' in script
+    assert 'echo "${sha256}  $file" | sha256sum -c -' in script
+    assert script.index("fi\n") < script.index("sha256sum -c")  # checked, downloaded or cached
+    assert not [run for run in runs if "scripts/fhir_packages.py" in run]
+    validations = [i for i, run in enumerate(runs) if "scripts/fhir_validate.py" in run]
+    assert len(validations) == 2 and download < min(validations)
+    assert all("--offline" in runs[i].split() for i in validations)
+    # The validator these packages were read from is the one the job downloads.
+    lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
+    assert f'VALIDATOR = "{job["env"]["VALIDATOR_VERSION"]}"' in lock_script
+
+
 # -- the pack workflow ----------------------------------------------------------------------------
 
 

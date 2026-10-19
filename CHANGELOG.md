@@ -132,6 +132,30 @@ The first release (not yet published).
   `scripts/davinci_sample.py` writes a tenth sample, a package with both warnings, for
   `fhir-conformance`. "Validated against DTR 2.2.0" now reads profile-validated (HL7 validator,
   offline): that checks the answers' structure, not how the operation behaves.
+- **The FHIR packages the HL7 validator loads are pinned by checksum (DV-b).** The validator
+  fetched US Core and the Da Vinci guides, and every package they need, from the package
+  registry by version alone; only its jar was checked. `scripts/fhir_packages.lock` now pins 55
+  packages, each with its sha256 and its URL: US Core 6.1.0, CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1,
+  what validator 6.10.4 loads by itself (R4 core, its terminology and extensions), and every
+  package they need (US Core 3.1.1 and 7.0.0, HRex, SDC, THO and VSAC among them). The job
+  `fhir-conformance` downloads each, checks it with `sha256sum -c` and fails on a mismatch, a
+  cached tarball too. Each validator run then gets a package cache of its own, built from the
+  checked tarballs with only what that run loads and what that needs
+  (`scripts/fhir_packages.py install`, which also refuses a lock that misses a dependency or
+  holds a package nothing needs), and runs with no HTTP access (`scripts/fhir_validate.py
+  --offline`), so the validator loads nothing else and the job fails if it put another package
+  in its cache. One cache for both runs would not do: a resource that cites a guide's canonical
+  makes the validator load that guide, and what it needs, for the files after it, so the
+  CapabilityStatement, which cites DTR 2.2.0's `$questionnaire-package`, would bring DTR's
+  tree, US Core 7.0.0 among it, into the US Core run. The US Core run's cache holds US Core
+  6.1.0 and what it needs, and nothing else; the CapabilityStatement is checked in the Da Vinci
+  run (`var/fhir-samples/davinci/capability.json`). `--ig` takes a package tarball, and CI
+  passes the Da Vinci guides as tarballs; a test fails any workflow that names a package by
+  version alone, the value on the next line or the flag in quotes too. The job's cache key
+  follows the lock. The guides' versions are as before, but for one: the CapabilityStatement's
+  DTR operation was checked against the newest DTR on the registry (3.0.1), and is now checked
+  against DTR 2.2.0, the version it cites. `scripts/fhir_packages.py lock` writes the lock again
+  after a validator or guide version changes.
 - **Da Vinci DTR: how `$questionnaire-package` behaves, checked by Inferno** (DV-c; CI and
   sandbox files only, no product change). A new workflow, `conformance.yml`, runs weekly and by
   hand, never on a pull request and not as a required check: the Inferno Da Vinci DTR test kit

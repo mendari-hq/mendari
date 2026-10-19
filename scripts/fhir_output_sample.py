@@ -6,10 +6,11 @@
   (`tests/fixtures/us-core/`), decided with the pack's local providers;
 - `record-bundle.json`: a synthetic trial record as the Bundle a CQL engine reads
   (`standards/record_fhir.py`);
-- what the FHIR routes serve, from a local server: `capability.json` (`/fhir/metadata`),
-  `operation-definition-decide.json`, and `decide-<pack>.json` (`$decide` on each fixture), plus
-  `decide-referral-refused.json` (the invalid referral fixture under `enforce`: a refused input,
-  with its findings);
+- what the FHIR routes serve, from a local server: `davinci/capability.json`
+  (`/fhir/metadata`, which cites DTR's `$questionnaire-package`, so CI checks it with the Da Vinci
+  guides: the US Core run loads none), `operation-definition-decide.json`, and
+  `decide-<pack>.json` (`$decide` on each fixture), plus `decide-referral-refused.json` (the
+  invalid referral fixture under `enforce`: a refused input, with its findings);
 - `served-*.json`: what the read and search routes answer for synthetic decisions made through
   the API (`served_reads_and_searches`): a Task read and vread (a decision reviewed, rated and
   given an outcome: versions 1-3), Task searchsets (a page with a `next` link, a lenient search
@@ -47,6 +48,9 @@ PACKS = {
 RECORDS = ROOT / "packs" / "clinical-trial-prescreener" / "data" / "test.jsonl"
 SERVER = "https://mendari.example"  # a reserved name: the samples' links point nowhere real
 FORM = {"content-type": "application/x-www-form-urlencoded"}
+# The CapabilityStatement cites DTR 2.2.0's $questionnaire-package, so it goes with the Da Vinci
+# samples (scripts/davinci_sample.py), which CI validates with DTR 2.2.0 loaded.
+CAPABILITY = Path("davinci") / "capability.json"
 
 
 def main(out: Path) -> None:
@@ -76,7 +80,8 @@ def served(out: Path) -> None:
                 refused = decide(client, PACKS["referral"], invalid)
                 write(out / "decide-referral-refused.json", refused)
                 continue
-            write(out / "capability.json", client.get("/fhir/metadata").json())
+            (out / CAPABILITY).parent.mkdir(parents=True, exist_ok=True)
+            write(out / CAPABILITY, client.get("/fhir/metadata").json())
             definition = client.get("/fhir/OperationDefinition/decide").json()
             write(out / "operation-definition-decide.json", definition)
             for name, pack_id in PACKS.items():
