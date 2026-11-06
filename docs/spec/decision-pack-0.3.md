@@ -18,7 +18,8 @@ a note as plain text. 0.3 adds, each marked (0.3) below:
 
 - a predicate that picks a coding or an identifier by its code system, wherever it is;
 - `paths`: fallback paths, tried in order;
-- `follow`: one reference hop, resolved inside the record and never fetched;
+- `follow`: one reference hop, resolved inside the record and never fetched by the mapping (a
+  runtime may first read what the record lacks: links, §2.3);
 - the `attachment_text` transform: plain-text and HTML notes, inline or in a Binary;
 - `code_sets` and the `code_set` selector: the pack's own codes, which a site's codes may be
   translated into;
@@ -114,6 +115,28 @@ and a runtime SHOULD resolve it by a lookup rather than a search of the record, 
 a record takes time in proportion to its size. A runtime MAY add resources it read itself to the
 record before the mapping runs; the mapping still never fetches.
 
+A reference that reaches nothing is a **link** when it is `<Type>/<id>` (relative, or at the end
+of an absolute URL with no query) of a type the field's paths read. `#<id>`, `urn:...`, a
+reference by identifier only, and a reference to another type (a Coverage's payor that is the
+patient, for a field that reads an Organization) are not links: they reach nothing, and are not
+unreadable. A runtime that records what it could not read counts a link the record does not
+hold by why it was not read (§2.4's reasons, and those of a read that failed), else
+`not_fetched`.
+
+**Linked reads (the reference runtime).** On a CDS Hooks request with a `fhirServer`, and in the
+SMART launch's decide, the reference runtime reads the links a 0.3 mapping reaches that the
+record does not hold, a note's Binary included (§2.4), and adds what it read to the record
+before the mapping runs. Each is one read of one resource, of the type the field reads, from that
+server only, under its base URL and through its allow-list (a link anywhere else is
+`off_server`, never read; a request whose server is off the allow-list is refused before anything
+is decided, as its prefetch read is). A decision reads at most 20 links (past them, `cap`), each
+at most 1 MiB once decoded (`too_large`), and a link is read once a request whatever its
+spelling. A resource its list leaves out (a MedicationRequest entered in error, §2.7) is not an
+item: nothing it links to is read, or counted. A read that fails gives its reason (`timeout`,
+`unauthorized`, `not_r4` and the others). A link that is not read makes the decision ABSTAIN with
+`could not read <field>: <reason>`. `fhir/decide` and `$decide` never read a link: there it is
+`not_fetched`, and the decision abstains.
+
 ### 2.4 Attachment text (0.3)
 
 `attachment_text` reads the path's values as Attachments
@@ -129,15 +152,30 @@ An attachment that cannot be read adds no text, and the reason is one of three:
 
 | Reason | When |
 |---|---|
-| `unsupported_type` | Any other content type (RTF, PDF, CDA), or none |
+| `unsupported_type` | Any other content type (RTF, PDF, CDA), or none; a `url` to a resource of another type than a Binary, or to a Binary with no content |
 | `undecodable` | `data` that is not base64, or not UTF-8 once decoded |
 | `not_fetched` | Only a `url`, to a Binary the record does not hold |
+
+A runtime that reads links (§2.3) gives, for a url it did not read, why: `off_server`, `cap`,
+`too_large`, or a failed read's reason. It reads a Binary as FHIR JSON, and only a url that is
+`Binary/<id>` (relative, or under the server's base); another url under the server is
+`not_fetched`, and one that names another type (relative or absolute) `unsupported_type`, never
+read. Its content type is checked first, so an RTF or PDF attachment's url is never read.
 
 A runtime that records what it could not read (a data-coverage record) uses these reasons. The
 reference runtime counts each in the decision's data-coverage record and, as for a 0.2
 `base64_text` note it cannot read (0.2 §9), makes the decision ABSTAIN, with the reason
 `could not read <field>: <reason>`. An attachment with neither `data` nor a `url` has nothing to
 read, and counts for nothing.
+
+**Renditions.** R4 makes the repetitions of a DocumentReference's `content` one document in
+different formats, and a DiagnosticReport's `presentedForm` semantically equivalent forms of one
+report. Where a path reads either, an attachment that cannot be read counts for nothing when
+another attachment of the same resource was read as text: an RTF beside the HTML of one note
+does not make the decision abstain, and a runtime that reads links reads no other rendition
+once one reads. A note whose only renditions cannot be read still counts, and abstains, and so
+does any other attachment that cannot be read (two payloads of a Communication are two
+contents).
 
 ### 2.5 Code sets (0.3)
 
@@ -200,9 +238,10 @@ it looks for (its code set's, and its map's keys). Such a report comes from the 
 so it holds no patient's value, id or text. The reference runtime's is
 `FhirAdapter.looked_for`, and its data-coverage record (`mendari.data-coverage/1`) counts what
 each field found against it: the values and codings at the paths it read (in order, until one
-gave the field its value), and with `follow` the references it found and how many it reached. A
-list of several types has a record for each type (`sources`), a `medication_period`'s two keys
-among its fields.
+gave the field its value), and with `follow` the references it found, how many it reached and
+each link it could not reach by its reason (§2.3). A resource a linked read added counts among
+what a reference reached, never among the record's resources of its type. A list of several
+types has a record for each type (`sources`), a `medication_period`'s two keys among its fields.
 
 ## 3. Versions
 
@@ -225,8 +264,9 @@ mappings written with `paths` and `resources` read every case alike.
 | `[system=<uri>]` in a path, for a uri `code_systems` declares | §2.1 |
 | A 0.3 pack's paths are checked at load | §2.1 |
 | `paths`, tried in order, the first that gives a value winning | §2.2 |
-| `follow`: one reference hop, inside the record, never fetched | §2.3 |
-| The `attachment_text` transform, and its three reasons | §2.4 |
+| `follow`: one reference hop, inside the record, never fetched by the mapping | §2.3 |
+| Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
+| The `attachment_text` transform, its three reasons, and renditions | §2.4 |
 | `code_sets` and the `code_set` selector, which a site's translations may feed | §2.5 |
 | List `resources`: several resource types into one list | §2.6 |
 | `medication_period` for a MedicationRequest | §2.7 |

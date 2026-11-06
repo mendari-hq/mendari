@@ -681,6 +681,19 @@ each card (`POST /cds-services/{id}/feedback`): each is chained as `card.feedbac
 only, and the comment is never kept. A card from another organization, another pack or another
 caller is one `404`. In the dashboard, a FHIR decision's record shows what it read, as counts.
 
+**Linked record data (LP-23h).** A pack on spec 0.3 may read a note that is only a link to a Binary,
+and what a reference points to (the payer behind `Coverage.payor`, the drug behind
+`medicationReference`). What the record holds is read from it. What it does not, a CDS hook with a
+`fhirServer` and the SMART launch's decide read from that server only, under its base, with the same
+token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 20 links a
+decision, each at most 1 MiB once decoded, each read once a request. A link to another server or
+outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
+(`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
+its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
+DocumentReference), one that reads is enough: the others are not read or counted. No shipped pack is
+on spec 0.3 yet, so none reads a link
+([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#linked-data)).
+
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
 Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on

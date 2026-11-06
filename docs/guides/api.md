@@ -77,7 +77,11 @@ OperationOutcome, a value that is not a resource, a resource or search page that
 JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
 as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
-malformed field, a required resource you sent something else for) is still a `4xx`.
+malformed field, a required resource you sent something else for) is still a `4xx`. A pack on
+spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
+MedicationRequest's drug) from your `fhirServer`, at most 20 links a decision; a link it does not
+read is a reason too, and `fhir/decide` and `$decide` never read one
+([linked data](connecting-an-ehr.md#linked-data)).
 
 **Cards and feedback.** A card's `uuid` is its decision's id. Its one suggestion has a `uuid` of
 its own, and the card says `selectionBehavior: at-most-one` and offers three `overrideReasons`

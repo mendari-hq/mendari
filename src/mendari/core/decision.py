@@ -46,6 +46,7 @@ from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
+    from mendari.standards.linked import Linker
 
 MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
 
@@ -583,6 +584,7 @@ class Decision:
         focus: Mapping[str, Any] | None = None,
         unreadable: Mapping[str, str] | None = None,
         sources: Mapping[str, str] | None = None,
+        links: Linker | None = None,
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
@@ -601,7 +603,15 @@ class Decision:
         and a note whose data does not decode or that is only a link (for a spec 0.3
         `attachment_text` note, also one of a type it cannot read: `unreadable_notes`), make the
         decision ABSTAIN unless its input is refused (`decide`). The result carries its
-        data-coverage record (`standards/data_coverage.py`) in every case."""
+        data-coverage record (`standards/data_coverage.py`) in every case.
+
+        `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
+        reaches by a link the record does not hold, a note's Binary or a followed reference,
+        from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`);
+        what it reads is checked as the record is (its R4 and profile issues recorded, by type
+        alone in the stored record, refused under `enforce`). A link it did not read, and
+        without `links` every link the record does not hold (`not_fetched`), makes the decision
+        ABSTAIN too (`unreadable_links`)."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
@@ -628,6 +638,10 @@ class Decision:
         if self.fhir_validation != "off":
             issues = fhir_structure.merge(base, us_core.validate(given))
         indexed = adapter.index(resources, focus=focus, excused=excused)
+        if links is not None:
+            read = links.read(adapter.mapping, indexed)
+            if read and self.fhir_validation != "off":
+                issues += fhir_structure.merge(fhir_structure.check(read), us_core.validate(read))
         rejected = []
         if self.fhir_validation == "enforce":
             rejected = [
@@ -636,9 +650,15 @@ class Decision:
                 for issue in us_core.errors(issues)[:10]
             ]
         notes = data_coverage.unreadable_notes(adapter.mapping, indexed)
+        unlinked = data_coverage.unreadable_links(adapter.mapping, indexed)
         unread = [
             *failed.items(),
-            *((field, reason) for field, counts in notes.items() for reason in counts),
+            *(
+                (field, reason)
+                for found in (notes, unlinked)
+                for field, counts in found.items()
+                for reason in counts
+            ),
         ]
         coverage = data_coverage.measure(
             adapter.mapping,

@@ -196,6 +196,54 @@ A `fhirServer` refused for a `cds` principal is an `auth.permission.refused` lin
 an `auth.origin.refused` line, reason `cds_origin`, with `cds:<id>`. In open mode, a call from
 another machine is an `auth.permission.refused` line, reason `open_mode_remote`.
 
+## Reading the record
+
+A hook decides on its `prefetch`. A key the request leaves out (or sends empty) is read from
+`fhirServer` with the `fhirAuthorization` token, only when that server is on
+`MENDARI_FHIR_ALLOWED_SERVERS`; with no `fhirServer` the request is a `412`. A key whose value is
+null has no data and is not read. When part of the record cannot be read, the hook still answers
+`200`: the decision is ABSTAIN, its reasons say `could not read <key or field>: <reason>`, it is
+recorded with its `data_coverage` record, and its card is an `info` card that names what was not
+read.
+
+### Linked data
+
+A pack on spec 0.3 can read a note that is only a link to a Binary, and what a reference points
+to: the payer behind `Coverage.payor`, the drug behind `medicationReference`
+([the 0.3 mapping](../spec/decision-pack-0.3.md)). When the record does not hold them, Mendari
+reads them from the same `fhirServer`, with the same token:
+
+- one `GET` of one resource by `Type/id`, under the server's base URL, with
+  `Accept: application/fhir+json`. The server must answer a Binary as FHIR JSON (its content in
+  `data`), not as its raw bytes;
+- at most 20 links a decision, each at most 1 MiB once decoded. Each draft order of an order
+  hook is a decision, so a hook of 50 orders can read up to 1,000 links;
+- each link once a request, however it is written (relative, or an absolute URL under the base),
+  so the draft orders of one order hook share what was read;
+- never a link to another server, or outside the base;
+- nothing a MedicationRequest entered in error links to, when the pack leaves such requests out
+  of its list (`medication_period`).
+
+A `fhirServer` that is not on `MENDARI_FHIR_ALLOWED_SERVERS` is configuration, not the patient's
+data: for a pack that reads links, the hook is a `422` before anything is decided, with nothing
+fetched or recorded, as when a prefetch key is left out. The token must allow reading what the
+links name: `Binary`, and the types the pack follows a reference to. A link that is not read
+makes the decision ABSTAIN with its field and one of these reasons:
+
+| Reason | What it means |
+|---|---|
+| `off_server` | The link names another server, another scheme, or a path outside the base URL. Nothing was sent. |
+| `cap` | The decision had already read 20 links. |
+| `too_large` | A resource's answer, or a Binary's content once decoded, is over 1 MiB. |
+| `not_fetched` | There was no server to read from (no `fhirServer`, `fhir/decide`, `$decide`), or the link names no `Type/id`. |
+| `unsupported_type` | The link names another type than the pack reads (a note's url anything but a Binary, relative or absolute; nothing is sent), the Binary holds no content, or the note is of a type Mendari does not read. |
+| `timeout`, `network`, `unauthorized`, `http_status`, `not_json`, `operation_outcome`, `not_r4` | The read failed. `not_json` is a Binary answered as raw bytes. |
+
+Notes are read as plain text and HTML. RTF, PDF and CDA are not read, and the decision abstains,
+unless another rendition of the same note was read: the `content` of one DocumentReference holds
+one document in several formats, so an RTF beside the HTML of a note is not needed, and is not
+read. No shipped pack is on spec 0.3 yet, so the shipped packs read no links.
+
 ## The cards
 
 Each card is CDS Hooks 2.0's:

@@ -1670,8 +1670,10 @@ def create_app(
         use `POST /fhir/$decide`.
 
         A note whose data does not decode, or that is only a link (`url`), cannot be read: the
-        decision is ABSTAIN with the reason (`undecodable`, `not_fetched`). `decision.data_coverage`
-        says what the mapping looked for and found, as counts and the pack's own codes."""
+        decision is ABSTAIN with the reason (`undecodable`, `not_fetched`). This route never reads
+        a link, so a spec 0.3 reference the record does not hold is `not_fetched` too.
+        `decision.data_coverage` says what the mapping looked for and found, as counts and the
+        pack's own codes."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task, **NOTICE}
 
@@ -2539,7 +2541,10 @@ def create_app(
         read. A structure error in what was sent is a `400`. When a key cannot be read (a failed
         read, an OperationOutcome, a value that is not a resource, a resource or search page
         that is not R4), the hook still answers `200`: the decision is ABSTAIN with the key and a
-        fixed reason, it is recorded with its `data_coverage` record, and its card says so."""
+        fixed reason, it is recorded with its `data_coverage` record, and its card says so. A spec
+        0.3 pack also reads, from that `fhirServer` only and under its base, what a link the
+        record does not hold points to (a note's Binary, a followed reference): at most 20 links a
+        decision, each read once a request; a link it does not read abstains the same way."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")

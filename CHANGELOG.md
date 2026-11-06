@@ -126,6 +126,45 @@ The first release (not yet published).
   `attachment_text` note that cannot be read (`unsupported_type`, `undecodable`, `not_fetched`)
   makes the decision ABSTAIN with its reason, as a `base64_text` one does. An engine that reads
   only 0.2 refuses a 0.3 pack.
+- **Linked record data** (LP-23h; no shipped pack is on spec 0.3, so nothing changes how a
+  shipped pack decides). What a spec 0.3 mapping reaches by a link the record does not hold, an
+  `attachment_text` note's url to a Binary or a reference a field follows (the payer behind
+  `Coverage.payor`, the drug behind `medicationReference`), is read before the mapping runs, on a
+  CDS hook with a `fhirServer` and in the SMART launch's decide (`standards/linked.py`): from that
+  server only, under its base, with the request's token (the session's in a SMART launch, where a
+  `401` ends the launch). Each read is one `GET` of one resource by `Type/id`, of the type the
+  field reads, no page followed; a Binary is read as FHIR JSON (`Accept: application/fhir+json`;
+  one answered as raw bytes is `not_json`), and the answer must be R4 (`not_r4`) and of that type
+  (`unsupported_type`, `operation_outcome`). A decision reads at most 20 links (past them, `cap`),
+  each at most 1 MiB once decoded (a resource's answer as it arrives, a Binary's content:
+  `too_large`), and a link is read once a request however it is written, so the draft orders of
+  one order hook share what was read. A link to another server, another scheme (in any case) or
+  outside the base is `off_server` and is never fetched; a hook whose `fhirServer` is off the
+  allow-list is refused (`422`) for a pack that reads links, before anything is decided and with
+  nothing fetched or recorded, as its prefetch read is (conflict 14). A MedicationRequest a list
+  leaves out as entered in error (`medication_period`) is not read for its links, nor counted. A
+  note's url to another type than a Binary is `unsupported_type`, never read. What was read joins
+  the record, found by its link only (it is not one of the record's resources of its type), and
+  is checked as the record is (its R4 and US Core issues recorded, by type alone in the stored
+  record, and refused under `enforce`). A link that is not read makes the decision ABSTAIN with
+  `could not read <field>: <reason>`, and the field's data-coverage record counts it by its
+  reason. `fhir/decide`, `$decide` and `mendari decide --fhir` never read a link: there it is
+  `not_fetched`. Threat-model row D14 (linked-read volume), E1 updated; see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#linked-data).
+  - **Changed for spec 0.3 packs: a reference that reaches nothing is unreadable.** A followed
+    reference that is `Type/id` (relative, or ending an absolute URL) of a type the field reads,
+    and that reaches nothing in the record and is not read, counted only among the references
+    found; it now makes the decision ABSTAIN (`not_fetched` without a server). A reference by
+    `#id`, `urn:` or identifier only, or to another type (a payor that is the patient), is as
+    before.
+  - **Changed for spec 0.3 packs: renditions.** An attachment of a DocumentReference's `content`
+    or a DiagnosticReport's `presentedForm`, which R4 makes one document in several formats,
+    that cannot be read (an RTF beside the HTML of one note) no longer makes the decision abstain
+    when another of the same resource was read as text. A note with no rendition read still
+    abstains, and so does any other attachment that cannot be read.
+  - **Changed for spec 0.3 packs: a note's url to another type, or to an empty Binary, is
+    `unsupported_type`.** It was `not_fetched`, which now means only that there was no server to
+    read from, or that the url names no `Type/id`. The decision abstains as before.
 - **Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f; card wording
   changes).** A card's `uuid` is now its decision's id (it was a random one, stored nowhere), and
   its one suggestion's a UUID 5 of it. A card says `selectionBehavior: at-most-one` and offers

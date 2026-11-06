@@ -19,6 +19,13 @@ the card describes a routing decision. A pack that declares `coverage_informatio
 for each decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate`
 for a technical reason when the order abstained over unreadable data and the Coverage was read.
 
+**Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
+not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
+read from the same `fhirServer`, under its base, with the same token, at most 20 links a
+decision (`standards/linked.py`); a link that is not read is its field's reason, and the
+decision abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
+`fhirServer` off the allow-list is refused before anything is decided, as for the prefetch.
+
 **Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
 suggestion's is `suggestion_id` of it, so feedback names them without anything stored; a card
 with suggestions says `selectionBehavior` (`at-most-one`) and offers the override reasons of
@@ -45,6 +52,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -70,7 +78,8 @@ from mendari.errors import (
 from mendari.standards import davinci, fhir_structure
 from mendari.standards.data_coverage import source_type
 from mendari.standards.fhir import FhirAdapter
-from mendari.standards.fhir_client import FhirClient
+from mendari.standards.fhir_client import FhirClient, check_allowed
+from mendari.standards.linked import Linker, reads_links
 from mendari.standards.terminology import (
     OVERRIDE_REASONS,
     OVERRIDE_REASONS_SYSTEM,
@@ -244,13 +253,21 @@ def invoke(
         prefetch[key] = value
     prefetch.update(found)
     templates = hooks.prefetch
-    if hooks.hook in ORDER_HOOKS:
-        decided = [
-            decision.decide_fhir(prefetch, focus=order, unreadable=unreadable, sources=templates)
-            for order in orders
-        ]
-    else:
-        decided = [decision.decide_fhir(prefetch, unreadable=unreadable, sources=templates)]
+    linking = linker(decision, request)
+    with linking if linking is not None else nullcontext():
+        if hooks.hook in ORDER_HOOKS:
+            decided = [
+                decision.decide_fhir(
+                    prefetch, focus=order, unreadable=unreadable, sources=templates, links=linking
+                )
+                for order in orders
+            ]
+        else:
+            decided = [
+                decision.decide_fhir(
+                    prefetch, unreadable=unreadable, sources=templates, links=linking
+                )
+            ]
     template = hooks.card
     # A CRD service the request turned `coverage-info` off for: decided and recorded, and
     # nothing of that type sent back, neither cards nor system actions (CRD 2.2.1).
@@ -314,16 +331,39 @@ def fetch(
         raise PrefetchRequired(
             f"prefetch required for: {', '.join(keys)} (and no fhirServer to fetch from)"
         )
+    token = _token(request)
+    context = _object(request, "context")
+    queries = {key: fill_template(templates[key], context) for key in keys}
+    with FhirClient(str(server), token=token) as client:
+        return read_each(client, templates, queries)
+
+
+def linker(decision: Decision, request: Mapping[str, Any]) -> Linker | None:
+    """The linked reads of one hook request (LP-23h): from its `fhirServer`, with its token, for
+    a pack whose mapping reaches anything by a link (spec 0.3). None without a `fhirServer` or
+    for any other pack: nothing is read. The client opens when a link first needs it, so a
+    request whose record holds every link opens none. A request fault is refused before anything
+    is decided, as for the prefetch (`fetch`): a `fhirAuthorization` that is not a Bearer token,
+    and a `fhirServer` off the allow-list, which is configuration, not the patient's data, so
+    nothing is fetched or recorded (conflict 14), whether or not the record holds every link."""
+    server = request.get("fhirServer")
+    if not server or not reads_links(FhirAdapter.for_pack(decision.pack).mapping):
+        return None
+    token = _token(request)
+    check_allowed(str(server))
+    return Linker(lambda: FhirClient(str(server), token=token))
+
+
+def _token(request: Mapping[str, Any]) -> str | None:
+    """The request's `fhirAuthorization` access token, a Bearer token or none; anything else is
+    refused (`FhirError`), as a client error."""
     authorization = _object(request, "fhirAuthorization")
     token = authorization.get("access_token")
     if token is not None and not isinstance(token, str):
         raise FhirError("fhirAuthorization.access_token must be a string")
     if token and str(authorization.get("token_type", "Bearer")).lower() != "bearer":
         raise FhirError("fhirAuthorization must be a Bearer token")
-    context = _object(request, "context")
-    queries = {key: fill_template(templates[key], context) for key in keys}
-    with FhirClient(str(server), token=token) as client:
-        return read_each(client, templates, queries)
+    return token
 
 
 def read_each(

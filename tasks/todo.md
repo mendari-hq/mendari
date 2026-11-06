@@ -961,17 +961,60 @@ Connect) is not supported yet.
     every golden case with failed reads and broken notes;
     `tests/test_data_coverage.py::test_a_0_3_mapping_is_counted_against_what_each_field_looks_for`
     and `::test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason`.
-  - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
-    From the 23d and 23g merge: the data-coverage record counts a `follow`'s references and how
-    many it reached inside the record, but a reference that reaches nothing is not unreadable
-    yet. Once linked reads exist, a reference or a Binary `url` that was not read (no server,
-    `fhir/decide`, `$decide`) or could not be (`off_server`, `cap`, a failed read) should count
-    in `data_coverage` by its reason and abstain, and an `attachment_text` note whose Binary 23h
-    reads should be counted as read; `unreadable_notes` already abstains on an `attachment_text`
-    `not_fetched`, so a note 23h fetches into the record stops abstaining with no change there.
-    The `unsupported_type` abstain (an RTF or PDF note) is the plan's default
-    (`test_html_is_read_as_text_and_rtf_abstains`): a DocumentReference with a text rendition
-    beside a PDF one abstains too, which 23h should confirm or narrow.
+  - [x] **23h** (lane PR) Linked notes, payer and medication, read under the EHR's FHIR server.
+    `standards/linked.py` (`Linker`): on a CDS hook with a `fhirServer` (`cds_hooks.linker`, its
+    client opened when a link first needs it, the request's token) and in the SMART launch's
+    decide (`smart_routes.decide_for`, the session's client; a `401` still ends the launch),
+    `decide_fhir(links=)` reads what a spec 0.3 mapping reaches by a link the record does not
+    hold, a `follow`'s reference (`fhir.FieldRead.missing`: `Type/id`, relative or ending an
+    absolute URL, of a type the field's paths read) and an `attachment_text` note's url
+    (`fhir.waiting_link`), field by field in the mapping's order, a field's paths until one gives
+    a value. Each is one `GET` of one resource (`FhirClient.read_resource`, no page followed;
+    `FhirClient.url_of`, the client's base check made public) of the type the field reads, a
+    Binary as FHIR JSON only, the answer R4 and of that type; at most `MAX_READS` (20) a decision,
+    then `cap`; at most `MAX_BYTES` (1 MiB) each once decoded, a resource's answer stopped as it
+    arrives (`GuardedHttp.get_json(max_bytes=)`) and a Binary's at twice that, its content then
+    measured (`too_large`); each URL once a request, whatever its spelling, so an order hook's
+    draft orders share what was read; an absolute URL under the base to a resource the record
+    holds is that resource, with no read. A link elsewhere (its scheme in any case) is
+    `off_server`, never sent; a hook whose `fhirServer` is off the allow-list is a `422` for a
+    pack that reads links (`fhir_client.check_allowed` in `cds_hooks.linker`), before anything is
+    decided, nothing fetched or recorded, as conflict 14 has it for the prefetch, whether or not
+    the record holds every link. A MedicationRequest its list leaves out as entered in error
+    (`fhir.listed`, conflict 39) is not read for its links and nothing it could not read counts;
+    a note's url to another type, relative or absolute, or to a Binary with no content is
+    `unsupported_type`. What was read joins the record by its link only (`Indexed.link`,
+    `resolve`), and has its R4 and US Core issues recorded, by type alone in the stored record
+    (refused under `enforce`); a link not read keeps its reason (`Indexed.unread`), which
+    `read_attachment` gives for a note and `data_coverage.unreadable_links` for a follow, so the
+    decision abstains (`could not read <field>: <reason>`) and the field's record counts it.
+    `fhir/decide`, `$decide` and `mendari decide --fhir` pass no linker: a link there is
+    `not_fetched`. The 23g merge's notes, done: a followed reference or a Binary url that is not
+    read now counts by its reason and abstains (the 23g test of the 0.3 record now counts its
+    `Medication/none` as `not_fetched`), and a note whose Binary is read counts as read. **The
+    `unsupported_type` abstain is narrowed, not confirmed:** where a path reads renditions (a
+    DocumentReference's `content`, a DiagnosticReport's `presentedForm`, which R4 makes one document
+    in several formats: `fhir.renditions`, `fhir.unread_attachments`), an attachment that cannot be
+    read counts for nothing once another of the same resource was read as text, and no other
+    rendition is fetched; an RTF-only note still abstains
+    (`test_html_is_read_as_text_and_rtf_abstains`), and so does any other attachment (a
+    Communication's two payloads are two contents). Tests: `tests/test_fhir_linked.py` (the plan's
+    eight, and a failed read's reasons, an off-list server, a request its list leaves out, a note's
+    url to another type or an empty Binary, a linked resource under `warn` and `enforce`, the SMART
+    decide, the 0.2 packs and the record's shape). Threat-model row D14 (linked-read volume), E1 and
+    the Pack content `inputs.fhir` rows updated; spec 0.3 §2.3 (links, linked reads) and §2.4 (their
+    reasons, renditions); `connecting-an-ehr.md` gains "Reading the record" and "Linked data" (and
+    drops the stale "not built yet" line on 23d); the scorecard's DS-3b and DS-3c stay missing until
+    23k adopts the keys, as DS-3a does. No shipped pack is on 0.3, so no shipped decision changes
+    and 23e's pinned table has nothing new from 23h. Beyond the plan's letter: an answer over the
+    size is `too_large` (the closed set's reason for a size cap), where the plan said `cap`, which
+    stays the count's; the payer's identifier by system is the 0.3 mapping's own path
+    (`Organization.identifier[system=…]`), and the site map step of conflict 41 is 23i's. For the
+    owner: no deadline spans a decision's linked reads (each keeps the client's 10-second timeouts),
+    and the bound is a decision's, not a request's: an order hook of 50 draft orders can make up to
+    1,000 linked reads, each answer (at most 1 MiB, 2 MiB for a Binary) kept until the request ends,
+    as the residual D14 states. A request-wide read and byte budget is not built; say if one is
+    wanted.
   - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
     automated. From the 23d and 23g merge: `data_coverage.measure` reads the record with no site
     codes (`Reading.of(mapping, indexed)`), so once `decide_fhir` passes them to `to_input`,

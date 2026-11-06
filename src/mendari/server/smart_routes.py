@@ -71,6 +71,7 @@ from mendari.standards import smart
 from mendari.standards.cds_hooks import fill_template, read_each
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
+from mendari.standards.linked import Linker
 from mendari.standards.smart import SmartSettings
 
 COOKIE = sessions.SMART  # `__Host-mendari_smart` except on local hosts (server/sessions.py)
@@ -447,7 +448,9 @@ def decide_for(
     templates describe, read with the session's token. Each prefetch read stands alone, as a
     CDS hook's do (`cds_hooks.read_each`): one that fails makes the decision ABSTAIN with its
     reason (LP-23d), but a `401` still ends the launch (`ehr`). A focus resource that cannot be
-    read is an error, as before: there is nothing to decide about."""
+    read is an error, as before: there is nothing to decide about. What a spec 0.3 mapping
+    reaches by a link the record does not hold is read with the same token, as a CDS hook's is
+    (`standards/linked.py`, LP-23h), and a `401` there ends the launch too."""
     adapter = FhirAdapter.for_pack(decision.pack)
     kind, _, resource_id = focus_ref.partition("/")
     if kind != adapter.mapping.focus or not _ID.match(resource_id):
@@ -465,10 +468,16 @@ def decide_for(
             queries[key] = fill_template(template, context)
         except FhirError:
             continue  # a template for context this launch doesn't have
-    prefetch, unreadable = read_each(
-        fhir, templates, queries, fatal=lambda error: error.status == 401
+    prefetch, unreadable = read_each(fhir, templates, queries, fatal=_ended)
+    links = Linker.of(fhir, fatal=_ended)
+    return decision.decide_fhir(
+        prefetch, focus=focus, unreadable=unreadable, sources=templates, links=links
     )
-    return decision.decide_fhir(prefetch, focus=focus, unreadable=unreadable, sources=templates)
+
+
+def _ended(error: FhirError) -> bool:
+    """Whether the EHR ended the launch: it answered `401` to the session's token."""
+    return error.status == 401
 
 
 def _subject_id(resource: Mapping[str, Any]) -> str | None:
