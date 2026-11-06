@@ -604,9 +604,10 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     never over another file. `--supersedes HASH` names the stored result it replaces, which
     becomes part of its body: refused for a signed result, whose signature would no longer
     hold. A public result must be of a local configuration, on its pack's current digest, set
-    and method, measured no later than today, and what its stored inputs give; a signed one
-    must verify against the store's keys."""
-    from mendari.evals import results_store, scoreboard, signing
+    and method, measured no later than today, and what its stored inputs give; a hidden set's
+    (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k) must fit its closed
+    schema, under the current method; a signed one must verify against the store's keys."""
+    from mendari.evals import results_store, signing
     from mendari.hub.client import config_dir
 
     store = results_store.Store.at(args.store)
@@ -625,7 +626,7 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
         if result.get("supersedes") not in (None, f"sha256:{target}"):
             raise MendariError(f"{_path_shown(args.file)} supersedes another result already")
         result = {**result, "supersedes": f"sha256:{target}"}
-        result["body_sha256"] = scoreboard.body_sha256(result)
+        result["body_sha256"] = f"sha256:{results_store.name_of(result)}"
     publishers = signing.read_pins(config_dir() / "trusted_keys.json")
     try:
         name = store.add(result, publisher_ids=publishers)

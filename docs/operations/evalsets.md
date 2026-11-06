@@ -456,7 +456,9 @@ labels and the first-pass agreement are sealed as its aggregates, as `evalset ag
 them, with a salt of their own. Only the commitments are chained (`evalset.frozen`), the set's and
 its aggregates', with the set's size and rotation rule: the content hash never leaves the sealed
 record, so no one can confirm a guessed set against the chain.
-No signature is made yet: one waits for LP-17's grading-key decision.
+No signature is made of the commitment: the grading key does not sign a freeze commitment, and
+a signed hidden-set result carries the commitment instead (the
+[grading method](../grading/method-1.0.md), section 11).
 
 The pack is the one the set was made for, found by its id (give `--pack` if it does not resolve
 where you run the command); a later version of it grades the set too, since the content keeps
@@ -530,8 +532,9 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
 - `variants` may name a variant for any of the pack's provider slots; the others run the
   deployment's choice, else the pack's default. **Every slot runs a local variant** (rules,
   criteria, dosing, naive Bayes, or a composite of those only): a hidden set's cases never leave
-  the server (owner decision 4 is open: LP-17 decides on remote providers). Where the deployment
-  runs a slot remotely (Jev, an LLM), name a local variant for it here.
+  the server. Under the grading method 1.0 a hidden set is graded with local providers only
+  (LP-17's owner decision 2). Where the deployment runs a slot remotely (Jev, an LLM), name a
+  local variant for it here.
 
 Before any case is read, the set's header is checked against the pack asked for, and each slot's
 variant is checked to be local. Then, in one exclusive transaction, the store's grading read
@@ -545,8 +548,10 @@ store, so no decision is recorded, no report saved (`/api/evals` does not change
 and nothing spent. A run that fails still counts.
 
 The answer is `mendari.hidden_result/1` ([the evaluation reports'
-spec](../spec/evaluation-reports.md)): the set's id and commitment, how many cases were graded,
-this run's number and the runs left, the pack and its providers, and aggregates only: each
+spec](../spec/evaluation-reports.md)), unless the run declares its arms
+([the hidden-set scoreboard](#the-hidden-set-scoreboard)): the set's id and commitment, how many
+cases were graded, this run's number and the runs left, the pack and its providers, and
+aggregates only: each
 question's metrics (its accuracy as k of n, per-label precision, recall and F1, the confusion
 matrix, the Brier score and its interval, calibration bins of 10 cases or more), the outcome
 counts and rates, each critical label's counts, the threshold sweep and error counts. Never a
@@ -563,6 +568,7 @@ names the set, and a run's could name a case):
 | `wrong_pack` | 422 | `pack` is not the set's, or the pack served here no longer asks the set's questions. |
 | `unknown_variant` | 422 | `variants` names a slot or a variant the pack does not have. |
 | `remote_provider` | 422 | A slot would run a remote provider. |
+| `wrong_arm` | 422 | A scoreboard run's declared configuration is not of the arm it is declared under ([below](#the-hidden-set-scoreboard)). |
 | `pack_unavailable` | 409 | The set's pack is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. |
 | `not_gradable` | 409 | The set is a draft, or retired (its chain's word, whatever its row says). |
 | `no_runs_left` | 409 | The set has had its `--max-runs`: retire it and freeze another. |
@@ -578,6 +584,47 @@ limit (6 an hour unless `MENDARI_RATE_LIMITS` sets it). The notice does not gate
 never asked. The security log says `evalset.graded` with the set's id and how many cases were
 graded (a refusal: its reason, with the set's id, or with no id for `no_set`), and the access line
 names the route's template.
+
+### The hidden-set scoreboard
+
+The same route grades the arms of the scoreboard (LP-17k, the
+[grading method](../grading/method-1.0.md), sections 3 to 9). Mendari's own grading declares one
+configuration per arm before any hidden set is graded, and commits the declaration. A run sends
+that declaration's arms, as `arms`, with its SHA-256, as `declared`, in place of `variants`:
+
+```bash
+curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
+  -H "Authorization: Bearer $GRADING_KEY" -H "Content-Type: application/json" \
+  -d '{"pack": "mendari/patient-inbox-router", "arms": {"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}, "declared": "<sha256>"}' \
+  > scoreboard-answer.json
+```
+
+- `arms` names each declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`)
+  with its configuration, a variant for any slot as `variants` takes them. Each is checked as
+  `variants` is, before any case is read, and must be of the arm it is declared under
+  (`wrong_arm`). Under the method 1.0 only the deterministic arm is local, so it is the one arm
+  a hidden set grades: a declared arm that calls Jev or an LLM is refused `remote_provider`, and
+  nothing is read.
+- `declared` is the SHA-256 of the committed declaration (64 hex digits). The answer cites it;
+  the server does not read the file.
+- `arms` and `declared` come together, never with `variants`: anything else is a `422` of the
+  body, and nothing is read.
+
+One grading read hands the cases to every declared arm, decided in turn on the same records,
+so it is one chained `evalset.graded` and one of the set's runs. The answer is
+`mendari.hidden_scoreboard/1` ([the evaluation reports'
+spec](../spec/evaluation-reports.md#the-hidden-set-scoreboard-mendarihidden_scoreboard1)): per
+arm, its status ("graded", "not graded here" for an arm whose configurations call a remote
+provider, or "not applicable"), its figures (each proportion as k of n with its exact 95%
+interval, each mean with its bootstrap interval, evidence on distinct positives), its
+attestations (met, not met or insufficient evidence; draft while the method is not in effect)
+and the insufficient-evidence banner; the ranking (off, "one arm graded", while only the
+deterministic arm is local); the scope, with the set's id and commitment, never a hash of its
+cases; and this run's number and the runs left. Never cost, latency, a subgroup or a case. Two
+reads of one set on one day give the same body, so its `body_sha256` is the same. A 600-case set
+runs in a few seconds, well within the route's deadline. Keep the answer as you would the set's
+aggregates, then store it in the repository, where the owner signs it
+([Running the scoreboard](scoreboard.md#a-hidden-sets-scoreboard)).
 
 ## Retiring a set
 

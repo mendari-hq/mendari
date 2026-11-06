@@ -58,7 +58,11 @@ TAGS = [
         "frozen and committed to, by its grading key only (which only the operator makes): each "
         "run counted against the set's rotation rule and recorded in the audit chain, with "
         "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
-        "never a case, its id or a missed case. Nothing is stored.",
+        "never a case, its id or a missed case. A run that declares its arms (`arms`, with the "
+        "declaration's SHA-256 as `declared`) is the hidden-set scoreboard: every declared arm "
+        "decided on the same cases in that one run, answered `mendari.hidden_scoreboard/1`, each "
+        "arm's figures with their intervals, its attestations and the ranking, never cost, "
+        "latency, a subgroup or a case. Nothing is stored.",
     },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},

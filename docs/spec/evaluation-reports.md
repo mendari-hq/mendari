@@ -667,3 +667,72 @@ hold (more than 64 questions, slots or critical labels, a question with more tha
 a question, label, slot or variant name that is not 1 to 64 letters, digits, `_`, `.` or `-`
 starting with a letter or digit) is refused `pack_unavailable` before the set's cases are read,
 so it uses none of the set's runs.
+
+## The hidden-set scoreboard: `mendari.hidden_scoreboard/1`
+
+What the same route answers a run that declares its arms (LP-17k, `evals/hidden.py`; the
+[grading method 1.0](../grading/method-1.0.md), sections 3 to 9). The request sends `arms`, each
+declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`, one to four) with its
+configuration as `variants` takes one, and `declared`, the SHA-256 of the committed declaration
+they come from (64 hex digits), in place of `variants`. `arms` and `declared` come together, and
+never with `variants`. Without `arms`, the answer is `mendari.hidden_result/1`, as above.
+
+Before any case is read, each declared configuration is resolved and refused as `variants` is
+(`wrong_pack`, `pack_unavailable`, `unknown_variant`, `remote_provider`), then refused
+`wrong_arm` when it is not a configuration of the arm it is declared under, and the pack is
+refused `pack_unavailable` when it has no critical label to attest (or more than 64). Under the
+method 1.0 a hidden set is graded with local providers only (owner decision 2), so only the
+deterministic arm can be declared. Then one grading read hands the cases, in memory, to every
+declared arm: each is decided by its own Decision (local providers, no store), in the
+scoreboard's order, on the same records. Their ledgers share the read's case key and pair, and
+the run is one chained `evalset.graded`, one of the set's runs. Each arm's entry (as
+`mendari.scoreboard/1`'s figures, with the records' inputs giving its distinct groups and their
+`attributes.weight` its weighted figures), its grade and the ranking are computed in memory and
+dropped once projected onto this closed schema. Nothing is stored: no decision, report, ledger or
+usage. A field not listed here MUST NOT appear, and a server MUST refuse to answer a run whose
+result does not fit it (`run_failed`), and say nothing of it.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.hidden_scoreboard/1`. |
+| `scope` | The pack (`id`, `version`, `digest`) and its `status` line; the `set`: `kind` `hidden`, its `id` and freeze `commitment` (never a hash of its content), `n`, `distinct_inputs` and `norm`; the `method` (`version`, `sha256`, `in_effect` on the day measured); `measured_on`, the day of the run (US Eastern); `evaluation`, "engineering evaluation, not clinical validation"; the `disclosure`, "no model provider" with no statements; and `declared`, the declaration's SHA-256 as sent. |
+| `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
+| `arms` | Every arm of the scoreboard, once, in its order: `arm`, its `name`, its `status` and, for a graded arm only, its `configuration` (`providers`, `local`, `remote_types`), `providers` (each slot's variant, type and model), `figures` and `grade`; null for the others. |
+| `banner` | The insufficient-evidence banner, or null: each graded arm's critical label short of evidence, with its configuration, distinct `positives` and the minimum `needed`. |
+| `ranking` | `{status: "off", reason: "one arm graded"}` while one arm is graded; else `on`, with the `method`, `draft`, how many arms were `graded`, `ranked` (each arm's `rank`, rank `interval`, configuration and `bands` without cost), `unranked` (each arm with the safety attestations it did not meet) and the Holm `family` (see [Grades and band ranking](#grades-and-band-ranking)). |
+| `supersedes` | Null as answered; the earlier stored result it supersedes once `mendari scoreboard add --supersedes` links it. |
+| `run` | `{run, runs_left}`: this run's number (its chained `evalset.graded`) and the runs the set has left after it. |
+| `body_sha256` | `sha256:` and the SHA-256 of the answer's canonical JSON without `body_sha256`, `signature` and `run`. |
+
+An arm's status is `graded` when it was declared; `not graded here` when it was not and the pack
+builds it (every such configuration calls a remote provider, which a hidden set never runs); and
+`not applicable` when the pack cannot build it. A graded arm's figures are an entry's (see
+[Scoreboard entries](#scoreboard-entries-mendariscoreboard1)) but cost, latency and subgroups:
+`critical` (detection and positives decided AUTO as raw k of n, distinct positives, the grade's
+bound and the evidence), `false_automation`, `auto_error_rate`, `automation` and `accuracy`
+(each k of n with its exact 95% interval), `macro_f1` and `brier` (each with its bootstrap
+interval; Brier's null over fewer than 10 scored cases, whose bounds would be single cases'
+scores), `brier_reliability`, `ece` (one `value`, never its bins) and `weighted`. Its grade is
+`grade.grade`'s: the method and the attestations, each draft while the method is not in effect.
+Figures are rounded to 6 places, as an entry's are.
+
+It MUST NOT hold cost, latency, subgroups, equal-mass bins, a case's id or hash, a missed or
+misclassified case, the dataset's name or hash, or a ledger's id. Its only `sha256:` values are
+the pack's digest and its own body's. It names the pack's labels beside counts and rates, never
+beside a case.
+
+Two reads of one frozen set on one day give the same body, so the same `body_sha256`: only the
+run block differs. A refused run is answered as a grading run's refusals are, `wrong_arm` among
+them (`422`); a body that sends `arms` without `declared`, `declared` without `arms`, either
+beside `variants`, an arm that is not one or a declaration that is not 64 lower-case hex digits
+is a `422` of the body, and nothing is read.
+
+**Stored.** The answer is stored in the [results store](#the-results-store-scoreboard) as it was
+answered (`mendari scoreboard add FILE`), named by its body's SHA-256: one result per pack and
+set, its arms in it, so a second read of the same set is the same result. The store checks it
+against this closed schema field by field, against a pack Mendari maintains (any of its
+versions) and, when new, the current method and a day no later than today. It is kept as it is
+and never recomputed, since no ledger of a hidden set is kept: a signed one is the owner's
+attestation. Its signature (LP-17e) covers its body and its run block, so its run's number cannot
+change unnoticed. The [early scoreboard](../grading/scoreboard.md), of public sets, does not show
+it.

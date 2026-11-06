@@ -15,7 +15,12 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
   checked), its run record, its price table and the method, and each local ledger on its pack's
   current digest re-runs to the same bytes; a result of an older digest is recomputed and kept,
   one whose set or method changed is kept as it is; a new one must be of a local configuration,
-  on the current ones, and measured no later than today.
+  on the current ones, and measured no later than today;
+- each hidden set's result (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k)
+  fits its closed schema, field by field, and its name is its body's SHA-256 (its run block
+  left out); it is of a pack Mendari maintains and, when new, under the current method and
+  measured no later than today. It is kept as it is: no ledger of a hidden set is kept, so it
+  is never recomputed.
 
 The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.
 

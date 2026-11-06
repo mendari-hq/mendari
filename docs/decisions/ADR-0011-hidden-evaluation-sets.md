@@ -186,8 +186,11 @@ rule, chained as a salted commitment at freeze), `active` (frozen and in use for
 first grading read) or `retired`. Only frozen or active sets grade. A set stops grading after a
 maximum number of grading runs or a maximum age, whichever comes first, both fixed at freeze
 with no default; the key holder then retires it, which publishes nothing. The content hash never
-leaves the sealed freeze record. A signature on the commitment waits for LP-17's grading-key
-decision.
+leaves the sealed freeze record. A signature on the commitment waited for LP-17's grading-key
+decision. LP-17 note (ADR-0013, the grading method's section 11): the freeze commitment stays
+unsigned. The grading key signs results only, never a commitment, and a signed hidden-set result
+(`mendari.hidden_scoreboard/1`, LP-17k) carries the set's commitment instead, so the signature
+binds the commitment to the figures graded on it.
 
 **The chain.** Each label event chains a keyed hash of the case id and a salted commitment of
 the label values, with the labeller (by user id) and the time; the clear values stay sealed.
@@ -200,7 +203,13 @@ states, times and keyed case hashes, and needs no key.
 
 **Aggregates only.** No route returns frozen or active content to anyone: grading runs in the
 server and answers aggregates only (no per-case field, no missed ids), with local providers only
-until LP-17 decides on remote ones.
+until LP-17 decides on remote ones. LP-17 note: under the grading method 1.0 a hidden set is
+graded with local providers only (LP-17's owner decision 2, still open; ADR-0013, decision 5). The
+same route grades the hidden-set scoreboard (LP-17k): a run that declares its arms decides every
+declared arm on the same cases in one grading read (one chained `evalset.graded`, one of the
+set's runs), refuses a declared arm that calls a remote provider before any case is read, and
+answers `mendari.hidden_scoreboard/1`, aggregates only: an arm that is not declared reads "not
+graded here" when its configurations are remote, or "not applicable".
 
 ## Consequences
 - The key holder can decrypt offline, so "only grading reads active sets" is a rule the software
@@ -232,7 +241,8 @@ until LP-17 decides on remote ones.
   assignment ended by SQL, which looks like a withdrawal; and the rows of a draw or a store from
   before LP-11p, read as before and counted (`predating`), whose weights, whether an unlabelled
   case was drawn, and aggregates are taken as they are.
-- The freeze commitment is a salted hash, not a signature, until LP-17 decides the grading key.
+- The freeze commitment is a salted hash, not a signature. LP-17 keeps it so: a signed hidden-set
+  result carries the commitment, and the grading key signs nothing else (ADR-0013, decision 7).
 - Paraphrases of public text pass the equality check; the hand-written rule (`template` null)
   and review stand against them. The threat model's residual risks name this risk and the
   others above.
@@ -241,6 +251,7 @@ until LP-17 decides on remote ones.
 - **Sets in a separate store or service.** Rejected by the owner: one database, one backup, one
   chain.
 - **Labelling in the review queue.** It shows the model's answer, so labels would not be blind.
-- **Signing the freeze commitment now.** Waits for LP-17, which decides the grading key.
+- **Signing the freeze commitment now.** Waited for LP-17, which decided against it (ADR-0013,
+  decision 7): a signed hidden-set result carries the commitment instead.
 - **A third-party agreement library.** The coefficients are small and pinned against
   hand-computed references; no dependency is added.

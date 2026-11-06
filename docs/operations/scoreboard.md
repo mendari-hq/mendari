@@ -2,19 +2,22 @@
 
 The scoreboard's results live in the repository, in the results store under `scoreboard/`. The
 [early scoreboard](../grading/scoreboard.md) is generated from it. This page says how results
-are run, stored and checked, and what to do when a pack changes. The rules are the
-[grading method](../grading/method-1.0.md)'s, sections 11, 12 and 14; the formats are in the
+are run, stored and checked, what to do when a pack changes, and how a hidden set's scoreboard
+is graded and stored. The rules are the [grading method](../grading/method-1.0.md)'s, sections
+3 to 9, 11, 12 and 14; the formats are in the
 [spec](../spec/evaluation-reports.md#the-results-store-scoreboard).
 
 !!! warning "Engineering evaluation, not clinical validation"
-    Every set here is public and synthetic or hand-written. A table on the page is a regression
-    check, not a ranking, and nothing on it is graded.
+    Every set on the page is public and synthetic or hand-written. A table on the page is a
+    regression check, not a ranking, and nothing on it is graded. Grades are given only on a
+    frozen hidden set ([below](#a-hidden-sets-scoreboard)), and the page does not show them.
 
 ## What the store holds
 
 ```text
 scoreboard/
-  results/<sha256>.json    a result, named by its body's SHA-256
+  results/<sha256>.json    a result, named by its body's SHA-256 (a public set's entry, or a
+                           hidden set's answer, which has no ledger or run record here)
   ledgers/<sha256>.jsonl   each result's ledger, named by its id
   runs/<sha256>.json       each result's run record: every case's latency and tokens
   prices/<date>.json       a dated price table (none yet: no local configuration is priced)
@@ -107,7 +110,10 @@ The first fails when the page is not what the store gives. It runs before
 - a current result's signature does not verify against `scoreboard/keys.json`;
 - a public result is not what its stored inputs give, byte for byte, or its ledger does not
   re-run to the same bytes;
-- a new result is of a remote configuration, or is measured after today.
+- a new result is of a remote configuration, or is measured after today;
+- a hidden set's result does not fit `mendari.hidden_scoreboard/1` field by field, is not of a
+  pack Mendari maintains or, when new, is under another method or measured after today. It is
+  never recomputed: no ledger of a hidden set is kept.
 
 It needs no secret, writes nothing and calls nothing off the machine. Both read the packs from
 the repository's `packs/`, never from `MENDARI_PACKS_PATH` or the registry cache.
@@ -149,3 +155,54 @@ accepts the change once the public key is in `scoreboard/keys.json`. A current r
 signature must keep verifying. When a key leaks and is taken out of the keys file, its results
 are run again with `--again`, in the same pull request: the new results supersede them, and the
 old ones stay in the store, as they were signed.
+
+## A hidden set's scoreboard
+
+Grades and ranks are given only on a frozen hidden set (the method, sections 3 to 9), through the
+hidden-set grading route ([Grading a hidden set](evalsets.md#the-hidden-set-scoreboard)). The
+grading key is the deployment's, minted by the operator; the set's cases never leave the
+deployment's database, and the answer holds aggregates only (`mendari.hidden_scoreboard/1`).
+
+1. **Declare.** Before any hidden set of the pack is graded, the owner declares one
+   configuration per arm and commits the declaration (`scoreboard/declared/<pack>.json`, the
+   method's section 3). Under the method 1.0 a hidden set is graded with local providers only
+   (owner decision 2), so the deterministic arm is the one declared arm that runs. Take the
+   SHA-256 of the committed file:
+
+    ```bash
+    shasum -a 256 scoreboard/declared/patient-inbox-router.json
+    ```
+
+2. **Post it.** Send the declaration's arms and its SHA-256 to the set's grading route, with
+   the deployment's grading key, as the [evaluation-set runbook](evalsets.md#the-hidden-set-scoreboard)
+   shows. Each declared arm is checked before any case is read: one that calls a remote provider
+   is refused `remote_provider`, one declared under another arm `wrong_arm`, and nothing is
+   read or counted. Then one grading read decides every declared arm on the same cases: one
+   chained `evalset.graded`, one of the set's runs. Save the answer as it came:
+   `scoreboard-answer.json`. Undeclared arms read "not graded here" (their configurations call a
+   remote provider) or "not applicable", and the ranking reads "off: one arm graded" while only
+   the deterministic arm is local.
+
+3. **Store it.** From the repository's root:
+
+    ```bash
+    uv run mendari scoreboard add scoreboard-answer.json
+    uv run mendari scoreboard add scoreboard-answer.json --supersedes <sha256>
+    ```
+
+    It is stored as it was answered, under its body's SHA-256, which leaves the run block
+    (`run`, `runs_left`) out: a second read of the same set on the same day is the same result,
+    stored already. One pack and set has one current result, its arms in it; a later day's
+    answer supersedes the earlier with `--supersedes`. It is refused when it does not fit its
+    closed schema, is of a pack Mendari does not maintain, is under another method or measured
+    after today. It is never recomputed, and the page of public sets does not show it.
+
+4. **Sign it.** The owner signs it on their own machine, as any result
+   ([Signing](#signing)). The signature covers its body and its run block, so a signed hidden-set
+   result is the owner's attestation of that run's numbers: no one else can recompute it, since
+   no ledger of a hidden set is kept. It carries the set's freeze commitment, which the grading
+   key does not sign on its own.
+
+While the method has no effective date, the answer's scope says it is not in effect, and every
+attestation (and a ranking, once one is on) is a draft. A 600-case set runs in a few seconds, well within the route's deadline, so the
+run stays in the route and no figure is dropped.

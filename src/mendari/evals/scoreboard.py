@@ -36,6 +36,14 @@ result it supersedes in the results store (`supersedes`, LP-17f, `evals/results_
 is built, and never stored: no clock is read, so every entry shows the date it goes stale. Its
 ranking and each entry's grade come from `bands.ranking` and `grade.grade` (LP-17j): on a public
 set, off and None. Nothing here reads a clock, a setting or the network, and nothing names a case.
+
+`hidden_entry` is a frozen hidden set's entry (LP-17k): made in memory, inside the grading read
+that decided its arm, from the ledger and the records that read handed over (their inputs give
+the distinct groups, their `attributes.weight` the weighted figures), and never stored. It holds
+the same figures but cost, latency and subgroups (a local configuration's cost is 0 by
+construction, kept for the band tuple only), and its scope names the set by its id and freeze
+commitment, never a hash of its cases. `evals/hidden.py` grades and ranks it, and answers what
+`mendari.hidden_scoreboard/1` holds of it.
 """
 
 from __future__ import annotations
@@ -62,6 +70,7 @@ from mendari.providers import MODEL_TYPES
 FORMAT = "mendari.scoreboard/1"
 PUBLIC = grade.PUBLIC  # every shipped set's kind: never ranked or graded
 PUBLIC_SET = grade.PUBLIC_SET
+HIDDEN = "hidden"  # a frozen hidden set's kind (`hidden_entry`): graded, and ranked when it can be
 NOT_CLINICAL = "engineering evaluation, not clinical validation"
 NO_MODEL_PROVIDER = "no model provider"
 DISCLOSURE_PENDING = "not published: disclosure pending"
@@ -207,6 +216,96 @@ def entry(
     return {**found, "body_sha256": body_sha256(found)}
 
 
+def hidden_entry(
+    ledger: Ledger,
+    dataset: Dataset,
+    *,
+    pack: PackScope,
+    arm: str,
+    configuration: arms.Configuration,
+    set_id: str,
+    commitment: str,
+    measured_on: datetime.date,
+) -> dict[str, Any]:
+    """The in-memory entry of `configuration` (in `arm`, a local configuration) of `pack` on a
+    frozen hidden set (LP-17k): `dataset` is what the set's grading read handed over (its id
+    `set_id`, its freeze `commitment`), `ledger` the run's ledger over it, and `measured_on` the
+    day of the read. Its figures are an entry's but cost, latency and subgroups: no run record
+    is kept of a hidden set, and a hidden set's answer holds none of them. `cost_per_1000` is
+    "0 (no metered calls)", which a local configuration's is by construction, for the band tuple
+    only. Its scope's set is `{kind: "hidden", id, commitment, n, distinct_inputs, norm}`: never
+    a name or a hash of the cases. Its `inputs` name the ledger's id, for `bands.ranking` to
+    pair the arms' ledgers in memory; nothing answers it (`evals/hidden.py`).
+
+    Refused, in a `MendariError` that names no case: a remote configuration, a ledger of another
+    pack or of other cases than the dataset's (in its order), and another configuration or arm."""
+    if not configuration.local:
+        raise MendariError(
+            f"a hidden set is graded with local configurations only, not {configuration.label}"
+        )
+    _refuse_pack(ledger, pack)
+    on = ledger.header["dataset"]
+    if (on.get("name"), on.get("n")) != (dataset.name, len(dataset.records)):
+        raise MendariError(f"the ledger {ledger.id} is of another set (its name or n differs)")
+    _refuse_cases(ledger, dataset, arm, configuration)
+    header, cases = ledger.header, ledger.cases
+    result = result_from_ledger(ledger, seed=method.SEED, resamples=method.RESAMPLES)
+    group_of = bands.groups_of(dataset.records)
+    figures = {
+        "critical": _critical(header, cases, result, group_of),
+        **_proportions(result),
+        **_means(header, cases, result),
+        # Local only: no metered call, by construction. The band tuple's last element; a hidden
+        # set's answer holds no cost.
+        "cost_per_1000": {"status": "none", "text": NO_METERED_CALLS},
+        "weighted": _weighted(header, cases, dataset),
+    }
+    scope = {
+        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "status": pack.status,
+        "set": {
+            "kind": HIDDEN,
+            "id": set_id,
+            "commitment": commitment,
+            "n": len(cases),
+            "distinct_inputs": len(set(group_of)),
+            "norm": NORM_VERSION,
+        },
+        "providers": header["providers"],
+        "models": {"answered": header["models"]},
+        "method": {
+            "version": method.METHOD,
+            "sha256": method.METHOD_SHA256,
+            "in_effect": method.in_effect(measured_on),
+        },
+        "measured_on": measured_on.isoformat(),
+        "evaluation": NOT_CLINICAL,
+        "disclosure": _disclosure(configuration, None),
+    }
+    return {
+        "format": FORMAT,
+        "arm": arm,
+        "configuration": configuration.to_dict(),
+        "inputs": {"ledger": ledger.id, "method": method.METHOD_SHA256},
+        "seeds": {"bootstrap": method.SEED, "resamples": method.RESAMPLES, "level": method.LEVEL},
+        "scope": scope,
+        "figures": figures,
+    }
+
+
+def _refuse_pack(ledger: Ledger, pack: PackScope) -> None:
+    """A ledger of another pack (id, version or digest), or a status line Mendari does not
+    write."""
+    if pack.status not in STATUSES:
+        raise MendariError("the pack's status line is not one Mendari writes")
+    of = ledger.header["pack"]
+    if (of.get("id"), of.get("version"), of.get("digest")) != (pack.id, pack.version, pack.digest):
+        raise MendariError(
+            f"the ledger {ledger.id} is of {of.get('id')}@{of.get('version')} "
+            f"({of.get('digest')}), not {pack.id}@{pack.version} ({pack.digest})"
+        )
+
+
 def _refuse_another(
     ledger: Ledger,
     dataset: Dataset,
@@ -216,14 +315,7 @@ def _refuse_another(
     record: Mapping[str, Any],
 ) -> None:
     header = ledger.header
-    if pack.status not in STATUSES:
-        raise MendariError("the pack's status line is not one Mendari writes")
-    of = header["pack"]
-    if (of.get("id"), of.get("version"), of.get("digest")) != (pack.id, pack.version, pack.digest):
-        raise MendariError(
-            f"the ledger {ledger.id} is of {of.get('id')}@{of.get('version')} "
-            f"({of.get('digest')}), not {pack.id}@{pack.version} ({pack.digest})"
-        )
+    _refuse_pack(ledger, pack)
     on = header["dataset"]
     expected = {
         "name": dataset.name,
@@ -234,6 +326,24 @@ def _refuse_another(
     for key, value in expected.items():
         if on.get(key) != value:
             raise MendariError(f"the ledger {ledger.id} is of another dataset (its {key} differs)")
+    _refuse_cases(ledger, dataset, arm, configuration)
+    problem = runs.disagreement(record, ledger)
+    if problem is not None:
+        raise MendariError(f"the run record does not agree with the ledger: {problem}")
+    called = set(record["models"]) | {kind for case in record["cases"] for kind in case["tokens"]}
+    if not called <= set(configuration.remote_types):
+        raise MendariError(
+            f"the run record names a type the configuration {configuration.label} does not call "
+            f"({', '.join(sorted(called - set(configuration.remote_types)))})"
+        )
+
+
+def _refuse_cases(
+    ledger: Ledger, dataset: Dataset, arm: str, configuration: arms.Configuration
+) -> None:
+    """A ledger of other cases than the dataset's, in its order, or of another configuration;
+    a configuration that is not in `arm`."""
+    header = ledger.header
     if len(ledger.cases) != len(dataset.records):
         raise MendariError(
             f"the ledger {ledger.id} holds {len(ledger.cases)} cases and {dataset.name} "
@@ -252,15 +362,6 @@ def _refuse_another(
     if variants != configuration.providers:
         raise MendariError(
             f"the ledger {ledger.id} is of another configuration than {configuration.label}"
-        )
-    problem = runs.disagreement(record, ledger)
-    if problem is not None:
-        raise MendariError(f"the run record does not agree with the ledger: {problem}")
-    called = set(record["models"]) | {kind for case in record["cases"] for kind in case["tokens"]}
-    if not called <= set(configuration.remote_types):
-        raise MendariError(
-            f"the run record names a type the configuration {configuration.label} does not call "
-            f"({', '.join(sorted(called - set(configuration.remote_types)))})"
         )
 
 
