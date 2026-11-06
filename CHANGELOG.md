@@ -705,6 +705,38 @@ The first release (not yet published).
   results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
   pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
   the dashboard and the leaderboards are as they were.
+- **Remote arms on public sets, built and off** (LP-17h; the grading method's sections 9, 10
+  and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
+  to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local
+  configuration runs one), needs `--prices FILE` when the configuration calls a model, and runs
+  only the configuration a pack's declaration (`scoreboard/declared/<pack name>.json`,
+  `mendari.declared/1`: per arm one remote configuration, and one local one for hidden sets)
+  names for its arm, committed before the run. Replicate 1 is the headline. An entry of
+  replicates cites the declaration's SHA-256 (`inputs.declared`) and every replicate's ledger
+  and run record (`inputs.replicates`), and `figures.replicates` holds the case flip rate (k of
+  n cases whose primary prediction or outcome differs between any two replicates, matched by
+  ledger hash, with its interval), each figure's spread (its minimum to maximum, a description)
+  and the models each type reported (`runs.replicates`). An entry of one replicate is byte for
+  byte as before: every stored result recomputes unchanged. `mendari scoreboard canary PACK
+  --config ... --size 30 --seed S` draws 30 cases of the pack's `test` set by seed, decides them
+  once, by hand and never in CI, and compares them with replicate 1 (`mendari.canary/1`, under
+  `scoreboard/canaries/`); no schedule runs it. Freshness, worked out when the page is built:
+  another model reported by a later run, a replicate or a canary of the configuration, and a
+  canary's drift (its flip rate's lower bound above the replicates' upper bound) mark its results
+  stale ("stale: another model reported", "stale: canary drift"). An entry with remote calls
+  whose provider type has no statement in `scoreboard/disclosures.json` (added, with none yet)
+  reads "not published: disclosure pending": its scope is shown and its figures are not, and the
+  insufficient-evidence banner leaves it out. The store check recomputes a new remote result
+  from all its replicates, never re-runs a remote ledger, and refuses one without 3 to 5
+  replicates or its pack's declaration of it; it also checks each declaration against its pack
+  and keeps canaries append-only. The page gains three rows per entry (replicates, case flip
+  rate, spread; a local configuration's read "1 (local: deterministic)" and "none: one
+  replicate") and a Canaries section. The Clinical Trial Prescreener's `structured=cql` was
+  measured on its three public scoring sets with Mendari's own CQL engine (the sandbox's HAPI
+  FHIR, as CI's `cql` job runs it), 3 replicates each, 2026-11-05: every replicate's ledger is
+  the same bytes (0 flips), and the three results read "not published: disclosure pending"
+  until `cql` has a statement. No model provider was called, and no remote arm (Jev, an LLM)
+  is measured: each still reads "not measured".
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

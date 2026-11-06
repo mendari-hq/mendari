@@ -23,9 +23,10 @@ in the required `reference-pack` job) refuses a result removed or changed agains
 except a valid signature added to an unsigned result whose body stays the same. It recomputes
 every public result from its stored inputs, and re-runs every local ledger on its pack's current
 digest. A result of an older digest is recomputed and kept, never re-run; one whose set or
-method changed is kept as it is. A new result must be of a local configuration (a remote one's
-ledger could not be re-run without a call off the machine), on its pack's current digest, set
-and method, and measured no later than today, so that all of it is checked. The packs are the
+method changed is kept as it is. A new result must be on its pack's current digest, set and
+method, and measured no later than today, so that all of it is checked; a new remote one must
+hold its replicates and its pack's declaration of it (its ledgers could not be re-run without a
+call off the machine, so they are recomputed from, never re-run). The packs are the
 ones Mendari maintains, read from the bundled packs alone (`maintained_pack`: the repository's
 `packs/` in a checkout), never from `MENDARI_PACKS_PATH` or the registry cache.
 

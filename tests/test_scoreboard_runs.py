@@ -14,7 +14,7 @@ import datetime
 import itertools
 import json
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -159,17 +159,22 @@ def store(tmp_path: Path) -> Store:
     return Store(root)
 
 
+def declaration(pack_id: str, arm: str, providers: dict[str, str]) -> bytes:
+    """A declaration of `providers` as `arm`'s remote configuration of the pack."""
+    data = {
+        "format": runs.DECLARED_FORMAT,
+        "pack": pack_id,
+        "date": DATE.isoformat(),
+        "arms": {arm: {"remote": providers}},
+    }
+    return (json.dumps(data, indent=2) + "\n").encode()
+
+
 def declare(store: Store, pack: Pack, arm: str, providers: dict[str, str]) -> Path:
     """Write the pack's declaration of `providers` as `arm`'s remote configuration."""
     path = store.declaration_path(pack.id)
     path.parent.mkdir(exist_ok=True)
-    data = {
-        "format": runs.DECLARED_FORMAT,
-        "pack": pack.id,
-        "date": DATE.isoformat(),
-        "arms": {arm: {"remote": providers}},
-    }
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    path.write_bytes(declaration(pack.id, arm, providers))
     return path
 
 
@@ -471,31 +476,35 @@ def test_a_run_refuses_to_start_in_ci(
         assert "--replicates" not in text and "scoreboard canary" not in text, workflow.name
 
 
-def stored_replicates(
-    store: Store, pack: Pack, monkeypatch: pytest.MonkeyPatch, **fakes: Any
-) -> results_store.Held:
-    """Three replicates of the inbox's Jev screen on its `test` set (600 cases), stored as a
-    result (written past `add`, which would recompute it: the store check does that)."""
-    fake_jev(monkeypatch, **fakes)
-    path = declare(store, pack, arms.CLASSIFIER, jev(pack).providers)
-    declared = runs.declaration(path.read_bytes()).sha256
-    measured = results_store.measure(
-        pack, "test", jev(pack), date=DATE, replicates=3, declared=declared
-    )
-    for ledger, run in measured.inputs:
-        store.put_ledger(ledger)
-        store.put_run(run)
-    target = store.root / "results" / f"{measured.name}.json"
-    target.parent.mkdir(exist_ok=True)
-    target.write_text(signing.dump(measured.entry), encoding="utf-8")
-    return store.results()[measured.name]
+@pytest.fixture(scope="module")
+def test_replicates(inbox: Pack) -> results_store.Measured:
+    """Three replicates of the inbox's Jev router on its `test` set (600 cases), which agree on
+    every case: made once for the module."""
+    with pytest.MonkeyPatch.context() as patch:
+        for name in signing.CI_SETTINGS:
+            patch.delenv(name, raising=False)
+        fake_jev(patch)
+        made = declaration(INBOX, arms.CLASSIFIER, jev(inbox).providers)
+        declared = runs.declaration(made).sha256
+        return results_store.measure(
+            inbox, "test", jev(inbox), date=DATE, replicates=3, declared=declared
+        )
 
 
 @pytest.fixture
 def replicated(
-    store: Store, inbox: Pack, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[results_store.Held]:
-    yield stored_replicates(store, inbox, monkeypatch)
+    store: Store, inbox: Pack, test_replicates: results_store.Measured
+) -> results_store.Held:
+    """`test_replicates`, stored as a result with its declaration (written past `add`, which
+    would recompute it: the store check does that)."""
+    declare(store, inbox, arms.CLASSIFIER, jev(inbox).providers)
+    for ledger, run in test_replicates.inputs:
+        store.put_ledger(ledger)
+        store.put_run(run)
+    target = store.root / "results" / f"{test_replicates.name}.json"
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(signing.dump(test_replicates.entry), encoding="utf-8")
+    return store.results()[test_replicates.name]
 
 
 def marks_of(store: Store, pack: Pack) -> dict[str, list[str]]:
@@ -576,16 +585,18 @@ def test_canary_drift_marks_its_arm_stale(
         stem: (store.root / "canaries" / f"{stem}.json").read_bytes()
         for stem in (name, steady_name)
     }
-    found = results_store.check(store, base={}, base_canaries=base)
-    assert [line for line in found.problems if "canaries/" in line] == []
     edited = json.loads(json.dumps(drifted))
     edited["drift"] = False
     edited["body_sha256"] = scoreboard.body_sha256(edited)
     (store.root / "canaries" / f"{name}.json").unlink()
     store.put_canary(edited)
     problems = results_store.check(store, base={}, base_canaries=base).problems
-    assert f"canaries/{name}.json: removed or changed: a canary is kept as it was run" in problems
-    assert any("is not what its inputs give" in line for line in problems)
+    canaries = [line for line in problems if "canaries/" in line]
+    edited_name = scoreboard.body_sha256(edited).removeprefix("sha256:")
+    assert canaries == [
+        f"canaries/{name}.json: removed or changed: a canary is kept as it was run",
+        f"canaries/{edited_name}.json: it is not what its inputs give (recomputed, a byte differs)",
+    ]  # and the steady canary is what its inputs give
     assert dataset.sha256 == replicated.dataset
 
 

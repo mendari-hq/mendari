@@ -100,13 +100,30 @@ def test_all_five_packs_appear_on_every_public_scoring_set(text: str) -> None:
         for configuration in results_store.local_configurations(resolve_pack(pack)):
             written = results_store.written(configuration.providers)
             assert f"| Mendari only: `{written}`" in body, (pack, name, written)
-    # The prescreener's CQL configuration is deterministic, but remote: not measured here.
+    # The prescreener's CQL configuration is deterministic, but remote: measured by a build
+    # session on Mendari's own CQL engine, in 3 replicates (LP-17h), and not published until
+    # `cql` has a disclosure statement: its scope is shown, and none of its figures.
     for name in ("test", "exclusions", "exclusions_holdout"):
         body = shown[("mendari/clinical-trial-prescreener", name)]
-        assert "Not measured yet, in an arm measured here: Mendari only: " in body
-        assert "`notes=rules,structured=cql`" in body
+        assert "Not measured yet" not in body
+        assert "| Mendari only: `notes=rules,structured=cql` |" in body
+        assert f"| Disclosure | {scoreboard.DISCLOSURE_PENDING} | no model provider |" in body
+        assert f"| Accuracy | {scoreboard.DISCLOSURE_PENDING} | " in body
+        assert f"| Case flip rate | {scoreboard.DISCLOSURE_PENDING} | none: one replicate |" in body
     store = Store.at(ROOT / "scoreboard")
-    assert len(results_store.heads(store.results())) == 18
+    heads = results_store.heads(store.results())
+    assert len(heads) == 21
+    remote = [found for found in heads.values() if not found.local]
+    assert sorted(found.set_name for found in remote) == sorted(
+        ("test", "exclusions", "exclusions_holdout")
+    )
+    for found in remote:
+        assert found.providers == {"notes": "rules", "structured": "cql"}
+        assert len(found.replicates) == 3 and found.declared is not None
+        assert found.result["figures"]["replicates"]["flip_rate"]["k"] == 0  # deterministic
+    # No remote arm (a model's) is measured: each reads "not measured".
+    for body in shown.values():
+        assert "+ specialised classifier: not measured; + general LLM: not measured" in body
 
 
 def test_the_early_scoreboard_is_unranked_with_intervals_banner_and_scope(text: str) -> None:
@@ -116,8 +133,13 @@ def test_the_early_scoreboard_is_unranked_with_intervals_banner_and_scope(text: 
         assert "Engineering evaluation, not clinical validation." in body
         for row in SCOPE_ROWS:
             assert re.search(rf"^\| {row} \|", body, flags=re.M), (pack, name, row)
-        assert re.search(r"^\| Accuracy \| \d+ of \d+ \[[^\]]+%\] \|", body, flags=re.M)
-        assert re.search(r"^\| Macro-F1 \| [\d.]+ \[[\d.]+-[\d.]+\] \|", body, flags=re.M)
+        # A figure in each table: a remote entry whose disclosure is pending shows none.
+        assert re.search(
+            r"^\| Accuracy \|(?: [^|]+ \|)*? \d+ of \d+ \[[^\]]+%\] \|", body, flags=re.M
+        )
+        assert re.search(
+            r"^\| Macro-F1 \|(?: [^|]+ \|)*? [\d.]+ \[[\d.]+-[\d.]+\] \|", body, flags=re.M
+        )
         assert "lower bound " in body and "simultaneous across" in body
         assert "Arms: Mendari only: measured;" in body
     # Only the Referral Router's test set has enough distinct positives on every critical label.
@@ -140,7 +162,7 @@ def test_the_page_has_no_bare_percentage_rank_or_ranked(text: str) -> None:
 def test_unsigned_and_draft_are_said_on_the_page(text: str) -> None:
     rows = re.findall(r"^\| Marks \| (.+) \|$", text, flags=re.M)
     cells = [cell.strip() for row in rows for cell in row.split(" | ")]
-    assert (len(rows), len(cells)) == (15, 18)
+    assert (len(rows), len(cells)) == (15, 21)
     for cell in cells:
         assert cell.startswith(f"{scoreboard.UNSIGNED}; {scoreboard.DRAFT}; "), cell
         assert re.search(r"stale after \d{4}-\d{2}-\d{2}$", cell), cell

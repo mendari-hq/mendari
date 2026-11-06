@@ -1308,9 +1308,9 @@ a public set an entry is a regression check with no rank and no grade.
 Results are kept in the repository, in an append-only store under `scoreboard/`: each result
 named by its body's SHA-256, beside its ledger and its run record, each named by its own hash.
 `mendari scoreboard run PACK [--dataset NAME] [--config slot=variant | --every-local]` runs a
-local configuration of a pack Mendari maintains over its public scoring sets (never `train`,
-`calibration`, a file or a hidden set; a remote configuration is refused) and stores the
-result, unsigned; one still current is kept, and a new one supersedes the old.
+configuration of a pack Mendari maintains over its public scoring sets (never `train`,
+`calibration`, a file or a hidden set) and stores the result, unsigned; one still current is
+kept, and a new one supersedes the old.
 `mendari scoreboard add FILE` stores a result made elsewhere, never over another file.
 `./scripts/build-scoreboard.sh` runs every local configuration of the five reference packs on
 their 15 public scoring sets (18 results, about 2.7 MB) and writes the
@@ -1320,9 +1320,21 @@ interval, the insufficient-evidence banner (only the Referral Router's `test` se
 distinct positives on every critical label) and the marks "unsigned" and "method draft, not in
 effect". CI's `reference-pack` job checks that nothing stored is removed or changed (but for a
 valid signature added), that each result is what its inputs give, that each local ledger
-re-runs to the same bytes and that a new result is of a local configuration
-(`scripts/check_scoreboard.py`), and that the page is the store's
+re-runs to the same bytes and that a new remote result holds its replicates and its
+declaration (`scripts/check_scoreboard.py`), and that the page is the store's
 ([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
+
+A remote configuration (one that calls Jev, an LLM or Mendari's CQL engine) is run by hand,
+never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [--prices FILE]`
+refuses to start when `CI` or `GITHUB_ACTIONS` is set, and runs only the configuration the
+pack's declaration (`scoreboard/declared/<pack name>.json`, committed before the run) names for
+its arm. Replicate 1 is the headline, shown with the case flip rate between any two replicates
+and each figure's spread. `mendari scoreboard canary PACK --config ... --seed S` decides a
+seeded draw of 30 `test` cases once, by hand, and a canary that drifts from the replicates, or
+reports another model, marks the configuration's results stale. Until each remote provider type
+a result calls has a statement in `scoreboard/disclosures.json` (none yet), it reads "not
+published: disclosure pending", its figures kept off the page. The Clinical Trial Prescreener's
+CQL configuration is measured so, on Mendari's own CQL engine; no Jev or LLM arm is.
 
 A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
 evidence, never a letter or a score: no critical case automated, each critical label's recall

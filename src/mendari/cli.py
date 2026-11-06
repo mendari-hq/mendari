@@ -661,9 +661,10 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
     never over another file. `--supersedes HASH` names the stored result it replaces, which
     becomes part of its body: refused for a signed result, whose signature would no longer
-    hold. A public result must be of a local configuration, on its pack's current digest, set
-    and method, measured no later than today, and what its stored inputs give; a signed one
-    must verify against the store's keys."""
+    hold. A public result must be on its pack's current digest, set and method, measured no
+    later than today, and what its stored inputs give; a remote configuration's must also hold
+    3 to 5 replicates and its pack's declaration of it (LP-17h); a signed one must verify
+    against the store's keys."""
     from mendari.evals import results_store, scoreboard, signing
     from mendari.hub.client import config_dir
 

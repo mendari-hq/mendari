@@ -281,7 +281,7 @@ An entry is refused, with a message that names ids and hashes and never a case, 
 |---|---|
 | `format` | `mendari.scoreboard/1`. |
 | `arm`, `configuration` | The arm (`mendari.arms/1`), and the configuration: `providers` (slot to variant), `local` and `remote_types`. |
-| `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date when the cost is priced from it (else null, so an entry no table priced is the same whichever table is at hand), and the method's SHA-256. |
+| `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date when the cost is priced from it (else null, so an entry no table priced is the same whichever table is at hand), and the method's SHA-256. An entry of replicates (below) also holds `replicates`, each replicate's `{replicate, ledger, run}` (its number, its ledger's id and its run record's SHA-256), replicate 1 first; and `declared`, the SHA-256 of the declaration that names its configuration. Neither is written for an entry of one replicate. |
 | `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
 | `scope` | What the figures are of (below). |
 | `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null (see [Grades and band ranking](#grades-and-band-ranking)). |
@@ -314,6 +314,7 @@ its scope is shown and its figures are not.
 | `latency_ms` | `p50` and `p95` (Hyndman and Fan's definition 7), each with its bootstrap interval, and the `note` "measured on the runner, not reproducible". |
 | `subgroups` | Per declared subgroup and value: its cases, and its accuracy, automation and AUTO error rate as k of n, each `too few` over fewer than 10 cases. |
 | `weighted` | `as sampled`, or, when every record carries `attributes.weight`, the Korn-Graubard accuracy, false automation, automation and AUTO error rate (`estimate`, `effective_n`, `low`, `high`), beside the unweighted figures. |
+| `replicates` | Only in an entry of replicates: their `count`, the `headline` (1), the `flip_rate` (k of n with its interval), the `spread` (per figure, `{min, max, replicates}`, or `not_estimable`) and the `models` each type reported across them. |
 
 - **Distinct positives:** the dataset's cases are grouped by their input under `norm/v1`. A
   group is a positive of a critical label when any of its cases is, and detected only when every
@@ -335,6 +336,19 @@ its scope is shown and its figures are not.
 - **Latency** is read from the run record, never measured again, and never ranked.
 - **Weighted figures:** detection is never weighted. A set with weights on some records and not
   others is refused.
+- **Replicates** (LP-17h; the method's section 10): a remote configuration's entry may be made
+  from 3 to 5 runs over the set, `entry(..., replicates=[(ledger, run), ...], declared=...)`.
+  Its figures are replicate 1's, the headline, as declared before the run. The case flip rate
+  is k of n cases whose primary prediction or outcome differs between any two replicates,
+  matched by ledger hash (a public set's case key comes from its bytes, so the hashes line up),
+  with its 95% interval. The spread is each figure's minimum to maximum across the replicates
+  that have it, a description with no interval: detection and critical cases automated per
+  critical label, false automation, the AUTO error rate, automation, accuracy, macro-F1, Brier,
+  Brier's reliability term, ECE, cost and latency (subgroups and weighted figures are left
+  out). The other replicates are priced from the table only when the headline is. Refused:
+  replicates of a local configuration (it is deterministic: one replicate, no flips), more than
+  5, a headline that is not replicate 1, replicates out of order or of another day, and a
+  replicate of another pack, set or configuration, or of other cases.
 
 ### The board
 
@@ -347,25 +361,31 @@ order. Each table holds:
 
 - its ranking (`bands.ranking`): on a public set, off, "public set: regression check, not a
   ranking"; and the words "engineering evaluation, not clinical validation";
-- the insufficient-evidence banner when any entry's critical label is short of evidence, naming
-  each such label, its distinct positives and the minimum;
+- the insufficient-evidence banner when any published entry's critical label is short of
+  evidence, naming each such label, its distinct positives and the minimum (an entry whose
+  disclosure is pending shows none of its figures, so it is left out);
 - each arm's status: measured, "not measured", or "not applicable" for an arm the pack cannot
   build; and each configuration of a measured arm that has no entry in the table (`not_measured`,
-  "not measured yet"), such as the Clinical Trial Prescreener's `structured=cql`, which is
-  deterministic but calls Mendari's CQL engine;
+  "not measured yet");
 - each entry with its marks, worked out when the board is built and never stored: "unsigned"
   (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
   "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
-  "stale: another model reported" (a later run of the same configuration of the pack reports
-  another model of a type), and "stale after DATE", 45 days after it was measured. No clock is
-  read, so the date is shown and never checked;
+  "stale: another model reported" (a later run of the same configuration of the pack, one of
+  its own replicates, or a canary of it reports another model of a type), "stale: canary drift"
+  (a canary of the configuration shows drift; a canary marks the results measured no later
+  than the replicates it was compared with), and "stale after DATE", 45 days after it was
+  measured. No clock is read, so the date is shown and never checked. `board(entries, current,
+  canaries)` takes the canaries (`mendari.canary/1`);
 - each entry's grade (`grade.grade`): null on a public set.
 
 A board holds no ledger, so it never ranks a hidden set's arms: a hidden table of one entry
 reads "off: one arm graded", and one of two or more is refused.
 
 `render.scoreboard_markdown(board)` writes it in Markdown: per table its standing, the banner, the
-arms, then one column per entry with its marks, its scope and its figures. A proportion is k of n
+arms, then one column per entry with its marks, its scope and its figures, the last three its
+replicates, its case flip rate and its spread ("1 (local: deterministic)" and "none: one
+replicate" for a local configuration). An entry whose disclosure is pending reads "not
+published: disclosure pending" in every figure's row. A proportion is k of n
 with its exact 95% interval (as [How a figure is shown](#how-a-figure-is-shown) says), a mean is
 its value with its bootstrap interval, and ECE is "a description: no interval". It has no Rank
 column, no bare percentage, and names no case.
@@ -499,6 +519,41 @@ The disclosures file (`scoreboard/disclosures.json`) holds `format` (`mendari.di
 commercial relationship between Mendari and that provider. Both are closed schemas, and a
 refusal of either names a key the input chose as `<key>`, as a run record's does.
 
+## Declarations and canaries: `mendari.declared/1` and `mendari.canary/1`
+
+A pack's declaration (`scoreboard/declared/<pack name>.json`, LP-17h; the method's section 3)
+names, per arm, the configurations declared before any run. It is a closed schema, read as
+strictly as a run record, and cited by the SHA-256 of its bytes.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.declared/1`. |
+| `pack`, `date` | The pack's id, and the day it was declared. |
+| `arms` | Per arm (`mendari.arms/1`), `remote`: the one remote configuration run on public sets with replicates; and `local`: the one local configuration a hidden set grades. Each is slot to variant, and an arm names one or both. |
+
+A remote configuration is run only as its arm's `remote` configuration, with the declaration
+committed as it is before the run (`mendari scoreboard run` checks git's `HEAD`). A declaration
+is refused when it names a configuration the pack does not have, one in another arm, or one that
+is not remote (or local) where it says.
+
+A canary (`scoreboard/canaries/<sha256>.json`; the method's section 12) is a seeded draw of 30
+cases of a pack's `test` set, decided once by hand by a remote configuration, and compared with
+replicate 1 of its current result there, which holds replicates. The draw takes the cases whose
+SHA-256 of a domain tag, the seed and the case's ledger hash is smallest, in the set's order.
+
+| Field | What it holds |
+|---|---|
+| `format` | `mendari.canary/1`. |
+| `pack`, `set`, `arm`, `configuration` | What it was run on: the replicates' pack (`id`, `version`, `digest`), the `test` set (`name`, `sha256`), the arm and the configuration. |
+| `draw` | `{size, seed}`: 30 under method 1.0, and the seed. |
+| `measured_on`, `models` | The day it ran, and per model type the models its answers reported. |
+| `inputs` | Its ledger's id, its run record's SHA-256 and the method's SHA-256. |
+| `against` | The result it was compared with (`sha256:` and its body's SHA-256), the day it was measured and its replicates' flip rate. |
+| `flip_rate` | k of the drawn cases whose primary prediction or outcome differs from replicate 1's on the same case, matched by ledger hash, with its 95% interval. |
+| `drift` | Whether that interval's lower bound is above the upper bound of the replicates' flip rate's 95% interval, decided from k and n. |
+| `another_model` | Whether a model type of the canary or of the result reports models the other does not. |
+| `evaluation`, `body_sha256` | "engineering evaluation, not clinical validation", and the SHA-256 of its canonical JSON without `body_sha256`. |
+
 ## The results store: `scoreboard/`
 
 Scoreboard results are kept in the repository, under `scoreboard/` at its root
@@ -512,8 +567,10 @@ a publisher's pack could carry a forged result. Each file is named by its conten
 | `ledgers/<sha256>.jsonl` | A ledger (`mendari.ledger/1`), named by its id. |
 | `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
 | `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
+| `canaries/<sha256>.json` | A canary (`mendari.canary/1`), named by its body's SHA-256. |
+| `declared/<pack name>.json` | A pack's declared configurations (`mendari.declared/1`). |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
-| `disclosures.json` | The disclosures (`mendari.disclosures/1`): none yet, so every remote type's statement is pending. |
+| `disclosures.json` | The disclosures (`mendari.disclosures/1`): no statement yet, so every remote type's is pending. |
 
 - **Append-only.** Nothing stored changes, except that a valid signature may be added to an
   unsigned result whose body stays the same. `mendari scoreboard add FILE [--supersedes HASH]`
@@ -527,9 +584,14 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
   run record (each case's latency and tokens) and the entry, unsigned. A result that is still
   current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
-  stale date) is kept unless `--again`; a new one supersedes it. It refuses a remote
-  configuration, a fitting set and anything but a set the pack names, so a file or a hidden set
-  is never run. The pack is read from the repository's `packs/` (the bundled packs), never from
+  stale date) is kept unless `--again`; a new one supersedes it. It refuses a fitting set and
+  anything but a set the pack names, so a file or a hidden set is never run. A remote
+  configuration (LP-17h) is run by hand only: it is refused when `CI` or `GITHUB_ACTIONS` is
+  set, without `--replicates 3` to `5` (a local one runs 1), unless the pack's declaration names
+  it for its arm and is committed as it is, and, when it calls a model, without `--prices FILE`
+  (stored under `prices/` when a result is priced from it). Every replicate's ledger and run
+  record is stored. `mendari scoreboard canary PACK --config ... --size 30 --seed S` runs a
+  canary the same way, by hand, with no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
   `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
 - **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
   `reference-pack` job, names each file whose name is not its content's, each result of the base
@@ -539,9 +601,14 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   recomputes every public result from its stored ledger, its dataset (SHA-256 checked), its run
   record, its price table and the method, byte for byte, and re-runs every local ledger on its
   pack's current digest. A result of an older digest is recomputed and kept, never re-run; one
-  whose set or method changed is kept as it is, and shown stale. A new result must be of a local
-  configuration (a remote one's ledger could not be re-run without a call off the machine), on
-  its pack's current digest, set and method, and measured no later than today. A remote
+  whose set or method changed is kept as it is, and shown stale. A new result must be on its
+  pack's current digest, set and method, and measured no later than today. A new remote
+  configuration's result must hold 3 to 5 replicates and cite its pack's declaration as the
+  store holds it, which declares its configuration for its arm: it is recomputed from every
+  replicate's ledger and run record, and its ledgers are never re-run, which would call off the
+  machine. Each declaration is checked against its pack; each canary is recomputed from its
+  ledger, its run record and the result it was compared with (and its draw, while the set is
+  the one it was drawn from), and one of the base removed or changed is refused. A remote
   configuration's disclosure is recomputed from `disclosures.json` while its result is new, never
   taken from the result; once stored, it keeps the statements it holds. A superseded result
   keeps the signature it had, so a key taken out of the keys file leaves what it signed as

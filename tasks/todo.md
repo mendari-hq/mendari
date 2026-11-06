@@ -2091,8 +2091,28 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
     the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
     comparison sections become stale).
-  - [ ] **17h** Remote arms on public sets: 3 to 5 replicates, the spread and the flip rate, model
-    freshness, the canary and disclosures; built, and refusing to start in CI.
+  - [x] **17h** (lane PR) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
+    rate, model freshness, the canary and disclosures; built, and refusing to start in CI.
+    `mendari scoreboard run` takes a remote configuration by hand only (refused when `CI` or
+    `GITHUB_ACTIONS` is set): `--replicates 3` to `5` (a local one runs 1), `--prices FILE` when
+    it calls a model (a CQL configuration calls none, so needs none), and only as its arm's
+    `remote` configuration in `scoreboard/declared/<pack name>.json` (`mendari.declared/1`, per
+    arm one `remote` and one `local` configuration), committed as it is before the run (git's
+    `HEAD`). Replicate 1 is the headline; `inputs.replicates` and `inputs.declared` (the
+    declaration's SHA-256) and `figures.replicates` (`runs.replicates`: count, the case flip rate
+    k of n matched by ledger hash with its interval, each figure's spread, the models) are
+    written only for an entry of replicates, so every stored result recomputes unchanged.
+    `mendari scoreboard canary PACK --config ... --size 30 --seed S` (`mendari.canary/1`,
+    `scoreboard/canaries/`, no schedule): drift (its lower bound above the replicates' upper
+    bound) or another model marks the configuration's results stale, as do a later run's and a
+    replicate's other model. An entry with remote calls whose type has no statement in
+    `scoreboard/disclosures.json` (added, empty) shows its scope and none of its figures, and the
+    banner leaves it out. The store check recomputes a new remote result from its replicates
+    (never re-running a remote ledger), checks declarations and keeps canaries append-only. The
+    prescreener's `structured=cql` measured with Mendari's own CQL engine (compose `fhir`), 3
+    replicates on each of its three public sets, 2026-11-05: 0 flips, "not published: disclosure
+    pending" until `cql` has a statement. `tests/test_scoreboard_runs.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard canary`.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
   - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or

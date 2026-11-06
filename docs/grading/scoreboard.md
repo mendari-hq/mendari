@@ -7,7 +7,7 @@ The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14
 !!! warning "Engineering evaluation, not clinical validation"
     Every set here is public: it is in the repository and in the package, so anything can be tuned to it. Each table is a regression check, not a ranking. No figure orders its columns, and nothing here is graded: grades are given only on frozen hidden sets.
 
-- **18 current results** (0 superseded results listed at the end), 0 signed. A result reads "unsigned" until the owner signs it ([verifying a result](verifying.md)).
+- **21 current results** (0 superseded results listed at the end), 0 signed. A result reads "unsigned" until the owner signs it ([verifying a result](verifying.md)).
 - **"method draft, not in effect":** the method has no effective date yet.
 - **Stale:** each result shows the day it goes stale, 45 days after it was measured, as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: method changed" when the pack, the set or the method is no longer the one it was measured on. A stale result is run again, never edited, and the new one supersedes it.
 - **Insufficient evidence:** a table whose critical label has fewer distinct positives than the method's minimum carries the banner, naming each such label.
@@ -240,51 +240,49 @@ Public set: regression check, not a ranking. Engineering evaluation, not clinica
 
 Arms: Mendari only: measured; + specialised classifier: not measured; + general LLM: not measured; + both: not applicable.
 
-Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured=cql`.
-
-| | Mendari only: `notes=rules,structured=criteria` |
-|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
-| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
-| Set | public, sha256 `2cd78886a680…`, 32 cases, 32 distinct inputs (norm/v1) |
-| Method | mendari.grading/1.0, sha256 `59d28c87024b…` |
-| Measured on | 2026-10-18 |
-| Models | none reported |
-| Disclosure | no model provider |
-| Status | Synthetic example. Not clinically reviewed. Not for patient care. |
-| Detected note_pregnancy=yes | 5 of 5 [47.8-100.0%]; 5 distinct positives, 5 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pregnancy=yes | lower bound 33.4% at 99.17%, simultaneous across 6 labels (5 of 5 distinct groups detected) |
-| Critical automated note_pregnancy=yes | 0 of 5 [0.0-52.2%] |
-| Detected note_pancreatitis=yes | 4 of 4 [39.8-100.0%]; 4 distinct positives, 4 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pancreatitis=yes | lower bound 25.4% at 99.17%, simultaneous across 6 labels (4 of 4 distinct groups detected) |
-| Critical automated note_pancreatitis=yes | 0 of 4 [0.0-60.2%] |
-| Detected note_active_cancer_treatment=yes | 3 of 3 [29.2-100.0%]; 3 distinct positives, 3 detected; insufficient evidence (needs 107) |
-| Grade's bound note_active_cancer_treatment=yes | lower bound 16.1% at 99.17%, simultaneous across 6 labels (3 of 3 distinct groups detected) |
-| Critical automated note_active_cancer_treatment=yes | 0 of 3 [0.0-70.8%] |
-| Detected note_recent_cv_event=yes | 3 of 3 [29.2-100.0%]; 3 distinct positives, 3 detected; insufficient evidence (needs 107) |
-| Grade's bound note_recent_cv_event=yes | lower bound 16.1% at 99.17%, simultaneous across 6 labels (3 of 3 distinct groups detected) |
-| Critical automated note_recent_cv_event=yes | 0 of 3 [0.0-70.8%] |
-| Detected egfr_30_or_more=no | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
-| Grade's bound egfr_30_or_more=no | no distinct positives |
-| Critical automated egfr_30_or_more=no | no cases |
-| Detected no_recent_cv_event=no | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
-| Grade's bound no_recent_cv_event=no | no distinct positives |
-| Critical automated no_recent_cv_event=no | no cases |
-| False automation | 0 of 32 [0.0-10.9%] of labelled cases |
-| AUTO error rate | no AUTO cases |
-| Automation | 0 of 32 [0.0-10.9%] |
-| Accuracy | 32 of 32 [89.1-100.0%] |
-| Macro-F1 | 1.000 [1.000-1.000] |
-| Brier | 0.078 [0.057-0.100] |
-| Brier reliability | not estimable (32 scored cases; 10 equal-mass bins of at least 30 need 300) |
-| ECE (equal-mass) | not estimable (32 scored cases; 10 equal-mass bins of at least 30 need 300) |
-| Cost per 1,000 decisions | 0 (no metered calls) |
-| Latency p50 | 0.42 [0.41-0.49] ms, measured on the runner, not reproducible |
-| Latency p95 | 2.23 [1.18-8.62] ms, measured on the runner, not reproducible |
-| Weighted figures | as sampled |
-| Replicates | 1 (local: deterministic) |
-| Case flip rate | none: one replicate |
-| Spread across replicates | none: one replicate |
+| | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
+|---|---|---|
+| Marks | unsigned; method draft, not in effect; stale after 2026-12-20 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
+| Set | public, sha256 `2cd78886a680…`, 32 cases, 32 distinct inputs (norm/v1) | public, sha256 `2cd78886a680…`, 32 cases, 32 distinct inputs (norm/v1) |
+| Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
+| Measured on | 2026-11-05 | 2026-10-18 |
+| Models | none reported | none reported |
+| Disclosure | not published: disclosure pending | no model provider |
+| Status | Synthetic example. Not clinically reviewed. Not for patient care. | Synthetic example. Not clinically reviewed. Not for patient care. |
+| Detected note_pregnancy=yes | not published: disclosure pending | 5 of 5 [47.8-100.0%]; 5 distinct positives, 5 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pregnancy=yes | not published: disclosure pending | lower bound 33.4% at 99.17%, simultaneous across 6 labels (5 of 5 distinct groups detected) |
+| Critical automated note_pregnancy=yes | not published: disclosure pending | 0 of 5 [0.0-52.2%] |
+| Detected note_pancreatitis=yes | not published: disclosure pending | 4 of 4 [39.8-100.0%]; 4 distinct positives, 4 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pancreatitis=yes | not published: disclosure pending | lower bound 25.4% at 99.17%, simultaneous across 6 labels (4 of 4 distinct groups detected) |
+| Critical automated note_pancreatitis=yes | not published: disclosure pending | 0 of 4 [0.0-60.2%] |
+| Detected note_active_cancer_treatment=yes | not published: disclosure pending | 3 of 3 [29.2-100.0%]; 3 distinct positives, 3 detected; insufficient evidence (needs 107) |
+| Grade's bound note_active_cancer_treatment=yes | not published: disclosure pending | lower bound 16.1% at 99.17%, simultaneous across 6 labels (3 of 3 distinct groups detected) |
+| Critical automated note_active_cancer_treatment=yes | not published: disclosure pending | 0 of 3 [0.0-70.8%] |
+| Detected note_recent_cv_event=yes | not published: disclosure pending | 3 of 3 [29.2-100.0%]; 3 distinct positives, 3 detected; insufficient evidence (needs 107) |
+| Grade's bound note_recent_cv_event=yes | not published: disclosure pending | lower bound 16.1% at 99.17%, simultaneous across 6 labels (3 of 3 distinct groups detected) |
+| Critical automated note_recent_cv_event=yes | not published: disclosure pending | 0 of 3 [0.0-70.8%] |
+| Detected egfr_30_or_more=no | not published: disclosure pending | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
+| Grade's bound egfr_30_or_more=no | not published: disclosure pending | no distinct positives |
+| Critical automated egfr_30_or_more=no | not published: disclosure pending | no cases |
+| Detected no_recent_cv_event=no | not published: disclosure pending | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
+| Grade's bound no_recent_cv_event=no | not published: disclosure pending | no distinct positives |
+| Critical automated no_recent_cv_event=no | not published: disclosure pending | no cases |
+| False automation | not published: disclosure pending | 0 of 32 [0.0-10.9%] of labelled cases |
+| AUTO error rate | not published: disclosure pending | no AUTO cases |
+| Automation | not published: disclosure pending | 0 of 32 [0.0-10.9%] |
+| Accuracy | not published: disclosure pending | 32 of 32 [89.1-100.0%] |
+| Macro-F1 | not published: disclosure pending | 1.000 [1.000-1.000] |
+| Brier | not published: disclosure pending | 0.078 [0.057-0.100] |
+| Brier reliability | not published: disclosure pending | not estimable (32 scored cases; 10 equal-mass bins of at least 30 need 300) |
+| ECE (equal-mass) | not published: disclosure pending | not estimable (32 scored cases; 10 equal-mass bins of at least 30 need 300) |
+| Cost per 1,000 decisions | not published: disclosure pending | 0 (no metered calls) |
+| Latency p50 | not published: disclosure pending | 0.42 [0.41-0.49] ms, measured on the runner, not reproducible |
+| Latency p95 | not published: disclosure pending | 2.23 [1.18-8.62] ms, measured on the runner, not reproducible |
+| Weighted figures | not published: disclosure pending | as sampled |
+| Replicates | not published: disclosure pending | 1 (local: deterministic) |
+| Case flip rate | not published: disclosure pending | none: one replicate |
+| Spread across replicates | not published: disclosure pending | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -310,51 +308,49 @@ Public set: regression check, not a ranking. Engineering evaluation, not clinica
 
 Arms: Mendari only: measured; + specialised classifier: not measured; + general LLM: not measured; + both: not applicable.
 
-Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured=cql`.
-
-| | Mendari only: `notes=rules,structured=criteria` |
-|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
-| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
-| Set | public, sha256 `1e68d07522b3…`, 24 cases, 24 distinct inputs (norm/v1) |
-| Method | mendari.grading/1.0, sha256 `59d28c87024b…` |
-| Measured on | 2026-10-18 |
-| Models | none reported |
-| Disclosure | no model provider |
-| Status | Synthetic example. Not clinically reviewed. Not for patient care. |
-| Detected note_pregnancy=yes | 4 of 4 [39.8-100.0%]; 4 distinct positives, 4 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pregnancy=yes | lower bound 25.4% at 99.17%, simultaneous across 6 labels (4 of 4 distinct groups detected) |
-| Critical automated note_pregnancy=yes | 0 of 4 [0.0-60.2%] |
-| Detected note_pancreatitis=yes | 1 of 2 [1.3-98.7%]; 2 distinct positives, 1 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pancreatitis=yes | lower bound 0.2% at 99.17%, simultaneous across 6 labels (1 of 2 distinct groups detected) |
-| Critical automated note_pancreatitis=yes | 0 of 2 [0.0-84.2%] |
-| Detected note_active_cancer_treatment=yes | 1 of 3 [0.8-90.6%]; 3 distinct positives, 1 detected; insufficient evidence (needs 107) |
-| Grade's bound note_active_cancer_treatment=yes | lower bound 0.1% at 99.17%, simultaneous across 6 labels (1 of 3 distinct groups detected) |
-| Critical automated note_active_cancer_treatment=yes | 0 of 3 [0.0-70.8%] |
-| Detected note_recent_cv_event=yes | 2 of 3 [9.4-99.2%]; 3 distinct positives, 2 detected; insufficient evidence (needs 107) |
-| Grade's bound note_recent_cv_event=yes | lower bound 3.8% at 99.17%, simultaneous across 6 labels (2 of 3 distinct groups detected) |
-| Critical automated note_recent_cv_event=yes | 0 of 3 [0.0-70.8%] |
-| Detected egfr_30_or_more=no | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
-| Grade's bound egfr_30_or_more=no | no distinct positives |
-| Critical automated egfr_30_or_more=no | no cases |
-| Detected no_recent_cv_event=no | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
-| Grade's bound no_recent_cv_event=no | no distinct positives |
-| Critical automated no_recent_cv_event=no | no cases |
-| False automation | 0 of 24 [0.0-14.2%] of labelled cases |
-| AUTO error rate | no AUTO cases |
-| Automation | 0 of 24 [0.0-14.2%] |
-| Accuracy | 19 of 24 [57.8-92.9%] |
-| Macro-F1 | 0.791 [0.619-0.917] |
-| Brier | 0.260 [0.129-0.407] |
-| Brier reliability | not estimable (24 scored cases; 10 equal-mass bins of at least 30 need 300) |
-| ECE (equal-mass) | not estimable (24 scored cases; 10 equal-mass bins of at least 30 need 300) |
-| Cost per 1,000 decisions | 0 (no metered calls) |
-| Latency p50 | 0.48 [0.47-0.51] ms, measured on the runner, not reproducible |
-| Latency p95 | 0.61 [0.51-0.66] ms, measured on the runner, not reproducible |
-| Weighted figures | as sampled |
-| Replicates | 1 (local: deterministic) |
-| Case flip rate | none: one replicate |
-| Spread across replicates | none: one replicate |
+| | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
+|---|---|---|
+| Marks | unsigned; method draft, not in effect; stale after 2026-12-20 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
+| Set | public, sha256 `1e68d07522b3…`, 24 cases, 24 distinct inputs (norm/v1) | public, sha256 `1e68d07522b3…`, 24 cases, 24 distinct inputs (norm/v1) |
+| Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
+| Measured on | 2026-11-05 | 2026-10-18 |
+| Models | none reported | none reported |
+| Disclosure | not published: disclosure pending | no model provider |
+| Status | Synthetic example. Not clinically reviewed. Not for patient care. | Synthetic example. Not clinically reviewed. Not for patient care. |
+| Detected note_pregnancy=yes | not published: disclosure pending | 4 of 4 [39.8-100.0%]; 4 distinct positives, 4 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pregnancy=yes | not published: disclosure pending | lower bound 25.4% at 99.17%, simultaneous across 6 labels (4 of 4 distinct groups detected) |
+| Critical automated note_pregnancy=yes | not published: disclosure pending | 0 of 4 [0.0-60.2%] |
+| Detected note_pancreatitis=yes | not published: disclosure pending | 1 of 2 [1.3-98.7%]; 2 distinct positives, 1 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pancreatitis=yes | not published: disclosure pending | lower bound 0.2% at 99.17%, simultaneous across 6 labels (1 of 2 distinct groups detected) |
+| Critical automated note_pancreatitis=yes | not published: disclosure pending | 0 of 2 [0.0-84.2%] |
+| Detected note_active_cancer_treatment=yes | not published: disclosure pending | 1 of 3 [0.8-90.6%]; 3 distinct positives, 1 detected; insufficient evidence (needs 107) |
+| Grade's bound note_active_cancer_treatment=yes | not published: disclosure pending | lower bound 0.1% at 99.17%, simultaneous across 6 labels (1 of 3 distinct groups detected) |
+| Critical automated note_active_cancer_treatment=yes | not published: disclosure pending | 0 of 3 [0.0-70.8%] |
+| Detected note_recent_cv_event=yes | not published: disclosure pending | 2 of 3 [9.4-99.2%]; 3 distinct positives, 2 detected; insufficient evidence (needs 107) |
+| Grade's bound note_recent_cv_event=yes | not published: disclosure pending | lower bound 3.8% at 99.17%, simultaneous across 6 labels (2 of 3 distinct groups detected) |
+| Critical automated note_recent_cv_event=yes | not published: disclosure pending | 0 of 3 [0.0-70.8%] |
+| Detected egfr_30_or_more=no | not published: disclosure pending | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
+| Grade's bound egfr_30_or_more=no | not published: disclosure pending | no distinct positives |
+| Critical automated egfr_30_or_more=no | not published: disclosure pending | no cases |
+| Detected no_recent_cv_event=no | not published: disclosure pending | no cases; 0 distinct positives, 0 detected; insufficient evidence (needs 107) |
+| Grade's bound no_recent_cv_event=no | not published: disclosure pending | no distinct positives |
+| Critical automated no_recent_cv_event=no | not published: disclosure pending | no cases |
+| False automation | not published: disclosure pending | 0 of 24 [0.0-14.2%] of labelled cases |
+| AUTO error rate | not published: disclosure pending | no AUTO cases |
+| Automation | not published: disclosure pending | 0 of 24 [0.0-14.2%] |
+| Accuracy | not published: disclosure pending | 19 of 24 [57.8-92.9%] |
+| Macro-F1 | not published: disclosure pending | 0.791 [0.619-0.917] |
+| Brier | not published: disclosure pending | 0.260 [0.129-0.407] |
+| Brier reliability | not published: disclosure pending | not estimable (24 scored cases; 10 equal-mass bins of at least 30 need 300) |
+| ECE (equal-mass) | not published: disclosure pending | not estimable (24 scored cases; 10 equal-mass bins of at least 30 need 300) |
+| Cost per 1,000 decisions | not published: disclosure pending | 0 (no metered calls) |
+| Latency p50 | not published: disclosure pending | 0.48 [0.47-0.51] ms, measured on the runner, not reproducible |
+| Latency p95 | not published: disclosure pending | 0.61 [0.51-0.66] ms, measured on the runner, not reproducible |
+| Weighted figures | not published: disclosure pending | as sampled |
+| Replicates | not published: disclosure pending | 1 (local: deterministic) |
+| Case flip rate | not published: disclosure pending | none: one replicate |
+| Spread across replicates | not published: disclosure pending | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -380,51 +376,49 @@ Public set: regression check, not a ranking. Engineering evaluation, not clinica
 
 Arms: Mendari only: measured; + specialised classifier: not measured; + general LLM: not measured; + both: not applicable.
 
-Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured=cql`.
-
-| | Mendari only: `notes=rules,structured=criteria` |
-|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
-| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
-| Set | public, sha256 `12d2fb4b741a…`, 300 cases, 300 distinct inputs (norm/v1) |
-| Method | mendari.grading/1.0, sha256 `59d28c87024b…` |
-| Measured on | 2026-10-18 |
-| Models | none reported |
-| Disclosure | no model provider |
-| Status | Synthetic example. Not clinically reviewed. Not for patient care. |
-| Detected note_pregnancy=yes | 12 of 13 [64.0-99.8%]; 13 distinct positives, 12 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pregnancy=yes | lower bound 54.2% at 99.17%, simultaneous across 6 labels (12 of 13 distinct groups detected) |
-| Critical automated note_pregnancy=yes | 0 of 13 [0.0-24.7%] |
-| Detected note_pancreatitis=yes | 6 of 6 [54.1-100.0%]; 6 distinct positives, 6 detected; insufficient evidence (needs 107) |
-| Grade's bound note_pancreatitis=yes | lower bound 40.1% at 99.17%, simultaneous across 6 labels (6 of 6 distinct groups detected) |
-| Critical automated note_pancreatitis=yes | 0 of 6 [0.0-45.9%] |
-| Detected note_active_cancer_treatment=yes | 16 of 17 [71.3-99.9%]; 17 distinct positives, 16 detected; insufficient evidence (needs 107) |
-| Grade's bound note_active_cancer_treatment=yes | lower bound 62.9% at 99.17%, simultaneous across 6 labels (16 of 17 distinct groups detected) |
-| Critical automated note_active_cancer_treatment=yes | 0 of 17 [0.0-19.5%] |
-| Detected note_recent_cv_event=yes | 13 of 13 [75.3-100.0%]; 13 distinct positives, 13 detected; insufficient evidence (needs 107) |
-| Grade's bound note_recent_cv_event=yes | lower bound 65.6% at 99.17%, simultaneous across 6 labels (13 of 13 distinct groups detected) |
-| Critical automated note_recent_cv_event=yes | 0 of 13 [0.0-24.7%] |
-| Detected egfr_30_or_more=no | 29 of 29 [88.1-100.0%]; 29 distinct positives, 29 detected; insufficient evidence (needs 107) |
-| Grade's bound egfr_30_or_more=no | lower bound 82.8% at 99.17%, simultaneous across 6 labels (29 of 29 distinct groups detected) |
-| Critical automated egfr_30_or_more=no | 0 of 29 [0.0-11.9%] |
-| Detected no_recent_cv_event=no | 17 of 17 [80.5-100.0%]; 17 distinct positives, 17 detected; insufficient evidence (needs 107) |
-| Grade's bound no_recent_cv_event=no | lower bound 72.4% at 99.17%, simultaneous across 6 labels (17 of 17 distinct groups detected) |
-| Critical automated no_recent_cv_event=no | 0 of 17 [0.0-19.5%] |
-| False automation | 0 of 300 [0.0-1.2%] of labelled cases |
-| AUTO error rate | no AUTO cases |
-| Automation | 0 of 300 [0.0-1.2%] |
-| Accuracy | 298 of 300 [97.6-99.9%] |
-| Macro-F1 | 0.992 [0.981-1.000] |
-| Brier | 0.049 [0.036-0.066] |
-| Brier reliability | 0.0334 [0.0220-0.0402] |
-| ECE (equal-mass) | 0.083, a description: no interval |
-| Cost per 1,000 decisions | 0 (no metered calls) |
-| Latency p50 | 0.43 [0.43-0.43] ms, measured on the runner, not reproducible |
-| Latency p95 | 0.56 [0.52-0.62] ms, measured on the runner, not reproducible |
-| Weighted figures | as sampled |
-| Replicates | 1 (local: deterministic) |
-| Case flip rate | none: one replicate |
-| Spread across replicates | none: one replicate |
+| | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
+|---|---|---|
+| Marks | unsigned; method draft, not in effect; stale after 2026-12-20 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
+| Set | public, sha256 `12d2fb4b741a…`, 300 cases, 300 distinct inputs (norm/v1) | public, sha256 `12d2fb4b741a…`, 300 cases, 300 distinct inputs (norm/v1) |
+| Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
+| Measured on | 2026-11-05 | 2026-10-18 |
+| Models | none reported | none reported |
+| Disclosure | not published: disclosure pending | no model provider |
+| Status | Synthetic example. Not clinically reviewed. Not for patient care. | Synthetic example. Not clinically reviewed. Not for patient care. |
+| Detected note_pregnancy=yes | not published: disclosure pending | 12 of 13 [64.0-99.8%]; 13 distinct positives, 12 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pregnancy=yes | not published: disclosure pending | lower bound 54.2% at 99.17%, simultaneous across 6 labels (12 of 13 distinct groups detected) |
+| Critical automated note_pregnancy=yes | not published: disclosure pending | 0 of 13 [0.0-24.7%] |
+| Detected note_pancreatitis=yes | not published: disclosure pending | 6 of 6 [54.1-100.0%]; 6 distinct positives, 6 detected; insufficient evidence (needs 107) |
+| Grade's bound note_pancreatitis=yes | not published: disclosure pending | lower bound 40.1% at 99.17%, simultaneous across 6 labels (6 of 6 distinct groups detected) |
+| Critical automated note_pancreatitis=yes | not published: disclosure pending | 0 of 6 [0.0-45.9%] |
+| Detected note_active_cancer_treatment=yes | not published: disclosure pending | 16 of 17 [71.3-99.9%]; 17 distinct positives, 16 detected; insufficient evidence (needs 107) |
+| Grade's bound note_active_cancer_treatment=yes | not published: disclosure pending | lower bound 62.9% at 99.17%, simultaneous across 6 labels (16 of 17 distinct groups detected) |
+| Critical automated note_active_cancer_treatment=yes | not published: disclosure pending | 0 of 17 [0.0-19.5%] |
+| Detected note_recent_cv_event=yes | not published: disclosure pending | 13 of 13 [75.3-100.0%]; 13 distinct positives, 13 detected; insufficient evidence (needs 107) |
+| Grade's bound note_recent_cv_event=yes | not published: disclosure pending | lower bound 65.6% at 99.17%, simultaneous across 6 labels (13 of 13 distinct groups detected) |
+| Critical automated note_recent_cv_event=yes | not published: disclosure pending | 0 of 13 [0.0-24.7%] |
+| Detected egfr_30_or_more=no | not published: disclosure pending | 29 of 29 [88.1-100.0%]; 29 distinct positives, 29 detected; insufficient evidence (needs 107) |
+| Grade's bound egfr_30_or_more=no | not published: disclosure pending | lower bound 82.8% at 99.17%, simultaneous across 6 labels (29 of 29 distinct groups detected) |
+| Critical automated egfr_30_or_more=no | not published: disclosure pending | 0 of 29 [0.0-11.9%] |
+| Detected no_recent_cv_event=no | not published: disclosure pending | 17 of 17 [80.5-100.0%]; 17 distinct positives, 17 detected; insufficient evidence (needs 107) |
+| Grade's bound no_recent_cv_event=no | not published: disclosure pending | lower bound 72.4% at 99.17%, simultaneous across 6 labels (17 of 17 distinct groups detected) |
+| Critical automated no_recent_cv_event=no | not published: disclosure pending | 0 of 17 [0.0-19.5%] |
+| False automation | not published: disclosure pending | 0 of 300 [0.0-1.2%] of labelled cases |
+| AUTO error rate | not published: disclosure pending | no AUTO cases |
+| Automation | not published: disclosure pending | 0 of 300 [0.0-1.2%] |
+| Accuracy | not published: disclosure pending | 298 of 300 [97.6-99.9%] |
+| Macro-F1 | not published: disclosure pending | 0.992 [0.981-1.000] |
+| Brier | not published: disclosure pending | 0.049 [0.036-0.066] |
+| Brier reliability | not published: disclosure pending | 0.0334 [0.0220-0.0402] |
+| ECE (equal-mass) | not published: disclosure pending | 0.083, a description: no interval |
+| Cost per 1,000 decisions | not published: disclosure pending | 0 (no metered calls) |
+| Latency p50 | not published: disclosure pending | 0.43 [0.43-0.43] ms, measured on the runner, not reproducible |
+| Latency p95 | not published: disclosure pending | 0.56 [0.52-0.62] ms, measured on the runner, not reproducible |
+| Weighted figures | not published: disclosure pending | as sampled |
+| Replicates | not published: disclosure pending | 1 (local: deterministic) |
+| Case flip rate | not published: disclosure pending | none: one replicate |
+| Spread across replicates | not published: disclosure pending | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
