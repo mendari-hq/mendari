@@ -79,6 +79,7 @@ NO_METERED_CALLS = "0 (no metered calls)"
 PRICED = "priced"
 UNKNOWN = "unknown"
 NO_PRICE = "no price table holds its model"  # none given, or one that lacks it: the same bytes
+NO_PRICES = "no price table holds all their models"  # the same, for two model types or more
 NOT_REPRODUCIBLE = "measured on the runner, not reproducible"
 TOO_FEW = "too few"
 AS_SAMPLED = "as sampled"
@@ -665,19 +666,28 @@ def _cost(
     called = sorted({kind for case in record["cases"] for kind in case["tokens"]})
     if not called:
         return none
-    rates: dict[str, tuple[float, float]] = {}
-    for kind in called:
-        if not any(any(case["tokens"].get(kind, ())) for case in record["cases"]):
-            rates[kind] = (0.0, 0.0)  # no token spent: nothing to price
-            continue
+    spent = [
+        kind
+        for kind in called
+        if any(any(case["tokens"].get(kind, ())) for case in record["cases"])
+    ]
+    # What no table changes is asked of every type before any price is looked up, and a missing
+    # price names every type that spent tokens: an unpriced entry cites no table and is
+    # recomputed with none, so its reason must be the same whichever table is at hand (a
+    # configuration of Jev and an LLM included).
+    for kind in spent:
         models = record["models"].get(kind, [])
         if not models:
             return unknown(f"{kind}: tokens spent, and no answer kept names its model")
         if len(models) != 1:
             return unknown(f"{kind}: {len(models)} models reported, not one")
-        rate = None if prices is None else prices.rate(kind, models[0])
+    rates = {kind: (0.0, 0.0) for kind in called}  # a type that spent no token: nothing to price
+    for kind in spent:
+        rate = None if prices is None else prices.rate(kind, record["models"][kind][0])
         if rate is None:
-            return unknown(f"{kind}: {NO_PRICE}")
+            if len(spent) == 1:
+                return unknown(f"{kind}: {NO_PRICE}")
+            return unknown(f"{', '.join(spent)}: {NO_PRICES}")
         rates[kind] = rate
     per_case = [
         1000.0

@@ -43,6 +43,7 @@ DATE = datetime.date(2026, 10, 18)
 JEV = ["router=jev"]  # Jev answers the primary question, the destination
 JEV_MODEL = "jev-9.9.9"
 _JEV_INIT = JevProvider.__init__  # as the module is imported, before any test replaces it
+_LLM_INIT = LlmProvider.__init__  # as the module is imported, before any test replaces it
 
 
 @pytest.fixture(autouse=True)
@@ -854,6 +855,76 @@ def test_a_run_its_table_cannot_price_is_stored_as_unknown(
         "reason": "jev: 2 models reported, not one",
     }
     assert found["inputs"]["prices"] is None
+    check = results_store.check(store, base={})
+    assert check.problems == [] and check.recomputed == 2 and check.rerun == 0
+
+
+def fake_llm(monkeypatch: pytest.MonkeyPatch, *, model: Callable[[int], str]) -> list[int]:
+    """The LLM through a fake gateway (as `tests/test_llm.py`'s `install`): call number `n`
+    (from 1) is sure of each question's first label and reports the model `model(n)`. Returns
+    the calls made, as they are made."""
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
+    monkeypatch.setenv("LLM_MODEL", "test-llm")
+    calls: list[int] = []
+    counter = itertools.count(1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        number = next(counter)
+        calls.append(number)
+        schema = json.loads(request.content)["response_format"]["json_schema"]["schema"]
+        content = {}
+        for question, spec in schema["properties"].items():
+            labels = list(spec["properties"])
+            rest = 0.1 / (len(labels) - 1)
+            content[question] = {label: 0.9 if label == labels[0] else rest for label in labels}
+        return httpx.Response(200, json=completion(content, model=model(number)))
+
+    def init(self: LlmProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        _LLM_INIT(self, *args, **kwargs)  # never a fake's: a test may set up another after one
+
+    monkeypatch.setattr(LlmProvider, "__init__", init)
+    return calls
+
+
+def test_a_run_of_two_model_types_its_table_cannot_price_is_stored_as_unknown(
+    store: Store, inbox: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jev and an LLM in one configuration (the "+ both" arm), with a table that prices Jev's
+    model and not the LLM's, or with an LLM that rolls to another model during replicate 1: the
+    cost is unknown for a reason no table changes, so the result reads the same recomputed with
+    no table (it cites none) and is stored, not refused after every call."""
+    both = results_store.configuration_of(inbox, [*JEV, "safety_screen=llm"])
+    assert both.arm == arms.CLASSIFIER_AND_LLM and both.remote_types == ("jev", "llm")
+    jev_calls = fake_jev(monkeypatch)
+    llm_calls = fake_llm(monkeypatch, model=lambda call: "test-llm")
+    declare(store, inbox, arms.CLASSIFIER_AND_LLM, both.providers)
+    commit(store)
+    rate = {"input_per_1000": 1.0, "output_per_1000": 1.0}
+    jev_only = table_of(tmp_path, "jev-only", {JEV_MODEL: rate}).read_bytes()
+    lacking = results_store.record_run(
+        store, inbox, SET, both, date=DATE, replicates=3, prices=jev_only
+    )
+    assert lacking.action == results_store.STORED
+    assert len(jev_calls) == 90 and len(llm_calls) == 90
+    held = store.results()[lacking.name]
+    assert held.result["scope"]["models"]["by_type"] == {"jev": [JEV_MODEL], "llm": ["test-llm"]}
+    assert held.result["figures"]["cost_per_1000"] == {
+        "status": scoreboard.UNKNOWN,
+        "reason": f"jev, llm: {scoreboard.NO_PRICES}",
+    }
+    assert held.prices is None and not (store.root / "prices").exists()  # cited by none
+    # The LLM rolls to another model during replicate 1 (its first 15 calls one, then another):
+    # two models of one type, whichever table is at hand.
+    fake_llm(monkeypatch, model=lambda call: "test-llm" if call <= 15 else "test-llm-2")
+    rolled = results_store.record_run(
+        store, inbox, SET, both, date=DATE, again=True, replicates=3, prices=jev_only
+    )
+    assert rolled.action == results_store.STORED and rolled.supersedes == lacking.name
+    assert store.results()[rolled.name].result["figures"]["cost_per_1000"] == {
+        "status": scoreboard.UNKNOWN,
+        "reason": "llm: 2 models reported, not one",
+    }
     check = results_store.check(store, base={})
     assert check.problems == [] and check.recomputed == 2 and check.rerun == 0
 

@@ -748,7 +748,10 @@ The first release (not yet published).
   reported (`runs.replicates`). A table that cannot price a run (it lacks the reported model,
   or two are reported) leaves its cost "unknown" and the result stored, citing no table: an
   unknown cost now reads the same with no table as with any ("jev: no price table holds its
-  model"). An entry of one replicate is byte for
+  model"), for every model type a configuration calls: one of Jev and an LLM whose table
+  prices only one reads "jev, llm: no price table holds all their models", and one whose type
+  reports two models reads that type's reason, whichever table is at hand, so it is stored and
+  never refused after every call. An entry of one replicate is byte for
   byte as before: every stored result recomputes unchanged. `mendari scoreboard canary PACK
   --config ... --size 30 --seed S` draws 30 cases of the pack's `test` set by seed, decides them
   once, by hand and never in CI, and compares them with replicate 1 (`mendari.canary/1`, under

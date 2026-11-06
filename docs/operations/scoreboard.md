@@ -124,7 +124,10 @@ Before anything runs, it is refused:
 
 A table that cannot price the run (it lacks the model Jev or the LLM reported, or the model
 changed during replicate 1, so two are reported) does not lose it: the result is stored with its
-cost "unknown", and the reason, and cites no table.
+cost "unknown", and the reason, and cites no table. The reason reads the same whichever
+table is at hand, for every model type the configuration calls: a configuration of Jev and
+an LLM whose table prices only one of their models reads "jev, llm: no price table holds all
+their models", and one whose type reported two models reads that type's reason.
 
 The replicates run one after another, each with its own providers. Replicate 1 is the headline:
 the result's figures are its figures, whichever replicate looks better. The result lists every

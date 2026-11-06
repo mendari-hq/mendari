@@ -358,7 +358,9 @@ again.
   is "unknown" when any provider call failed, or a type that spent tokens reported no model (a
   composite kept none of its answers), more than one (whose tokens a run record does not split),
   or a model no price table holds (there is none, or it lacks the model). An unknown cost reads
-  the same with no table as with any: the entry cites none, and is recomputed with none. A type
+  the same with no table as with any, for every model type it calls ("jev, llm: no price table
+  holds all their models" for two that a table prices only in part): the entry cites none, and
+  is recomputed with none. A type
   that spent no token costs nothing, whatever its model.
 - **Latency** is read from the run record, never measured again, and never ranked.
 - **Weighted figures:** detection is never weighted. A set with weights on some records and not
