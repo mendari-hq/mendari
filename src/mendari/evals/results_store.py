@@ -9,6 +9,8 @@ under `scoreboard/`, outside the wheel, the sdist and the site.
       ledgers/<sha256>.jsonl  a ledger (`mendari.ledger/1`), named by its id (`Ledger.file_name`)
       runs/<sha256>.json      a run record (`mendari.run/1`), named by the SHA-256 of its bytes
       prices/<date>.json      a dated price table (`mendari.prices/1`), cited by its SHA-256
+      canaries/<sha256>.json  a canary (`mendari.canary/1`, LP-17h), named by its body's SHA-256
+      declared/<name>.json    a pack's declared configurations (`mendari.declared/1`, LP-17h)
       keys.json               the public grading keys (`mendari.grading-keys/1`, LP-17e)
       disclosures.json        the disclosures (`mendari.disclosures/1`): none yet, so every
                               remote type's statement is pending
@@ -27,20 +29,31 @@ and method, and measured no later than today, so that all of it is checked. The 
 ones Mendari maintains, read from the bundled packs alone (`maintained_pack`: the repository's
 `packs/` in a checkout), never from `MENDARI_PACKS_PATH` or the registry cache.
 
-`measure` runs one local configuration of a maintained pack over one of its public scoring sets
-(every set it declares but its fitting sets, `train` and `calibration`), and gives its ledger,
-its run record (each case's latency and tokens, from its `DecisionResult`) and its entry. It
-refuses a remote configuration, a fitting set and anything but a set the pack names, so no file
-and no hidden set: nothing here calls off the machine. Nothing here signs: results are stored
-unsigned, and the owner signs them offline (`mendari scoreboard sign`). Messages name files,
-hashes, packs, sets and configurations, never a case.
+`measure` runs one configuration of a maintained pack over one of its public scoring sets (every
+set it declares but its fitting sets, `train` and `calibration`), and gives its ledger, its run
+record (each case's latency and tokens, from its `DecisionResult`) and its entry. It refuses a
+fitting set and anything but a set the pack names, so no file and no hidden set.
+
+A remote configuration (LP-17h; the method's sections 10 and 12) is run by hand, never in CI
+(`CI` or `GITHUB_ACTIONS` set), in 3 to 5 replicates, and only when it is its arm's remote
+configuration in the pack's declaration (`declared/<pack name>.json`), committed before the run:
+the result cites the declaration's SHA-256, and its figures are replicate 1's. Its result is
+stored with every replicate's ledger and run record; the check recomputes it from them, and
+never re-runs a remote ledger, which would call off the machine. A canary (`run_canary`) is a
+seeded draw of 30 cases from a pack's `test` set, run once by hand on a remote configuration
+whose current result there holds replicates, and stored under `canaries/`: a board marks the
+configuration stale when it shows drift or reports another model. Nothing here signs: results
+are stored unsigned, and the owner signs them offline (`mendari scoreboard sign`). Messages name
+files, hashes, packs, sets and configurations, never a case.
 """
 
 from __future__ import annotations
 
 import datetime
 import hashlib
+import os
 import re
+import subprocess
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -57,10 +70,12 @@ from mendari.errors import MendariError, PackNotFoundError
 from mendari.evals import arms, method, runs, scoreboard, signing
 from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems, resolve_dataset
-from mendari.evals.ledger import Ledger, canonical
+from mendari.evals.ledger import Ledger, canonical, case_hash
+from mendari.providers import MODEL_TYPES
 
 ROOT = "scoreboard"  # from the repository's root
 RESULTS, LEDGERS, RUNS, PRICES = "results", "ledgers", "runs", "prices"
+CANARIES, DECLARED = "canaries", "declared"
 KEYS, DISCLOSURES = "keys.json", "disclosures.json"
 # The formats the store holds. A hidden set's answer (`mendari.hidden_scoreboard/1`) joins with
 # LP-17k, with its closed schema.
@@ -79,6 +94,8 @@ NAMES = {
     LEDGERS: re.compile(r"[0-9a-f]{64}\.jsonl"),
     RUNS: re.compile(r"[0-9a-f]{64}\.json"),
     PRICES: re.compile(r"\d{4}-\d{2}-\d{2}\.json"),
+    CANARIES: re.compile(r"[0-9a-f]{64}\.json"),
+    DECLARED: re.compile(r"[a-z0-9][a-z0-9-]{0,99}\.json"),
 }
 PackSource = Callable[[str], Pack]
 
@@ -188,6 +205,10 @@ class Held:
     prices: str | None
     dataset: str
     method: str
+    # Each replicate's ledger id and run record SHA-256, replicate 1 first (LP-17h): one for a
+    # result of one replicate. And the SHA-256 of the declaration it cites, or None.
+    replicates: tuple[tuple[str, str], ...] = ()
+    declared: str | None = None
 
     @property
     def identity(self) -> tuple[str, str, str, str, str]:
@@ -238,6 +259,8 @@ def held(result: Any, *, name: str | None = None) -> Held:
             prices=None if prices is None else prices["sha256"],
             dataset=inputs["dataset"],
             method=inputs["method"],
+            replicates=_replicate_inputs(inputs),
+            declared=inputs.get("declared"),
         )
     except (KeyError, TypeError, AttributeError, ValueError):
         raise MendariError("it lacks a field the store reads (its scope or inputs)") from None
@@ -256,12 +279,35 @@ def held(result: Any, *, name: str | None = None) -> Held:
     # What names a file: a hash, never a path.
     if not (_BODY.fullmatch(values.ledger) and _BODY.fullmatch(values.run)):
         raise MendariError("its ledger and run record are named by sha256:<64 hex>")
-    hashes = (values.dataset, values.method, values.prices or "0" * 64)
+    hashes = (values.dataset, values.method, values.prices or "0" * 64, values.declared or "0" * 64)
     if not all(isinstance(text, str) and _HEX.fullmatch(text) for text in hashes):
-        raise MendariError("its dataset, method and price table are named by 64 hex digits")
+        raise MendariError(
+            "its dataset, method, price table and declaration are named by 64 hex digits"
+        )
+    named = [text for pair in values.replicates for text in pair]
+    if not all(isinstance(text, str) and _BODY.fullmatch(text) for text in named):
+        raise MendariError("its replicates' ledgers and run records are named by sha256:<64 hex>")
+    if values.replicates and values.replicates[0] != (values.ledger, values.run):
+        raise MendariError("its replicate 1 is not its own ledger and run record (the headline)")
     if supersedes is not None and not (isinstance(supersedes, str) and _BODY.fullmatch(supersedes)):
         raise MendariError("supersedes names a result by its body's SHA-256 (sha256:<64 hex>)")
     return replace(values, supersedes=None if supersedes is None else supersedes[len("sha256:") :])
+
+
+def _replicate_inputs(inputs: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """A result's replicates, as its inputs list them (`inputs.replicates`, LP-17h): each one's
+    ledger id and run record SHA-256, numbered 1 up, or none for a result of one replicate."""
+    listed = inputs.get("replicates")
+    if listed is None:
+        return ()
+    if not isinstance(listed, list) or not listed:
+        raise ValueError("replicates")
+    found = []
+    for number, item in enumerate(listed, start=1):
+        if not isinstance(item, Mapping) or item.get("replicate") != number:
+            raise ValueError("replicates")
+        found.append((item["ledger"], item["run"]))
+    return tuple(found)
 
 
 def _day(text: str) -> datetime.date | None:
@@ -366,6 +412,61 @@ class Store:
             raise MendariError(f"{DISCLOSURES}: {error.strerror}") from None
         return runs.disclosures(raw, where=DISCLOSURES)
 
+    def declaration_path(self, pack_id: str) -> Path:
+        """Where a pack's declaration is kept: `declared/<pack name>.json`."""
+        return self.root / DECLARED / f"{pack_id.partition('/')[2]}.json"
+
+    def declaration(self, pack_id: str) -> runs.Declaration | None:
+        """The pack's declared configurations (`mendari.declared/1`), or None while it has none.
+        A declaration of another pack under its name is refused."""
+        path = self.declaration_path(pack_id)
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise MendariError(f"{DECLARED}/{path.name}: {error.strerror}") from None
+        found = runs.declaration(raw, where=f"{DECLARED}/{path.name}")
+        if found.pack != pack_id:
+            raise MendariError(f"{DECLARED}/{path.name} declares {found.pack}, not {pack_id}")
+        return found
+
+    def put_prices(self, raw: bytes) -> runs.Prices:
+        """Store a price table under its date (`prices/<date>.json`), and give it. One stored
+        already with the same bytes is left as it is; another table of the same date is
+        refused: a table is cited by its SHA-256, and never changes."""
+        table = runs.prices(raw, where="the price table")
+        path = self.root / PRICES / f"{table.date}.json"
+        if path.exists() and path.read_bytes() != raw:
+            raise MendariError(
+                f"{PRICES}/{path.name} holds another table of that date: a price table never "
+                "changes (date the new one)"
+            )
+        _put(path, raw)
+        return table
+
+    def canaries(self) -> dict[str, dict[str, Any]]:
+        """Every stored canary (`mendari.canary/1`), by name: its body's SHA-256."""
+        found = {}
+        for file_name, path in self.files(CANARIES).items():
+            name = file_name.removesuffix(".json")
+            try:
+                found[name] = _read_canary(path.read_bytes(), name)
+            except MendariError as error:
+                raise MendariError(f"{CANARIES}/{file_name}: {error}") from None
+        return found
+
+    def put_canary(self, found: Mapping[str, Any]) -> str:
+        """Store a canary under its body's SHA-256, never over another file, and give its name."""
+        name = scoreboard.body_sha256(found).removeprefix("sha256:")
+        path = self.root / CANARIES / f"{name}.json"
+        if path.exists():
+            raise MendariError(f"{CANARIES}/{path.name} is stored already")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as target:
+            target.write(signing.dump(dict(found)))
+        return name
+
     def add(
         self,
         result: Mapping[str, Any],
@@ -461,6 +562,31 @@ def _run(raw: bytes, file_name: str) -> dict[str, Any]:
     return record
 
 
+def _read_canary(raw: bytes, name: str) -> dict[str, Any]:
+    """A stored canary from its file's bytes: read strictly, in the form the store writes, of
+    its format, and named by its body's SHA-256."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise MendariError("not UTF-8 text") from None
+    found = signing.read(text)
+    if not isinstance(found, dict) or found.get("format") != scoreboard.CANARY_FORMAT:
+        raise MendariError(f"not a {scoreboard.CANARY_FORMAT} canary")
+    if signing.dump(found) != text:
+        raise MendariError("not in the form the store writes (sorted, indented, one newline)")
+    body = scoreboard.body_sha256(found)
+    if found.get("body_sha256") != body or body != f"sha256:{name}":
+        raise MendariError("its name and its body_sha256 are not its body's SHA-256")
+    return found
+
+
+def _declared(raw: bytes, file_name: str) -> runs.Declaration:
+    found = runs.declaration(raw, where=f"{DECLARED}/{file_name}")
+    if f"{found.pack.partition('/')[2]}.json" != file_name:
+        raise MendariError(f"{DECLARED}/{file_name}: its name is not its pack's ({found.pack})")
+    return found
+
+
 def _prices(raw: bytes, file_name: str) -> runs.Prices:
     table = runs.prices(raw, where=f"{PRICES}/{file_name}")
     if f"{table.date}.json" != file_name:
@@ -531,21 +657,98 @@ def _claimed_problem(found: Held, results: Mapping[str, Held]) -> str | None:
 
 @dataclass(frozen=True)
 class Measured:
-    """One run of one configuration over one set: its ledger, its run record and its entry."""
+    """One run of one configuration over one set: its ledger, its run record and its entry;
+    and, for a remote configuration's replicates, every replicate's ledger and run record,
+    replicate 1 (the headline, `ledger` and `run`) first."""
 
     ledger: Ledger
     run: dict[str, Any]
     entry: dict[str, Any]
+    replicates: tuple[tuple[Ledger, dict[str, Any]], ...] = ()
 
     @property
     def name(self) -> str:
         return name_of(self.entry)
 
+    @property
+    def inputs(self) -> list[tuple[Ledger, dict[str, Any]]]:
+        """Every ledger and run record the entry is made from."""
+        return list(self.replicates) or [(self.ledger, self.run)]
 
-def refuse_unmeasurable(pack: Pack, set_name: str, configuration: arms.Configuration) -> None:
-    """A `MendariError` unless `pack` is a pack Mendari maintains, `set_name` one of its public
-    scoring sets and `configuration` local: the store's results are the reference packs', on
-    sets in the repository, decided on this machine."""
+
+def refuse_in_ci(what: str) -> None:
+    """A remote configuration's replicates and a canary call off the machine, and are run by
+    hand: never in CI (`CI` or `GITHUB_ACTIONS` set), whatever a job's settings hold."""
+    for name in signing.CI_SETTINGS:
+        if os.environ.get(name, "").strip():
+            raise MendariError(
+                f"{name} is set: {what} is never run in CI; it is run by hand, outside CI "
+                "(docs/operations/scoreboard.md)"
+            )
+
+
+def committed(path: Path) -> bool:
+    """Whether `path` is committed as it is: the file git's HEAD holds at that path has its
+    bytes. False outside a git checkout, for a file git does not track, and for one changed
+    since its last commit."""
+    try:
+        raw = path.read_bytes()
+        shown = subprocess.run(
+            ["git", "-C", str(path.parent), "show", f"HEAD:./{path.name}"],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return shown.returncode == 0 and shown.stdout == raw
+
+
+def declared_for(store: Store, pack: Pack, configuration: arms.Configuration) -> str:
+    """The SHA-256 of the declaration that declares `configuration` as its arm's remote
+    configuration (`declared/<pack name>.json`, `mendari.declared/1`), committed before the run.
+    Refused, before anything runs: no declaration, one that does not declare this configuration
+    for its arm, one that names a configuration the pack does not have, and one not committed
+    as it is (a run whose configuration was not declared before it is refused)."""
+    path = store.declaration_path(pack.id)
+    shown = f"{DECLARED}/{path.name}"
+    found = store.declaration(pack.id)
+    if found is None:
+        raise MendariError(
+            f"{written(configuration.providers)} is not declared: a remote configuration is run "
+            f"only as its arm's declared one ({shown}, committed before the run)"
+        )
+    problem = runs.declaration_problem(found, arms.configurations(pack))
+    if problem is not None:
+        raise MendariError(f"{shown}: {problem}")
+    declared = found.declared(configuration.arm, runs.REMOTE)
+    if declared != configuration.providers:
+        named = "none" if declared is None else written(declared)
+        raise MendariError(
+            f"{written(configuration.providers)} is not the declared remote configuration of "
+            f"{configuration.arm} in {shown} ({named}): one configuration per arm is declared "
+            "before any run"
+        )
+    if not committed(path):
+        raise MendariError(
+            f"{shown} is not committed as it is: commit the declaration before the run, so the "
+            "run cannot choose it"
+        )
+    return found.sha256
+
+
+def _metered(configuration: arms.Configuration) -> bool:
+    """Whether the configuration calls a model type, whose tokens a price table prices."""
+    return bool(MODEL_TYPES.intersection(configuration.remote_types))
+
+
+def refuse_unmeasurable(
+    pack: Pack, set_name: str, configuration: arms.Configuration, *, replicates: int = 1
+) -> None:
+    """A `MendariError` unless `pack` is a pack Mendari maintains and `set_name` one of its
+    public scoring sets: the store's results are the reference packs', on sets in the
+    repository. A local configuration is deterministic, so it runs one replicate. A remote one
+    runs `method.MIN_REPLICATES` to `method.MAX_REPLICATES`, never in CI."""
     if pack.origin != MAINTAINED:
         raise MendariError(
             f"{pack.ref} is not a pack Mendari maintains: the store holds the reference packs' "
@@ -562,10 +765,19 @@ def refuse_unmeasurable(pack: Pack, set_name: str, configuration: arms.Configura
             f"{set_name!r} is not one of {pack.id}'s public scoring sets ({sets}): a set is "
             "named, never a file, and no hidden set is run here"
         )
-    if not configuration.local:
+    shown = written(configuration.providers)
+    if configuration.local:
+        if replicates != 1:
+            raise MendariError(
+                f"{shown} is local, so deterministic: one replicate, no flips (not {replicates})"
+            )
+        return
+    refuse_in_ci(f"a remote configuration ({shown} calls {', '.join(configuration.remote_types)})")
+    if not method.MIN_REPLICATES <= replicates <= method.MAX_REPLICATES:
         raise MendariError(
-            f"{written(configuration.providers)} calls {', '.join(configuration.remote_types)} "
-            "off this machine: only local configurations are run here"
+            f"{shown} calls {', '.join(configuration.remote_types)} off this machine: it runs "
+            f"{method.MIN_REPLICATES} to {method.MAX_REPLICATES} replicates (--replicates N), "
+            f"not {replicates or 'none'}"
         )
 
 
@@ -590,14 +802,24 @@ def measure(
     *,
     date: datetime.date,
     supersedes: str | None = None,
+    replicates: int = 1,
+    prices: runs.Prices | None = None,
+    disclosures: runs.Disclosures | None = None,
+    declared: str | None = None,
 ) -> Measured:
     """Run `configuration` of `pack` over its public scoring set `set_name` (refused unless
     `refuse_unmeasurable` allows it), and give its ledger, its run record (dated `date`) and its
-    entry, unsigned, which names `supersedes` (a stored result's name) when given."""
-    refuse_unmeasurable(pack, set_name, configuration)
+    entry, unsigned, which names `supersedes` (a stored result's name) when given. A remote
+    configuration runs `replicates` times, one after another, each with its own providers: the
+    entry's figures are replicate 1's, with the replicates' spread and flip rate, priced from
+    `prices`, with the statements of `disclosures`, citing the declaration `declared`."""
+    refuse_unmeasurable(pack, set_name, configuration, replicates=replicates)
     dataset = resolve_dataset(pack, set_name)
-    decision, results, ledger = _decided(pack, dataset, configuration)
-    record = runs.record(decision, ledger, results, date=date)
+    made = []
+    for number in range(1, replicates + 1):
+        decision, results, ledger = _decided(pack, dataset, configuration)
+        made.append((ledger, runs.record(decision, ledger, results, date=date, replicate=number)))
+    (ledger, record), others = made[0], made[1:]
     found = scoreboard.entry(
         ledger,
         dataset,
@@ -605,11 +827,13 @@ def measure(
         pack=scoreboard.PackScope.of(pack),
         arm=configuration.arm,
         configuration=configuration,
-        prices=None,
-        disclosures=None,
+        prices=prices,
+        disclosures=disclosures,
         supersedes=None if supersedes is None else f"sha256:{supersedes}",
+        replicates=others,
+        declared=declared,
     )
-    return Measured(ledger, record, found)
+    return Measured(ledger, record, found, tuple(made) if others else ())
 
 
 @dataclass(frozen=True)
@@ -646,6 +870,39 @@ def is_current(found: Held, pack: Pack, set_sha256: str, today: datetime.date) -
     )
 
 
+def refuse_unrunnable(
+    store: Store,
+    pack: Pack,
+    set_name: str,
+    configuration: arms.Configuration,
+    *,
+    replicates: int = 1,
+    prices: bytes | None = None,
+) -> str | None:
+    """Everything `record_run` refuses before anything runs, and the SHA-256 of the declaration
+    a remote configuration cites (None for a local one): `refuse_unmeasurable`, then, for a
+    remote configuration, its declaration (`declared_for`) and, when it calls a model type, a
+    price table (`--prices`), so that its cost is priced from a dated table, never unknown for
+    want of one. A configuration that calls no model (CQL) needs none: nothing is priced."""
+    refuse_unmeasurable(pack, set_name, configuration, replicates=replicates)
+    if configuration.local:
+        if prices is not None:
+            raise MendariError(
+                f"{written(configuration.providers)} is local: it calls no model, so it is never "
+                "priced (no --prices)"
+            )
+        return None
+    declared = declared_for(store, pack, configuration)
+    if prices is None and _metered(configuration):
+        raise MendariError(
+            f"{written(configuration.providers)} calls a model: give its dated price table "
+            "(--prices scoreboard/prices/<date>.json)"
+        )
+    if prices is not None:
+        runs.prices(prices, where="--prices")
+    return declared
+
+
 def record_run(
     store: Store,
     pack: Pack,
@@ -654,11 +911,18 @@ def record_run(
     *,
     date: datetime.date,
     again: bool = False,
+    replicates: int = 1,
+    prices: bytes | None = None,
 ) -> Outcome:
     """Run `configuration` of `pack` over `set_name`, and store its ledger, its run record and
     its entry; unless its current result is current on `date` (`is_current`) and not `again`,
-    which is kept. A new result supersedes the current one, if any."""
-    refuse_unmeasurable(pack, set_name, configuration)
+    which is kept. A new result supersedes the current one, if any. A remote configuration runs
+    `replicates` times, by hand and never in CI, as its arm's declared one (`refuse_unrunnable`):
+    every replicate's ledger and run record is stored, and the price table (`prices`, its bytes)
+    when the entry is priced from it."""
+    declared = refuse_unrunnable(
+        store, pack, set_name, configuration, replicates=replicates, prices=prices
+    )
     stored = store.results()
     providers = written(configuration.providers)
     identity = (pack.id, scoreboard.PUBLIC, set_name, configuration.arm, providers)
@@ -668,21 +932,97 @@ def record_run(
         dataset = resolve_dataset(pack, set_name)
         if is_current(stored[current], pack, dataset.sha256, date):
             return Outcome(KEPT, current, shown, stored[current].measured_on)
-    measured = measure(pack, set_name, configuration, date=date, supersedes=current)
+    measured = measure(
+        pack,
+        set_name,
+        configuration,
+        date=date,
+        supersedes=current,
+        replicates=replicates,
+        prices=None if prices is None else runs.prices(prices, where="--prices"),
+        disclosures=None if configuration.local else store.disclosures(),
+        declared=declared,
+    )
+    cited = measured.entry["inputs"]["prices"]
     inputs = [
-        store.root / LEDGERS / measured.ledger.file_name,
-        store.root / RUNS / (runs.run_sha256(measured.run).removeprefix("sha256:") + ".json"),
+        path
+        for ledger, record in measured.inputs
+        for path in (
+            store.root / LEDGERS / ledger.file_name,
+            store.root / RUNS / (runs.run_sha256(record).removeprefix("sha256:") + ".json"),
+        )
     ]
-    made = [path for path in inputs if not path.exists()]
-    store.put_ledger(measured.ledger)
-    store.put_run(measured.run)
+    if cited is not None:
+        inputs.append(store.root / PRICES / f"{cited['date']}.json")
+    made = list(dict.fromkeys(path for path in inputs if not path.exists()))
     try:
+        for ledger, record in measured.inputs:
+            store.put_ledger(ledger)
+            store.put_run(record)
+        if cited is not None and prices is not None:
+            store.put_prices(prices)
         name = store.add(measured.entry, packs=lambda _: pack)
     except MendariError:
         for path in made:  # no input is left behind without its result
             path.unlink(missing_ok=True)
         raise
     return Outcome(STORED, name, shown, date.isoformat(), supersedes=current)
+
+
+def run_canary(
+    store: Store,
+    pack: Pack,
+    configuration: arms.Configuration,
+    *,
+    size: int,
+    seed: int,
+    date: datetime.date,
+) -> tuple[str, dict[str, Any]]:
+    """A canary (the method's section 12): a seeded draw of `size` cases from `pack`'s `test`
+    set, decided once by `configuration`, by hand and never in CI, and compared with replicate 1
+    of its current result there, which must hold replicates and be on the pack's current digest
+    and set. Its ledger, run record and canary (`mendari.canary/1`) are stored; gives the
+    canary's name and the canary. No schedule runs it."""
+    refuse_in_ci("a canary")
+    shown = written(configuration.providers)
+    if pack.origin != MAINTAINED:
+        raise MendariError(f"{pack.ref} is not a pack Mendari maintains")
+    if configuration.local:
+        raise MendariError(f"{shown} is local, so deterministic: a canary is of a remote one")
+    if size != method.CANARY_SIZE:
+        raise MendariError(f"a canary under {method.METHOD} is {method.CANARY_SIZE} cases")
+    if scoreboard.CANARY_SET not in scoring_sets(pack):
+        raise MendariError(f"{pack.id} has no `{scoreboard.CANARY_SET}` set to draw a canary from")
+    identity = (pack.id, scoreboard.PUBLIC, scoreboard.CANARY_SET, configuration.arm, shown)
+    stored = store.results()
+    current = _current(identity, stored)
+    if current is None or not stored[current].replicates:
+        raise MendariError(
+            f"{pack.id} {scoreboard.CANARY_SET} {shown} has no current result with replicates: "
+            "run them first (mendari scoreboard run --replicates N)"
+        )
+    against = stored[current]
+    dataset = resolve_dataset(pack, scoreboard.CANARY_SET)
+    if against.pack_digest != pack.digest or against.dataset != dataset.sha256:
+        raise MendariError(
+            f"{RESULTS}/{current}.json is of another digest or set: run its replicates again first"
+        )
+    hashes = [case_hash(dataset.case_key, record["id"]) for record in dataset.records]
+    drawn = replace(dataset, records=[dataset.records[at] for at in runs.draw(hashes, size, seed)])
+    decision, results, ledger = _decided(pack, drawn, configuration)
+    record = runs.record(decision, ledger, results, date=date)
+    found = scoreboard.canary(
+        ledger,
+        record,
+        against=against.result,
+        headline=store.ledger(against.ledger),
+        dataset=dataset,
+        size=size,
+        seed=seed,
+    )
+    store.put_ledger(ledger)
+    store.put_run(record)
+    return store.put_canary(found), found
 
 
 # --------------------------------------------------------------------------------------------
@@ -698,7 +1038,8 @@ def recompute(found: Held, store: Store, pack: Pack, *, new: bool = True) -> dic
     pack's own. A remote configuration's disclosure statements are, for a `new` result, the
     store's (`disclosures.json`; none while there is no file, so every remote type's is
     pending), never the ones the result brings; one stored before keeps those it holds, which
-    were the store's when it was added."""
+    were the store's when it was added. A result with replicates is recomputed from every
+    replicate's stored ledger and run record, and keeps the declaration it cites (LP-17h)."""
     scope = found.result["scope"]
     if found.pack_digest == pack.digest:
         pack_scope = scoreboard.PackScope.of(pack)
@@ -729,6 +1070,8 @@ def recompute(found: Held, store: Store, pack: Pack, *, new: bool = True) -> dic
         prices=None if found.prices is None else store.prices(found.prices),
         disclosures=disclosures,
         supersedes=found.result["supersedes"],
+        replicates=[(store.ledger(ledger), store.run(run)) for ledger, run in found.replicates[1:]],
+        declared=found.declared,
     )
 
 
@@ -770,13 +1113,16 @@ def _public(
     reruns: dict[str, bool],
     today: datetime.date,
 ) -> Verdict:
-    """Whether a public result is what its stored inputs give. A `new` one must be of a local
-    configuration, on its pack's current digest, set and method, and measured no later than
-    `today`, so that it is recomputed and its ledger re-run, and a later run can supersede it.
-    One stored before is recomputed while its set and method are current, and its ledger re-run
-    while its digest is too and it is local; otherwise it is kept. Its inputs must be in the
-    store either way. `reruns` holds each ledger re-run already, by id: two results that share a
-    ledger run it once."""
+    """Whether a public result is what its stored inputs give. A `new` one must be on its pack's
+    current digest, set and method, and measured no later than `today`, so that it is
+    recomputed, and a later run can supersede it. A new local one's ledger is re-run. A new
+    remote one (LP-17h) must hold 3 to 5 replicates and cite its pack's declaration as the store
+    holds it, which declares its configuration as its arm's remote one (`_remote_problem`); it
+    is recomputed from every replicate's ledger and run record, and never re-run, which would
+    call off the machine. One stored before is recomputed while its set and method are current,
+    and its ledger re-run while its digest is too and it is local; otherwise it is kept. Its
+    inputs must be in the store either way. `reruns` holds each ledger re-run already, by id:
+    two results that share a ledger run it once."""
     where = f"{RESULTS}/{found.name}.json ({found.shown})"
     if found.set_kind != scoreboard.PUBLIC:
         return Verdict(f"{where}: not a public set's result")
@@ -785,14 +1131,15 @@ def _public(
             f"{where}: it is measured on {found.measured_on}, after today ({today.isoformat()}): "
             "a result is dated the day it is run"
         )
-    if new and not found.local:
-        return Verdict(
-            f"{where}: a remote configuration's result: its ledger could not be re-run without "
-            "a call off this machine, so only a local configuration's result is stored"
-        )
+    problem = _remote_problem(found, store) if not found.local else None
+    if new and found.local and found.declared is not None:
+        problem = "a local configuration is never declared for a public set: every one is run"
+    if new and problem is not None:
+        return Verdict(f"{where}: {problem}")
     try:
-        store.ledger(found.ledger)
-        store.run(found.run)
+        for ledger, run in found.replicates or ((found.ledger, found.run),):
+            store.ledger(ledger)
+            store.run(run)
         if found.prices is not None:
             store.prices(found.prices)
         pack = packs(found.pack_id)
@@ -829,6 +1176,35 @@ def _public(
             recomputed=True,
         )
     return Verdict(recomputed=True)
+
+
+def _remote_problem(found: Held, store: Store) -> str | None:
+    """Why a new remote configuration's result may not be stored (LP-17h), or None: it holds
+    `method.MIN_REPLICATES` to `method.MAX_REPLICATES` replicates, and cites the SHA-256 of its
+    pack's declaration as the store holds it now, which declares its configuration as its arm's
+    remote one."""
+    count = len(found.replicates)
+    if not method.MIN_REPLICATES <= count <= method.MAX_REPLICATES:
+        return (
+            f"a remote configuration's result holds {method.MIN_REPLICATES} to "
+            f"{method.MAX_REPLICATES} replicates, not {count or 'one'}"
+        )
+    if found.declared is None:
+        return "a remote configuration's result cites its pack's declaration (it cites none)"
+    shown = f"{DECLARED}/{store.declaration_path(found.pack_id).name}"
+    try:
+        declared = store.declaration(found.pack_id)
+    except MendariError as error:
+        return str(error)
+    if declared is None:
+        return f"it cites a declaration, and the store has none ({shown})"
+    if declared.sha256 != found.declared:
+        return (
+            f"it cites the declaration {found.declared}, not {shown} as it is ({declared.sha256})"
+        )
+    if declared.declared(found.arm, runs.REMOTE) != found.providers:
+        return f"its configuration is not the remote configuration {shown} declares for {found.arm}"
+    return None
 
 
 def _stale_inputs(found: Held, pack: Pack) -> str | None:
@@ -880,10 +1256,12 @@ def check(
     publisher_ids: Iterable[str] = (),
     packs: PackSource = maintained_pack,
     today: datetime.date | None = None,
+    base_canaries: Mapping[str, bytes] | None = None,
 ) -> Check:
     """Check the store against `base`: the base commit's result files, by name (their file
-    name without `.json`), with their bytes, on `today` (the clock's, by default). It needs no
-    secret, and names a problem for each of these:
+    name without `.json`), with their bytes, on `today` (the clock's, by default); and, when
+    `base_canaries` is given, its canary files the same way. It needs no secret, and names a
+    problem for each of these:
 
     - a file whose name is not its content's (a result's body SHA-256, a ledger's id, the
       SHA-256 of a run record's bytes, a price table's date), or whose bytes are not in that
@@ -899,8 +1277,15 @@ def check(
       it (a superseded result keeps the signature it had, so a key taken out of the keys file
       leaves it as history);
     - a public result that is not what its stored inputs give, or whose ledger does not re-run
-      to the same bytes; or a new one of a remote configuration, not on its pack's current
-      digest, set and method, or measured after `today` (`_public`)."""
+      to the same bytes; or a new one not on its pack's current digest, set and method, measured
+      after `today`, or of a remote configuration without 3 to 5 replicates and its pack's
+      declaration of it (`_public`);
+    - a declaration (`declared/<pack name>.json`) that is not one, not of the pack its name
+      names, or that names a configuration the pack does not have, in another arm, or not
+      remote (or local) where it says so;
+    - a canary of `base_canaries` removed or changed, or a canary that is not what its stored
+      ledger, run record and the result it was compared with give, or that is new and measured
+      after `today`."""
     found = Check()
     problems = found.problems
     listed: dict[str, dict[str, bytes]] = {}
@@ -920,6 +1305,7 @@ def check(
         LEDGERS: _ledger,
         RUNS: _run,
         PRICES: _prices,
+        DECLARED: _declared,
     }
     for kind, reader in readers.items():
         for file_name, raw in listed[kind].items():
@@ -968,11 +1354,82 @@ def check(
         if verdict.kept is not None:
             found.kept.append(verdict.kept)
         found.recomputed += verdict.recomputed
+    for file_name, raw in listed[DECLARED].items():
+        problem = _declared_pack_problem(raw, file_name, packs)
+        if problem is not None:
+            problems.append(f"{DECLARED}/{file_name}: {problem}")
+    for name, old in sorted((base_canaries or {}).items()):
+        if listed[CANARIES].get(f"{name}.json") != old:
+            problems.append(
+                f"{CANARIES}/{name}.json: removed or changed: a canary is kept as it was run"
+            )
+    for file_name, raw in listed[CANARIES].items():
+        name = file_name.removesuffix(".json")
+        new = base_canaries is not None and name not in base_canaries
+        problem = _canary_problem(raw, name, store, results, packs, new=new, today=day)
+        if problem is not None:
+            problems.append(f"{CANARIES}/{file_name}: {problem}")
     found.results = len(results)
     found.current = len(heads(results))
     found.signed = sum(held_result.signed for held_result in results.values())
     found.rerun = len(reruns)
     return found
+
+
+def _declared_pack_problem(raw: bytes, file_name: str, packs: PackSource) -> str | None:
+    """Why a stored declaration is not one of the pack it names (its configurations, arms and
+    where each runs), or None. One that cannot be read is named by the readers above."""
+    try:
+        found = _declared(raw, file_name)
+    except MendariError:
+        return None
+    try:
+        pack = packs(found.pack)
+    except MendariError as error:
+        return str(error)
+    return runs.declaration_problem(found, arms.configurations(pack))
+
+
+def _canary_problem(
+    raw: bytes,
+    name: str,
+    store: Store,
+    results: Mapping[str, Held],
+    packs: PackSource,
+    *,
+    new: bool,
+    today: datetime.date,
+) -> str | None:
+    """Why a stored canary is not what its inputs give (its ledger, its run record, the result
+    it was compared with and that result's replicate 1 ledger; its draw, while the pack's `test`
+    set is the one it was drawn from), or None."""
+    try:
+        found = _read_canary(raw, name)
+        if new and found["measured_on"] > today.isoformat():
+            return f"it is measured on {found['measured_on']}, after today ({today.isoformat()})"
+        against = results.get(str(found["against"]["result"]).removeprefix("sha256:"))
+        if against is None:
+            return "the result it was compared with is not stored"
+        try:
+            dataset = resolve_dataset(packs(found["pack"]["id"]), scoreboard.CANARY_SET)
+        except MendariError:
+            dataset = None
+        again = scoreboard.canary(
+            store.ledger(found["inputs"]["ledger"]),
+            store.run(found["inputs"]["run"]),
+            against=against.result,
+            headline=store.ledger(against.ledger),
+            dataset=dataset,
+            size=found["draw"]["size"],
+            seed=found["draw"]["seed"],
+        )
+    except MendariError as error:
+        return str(error)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return "it lacks a field a canary holds"
+    if canonical(again) != canonical(found):
+        return "it is not what its inputs give (recomputed, a byte differs)"
+    return None
 
 
 def _base_problem(

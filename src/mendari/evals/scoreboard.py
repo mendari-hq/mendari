@@ -80,9 +80,13 @@ STALE_PACK = "stale: pack changed"
 STALE_SET = "stale: set changed"
 STALE_METHOD = "stale: method changed"
 STALE_MODEL = "stale: another model reported"
+STALE_DRIFT = "stale: canary drift"
+CANARY_FORMAT = "mendari.canary/1"
+CANARY_SET = "test"  # a canary is drawn from a pack's `test` set (the method's section 12)
 # Not the body: what `body_sha256` is of leaves these out, and a signature (LP-17e) is added.
 BODY_EXCLUDED = ("body_sha256", "signature")
 _BODY_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+_HEX = re.compile(r"[0-9a-f]{64}")
 WEIGHT = "weight"  # the record attribute that holds a case's sampling weight
 DIGITS = stats.DIGITS
 STATUSES = (SYNTHETIC_EXAMPLE, NOT_REVIEWED)
@@ -124,6 +128,8 @@ def entry(
     prices: runs.Prices | None,
     disclosures: runs.Disclosures | None,
     supersedes: str | None = None,
+    replicates: Sequence[tuple[Ledger, Mapping[str, Any]]] = (),
+    declared: str | None = None,
 ) -> dict[str, Any]:
     """The `mendari.scoreboard/1` entry of `configuration` (in `arm`) of `pack` on `dataset`, from
     its `ledger` and its `run` record, priced from `prices` (None: a metered cost is unknown),
@@ -131,31 +137,60 @@ def entry(
     names the earlier result it replaces in the results store (`sha256:` and its body's SHA-256,
     LP-17f), or None: the link is part of the body, so its hash and any signature cover it.
 
+    A remote configuration's entry may hold its replicates (LP-17h; the method's section 10):
+    `ledger` and `run` are replicate 1, the headline, and `replicates` the others (each a ledger
+    and its run record, replicate 2 first). Its figures are replicate 1's; its inputs list every
+    replicate's ledger and run record, and `figures.replicates` holds their count, the case flip
+    rate and each figure's spread (`runs.replicates`). `declared` is the SHA-256 of the
+    declaration its configuration was declared in (`mendari.declared/1`), or None. Neither field
+    is written when it is not given, so an entry of one replicate is as it was before them.
+
     Refused, in a `MendariError` that names ids and hashes and never a case: a ledger of another
     pack (id, version or digest) or dataset (name, SHA-256, size, limit, or cases that are not
     the dataset's in its order), another configuration or arm, a run record that disagrees
     with the ledger (`runs.disagreement`) or holds tokens of a type the configuration does not
-    call, or a `supersedes` that is not a body's SHA-256."""
+    call, a `supersedes` that is not a body's SHA-256, replicates of a local configuration (it
+    is deterministic: one replicate), more than `method.MAX_REPLICATES`, a headline that is not
+    replicate 1 or replicates out of order, and a `declared` that is not 64 hex digits."""
     record = runs.check_run(run)
-    header, cases = ledger.header, ledger.cases
     _refuse_another(ledger, dataset, pack, arm, configuration, record)
     if supersedes is not None and not _BODY_SHA256.fullmatch(supersedes):
         raise MendariError("supersedes names a result by its body's SHA-256 (sha256:<64 hex>)")
-
-    result = result_from_ledger(ledger, seed=method.SEED, resamples=method.RESAMPLES)
-    group_of = bands.groups_of(dataset.records)
+    if declared is not None and not _HEX.fullmatch(declared):
+        raise MendariError("declared names a declaration by its SHA-256 (64 hex digits)")
+    if replicates and configuration.local:
+        raise MendariError(
+            f"{configuration.label} is local, so deterministic: one replicate, no flips"
+        )
+    if replicates and record["replicate"] != runs.HEADLINE:
+        raise MendariError(
+            f"the headline is replicate {runs.HEADLINE}, as declared before the run (this run "
+            f"record is replicate {record['replicate']})"
+        )
+    figures = _figures(ledger, dataset, record, configuration, prices)
+    cost = figures["cost_per_1000"]
     measured_on = datetime.date.fromisoformat(record["date"])
-    metered = sorted(MODEL_TYPES.intersection(configuration.remote_types))
-    cost = _cost(cases, record, metered, prices)
-    figures = {
-        "critical": _critical(header, cases, result, group_of),
-        **_proportions(result),
-        **_means(header, cases, result),
-        "cost_per_1000": cost,
-        "latency_ms": _latency(record),
-        "subgroups": _subgroups(header, cases),
-        "weighted": _weighted(header, cases, dataset),
-    }
+    replicated: list[dict[str, Any]] = []
+    if replicates:
+        ledgers, records, scalars = [ledger], [record], [_scalars(figures)]
+        for other, other_run in replicates:
+            checked = runs.check_run(other_run)
+            _refuse_another(other, dataset, pack, arm, configuration, checked)
+            if checked["date"] != record["date"]:
+                raise MendariError("every replicate of a run is dated the day of its headline")
+            ledgers.append(other)
+            records.append(checked)
+            # Priced from the table only when the headline is: a result no table priced is
+            # the same whichever table is at hand (its inputs cite none).
+            table = prices if cost["status"] == PRICED else None
+            scalars.append(_scalars(_figures(other, dataset, checked, configuration, table)))
+        figures["replicates"] = runs.replicates(ledgers, records, scalars)
+        replicated = [
+            {"replicate": found["replicate"], "ledger": one.id, "run": runs.run_sha256(found)}
+            for one, found in zip(ledgers, records, strict=True)
+        ]
+    header = ledger.header
+    group_of = bands.groups_of(dataset.records)
     scope = {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
         "status": pack.status,
@@ -163,7 +198,7 @@ def entry(
             "kind": PUBLIC,
             "name": dataset.name,
             "sha256": dataset.sha256,
-            "n": len(cases),
+            "n": len(ledger.cases),
             "distinct_inputs": len(set(group_of)),
             "norm": NORM_VERSION,
         },
@@ -178,25 +213,31 @@ def entry(
         "evaluation": NOT_CLINICAL,
         "disclosure": _disclosure(configuration, disclosures),
     }
+    inputs: dict[str, Any] = {
+        "ledger": ledger.id,
+        "dataset": dataset.sha256,
+        "run": {
+            "sha256": runs.run_sha256(record),
+            "replicate": record["replicate"],
+            "engine": record["engine"],
+        },
+        # Cited only when the cost is priced from it: an entry it did not price (no metered
+        # call, a failed call, a model it lacks) is the same whichever table is at hand.
+        "prices": {"sha256": prices.sha256, "date": prices.date}
+        if prices is not None and cost["status"] == PRICED
+        else None,
+        "method": method.METHOD_SHA256,
+    }
+    # Written only when given, so an entry of one replicate is as it was before them (LP-17h).
+    if replicated:
+        inputs["replicates"] = replicated
+    if declared is not None:
+        inputs["declared"] = declared
     found = {
         "format": FORMAT,
         "arm": arm,
         "configuration": configuration.to_dict(),
-        "inputs": {
-            "ledger": ledger.id,
-            "dataset": dataset.sha256,
-            "run": {
-                "sha256": runs.run_sha256(record),
-                "replicate": record["replicate"],
-                "engine": record["engine"],
-            },
-            # Cited only when the cost is priced from it: an entry it did not price (no metered
-            # call, a failed call, a model it lacks) is the same whichever table is at hand.
-            "prices": {"sha256": prices.sha256, "date": prices.date}
-            if prices is not None and cost["status"] == PRICED
-            else None,
-            "method": method.METHOD_SHA256,
-        },
+        "inputs": inputs,
         "seeds": {"bootstrap": method.SEED, "resamples": method.RESAMPLES, "level": method.LEVEL},
         "scope": scope,
         "ranking": bands.off(PUBLIC_SET),
@@ -205,6 +246,66 @@ def entry(
         "supersedes": supersedes,
     }
     return {**found, "body_sha256": body_sha256(found)}
+
+
+def _figures(
+    ledger: Ledger,
+    dataset: Dataset,
+    record: Mapping[str, Any],
+    configuration: arms.Configuration,
+    prices: runs.Prices | None,
+) -> dict[str, Any]:
+    """One run's figures (the method's section 4), from its ledger and run record."""
+    header, cases = ledger.header, ledger.cases
+    result = result_from_ledger(ledger, seed=method.SEED, resamples=method.RESAMPLES)
+    group_of = bands.groups_of(dataset.records)
+    metered = sorted(MODEL_TYPES.intersection(configuration.remote_types))
+    return {
+        "critical": _critical(header, cases, result, group_of),
+        **_proportions(result),
+        **_means(header, cases, result),
+        "cost_per_1000": _cost(cases, record, metered, prices),
+        "latency_ms": _latency(record),
+        "subgroups": _subgroups(header, cases),
+        "weighted": _weighted(header, cases, dataset),
+    }
+
+
+def _share(found: Mapping[str, Any]) -> float | None:
+    return None if not found["n"] else found["k"] / found["n"]
+
+
+def _scalars(figures: Mapping[str, Any]) -> dict[str, float | None]:
+    """Each figure of one run whose spread across replicates is shown, by the name its row has
+    on the board, with its estimate (k/n for a proportion), or None where it has none:
+    detection and critical cases automated per critical label, false automation, the AUTO error
+    rate, automation, accuracy, macro-F1, Brier, Brier's reliability term, ECE, cost and
+    latency. Subgroups and weighted figures are left out."""
+    found: dict[str, float | None] = {}
+    for critical in figures["critical"]:
+        name = f"{critical['question']}={critical['label']}"
+        found[f"Detected {name}"] = _share(critical["detected"])
+        found[f"Critical automated {name}"] = _share(critical["automated"])
+    for key, title in (
+        ("false_automation", "False automation"),
+        ("auto_error_rate", "AUTO error rate"),
+        ("automation", "Automation"),
+        ("accuracy", "Accuracy"),
+    ):
+        found[title] = _share(figures[key])
+    for key, title in (("macro_f1", "Macro-F1"), ("brier", "Brier")):
+        found[title] = None if figures[key] is None else figures[key]["estimate"]
+    reliability, ece = figures["brier_reliability"], figures["ece"]
+    ok = "ok"
+    found["Brier reliability"] = (
+        reliability["estimate"] if reliability and reliability["status"] == ok else None
+    )
+    found["ECE (equal-mass)"] = ece["value"] if ece and ece["status"] == ok else None
+    cost = figures["cost_per_1000"]
+    found["Cost per 1,000 decisions"] = cost["estimate"] if cost["status"] == PRICED else None
+    for name in ("p50", "p95"):
+        found[f"Latency {name}"] = figures["latency_ms"][name]["estimate"]
+    return found
 
 
 def _refuse_another(
@@ -635,25 +736,32 @@ def short_of_evidence(found: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) -> dict[str, Any]:
+def board(
+    entries: Sequence[Mapping[str, Any]],
+    current: Mapping[str, Current],
+    canaries: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
     """The board of `entries`: one table per pack and set (by pack id, then set name), each with
     its ranking (`bands.ranking`: off on a public set, a regression check, not a ranking), the
-    insufficient-evidence banner when any entry's critical label is short, each arm's status
-    (measured, "not measured" or "not applicable", from `current`), the configurations of a
-    measured arm that have no entry here (`not_measured`, from `current`), and its entries in
-    a listing order (by arm, then configuration, then date), never an order of any figure,
-    each with its grade (`grade.grade`: None on a public set). A hidden set's arms are ranked
-    only from their ledgers, which a board does not hold, so a hidden table of two or more
-    entries is refused. Each entry's marks are worked out here and never stored: "unsigned",
-    "method draft, not in effect", why it is stale (its pack, set or method is not
-    `current`'s, or a later run of its configuration reports another model of a type) and
-    the date it goes stale.
+    insufficient-evidence banner when any published entry's critical label is short, each arm's
+    status (measured, "not measured" or "not applicable", from `current`), the configurations
+    of a measured arm that have no entry here (`not_measured`, from `current`), and its entries
+    in a listing order (by arm, then configuration, then date), never an order of any figure,
+    each with its grade (`grade.grade`: None on a public set) and whether it is published (an
+    entry whose disclosure is pending shows its scope and none of its figures). A hidden set's
+    arms are ranked only from their ledgers, which a board does not hold, so a hidden table of
+    two or more entries is refused. Each entry's marks are worked out here and never stored:
+    "unsigned", "method draft, not in effect", why it is stale (its pack, set or method is not
+    `current`'s; a later run of its configuration, one of its own replicates, or a canary of it
+    (`canaries`, `mendari.canary/1`) reports another model of a type; or such a canary shows
+    drift) and the date it goes stale.
 
     Each entry is read as its canonical bytes hold it (`ledger.canonical`: keys sorted), so the
     board of entries just built is the board of the same entries read back from a store: a
     configuration is written `slot=variant`, its slots in sorted order."""
     entries = [json.loads(canonical(dict(found))) for found in entries]
     later_models = _later_models(entries)
+    canary_marks = _canary_marks(canaries)
     tables: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
     for found in entries:
         if found.get("format") != FORMAT:
@@ -667,6 +775,7 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
         short = [
             {**label, "configuration": _label(found)}
             for found in listed
+            if published(found)
             for label in short_of_evidence(found)
         ]
         measured = {found["arm"] for found in listed}
@@ -702,9 +811,9 @@ def board(entries: Sequence[Mapping[str, Any]], current: Mapping[str, Current]) 
                         "arm_name": arms.ARMS.get(found["arm"], found["arm"]),
                         "configuration": _label(found),
                         "grade": grade.grade(found),
-                        "marks": _marks(found, now, later_models),
+                        "marks": _marks(found, now, later_models, canary_marks),
                         "stale_after": stale_after(found),
-                        "published": found["scope"]["disclosure"]["status"] != DISCLOSURE_PENDING,
+                        "published": published(found),
                     }
                     for found in listed
                 ],
@@ -747,10 +856,35 @@ def _later_models(
     return seen
 
 
+def published(found: Mapping[str, Any]) -> bool:
+    """Whether an entry's figures may be shown: a local configuration's always ("no model
+    provider"); a remote one's once every remote type it calls has a statement. An entry whose
+    disclosure is pending shows its scope and none of its figures, on the page and in `web/`."""
+    return bool(found["scope"]["disclosure"]["status"] != DISCLOSURE_PENDING)
+
+
+def _canary_marks(canaries: Sequence[Mapping[str, Any]]) -> list[tuple[str, str, list[str]]]:
+    """Per canary: the configuration it is of, the day of the replicates it was compared with,
+    and what it marks stale (drift, another model reported)."""
+    found = []
+    for canary in canaries:
+        canary = json.loads(canonical(dict(canary)))
+        if canary.get("format") != CANARY_FORMAT:
+            raise MendariError(f"not a {CANARY_FORMAT} canary")
+        marks = [STALE_DRIFT] if canary["drift"] else []
+        if canary["another_model"]:
+            marks.append(STALE_MODEL)
+        if marks:
+            identity = canonical([canary["pack"]["id"], canary["configuration"]["providers"]])
+            found.append((identity, canary["against"]["measured_on"], marks))
+    return found
+
+
 def _marks(
     found: Mapping[str, Any],
     now: Current | None,
     later_models: Mapping[tuple[str, str], Sequence[tuple[str, list[str]]]],
+    canary_marks: Sequence[tuple[str, str, list[str]]] = (),
 ) -> list[str]:
     scope = found["scope"]
     marks = []
@@ -764,10 +898,109 @@ def _marks(
         marks.append(STALE_SET)
     if scope["method"]["sha256"] != method.METHOD_SHA256:
         marks.append(STALE_METHOD)
+    stale: list[str] = []
     for kind, models in scope["models"]["by_type"].items():
         runs_of = later_models.get((_identity(found), kind), [])
         if any(on > scope["measured_on"] and other != models for on, other in runs_of):
-            marks.append(STALE_MODEL)
+            stale.append(STALE_MODEL)
             break
+    held = found["figures"].get("replicates")
+    if held is not None and held["models"] != scope["models"]["by_type"]:
+        stale.append(STALE_MODEL)  # a replicate after the headline reported another model
+    for identity, against_on, canary in canary_marks:
+        # A canary marks its configuration's results measured no later than its replicates.
+        if identity == _identity(found) and scope["measured_on"] <= against_on:
+            stale += canary
+    marks += [mark for mark in (STALE_DRIFT, STALE_MODEL) if mark in stale]
     marks.append(f"stale after {stale_after(found)}")
     return marks
+
+
+# --------------------------------------------------------------------------------------------
+# The canary
+# --------------------------------------------------------------------------------------------
+
+
+def canary(
+    ledger: Ledger,
+    run: Mapping[str, Any],
+    *,
+    against: Mapping[str, Any],
+    headline: Ledger,
+    dataset: Dataset | None,
+    size: int,
+    seed: int,
+) -> dict[str, Any]:
+    """The `mendari.canary/1` record of a canary (the method's section 12): a seeded draw of
+    `size` cases (`method.CANARY_SIZE`) from a pack's `test` set, decided once by hand outside
+    CI, by a remote configuration whose current result on that set (`against`) holds replicates;
+    `headline` is that result's replicate 1 ledger. From its `ledger` and its `run` record:
+
+    - its flip rate, k of n drawn cases whose primary prediction or outcome differs from
+      replicate 1's on the same case (matched by ledger hash), with its 95% interval;
+    - `drift`: that interval's lower bound is above the upper bound of the replicates' flip
+      rate's (`runs.drift`);
+    - `another_model`: a model type of either reports models the other does not.
+
+    A board marks the configuration's results measured no later than `against` "stale: canary
+    drift" or "stale: another model reported". `dataset` is the pack's `test` set as it is now,
+    when it is still the set `against` was measured on: the canary's cases must then be its
+    seeded draw (`runs.draw`). Refused, naming hashes and never a case: a size that is not the
+    method's, an `against` with no replicates or not on `test`, a `headline` that is not its
+    ledger, a run record that is not the canary's ledger's, or a canary of another pack, set or
+    configuration, or of cases its replicates do not hold."""
+    record = runs.check_run(run)
+    if size != method.CANARY_SIZE:
+        raise MendariError(
+            f"a canary under {method.METHOD} is {method.CANARY_SIZE} cases, not {size}"
+        )
+    held = against.get("figures", {}).get("replicates")
+    scope = against.get("scope", {})
+    if against.get("format") != FORMAT or held is None:
+        raise MendariError("a canary is compared with a result that holds replicates")
+    if scope.get("set", {}).get("name") != CANARY_SET:
+        raise MendariError(f"a canary is drawn from the `{CANARY_SET}` set's replicates")
+    if headline.id != against["inputs"]["ledger"]:
+        raise MendariError(f"{headline.id} is not the replicate 1 ledger of the result")
+    problem = runs.disagreement(record, ledger)
+    if problem is not None:
+        raise MendariError(f"the canary's run record is not its ledger's: {problem}")
+    if len(ledger.cases) != size:
+        raise MendariError(f"the canary holds {len(ledger.cases)} cases, not {size}")
+    if dataset is not None and dataset.sha256 == scope["set"]["sha256"]:
+        hashes = [case_hash(dataset.case_key, found["id"]) for found in dataset.records]
+        drawn = [hashes[at] for at in runs.draw(hashes, size, seed)]
+        if drawn != [case["c"] for case in ledger.cases]:
+            raise MendariError("the canary's cases are not its seed's draw from the set")
+    k, n = runs.canary_flips(ledger, headline)
+    replicated = held["flip_rate"]
+    theirs = scope["models"]["by_type"]
+    models = record["models"]
+    another = any(models.get(kind, []) != theirs.get(kind, []) for kind in {*models, *theirs})
+    found = {
+        "format": CANARY_FORMAT,
+        "pack": dict(scope["pack"]),
+        "set": {"name": CANARY_SET, "sha256": scope["set"]["sha256"]},
+        "arm": against["arm"],
+        "configuration": dict(against["configuration"]),
+        "draw": {"size": size, "seed": seed},
+        "measured_on": record["date"],
+        "inputs": {
+            "ledger": ledger.id,
+            "run": runs.run_sha256(record),
+            "method": method.METHOD_SHA256,
+        },
+        "against": {
+            "result": against["body_sha256"],
+            "measured_on": scope["measured_on"],
+            "flip_rate": replicated,
+        },
+        "models": models,
+        "flip_rate": stats.proportion(k, n, method.LEVEL).to_dict(),
+        "drift": runs.drift((k, n), (int(replicated["k"]), int(replicated["n"]))),
+        "another_model": another,
+        "evaluation": NOT_CLINICAL,
+    }
+    if found["measured_on"] < scope["measured_on"]:
+        raise MendariError("a canary is run after the replicates it is compared with")
+    return {**found, "body_sha256": body_sha256(found)}

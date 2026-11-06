@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mendari.evals import figures, scoreboard, stats
+from mendari.evals import figures, runs, scoreboard, stats
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
 
@@ -330,10 +330,37 @@ def _column(item: Mapping[str, Any], pairs: Sequence[tuple[str, str]]) -> list[t
         ("Latency p50", _latency_text(found["latency_ms"], "p50")),
         ("Latency p95", _latency_text(found["latency_ms"], "p95")),
         ("Weighted figures", _weighted_text(found["weighted"])),
+        *_replicate_rows(item["entry"]),
     ]
     if not item["published"]:
         shown_figures = [(label, scoreboard.DISCLOSURE_PENDING) for label, _ in shown_figures]
     return cells + shown_figures
+
+
+def _replicate_rows(entry: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """An entry's replicates (LP-17h): their count and headline, the case flip rate (k of n with
+    its interval) and the spread of each figure that differs across them (its minimum to
+    maximum, a description with no interval). A local configuration is deterministic: one
+    replicate, no flips."""
+    held = entry["figures"].get("replicates")
+    if held is None:
+        one = "1 (local: deterministic)" if entry["configuration"]["local"] else "1"
+        return [
+            ("Replicates", one),
+            ("Case flip rate", "none: one replicate"),
+            ("Spread across replicates", "none: one replicate"),
+        ]
+    differing = []
+    for name, spread in held["spread"].items():
+        if spread.get("status") == runs.NOT_ESTIMABLE or spread["min"] == spread["max"]:
+            continue
+        differing.append(f"{name} {spread['min']:.4f} to {spread['max']:.4f}")
+    same = "every other figure the same in each" if differing else "every figure the same in each"
+    return [
+        ("Replicates", f"{held['count']}, replicate {held['headline']} the headline"),
+        ("Case flip rate", f"{shown(held['flip_rate'])} of cases, between any two replicates"),
+        ("Spread across replicates", "; ".join([*differing, same])),
+    ]
 
 
 def _auto_error_text(found: Mapping[str, Any]) -> str:

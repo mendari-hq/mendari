@@ -11,7 +11,9 @@ The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14
 - **"method draft, not in effect":** the method has no effective date yet.
 - **Stale:** each result shows the day it goes stale, 45 days after it was measured, as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: method changed" when the pack, the set or the method is no longer the one it was measured on. A stale result is run again, never edited, and the new one supersedes it.
 - **Insufficient evidence:** a table whose critical label has fewer distinct positives than the method's minimum carries the banner, naming each such label.
-- **Not measured:** an arm, or a configuration of a measured arm, that no result covers yet. Only local configurations are run here.
+- **Not measured:** an arm, or a configuration of a measured arm, that no result covers yet.
+- **Remote configurations** (section 10) are run by hand, never in CI, as their arm's declared configuration (`scoreboard/declared/`), in 3 to 5 replicates: replicate 1 is the headline, with the case flip rate between any two replicates and each figure's spread across them. Until each remote provider type it calls has a statement in `scoreboard/disclosures.json`, a result reads "not published: disclosure pending": its scope is shown, and its figures are not. A local configuration is deterministic: one replicate, no flips.
+- **Canaries** (section 12), run by hand: a seeded draw of 30 `test` cases. One that shows drift marks its configuration "stale: canary drift", and one that reports another model "stale: another model reported".
 
 Grading method mendari.grading/1.0 (sha256 `59d28c87024baad14e395b1b3329fec6a4d7685404789b05e93f688b3c3be40a`). Proportions are k of n [exact 95% interval, Clopper-Pearson]; means are value [95% bootstrap interval, 2,000 resamples, seed 0].
 
@@ -61,6 +63,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.31 [0.31-0.32] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.49 [0.46-0.55] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `dosing=dosing,screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -137,6 +142,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.31 [0.30-0.32] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.39 [0.33-0.46] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `dosing=dosing,screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -199,6 +207,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.30 [0.30-0.31] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.39 [0.31-0.85] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `dosing=dosing,screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -271,6 +282,9 @@ Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured
 | Latency p50 | 0.42 [0.41-0.49] ms, measured on the runner, not reproducible |
 | Latency p95 | 2.23 [1.18-8.62] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -338,6 +352,9 @@ Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured
 | Latency p50 | 0.48 [0.47-0.51] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.61 [0.51-0.66] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -405,6 +422,9 @@ Not measured yet, in an arm measured here: Mendari only: `notes=rules,structured
 | Latency p50 | 0.43 [0.43-0.43] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.56 [0.52-0.62] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -455,6 +475,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.10 [0.09-0.11] ms, measured on the runner, not reproducible | 0.14 [0.12-0.15] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.32 [0.14-0.50] ms, measured on the runner, not reproducible | 0.19 [0.16-0.20] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled | as sampled |
+| Replicates | 1 (local: deterministic) | 1 (local: deterministic) |
+| Case flip rate | none: one replicate | none: one replicate |
+| Spread across replicates | none: one replicate | none: one replicate |
 
 Subgroups of Mendari only: `router=naive_bayes,safety_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -535,6 +558,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.10 [0.09-0.11] ms, measured on the runner, not reproducible | 0.16 [0.15-0.18] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.12 [0.11-0.18] ms, measured on the runner, not reproducible | 0.49 [0.21-0.57] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled | as sampled |
+| Replicates | 1 (local: deterministic) | 1 (local: deterministic) |
+| Case flip rate | none: one replicate | none: one replicate |
+| Spread across replicates | none: one replicate | none: one replicate |
 
 Subgroups of Mendari only: `router=naive_bayes,safety_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -611,6 +637,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 0.16 [0.16-0.17] ms, measured on the runner, not reproducible | 0.24 [0.23-0.25] ms, measured on the runner, not reproducible |
 | Latency p95 | 0.35 [0.27-0.40] ms, measured on the runner, not reproducible | 0.66 [0.55-0.75] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled | as sampled |
+| Replicates | 1 (local: deterministic) | 1 (local: deterministic) |
+| Case flip rate | none: one replicate | none: one replicate |
+| Spread across replicates | none: one replicate | none: one replicate |
 
 Subgroups of Mendari only: `router=naive_bayes,safety_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -730,6 +759,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 3.80 [3.57-4.13] ms, measured on the runner, not reproducible |
 | Latency p95 | 4.95 [4.67-5.60] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -779,6 +811,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 3.95 [3.74-4.09] ms, measured on the runner, not reproducible |
 | Latency p95 | 4.79 [4.18-4.97] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -828,6 +863,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 4.19 [4.08-4.36] ms, measured on the runner, not reproducible |
 | Latency p95 | 7.73 [7.24-8.62] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `notes=rules,structured=criteria` (a figure over fewer than 10 cases reads "too few"):
 
@@ -882,6 +920,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 2.03 [2.01-2.06] ms, measured on the runner, not reproducible |
 | Latency p95 | 4.39 [3.97-4.63] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -946,6 +987,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 2.57 [2.36-3.25] ms, measured on the runner, not reproducible |
 | Latency p95 | 4.83 [4.06-5.93] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -1006,6 +1050,9 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 | Latency p50 | 2.25 [2.05-2.46] ms, measured on the runner, not reproducible |
 | Latency p95 | 2.99 [2.54-3.82] ms, measured on the runner, not reproducible |
 | Weighted figures | as sampled |
+| Replicates | 1 (local: deterministic) |
+| Case flip rate | none: one replicate |
+| Spread across replicates | none: one replicate |
 
 Subgroups of Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` (a figure over fewer than 10 cases reads "too few"):
 
@@ -1027,6 +1074,10 @@ Subgroups of Mendari only: `checklist=criteria,specialty_reader=naive_bayes,tria
 | specialty=pulmonology | 2 | too few | too few | too few |
 | specialty=rheumatology | 2 | too few | too few | too few |
 | style=unknown | 24 | 17 of 24 [48.9-87.4%] | 0 of 24 [0.0-14.2%] | too few (0 cases) |
+
+## Canaries
+
+None yet: no canary has been run.
 
 ## Superseded results
 

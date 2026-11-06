@@ -80,6 +80,8 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     # The results store (LP-17f): refused where there is none, never made.
     "scoreboard run": (["mendari/ai-guard", "--store", "{missing}"], {}),
     "scoreboard add": (["{missing}", "--store", "{file}"], {}),
+    # A canary is run by hand (LP-17h): refused where there is no store, and in CI.
+    "scoreboard canary": (["mendari/ai-guard", "--seed", "1", "--store", "{missing}"], {}),
     "card": (["no/such-pack"], {}),
     "schema": (["no/such-pack"], {}),
     "serve": (["--db", "{not_db}"], {}),
