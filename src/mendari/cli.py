@@ -404,6 +404,8 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     board = leaderboard.build(pack, reports, existing)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(board, indent=2) + "\n", encoding="utf-8")
+    # The card's opening, then its tables: a regression check, not a ranking (LP-17g).
+    print(leaderboard.preface(), end="\n\n")
     print("\n".join(leaderboard.markdown(board, pack.digest, pack.version)))
     print(f"-> {target}")
     return 0

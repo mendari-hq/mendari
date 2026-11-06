@@ -7,10 +7,11 @@ exist only there), so every configuration is measured on identical records with 
 metrics. The leaderboard lives at `evals/leaderboard.json` in the pack; like the benchmark it
 is an attestation about the pack and is not part of its digest. It contains no case text.
 
-Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. Every set a leaderboard
-is measured on is public, so the card, the command line and the dashboard show each table as a
-regression check, not a ranking (LP-17g): the rows in `mendari.rank/1`'s order, a listing order,
-and no rank printed. Grades and rankings are given only on frozen hidden sets (the scoreboard,
+Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. The pack's own sets are
+public, so the card, the command line and the dashboard show each table as a regression check,
+not a ranking (LP-17g): the rows in `ranking.grouped`'s listing order (those that rank as data
+first, in `mendari.rank/1`'s order, then every other row by configuration name), and no rank
+printed. Grades and rankings are given only on frozen hidden sets (the scoreboard,
 `mendari.evals.scoreboard`).
 """
 
@@ -174,12 +175,30 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
     return board, None
 
 
+def preface() -> str:
+    """What the card and `mendari leaderboard` say above a leaderboard's tables (LP-17g): what
+    each is (`PUBLIC_SET`), that nothing on them is graded, the order their rows are listed in
+    (`ranking.grouped`'s) and where the scoreboard is. It calls only the pack's own sets public:
+    a board can hold a site's own file (`mendari leaderboard --dataset PATH`)."""
+    return (
+        f"{PUBLIC_SET[:1].upper()}{PUBLIC_SET[1:]}. Nothing here is graded: the pack's own sets "
+        "are public, in the repository and in the package, so a configuration can be tuned to "
+        "them, and grades and rankings are given only on frozen hidden sets. The rows are a "
+        "listing order, not a ranking: those measured on this version of the pack, on records "
+        f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
+        "critical cases caught first and never accuracy alone; every other row follows, by "
+        f"configuration name. Mendari's [scoreboard]({SCOREBOARD}) shows its reference packs' "
+        "configurations on their public sets, each figure with its interval and scope."
+    )
+
+
 def markdown(
     board: Mapping[str, Any], digest: str | None = None, version: str | None = None
 ) -> list[str]:
-    """One table per set of records (`ranking.grouped`), its rows in `mendari.rank/1`'s order
-    against `digest` (the pack's own; `version` is its version). The order is a listing order:
-    every set is public, a regression check, not a ranking, so no rank is printed (LP-17g). A
+    """One table per set of records (`ranking.grouped`), its rows in that function's listing
+    order against `digest` (the pack's own; `version` is its version): those that rank as data
+    first, in `mendari.rank/1`'s order, then every other row by configuration name. No rank is
+    printed: each table is a regression check, not a ranking (LP-17g; `preface` says so). A
     row of an earlier version of the pack says so beside its configuration (its AUTO and false
     automation followed that version's policy), and a critical label with too few positives
     says "insufficient evidence" beside its figure."""

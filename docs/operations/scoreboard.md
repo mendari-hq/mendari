@@ -53,13 +53,17 @@ applicable") for each arm with no result. Each row says "unsigned", "method draf
 effect" and the day it goes stale, as the page does. There is no Rank column and no best row:
 the set is public, a regression check, not a ranking.
 
-A remote model is named there only once its result's disclosure is stated in
-`scoreboard/disclosures.json`; until then the row shows "not published: disclosure pending" in
-place of its figures. Deploying `web/` is the owner's, after gate G1-2.
+A remote model is named there only once its provider type's disclosure is stated in
+`scoreboard/disclosures.json`. Until then neither is a configuration that calls it (a variant's
+name, `rules_and_jev`, can name its provider): a result's row shows its arm and marks and "not
+published: disclosure pending" in place of its figures, and the arm's configurations not yet
+measured are counted in one row rather than named. Deploying `web/` is the owner's, after gate
+G1-2.
 
 The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
 of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
-and a link to the scoreboard (the dashboard links this page, which links the scoreboard).
+the order the rows are listed in, and a link to the scoreboard (the dashboard links this page,
+which links the scoreboard).
 
 It is never part of `scripts/build-reference-pack.sh`. A run record holds each case's latency,
 as the runner measured it, and no rebuild gives the same latency twice.

@@ -427,6 +427,11 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     expect(compare).to_have_attribute("aria-current", "page")
     panel = page.locator("#evals-body .panel").first
     expect(panel).to_contain_text("Public set: regression check, not a ranking.")
+    # The order as ranking.grouped writes it: every shipped row is of an earlier version, so by
+    # configuration name.
+    expect(panel).to_contain_text("every other row follows, by configuration name")
+    expect(panel).to_contain_text("the pack's own sets are public")
+    expect(panel).not_to_contain_text("Every set")
     scoreboard = panel.get_by_role("link", name="scoreboard")
     expect(scoreboard).to_have_attribute("href", f"{DOCS_SITE}operations/scoreboard/")
     held_out = page.get_by_role("button", name=re.compile("unsafe_drafts_holdout"))
@@ -899,6 +904,51 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
         "aria-label",
         re.compile(r"Accuracy \d+ of \d+ \[.*Verdict: block caught \d+ of \d+ \["),
     )
+
+
+def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(page: Page) -> None:
+    """The cost chart names beside its point the deployed configuration and every one no other
+    beats on both cost and accuracy (LP-17g): the first in the listing order is not named for
+    that alone. Here the first is made the dearest and no more accurate than a cheaper row, and
+    the deployed rules screen is beaten too: the first is named in its tooltip only, the
+    deployed one beside its point."""
+    board = counted_board(GUARD, positives=120)
+    rows = [r for r in board["rows"] if r["group"] == 0]
+    first = next(r for r in rows if r["rank"] == 1)
+    cheaper = next(r for r in rows if r["rank"] == 3)
+    deployed = next(r for r in rows if r["providers"]["screen"]["variant"] == "rules")
+    beats_deployed = next(r for r in rows if r["providers"]["screen"]["variant"] == "rules_and_jev")
+    assert first["cost_per_decision_usd"] > cheaper["cost_per_decision_usd"]
+    assert len({id(r) for r in (first, cheaper, deployed, beats_deployed)}) == 4
+    dearest = 10 * max(r["cost_per_decision_usd"] for r in rows)
+    first.update(
+        cost_per_decision_usd=dearest,
+        figures={**first["figures"], "accuracy": cheaper["figures"]["accuracy"]},
+    )
+    deployed.update(
+        cost_per_decision_usd=2 * beats_deployed["cost_per_decision_usd"],
+        figures={**deployed["figures"], "accuracy": beats_deployed["figures"]["accuracy"]},
+    )
+    serve_board(page, GUARD, board)
+    open_pack(page, GUARD, "evals")
+    page.get_by_role("button", name=board["groups"][0]["label"]).click()
+    table = page.locator("#board table.data").first
+
+    def plain(config: str) -> str:  # the configuration in the words the chart uses
+        cell = table.locator(f'tbody .config[title="{config}"]').inner_text()
+        return cell.split("\n")[0].removesuffix(" Deployed")
+
+    chart = page.locator('figure.chart[data-chart="cost-0"]')
+    expect(chart.locator(".mark").first).to_be_visible()
+    labels = chart.locator("svg text.direct-label").evaluate_all(
+        "els => els.map((e) => e.textContent)"
+    )
+    marks = chart.locator(".mark").evaluate_all("els => els.map((e) => e.ariaLabel)")
+    assert plain(first["config"]) not in labels  # the first in the order, beaten: not named
+    assert any(m.startswith(f"{plain(first['config'])}: ") for m in marks)  # but in its tooltip
+    assert plain(deployed["config"]) in labels  # the deployed one, beaten or not
+    assert plain(cheaper["config"]) in labels  # unbeaten: no row is cheaper and as accurate
+    expect(chart.locator("svg .ring")).to_have_count(1)
 
 
 def engine_detail(page: Page, example: str) -> None:

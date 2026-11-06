@@ -1284,11 +1284,13 @@ paired bootstrap, Holm), the attestations a grade is made of (never a letter or 
 bands a ranking uses, the evidence rule (enough distinct positives for each critical label, never
 fewer than 100) and the scope statement every result carries. Under it, grades and ranks are
 given only on frozen hidden sets, and a public set is a regression check, never a ranking. The
-leaderboard above is not made under it, and every set it is measured on is public: so
-`mendari leaderboard`, the Decision Cards and the dashboard show each of its tables as "public
-set: regression check, not a ranking", the rows listed in `mendari.rank/1`'s order (the critical
-cases caught first) with no rank printed, and link the scoreboard. A row's `rank` and `standing`
-stay in `evals/leaderboard.json` and the API as data. The method is a draft,
+leaderboard above is not made under it, and the pack's own sets it is measured on are public:
+so `mendari leaderboard`, the Decision Cards and the dashboard show each of its tables as
+"public set: regression check, not a ranking" with no rank printed, and link the scoreboard.
+The rows are a listing order: those measured on this version of the pack, on records with
+enough critical positives, first in `mendari.rank/1`'s order (the critical cases caught first),
+then every other row by configuration name. A row's `rank` and `standing` stay in
+`evals/leaderboard.json` and the API as data. The method is a draft,
 not in effect, until the owner sets its effective date; `mendari.evals.method` pins its hash and
 every number it sets ([ADR-0013](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0013-scoreboard-and-scoped-grades.md)).
 It is an engineering evaluation, not clinical validation.
@@ -1328,8 +1330,9 @@ re-runs to the same bytes and that a new result is of a local configuration
 ([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
 The same script writes the scores on the public page (`web/index.html`, between two marker
 comments): the Patient Inbox Router's `test` set, every arm, each figure k of n with its
-interval, and "not measured" for each arm with no result. It names no remote model until a
-result's disclosure is stated, and the check covers it too. Deploying `web/` stays the owner's.
+interval, and "not measured" for each arm with no result. It names no remote model, and writes
+no configuration that calls one, until that provider type's disclosure is stated; the check
+covers it too. Deploying `web/` stays the owner's.
 
 A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
 evidence, never a letter or a score: no critical case automated, each critical label's recall

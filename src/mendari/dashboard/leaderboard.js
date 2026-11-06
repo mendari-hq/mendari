@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// Provider comparison: the leaderboard in the server's order (mendari.rank/1), cost against
-// accuracy, per-check accuracy. Every set is public, so each table is a regression check, not a
-// ranking: the order is a listing order and no rank is shown (LP-17g). Every share of cases is a
-// figure the server worked out (mendari.figures/1); this view only formats and orders what it is given.
+// Provider comparison: the leaderboard in the server's order (ranking.grouped: the rows that rank
+// as data first, in mendari.rank/1's order, then the rest by configuration name), cost against
+// accuracy, per-check accuracy. The pack's own sets are public, so each table is a regression
+// check, not a ranking: the order is a listing order and no rank is shown (LP-17g). Every share
+// of cases is a figure the server worked out (mendari.figures/1); this view only formats and
+// orders what it is given.
 
 import { chartHtml } from "./charts.js";
 import { criticalText, providerName, remoteModels, variantText } from "./pack.js";
@@ -38,11 +40,13 @@ export function leaderboardView(board) {
   const { groups, current } = boardGroups(board);
   if (!current) return `<div class="panel"><h2>Provider comparison</h2><p class="muted">No configurations compared yet.</p></div>`;
   const scoreboard = docsLink(SCOREBOARD_DOC);
+  const min = board.ranking.min_positives;
   return `<div class="panel">
     <h2>Provider comparison</h2>
     <p class="muted"><b>Public set: regression check, not a ranking.</b> Each set of records is compared on its own (updated ${esc(time(board.updated_at))}).
-      Rows are listed with the critical cases caught first: fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never by accuracy alone.
-      That is a listing order, and sorting a column reorders the rows. Every set here is public, so nothing on it is graded: grades are given only on frozen hidden sets.
+      Rows are a listing order: those measured on this version of the pack, where a critical label has at least ${esc(min)} positives, come first, the critical cases caught first
+      (fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never accuracy alone); every other row follows, by configuration name.
+      Sorting a column reorders the rows. Nothing here is graded: the pack's own sets are public, in the repository and in the package, and grades are given only on frozen hidden sets.
       Mendari's <a href="${esc(scoreboard)}" target="_blank" rel="noopener noreferrer">scoreboard ${icon("external")}</a> shows the reference packs' configurations on their public sets, each figure with its interval and scope.</p>
     <div class="choices" role="group" aria-label="Records">${groups.map((g) =>
       `<button type="button" data-board-group="${g.index}" aria-pressed="${g === current}" title="${esc(g.about.join("; "))}">${esc(g.label)}</button>`).join("")}</div>

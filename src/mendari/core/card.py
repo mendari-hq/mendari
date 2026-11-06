@@ -256,13 +256,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             "",
             "## Provider comparison",
             "",
-            f"{leaderboard.PUBLIC_SET[:1].upper()}{leaderboard.PUBLIC_SET[1:]}. Every set below "
-            "is public: it is in the repository and in the package, so a configuration can be "
-            "tuned to it. The rows are listed with the critical cases caught first, never "
-            "accuracy alone, and nothing here is graded: grades and rankings are given only on "
-            "frozen hidden sets. Mendari's "
-            f"[scoreboard]({leaderboard.SCOREBOARD}) shows its reference packs' configurations "
-            "on their public sets, each figure with its interval and scope.",
+            leaderboard.preface(),
             "",
             "Each table below is one dataset at one size, and the configurations in a table that "
             "records the dataset's hash ran on exactly the same records. Remote models are named "

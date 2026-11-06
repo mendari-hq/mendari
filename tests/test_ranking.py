@@ -188,6 +188,40 @@ def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
     assert listed == ["| a-first", "| b-second", "| c-third"]  # in the order, unnumbered
 
 
+def test_the_card_says_the_order_its_rows_are_in() -> None:
+    """The rows are listed as `ranking.grouped` lists them: those that rank as data first, in
+    their order, then every other row by configuration name. The card says just that, and never
+    that its rows come critical cases first: every row of the five reference boards is of an
+    earlier version of its pack, so each of their tables is in order of configuration name."""
+    from mendari.core.card import render_card
+    from mendari.evals import leaderboard
+
+    for name in REFERENCE_PACKS:
+        pack = resolve_pack(f"mendari/{name}")
+        board, problem = leaderboard.read(pack)
+        assert board is not None, problem
+        for _, rows in ranking.grouped(board["rows"], pack.digest):
+            assert {r["standing"] for r in rows} == {ranking.EARLIER}, name
+            configs = [r["config"] for r in rows]
+            assert configs == sorted(configs), name
+        card = render_card(pack)
+        assert leaderboard.preface() in card, name
+        assert "every other row follows, by configuration name" in card, name
+        assert "rows are listed with the critical cases caught first" not in card, name
+
+    # Ranked rows first in their order, then the rest by name, whatever the names.
+    rows = [
+        row("a-earlier", pack_digest="sha256:" + "b" * 64),
+        row("z-second", cost_per_decision_usd=0.01),
+        row("m-first"),
+    ]
+    assert order(rows) == [
+        ("m-first", 1, ranking.RANKED),
+        ("z-second", 2, ranking.RANKED),
+        ("a-earlier", None, ranking.EARLIER),
+    ]
+
+
 def test_a_bound_too_close_to_print_never_reads_0_or_100() -> None:
     assert shown(stats.proportion(1, 60000)) == "1 of 60000 [<0.0001-0.01%]"
     assert shown(stats.proportion(59999, 60000)) == "59999 of 60000 [99.99->99.9999%]"

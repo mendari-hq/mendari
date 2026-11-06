@@ -12,8 +12,10 @@ no bare percentage.
 It also writes the scores web/index.html shows (LP-17g), between its two marker comments: the
 Patient Inbox Router's public `test` set from the same board, every arm, a measured entry's
 figures as k of n with their intervals, the insufficient-evidence banner, and every other arm
-"not measured" or "not applicable". A remote model is named only once its entry's disclosure is
-stated; until then its figures are withheld. Deploying web/ stays the owner's (gate G1-2).
+"not measured" or "not applicable". A remote model, and a configuration that calls one (a
+variant's name, `rules_and_jev`, can name its provider), is written only once its provider
+type's disclosure is stated; until then an entry's figures are withheld too. Deploying web/
+stays the owner's (gate G1-2).
 
     uv run python scripts/scoreboard_page.py           # write the page and the site's scores
     uv run python scripts/scoreboard_page.py --check   # exit 1 when either is not the store's
@@ -27,12 +29,12 @@ from __future__ import annotations
 import argparse
 import html
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals import method, results_store, scoreboard
+from mendari.evals import arms, method, results_store, runs, scoreboard
 from mendari.evals.render import scoreboard_markdown, shown
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,6 +56,8 @@ WEB_BEGIN = (
 )
 WEB_END = "<!-- End of the scores scripts/scoreboard_page.py generates. -->"
 WEB_INDENT = " " * 6  # inside <section id="scores">
+# Written in place of a configuration that calls a remote type whose disclosure is not stated.
+WITHHELD = "withheld: disclosure pending"
 
 
 def repository_pack(ref: str) -> Pack:
@@ -138,9 +142,10 @@ def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = reposi
     configuration, the models a stated disclosure names, its marks, then accuracy, automation,
     false automation and each critical label's detection, each k of n with its exact 95%
     interval), one per configuration of a measured arm not measured yet, and one per arm with no
-    entry ("not measured" or "not applicable"), in the arms' order. An entry whose disclosure is
-    pending names no model and shows "not published: disclosure pending" in place of its
-    figures. No row is marked best, and nothing is ranked."""
+    entry ("not measured" or "not applicable"), in the arms' order. A configuration that calls a
+    remote type whose disclosure is not stated is not written (`_arm_rows`): an entry of one
+    names neither its configuration nor its models and shows "not published: disclosure
+    pending" in place of its figures. No row is marked best, and nothing is ranked."""
     table = next(
         (t for t in _board(store, packs)["tables"] if (t["pack"], t["set"]) == (WEB_PACK, WEB_SET)),
         None,
@@ -206,18 +211,9 @@ def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = reposi
         "      </thead>",
         "      <tbody>",
     ]
+    named = nameable(packs(WEB_PACK), store.disclosures())
     for arm in table["arms"]:
-        for item in entries:
-            if item["entry"]["arm"] == arm["arm"]:
-                lines.append(f"        {_web_entry(item, pairs, width)}")
-        for missing in table["not_measured"]:
-            if missing["arm"] == arm["arm"]:
-                gap = _gap(
-                    missing["name"], missing["configuration"], scoreboard.NOT_MEASURED, width
-                )
-                lines.append(f"        {gap}")
-        if arm["status"] != scoreboard.MEASURED:
-            lines.append(f"        {_gap(arm['name'], None, arm['status'], width)}")
+        lines += [f"        {row}" for row in _arm_rows(table, arm, pairs, width, named)]
     lines += [
         "      </tbody>",
         "    </table>",
@@ -232,10 +228,58 @@ def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = reposi
     return "\n".join(f"{WEB_INDENT}{line}" for line in lines) + "\n"
 
 
+def nameable(pack: Pack, disclosures: runs.Disclosures | None) -> frozenset[str]:
+    """The configurations of `pack` the site may write, `slot=variant` with the slots sorted as
+    the board writes them: each that calls no remote type, or only types whose disclosure is
+    stated. A variant's name can name its provider (`rules_and_jev`), so no other is written."""
+    held = {} if disclosures is None else disclosures.statements
+    stated = {kind for kind, statement in held.items() if statement is not None}
+    return frozenset(
+        ",".join(f"{slot}={each.providers[slot]}" for slot in sorted(each.providers))
+        for arm in arms.arms(pack).values()
+        for each in arm.configurations
+        if set(each.remote_types) <= stated
+    )
+
+
+def _arm_rows(
+    table: Mapping[str, Any],
+    arm: Mapping[str, Any],
+    pairs: Sequence[tuple[str, str]],
+    width: int,
+    named: Container[str],
+) -> list[str]:
+    """The rows of one arm of `table`: each of its entries, each of its configurations not
+    measured yet, and its status when it has no entry. A configuration not measured yet that is
+    not `named` is not written: those are counted in one row, "withheld"."""
+    rows = [
+        _web_entry(item, pairs, width)
+        for item in table["entries"]
+        if item["entry"]["arm"] == arm["arm"]
+    ]
+    missing = [item["configuration"] for item in table["not_measured"] if item["arm"] == arm["arm"]]
+    rows += [
+        _gap(arm["name"], _configuration(label), scoreboard.NOT_MEASURED, width)
+        for label in missing
+        if label in named
+    ]
+    withheld = sum(label not in named for label in missing)
+    if withheld:
+        detail = f"{_counted(withheld, 'configuration')} {WITHHELD}"
+        rows.append(_gap(arm["name"], detail, scoreboard.NOT_MEASURED, width))
+    if arm["status"] != scoreboard.MEASURED:
+        rows.append(_gap(arm["name"], None, arm["status"], width))
+    return rows
+
+
 def _web_entry(item: Mapping[str, Any], pairs: Sequence[tuple[str, str]], width: int) -> str:
+    """An entry's row. One whose disclosure is pending names neither its configuration nor its
+    models, and its figures are withheld."""
     esc = html.escape
     found = item["entry"]
-    spans = [_configuration(item["configuration"])]
+    spans = [
+        _configuration(item["configuration"]) if item["published"] else f"configuration {WITHHELD}"
+    ]
     by_type = found["scope"]["models"]["by_type"]
     if item["published"] and by_type:  # a stated disclosure: the models as reported
         spans.append("; ".join(f"{kind}: {', '.join(models)}" for kind, models in by_type.items()))
@@ -259,10 +303,11 @@ def _web_entry(item: Mapping[str, Any], pairs: Sequence[tuple[str, str]], width:
     return f"<tr>{head}</th>" + "".join(_figure_cell(cell) for cell in cells) + "</tr>"
 
 
-def _gap(arm: str, configuration: str | None, status: str, width: int) -> str:
-    """The row of an arm, or of one configuration of it, that no entry here covers."""
+def _gap(arm: str, detail: str | None, status: str, width: int) -> str:
+    """The row of an arm, or of configurations of it (`detail`, as written), that no entry here
+    covers."""
     esc = html.escape
-    written = "" if configuration is None else f" <span>{esc(_configuration(configuration))}</span>"
+    written = "" if detail is None else f" <span>{esc(detail)}</span>"
     return (
         f'<tr><th scope="row">{esc(arm)}{written}</th>'
         f'<td colspan="{width}" class="muted">{esc(status)}</td></tr>'

@@ -630,7 +630,10 @@ h2 {
   font-weight: 600;
 }
 
+/* Positioned, so what is absolutely positioned inside (the visually hidden header text) is
+   clipped by the region and never widens the page. */
 .scroll {
+  position: relative;
   overflow-x: auto;
 }
 
@@ -666,6 +669,15 @@ th:last-child {
 
 tbody tr {
   border-top: 1px solid var(--line);
+}
+
+/* Each row's header, and their column's, stay in view while the figures scroll sideways on a
+   narrow screen. */
+thead th:first-child,
+tbody th {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
 }
 
 tbody th {
@@ -995,7 +1007,8 @@ td .interval {
   }
 }
 
-/* Phones: the in-page links give way to the one action; the score table fits without scrolling. */
+/* Phones: the in-page links give way to the one action. The score table's figures scroll
+   sideways in their region, each row's header held at its left edge. */
 
 @media (max-width: 36rem) {
   .nav a:not(.button) {

@@ -3,17 +3,20 @@
 `scripts/scoreboard_page.py` from the results store, checked by its `--check`, and nowhere typed
 by hand. They are the Patient Inbox Router's public `test` set: every arm, each measured entry's
 figures as k of n with their exact intervals, the insufficient-evidence banner, and every other
-arm "not measured". The page shows no bare percentage, no best row and, until an entry's
-disclosure is stated, no remote model."""
+arm "not measured". The page shows no bare percentage, no best row and, until a provider type's
+disclosure is stated, no remote model and no configuration that calls one (a variant's name can
+name its provider: `rules_and_jev`)."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from mendari.evals import arms, results_store, scoreboard
+from mendari.core.registry import resolve_pack
+from mendari.evals import arms, results_store, runs, scoreboard
 from mendari.evals.render import shown
 from mendari.evals.results_store import Store
 from tests.test_scoreboard_page import page_script
@@ -104,7 +107,8 @@ def test_the_site_shows_no_bare_percentage_or_best_row(scores: str) -> None:
     assert bare_percentages(site) == []
     assert 'class="best"' not in site and "strong" not in scores
     assert re.search(r"\b(Rank|ranked|best)\b", scores) is None
-    # No remote model is named until an entry's disclosure is stated (none is yet).
+    # No remote model, nor a configuration that calls one, is named until its provider type's
+    # disclosure is stated (none is yet).
     lowered = scores.lower()
     assert [name for name in REMOTE_NAMES if name in lowered] == []
     # What the typed table said, and is no longer: a size and versions no result is of.
@@ -138,22 +142,86 @@ def test_a_site_without_its_markers_is_refused() -> None:
             page_script.with_scores(broken, "")
 
 
-def test_an_undisclosed_entry_names_no_model_and_shows_no_figure() -> None:
-    """A remote entry whose provider type has no stated disclosure (17h measures them; none is
-    stored yet) is listed by its arm and configuration, with "not published: disclosure
-    pending" in place of its figures, and its models are left unnamed."""
-    item = {
-        "entry": {
-            "arm": "llm",
-            "scope": {"models": {"by_type": {"llm": ["vendor/model-x"]}}},
-            "figures": {},
-        },
-        "arm_name": arms.ARMS["llm"],
-        "configuration": "router=llm,safety_screen=rules",
+def test_the_intro_claims_no_more_than_the_scores_show(scores: str) -> None:
+    """The hand-written intro above the markers says what is scored as the table shows it: an
+    arm with no stored result reads "not measured", and the intro does not claim every
+    configuration is scored."""
+    site = SITE.read_text(encoding="utf-8")
+    intro = site[site.index('<section id="scores"') : site.index(page_script.WEB_BEGIN)]
+    assert scoreboard.NOT_MEASURED in scores
+    assert "is scored on the same labelled cases" not in intro
+    assert f"“{scoreboard.NOT_MEASURED}”" in intro
+
+
+def pending(arm: str, configuration: str, models: dict[str, list[str]]) -> dict[str, Any]:
+    """A board's item for a remote entry whose provider type has no stated disclosure (17h
+    measures them; none is stored yet)."""
+    return {
+        "entry": {"arm": arm, "scope": {"models": {"by_type": models}}, "figures": {}},
+        "arm_name": arms.ARMS[arm],
+        "configuration": configuration,
         "marks": [scoreboard.UNSIGNED],
         "published": False,
     }
-    row = page_script._web_entry(item, [("urgency", "urgent")], 4)
-    assert "vendor/model-x" not in row and "model-x" not in row
+
+
+@pytest.mark.parametrize(
+    ("arm", "configuration", "models"),
+    [
+        ("llm", "router=llm,safety_screen=rules", {"llm": ["vendor/model-x"]}),
+        ("classifier", "router=rules,safety_screen=rules_and_jev", {"jev": ["jev-1.13.0"]}),
+    ],
+)
+def test_an_undisclosed_entry_names_no_configuration_model_or_figure(
+    arm: str, configuration: str, models: dict[str, list[str]]
+) -> None:
+    """Such an entry is listed by its arm and marks alone, with "not published: disclosure
+    pending" in place of its figures: neither its models nor its configuration is written, as a
+    variant's name can name its provider (`rules_and_jev`)."""
+    row = page_script._web_entry(pending(arm, configuration, models), [("urgency", "urgent")], 4)
     assert f'<td colspan="4" class="muted">{scoreboard.DISCLOSURE_PENDING}</td>' in row
-    assert "router=llm, safety_screen=rules" in row
+    assert f"<span>configuration {page_script.WITHHELD}</span>" in row
+    assert scoreboard.UNSIGNED in row
+    written = row.lower()
+    assert [name for name in (*REMOTE_NAMES, "model-x") if name in written] == []
+    assert "router=" not in row and "safety_screen" not in row
+
+
+def test_an_arm_names_its_unmeasured_configurations_only_once_disclosed() -> None:
+    """Once an arm has an entry, its configurations not measured yet are listed too. Those that
+    call a type with no stated disclosure are not named but counted in one row; once the type's
+    disclosure is stated, each is named. A local configuration is always named."""
+    pack = resolve_pack(page_script.WEB_PACK)
+    pairs = [("urgency", "urgent")]
+    missing = ["router=jev,safety_screen=rules", "router=naive_bayes,safety_screen=rules_and_jev"]
+    classifier = arms.ARMS[arms.CLASSIFIER]
+    table = {
+        "entries": [
+            pending(
+                arms.CLASSIFIER, "router=rules,safety_screen=rules_and_jev", {"jev": ["jev-1.13"]}
+            )
+        ],
+        "not_measured": [
+            {"arm": arms.CLASSIFIER, "name": classifier, "configuration": label}
+            for label in missing
+        ],
+    }
+    arm = {"arm": arms.CLASSIFIER, "name": classifier, "status": scoreboard.MEASURED}
+
+    undisclosed = page_script.nameable(pack, None)
+    assert undisclosed == {
+        "router=naive_bayes,safety_screen=rules",
+        "router=rules,safety_screen=rules",
+    }
+    rows = page_script._arm_rows(table, arm, pairs, 4, undisclosed)
+    assert len(rows) == 2 and "jev" not in "".join(rows).lower()
+    assert f"<span>2 configurations {page_script.WITHHELD}</span>" in rows[1]
+    assert f'<td colspan="4" class="muted">{scoreboard.NOT_MEASURED}</td>' in rows[1]
+
+    stated = runs.Disclosures("2026-11-05", {"jev": "A synthetic statement for this test."})
+    disclosed = page_script.nameable(pack, stated)
+    assert "router=llm,safety_screen=rules" not in disclosed  # the LLM's is still pending
+    rows = page_script._arm_rows(table, arm, pairs, 4, disclosed)
+    assert len(rows) == 3
+    assert "<span>router=jev, safety_screen=rules</span>" in rows[1]
+    assert "<span>router=naive_bayes, safety_screen=rules_and_jev</span>" in rows[2]

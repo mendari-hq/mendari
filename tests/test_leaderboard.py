@@ -156,6 +156,27 @@ def test_cli_runs_configurations_and_merges(
     assert "red_flags_holdout" in capsys.readouterr().out
 
 
+def test_the_cli_says_what_its_tables_are_as_the_card_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari leaderboard` prints the card's opening above its tables (LP-17g): "public set:
+    regression check, not a ranking", the order the rows are listed in, and the scoreboard's
+    link. It calls only the pack's own sets public: a board can hold a site's own file, here a
+    copy of one under another name, which is in neither the repository nor the package."""
+    site = tmp_path / "our-own-cases.jsonl"
+    shutil.copyfile(INBOX_DIR / "data" / "red_flags.jsonl", site)
+    out = tmp_path / "leaderboard.json"
+    args = ["leaderboard", str(INBOX_DIR), "--out", str(out), "--run", "router=rules"]
+    assert main([*args, "--dataset", str(site)]) == 0
+    printed = capsys.readouterr().out
+    assert f"{leaderboard.preface()}\n\n**`our-own-cases`**" in printed  # above its tables
+    assert "Public set: regression check, not a ranking." in printed
+    assert f"[scoreboard]({leaderboard.SCOREBOARD})" in printed
+    assert "every other row follows, by configuration name" in printed
+    assert "the pack's own sets are public" in printed
+    assert "Every set" not in printed  # never that every set it shows is public
+
+
 def test_deployments_evaluate_other_configurations(db_target: str) -> None:
     client = TestClient(create_app(db_path=db_target))
     response = client.post(

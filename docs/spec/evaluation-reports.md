@@ -208,23 +208,28 @@ the row: a board can come from a registry upload. A row measured on another pack
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.
 
-**How a leaderboard is shown (since LP-17g, a display change).** Every set a leaderboard is
-measured on is public: it is in the repository and in the package, so a configuration can be
-tuned to it. Under the [grading method](../grading/method-1.0.md) a public set is a regression
-check, never a ranking, so no surface prints a rank:
+**How a leaderboard is shown (since LP-17g, a display change).** The pack's own sets are
+public: they are in the repository and in the package, so a configuration can be tuned to
+them. Under the [grading method](../grading/method-1.0.md) a public set is a regression check,
+never a ranking, so no surface prints a rank (a board can also hold a site's own file,
+`--dataset PATH`, and nothing on it is graded either):
 
 - The Decision Card's "Provider comparison" opens with "Public set: regression check, not a
-  ranking", says that nothing there is graded, and links the
-  [scoreboard](../grading/scoreboard.md). Its tables have no Rank column. A row measured on an
-  earlier version of the pack says so beside its configuration.
-- `mendari leaderboard` prints the same tables.
+  ranking", says that nothing there is graded and the order its rows are listed in, and links
+  the [scoreboard](../grading/scoreboard.md). Its tables have no Rank column. A row measured on
+  an earlier version of the pack says so beside its configuration.
+- `mendari leaderboard` prints the same opening and the same tables.
 - The dashboard's Provider comparison says the same and links the scoreboard. It has no rank
   column, and its cost chart names the deployed configuration and every configuration no other
   beats on both cost and accuracy.
 
-The rows are listed in `mendari.rank/1`'s order: a listing order, the critical cases caught
-first. The data and the API do not change: each row keeps its `rank` and `standing`, and
-`GET /api/packs/{pack}` serves them as before.
+The rows are listed in `ranking.grouped`'s order, a listing order: those that rank as data
+(measured on this version of the pack, on records where a critical label has at least 100
+positives) first, in `mendari.rank/1`'s order, the critical cases caught first; then every
+other row, by configuration name. A table of rows all measured on earlier versions, as the
+reference packs' are, is therefore in order of configuration name. The data and the API do not
+change: each row keeps its `rank` and `standing`, and `GET /api/packs/{pack}` serves them as
+before.
 
 ## Arms: `mendari.arms/1`
 
