@@ -477,8 +477,11 @@ def test_cost_per_1000_is_from_tokens_and_the_dated_table_or_unknown(
     unpriced = jev_run.entry(prices=other)
     assert unpriced["figures"]["cost_per_1000"] == {
         "status": "unknown",
-        "reason": "jev: its model is not in the price table",
+        "reason": "jev: no price table holds its model",
     }
+    # The same bytes as with no table at all: an unpriced entry cites none, so the store
+    # recomputes it with none (LP-17h).
+    assert jev_run.entry()["body_sha256"] == unpriced["body_sha256"]
 
     def failed(cases: list[dict[str, Any]]) -> None:
         cases[0]["q"]["urgency"][ERROR] = "timeout"
@@ -500,8 +503,9 @@ def test_cost_per_1000_is_from_tokens_and_the_dated_table_or_unknown(
     assert jev_run.entry(prices=after)["body_sha256"] == unpriced["body_sha256"]
     failed_again = jev_run.entry(ledger=ledger, run=run_for(ledger, jev_run.run), prices=other)
     assert failed_again["body_sha256"] == with_error["body_sha256"]
-    disclosed = jev_run.entry(prices=table, disclosures=stated(jev="No relationship."))
-    text = scoreboard_markdown(scoreboard.board([disclosed], {}))
+    statement = stated(jev="No relationship.")
+    disclosed = jev_run.entry(prices=table, disclosures=statement)
+    text = scoreboard_markdown(scoreboard.board([disclosed], {}, disclosures=statement))
     assert f"| USD {each:.4f} [{each:.4f}-{each:.4f}] |" in text
 
 
@@ -511,7 +515,7 @@ def test_a_pack_set_or_built_in_price_is_never_used(jev_run: Built, tmp_path: Pa
     assert all(case["u"][0] and case["u"][0] > 0 for case in jev_run.ledger.cases)
     assert jev_run.entry()["figures"]["cost_per_1000"] == {
         "status": "unknown",
-        "reason": "no price table",
+        "reason": "jev: no price table holds its model",
     }
     table = price_table(
         tmp_path, {"jev": {"jev-9.9.9": {"input_per_1000": 2, "output_per_1000": 0}}}
@@ -831,7 +835,8 @@ def test_a_run_record_names_the_models_its_answers_report(monkeypatch: pytest.Mo
 def test_the_scope_names_digest_set_models_method_date_disclaimer_and_disclosure(
     jev_run: Built, holdout: Built
 ) -> None:
-    found = jev_run.entry(disclosures=stated(jev="Mendari has no commercial relationship."))
+    statement = stated(jev="Mendari has no commercial relationship.")
+    found = jev_run.entry(disclosures=statement)
     scope = found["scope"]
     pack = jev_run.pack
     assert scope["pack"] == {"id": pack.id, "version": pack.version, "digest": pack.digest}
@@ -875,7 +880,7 @@ def test_the_scope_names_digest_set_models_method_date_disclaimer_and_disclosure
     assert "| Disclosure | not published: disclosure pending |" in text
     assert "| Accuracy | not published: disclosure pending |" in text
     assert "| Measured on | 2026-10-18 |" in text and "Subgroups of" not in text
-    stated_text = scoreboard_markdown(scoreboard.board([found], {}))
+    stated_text = scoreboard_markdown(scoreboard.board([found], {}, disclosures=statement))
     assert "| Disclosure | jev: Mendari has no commercial relationship. |" in stated_text
     assert "| Models | jev: jev-9.9.9 |" in stated_text
 

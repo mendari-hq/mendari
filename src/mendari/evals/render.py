@@ -222,9 +222,10 @@ def scoreboard_markdown(board: Mapping[str, Any]) -> str:
     a table with a column per entry: its marks, its
     scope, then its figures. A proportion is k of n with its exact 95% interval (`shown`), a
     mean is its value with its bootstrap interval, the grade's bound is "lower bound X at Y%,
-    simultaneous across L labels", and ECE is a description with no interval. An entry whose
-    disclosure is pending shows its scope and none of its figures. Nothing is ordered by a
-    figure, and nothing names a case."""
+    simultaneous across L labels", and ECE is a description with no interval. An entry that is
+    not published (`scoreboard.published`: its disclosure pending, or no longer the file's)
+    shows its scope and none of its figures. Nothing is ordered by a figure, and nothing names a
+    case."""
     lines = [
         f"Grading method {board['method']['version']} (sha256 `{board['method']['sha256']}`). "
         f"Proportions are {INTERVALS}; means are {BOOTSTRAP}.",
@@ -303,7 +304,14 @@ def _column(item: Mapping[str, Any], pairs: Sequence[tuple[str, str]]) -> list[t
         ("Method", f"{scope['method']['version']}, sha256 `{scope['method']['sha256'][:12]}…`"),
         ("Measured on", scope["measured_on"]),
         ("Models", _models_text(scope["models"]["by_type"])),
-        ("Disclosure", _disclosure_text(scope["disclosure"])),
+        # An unpublished entry's statement is pending, or no longer the disclosures file's: the
+        # statement it holds is never shown as if it were current.
+        (
+            "Disclosure",
+            _disclosure_text(scope["disclosure"])
+            if item["published"]
+            else scoreboard.DISCLOSURE_PENDING,
+        ),
         ("Status", scope["status"]),
     ]
     found = item["entry"]["figures"]

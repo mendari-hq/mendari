@@ -2104,14 +2104,18 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     written only for an entry of replicates, so every stored result recomputes unchanged.
     `mendari scoreboard canary PACK --config ... --size 30 --seed S` (`mendari.canary/1`,
     `scoreboard/canaries/`, no schedule): drift (its lower bound above the replicates' upper
-    bound) or another model marks the configuration's results stale, as do a later run's and a
-    replicate's other model. An entry with remote calls whose type has no statement in
-    `scoreboard/disclosures.json` (added, empty) shows its scope and none of its figures, and the
-    banner leaves it out. The store check recomputes a new remote result from its replicates
+    bound) marks the arm's remote results stale (any set, measured before the canary's day or
+    no later than its replicates, never a local configuration's); another model, from a canary,
+    a later result of the same model type (any pack or configuration, the same day included) or
+    the replicates themselves, marks every result of that type that named another. An entry with
+    remote calls is published only while `scoreboard/disclosures.json` (added, empty) still
+    holds, word for word, the statement each type had when it was stored; otherwise it shows its
+    scope and none of its figures, and the banner leaves it out. The store check recomputes a new remote result from its replicates
     (never re-running a remote ledger), checks declarations and keeps canaries append-only. The
     prescreener's `structured=cql` measured with Mendari's own CQL engine (compose `fhir`), 3
     replicates on each of its three public sets, 2026-11-05: 0 flips, "not published: disclosure
-    pending" until `cql` has a statement. `tests/test_scoreboard_runs.py`;
+    pending", which they keep: once `cql` has a statement they are run again with `--again` (the
+    owner line below). `tests/test_scoreboard_runs.py`;
     `test_cli_errors.BROKEN` gains `scoreboard canary`.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
@@ -2189,6 +2193,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`) and mint a grading key once 17k
     lands.
   - [ ] Owner: write the price table, the disclosures and the declarations, then run 17i.
+  - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, run the prescreener's
+    three `structured=cql` results again (`mendari scoreboard run
+    mendari/clinical-trial-prescreener --config structured=cql --replicates 3 --again`, with the
+    sandbox's HAPI FHIR up), and commit them with the page: stored pending, they stay "not
+    published: disclosure pending" until then.
   - [ ] Owner: attest `grading-method` once the site is published, and set the method's
     effective date.
 

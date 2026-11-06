@@ -14,7 +14,7 @@ import datetime
 import itertools
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -67,10 +67,12 @@ def fake_jev(
     *,
     urgent: Callable[[int], bool] = lambda call: False,
     model: Callable[[int], str] = lambda call: JEV_MODEL,
+    fails: Callable[[int], bool] = lambda call: False,
 ) -> list[int]:
     """`calm_jev`'s answers, except that call number `n` (from 1) answers "urgent" and the
-    billing team, confidently, when `urgent(n)`, and reports the model `model(n)`. Returns the
-    calls made, as they are made."""
+    billing team, confidently, when `urgent(n)`, reports the model `model(n)`, and fails (a
+    server error, so no answer and no model) when `fails(n)`. Returns the calls made, as they
+    are made."""
     original = _JEV_INIT  # never a fake's: a test may set up another fake after one
     calm_jev(monkeypatch)  # its settings
     calls: list[int] = []
@@ -79,6 +81,8 @@ def fake_jev(
     def handler(request: httpx.Request) -> httpx.Response:
         number = next(counter)
         calls.append(number)
+        if fails(number):
+            return httpx.Response(500)
         answers = {}
         for key in json.loads(request.content)["questions"]:
             spread = dict(CALM[key])
@@ -249,6 +253,7 @@ def test_replicates_report_their_spread_and_flip_rate(
                 }
             ],
             {INBOX: scoreboard.Current.of(inbox)},
+            disclosures=runs.Disclosures(date=DATE.isoformat(), statements={"jev": "None."}),
         )
     )
     assert "| Replicates | 3, replicate 1 the headline |" in text
@@ -332,6 +337,39 @@ def test_a_remote_entry_needs_three_to_five_replicates(
         store.add(one)
     with pytest.raises(MendariError, match="1 to 5"):
         runs.replicates([single.ledger] * 6, [single.run] * 6, [{}] * 6)
+    # Nor one of 2 replicates (`entry` makes it: `runs.replicates` takes 1 to 5), or of 6 (a
+    # result whose inputs list them), by `add` or past it: the store holds 3 to 5.
+    for ledger, run in single.inputs:
+        store.put_ledger(ledger)
+        store.put_run(run)
+    two = scoreboard.entry(
+        single.ledger,
+        results_store.resolve_dataset(inbox, SET),
+        single.run,
+        pack=scoreboard.PackScope.of(inbox),
+        arm=arms.CLASSIFIER,
+        configuration=jev(inbox),
+        prices=None,
+        disclosures=None,
+        replicates=single.inputs[1:2],
+        declared=store.declaration(INBOX).sha256,  # type: ignore[union-attr]
+    )
+    assert two["figures"]["replicates"]["count"] == 2
+    six = json.loads(json.dumps(single.entry))
+    six["inputs"]["replicates"] += [
+        {"replicate": number, "ledger": single.ledger.id, "run": runs.run_sha256(single.run)}
+        for number in (4, 5, 6)
+    ]
+    six["body_sha256"] = scoreboard.body_sha256(six)
+    for result, count in ((two, 2), (six, 6)):
+        with pytest.raises(MendariError, match=f"holds 3 to 5 replicates, not {count}$"):
+            store.add(result)
+        target = store.root / "results" / f"{results_store.name_of(result)}.json"
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(signing.dump(result), encoding="utf-8")
+        problems = results_store.check(store, base={}).problems
+        assert any(line.endswith(f"holds 3 to 5 replicates, not {count}") for line in problems)
+        target.unlink()
 
 
 def test_the_headline_is_the_declared_first_replicate(
@@ -690,8 +728,18 @@ def test_an_undisclosed_provider_is_not_published(
         inbox, SET, jev(inbox), date=DATE, replicates=3, disclosures=disclosures
     ).entry
     assert stated["scope"]["disclosure"] == {"status": "stated", "statements": statements}
-    shown = scoreboard_markdown(scoreboard.board([stated], current))
+    shown = scoreboard_markdown(scoreboard.board([stated], current, disclosures=disclosures))
     assert "| Case flip rate | " in shown and " of 30 [" in shown
+    # Published only while the disclosures file still holds its statement, word for word: one
+    # taken out (no file, or no statement for its type) or rewritten hides its figures, and
+    # its old statement is never shown as if it were current.
+    rewritten = runs.Disclosures("2026-11-01", {"jev": "Mendari now resells Jev (a test's)."})
+    for now in (None, runs.Disclosures("2026-11-01", {}), rewritten):
+        (table,) = scoreboard.board([stated], current, disclosures=now)["tables"]
+        assert table["entries"][0]["published"] is False
+        hidden = scoreboard_markdown(scoreboard.board([stated], current, disclosures=now))
+        assert f"| Disclosure | {scoreboard.DISCLOSURE_PENDING} |" in hidden
+        assert statements["jev"] not in hidden and " of 30 [" not in hidden
     # The same holds for CQL, which calls Mendari's own CQL engine and no model.
     trial = resolve_pack("mendari/clinical-trial-prescreener")
     cql = results_store.configuration_of(trial, ["structured=cql"])
@@ -742,3 +790,320 @@ def test_an_llm_replicate_is_priced_from_the_dated_table(
     spread = measured.entry["figures"]["replicates"]["spread"]["Cost per 1,000 decisions"]
     assert spread["replicates"] == 3 and spread["min"] <= spread["max"]
     assert LlmProvider.type == "llm"
+
+
+# --------------------------------------------------------------------------------------------
+# The review of LP-17h: what a paid run must never lose, and freshness by type and by arm
+# --------------------------------------------------------------------------------------------
+
+
+def table_of(tmp_path: Path, name: str, models: dict[str, dict[str, float]]) -> Path:
+    """A price table dated `DATE` that prices `models` (each Jev model's two rates)."""
+    path = tmp_path / f"{name}.json"
+    data = {
+        "format": runs.PRICES_FORMAT,
+        "date": DATE.isoformat(),
+        "source": "a test",
+        "prices": {"jev": models},
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_a_run_its_table_cannot_price_is_stored_as_unknown(
+    store: Store, inbox: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A table that lacks the model Jev reported, or a model that changes during replicate 1,
+    gives a cost of "unknown", and the result is still stored: the store recomputes it with no
+    table (none is cited) and gets the same bytes, so no paid run is thrown away."""
+    calls = fake_jev(monkeypatch)
+    declare(store, inbox, arms.CLASSIFIER, jev(inbox).providers)
+    commit(store)
+    other = table_of(
+        tmp_path, "other", {"other-model": {"input_per_1000": 1, "output_per_1000": 1}}
+    )
+    lacking = results_store.record_run(
+        store, inbox, SET, jev(inbox), date=DATE, replicates=3, prices=other.read_bytes()
+    )
+    assert lacking.action == results_store.STORED and len(calls) == 90
+    held = store.results()[lacking.name]
+    assert held.result["figures"]["cost_per_1000"] == {
+        "status": scoreboard.UNKNOWN,
+        "reason": f"jev: {scoreboard.NO_PRICE}",
+    }
+    assert held.prices is None and not (store.root / "prices").exists()  # cited by none
+    spread = held.result["figures"]["replicates"]["spread"]["Cost per 1,000 decisions"]
+    assert spread == {"status": runs.NOT_ESTIMABLE}
+    # Jev rolls to another model during replicate 1: two models, so the cost is unknown.
+    fake_jev(monkeypatch, model=lambda call: JEV_MODEL if call <= 15 else "jev-10.0.0")
+    priced = table_of(tmp_path, "priced", {JEV_MODEL: {"input_per_1000": 1, "output_per_1000": 1}})
+    rolled = results_store.record_run(
+        store,
+        inbox,
+        SET,
+        jev(inbox),
+        date=DATE,
+        again=True,
+        replicates=3,
+        prices=priced.read_bytes(),
+    )
+    assert rolled.action == results_store.STORED and rolled.supersedes == lacking.name
+    found = store.results()[rolled.name].result
+    assert found["figures"]["cost_per_1000"] == {
+        "status": scoreboard.UNKNOWN,
+        "reason": "jev: 2 models reported, not one",
+    }
+    assert found["inputs"]["prices"] is None
+    check = results_store.check(store, base={})
+    assert check.problems == [] and check.recomputed == 2 and check.rerun == 0
+
+
+def test_a_price_table_the_store_would_refuse_is_refused_before_any_call(
+    store: Store,
+    inbox: Pack,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = fake_jev(monkeypatch)
+    declare(store, inbox, arms.CLASSIFIER, jev(inbox).providers)
+    commit(store)
+    stored = table_of(tmp_path, "stored", {JEV_MODEL: {"input_per_1000": 1, "output_per_1000": 1}})
+    store.put_prices(stored.read_bytes())
+    changed = table_of(tmp_path, "new", {JEV_MODEL: {"input_per_1000": 2, "output_per_1000": 2}})
+    clash = f"prices/{DATE.isoformat()}.json holds another table of that date"
+    with pytest.raises(MendariError, match=clash):
+        results_store.refuse_unrunnable(
+            store, inbox, SET, jev(inbox), replicates=3, prices=changed.read_bytes()
+        )
+    with pytest.raises(MendariError, match=clash):
+        results_store.record_run(
+            store, inbox, SET, jev(inbox), date=DATE, replicates=3, prices=changed.read_bytes()
+        )
+    argv = ["scoreboard", "run", INBOX, "--dataset", SET, "--config", *JEV, "--replicates", "3"]
+    assert main([*argv, "--prices", str(changed), "--store", str(store.root)]) == 1
+    assert clash in capsys.readouterr().err
+    assert calls == [] and not (store.root / "results").exists()
+    # The same table as the stored one is no clash.
+    results_store.refuse_unrunnable(
+        store, inbox, SET, jev(inbox), replicates=3, prices=stored.read_bytes()
+    )
+
+
+def test_a_model_calling_configuration_needs_its_price_table(
+    store: Store,
+    inbox: Pack,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = fake_jev(monkeypatch)
+    declare(store, inbox, arms.CLASSIFIER, jev(inbox).providers)
+    commit(store)
+    needs = "calls a model: give its dated price table"
+    with pytest.raises(MendariError, match=needs):
+        results_store.refuse_unrunnable(store, inbox, SET, jev(inbox), replicates=3)
+    with pytest.raises(MendariError, match=needs):
+        results_store.record_run(store, inbox, SET, jev(inbox), date=DATE, replicates=3)
+    argv = ["scoreboard", "run", INBOX, "--dataset", SET, "--store", str(store.root)]
+    assert main([*argv, "--config", *JEV, "--replicates", "3"]) == 1
+    assert needs in capsys.readouterr().err
+    # A local configuration calls no model, so it is never given a table.
+    local = results_store.configuration_of(inbox, ["router=naive_bayes"])
+    table = prices(tmp_path)
+    with pytest.raises(MendariError, match="is local: it calls no model, so it is never priced"):
+        results_store.refuse_unrunnable(store, inbox, SET, local, prices=table.read_bytes())
+    assert main([*argv, "--every-local", "--prices", str(table)]) == 1
+    assert "is local: it calls no model" in capsys.readouterr().err
+    assert calls == [] and not (store.root / "results").exists()
+    # CQL calls Mendari's own engine and no model: declared, it needs no table.
+    trial = results_store.maintained_pack("mendari/clinical-trial-prescreener")
+    cql = results_store.configuration_of(trial, ["structured=cql"])
+    declare(store, trial, arms.DETERMINISTIC, cql.providers)
+    commit(store)
+    declared = results_store.refuse_unrunnable(store, trial, "test", cql, replicates=3)
+    assert declared == store.declaration(trial.id).sha256  # type: ignore[union-attr]
+
+
+def stated_on(found: dict[str, Any], measured_on: str, **changes: Any) -> dict[str, Any]:
+    """`found` as if measured on `measured_on` (with `changes` to its scope), its body's SHA-256
+    made again: a board reads entries and never recomputes them."""
+    made = json.loads(json.dumps(found))
+    made["scope"] = {**made["scope"], "measured_on": measured_on, **changes}
+    made["body_sha256"] = scoreboard.body_sha256(made)
+    return made
+
+
+def board_marks(
+    entries: list[dict[str, Any]], pack: Pack, canaries: Sequence[dict[str, Any]] = ()
+) -> list[list[str]]:
+    """Each entry's freshness marks, in the order given (drift and another model only)."""
+    shown = scoreboard.board(entries, {INBOX: scoreboard.Current.of(pack)}, canaries)
+    by_name = {
+        item["entry"]["body_sha256"]: item["marks"]
+        for table in shown["tables"]
+        for item in table["entries"]
+    }
+    kept = (scoreboard.STALE_DRIFT, scoreboard.STALE_MODEL)
+    return [[m for m in by_name[found["body_sha256"]] if m in kept] for found in entries]
+
+
+def test_a_canary_or_replicate_that_named_no_model_reports_no_other(
+    store: Store, inbox: Pack, replicated: results_store.Held, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canary whose every Jev call failed names no model: that is not another model, though
+    the failures may well show as drift. Nor is a headline whose calls all failed, beside later
+    replicates that named one model."""
+    fake_jev(monkeypatch, fails=lambda call: True)
+    _, failed = results_store.run_canary(
+        store, inbox, jev(inbox), size=30, seed=5, date=DATE + datetime.timedelta(days=2)
+    )
+    assert failed["models"] == {} and failed["another_model"] is False
+    (marks,) = board_marks([replicated.result], inbox, [failed])
+    assert scoreboard.STALE_MODEL not in marks
+    # Replicate 1's calls all fail, and replicates 2 and 3 name one model: not stale.
+    fake_jev(monkeypatch, fails=lambda call: call <= 30)
+    measured = results_store.measure(inbox, SET, jev(inbox), date=DATE, replicates=3)
+    assert measured.entry["scope"]["models"]["by_type"] == {}
+    assert measured.entry["figures"]["replicates"]["models"] == {"jev": [JEV_MODEL]}
+    assert board_marks([measured.entry], inbox) == [[]]
+
+
+def test_another_model_marks_every_result_of_its_type(
+    store: Store,
+    inbox: Pack,
+    replicated: results_store.Held,
+    test_replicates: results_store.Measured,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another model, reported by a later run of the same model type, marks the results of any
+    configuration or pack that reported another one: Jev's model is the deployment's, whatever
+    calls it. The same day counts (a day holds no order); a run that reports the same model, or
+    an earlier one, marks nothing."""
+    fake_jev(monkeypatch, model=lambda call: "jev-10.0.0")
+    screen = results_store.configuration_of(inbox, [*JEV, "safety_screen=rules_and_jev"])
+    assert screen.arm == arms.CLASSIFIER and screen.providers != jev(inbox).providers
+    later = results_store.measure(
+        inbox, SET, screen, date=DATE + datetime.timedelta(days=2), replicates=3
+    ).entry
+    assert later["scope"]["models"]["by_type"] == {"jev": ["jev-10.0.0"]}
+    earlier = replicated.result
+    assert board_marks([earlier, later], inbox) == [[scoreboard.STALE_MODEL], []]
+    # Of another pack (the board groups it apart; the mark is by type, not by pack).
+    elsewhere = stated_on(
+        later, later["scope"]["measured_on"], pack={**later["scope"]["pack"], "id": "mendari/x"}
+    )
+    assert board_marks([earlier, elsewhere], inbox) == [[scoreboard.STALE_MODEL], []]
+    # The same day: both are marked, as either may be the later.
+    same_day = stated_on(later, earlier["scope"]["measured_on"])
+    assert board_marks([earlier, same_day], inbox) == [[scoreboard.STALE_MODEL]] * 2
+    # A later run of the same model, or an earlier run of another, marks nothing (the earlier
+    # run is the one they mark).
+    before = stated_on(later, "2026-10-01")
+    again = stated_on(earlier, "2026-10-21")
+    assert board_marks([earlier, again, before], inbox) == [[], [], [scoreboard.STALE_MODEL]]
+    # A canary of another configuration, on another day, that names the new model marks the
+    # results measured no later than it that named the old one, whatever their configuration.
+    canary = {
+        **json.loads(json.dumps(test_replicates.entry)),
+        "format": scoreboard.CANARY_FORMAT,
+        "pack": {"id": INBOX},
+        "arm": arms.CLASSIFIER,
+        "configuration": {"providers": screen.providers},
+        "measured_on": "2026-10-20",
+        "models": {"jev": ["jev-10.0.0"]},
+        "drift": False,
+        "against": {"measured_on": "2026-10-20"},
+    }
+    assert board_marks([earlier, again], inbox, [canary]) == [[scoreboard.STALE_MODEL], []]
+
+
+def test_canary_drift_marks_its_arms_remote_results_up_to_its_day(
+    store: Store, inbox: Pack, replicated: results_store.Held, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canary that drifts marks the remote results of its pack's arm, of whatever declared
+    configuration and on whatever set, measured before its day or no later than its replicates;
+    never a local configuration's, which is deterministic, and never one run again from the
+    canary's day on."""
+    canary_on = DATE + datetime.timedelta(days=5)
+    fake_jev(monkeypatch, urgent=lambda call: True)
+    _, drifted = results_store.run_canary(
+        store, inbox, jev(inbox), size=30, seed=11, date=canary_on
+    )
+    assert drifted["drift"] is True
+    earlier = replicated.result
+    between = stated_on(earlier, "2026-10-20", set={**earlier["scope"]["set"], "name": SET})
+    screen = results_store.configuration_of(inbox, ["safety_screen=rules_and_jev"])
+    declared_before = json.loads(json.dumps(between))
+    declared_before["configuration"] = screen.to_dict()
+    declared_before["body_sha256"] = scoreboard.body_sha256(declared_before)
+    on_its_day = stated_on(earlier, canary_on.isoformat())
+    after = stated_on(earlier, "2026-10-25")
+    entries = [earlier, between, declared_before, on_its_day, after]
+    drift = [scoreboard.STALE_DRIFT]
+    assert board_marks(entries, inbox, [drifted]) == [drift, drift, drift, [], []]
+    # A canary of the prescreener's CQL (the deterministic arm, Mendari's own engine) marks its
+    # CQL results, and never the arm's local configurations, which call nothing off the machine.
+    trial = results_store.maintained_pack("mendari/clinical-trial-prescreener")
+    committed = [
+        found.result
+        for found in results_store.heads(Store.at(ROOT / "scoreboard").results()).values()
+        if found.pack_id == trial.id
+    ]
+    cql_drift = {
+        "format": scoreboard.CANARY_FORMAT,
+        "pack": {"id": trial.id},
+        "arm": arms.DETERMINISTIC,
+        "configuration": {"providers": {"notes": "rules", "structured": "cql"}},
+        "measured_on": "2026-11-06",
+        "models": {},
+        "drift": True,
+        "against": {"measured_on": "2026-11-05"},
+    }
+    shown = scoreboard.board(committed, {trial.id: scoreboard.Current.of(trial)}, [cql_drift])
+    marked = {
+        (item["configuration"], item["entry"]["configuration"]["local"]): (
+            scoreboard.STALE_DRIFT in item["marks"]
+        )
+        for table in shown["tables"]
+        for item in table["entries"]
+    }
+    assert {local for (_, local), on in marked.items() if on} == {False}
+    assert {local for (_, local), on in marked.items() if not on} == {True}
+
+
+def test_the_page_publishes_against_the_disclosures_file_as_it_is(
+    store: Store, inbox: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The page reads `scoreboard/disclosures.json` as it is now: a result stored with a
+    statement shows its figures while the file holds that statement, and none of them, nor the
+    statement, once it is taken out or rewritten."""
+    from tests.test_scoreboard_page import page_script
+
+    fake_jev(monkeypatch)
+    statement = "No commercial relationship (a test's statement)."
+    path = store.root / "disclosures.json"
+
+    def write(statements: dict[str, str]) -> None:
+        data = {"format": runs.DISCLOSURES_FORMAT, "date": "2026-10-18", "statements": statements}
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    write({"jev": statement})
+    measured = results_store.measure(
+        inbox, SET, jev(inbox), date=DATE, replicates=3, disclosures=store.disclosures()
+    )
+    for ledger, run in measured.inputs:
+        store.put_ledger(ledger)
+        store.put_run(run)
+    target = store.root / "results" / f"{measured.name}.json"
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(signing.dump(measured.entry), encoding="utf-8")
+    shown = page_script.page(store)
+    assert statement in shown and " of 30 [" in shown
+    for statements in ({}, {"jev": "Mendari now resells Jev (a test's statement)."}):
+        write(statements)
+        hidden = page_script.page(store)
+        assert statement not in hidden and " of 30 [" not in hidden
+        assert f"| Disclosure | {scoreboard.DISCLOSURE_PENDING} |" in hidden
+    path.unlink()
+    assert " of 30 [" not in page_script.page(store)

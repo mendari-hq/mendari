@@ -629,8 +629,9 @@ def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
     maintained pack's `test` set, decided once by a remote configuration, by hand and never in
     CI, with no schedule, and compared with replicate 1 of its current result there, which must
     hold replicates. Stored in the results store (`canaries/`, with its ledger and run record):
-    the page marks the configuration's results stale when it shows drift (its flip rate's lower
-    bound above the replicates' upper bound) or reports another model."""
+    when it shows drift (its flip rate's lower bound above the replicates' upper bound), the page
+    marks the remote results of the pack's arm stale; when it reports another model of a type,
+    every result of that type measured no later that reported other models."""
     from mendari.evals import results_store, scoreboard
 
     store = results_store.Store.at(args.store)
@@ -652,7 +653,9 @@ def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
         )
         if on
     ]
-    print(f"it marks the configuration's results: {', '.join(marks) if marks else 'nothing'}")
+    # Drift marks the remote results of the pack's arm; another model, every result of a type
+    # it names that reported other models (the page works both out).
+    print(f"it marks: {', '.join(marks) if marks else 'nothing'}")
     print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
     return 0
 

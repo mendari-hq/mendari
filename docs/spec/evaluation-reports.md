@@ -298,7 +298,10 @@ while it is a draft); `measured_on`, the run record's date; `evaluation`, the wo
 evaluation, not clinical validation"; and the `disclosure`. A local configuration's disclosure is
 "no model provider". A remote one's holds, for each remote type it calls, that type's statement
 from the disclosures file, and reads "not published: disclosure pending" while any is missing:
-its scope is shown and its figures are not.
+its scope is shown and its figures are not. A board publishes it (`published`) only while the
+disclosures file, as it is when the board is built, still holds each of those statements word
+for word: one taken out or rewritten since hides its figures, and its statement, until it is run
+again.
 
 | Figure | What it holds |
 |---|---|
@@ -329,10 +332,11 @@ its scope is shown and its figures are not.
   price table. It is never the ledger's cost, a price a pack sets or one built into a provider.
   It is "0 (no metered calls)" for a configuration that calls no model (CQL included), or whose
   model types made no call on the set (a cascade whose first member was sure of every case). It
-  is "unknown" when any provider call failed, or there is no table, or a type that spent tokens
-  reported no model (a composite kept none of its answers), more than one (whose tokens a run
-  record does not split), or a model that is not in the table. A type that spent no token costs
-  nothing, whatever its model.
+  is "unknown" when any provider call failed, or a type that spent tokens reported no model (a
+  composite kept none of its answers), more than one (whose tokens a run record does not split),
+  or a model no price table holds (there is none, or it lacks the model). An unknown cost reads
+  the same with no table as with any: the entry cites none, and is recomputed with none. A type
+  that spent no token costs nothing, whatever its model.
 - **Latency** is read from the run record, never measured again, and never ranked.
 - **Weighted figures:** detection is never weighted. A set with weights on some records and not
   others is refused.
@@ -344,8 +348,11 @@ its scope is shown and its figures are not.
   with its 95% interval. The spread is each figure's minimum to maximum across the replicates
   that have it, a description with no interval: detection and critical cases automated per
   critical label, false automation, the AUTO error rate, automation, accuracy, macro-F1, Brier,
-  Brier's reliability term, ECE, cost and latency (subgroups and weighted figures are left
-  out). The other replicates are priced from the table only when the headline is. Refused:
+  Brier's reliability term, ECE, cost and latency. Subgroups and weighted figures are left out:
+  a subgroup's figures are shares of its cases, which move between replicates only where its
+  cases flip (the flip rate counts every such case), and a public set is as sampled, with no
+  weighted figures. The other replicates are priced from the table only when the headline is.
+  Refused:
   replicates of a local configuration (it is deterministic: one replicate, no flips), more than
   5, a headline that is not replicate 1, replicates out of order or of another day, and a
   replicate of another pack, set or configuration, or of other cases.
@@ -370,12 +377,16 @@ order. Each table holds:
 - each entry with its marks, worked out when the board is built and never stored: "unsigned"
   (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
   "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
-  "stale: another model reported" (a later run of the same configuration of the pack, one of
-  its own replicates, or a canary of it reports another model of a type), "stale: canary drift"
-  (a canary of the configuration shows drift; a canary marks the results measured no later
-  than the replicates it was compared with), and "stale after DATE", 45 days after it was
+  "stale: another model reported" (its replicates reported more than one model of a type, or a
+  run of the same model type, an entry's or a canary's, of any pack or configuration, measured
+  the same day or later, reports another model of a type its runs reported; a run that reported
+  no model of a type, its calls failed, reports no other), "stale: canary drift" (a canary of
+  its pack's arm shows drift, and it is a remote configuration's result of that arm, on any set,
+  measured before the canary's day or no later than the replicates it was compared with; a local
+  configuration's never is), and "stale after DATE", 45 days after it was
   measured. No clock is read, so the date is shown and never checked. `board(entries, current,
-  canaries)` takes the canaries (`mendari.canary/1`);
+  canaries, disclosures=...)` takes the canaries (`mendari.canary/1`) and the disclosures file
+  as it is now (none: no remote entry is published);
 - each entry's grade (`grade.grade`): null on a public set.
 
 A board holds no ledger, so it never ranks a hidden set's arms: a hidden table of one entry
@@ -384,8 +395,8 @@ reads "off: one arm graded", and one of two or more is refused.
 `render.scoreboard_markdown(board)` writes it in Markdown: per table its standing, the banner, the
 arms, then one column per entry with its marks, its scope and its figures, the last three its
 replicates, its case flip rate and its spread ("1 (local: deterministic)" and "none: one
-replicate" for a local configuration). An entry whose disclosure is pending reads "not
-published: disclosure pending" in every figure's row. A proportion is k of n
+replicate" for a local configuration). An entry that is not published reads "not
+published: disclosure pending" in its Disclosure row and every figure's row. A proportion is k of n
 with its exact 95% interval (as [How a figure is shown](#how-a-figure-is-shown) says), a mean is
 its value with its bootstrap interval, and ECE is "a description: no interval". It has no Rank
 column, no bare percentage, and names no case.
@@ -551,7 +562,7 @@ SHA-256 of a domain tag, the seed and the case's ledger hash is smallest, in the
 | `against` | The result it was compared with (`sha256:` and its body's SHA-256), the day it was measured and its replicates' flip rate. |
 | `flip_rate` | k of the drawn cases whose primary prediction or outcome differs from replicate 1's on the same case, matched by ledger hash, with its 95% interval. |
 | `drift` | Whether that interval's lower bound is above the upper bound of the replicates' flip rate's 95% interval, decided from k and n. |
-| `another_model` | Whether a model type of the canary or of the result reports models the other does not. |
+| `another_model` | Whether, for a model type both the canary and the result's replicates name (`figures.replicates.models`), the canary names other models. A canary whose calls all failed names none, which is not another model. |
 | `evaluation`, `body_sha256` | "engineering evaluation, not clinical validation", and the SHA-256 of its canonical JSON without `body_sha256`. |
 
 ## The results store: `scoreboard/`
@@ -584,12 +595,14 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
   run record (each case's latency and tokens) and the entry, unsigned. A result that is still
   current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
-  stale date) is kept unless `--again`; a new one supersedes it. It refuses a fitting set and
+  stale date) is kept unless `--again` (a board's canary and model marks are not read: a result
+  they mark is run again with `--again`); a new one supersedes it. It refuses a fitting set and
   anything but a set the pack names, so a file or a hidden set is never run. A remote
   configuration (LP-17h) is run by hand only: it is refused when `CI` or `GITHUB_ACTIONS` is
   set, without `--replicates 3` to `5` (a local one runs 1), unless the pack's declaration names
   it for its arm and is committed as it is, and, when it calls a model, without `--prices FILE`
-  (stored under `prices/` when a result is priced from it). Every replicate's ledger and run
+  (stored under `prices/` when a result is priced from it), all before any call; so is a table
+  whose date another stored table holds. Every replicate's ledger and run
   record is stored. `mendari scoreboard canary PACK --config ... --size 30 --seed S` runs a
   canary the same way, by hand, with no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
   `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.

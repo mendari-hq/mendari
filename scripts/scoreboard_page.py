@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals import method, results_store, scoreboard
+from mendari.evals import method, results_store, runs, scoreboard
 from mendari.evals.render import scoreboard_markdown, shown
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,8 +51,14 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
     later = results_store.superseded(results)
     of = {found.pack_id: scoreboard.Current.of(packs(found.pack_id)) for found in current.values()}
     canaries = store.canaries()
+    # Published against the disclosures file as it is now, never only the statements a result
+    # was stored with: a statement taken out or rewritten since hides the figures.
+    disclosures = store.disclosures()
     board = scoreboard.board(
-        [found.result for found in current.values()], of, list(canaries.values())
+        [found.result for found in current.values()],
+        of,
+        list(canaries.values()),
+        disclosures=disclosures,
     )
     signed = sum(found.signed for found in current.values())
     lines = [
@@ -62,7 +68,8 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "",
         "The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14): every "
         "local configuration of each reference pack, on each of its public scoring sets (its "
-        "`test` set, its enriched set and that set's holdout). This page is generated from the "
+        "`test` set, its enriched set and that set's holdout), and each remote configuration "
+        "run by hand as its arm's declared one (section 10). This page is generated from the "
         "results store, `scoreboard/` in the repository, and from nothing else, so the same "
         "store gives the same page ([running and checking the "
         "scoreboard](../operations/scoreboard.md)).",
@@ -88,20 +95,27 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "yet.",
         "- **Remote configurations** (section 10) are run by hand, never in CI, as their arm's "
         "declared configuration (`scoreboard/declared/`), in 3 to 5 replicates: replicate 1 is "
-        "the headline, with the case flip rate between any two replicates and each figure's "
-        f"spread across them. Until each remote provider type it calls has a statement in "
-        f'`scoreboard/disclosures.json`, a result reads "{scoreboard.DISCLOSURE_PENDING}": its '
-        "scope is shown, and its figures are not. A local configuration is deterministic: one "
-        "replicate, no flips.",
+        "the headline, with the case flip rate between any two replicates and the spread of each "
+        "figure in its column (not its subgroups', which move only where cases flip). A result "
+        "keeps the statements `scoreboard/disclosures.json` held for each remote provider type "
+        "it calls when it was stored. Its figures are shown only when each had one then, and "
+        "the file still holds it: otherwise it reads "
+        f'"{scoreboard.DISCLOSURE_PENDING}", with its scope shown and its figures not, until it '
+        "is run again (`--again`). A local configuration is deterministic: one replicate, no "
+        "flips.",
+        f'- **"{scoreboard.STALE_MODEL}":** a result whose replicates reported more than one '
+        "model of a type, or one for which a later run of the same model type reports another "
+        "model: a result or a canary, of any pack or configuration, the same day included.",
         "- **Canaries** (section 12), run by hand: a seeded draw of 30 `test` cases. One that "
-        f'shows drift marks its configuration "{scoreboard.STALE_DRIFT}", and one that reports '
-        f'another model "{scoreboard.STALE_MODEL}".',
+        f'shows drift marks "{scoreboard.STALE_DRIFT}" the remote results of its pack\'s arm '
+        "measured before it (on any set), and those measured no later than the replicates it "
+        "was compared with.",
         "",
         scoreboard_markdown(board).rstrip("\n"),
         "",
         "## Canaries",
         "",
-        *_canary_lines(canaries, results),
+        *_canary_lines(canaries, results, disclosures),
         "",
         "## Superseded results",
         "",
@@ -123,10 +137,12 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
 
 
 def _canary_lines(
-    canaries: dict[str, dict[str, Any]], results: dict[str, results_store.Held]
+    canaries: dict[str, dict[str, Any]],
+    results: dict[str, results_store.Held],
+    disclosures: runs.Disclosures | None,
 ) -> list[str]:
-    """Each stored canary: what it was run on and against, and what it marks. Its flip rate is
-    shown only when the result it was compared with is published (its disclosure stated)."""
+    """Each stored canary: what it was run on and against, and what it found. Its flip rate is
+    shown only when the result it was compared with is published (`scoreboard.published`)."""
     if not canaries:
         return ["None yet: no canary has been run."]
     lines = [
@@ -138,7 +154,7 @@ def _canary_lines(
         held = results.get(against)
         shown_rate = (
             f"{shown(found['flip_rate'])} of drawn cases"
-            if held is not None and scoreboard.published(held.result)
+            if held is not None and scoreboard.published(held.result, disclosures)
             else scoreboard.DISCLOSURE_PENDING
         )
         marks = [

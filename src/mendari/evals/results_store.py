@@ -42,8 +42,9 @@ the result cites the declaration's SHA-256, and its figures are replicate 1's. I
 stored with every replicate's ledger and run record; the check recomputes it from them, and
 never re-runs a remote ledger, which would call off the machine. A canary (`run_canary`) is a
 seeded draw of 30 cases from a pack's `test` set, run once by hand on a remote configuration
-whose current result there holds replicates, and stored under `canaries/`: a board marks the
-configuration stale when it shows drift or reports another model. Nothing here signs: results
+whose current result there holds replicates, and stored under `canaries/`: a board marks its
+arm's remote results stale when it shows drift, and the results of each model type it reports
+another model of. Nothing here signs: results
 are stored unsigned, and the owner signs them offline (`mendari scoreboard sign`). Messages name
 files, hashes, packs, sets and configurations, never a case.
 """
@@ -432,18 +433,26 @@ class Store:
             raise MendariError(f"{DECLARED}/{path.name} declares {found.pack}, not {pack_id}")
         return found
 
-    def put_prices(self, raw: bytes) -> runs.Prices:
-        """Store a price table under its date (`prices/<date>.json`), and give it. One stored
-        already with the same bytes is left as it is; another table of the same date is
-        refused: a table is cited by its SHA-256, and never changes."""
-        table = runs.prices(raw, where="the price table")
+    def storable_prices(self, raw: bytes, *, where: str = "the price table") -> runs.Prices:
+        """A price table from its bytes, refused when the store holds another table of its date
+        (`prices/<date>.json`): a table is cited by its SHA-256, and never changes. Asked before
+        a run (`refuse_unrunnable`), so that no call is made for a result whose table would then
+        be refused."""
+        table = runs.prices(raw, where=where)
         path = self.root / PRICES / f"{table.date}.json"
         if path.exists() and path.read_bytes() != raw:
             raise MendariError(
                 f"{PRICES}/{path.name} holds another table of that date: a price table never "
                 "changes (date the new one)"
             )
-        _put(path, raw)
+        return table
+
+    def put_prices(self, raw: bytes) -> runs.Prices:
+        """Store a price table under its date (`prices/<date>.json`), and give it. One stored
+        already with the same bytes is left as it is; another table of the same date is
+        refused (`storable_prices`)."""
+        table = self.storable_prices(raw)
+        _put(self.root / PRICES / f"{table.date}.json", raw)
         return table
 
     def canaries(self) -> dict[str, dict[str, Any]]:
@@ -861,7 +870,10 @@ class Outcome:
 
 def is_current(found: Held, pack: Pack, set_sha256: str, today: datetime.date) -> bool:
     """Whether `found` is current on `today`: on the pack's digest, the set's bytes and the
-    method, and not past the day it goes stale (`STALE_AFTER_DAYS` after it was measured)."""
+    method, and not past the day it goes stale (`STALE_AFTER_DAYS` after it was measured). The
+    marks only a board works out, from the other results and the canaries ("stale: canary
+    drift", "stale: another model reported"), are not read here: a result they mark is run
+    again with `again` (`--again`, docs/operations/scoreboard.md)."""
     stale = datetime.date.fromisoformat(scoreboard.stale_after(found.result))
     return (
         found.pack_digest == pack.digest
@@ -884,7 +896,9 @@ def refuse_unrunnable(
     a remote configuration cites (None for a local one): `refuse_unmeasurable`, then, for a
     remote configuration, its declaration (`declared_for`) and, when it calls a model type, a
     price table (`--prices`), so that its cost is priced from a dated table, never unknown for
-    want of one. A configuration that calls no model (CQL) needs none: nothing is priced."""
+    want of one. A configuration that calls no model (CQL) needs none: nothing is priced. A
+    table the store could not keep (another table of its date is stored) is refused here, before
+    any call, not after every replicate has run (`Store.storable_prices`)."""
     refuse_unmeasurable(pack, set_name, configuration, replicates=replicates)
     if configuration.local:
         if prices is not None:
@@ -900,7 +914,7 @@ def refuse_unrunnable(
             "(--prices scoreboard/prices/<date>.json)"
         )
     if prices is not None:
-        runs.prices(prices, where="--prices")
+        store.storable_prices(prices, where="--prices")
     return declared
 
 

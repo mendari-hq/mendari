@@ -1329,12 +1329,15 @@ never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [
 refuses to start when `CI` or `GITHUB_ACTIONS` is set, and runs only the configuration the
 pack's declaration (`scoreboard/declared/<pack name>.json`, committed before the run) names for
 its arm. Replicate 1 is the headline, shown with the case flip rate between any two replicates
-and each figure's spread. `mendari scoreboard canary PACK --config ... --seed S` decides a
-seeded draw of 30 `test` cases once, by hand, and a canary that drifts from the replicates, or
-reports another model, marks the configuration's results stale. Until each remote provider type
-a result calls has a statement in `scoreboard/disclosures.json` (none yet), it reads "not
-published: disclosure pending", its figures kept off the page. The Clinical Trial Prescreener's
-CQL configuration is measured so, on Mendari's own CQL engine; no Jev or LLM arm is.
+and the spread of each figure in its column. `mendari scoreboard canary PACK --config ...
+--seed S` decides a seeded draw of 30 `test` cases once, by hand: a canary that drifts from the
+replicates marks its arm's remote results stale, and another model reported, by a canary or a
+later run of the same model type, marks every result of that type that named another. A result
+with remote calls shows its figures only when each provider type it calls had a statement in
+`scoreboard/disclosures.json` (none yet) when it was stored, and the file still holds it;
+otherwise it reads "not published: disclosure pending", its figures kept off the page. The
+Clinical Trial Prescreener's CQL configuration is measured so, on Mendari's own CQL engine, and
+stored pending; no Jev or LLM arm is measured.
 
 A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
 evidence, never a letter or a score: no critical case automated, each critical label's recall

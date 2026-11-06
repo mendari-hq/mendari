@@ -91,22 +91,35 @@ Before anything runs, it is refused:
   declaration is committed as it is (the next section);
 - without `--prices FILE` when it calls a model (Jev or an LLM): its cost is priced from that
   dated table, which the store keeps under `prices/<date>.json` when a result is priced from it.
-  A configuration that calls no model (CQL) needs none: its cost is "0 (no metered calls)".
+  A configuration that calls no model (CQL) needs none: its cost is "0 (no metered calls)". A
+  local configuration is never given one;
+- when `scoreboard/prices/` already holds another table of the same date: a stored table never
+  changes, so date the new one.
+
+A table that cannot price the run (it lacks the model Jev or the LLM reported, or the model
+changed during replicate 1, so two are reported) does not lose it: the result is stored with its
+cost "unknown", and the reason, and cites no table.
 
 The replicates run one after another, each with its own providers. Replicate 1 is the headline:
 the result's figures are its figures, whichever replicate looks better. The result lists every
 replicate's ledger and run record (each stored), and shows the case flip rate (k of n cases
 whose primary prediction or outcome differs between any two replicates, matched by ledger hash,
-with its interval) and each figure's spread (its minimum to maximum across them). A replicate
-that reports another model than the headline's marks the result "stale: another model
-reported" from the start.
+with its interval) and the spread of each figure in its column (its minimum to maximum across
+them). Subgroups and weighted figures have no spread: a subgroup's figures move only where its
+cases flip, which the flip rate counts, and the public sets are as sampled. Replicates that
+report more than one model of a type mark the result "stale: another model reported" from the
+start.
 
-Until each remote provider type the configuration calls has a statement in
-`scoreboard/disclosures.json`, the result reads "not published: disclosure pending": the page
-shows its scope, and none of its figures, and its labels stay out of the insufficient-evidence
-banner. A result keeps the statements the file held when it was stored, so write the statement
-first, then run. A result stored while its statement was pending is run again (`--again`) once
-the statement is in.
+A result keeps the statements `scoreboard/disclosures.json` held, for each remote provider type
+the configuration calls, when it was stored. The page shows its figures only when each type had
+a statement then and the file still holds that statement, word for word. Otherwise the result
+reads "not published: disclosure pending": the page shows its scope, and none of its figures,
+and its labels stay out of the insufficient-evidence banner. So write the statement first, then
+run. A result stored while its statement was pending, or whose statement was taken out or
+rewritten since (a commercial relationship begun, say), is run again (`--again`) once the file
+holds the statement it should carry. The Clinical Trial Prescreener's three `structured=cql`
+results were stored pending: once `cql` has a statement, run them again with `--again`, with the
+sandbox's HAPI FHIR up (`docker compose up fhir`), and commit them with the page.
 
 ### Declaring a configuration
 
@@ -146,11 +159,22 @@ decides them once, and compares each with replicate 1 of the configuration's cur
 `test`, which must hold replicates, on the pack's current digest and set. It stores its ledger,
 its run record and the canary (`canaries/<sha256>.json`, `mendari.canary/1`): its flip rate
 against replicate 1, with its interval, and whether it shows drift (that interval's lower bound
-above the upper bound of the replicates' flip rate) or reports another model. Either marks the
-configuration's results measured no later than those replicates "stale: canary drift" or
-"stale: another model reported". A stale result is run again; the new one is not marked by the
-earlier canary. Canaries are kept as they were run: the check recomputes each from its inputs,
-and refuses one removed or changed.
+above the upper bound of the replicates' flip rate) or reports another model (for a type both it
+and the replicates named: a canary whose calls all failed names none, which is not another).
+
+- Drift marks "stale: canary drift" the remote results of the pack's arm, of whichever
+  configuration was declared for it and on any set, measured before the canary's day, or no
+  later than the replicates it was compared with. A local configuration's results are never
+  marked: they are deterministic.
+- Another model, from a canary or any later result, marks "stale: another model reported" every
+  result, of any pack or configuration, whose runs named another model of that type and that
+  was measured no later (the same day included: a day holds no order). The deployment has one
+  `JEV_MODEL` and one `LLM_MODEL`, whatever calls them.
+
+`scoreboard run` does not read these marks: a result they mark is still current to it (its pack,
+set and method are unchanged), and it prints "kept". Run it again with `--again`; a result run
+again from the canary's day on is not marked by it. Canaries are kept as they were run: the
+check recomputes each from its inputs, and refuses one removed or changed.
 
 ## Adding a result made elsewhere
 
@@ -165,7 +189,8 @@ they give, on its pack's current digest, set and method, measured no later than 
 configuration's result must also hold 3 to 5 replicates, each one's ledger and run record in the
 store, and cite its pack's declaration as the store holds it: its ledgers are recomputed from,
 never re-run, which would call off the machine. Its disclosure is the one in
-`scoreboard/disclosures.json`, never one the result brings. `--supersedes` names the stored
+`scoreboard/disclosures.json`, never one the result brings; the page shows its figures only while
+the file still holds that statement. `--supersedes` names the stored
 result it replaces. The link is part of the result's body, so it is refused for a signed result:
 link it first, then sign it.
 

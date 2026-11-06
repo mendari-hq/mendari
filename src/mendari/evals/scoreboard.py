@@ -68,6 +68,7 @@ DISCLOSURE_PENDING = "not published: disclosure pending"
 NO_METERED_CALLS = "0 (no metered calls)"
 PRICED = "priced"
 UNKNOWN = "unknown"
+NO_PRICE = "no price table holds its model"  # none given, or one that lacks it: the same bytes
 NOT_REPRODUCIBLE = "measured on the runner, not reproducible"
 TOO_FEW = "too few"
 AS_SAMPLED = "as sampled"
@@ -280,7 +281,11 @@ def _scalars(figures: Mapping[str, Any]) -> dict[str, float | None]:
     on the board, with its estimate (k/n for a proportion), or None where it has none:
     detection and critical cases automated per critical label, false automation, the AUTO error
     rate, automation, accuracy, macro-F1, Brier, Brier's reliability term, ECE, cost and
-    latency. Subgroups and weighted figures are left out."""
+    latency: the rows of the entry's own column. Subgroups and weighted figures are left out,
+    and the page says so. A subgroup's figures are shares of its cases, which move between
+    replicates only where its cases flip, and the case flip rate counts every such case; it has
+    a cell per declared value, most of them "too few" on these sets. Weighted figures are shown
+    only for a set whose records carry sampling weights, and the public sets are as sampled."""
     found: dict[str, float | None] = {}
     for critical in figures["critical"]:
         name = f"{critical['question']}={critical['label']}"
@@ -531,11 +536,15 @@ def _cost(
 ) -> dict[str, Any]:
     """Cost per 1,000 decisions, from each case's tokens by type and the dated table: "0 (no
     metered calls)" for a configuration that calls no model, or whose model types made no call
-    on this set; else "unknown" when any call failed (a provider error in the ledger), there is
-    no table, or a type that spent tokens reported no model (a composite kept none of its
-    answers) or more than one (whose tokens the record does not split), or its model is not in
-    the table. A type that spent no token costs nothing, whatever its model. Never a price the
-    ledger, a pack or a provider holds."""
+    on this set; else "unknown" when any call failed (a provider error in the ledger), or a type
+    that spent tokens reported no model (a composite kept none of its answers) or more than one
+    (whose tokens the record does not split), or no price table holds its model (there is none,
+    or it lacks the model). A type that spent no token costs nothing, whatever its model. Never
+    a price the ledger, a pack or a provider holds.
+
+    An unknown cost reads the same with no table as with any table: an entry cites a table only
+    when it priced the cost (`entry`), so the store recomputes an unpriced entry with none and
+    must get the same bytes (LP-17h: a run priced with a table that lacks its model is stored)."""
     none = {"status": "none", "text": NO_METERED_CALLS}
     if not metered:
         return none
@@ -548,8 +557,6 @@ def _cost(
     called = sorted({kind for case in record["cases"] for kind in case["tokens"]})
     if not called:
         return none
-    if prices is None:
-        return unknown("no price table")
     rates: dict[str, tuple[float, float]] = {}
     for kind in called:
         if not any(any(case["tokens"].get(kind, ())) for case in record["cases"]):
@@ -560,9 +567,9 @@ def _cost(
             return unknown(f"{kind}: tokens spent, and no answer kept names its model")
         if len(models) != 1:
             return unknown(f"{kind}: {len(models)} models reported, not one")
-        rate = prices.rate(kind, models[0])
+        rate = None if prices is None else prices.rate(kind, models[0])
         if rate is None:
-            return unknown(f"{kind}: its model is not in the price table")
+            return unknown(f"{kind}: {NO_PRICE}")
         rates[kind] = rate
     per_case = [
         1000.0
@@ -740,6 +747,8 @@ def board(
     entries: Sequence[Mapping[str, Any]],
     current: Mapping[str, Current],
     canaries: Sequence[Mapping[str, Any]] = (),
+    *,
+    disclosures: runs.Disclosures | None = None,
 ) -> dict[str, Any]:
     """The board of `entries`: one table per pack and set (by pack id, then set name), each with
     its ranking (`bands.ranking`: off on a public set, a regression check, not a ranking), the
@@ -747,21 +756,25 @@ def board(
     status (measured, "not measured" or "not applicable", from `current`), the configurations
     of a measured arm that have no entry here (`not_measured`, from `current`), and its entries
     in a listing order (by arm, then configuration, then date), never an order of any figure,
-    each with its grade (`grade.grade`: None on a public set) and whether it is published (an
-    entry whose disclosure is pending shows its scope and none of its figures). A hidden set's
-    arms are ranked only from their ledgers, which a board does not hold, so a hidden table of
-    two or more entries is refused. Each entry's marks are worked out here and never stored:
-    "unsigned", "method draft, not in effect", why it is stale (its pack, set or method is not
-    `current`'s; a later run of its configuration, one of its own replicates, or a canary of it
-    (`canaries`, `mendari.canary/1`) reports another model of a type; or such a canary shows
-    drift) and the date it goes stale.
+    each with its grade (`grade.grade`: None on a public set) and whether it is published
+    (`published`, against `disclosures`, the disclosures file as it is now; None: there is
+    none, so no remote entry is). An unpublished entry shows its scope and none of its figures.
+    A hidden set's arms are ranked only from their ledgers, which a board does not hold, so a
+    hidden table of two or more entries is refused. Each entry's marks are worked out here and
+    never stored: "unsigned", "method draft, not in effect", why it is stale (its pack, set or
+    method is not `current`'s; another model reported, `_another_model_marks`; a canary's drift,
+    `_drift_marks`, from `canaries`, `mendari.canary/1`) and the date it goes stale.
 
     Each entry is read as its canonical bytes hold it (`ledger.canonical`: keys sorted), so the
     board of entries just built is the board of the same entries read back from a store: a
     configuration is written `slot=variant`, its slots in sorted order."""
     entries = [json.loads(canonical(dict(found))) for found in entries]
-    later_models = _later_models(entries)
-    canary_marks = _canary_marks(canaries)
+    canaries = [json.loads(canonical(dict(canary))) for canary in canaries]
+    for canary in canaries:
+        if canary.get("format") != CANARY_FORMAT:
+            raise MendariError(f"not a {CANARY_FORMAT} canary")
+    reported = _runs_reported(entries, canaries)
+    drifts = _drifts(canaries)
     tables: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
     for found in entries:
         if found.get("format") != FORMAT:
@@ -775,7 +788,7 @@ def board(
         short = [
             {**label, "configuration": _label(found)}
             for found in listed
-            if published(found)
+            if published(found, disclosures)
             for label in short_of_evidence(found)
         ]
         measured = {found["arm"] for found in listed}
@@ -811,9 +824,9 @@ def board(
                         "arm_name": arms.ARMS.get(found["arm"], found["arm"]),
                         "configuration": _label(found),
                         "grade": grade.grade(found),
-                        "marks": _marks(found, now, later_models, canary_marks),
+                        "marks": _marks(found, now, reported, drifts),
                         "stale_after": stale_after(found),
-                        "published": published(found),
+                        "published": published(found, disclosures),
                     }
                     for found in listed
                 ],
@@ -839,52 +852,100 @@ def _listing(found: Mapping[str, Any]) -> tuple[Any, ...]:
     return (position, _label(found), found["scope"]["measured_on"], found["body_sha256"])
 
 
-def _identity(found: Mapping[str, Any]) -> str:
-    """One configuration of one pack: what a later run of it is a later run of."""
-    return canonical([found["scope"]["pack"]["id"], found["configuration"]["providers"]])
-
-
-def _later_models(
-    entries: Sequence[Mapping[str, Any]],
-) -> dict[tuple[str, str], list[tuple[str, list[str]]]]:
-    """Per configuration and model type, each date it was measured and the models reported."""
-    seen: dict[tuple[str, str], list[tuple[str, list[str]]]] = {}
-    for found in entries:
-        for kind, models in found["scope"]["models"]["by_type"].items():
-            key = (_identity(found), kind)
-            seen.setdefault(key, []).append((found["scope"]["measured_on"], list(models)))
-    return seen
-
-
-def published(found: Mapping[str, Any]) -> bool:
+def published(found: Mapping[str, Any], disclosures: runs.Disclosures | None) -> bool:
     """Whether an entry's figures may be shown: a local configuration's always ("no model
-    provider"); a remote one's once every remote type it calls has a statement. An entry whose
-    disclosure is pending shows its scope and none of its figures, on the page and in `web/`."""
-    return bool(found["scope"]["disclosure"]["status"] != DISCLOSURE_PENDING)
+    provider"); a remote one's when every remote type it calls had a statement when it was
+    stored, and `disclosures` (the disclosures file as it is now; None: there is none) still
+    holds that statement, word for word. An entry whose statement is pending, or was taken out
+    or rewritten since (a commercial relationship begun, say), shows its scope and none of its
+    figures, on the page and in `web/`, until it is run again with the file's statement."""
+    disclosure = found["scope"]["disclosure"]
+    if disclosure["status"] == DISCLOSURE_PENDING:
+        return False
+    now = {} if disclosures is None else disclosures.statements
+    return all(now.get(kind) == text for kind, text in disclosure["statements"].items())
 
 
-def _canary_marks(canaries: Sequence[Mapping[str, Any]]) -> list[tuple[str, str, list[str]]]:
-    """Per canary: the configuration it is of, the day of the replicates it was compared with,
-    and what it marks stale (drift, another model reported)."""
-    found = []
-    for canary in canaries:
-        canary = json.loads(canonical(dict(canary)))
-        if canary.get("format") != CANARY_FORMAT:
-            raise MendariError(f"not a {CANARY_FORMAT} canary")
-        marks = [STALE_DRIFT] if canary["drift"] else []
-        if canary["another_model"]:
-            marks.append(STALE_MODEL)
-        if marks:
-            identity = canonical([canary["pack"]["id"], canary["configuration"]["providers"]])
-            found.append((identity, canary["against"]["measured_on"], marks))
+def _reported(found: Mapping[str, Any]) -> dict[str, list[str]]:
+    """The models each model type reported in an entry's runs: across its replicates when it
+    holds them (`figures.replicates.models`), else in its one run. A type none of its kept
+    answers named (its calls failed, or a composite kept none of them) is not listed."""
+    held = found["figures"].get("replicates")
+    by_type = found["scope"]["models"]["by_type"] if held is None else held["models"]
+    return {kind: list(models) for kind, models in by_type.items()}
+
+
+def _another_model(
+    reported: Mapping[str, Sequence[str]], held: Mapping[str, Sequence[str]]
+) -> bool:
+    """Whether `reported` names other models than `held` for a model type both name. A run that
+    named no model of a type reports no other model of it: no answer, no model."""
+    return any(list(reported[kind]) != list(held[kind]) for kind in reported if kind in held)
+
+
+def _runs_reported(
+    entries: Sequence[Mapping[str, Any]], canaries: Sequence[Mapping[str, Any]]
+) -> list[tuple[str, dict[str, list[str]]]]:
+    """Every run the board knows of, each entry's and each canary's, with its day and the
+    models each model type reported in it, of whatever pack or configuration: the same type
+    calls the same deployment's model (`JEV_MODEL`, `LLM_MODEL`)."""
+    found = [(entry["scope"]["measured_on"], _reported(entry)) for entry in entries]
+    found += [
+        (canary["measured_on"], {kind: list(models) for kind, models in canary["models"].items()})
+        for canary in canaries
+    ]
     return found
+
+
+def _drifts(canaries: Sequence[Mapping[str, Any]]) -> list[tuple[str, str, str, str]]:
+    """Each canary that shows drift: its pack, its arm, the day of the replicates it was
+    compared with and its own day."""
+    return [
+        (
+            canary["pack"]["id"],
+            canary["arm"],
+            canary["against"]["measured_on"],
+            canary["measured_on"],
+        )
+        for canary in canaries
+        if canary["drift"]
+    ]
+
+
+def _another_model_marks(
+    found: Mapping[str, Any], reported: Sequence[tuple[str, Mapping[str, list[str]]]]
+) -> bool:
+    """Whether an entry is "stale: another model reported" (the method's section 12): its own
+    runs (its replicates) reported more than one model of a type, or a run of the same model
+    type, of any pack or configuration, a result's or a canary's, measured the same day or
+    later (a day holds no order), reported another model of a type the entry's runs reported.
+    A run that reported no model of a type (every call failed) reports no other."""
+    own, on = _reported(found), found["scope"]["measured_on"]
+    if any(len(models) > 1 for models in own.values()):
+        return True
+    return any(day >= on and _another_model(other, own) for day, other in reported)
+
+
+def _drift_marks(found: Mapping[str, Any], drifts: Sequence[tuple[str, str, str, str]]) -> bool:
+    """Whether an entry is "stale: canary drift": a canary of its pack's arm (the arm's declared
+    remote configuration, now or before) shows drift, and the entry is a remote configuration's
+    result of that arm, on any set, measured before the canary's day, or no later than the
+    replicates the canary was compared with. A local configuration is deterministic and never
+    drifts; a result run again from the canary's day on is not marked by it."""
+    if found["configuration"]["local"]:
+        return False
+    pack_id, on = found["scope"]["pack"]["id"], found["scope"]["measured_on"]
+    return any(
+        (pack_id, found["arm"]) == (of, arm) and (on < canary_on or on <= against_on)
+        for of, arm, against_on, canary_on in drifts
+    )
 
 
 def _marks(
     found: Mapping[str, Any],
     now: Current | None,
-    later_models: Mapping[tuple[str, str], Sequence[tuple[str, list[str]]]],
-    canary_marks: Sequence[tuple[str, str, list[str]]] = (),
+    reported: Sequence[tuple[str, Mapping[str, list[str]]]] = (),
+    drifts: Sequence[tuple[str, str, str, str]] = (),
 ) -> list[str]:
     scope = found["scope"]
     marks = []
@@ -898,20 +959,10 @@ def _marks(
         marks.append(STALE_SET)
     if scope["method"]["sha256"] != method.METHOD_SHA256:
         marks.append(STALE_METHOD)
-    stale: list[str] = []
-    for kind, models in scope["models"]["by_type"].items():
-        runs_of = later_models.get((_identity(found), kind), [])
-        if any(on > scope["measured_on"] and other != models for on, other in runs_of):
-            stale.append(STALE_MODEL)
-            break
-    held = found["figures"].get("replicates")
-    if held is not None and held["models"] != scope["models"]["by_type"]:
-        stale.append(STALE_MODEL)  # a replicate after the headline reported another model
-    for identity, against_on, canary in canary_marks:
-        # A canary marks its configuration's results measured no later than its replicates.
-        if identity == _identity(found) and scope["measured_on"] <= against_on:
-            stale += canary
-    marks += [mark for mark in (STALE_DRIFT, STALE_MODEL) if mark in stale]
+    if _drift_marks(found, drifts):
+        marks.append(STALE_DRIFT)
+    if _another_model_marks(found, reported):
+        marks.append(STALE_MODEL)
     marks.append(f"stale after {stale_after(found)}")
     return marks
 
@@ -940,10 +991,14 @@ def canary(
       replicate 1's on the same case (matched by ledger hash), with its 95% interval;
     - `drift`: that interval's lower bound is above the upper bound of the replicates' flip
       rate's (`runs.drift`);
-    - `another_model`: a model type of either reports models the other does not.
+    - `another_model`: for a model type both it and the replicates name, it names other models
+      than they did (`figures.replicates.models`). A type it named no model of (its calls
+      failed) is not another model.
 
-    A board marks the configuration's results measured no later than `against` "stale: canary
-    drift" or "stale: another model reported". `dataset` is the pack's `test` set as it is now,
+    A board marks "stale: canary drift" the remote results of the canary's pack and arm measured
+    before its day, or no later than `against`; and "stale: another model reported" every
+    result, of any pack or configuration, measured no later than the canary whose runs named
+    other models of a type it names (`board`). `dataset` is the pack's `test` set as it is now,
     when it is still the set `against` was measured on: the canary's cases must then be its
     seeded draw (`runs.draw`). Refused, naming hashes and never a case: a size that is not the
     method's, an `against` with no replicates or not on `test`, a `headline` that is not its
@@ -974,9 +1029,10 @@ def canary(
             raise MendariError("the canary's cases are not its seed's draw from the set")
     k, n = runs.canary_flips(ledger, headline)
     replicated = held["flip_rate"]
-    theirs = scope["models"]["by_type"]
     models = record["models"]
-    another = any(models.get(kind, []) != theirs.get(kind, []) for kind in {*models, *theirs})
+    # Only a type both name: a canary whose calls all failed names no model, which is not
+    # another one, and a type the replicates named none of has none to differ from.
+    another = _another_model(models, held["models"])
     found = {
         "format": CANARY_FORMAT,
         "pack": dict(scope["pack"]),
