@@ -26,7 +26,8 @@ keys as they are by then and shown to have the feature on (health names their id
 - each organization's principals make every write once with a body it takes, so each answers
   with its success while the sets exist (`served`: a decision of every kind, a review, an
   outcome, a rating, an approval, a hold, an evaluation, a key, a client and its token, an
-  invitation accepted, a request to join handled; then, on spare ids, what erases, rotates or
+  invitation accepted, a request to join handled, the grading key's scoreboard run over its
+  frozen set, declaring its arms (LP-17k); then, on spare ids, what erases, rotates or
   deletes);
 - every mounted route and method (`mounted_routes`, and the OpenAPI document) is called by every
   kind of principal: no one, a member of each role, a labeller with assignments (one still
@@ -405,6 +406,9 @@ ADJUDICATE_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/adjudication")
 # grading key of the set's organization, run over its frozen set (`fill`) with its pack
 # (`options`).
 RUNS_ROUTE: Route = ("POST", "/api/evalsets/{set_id}/runs")
+# A scoreboard run (LP-17k): the inbox's deterministic arm, declared, over the frozen set.
+SCOREBOARD_LOCAL = {"safety_screen": "rules", "router": "naive_bayes"}
+SCOREBOARD_RUN = {"pack": INBOX, "arms": {"deterministic": SCOREBOARD_LOCAL}, "declared": "d" * 64}
 # Routes no principal here is answered on with a 2xx or 3xx, in either mode, each with why: they
 # are still called and scanned. (A write the sweep sends an empty body is answered by `served`.)
 NOT_ANSWERED: dict[Route, str] = {
@@ -1177,7 +1181,8 @@ def served(world: World, org: Org) -> None:
     refuse unread): a decision of every kind (the API's, FHIR's, the guard's, CDS Hooks', PAS's,
     DTR's and an EHR launch's), a review, an outcome and a rating, an approval and a hold, an
     evaluation, a key, a client and its token, an invitation made and accepted, a request to
-    join made and handled, an organization chosen, a member's roles changed; then, on spare ids
+    join made and handled, an organization chosen, a member's roles changed, the grading key's
+    scoreboard run (LP-17k, `mendari.hidden_scoreboard/1`); then, on spare ids
     made here, what erases, rotates or deletes (tests/test_two_organizations.py's phase 2)."""
     m = org.name
     admin, reviewer, governance = (org.people[role] for role in ("admin", "reviewer", "governance"))
@@ -1313,6 +1318,31 @@ def served(world: World, org: Org) -> None:
         200,
         json={"roles": ["reviewer"]},
     )
+    # The hidden-set scoreboard (LP-17k): the grading key declares its arms over its frozen set
+    # and is answered `mendari.hidden_scoreboard/1`, aggregates by arm and label (conflict 57 as
+    # amended in LP-11l), scanned as a grading run's answer is; its first run, of the three. First
+    # refused before any case is read (a local configuration declared under another arm,
+    # `wrong_arm`): that answer holds no label word, though it is the grading key's.
+    refused = world.call(
+        org.principals["grading key"],
+        "POST",
+        f"/api/evalsets/{org.lifecycle['frozen']}/runs",
+        route=RUNS_ROUTE,
+        name=f"{m} served",
+        json={**SCOREBOARD_RUN, "arms": {"llm": SCOREBOARD_LOCAL}},
+    )
+    assert (refused.status_code, refused.json()["reason"]) == (422, "wrong_arm"), refused.text
+    graded = world.call(
+        org.principals["grading key"],
+        "POST",
+        f"/api/evalsets/{org.lifecycle['frozen']}/runs",
+        route=RUNS_ROUTE,
+        name=f"{m} served",
+        aggregates_of=m,
+        json=SCOREBOARD_RUN,
+    )
+    assert graded.status_code == 200, graded.text
+    assert graded.json()["format"] == "mendari.hidden_scoreboard/1"
     # What erases, rotates or deletes: spares only.
     erase = ("POST", "/api/audit/{decision_id}/erase")
     url = f"/api/audit/{decided['spare']['id']}/erase"
@@ -1572,7 +1602,8 @@ def positive_controls(world: World, exported: Path) -> None:
     states = {str(row["id"]): str(row["state"]) for row in sets}
     for org in world.orgs.values():
         # The frozen set is active since its organization's grading key graded it through the
-        # grading route, once in each mode (LP-11l); the others are as the lifecycle left them.
+        # grading route: its scoreboard (LP-17k), then once in each mode (LP-11l); the others are
+        # as the lifecycle left them.
         assert {state: states[set_id] for state, set_id in org.lifecycle.items()} == {
             state: "active" if state == "frozen" else state for state in STATES
         }
@@ -1581,7 +1612,7 @@ def positive_controls(world: World, exported: Path) -> None:
                 "SELECT payload FROM audit_events WHERE decision_id = ? AND event = ?",
                 (f"evalset:{org.lifecycle['frozen']}", "evalset.graded"),
             )
-        assert [json.loads(row["payload"])["run"] for row in graded] == [1, 2]
+        assert [json.loads(row["payload"])["run"] for row in graded] == [1, 2, 3]
     live |= {
         str(row[column])
         for table, stored in (
@@ -1734,6 +1765,8 @@ def test_no_label_word_is_in_a_log_or_an_evalset_command() -> None:
         Surface("http", "a refusal of a set", evalset=True),
         Surface("http", "a labeller's counts or label", evalset=True),
         Surface("http", "a grading run refused to anyone else", evalset=True),
+        # A scoreboard run refused to its grading key (LP-17k): a fixed reason and sentence.
+        Surface("http", "a scoreboard run refused", evalset=True),
     ):
         assert wordless(surface), surface.label
     for surface in (

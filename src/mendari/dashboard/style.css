@@ -532,29 +532,18 @@ th button.sort {
 }
 th button.sort .icon { width: 14px; height: 14px; opacity: 0.55; }
 th[aria-sort="ascending"] button.sort .icon, th[aria-sort="descending"] button.sort .icon { opacity: 1; color: var(--color-accent); }
-/* The rank column's width, also the sticky first column's offset beside it. */
-.table-scroll { --rank-width: 56px; }
-.sticky-first :is(th, td):first-child,
-.sticky-first :is(th, td).rank-cell + :is(th, td) {
+.sticky-first :is(th, td):first-child {
   position: sticky; left: 0; z-index: var(--z-table-column); background: var(--color-surface);
 }
-.sticky-first :is(th, td).rank-cell + :is(th, td) { left: var(--rank-width); }
-.sticky-first thead :is(th:first-child, th.rank-cell + th) { z-index: var(--z-table-corner); }
-.sticky-first.scrolled :is(td, th):is(:first-child:not(.rank-cell), .rank-cell + *) { box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.25); }
-.rank-cell { width: var(--rank-width); min-width: var(--rank-width); }
-.rank {
-  display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 var(--space-1-5);
-  border-radius: var(--radius-pill); font-weight: var(--weight-semibold); font-size: var(--text-xs);
-}
-.rank.top { background: var(--color-accent-soft); color: var(--color-accent); }
-.rank.none { color: var(--color-text-muted); }
+.sticky-first thead th:first-child { z-index: var(--z-table-corner); }
+.sticky-first.scrolled :is(td, th):first-child { box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.25); }
 /* A figure, k of n [low-high%] (mendari.figures/1): the interval quieter than the count, and the
    evidence rule and a row's standing beside it, in muted text. */
 .interval { font-size: var(--text-xs); font-weight: var(--weight-regular); color: var(--color-text-muted); white-space: nowrap; }
 .stat-value .interval { font-size: var(--text-sm); }
 .evidence-mark, .standing { font-size: var(--text-xs); color: var(--color-text-muted); }
 .evidence-mark { display: block; }
-tr.deployed td, .sticky-first tr.deployed :is(td):is(:first-child, .rank-cell + td) { background: var(--color-accent-soft); }
+tr.deployed td, .sticky-first tr.deployed td:first-child { background: var(--color-accent-soft); }
 .badge.deployed { color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-accent); }
 .config-cell { min-width: 180px; }
 .config { line-height: 1.6; }
@@ -1138,7 +1127,6 @@ ol.rules p { margin: var(--space-1) 0; }
   .config-cell { min-width: 140px; }
   th.critical { min-width: 72px; max-width: 100px; }
   .meter { min-width: 36px; }
-  .table-scroll { --rank-width: 44px; }
 }
 
 /* Touch screens: every control at least 44 px, Apple's minimum target. */

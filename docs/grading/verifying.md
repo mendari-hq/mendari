@@ -141,7 +141,9 @@ Then it replaces each file whole, with the signature added, and prints each file
 and the key's id and public key. It never prints the key.
 
 The first time, add the public key it prints to `scoreboard/keys.json`, with `valid_from` set to
-the first day it signs results for and `valid_until` set to `null`. Then check with `verify`.
+the first day it signs results for and `valid_until` set to `null`. Then check with `verify`, and
+write the scoreboard's page again (`uv run python scripts/scoreboard_page.py`): it marks each
+unsigned result, and `sign` writes no page.
 
 Rotating to a new key: add the new key, and set the old key's `valid_until` to the last day it
 signs results for. What it signed for results measured up to that day still verifies.

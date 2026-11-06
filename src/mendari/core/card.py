@@ -16,7 +16,6 @@ from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Quest
 from mendari.evals import leaderboard, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
-    MIN_POSITIVES,
     counted,
     false_automation,
     normalize,
@@ -257,13 +256,14 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             "",
             "## Provider comparison",
             "",
+            leaderboard.preface(),
+            "",
             "Each table below is one dataset at one size, and the configurations in a table that "
             "records the dataset's hash ran on exactly the same records. Remote models are named "
             "because they are a deployment choice. Synthetic and hand-written data: compare "
-            "configurations with each other, not with performance at a real site. Ranked "
-            f"({ranking.METHOD}) by the critical cases caught first, never accuracy alone: only "
-            "configurations measured on this version of the pack rank, and only on records with "
-            f"at least {MIN_POSITIVES} positives of a critical label.",
+            "configurations with each other, not with performance at a real site. A row measured "
+            "on an earlier version of the pack says so beside its configuration: its AUTO and "
+            "false automation followed that version's policy.",
             "",
             *leaderboard.markdown(board, pack.digest, pack.version),
         ]

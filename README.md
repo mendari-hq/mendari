@@ -1276,16 +1276,22 @@ vercel curl /api/packs/mendari/patient-inbox-router/evals --deployment <url> -- 
 uv run mendari leaderboard mendari/patient-inbox-router --report jev-test.json
 ```
 
-The scoreboard and its scoped grades (LP-17, being built) follow a method written down before
-their code: the [grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
+The scoreboard and its scoped grades (LP-17, built but for two parts, below) follow a method
+written down before their code: the
+[grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
 (`mendari.grading/1.0`). It sets the arms by provider class, which figures carry which interval,
 the statistics (Clopper-Pearson simultaneous across a pack's critical labels, exact McNemar, the
 paired bootstrap, Holm), the attestations a grade is made of (never a letter or a score), the
 bands a ranking uses, the evidence rule (enough distinct positives for each critical label, never
 fewer than 100) and the scope statement every result carries. Under it, grades and ranks are
 given only on frozen hidden sets, and a public set is a regression check, never a ranking. The
-leaderboard above is not made under it: `mendari leaderboard` and the Decision Cards still rank
-configurations on public sets (`mendari.rank/1`) until LP-17g relabels them. It is a draft,
+leaderboard above is not made under it, and the pack's own sets it is measured on are public:
+so `mendari leaderboard`, the Decision Cards and the dashboard show each of its tables as
+"public set: regression check, not a ranking" with no rank printed, and link the scoreboard.
+The rows are a listing order: those measured on this version of the pack, on records with
+enough critical positives, first in `mendari.rank/1`'s order (the critical cases caught first),
+then every other row by configuration name. A row's `rank` and `standing` stay in
+`evals/leaderboard.json` and the API as data. The method is a draft,
 not in effect, until the owner sets its effective date; `mendari.evals.method` pins its hash and
 every number it sets ([ADR-0013](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0013-scoreboard-and-scoped-grades.md)).
 It is an engineering evaluation, not clinical validation.
@@ -1308,9 +1314,9 @@ a public set an entry is a regression check with no rank and no grade.
 Results are kept in the repository, in an append-only store under `scoreboard/`: each result
 named by its body's SHA-256, beside its ledger and its run record, each named by its own hash.
 `mendari scoreboard run PACK [--dataset NAME] [--config slot=variant | --every-local]` runs a
-local configuration of a pack Mendari maintains over its public scoring sets (never `train`,
-`calibration`, a file or a hidden set; a remote configuration is refused) and stores the
-result, unsigned; one still current is kept, and a new one supersedes the old.
+configuration of a pack Mendari maintains over its public scoring sets (never `train`,
+`calibration`, a file or a hidden set) and stores the result, unsigned; one still current is
+kept, and a new one supersedes the old.
 `mendari scoreboard add FILE` stores a result made elsewhere, never over another file.
 `./scripts/build-scoreboard.sh` runs every local configuration of the five reference packs on
 their 15 public scoring sets (18 results, about 2.7 MB) and writes the
@@ -1320,9 +1326,29 @@ interval, the insufficient-evidence banner (only the Referral Router's `test` se
 distinct positives on every critical label) and the marks "unsigned" and "method draft, not in
 effect". CI's `reference-pack` job checks that nothing stored is removed or changed (but for a
 valid signature added), that each result is what its inputs give, that each local ledger
-re-runs to the same bytes and that a new result is of a local configuration
-(`scripts/check_scoreboard.py`), and that the page is the store's
+re-runs to the same bytes and that a new remote result holds its replicates and its
+declaration (`scripts/check_scoreboard.py`), and that the page is the store's
 ([Running the scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md)).
+The same script writes the scores on the public page (`web/index.html`, between two marker
+comments): the Patient Inbox Router's `test` set, every arm, each figure k of n with its
+interval, and "not measured" for each arm with no result. It names no remote model, and writes
+no configuration that calls one, until that provider type's disclosure is stated; the check
+covers it too. Deploying `web/` stays the owner's.
+
+A remote configuration (one that calls Jev, an LLM or Mendari's CQL engine) is run by hand,
+never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [--prices FILE]`
+refuses to start when `CI` or `GITHUB_ACTIONS` is set, and runs only the configuration the
+pack's declaration (`scoreboard/declared/<pack name>.json`, committed before the run) names for
+its arm. Replicate 1 is the headline, shown with the case flip rate between any two replicates
+and the spread of each figure in its column. `mendari scoreboard canary PACK --config ...
+--seed S` decides a seeded draw of 30 `test` cases once, by hand: a canary that drifts from the
+replicates marks its arm's remote results stale, and another model reported, by a canary or a
+later run of the same model type, marks every result of that type that named another. A result
+with remote calls shows its figures only when each provider type it calls had a statement in
+`scoreboard/disclosures.json` (none yet) when it was stored, and the file still holds it;
+otherwise it reads "not published: disclosure pending", its figures kept off the page and `web/`.
+The Clinical Trial Prescreener's CQL configuration is measured so, on Mendari's own CQL engine, and
+stored pending; no Jev or LLM arm is measured.
 
 A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
 evidence, never a letter or a score: no critical case automated, each critical label's recall
@@ -1332,8 +1358,22 @@ arms graded in one read on a band tuple fixed by the method (the worst critical 
 false automation, accuracy, Brier, then cost), lists an arm that fails a safety attestation or
 lacks its evidence unranked, and gives each ranked arm a rank interval from a stated Holm family,
 which never reorders the ranks. ECE and latency never enter it. Both are given only on frozen
-hidden sets: on a public set the grade is null and the ranking is off. Nothing grades a hidden
-set with them yet: the hidden-set scoreboard comes with LP-17k.
+hidden sets: on a public set the grade is null and the ranking is off.
+
+The hidden-set scoreboard (`mendari.hidden_scoreboard/1`, LP-17k) grades them through the same
+grading route as above: a run that sends `arms` (each declared arm with its configuration) and
+`declared` (the SHA-256 of the committed declaration they come from) decides every declared arm
+on the same cases in one grading read, one of the set's runs. Each declared configuration is
+checked before any case is read: under the method 1.0 a hidden set is graded with local
+providers only, so an arm that calls Jev or an LLM is refused, and the other arms read "not
+graded here" (or "not applicable"). The answer holds, per graded arm, its figures with their
+intervals, evidence on distinct positives, its attestations (draft while the method is not in
+effect) and the insufficient-evidence banner; the ranking ("off: one arm graded" while only the
+deterministic arm is local); the scope, with the set's id and freeze commitment; and the run's
+number, outside its body's hash. Never cost, latency, a subgroup or a case. Without `arms`, the
+route answers `mendari.hidden_result/1` as before. `mendari scoreboard add` stores the answer as
+it was answered, and the owner signs it
+([a hidden set's scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md#a-hidden-sets-scoreboard)).
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is
@@ -1343,6 +1383,18 @@ public keys in `scoreboard/keys.json` (none yet, so every result reads "unsigned
 publisher's or a registry's key, and fails on any changed byte. The signature covers a prefix of
 its own, so no checkpoint, archive or recall signature passes as a result's
 ([Verifying a scoreboard result](https://github.com/mendari-hq/mendari/blob/main/docs/grading/verifying.md)).
+
+What is left is the owner's, once each and in order, in
+[the owner's runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md#the-owners-runbook):
+the method's numbers confirmed, the grading key made, the method published and its effective
+date set, then the price table, the disclosures and the declarations written, the remote arms'
+replicates run (LP-17i), the hidden sets graded, every new result signed, and the scoreboard
+published. Results are signed only after the effective date, since setting it re-pins the
+method's hash and a signature made before stops verifying. The developer flow, where a pack's
+own author submits to a hidden set (LP-17l), waits for the pack store (LP-20).
+`tests/test_scoreboard_end_to_end.py` takes a result from `mendari scoreboard run` to a signed,
+verified result and a tampered one that fails, and a hidden set's answer from the grading route
+to the store, with `mendari audit verify --evalsets` after it, on SQLite and Postgres.
 
 ## Feedback loop
 
@@ -1608,8 +1660,8 @@ packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
-scoreboard/      the results store: scoreboard results, their ledgers and run records, and the
-                 public grading keys (keys.json)
+scoreboard/      the results store: scoreboard results, their ledgers and run records, the packs'
+                 declared configurations (declared/) and the public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```
@@ -1627,7 +1679,7 @@ uv run mypy src tests
 uv run python scripts/check_doc_snippets.py   # the API examples against a local server (curl, jq)
 ./scripts/build-reference-pack.sh      # regenerate data → train → test → benchmark → card
 uv run python scripts/check_scoreboard.py --base origin/main  # the results store: append-only
-uv run python scripts/scoreboard_page.py --check   # the scoreboard's page is the store's
+uv run python scripts/scoreboard_page.py --check   # the page and web/'s scores are the store's
 ```
 
 ## Roadmap

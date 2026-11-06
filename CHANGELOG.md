@@ -629,7 +629,8 @@ The first release (not yet published).
   which now refuse to equal it too); a malformed or reused one stops the command, naming the
   variable, never the value. `mendari scoreboard sign FILE ...` is the key holder's: it refuses
   in CI (`CI` or `GITHUB_ACTIONS` set) and without the key, checks every file before writing
-  any, and adds the signature in place, leaving the body and its SHA-256 as they were.
+  any, and adds the signature in place, leaving the body and its SHA-256 as they were; it writes
+  no page, and says to write the page again, which marks each unsigned result.
   `mendari scoreboard verify FILE ... [--keys FILE | --public-key B64]` needs no secret and
   writes nothing: it refuses another format, a body that is not canonical JSON (a key twice,
   NaN or an infinity), a method hash that is not its version's, a key not in
@@ -641,7 +642,7 @@ The first release (not yet published).
   the shell's history, and what to do when a key leaks (run its results again; a result is
   signed once); threat model S20 and E14. No figure, format or decision changes.
 - **Grades and band ranking** (LP-17j, `mendari.evals.grade` and `mendari.evals.bands`, pure:
-  nothing grades a hidden set with them yet, LP-17k will). A grade is a set of attestations
+  the hidden-set scoreboard, LP-17k, grades with them). A grade is a set of attestations
   under the grading method, each met, not met or insufficient evidence, with no letter, score or
   composite: no critical case automated (a positive decided AUTO makes it not met whatever the
   evidence), each critical label's recall floor on the grade's bound, and the false-automation
@@ -705,6 +706,144 @@ The first release (not yet published).
   results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
   pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
   the dashboard and the leaderboards are as they were.
+- **Public sets relabelled: a regression check, not a ranking** (LP-17g, a display change).
+  A pack's own sets are public, in the repository and in the package, so no surface prints a
+  rank any more. The Decision Card's "Provider comparison" opens with "Public set: regression
+  check, not a ranking", says that nothing there is graded (grades and rankings are given only
+  on frozen hidden sets) and the order its rows are listed in, and links the
+  [scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md); its
+  tables lose the Rank column, and a row of an earlier version of the pack says so beside its
+  configuration. `mendari leaderboard` prints the same opening and the same tables. The
+  dashboard's Provider comparison drops its "Ranked" caption and its rank column (the table
+  helper loses the rank option), says the same and links the scoreboard's runbook, which links
+  the page; its cost chart names the deployed configuration and every one no other beats on
+  both cost and accuracy, no longer the first in the order. The rows are listed as before, now
+  as a listing order: those that rank as data first, in `mendari.rank/1`'s order, then every
+  other row by configuration name (every row of the reference packs' boards is of an earlier
+  version, so their tables are in order of name). Each row keeps its `rank` and `standing` in
+  `evals/leaderboard.json` and the API. The five reference packs' cards are regenerated, so the
+  comparison section of any copy published before is stale; no data, model, benchmark, ledger,
+  figure or decision changes. The public page's scores (`web/index.html`) are no longer typed
+  in: `scripts/scoreboard_page.py` writes them from the results store between two marker
+  comments, and its `--check` (a step of the required `reference-pack` job) covers them. They are
+  the Patient Inbox Router's public `test` set: every arm, each figure k of n with its exact
+  interval, the insufficient-evidence banner (23 distinct urgent positives) and "not measured"
+  for the three arms with no result. The typed table's bare percentages, its best row, its
+  vendor and model names, its "100 cases" and its pack versions are gone; a remote model, and a
+  configuration that calls one, is named there only once its provider type's disclosure is
+  stated. Deploying `web/` stays the owner's
+  (gate G1-2).
+- **Remote arms on public sets, built and off** (LP-17h; the grading method's sections 9, 10
+  and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
+  to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local
+  configuration runs one), needs `--prices FILE` when the configuration calls a model (and
+  refuses one whose date another stored table holds, before any call), refuses, before any
+  call, a provider this machine has not set up (its preflight: the CQL engine's URL, Jev's
+  endpoint and model, an LLM's model), which would fail every case and store a result of those
+  failures over a good one, and runs only the configuration a pack's declaration
+  (`scoreboard/declared/<pack name>.json`, `mendari.declared/1`: per arm one remote
+  configuration, and one local one for hidden sets) names for its arm, committed before the
+  run. Replicate 1 is the headline. An entry of
+  replicates cites the declaration's SHA-256 (`inputs.declared`) and every replicate's ledger
+  and run record (`inputs.replicates`), and `figures.replicates` holds the case flip rate (k of
+  n cases whose primary prediction or outcome differs between any two replicates, matched by
+  ledger hash, with its interval), the spread of each figure in the entry's column (its minimum
+  to maximum, a description; subgroups' and weighted figures have none) and the models each type
+  reported (`runs.replicates`). A table that cannot price a run (it lacks the reported model,
+  or two are reported) leaves its cost "unknown" and the result stored, citing no table: an
+  unknown cost now reads the same with no table as with any ("jev: no price table holds its
+  model"), for every model type a configuration calls: one of Jev and an LLM whose table
+  prices only one reads "jev, llm: no price table holds all their models", and one whose type
+  reports two models reads that type's reason, whichever table is at hand, so it is stored and
+  never refused after every call. An entry of one replicate is byte for
+  byte as before: every stored result recomputes unchanged. `mendari scoreboard canary PACK
+  --config ... --size 30 --seed S` draws 30 cases of the pack's `test` set by seed, decides them
+  once, by hand and never in CI, and compares them with replicate 1 (`mendari.canary/1`, under
+  `scoreboard/canaries/`); no schedule runs it. Freshness, worked out when the page is built:
+  replicates that report more than one model of a type, or a run of the same model type (a
+  result or a canary, of any pack or configuration, the same day or later) that reports another
+  model, mark a result "stale: another model reported"; a run that named no model of a type
+  (its calls failed) reports no other. A canary's drift (its flip rate's lower bound above the
+  replicates' upper bound) marks "stale: canary drift" the remote results of its pack's arm, on
+  any set, measured before its day or no later than its replicates, never a local
+  configuration's. `scoreboard run` does not read these marks: run such a result `--again`. An
+  entry with remote calls is published only when each provider type it calls had a statement in
+  `scoreboard/disclosures.json` (added, with none yet) when it was stored, and the file, as the
+  page reads it, still holds that statement: otherwise it reads "not published: disclosure
+  pending", its scope shown and its figures not, and the insufficient-evidence banner leaves it
+  out. The store check recomputes a new remote result
+  from all its replicates, never re-runs a remote ledger, and refuses one without 3 to 5
+  replicates or its pack's declaration of it; it also checks each declaration against its pack
+  and keeps canaries append-only. The page gains three rows per entry (replicates, case flip
+  rate, spread; a local configuration's read "1 (local: deterministic)" and "none: one
+  replicate") and a Canaries section. The Clinical Trial Prescreener's `structured=cql` was
+  measured on its three public scoring sets with Mendari's own CQL engine (the sandbox's HAPI
+  FHIR, as CI's `cql` job runs it), 3 replicates each, 2026-11-05: every replicate's ledger is
+  the same bytes (0 flips), and the three results read "not published: disclosure pending":
+  they were stored pending and keep that, so once `cql` has a statement they are run again with
+  `--again` (with the sandbox's HAPI FHIR up), an owner step in `tasks/todo.md`. No model
+  provider was called, and no remote arm (Jev, an LLM) is measured: each still reads "not
+  measured".
+- **The hidden-set scoreboard** (LP-17k, `mendari.hidden_scoreboard/1`, `evals/hidden.py`; the
+  grading method's sections 3 to 9), through the existing grading route. A run of
+  `POST /api/evalsets/{set_id}/runs` may now send `arms` (each declared arm with its whole
+  configuration, a variant for every slot of the pack) and `declared` (the SHA-256 of the committed
+  declaration they come from), together and never with `variants`. Each declared configuration is
+  refused before any case is read as `variants` is (`wrong_pack`, `unknown_variant`,
+  `remote_provider`), or `wrong_arm` (new, `422`) when it leaves a slot out (which would run the
+  deployment's choice) or is not of the arm it is declared under; under the method 1.0 a hidden set
+  is graded with local providers only, so the deterministic arm is the one that runs. Then one
+  grading read decides every declared arm on the same records (their ledgers pair: one case key),
+  one chained `evalset.graded` and one of the set's runs. Each arm's entry, grade and the ranking
+  are computed in memory, never stored, and answered as a closed schema: per arm its status
+  ("graded", "not graded here" for an arm whose configurations call a remote provider, or "not
+  applicable"), its configuration and providers, its figures (each proportion k of n with its exact
+  95% interval, every mean with its bootstrap interval, evidence on distinct positives, ECE as one
+  number, the weighted figures from the records' `attributes.weight`, never detection, withheld
+  unless 10 cases or more of each share carry each weight, since a weight is a stratum's) and its
+  attestations, draft while the method is not in effect; the insufficient-evidence banner; the
+  ranking ("off: one arm graded" while only the deterministic arm is local) and its Holm family;
+  the scope, with the set's id and freeze commitment, never a hash of its cases, and the
+  declaration's SHA-256; and, in a run block outside the body's hash, this run's number and the
+  runs left. Never cost, latency, a subgroup, an equal-mass bin, a case's id or hash, the dataset's
+  name or hash or a ledger's id. Shares are rounded to 4 places and means to 3, as
+  `mendari.hidden_result/1`'s are. Two reads of one set on one day give the same body. A 600-case
+  set runs in about 5 s through the route, its read included, well inside the route's deadline, so
+  no figure moves to the command line. Without `arms`, the route answers `mendari.hidden_result/1`,
+  unchanged. The results store holds the answer as it was answered (`mendari scoreboard add`): one
+  result per pack and set, named by its body's SHA-256, checked against its closed schema, a pack
+  Mendari maintains, its own figures (its intervals, evidence, grades, banner and ranking, each
+  draft while the method is not in effect) and, when new, the current method, a day no later than
+  today, `in_effect` as the method is that day, and its pack's declaration
+  (`scoreboard/declared/<pack name>.json`, LP-17h's `mendari.declared/1`): it must cite the
+  declaration as the store holds it and grade the arms it declares `local`, each with that
+  configuration (`scripts/check_scoreboard.py`); its k and n are never recomputed (no ledger of a
+  hidden set is kept), and it is left off the early scoreboard's page and the site's scores; a
+  signature covers its run's number too. Spec: `docs/spec/evaluation-reports.md`; runbooks
+  `docs/operations/evalsets.md` and `docs/operations/scoreboard.md`; threat model T8, I14 and I15.
+  No figure, format or decision of a public result changes.
+- **The scoreboard's close-out** (LP-17m; ADR-0013 now Accepted). The launch gates probe what
+  LP-17 built: G3-4's `a9-scoreboard` names the acceptance tests of the statistics, the entries,
+  signing, the results store and its page, the grades and band ranking, and the hidden-set
+  scoreboard, with the no-leak tests, and stays pending on two lines: the owner's run of the
+  remote arms (LP-17i) and the developer flow (LP-17l, after LP-20 and the owner's decisions 4
+  and 10). `grading-method` probes the method's tests and the page's, beside the document; its
+  attestation stays the owner's. `tests/test_scoreboard_end_to_end.py` takes a local
+  configuration's result from `mendari scoreboard run` through `add`, `sign` (a key made for the
+  test) and `verify`, with a changed figure failing both `verify` and the store's check, then a
+  frozen hidden set graded over HTTP with the declared arm, its answer stored, signed and
+  verified, and `mendari audit verify --evalsets` passing, on SQLite and Postgres, in seconds and
+  with no connection off the machine. The scoreboard's runbook ends with the owner's runbook:
+  each owner step once, in order (the method's numbers, the grading key, the method published
+  and its effective date set, the price table, the disclosures, the declarations, the remote
+  replicates, the hidden sets, signing and publishing), with the commands as they are. Signing
+  comes after the effective date: setting it re-pins the method's hash, so a signature made
+  before stops verifying, and the store's check refuses a current result whose signature does
+  not. The runbook's signing command now names the results to sign (`sign` refuses a batch that
+  holds one signed already, or one made under an earlier hash). The threat model keeps three
+  residual risks: a signed hidden-set result is the owner's attestation, which no one else can
+  recompute; raw intervals on sets built from templates look narrower than they are; and the key
+  holder could sign an altered result. Nothing in the engine changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

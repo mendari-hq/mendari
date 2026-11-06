@@ -14,8 +14,21 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
 - each public result recomputes byte for byte from its stored ledger, its dataset (SHA-256
   checked), its run record, its price table and the method, and each local ledger on its pack's
   current digest re-runs to the same bytes; a result of an older digest is recomputed and kept,
-  one whose set or method changed is kept as it is; a new one must be of a local configuration,
-  on the current ones, and measured no later than today.
+  one whose set or method changed is kept as it is; a new one must be on the current ones and
+  measured no later than today, and a new remote one (LP-17h) must hold 3 to 5 replicates and
+  cite its pack's declaration (scoreboard/declared/), which declares it; its ledgers are
+  recomputed from, never re-run;
+- each declaration names configurations its pack has, in their arms, remote or local as it says;
+- no canary of the base is removed or changed, and each canary is what its ledger, its run
+  record and the result it was compared with give;
+- each hidden set's result (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k)
+  fits its closed schema, field by field, and its name is its body's SHA-256 (its run block
+  left out); it is of a pack Mendari maintains; under the current method it agrees with its
+  own figures (intervals, evidence, grades, banner, ranking, draft); and, when new, it is under
+  the current method, measured no later than today, in effect as the method is that day, and
+  cites its pack's declaration as the store holds it, grading the `local` configurations it
+  declares. It
+  is kept as it is: no ledger of a hidden set is kept, so its k and n are never recomputed.
 
 The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.
 
@@ -40,10 +53,13 @@ STORE = ROOT / results_store.ROOT
 PACKS = ROOT / "packs"
 
 
-def base_results(base: str, store: Path = STORE) -> dict[str, bytes]:
-    """The result files under the store's `results/` in the commit `base`, by name (the file's
-    name without `.json`), with their bytes. A commit without a store has none."""
-    relative = (store / results_store.RESULTS).relative_to(ROOT).as_posix()
+def base_results(
+    base: str, store: Path = STORE, kind: str = results_store.RESULTS
+) -> dict[str, bytes]:
+    """The result files under the store's `results/` (or its `kind` folder: `canaries/`) in the
+    commit `base`, by name (the file's name without `.json`), with their bytes. A commit without
+    a store has none."""
+    relative = (store / kind).relative_to(ROOT).as_posix()
     known = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
         cwd=ROOT,
@@ -76,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     found = results_store.check(
         store,
         base=base_results(args.base),
+        base_canaries=base_results(args.base, kind=results_store.CANARIES),
         publisher_ids=signing.read_pins(config_dir() / "trusted_keys.json"),
         packs=lambda ref: results_store.maintained_pack(ref, PACKS),
     )

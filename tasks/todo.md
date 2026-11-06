@@ -1998,7 +1998,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
      cannot be evaluated on its own test set with local providers says so.
 
-- [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Proposed). Planned by a mapping
+- [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Accepted 2026-11-06). Built
+  but for two steps (2026-11-06, the LP-17 lane): 17i, the owner's run of the remote arms, and
+  17l, the developer flow, blocked on LP-20 and owner decisions 4 and 10; gate G3-4's
+  `a9-scoreboard` names both as pending, and the owner's lines below are the runbook's steps
+  (`docs/operations/scoreboard.md`, "The owner's runbook"). Planned by a mapping
   workflow (2026-10-17) as thirteen PRs, 17a to 17m: twelve build PRs and one data PR the owner
   runs (17i). It adds a published grading method, a scoreboard computed from ledgers
   (`mendari.scoreboard/1`), and scoped grades and band ranking given only on frozen hidden sets.
@@ -2059,8 +2063,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
-  - [x] **17f** (#267) The results store (`mendari.evals.results_store`, `scoreboard/`) and
-    the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
+  - [x] **17f** (#267, merged with 17j in #268) The results store
+    (`mendari.evals.results_store`, `scoreboard/`) and the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
     and run records (each named by its own hash), append-only; `supersedes` (a new field of the
     entry's body) names an earlier result of the same pack, set, arm and configuration, one
     current result each. `mendari scoreboard run PACK [--dataset] [--config | --every-local]
@@ -2088,11 +2092,58 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
     derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
-  - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
-    the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
-    comparison sections become stale).
-  - [ ] **17h** Remote arms on public sets: 3 to 5 replicates, the spread and the flip rate, model
-    freshness, the canary and disclosures; built, and refusing to start in CI.
+  - [x] **17g** (#279) Public template sets relabelled "public set: regression check, not a
+    ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
+    cards' comparison sections become stale). The card's Provider comparison opens with the
+    label, says nothing there is graded and links the scoreboard page
+    (`leaderboard.SCOREBOARD`, a repository URL as the CLI's guides are); `leaderboard.markdown`
+    (the card and `mendari leaderboard`) loses its Rank column, an earlier version's row saying
+    so beside its configuration. The dashboard drops the "Ranked" caption, the rank column (and
+    `table.js`'s rank option and its styles) and the chart's `rank === 1` naming rule (now:
+    deployed, or not beaten on cost and accuracy). Its link goes to the scoreboard's runbook
+    (`operations/scoreboard.md`), which links the page: the page's own path holds the word
+    `tests/test_invite_page.py` bans from dashboard sources (LP-11 conflict 18). `rank` and
+    `standing` stay as data and in the API. The five cards regenerated with `mendari card
+    --write`; data, models, benchmarks and the page byte-identical. `web/index.html`'s typed
+    table is replaced by a block between markers that `scripts/scoreboard_page.py` writes and
+    `--check` checks: the inbox `test` set, every arm, the two measured entries k of n with
+    intervals and marks, the banner (23 distinct urgent positives), three arms "not measured";
+    no remote model named until a disclosure is stated. `tests/test_web_scores.py`,
+    `tests/test_ranking.py::test_no_card_or_board_prints_a_rank_for_a_public_set`, the three
+    renamed browser tests. Owner: the mendari.co entry's line about naming Jev, Claude and
+    gpt-oss results no longer applies to the page as it is (it names none); it applies again
+    when 17i's results are published. Lane: the page and the site's scores share one board,
+    built with 17h's canaries and the disclosures file as it is now, so the site publishes an
+    entry by 17h's `published`, and it reads public results only (17k).
+  - [x] **17h** (#279) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
+    rate, model freshness, the canary and disclosures; built, and refusing to start in CI.
+    `mendari scoreboard run` takes a remote configuration by hand only (refused when `CI` or
+    `GITHUB_ACTIONS` is set): `--replicates 3` to `5` (a local one runs 1), `--prices FILE` when
+    it calls a model (a CQL configuration calls none, so needs none), and only as its arm's
+    `remote` configuration in `scoreboard/declared/<pack name>.json` (`mendari.declared/1`, per
+    arm one `remote` and one `local` configuration), committed as it is before the run (git's
+    `HEAD`). Replicate 1 is the headline; `inputs.replicates` and `inputs.declared` (the
+    declaration's SHA-256) and `figures.replicates` (`runs.replicates`: count, the case flip rate
+    k of n matched by ledger hash with its interval, each figure's spread, the models) are
+    written only for an entry of replicates, so every stored result recomputes unchanged.
+    `mendari scoreboard canary PACK --config ... --size 30 --seed S` (`mendari.canary/1`,
+    `scoreboard/canaries/`, no schedule): drift (its lower bound above the replicates' upper
+    bound) marks the arm's remote results stale (any set, measured before the canary's day or
+    no later than its replicates, never a local configuration's); another model, from a canary,
+    a later result of the same model type (any pack or configuration, the same day included) or
+    the replicates themselves, marks every result of that type that named another. An entry with
+    remote calls is published only while `scoreboard/disclosures.json` (added, empty) still
+    holds, word for word, the statement each type had when it was stored; otherwise it shows its
+    scope and none of its figures, and the banner leaves it out. The store check recomputes a new
+    remote result from its replicates (never re-running a remote ledger), checks declarations and
+    keeps canaries append-only. The prescreener's `structured=cql` measured with Mendari's own CQL
+    engine (compose `fhir`), 3 replicates on each of its three public sets, 2026-11-05: 0 flips,
+    "not published: disclosure pending", which they keep: once `cql` has a statement they are run
+    again with `--again` (the owner line below). `tests/test_scoreboard_runs.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard canary`. Lane review: threat model T8 names 17h's
+    rules and tests; a configuration of Jev and an LLM whose table prices only one, or whose type
+    reports two models, is stored as unknown cost, not refused after every call
+    (`test_a_run_of_two_model_types_its_table_cannot_price_is_stored_as_unknown`).
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
   - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
@@ -2108,12 +2159,56 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     decisions, which never reorder the ranks. Given only on frozen hidden sets, from paired
     ledgers: on a public set the ranking is off and the grade null, wired into `board` (which
     refuses a hidden table of two or more, holding no ledger). `tests/test_scoreboard_rank.py`.
-  - [ ] **17k** The hidden-set scoreboard through the existing grading route
-    (`mendari.hidden_scoreboard/1`, every declared arm in one grading read).
+  - [x] **17k** (#279) The hidden-set scoreboard through the existing grading route
+    (`mendari.hidden_scoreboard/1`, every declared arm in one grading read). `GradingRequest` takes
+    `arms` with `declared` (a SHA-256), never with `variants`; without them the answer is
+    `mendari.hidden_result/1`, unchanged. Each declared configuration is refused before any case is
+    read as `variants` is, or `wrong_arm` (new) when it is not of its arm; one grading read decides
+    every declared arm on the same records (one `evalset.graded`, one of `max_runs`); entries
+    (`scoreboard.hidden_entry`, distinct groups from the inputs, weights from `attributes.weight`),
+    grades and the ranking in memory, never stored. The closed answer: per arm its status
+    ("graded", "not graded here", "not applicable"), figures, attestations; the banner; the ranking
+    ("off: one arm graded"); the scope with the set's id and commitment and the declaration's
+    SHA-256; the run block outside the body's hash. No cost, latency, subgroups, equal-mass bins,
+    case ids or hashes, dataset name or hash, or ledger id. A 600-case set runs in about 5 s
+    through the route, its read included, so the run stays in the route. Review fixes: a declared
+    arm names every slot (`wrong_arm` otherwise); the weighted figures are withheld when fewer than
+    10 cases of a share carry a weight; shares are rounded to 4 places and means to 3, as
+    `mendari.hidden_result/1`'s; the store checks a stored answer against its own figures
+    (`hidden.scoreboard_disagreement`). The results store holds the answer as answered (closed
+    schema, never recomputed, off the page). Spec section, runbooks (`evalsets.md`,
+    `scoreboard.md`: post the declaration, `scoreboard add`, the owner signs), ADR-0011 notes,
+    `api_docs.py`, threat model T8, I14 and I15. `tests/test_evalset_scoreboard.py`;
+    `test_evalset_leaks.py` sweeps a scoreboard run and its refusal. Lane: a new answer is stored
+    only when it cites its pack's declaration as the store holds it and grades the arms that
+    declaration names a `local` configuration for (17h's `mendari.declared/1`), each with it
+    (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
     Blocked on LP-20 and owner decisions 4 and 10.
-  - [ ] **17m** Close-out: gate probes for `a9-scoreboard` and `grading-method`, the threat
-    model's residual risks, ADR-0013 Accepted, the owner's runbook.
+  - [x] **17m** (#279) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
+    acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
+    end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
+    (after LP-20 and owner decisions 4 and 10). `grading-method`: the method's tests and
+    `test_the_page_is_regenerated_from_the_store` in place of its pending line, beside the
+    `file:` probe; the attestation stays empty. Threat model residual risks: a signed hidden-set
+    result is the owner's attestation and no one else can recompute it (bound to its run only by
+    what the chained `evalset.graded` holds); raw intervals on sets built from templates look
+    narrower than they are; the key holder could sign an altered result. ADR-0013 Accepted, its
+    status listing what landed, 17i and 17l open. The owner's runbook
+    (`docs/operations/scoreboard.md`), each owner step once, in order, with the commands as
+    `cli.py` has them: the method's numbers, the key, publishing the method, the effective date,
+    the price table, the disclosures, the declarations, the replicates, the hidden sets,
+    signing, publishing the scoreboard. Found while writing it: setting the effective date
+    re-pins the method's hash, so a result signed before stops verifying and the store's check
+    refuses it while it is current; so the runbook signs only after the effective date, and its
+    signing command names the new results (`sign scoreboard/results/*.json` refuses a batch with
+    one signed already or one under an earlier hash). `tests/test_scoreboard_end_to_end.py::
+    test_a_local_run_to_a_signed_verified_result` (SQLite and Postgres, about 3 s each, with a
+    socket guard refusing any connection off the machine): `scoreboard run`, `add`, `sign` with
+    a throwaway key, `verify`, a changed figure failing `verify` and the store's check; a frozen
+    hidden set graded over HTTP with the declared arm, `add`, signed and verified;
+    `mendari audit verify --evalsets`. `test_grading_method.py::test_the_gate_probes_the_method_document`
+    checks the gate holds no pending line. No pack, figure or decision changes.
 
   Order: 17a first; then 17b, 17c and 17e in parallel; 17d after 17b and 17c; 17f after 17d and
   17e; 17g and 17h after 17f; 17j after 17d; 17k after 17f and 17j; 17i after 17h; 17l after 17k
@@ -2165,12 +2260,55 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   signing key (default: made offline, its public key in `scoreboard/keys.json`); who a
   submitting developer is (LP-19, LP-20); publishing the docs site and the corrected
   `web/index.html` (after G1-2).
-  - [ ] Owner: generate the signing key, publish its public key and sign the committed results.
-  - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`) and mint a grading key once 17k
-    lands.
-  - [ ] Owner: write the price table, the disclosures and the declarations, then run 17i.
-  - [ ] Owner: attest `grading-method` once the site is published, and set the method's
-    effective date.
+  The owner's actions, one line each, in the order of the owner's runbook
+  (`docs/operations/scoreboard.md`, "The owner's runbook", steps 1 to 11). The paid runs, the
+  hidden-set grading and the signatures come on or after the effective date: setting it re-pins
+  the method's hash, so a result signed before stops verifying, and one measured before stays a
+  draft.
+  - [ ] Owner (decisions 3, 5 and 6): confirm or change the method's numbers (the floors, the
+    ceiling, the bands, the days to stale, the replicates, the canary; two-sided bounds; distinct
+    positives) before the method is published; a change is a method edit, a build PR on your
+    word (step 1).
+  - [ ] Owner (decision 9): make the grading key offline, a copy in `~/Documents/mendari-private`,
+    never a server or CI setting (step 2); its public key is listed at signing (below).
+  - [ ] Owner (decision 11, after gate G1-2): publish the docs site with the method and the early
+    scoreboard, and deploy `web/` (`cd web && vercel deploy --prod`); the day the method is at its
+    URL starts its 30 days' notice (step 3).
+  - [ ] Owner (decision 5): set the method's effective date, at least 30 days after the method is
+    published: the date and status lines, `EFFECTIVE` and `METHOD_SHA256` in one PR, the page
+    regenerated; publish the site again; then attest `grading-method` in `launch/gates.yaml`
+    (step 4).
+  - [ ] Owner (decision 8): the benchmark-publication terms of Jev, Claude and gpt-oss read, and
+    the commercial-relationship statement decided for each remote provider type (`jev`, `llm`,
+    `cql`); until then no remote result is published (step 6).
+  - [ ] Owner (decisions 6 and 7): write the price table (`scoreboard/prices/<date>.json`), the
+    disclosures (`scoreboard/disclosures.json`) and the declarations
+    (`scoreboard/declared/<pack name>.json`, every arm's `remote` and the deterministic arm's
+    `local` configuration, committed), then run 17i on or after the effective date: one declared
+    configuration per remote arm, 3 replicates, `test` sets only, 31,500 decisions, outside CI
+    (steps 5 to 8).
+  - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, and on or after the
+    effective date, run the prescreener's three `structured=cql` results again (`mendari
+    scoreboard run mendari/clinical-trial-prescreener --config structured=cql --replicates 3
+    --again`, with the sandbox's HAPI FHIR up and `MENDARI_CQL_URL=http://127.0.0.1:8080/fhir`
+    and `MENDARI_FHIR_ALLOWED_SERVERS=http://127.0.0.1:8080` set; each new result's accuracy
+    checked against the one it supersedes, 298 of 300 on `test`), and every local result
+    (`./scripts/build-scoreboard.sh`), and commit them with the page: stored pending, the CQL
+    results stay "not published: disclosure pending" until then (step 8).
+  - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`, their rotation numbers at freeze:
+    decision 4), mint a grading key, and on or after the effective date grade each pack's declared
+    `local` configuration through the route and `mendari scoreboard add` each answer (step 9).
+  - [ ] Owner: sign every result the branch adds (`mendari scoreboard sign`, by name), list the
+    public key in `scoreboard/keys.json`, write the page again (`scripts/scoreboard_page.py`: it
+    marks each unsigned result), verify, check and run the secret scan (a base64 public key may
+    need one path allowed in `.gitleaks.toml`), and commit the page with the signatures (step 10).
+  - [ ] Owner: publish the signed scoreboard: the docs site again and `web/` (step 11).
+  - [ ] Owner (decision 1): which parts, if any, are built in a private repository (default:
+    none; only the key, the hidden sets' content and the budgets stay out of the repository).
+  - [ ] Owner (decision 2): remote providers on hidden sets (default: local only under the method
+    1.0, so nothing is ranked on a hidden set until this changes).
+  - [ ] Owner (decisions 4 and 10, for 17l): the submission budget per organization, lineage and
+    rotation, and who a submitting developer is and through which route (LP-19, LP-20).
 
 - [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
   by 18h, 2026-10-17): it waits on the owner's choice of where the registry runs.** The build

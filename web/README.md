@@ -19,8 +19,15 @@ their SIL Open Font License texts (listed in `NOTICE`); `vercel.json`'s CSP allo
 for them and nothing else from outside. `og.png` is the 1200 × 630 link preview; `favicon.svg`
 is the mark below 32 px, the same diamond the dashboard uses.
 
-Every figure on the page is from the reference packs' committed evaluations
-(`packs/*/evals/benchmark.json` and `leaderboard.json`): change the page when they change.
+The scores (the Patient Inbox Router's public `test` set) sit between two marker comments and
+are written by `uv run python scripts/scoreboard_page.py` from the scoreboard's results store
+(`scoreboard/`): never edit them by hand. Its `--check`, a step of CI's `reference-pack` job,
+fails when they are not the store's. Each figure is k of n with its exact 95% interval, the set
+is public (a regression check, not a ranking), and a remote model, or a configuration that
+calls one, is named only once its provider type's disclosure is stated. The intro above the
+markers is typed in: keep it to what the table shows. The packs' figures further down are from
+their committed
+benchmarks (`packs/*/evals/benchmark.json`) and are typed in: change them when those change.
 
 `.well-known/security.txt` (RFC 9116) names the repository's private vulnerability reporting form
 as the security contact and links `SECURITY.md`. Its `Expires` is at most a year ahead: renew it

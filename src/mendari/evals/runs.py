@@ -18,6 +18,18 @@ record (`mendari.run/1`), the dated price table (`mendari.prices/1`) and the dis
   ever used.
 - **The disclosures** give, per remote provider type, the statement of any commercial
   relationship between Mendari and that provider (`scoreboard/disclosures.json`).
+- **The declarations** (`mendari.declared/1`, LP-17h, `scoreboard/declared/<pack name>.json`):
+  per arm, the one remote configuration run on public sets with replicates, and the one local
+  configuration a hidden set grades, committed before any run. A result cites the SHA-256 of the
+  declaration's bytes.
+- **Replicates** (LP-17h; the method's section 10): `replicates` gives, from a remote
+  configuration's 3 to 5 runs over one set, each figure's spread (its minimum to maximum across
+  them) and the case flip rate: k of n cases whose primary prediction or outcome differs between
+  any two, matched by ledger hash, with its interval. Replicate 1 is the headline.
+- **The canary** (the method's section 12): `draw` is a seeded draw of a set's cases by their
+  ledger hashes, `canary_flips` counts the drawn cases whose primary prediction or outcome
+  differs from replicate 1's on the same case, and `drift` says whether that rate's lower bound
+  is above the upper bound of the replicates' flip rate.
 
 Nothing here reads a clock, a setting or the network.
 """
@@ -33,22 +45,35 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 import mendari
 from mendari import __version__
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
+from mendari.core.spec import is_pack_id
 from mendari.errors import MendariError
-from mendari.evals import method
+from mendari.evals import arms, method, stats
 from mendari.evals.ledger import Ledger, canonical
-from mendari.evals.result import ERROR
+from mendari.evals.result import ERROR, PREDICTED
 from mendari.evals.share import JOINERS
 from mendari.providers import MODEL_TYPES, PROVIDER_TYPES
 
 RUN_FORMAT = "mendari.run/1"
 PRICES_FORMAT = "mendari.prices/1"
 DISCLOSURES_FORMAT = "mendari.disclosures/1"
+DECLARED_FORMAT = "mendari.declared/1"
+REMOTE, LOCAL = "remote", "local"  # a declared arm's configurations
+HEADLINE = 1  # the replicate an entry's figures are of, as declared before the run
+NOT_ESTIMABLE = "not_estimable"
+_DRAW = b"mendari-canary-draw-v1\x00"  # domain-separates the canary's draw
 # The provider types that may call something off the machine, and so need a disclosure.
 REMOTE_TYPES = frozenset(PROVIDER_TYPES) - LOCAL_PROVIDER_TYPES - COMPOSITE_PROVIDER_TYPES
 MAX_CASES = 1_000_000
@@ -138,12 +163,52 @@ class DisclosureFile(_Closed):
     statements: dict[RemoteType, Annotated[str, Field(min_length=1, max_length=2000)]]
 
 
-# What a refusal may name of where it fails: the schemas' own fields, the types, and pydantic's
-# mark for a dict's key. Anything else in a location is a key the input chose (a model id, an
-# extra field), and may be a URL, a secret or case text: it is named `<key>`, never echoed.
+def _arm(arm: str) -> str:
+    if arm not in arms.ARMS:
+        raise ValueError(f"must be an arm ({', '.join(arms.ARMS)})")
+    return arm
+
+
+def _pack_id(text: str) -> str:
+    if not is_pack_id(text):
+        raise ValueError("must be a pack id (namespace/name)")
+    return text
+
+
+ArmId = Annotated[str, AfterValidator(_arm)]
+_NAME = r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"  # a slot's or a variant's name
+Providers = Annotated[
+    dict[Annotated[str, Field(pattern=_NAME)], Annotated[str, Field(pattern=_NAME)]],
+    Field(min_length=1),
+]
+
+
+class DeclaredArm(_Closed):
+    remote: Providers | None = None
+    local: Providers | None = None
+
+    @model_validator(mode="after")
+    def _one_at_least(self) -> DeclaredArm:
+        if self.remote is None and self.local is None:
+            raise ValueError("an arm declares a remote configuration, a local one, or both")
+        return self
+
+
+class DeclaredFile(_Closed):
+    format: Literal["mendari.declared/1"]
+    pack: Annotated[str, AfterValidator(_pack_id)]
+    date: Date
+    arms: Annotated[dict[ArmId, DeclaredArm], Field(min_length=1)]
+
+
+# What a refusal may name of where it fails: the schemas' own fields, the types, the arms, and
+# pydantic's mark for a dict's key. Anything else in a location is a key the input chose (a
+# model id, an extra field, a slot), and may be a URL, a secret or case text: it is named
+# `<key>`, never echoed.
+_SCHEMAS = (RunCase, RunRecord, Price, PriceTable, DisclosureFile, DeclaredArm, DeclaredFile)
 _NAMED = frozenset(
-    {"[key]", *MODEL_TYPES, *REMOTE_TYPES}.union(
-        *(schema.model_fields for schema in (RunCase, RunRecord, Price, PriceTable, DisclosureFile))
+    {"[key]", *MODEL_TYPES, *REMOTE_TYPES, *arms.ARMS}.union(
+        *(schema.model_fields for schema in _SCHEMAS)
     )
 )
 
@@ -404,6 +469,12 @@ def load_prices(path: str | Path) -> Prices:
     """A price table from a file outside Mendari's code: one in the package (or the repository's
     `src/`) or in a pack's directory is refused before it is read, so no built-in price and no
     price a pack sets is ever used."""
+    return read_prices(path)[1]
+
+
+def read_prices(path: str | Path) -> tuple[bytes, Prices]:
+    """`load_prices`, with the bytes the table was read from (which the results store keeps,
+    under `prices/<date>.json`, for a result priced from it)."""
     where = Path(path)
     if _inside_code_or_pack(where):
         raise MendariError(
@@ -416,7 +487,7 @@ def load_prices(path: str | Path) -> Prices:
         raise MendariError(
             f"{where.name}: cannot read the price table ({error.strerror})"
         ) from None
-    return prices(raw, where=where.name)
+    return raw, prices(raw, where=where.name)
 
 
 def _inside_code_or_pack(path: Path) -> bool:
@@ -462,3 +533,191 @@ def load_disclosures(path: str | Path) -> Disclosures:
             f"{where.name}: cannot read the disclosures ({error.strerror})"
         ) from None
     return disclosures(raw, where=where.name)
+
+
+# --------------------------------------------------------------------------------------------
+# The declarations
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Declaration:
+    """A pack's declared configurations (`mendari.declared/1`), per arm: the one remote
+    configuration run on public sets with replicates (`remote`), and the one local configuration
+    a hidden set grades (`local`), each slot to variant, or None. Cited by the SHA-256 of the
+    bytes it was read from."""
+
+    pack: str
+    date: str
+    arms: Mapping[str, Mapping[str, Mapping[str, str] | None]]
+    sha256: str
+
+    def declared(self, arm: str, where: str) -> dict[str, str] | None:
+        """The configuration declared for `arm` and `where` (`REMOTE` or `LOCAL`), or None."""
+        found = self.arms.get(arm, {}).get(where)
+        return None if found is None else dict(found)
+
+
+def declaration(raw: bytes, *, where: str = "declaration") -> Declaration:
+    """A declaration from its bytes (JSON), cited by their SHA-256."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise MendariError(f"{where}: not JSON") from None
+    found = _checked(DeclaredFile, data, where)
+    assert isinstance(found, DeclaredFile)
+    declared = {
+        arm: {REMOTE: chosen.remote, LOCAL: chosen.local} for arm, chosen in found.arms.items()
+    }
+    return Declaration(found.pack, found.date, declared, hashlib.sha256(raw).hexdigest())
+
+
+def declaration_problem(
+    declared: Declaration, configurations: Sequence[arms.Configuration]
+) -> str | None:
+    """Why `declared` is not a declaration of the pack whose `configurations` these are (every
+    one, `arms.configurations`), or None: each configuration it names must be one of them, in
+    the arm it is declared for, remote where it says remote and local where it says local."""
+    for arm, chosen in sorted(declared.arms.items()):
+        for where, providers in sorted(chosen.items()):
+            if providers is None:
+                continue
+            found = [c for c in configurations if c.providers == dict(providers)]
+            written = ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
+            if not found:
+                return f"its {where} configuration of {arm}, {written}, is not one of the pack's"
+            if found[0].arm != arm:
+                return f"its {where} configuration of {arm}, {written}, is in {found[0].arm}"
+            if found[0].local != (where == LOCAL):
+                kind = "local" if found[0].local else "remote"
+                return f"its {where} configuration of {arm}, {written}, is {kind}"
+    return None
+
+
+# --------------------------------------------------------------------------------------------
+# Replicates, and the canary
+# --------------------------------------------------------------------------------------------
+
+
+def _primary_readings(ledger: Ledger) -> dict[str, tuple[Any, str]]:
+    """Each case's primary prediction and outcome, by its ledger hash."""
+    primary = ledger.header["primary"]
+    found = {}
+    for case in ledger.cases:
+        answered = case["q"].get(primary)
+        found[case["c"]] = (None if answered is None else answered[PREDICTED], case["o"])
+    return found
+
+
+def _same_run_of(first: Ledger, other: Ledger) -> bool:
+    """Whether two ledgers are runs of one configuration of one pack over one set."""
+    one, two = first.header, other.header
+    variants = [{s: p["variant"] for s, p in h["providers"].items()} for h in (one, two)]
+    return (
+        one["pack"] == two["pack"]
+        and one["dataset"] == two["dataset"]
+        and one["primary"] == two["primary"]
+        and variants[0] == variants[1]
+    )
+
+
+def replicates(
+    ledgers: Sequence[Ledger],
+    records: Sequence[Mapping[str, Any]],
+    figures: Sequence[Mapping[str, float | None]],
+) -> dict[str, Any]:
+    """The replicates of one configuration over one set (the method's section 10): `ledgers`,
+    their run `records` and each one's `figures` (a figure's name to its estimate, None where it
+    has none), replicate 1 first. Gives their count, the headline (replicate 1), the case flip
+    rate (k of n cases whose primary prediction or outcome differs between any two replicates,
+    matched by ledger hash, with its 95% interval), each figure's spread (its minimum to maximum
+    across the replicates that have it, a description with no interval) and each model type's
+    models across them. Refused, naming replicates by number and never a case: more than
+    `MAX_REPLICATES`, replicates out of order, a record that is not its ledger's, or a ledger of
+    another pack, set or configuration, or of other cases."""
+    if not 1 <= len(ledgers) <= method.MAX_REPLICATES:
+        raise MendariError(f"{len(ledgers)} replicates: 1 to {method.MAX_REPLICATES}")
+    if not len(ledgers) == len(records) == len(figures):
+        raise MendariError("a replicate needs its ledger, its run record and its figures")
+    readings = [_primary_readings(ledger) for ledger in ledgers]
+    models: dict[str, set[str]] = {}
+    for number, (ledger, record) in enumerate(zip(ledgers, records, strict=True), start=1):
+        run = check_run(record, where=f"replicate {number}'s run record")
+        if run["replicate"] != number:
+            raise MendariError(
+                f"replicate {number}'s run record is replicate {run['replicate']}: replicate "
+                f"{HEADLINE} is the headline, and the others follow it in order"
+            )
+        problem = disagreement(run, ledger)
+        if problem is not None:
+            raise MendariError(f"replicate {number}'s run record is not its ledger's: {problem}")
+        if not _same_run_of(ledgers[0], ledger):
+            raise MendariError(f"replicate {number} is of another pack, set or configuration")
+        if set(readings[number - 1]) != set(readings[0]):
+            raise MendariError(f"replicate {number} holds other cases than replicate {HEADLINE}")
+        for kind, found in run["models"].items():
+            models.setdefault(kind, set()).update(found)
+    flipped = sum(1 for case in readings[0] if len({read[case] for read in readings}) > 1)
+    spread: dict[str, Any] = {}
+    for name in sorted({name for found in figures for name in found}):
+        held = [float(v) for found in figures if (v := found.get(name)) is not None]
+        spread[name] = (
+            {
+                "min": round(min(held), stats.DIGITS),
+                "max": round(max(held), stats.DIGITS),
+                "replicates": len(held),
+            }
+            if held
+            else {"status": NOT_ESTIMABLE}
+        )
+    return {
+        "count": len(ledgers),
+        "headline": HEADLINE,
+        "flip_rate": stats.proportion(flipped, len(readings[0]), method.LEVEL).to_dict(),
+        "spread": spread,
+        "models": {kind: sorted(found) for kind, found in sorted(models.items())},
+    }
+
+
+def draw(case_hashes: Sequence[str], size: int, seed: int) -> list[int]:
+    """The positions, in the set's order, of a seeded draw of `size` of a set's cases: those
+    whose SHA-256 of a domain tag, the seed and the case's ledger hash is smallest. The same
+    set, size and seed give the same draw on every platform, and never a case's text."""
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise MendariError("a canary's seed is a whole number, 0 or more")
+    if not 1 <= size <= len(case_hashes):
+        raise MendariError(f"a draw of {size} from {len(case_hashes)} cases")
+
+    def order(position: int) -> bytes:
+        tag = _DRAW + str(seed).encode() + b"\x00" + case_hashes[position].encode()
+        return hashlib.sha256(tag).digest()
+
+    return sorted(sorted(range(len(case_hashes)), key=order)[:size])
+
+
+def canary_flips(canary: Ledger, headline: Ledger) -> tuple[int, int]:
+    """k of n: the canary's cases whose primary prediction or outcome differs from replicate 1's
+    on the same case, matched by ledger hash. Refused unless every canary case is one of the
+    headline's, and both are runs of one configuration of one pack."""
+    one, two = canary.header, headline.header
+    variants = [{s: p["variant"] for s, p in h["providers"].items()} for h in (one, two)]
+    if (one["pack"], one["dataset"]["sha256"], one["primary"], variants[0]) != (
+        two["pack"],
+        two["dataset"]["sha256"],
+        two["primary"],
+        variants[1],
+    ):
+        raise MendariError("the canary is not of its replicates' pack, set and configuration")
+    drawn, held = _primary_readings(canary), _primary_readings(headline)
+    if not set(drawn) <= set(held):
+        raise MendariError("the canary holds a case its replicates do not")
+    return sum(1 for case, read in drawn.items() if held[case] != read), len(drawn)
+
+
+def drift(canary: tuple[int, int], replicated: tuple[int, int]) -> bool:
+    """Whether a canary's flip rate (k of n) shows drift: its 95% interval's lower bound is above
+    the upper bound of the replicates' flip rate's 95% interval (the method's section 12),
+    decided from k and n, never from a stored (rounded) bound."""
+    low = stats.clopper_pearson(*canary, method.LEVEL)[0]
+    high = stats.clopper_pearson(*replicated, method.LEVEL)[1]
+    return low > high

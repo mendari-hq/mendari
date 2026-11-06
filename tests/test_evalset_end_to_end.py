@@ -243,7 +243,8 @@ def the_runbooks_grading(world: World, org: str) -> tuple[dict[str, str], dict[s
     argv = shlex.split(minting.replace("<org>", org).replace('"$DATABASE_URL"', world.db))
     code, out, _ = world.run(argv[1:])
     assert code == 0
-    (posted,) = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
+    found = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
+    (posted,) = [line for line in found if '"arms"' not in line]  # the scoreboard's is LP-17k's
     key = json.loads(out)["key"]
     return {"authorization": f"Bearer {key}"}, json.loads(shlex.split(posted)[-1])
 

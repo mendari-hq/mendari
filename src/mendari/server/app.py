@@ -92,7 +92,16 @@ from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_d
 from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
-from mendari.evals.hidden import HiddenResult, graded, holds
+from mendari.evals.hidden import (
+    Declared,
+    HiddenResult,
+    HiddenScoreboard,
+    configuration_of,
+    graded,
+    holds,
+    scoreboard_graded,
+    scoreboard_holds,
+)
 from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
 from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
@@ -703,6 +712,8 @@ class SetAssigned(BaseModel):
 # A grading run over a hidden evaluation set (LP-11l): what the organization's grading key sends,
 # and what it is answered (`evals/hidden.py` `HiddenResult`, closed, aggregates only).
 SlotName = Annotated[str, Field(min_length=1, max_length=64)]
+# The scoreboard's arms (`evals/arms.py` `ARMS`), as a grading run declares them (LP-17k).
+ArmName = Literal["deterministic", "classifier", "llm", "classifier_and_llm"]
 
 
 class GradingRequest(BaseModel):
@@ -719,6 +730,30 @@ class GradingRequest(BaseModel):
         "deployment's choice, or the pack's default); every slot must run a local variant",
         examples=[{"router": "naive_bayes"}],
     )
+    arms: dict[ArmName, Annotated[dict[SlotName, SlotName], Field(max_length=64)]] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4,
+        description="the hidden-set scoreboard (LP-17k): each declared arm with its whole "
+        "configuration, a variant for every one of the pack's slots (none is filled in from "
+        "the deployment's choice); every one local, and each in the arm it is declared under. "
+        "With `declared`, never with `variants`: the answer is `mendari.hidden_scoreboard/1`",
+        examples=[{"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}],
+    )
+    declared: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="the SHA-256 of the committed declaration `arms` comes from (the grading "
+        "method's section 3), which the answer cites; with `arms` only",
+    )
+
+    @model_validator(mode="after")
+    def _arms_with_their_declaration(self) -> GradingRequest:
+        if (self.arms is None) != (self.declared is None):
+            raise ValueError("`arms` and `declared` are sent together, or neither is")
+        if self.arms is not None and self.variants is not None:
+            raise ValueError("`variants` or `arms`, not both: each arm names its own variants")
+        return self
 
 
 # Each refusal of a grading run (LP-11l), by its fixed reason (`GradingRefused.reason`): its
@@ -729,11 +764,19 @@ GRADING_REFUSALS: dict[str, tuple[int, str]] = {
     "no_set": (404, NO_SET),
     "wrong_pack": (422, "a hidden set is graded with the pack it was made for: name it as `pack`"),
     "pack_unavailable": (409, "the set's pack does not run on this server"),
-    "unknown_variant": (422, "`variants` names a slot or a variant the pack does not have"),
+    "unknown_variant": (
+        422,
+        "`variants`, or an arm in `arms`, names a slot or a variant the pack does not have",
+    ),
     "remote_provider": (
         422,
-        "a hidden set is graded with local providers only: name a local variant in `variants` "
-        "for each slot that runs a remote one here",
+        "a hidden set is graded with local providers only: name a local variant, in `variants` "
+        "or in each arm of `arms`, for each slot that runs a remote one here",
+    ),
+    "wrong_arm": (
+        422,
+        "each arm in `arms` names a variant for every slot of the pack, a configuration of "
+        "that arm",
     ),
     "not_gradable": (409, "only a frozen or active set is graded"),
     "no_runs_left": (409, "the set has had all the grading runs its rotation rule allows"),
@@ -3395,10 +3438,15 @@ def add_grading_routes(
     the store's grading read (`EvalsetStore.grade_read`) checks the set and its rotation rule,
     recomputes its content against its commitment, chains the read (`evalset.graded`, and
     `evalset.activated` on a frozen set's first) and hands the cases, in memory, to the run,
-    whose answer is the closed result. Nothing is stored: no decision, report, ledger or
-    `eval_reports` row. A refusal or a failure is answered with its fixed reason and sentence
-    (`GRADING_REFUSALS`), never a store's or a run's message; a set that no longer holds what it
-    was frozen with is a `409` `set_changed`, and the operator's log names the set only. Not
+    whose answer is the closed result. A request that declares its arms (`arms`, with
+    `declared`) is the hidden-set scoreboard (LP-17k): each declared configuration is checked as
+    `variants` is, and to be in the arm it is declared under (`declared_arms`), before any case
+    is read; then one grading read hands the cases to every arm, decided in turn on the same
+    records, and the answer is `mendari.hidden_scoreboard/1`. Nothing is stored: no decision,
+    report, ledger or `eval_reports` row. A refusal or a failure is answered with its fixed
+    reason and sentence (`GRADING_REFUSALS`), never a store's or a run's message; a set that no
+    longer holds what it was frozen with is a `409` `set_changed`, and the operator's log names
+    the set only. Not
     gated by the notice (a key is never asked); its rate-limit class is `evaluate`. The security
     log names set ids only (conflict 50); the access line names the route's template."""
 
@@ -3409,18 +3457,45 @@ def add_grading_routes(
             raise AuthError("only the deployment's grading key may do this", 403)
         return principal
 
+    def declared_arms(header: Mapping[str, Any], body: GradingRequest) -> list[Declared]:
+        """Each arm `body.arms` declares, as sent (`scoreboard_graded` decides them in the
+        scoreboard's order), with the configuration it runs and its Decision: each
+        configuration resolved and refused as `variants` is (`grading`: `wrong_pack`,
+        `pack_unavailable`, `unknown_variant`, `remote_provider`, so a declared arm that calls a
+        remote provider is refused here), then `wrong_arm` when the configuration it runs is not
+        the one sent, slot for slot (an arm that leaves a slot out would run the deployment's
+        choice for it, so one cited declaration would grade other configurations on other
+        deployments), or not of the arm it is declared under, and `pack_unavailable` when no
+        grade of the pack could be answered (`scoreboard_holds`: it has no critical label to
+        attest). Before any case is read."""
+        assert body.arms is not None
+        found = []
+        for arm, variants in body.arms.items():
+            asked = body.model_copy(update={"variants": variants, "arms": None, "declared": None})
+            decision = grading(header, asked)
+            configuration = configuration_of(decision)
+            sent = (arm, variants)  # the whole configuration, as declared
+            if configuration is None or (configuration.arm, configuration.providers) != sent:
+                raise grading_refused("wrong_arm")
+            found.append(Declared(arm, configuration, decision))
+        if not scoreboard_holds(found[0].decision.pack):
+            raise grading_refused("pack_unavailable")
+        return found
+
     @app.post(
         "/api/evalsets/{set_id}/runs",
         tags=["Grading"],
         summary="Grade a pack against a hidden set: aggregates only",
-        response_model=HiddenResult,
+        response_model=HiddenResult | HiddenScoreboard,
         responses={
             404: {"description": "No set of your organization has that id"},
             409: {"description": "The set is not graded now (`reason` says why)"},
             422: {"description": "The pack or a variant asked for is not the set's to run"},
         },
     )
-    def grade_evalset(request: Request, set_id: str, body: GradingRequest) -> HiddenResult:
+    def grade_evalset(
+        request: Request, set_id: str, body: GradingRequest
+    ) -> HiddenResult | HiddenScoreboard:
         """One grading run of the pack a hidden evaluation set of your organization was made
         for, over the set's cases, with local providers only, answered with aggregates only:
         each question's metrics, the outcome counts and rates, each critical label's counts, the
@@ -3431,16 +3506,33 @@ def add_grading_routes(
         rule allows another run, and its cases still give the commitment chained when it froze;
         each run is chained (`evalset.graded`) before the cases are read, and counts even if it
         fails. `pack` is the set's pack id, and `variants` may choose a local variant for any of
-        its slots. Nothing is stored. A refusal names its `reason` only: `no_set` (`404`: an
-        unknown set and another organization's are one answer), `wrong_pack`,
-        `unknown_variant` and `remote_provider` (`422`), `pack_unavailable`, `not_gradable`,
-        `no_runs_left`, `expired` and `set_changed` (`409`), `set_unavailable` (`503`) and
-        `run_failed` (`500`)."""
+        its slots. With `arms` and `declared` instead, the run is the hidden-set scoreboard
+        (`mendari.hidden_scoreboard/1`, LP-17k): each arm declared with its configuration, every
+        one local, decided in turn on the same cases in one run; each arm's figures (every
+        proportion as k of n with its interval, every mean with its bootstrap interval), its
+        attestations (met, not met or insufficient evidence, draft while the grading method is
+        not in effect) and the ranking (off with one arm graded), with the scope and the
+        declaration's SHA-256; never cost, latency, a subgroup or a case. Nothing is stored. A
+        refusal names its `reason` only: `no_set` (`404`: an unknown set and another
+        organization's are one answer), `wrong_pack`, `unknown_variant`, `remote_provider` and
+        `wrong_arm` (`422`), `pack_unavailable`, `not_gradable`, `no_runs_left`, `expired` and
+        `set_changed` (`409`), `set_unavailable` (`503`) and `run_failed` (`500`)."""
         principal = grader_of(request)
         told: list[GradingRead] = []
+        declared: list[Declared] = []
+        measured_on = clock.today()  # the day a scoreboard's answer is dated (US Eastern)
 
-        def run(dataset: Dataset) -> HiddenResult:
+        def run(dataset: Dataset) -> HiddenResult | HiddenScoreboard:
             try:
+                if declared:
+                    assert body.declared is not None
+                    return scoreboard_graded(
+                        declared,
+                        dataset,
+                        told[0],
+                        declaration=body.declared,
+                        measured_on=measured_on,
+                    )
                 return graded(decision, dataset, told[0])
             except Exception as error:  # after the read: it counts, and says nothing of a case
                 grading_logger.warning(
@@ -3452,7 +3544,11 @@ def add_grading_routes(
 
         try:
             header = hidden.grading_header(set_id, org=org_of(principal))
-            decision = grading(header, body)
+            if body.arms is None:
+                decision = grading(header, body)
+            else:
+                declared += declared_arms(header, body)
+                decision = declared[0].decision
             answer = hidden.grade_read(
                 set_id, principal.id, decision.pack.digest, run, receipt=told.append
             )

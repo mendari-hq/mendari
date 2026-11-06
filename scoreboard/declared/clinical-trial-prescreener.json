@@ -1,0 +1,10 @@
+{
+  "format": "mendari.declared/1",
+  "pack": "mendari/clinical-trial-prescreener",
+  "date": "2026-11-05",
+  "arms": {
+    "deterministic": {
+      "remote": {"notes": "rules", "structured": "cql"}
+    }
+  }
+}

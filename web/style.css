@@ -630,7 +630,10 @@ h2 {
   font-weight: 600;
 }
 
+/* Positioned, so what is absolutely positioned inside (the visually hidden header text) is
+   clipped by the region and never widens the page. */
 .scroll {
+  position: relative;
   overflow-x: auto;
 }
 
@@ -668,6 +671,15 @@ tbody tr {
   border-top: 1px solid var(--line);
 }
 
+/* Each row's header, and their column's, stay in view while the figures scroll sideways on a
+   narrow screen. */
+thead th:first-child,
+tbody th {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+}
+
 tbody th {
   text-align: left;
   font-weight: 600;
@@ -695,17 +707,24 @@ td {
   display: none;
 }
 
-.best {
-  background: var(--accent-soft);
+/* A figure: k of n on one line, its interval under it (scripts/scoreboard_page.py writes the
+   scores). The table scrolls sideways in its region on a narrow screen. */
+td.num {
+  white-space: nowrap;
 }
 
-.best th span {
-  color: var(--ink-2);
+td .interval {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--muted);
 }
 
-.strong {
-  font-weight: 500;
-  color: var(--accent-text);
+.board-note {
+  padding: 1rem 1.5rem 0;
+}
+
+.board-note:last-child {
+  padding-bottom: 1.25rem;
 }
 
 /* Packs */
@@ -988,7 +1007,8 @@ td {
   }
 }
 
-/* Phones: the in-page links give way to the one action; the score table fits without scrolling. */
+/* Phones: the in-page links give way to the one action. The score table's figures scroll
+   sideways in their region, each row's header held at its left edge. */
 
 @media (max-width: 36rem) {
   .nav a:not(.button) {
@@ -1033,10 +1053,15 @@ td {
   th:last-child {
     padding-right: 1rem;
   }
+
+  .board-note {
+    padding-inline: 1rem;
+  }
 }
 
 @media (max-width: 22rem) {
   .board-head,
+  .board-note,
   th:first-child {
     padding-left: 0.75rem;
   }
