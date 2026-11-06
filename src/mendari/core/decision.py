@@ -643,7 +643,9 @@ class Decision:
         With a site code map for the organization it acts for (`site_map`, LP-23i), the record
         is read, and its data coverage measured, with that map's translations, and the result
         records the map's version and digest (`site_codes`); a decision whose input took a value
-        through a translation never automates, and its rule's BLOCK goes to a person."""
+        through a translation never automates, and its rule's BLOCK goes to a person. So does
+        one about a focus that the mapping's `focus_where` code set found only through a
+        translation (LP-23k): which resources of the focus type count is read with the map too."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
@@ -669,7 +671,9 @@ class Decision:
         issues = []
         if self.fhir_validation != "off":
             issues = fhir_structure.merge(base, us_core.validate(given))
-        indexed = adapter.index(resources, focus=focus, excused=excused)
+        site = self.site_map()
+        translations = None if site is None else site.sets
+        indexed = adapter.index(resources, focus=focus, excused=excused, site_codes=translations)
         if links is not None:
             read = links.read(adapter.mapping, indexed)
             if read and self.fhir_validation != "off":
@@ -692,8 +696,6 @@ class Decision:
                 for reason in counts
             ),
         ]
-        site = self.site_map()
-        translations = None if site is None else site.sets
         coverage = data_coverage.measure(
             adapter.mapping,
             indexed,

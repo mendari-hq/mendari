@@ -183,17 +183,23 @@ Known gaps (`crd_server_v221_expected.json` has each reason):
 | Test | Requirement | Gap |
 |---|---|---|
 | 1.01 | sec-2 | Plain HTTP in the sandbox: TLS belongs to the deployment |
-| 2.3.01, 3.4.3.01, 4.x.3.01 | resp-4, resp-5, resp-13 | Each card's `mendari.decision_id` extension, which CRD's response model does not define |
+| 3.4.3.01, 4.1.3.01 | resp-4, resp-5, resp-13 | Each card's `mendari.decision_id` extension, which CRD's response model does not define |
 | 3.4.3.02 | resp-19, resp-22 | The audit-trail link card also carries a suggestion, a Task with no id |
-| 3.4.3.06 | hook-16, resp-28, hook-39, resp-29 | Two patients (no note) get an outcome with no coverage information |
+| 3.4.3.06 | hook-16, resp-28, hook-39, resp-29 | Four patients are `not_checked` (the site's own payer id), an outcome with no coverage information |
 | 3.4.3.03, .04, .08 to .11 (skip) | resp-24, resp-72, ... | Card and action types Mendari does not send |
-| 4.2.3.03, 4.4.3.03 | resp-44, resp-45 | No member and no active-coverage checks: `indeterminate`, not `not-covered` |
+| 4.2.3.02, 4.2.3.03, 4.4.3.02, 4.4.3.03 (skip) | resp-26 ..., resp-44, resp-45 | No member and no active-coverage checks: those orders are `not_checked`, with no coverage information |
 | 4.3.3.02, 4.3.3.03 (skip) | resp-26 ..., resp-45 | No Coverage, so no coverage information |
 
-Most decisions here abstain: the profile's notes are links (a Binary), which a hook does not
-read yet (LP-23k), so the engine says what it could not read and its coverage information is
-`indeterminate` for a `technical` reason. When 23k lands, these results change and its PR
-refreshes the expected results.
+Since LP-23k the prior-authorization pack reads the profile's linked notes (a text/plain or
+text/html Binary, read from the Mock EHR), and follows the Coverage's payor to its Organization.
+That Organization holds the site's own payer id, which the pack does not know and no site code
+map translates (how a payer field reads one is the owner's open question), so every patient whose
+record reads is decided `not_checked`, which shows no card and declares no coverage information:
+2.3.01, 4.2.3.01, 4.3.3.01 and 4.4.3.01 pass, since no card is left to carry the extension, and
+the group 4 coverage-information tests skip with nothing to check. Only ehr-pa-3, whose note is
+RTF, abstains, with `indeterminate` coverage for a `technical` reason, and so does the Technical
+Issues call. 23k's PR refreshed the expected results from two local runs (2026-11-06), with the
+same results; before, most decisions abstained on their unread linked note.
 
 Test 1.06 (standard prefetch expressions) passes with warnings, which `inferno_check.py` does not
 compare: the prior-authorization pack's prefetch asks for `Condition`, `Procedure` and

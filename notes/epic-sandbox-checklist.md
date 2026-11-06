@@ -43,13 +43,13 @@ starts reading the others is named.
 | Patient | every pack | age, sex, preferred language |
 | Condition | trial, prior auth | diagnoses |
 | Observation | trial, referral | labs (HbA1c and eGFR; the referral's labs) |
-| MedicationRequest | trial | medications, from 23k (today the pack reads MedicationStatement) |
-| Medication | trial | a MedicationRequest's `medicationReference`, from 23h |
-| MedicationStatement | trial | medications, today |
+| MedicationRequest | trial | medications, since 23k (its start and stop by spec 0.3's stated rule, not yet clinically reviewed) |
+| Medication | trial | a MedicationRequest's `medicationReference`, read since 23k |
+| MedicationStatement | trial | medications |
 | DocumentReference | trial, prior auth, referral | clinic notes and visit notes |
-| Binary | trial, prior auth | a note's content when the DocumentReference links it, from 23h |
+| Binary | trial, prior auth | a note's content when the DocumentReference links it, read since 23k |
 | Coverage | prior auth | the payer |
-| Organization | prior auth | the payer by `Coverage.payor` reference, from 23h |
+| Organization | prior auth | the payer by `Coverage.payor` reference, read since 23k |
 | ServiceRequest | prior auth, referral | the order being signed; the referral |
 | Communication | inbox | the patient's message (the SMART launch) |
 | Procedure | prior auth | prior imaging and therapy |
@@ -60,7 +60,7 @@ The services' prefetch templates, which Epic either fills or leaves to Mendari t
 
 - trial: `Patient/{{context.patientId}}`, `Condition?patient=…`,
   `Observation?patient=…&code=4548-4,33914-3,62238-1`, `MedicationStatement?patient=…`,
-  `DocumentReference?patient=…&category=clinical-note`;
+  `MedicationRequest?patient=…` (since 23k), `DocumentReference?patient=…&category=clinical-note`;
 - prior auth: `Patient/{{context.patientId}}`, `Coverage?patient=…&status=active`,
   `Condition?patient=…`, `Procedure?patient=…`,
   `DocumentReference?patient=…&category=clinical-note`;

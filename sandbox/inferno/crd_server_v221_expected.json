@@ -91,13 +91,12 @@
       "id": "crd_server_v221-crd_v221_server_demonstrate_hook_response-Group03-crd_v221_service_response_validation",
       "short_id": "2.3.01",
       "title": "Service responses contain valid cards and systemActions",
-      "result": "fail",
+      "result": "pass",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-4",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-5",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-13"
-      ],
-      "reason": "Each card carries Mendari's decision id as a card extension (`extension` `mendari.decision_id`), which CDS Hooks 2.0 allows (a namespaced key) but CRD 2.2.1's CDSHooksResponse logical model does not define, so the validator reports an unrecognised property."
+      ]
     },
     {
       "id": "crd_server_v221-crd_v221_server_hooks-crd_v221_server_order_sign-Group01-crd_v221_server_invoke_hook_test",
@@ -195,7 +194,7 @@
         "hl7.fhir.us.davinci-crd_2.2.1@hook-39",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-29"
       ],
-      "reason": "The two profile patients without a note (ehr-pa-4 and ehr-pa-5, sleep studies) are decided with an outcome the pack shows no card for and declares no coverage information for (pack.yaml `card.show`, `coverage_information`), so those answers carry no coverage-information system action."
+      "reason": "Only ehr-pa-3, whose note is RTF (never read as text), abstains and carries coverage information (`indeterminate`). The other profile patients (ehr-pa-1 and ehr-pa-2, whose linked notes the pack reads since LP-23k, and ehr-pa-4 and ehr-pa-5, which have none) are decided `not_checked`: their payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question). The pack shows no card for `not_checked` and declares no coverage information for it (pack.yaml `card.show`, `coverage_information`), so those answers carry no coverage-information system action."
     },
     {
       "id": "crd_server_v221-crd_v221_server_hooks-crd_v221_server_order_sign-Group03-crd_v221_coverage_information_card_absence",
@@ -372,19 +371,18 @@
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_member_found_group-Group03-crd_v221_service_response_validation",
       "short_id": "4.2.3.01",
       "title": "Service responses contain valid cards and systemActions",
-      "result": "fail",
+      "result": "pass",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-4",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-5",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-13"
-      ],
-      "reason": "Each card carries Mendari's decision id as a card extension (`extension` `mendari.decision_id`), which CDS Hooks 2.0 allows (a namespaced key) but CRD 2.2.1's CDSHooksResponse logical model does not define, so the validator reports an unrecognised property."
+      ]
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_member_found_group-Group03-crd_v221_coverage_info_system_action_validation",
       "short_id": "4.2.3.02",
       "title": "Coverage Information system actions are valid",
-      "result": "pass",
+      "result": "skip",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-26",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-32",
@@ -392,17 +390,18 @@
         "hl7.fhir.us.davinci-crd_2.2.1@resp-47",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-48",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-52"
-      ]
+      ],
+      "reason": "No Coverage Information system action to validate: the order whose Coverage has no member id (made from ehr-pa-1) is decided as any other, and since LP-23k the pack reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question), and the pack declares no coverage information for `not_checked`. Mendari has no member check, and never asserts `not-covered` for `no-member-found`."
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_member_found_group-Group03-crd_v221_coverage_info_reason",
       "short_id": "4.2.3.03",
       "title": "Coverage Information responses have not-covered coverage for no-member-found reason",
-      "result": "fail",
+      "result": "skip",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-44"
       ],
-      "reason": "Mendari has no member check: an order whose Coverage has no member id is decided as any other, and here abstains because the patient's linked note is not read by a hook yet (LP-23k), so its coverage is `indeterminate` for a `technical` reason, never `not-covered` for `no-member-found`."
+      "reason": "No coverage-information system action to check (4.2.3.02)."
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_coverage_not_found_group-Group01-crd_v221_server_invoke_hook_single_request_test",
@@ -429,13 +428,12 @@
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_coverage_not_found_group-Group03-crd_v221_service_response_validation",
       "short_id": "4.3.3.01",
       "title": "Service responses contain valid cards and systemActions",
-      "result": "fail",
+      "result": "pass",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-4",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-5",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-13"
-      ],
-      "reason": "Each card carries Mendari's decision id as a card extension (`extension` `mendari.decision_id`), which CDS Hooks 2.0 allows (a namespaced key) but CRD 2.2.1's CDSHooksResponse logical model does not define, so the validator reports an unrecognised property."
+      ]
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_coverage_not_found_group-Group03-crd_v221_coverage_info_system_action_validation",
@@ -487,19 +485,18 @@
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_active_coverage_group-Group03-crd_v221_service_response_validation",
       "short_id": "4.4.3.01",
       "title": "Service responses contain valid cards and systemActions",
-      "result": "fail",
+      "result": "pass",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-4",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-5",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-13"
-      ],
-      "reason": "Each card carries Mendari's decision id as a card extension (`extension` `mendari.decision_id`), which CDS Hooks 2.0 allows (a namespaced key) but CRD 2.2.1's CDSHooksResponse logical model does not define, so the validator reports an unrecognised property."
+      ]
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_active_coverage_group-Group03-crd_v221_coverage_info_system_action_validation",
       "short_id": "4.4.3.02",
       "title": "Coverage Information system actions are valid",
-      "result": "pass",
+      "result": "skip",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-26",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-32",
@@ -507,17 +504,18 @@
         "hl7.fhir.us.davinci-crd_2.2.1@resp-47",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-48",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-52"
-      ]
+      ],
+      "reason": "No Coverage Information system action to validate: Mendari does not judge whether a Coverage is active, and the order with a cancelled Coverage (made from ehr-pa-1) is decided as any other: since LP-23k the pack reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question), and the pack declares no coverage information for `not_checked`. It never asserts `not-covered` for `no-active-coverage`."
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_active_coverage_group-Group03-crd_v221_coverage_info_reason",
       "short_id": "4.4.3.03",
       "title": "Coverage Information responses have not-covered coverage for no-active-coverage reason",
-      "result": "fail",
+      "result": "skip",
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-45"
       ],
-      "reason": "Mendari does not judge whether a Coverage is active: the order with a cancelled Coverage abstains on the patient's unread linked note (LP-23k), so its coverage is `indeterminate` for a `technical` reason, never `not-covered` for `no-active-coverage`."
+      "reason": "No coverage-information system action to check (4.4.3.02)."
     }
   ]
 }

@@ -281,9 +281,10 @@ set of its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate i
 map per organization, read and checked at startup. Each FHIR decision records its
 organization's map by version and SHA-256, and a decision that read a value through a
 translation never automates: it goes to a person, and so does a pack rule's BLOCK on it, until
-your site validates the map on its own chart-reviewed data. No reference pack declares a code
-set yet, so set it only for a pack of your own that does
-([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
+your site validates the map on its own chart-reviewed data. Of the reference packs, the
+Referral Router declares code sets (since LP-23k: the referral code its `focus_where` reads, and
+the document and report codes of its checklist); set it for that pack, or a pack of your own
+that declares one ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
 
 **Upgrading from a release without key expiry (before Phase 4).** The first start of this
 release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).

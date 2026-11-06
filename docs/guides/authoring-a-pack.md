@@ -304,16 +304,22 @@ Real EHR data rarely puts your code first. A pack whose FHIR mapping reads it ca
 - pick a coding by its code system, wherever it is
   (`code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code`);
 - give a field fallback `paths`, tried in order;
-- `follow` one reference inside the record (a MedicationRequest's Medication), never fetched;
+- `follow` one reference inside the record (a MedicationRequest's Medication), never fetched,
+  and fall back to the field's own resource: after a `follow`, a path of the field's own type
+  (`MedicationRequest.medicationCodeableConcept.text`) is read where the field is;
 - read plain-text and HTML notes as text (`attachment_text`);
-- match a set of your own codes (`code_sets` and `code_set`);
+- match a set of your own codes (`code_sets` and `code_set`), for a field or for `focus_where`
+  (`{path: category.coding, code_set: referral_category}`), so a site's code map can translate
+  its codes into yours;
 - read several resource types into one list (`resources`), with a MedicationRequest's start and
   stop by a stated rule (`medication_period`).
 
 Set `spec_version: "0.3"` to use any of them, and declare in `code_systems` every system the
 mapping selects on. A 0.2 pack that uses one is refused. A pack you publish to a registry or
 contribute as a community pack has at most 4 paths a field and 200 codes a code set, and
-`mendari validate` holds yours to the same. The packs Mendari ships still use 0.2.
+`mendari validate` holds yours to the same. Of the packs Mendari ships, the trial,
+prior-authorization and referral packs use 0.3 (their `fhir/mapping.yaml` files are worked
+examples), and the inbox still uses 0.2.
 
 ## 9. Publish the card
 

@@ -2,8 +2,8 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/prior-auth-preflight",
-    "version": "0.2.1",
-    "digest": "sha256:39a8d52553b54b7f9f046409f460c4a43b6b5d42ca85b191f0c8008f4b9551a8"
+    "version": "0.3.0",
+    "digest": "sha256:52a899bc95f0249da94a2fc06d92c5c43bc2417201e36dff6a6598c8df6d2eac"
   },
   "providers": {
     "structured": {
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:666f40dac4a6de8468fe6eb9da47c5a63de6282110c349fd6566323c5bade394",
+    "id": "sha256:b188aeef4ae6b9a6e3fea7a970c0ebb90127d4d151ef933fe2b2d916ec9175a4",
     "cases": 600
   },
   "seeds": {
@@ -1745,15 +1745,15 @@
   },
   "misclassified": [],
   "run": {
-    "id": "cde48b35-e324-4238-b73f-10655d48e4b3",
-    "created_at": "2026-10-07T19:29:49+00:00",
+    "id": "bbd5607d-366a-4932-9ea2-b3bc14cd9ccc",
+    "created_at": "2026-11-06T20:53:13+00:00",
     "latency_ms": {
-      "mean": 3.452183712118616,
-      "p50": 3.4298328682780266,
-      "p95": 3.713625017553568,
-      "max": 4.29058400914073
+      "mean": 3.42742264814054,
+      "p50": 3.39841702952981,
+      "p95": 3.5746670328080654,
+      "max": 4.123417194932699
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:046d3d100238fcc6aa9b3ff8e3ce044d2f6a0a758a26290e8cfdd70c24ac5941"
+  "result_sha256": "sha256:d6074b671e292884929f399586094bc3ff3a3e314b71649b0c274942ce69f487"
 }

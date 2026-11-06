@@ -1,5 +1,8 @@
 # FHIR R4 -> pack input for prescreening: one Patient and their record. The screening date is
-# the day of the request (the input has no `as_of`).
+# the day of the request (the input has no `as_of`). Spec 0.3 (docs/spec/decision-pack-0.3.md):
+# a coding is read by its code system wherever it sits, a note through `attachment_text` (plain
+# text or HTML, inline or in a Binary), and medications from MedicationStatement and
+# MedicationRequest, a MedicationRequest's start and stop by the spec's stated rule.
 fhir_version: R4
 focus: Patient
 
@@ -15,15 +18,23 @@ fields:
     path: Patient.gender
     map: {female: female, male: male, other: other, unknown: unknown}
   notes:
-    path: DocumentReference.content.attachment.data
-    transform: base64_text
+    # Plain text and HTML, inline or in a Binary the attachment's url names; RTF, PDF and CDA
+    # are unreadable, and the decision abstains (spec 0.3 §2.4).
+    path: DocumentReference.content.attachment
+    transform: attachment_text
 
 lists:
   conditions:
     resource: Condition
     fields:
       code:
-        path: code.coding[0].code
+        # ICD-10-CM wherever it sits among the codings, else the local-site example's fictional
+        # condition codes, else (no coding of either) the first coding as the EHR sends it: a
+        # site's own code, which logic/criteria.yaml matches only once the site lists it there.
+        paths:
+          - "code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code"
+          - "code.coding[system=https://mendari.co/fhir/CodeSystem/fictional-conditions].code"
+          - code.coding[0].code
       text:
         path: code.text
       status:
@@ -34,7 +45,10 @@ lists:
     resource: Observation
     fields:
       code:
-        path: code.coding[0].code
+        # LOINC wherever it sits among the codings, else the first coding (a site's own code).
+        paths:
+          - "code.coding[system=http://loinc.org].code"
+          - code.coding[0].code
       name:
         path: code.text
       value:
@@ -44,18 +58,41 @@ lists:
       date:
         path: effectiveDateTime
   medications:
-    resource: MedicationStatement
-    fields:
-      code:
-        path: medicationCodeableConcept.coding[0].code
-      name:
-        path: medicationCodeableConcept.text
-      status:
-        path: status
-      start:
-        path: effectivePeriod.start
-      end:
-        path: effectivePeriod.end
+    resources:
+      MedicationStatement:
+        fields:
+          code:
+            path: "medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            path: medicationCodeableConcept.text
+          status:
+            path: status
+          start:
+            path: effectivePeriod.start
+          end:
+            path: effectivePeriod.end
+      MedicationRequest:
+        # The drug from the Medication its reference names (read from the EHR when the record
+        # does not hold it), else the request's own coded concept. When the drug is taken is the
+        # spec's stated rule (§2.7), not yet clinically reviewed: the start is the first dosage
+        # instruction's `timing.repeat.boundsPeriod.start`, else `authoredOn`; the stop is that
+        # `boundsPeriod.end`, else unknown, never inferred from the status; the dispensing window
+        # is not read; a request entered in error is left out.
+        fields:
+          code:
+            follow: medicationReference
+            paths:
+              - "Medication.code.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+              - "MedicationRequest.medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            follow: medicationReference
+            paths:
+              - Medication.code.text
+              - MedicationRequest.medicationCodeableConcept.text
+              - MedicationRequest.medicationReference.display
+          status:
+            path: status
+        medication_period: {start: start, end: end}
 
 # Decision -> FHIR Task for the research coordinator's prescreening queue.
 task:

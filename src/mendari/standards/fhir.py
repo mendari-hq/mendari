@@ -13,10 +13,12 @@ Bundles; all of them are flattened, and resources are de-duplicated by type and 
 Spec 0.3 (docs/spec/decision-pack-0.3.md, LP-23g) adds, for a pack that declares it: the
 ``[system=<uri>]`` predicate, which keeps the items of one code system (a coding, an
 identifier); `paths`, tried in order until one gives a value; `follow`, one reference hop
-resolved inside the record and never fetched; the `attachment_text` transform; `code_sets` and
-the `code_set` selector; and list `resources`, several resource types into one list, with the
-`medication_period` derivation. A 0.1 or 0.2 pack that uses any of them is refused, and maps as
-it always did. `FhirAdapter.looked_for` says what each field and list looks for.
+resolved inside the record and never fetched (a path of the field's own type read in place,
+`own_type`, LP-23k); the `attachment_text` transform; `code_sets` and the `code_set` selector,
+for a field and for `focus_where` (LP-23k); and list `resources`, several resource types into
+one list, with the `medication_period` derivation. A 0.1 or 0.2 pack that uses any of them is
+refused, and maps as it always did. `FhirAdapter.looked_for` says what each field and list
+looks for.
 
 The mapping never fetches. A CDS hook and the SMART launch's decide may first read what a 0.3
 mapping reaches by a link the record does not hold (`standards/linked.py`, LP-23h): each
@@ -125,8 +127,9 @@ class ResourceRule(_Model):
 class FieldMapping(_Model):
     """One mapped value: `path`, or (spec 0.3) `paths` tried in order, the first that gives a
     value winning. With `follow` (0.3), a path to a Reference is followed first, inside the
-    record, and the paths are read in the resource it reaches. `code_set` (0.3) picks a coding
-    of one of the mapping's code sets; `map` turns what was found into the pack's value."""
+    record, and the paths are read in the resource it reaches, but a path of the field's own
+    type (`own_type`), read where the field is. `code_set` (0.3) picks a coding of one of the
+    mapping's code sets; `map` turns what was found into the pack's value."""
 
     path: str | None = None
     paths: list[str] | None = Field(default=None, min_length=1)
@@ -226,10 +229,20 @@ class TaskTemplate(_Model):
 
 
 class FocusFilter(_Model):
-    """Which resources of the focus type count, e.g. referrals among all ServiceRequests."""
+    """Which resources of the focus type count, e.g. referrals among all ServiceRequests: those
+    whose value at `path` is one of `in`, or (spec 0.3, LP-23k) whose codings at `path` give a
+    code of the mapping's code set `code_set`, a site's translations into it included
+    (`FhirAdapter.is_focus`)."""
 
     path: str  # relative to the resource, e.g. category[0].coding[0].code
-    values: list[str] = Field(alias="in", min_length=1)
+    values: list[str] | None = Field(default=None, alias="in", min_length=1)
+    code_set: str | None = None
+
+    @model_validator(mode="after")
+    def _one_way(self) -> FocusFilter:
+        if (self.values is None) == (self.code_set is None):
+            raise ValueError("give focus_where either `in` or `code_set`, not both")
+        return self
 
 
 class FhirMapping(_Model):
@@ -257,6 +270,9 @@ class FhirMapping(_Model):
             for where, _, mapped in located_fields(self)
             if mapped.code_set is not None and mapped.code_set not in self.code_sets
         )
+        named = None if self.focus_where is None else self.focus_where.code_set
+        if named is not None and named not in self.code_sets:
+            unknown.append(f"focus_where names {named!r}")
         if unknown:
             raise ValueError(f"unknown code sets: {'; '.join(unknown)}")
         return self
@@ -425,17 +441,20 @@ class FhirAdapter:
         *,
         focus: Mapping[str, Any] | None = None,
         excused: Collection[str] = (),
+        site_codes: SiteCodes | None = None,
     ) -> Indexed:
         """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch).
 
         With `focus` (e.g. one draft order), the record is indexed around that resource and any
         other resource of the focus type in `resources` is ignored. A required resource type in
-        `excused` may be missing: its read failed, and the decision abstains (LP-23d)."""
+        `excused` may be missing: its read failed, and the decision abstains (LP-23d). Which
+        resources of the focus type count is `is_focus`'s, with `site_codes` (LP-23k)."""
         indexed = Indexed()
         kept = indexed.ids  # by type and id: a resource seen again is the first one
+        table = self._focus_table(site_codes)
         for url, resource in iter_entries(resources if focus is None else [resources, focus]):
             kind = resource["resourceType"]
-            if kind == self.mapping.focus and not self.is_focus(resource):
+            if kind == self.mapping.focus and not self._focused(resource, table)[0]:
                 continue  # e.g. a lab order next to the referral
             if focus is not None and kind == self.mapping.focus and resource is not focus:
                 continue
@@ -461,19 +480,47 @@ class FhirAdapter:
             raise FhirError(f"missing required FHIR resources: {', '.join(missing)}")
         return indexed
 
-    def is_focus(self, resource: Mapping[str, Any]) -> bool:
+    def is_focus(self, resource: Mapping[str, Any], *, site_codes: SiteCodes | None = None) -> bool:
+        """Whether a resource is one the pack decides about: of the focus type and, with
+        `focus_where`, one of its values at its path; or (spec 0.3) a code of its code set among
+        the codings at its path, read as a `code_set` field reads them, a site's translations
+        into the set (`site_codes`, LP-23i) included. A decision about a focus that counts only
+        through a translation is never AUTO (`read`'s `translated`, LP-23k)."""
+        return self._focused(resource, self._focus_table(site_codes))[0]
+
+    def _focus_table(self, site_codes: SiteCodes | None) -> Mapping[tuple[str, str], str]:
+        """The site's translations into `focus_where`'s code set, as a lookup table, built once
+        for a call that reads many resources (`index`, `focus_resources`)."""
+        rule = self.mapping.focus_where
+        if rule is None or rule.code_set is None or not site_codes:
+            return {}
+        given = site_codes.get(rule.code_set, ())
+        return translation_table(given, self.mapping.code_sets[rule.code_set])
+
+    def _focused(
+        self, resource: Mapping[str, Any], table: Mapping[tuple[str, str], str]
+    ) -> tuple[bool, bool]:
+        """`is_focus` with a translation table, and whether only a translation made it count."""
         focus, rule = self.mapping.focus, self.mapping.focus_where
         if resource.get("resourceType") != focus:
-            return False
+            return False, False
         if rule is None:
-            return True
-        return any(str(v) in rule.values for v in select({focus: resource}, f"{focus}.{rule.path}"))
+            return True, False
+        found = select({focus: resource}, f"{focus}.{rule.path}")
+        if rule.code_set is None:
+            return any(str(v) in (rule.values or ()) for v in found), False
+        code, translated = picked(found, self.mapping.code_sets[rule.code_set], table)
+        return code is not None, translated
 
-    def focus_resources(self, resources: Any) -> list[dict[str, Any]]:
-        """The focus resources in a Bundle, resource or mapping (e.g. CDS `draftOrders`)."""
+    def focus_resources(
+        self, resources: Any, *, site_codes: SiteCodes | None = None
+    ) -> list[dict[str, Any]]:
+        """The focus resources in a Bundle, resource or mapping (e.g. CDS `draftOrders`), by
+        `is_focus` with `site_codes`."""
+        table = self._focus_table(site_codes)
         found: dict[str, dict[str, Any]] = {}
         for resource in iter_resources(resources):
-            if self.is_focus(resource):
+            if self._focused(resource, table)[0]:
                 found.setdefault(str(resource.get("id", len(found))), dict(resource))
         return list(found.values())
 
@@ -488,9 +535,15 @@ class FhirAdapter:
     ) -> MappedInput:
         """The pack's input from an indexed record, and the code sets a translation gave it a
         value through. `site_codes` (LP-23i) are a site's translations into the mapping's code
-        sets, read by `code_set` selectors only; without them a code set matches its own codes
-        only. Nothing else reads them."""
+        sets, read by `code_set` selectors only (a field's, and `focus_where`'s, LP-23k); without
+        them a code set matches its own codes only. Nothing else reads them. A focus that counts
+        only through a translation adds its code set too, so its decision is never AUTO."""
         reading = Reading.of(self.mapping, indexed, site_codes)
+        rule = self.mapping.focus_where
+        if rule is not None and rule.code_set is not None:
+            table = reading.translations(rule.code_set)
+            if any(self._focused(r, table)[1] for r in _as_list(indexed.get(self.mapping.focus))):
+                reading.translated.add(rule.code_set)
         result: dict[str, Any] = {}
         for target, mapped in self.mapping.fields.items():
             value = read_field(mapped, indexed, None, reading).value
@@ -965,11 +1018,13 @@ def read_field(
     codes (spec 0.3 §2.5): the paths after it are read for one, and when none gives one the
     first translated value is the field's, its code set added to `reading.translated`. A
     `follow` is resolved once for the field, whatever number of paths it tries, and the paths
-    are read in the resources it reached."""
+    are read in the resources it reached, but a path that starts with the field's own type
+    (`own_type`), which is read where the field is, as without `follow` (LP-23k)."""
     references, reached = 0, None
     missing: tuple[str, ...] = ()
+    own = own_type(mapped, kind)
     if mapped.follow is not None:
-        types = {split_path(path)[0] for path in mapped.tried}
+        types = followed_types(mapped, kind)
         references, reached, missing = _followed(mapped.follow, scope, kind, reading.record, types)
     reads: list[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]]] = []
     value = None
@@ -977,6 +1032,8 @@ def read_field(
     for path in mapped.tried:
         if reached is None:
             where, at = scope, _absolute(kind, path)
+        elif split_path(path)[0] == own:  # the field's own resource: read in place
+            where, at = scope, path
         else:
             wanted = split_path(path)[0]  # the type the path reads, among what was reached
             where, at = {wanted: [r for r in reached if r.get("resourceType") == wanted]}, path
@@ -992,6 +1049,25 @@ def read_field(
         value = through
         reading.translated.add(mapped.code_set)
     return FieldRead(value, tuple(reads), references, len(reached or ()), missing)
+
+
+def own_type(mapped: FieldMapping, kind: str | None) -> str | None:
+    """The type a followed field reads from itself (spec 0.3 §2.3, LP-23k): a list field's
+    resource type, or a top-level field's `follow` path's (`Coverage` for `Coverage.payor[0]`).
+    A path of a followed field that starts with it is read where the field is, so a field may
+    fall back from what its reference reaches to its own resource (a MedicationRequest's
+    `medicationCodeableConcept`, a Coverage's own payor identifier). None without `follow`."""
+    if mapped.follow is None:
+        return None
+    return kind if kind is not None else split_path(mapped.follow)[0]
+
+
+def followed_types(mapped: FieldMapping, kind: str | None) -> set[str]:
+    """The types a followed field's paths read in what its reference reaches: each path's type
+    but the field's own (`own_type`). A reference that reaches nothing is a link only to one of
+    these (`_followed`, `standards/linked.py`)."""
+    own = own_type(mapped, kind)
+    return {head for path in mapped.tried if (head := split_path(path)[0]) != own}
 
 
 def _followed(
@@ -1088,6 +1164,8 @@ def newer_keys(mapping: FhirMapping) -> list[str]:
     found = ["code_sets"] if "code_sets" in mapping.model_fields_set else []
     if mapping.focus_where is not None and "[system=" in mapping.focus_where.path:
         found.append("focus_where.path")
+    if mapping.focus_where is not None and "code_set" in mapping.focus_where.model_fields_set:
+        found.append("focus_where.code_set")
     for where, _, mapped in located_fields(mapping):
         found += [
             f"{where}.{key}"

@@ -11,21 +11,29 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
+from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_pack
 from mendari.cli import main
 from mendari.core.policy import Outcome
+from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.errors import FhirError
 from mendari.sandbox import synthetic_referral
 from mendari.sandbox.fhir_records import REFERRAL
+from mendari.server.app import create_app
 from mendari.standards import cds_hooks
+from tests.test_site_codes import mapped, maps_of
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "referral-router"
 CHECKLIST = ("recent_visit_note", "ecg_on_file", "imaging_on_file", "recent_labs", "marked_urgent")
 TODAY = date.today()
+LOINC = "http://loinc.org"
 # A lab order, as a US Core EHR categorizes one (SNOMED CT: laboratory procedure): never a referral.
 LAB = {"system": "http://snomed.info/sct", "code": "108252007"}
+# The order type a fictional EHR marks a referral with: its own code system, not the pack's.
+SITE_REFERRAL = {"system": "https://ehr.example/referral-type", "code": "REF"}
 
 
 @pytest.fixture(scope="module")
@@ -154,7 +162,7 @@ def _record() -> dict[str, dict[str, Any]]:
         return {
             "resourceType": kind,
             "id": id_,
-            "type" if document else "code": {"coding": [{"code": code}]},
+            "type" if document else "code": {"coding": [{"system": LOINC, "code": code}]},
             date_field: f"{_ago(days)}T09:00:00Z" if document else _ago(days),  # date: an instant
         }
 
@@ -184,17 +192,139 @@ def test_a_referral_under_a_site_code_is_decided_once_the_site_lists_it(
 ) -> None:
     """The pack matches only the fictional referral code of its synthetic examples, so an EHR's
     own referral code (a real EHR's is often SNOMED CT) decides nothing until the site lists it
-    in the FHIR mapping (owner-accepted, LP-14; a site code map is LP-23)."""
-    site = {"system": "https://ehr.example/referral-type", "code": "REF"}
-    order = _order("sr1", "Palpitations for 6 months, ECG normal. Please assess.", category=site)
+    in the FHIR mapping (owner-accepted, LP-14), or translates it in its site code map, which
+    changes no pack file (LP-23k, the next test)."""
+    order = _order(
+        "sr1", "Palpitations for 6 months, ECG normal. Please assess.", category=SITE_REFERRAL
+    )
     with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
         router.decide_fhir(_record(), focus=order)
     copy = tmp_path / "referral-router"
     shutil.copytree(PACK_DIR, copy)
     mapping = copy / "fhir" / "mapping.yaml"
-    mapping.write_text(mapping.read_text().replace('in: ["FR101"]', 'in: ["FR101", "REF"]'))
+    listed = mapping.read_text().replace(
+        "  path: category.coding\n  code_set: referral_category\n",
+        '  path: category.coding.code\n  in: ["FR101", "REF"]\n',
+    )
+    assert listed != mapping.read_text()
+    mapping.write_text(listed)
     result, _ = Decision.from_path(copy).decide_fhir(_record(), focus=order)
     assert result.answers["specialty"].label == "cardiology"
+
+
+def test_a_referral_under_a_site_code_is_decided_through_the_site_code_map(
+    router: Decision, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec 0.3: the pack finds a referral through its code set `referral_category` (FR101),
+    wherever the coding sits among its categories' codings, and a site's own referral code
+    through its site code map (`MENDARI_SITE_CODES`, LP-23i), with no pack file changed. A
+    referral the EHR marks only with its own order type is then decided, by `decide_fhir`, the
+    order-sign hook and the server alike, and never automated (the `site_code` cap): where the
+    same referral coded FR101 would be AUTO, it is HUMAN_REVIEW with the cap's reason, and the
+    decision records the map. A translation into another set, or another organization's map,
+    finds nothing; a referral carrying FR101 itself, behind the site's code, is decided as
+    without a map. A document the checklist looks for under a site's own code is read through
+    the map too (`checklist_documents`)."""
+    maps = maps_of(mapped({"referral_category": [{**SITE_REFERRAL, "as": "FR101"}]}))
+    reason = EACH_STEP["schedule"]
+    site_only = _order("sr1", reason, category=SITE_REFERRAL)
+    both = _order("sr2", reason)
+    both["category"] = [{"coding": [SITE_REFERRAL, REFERRAL]}]
+
+    # Without a map: FR101 is found behind the site's coding; the site's code alone is not.
+    assert router.decide_fhir(_record(), focus=both)[0].recommendation == "schedule"
+    with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
+        router.decide_fhir(_record(), focus=site_only)
+    unrelated = maps_of(mapped({"checklist_documents": [{**SITE_REFERRAL, "as": "11506-3"}]}))
+    with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
+        Decision(router.pack, site_codes=unrelated).decide_fhir(_record(), focus=site_only)
+    elsewhere = maps_of(
+        mapped({"referral_category": [{**SITE_REFERRAL, "as": "FR101"}]}, org="b"), signed_in=True
+    )
+    with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
+        Decision(router.pack, site_codes=elsewhere).decide_fhir(_record(), focus=site_only)
+
+    # With the map: decided, recorded with the map, and capped.
+    mapped_router = Decision(router.pack, site_codes=maps)
+    through, task = mapped_router.decide_fhir(_record(), focus=site_only)
+    assert through.recommendation == "schedule" and through.outcome is Outcome.HUMAN_REVIEW
+    assert "site code translated (referral_category): a person decides" in through.reasons
+    assert through.site_codes == maps.maps["default"].stamp()
+    assert task["focus"] == {"reference": "ServiceRequest/sr1"}
+    own, _ = mapped_router.decide_fhir(_record(), focus=both)
+    assert not any("site code" in r for r in own.reasons)
+    assert own.outcome is Outcome.HUMAN_REVIEW  # the rules alone: nothing automates here
+
+    # Where the referral would automate (a copy of the pack whose policy needs no model screen,
+    # as a site validating its own screen might have), the site-coded one goes to a person.
+    copy = tmp_path / "referral-router"
+    shutil.copytree(PACK_DIR, copy)
+    policy = yaml.safe_load((copy / "policy.yaml").read_text())
+    del policy["automation_requires"]
+    (copy / "policy.yaml").write_text(yaml.safe_dump(policy, sort_keys=False))
+    automating = Decision(load_pack(copy), site_codes=maps)
+    assert automating.decide_fhir(_record(), focus=both)[0].outcome is Outcome.AUTO
+    capped, _ = automating.decide_fhir(_record(), focus=site_only)
+    assert (capped.outcome, capped.recommendation) == (Outcome.HUMAN_REVIEW, "schedule")
+    assert capped.reasons[-1] == "site code translated (referral_category): a person decides"
+
+    # On order-sign: of a site-coded referral and a lab order, the referral alone is decided.
+    with AuditStore(tmp_path / "audit.db") as store:
+        hooked = Decision(router.pack, store=store, site_codes=maps)
+        orders = [site_only, _order("lab1", "Annual bloods", category=LAB)]
+        cds_hooks.invoke(hooked, _order_sign(orders, _record()))
+        decided = store.query(pack_id=router.pack.id)
+        assert [(row["outcome"], row["recommendation"]) for row in decided] == [
+            ("HUMAN_REVIEW", "schedule")
+        ]
+
+    # A visit note under a site's own code: missing without the map (the referral goes back),
+    # on file through it.
+    record = _record()
+    record["documents"]["entry"][0]["resource"]["type"] = {"coding": [SITE_REFERRAL]}
+    notes = maps_of(
+        mapped(
+            {
+                "referral_category": [{**SITE_REFERRAL, "as": "FR101"}],
+                "checklist_documents": [{**SITE_REFERRAL, "as": "11506-3"}],
+            }
+        )
+    )
+    unread, _ = mapped_router.decide_fhir(record, focus=both)
+    assert unread.answers["recent_visit_note"].label == "no"
+    read, _ = Decision(router.pack, site_codes=notes).decide_fhir(record, focus=both)
+    assert read.answers["recent_visit_note"].label == "yes"
+    assert "site code translated (checklist_documents): a person decides" in read.reasons
+
+    # Through the server, with the setting.
+    monkeypatch.setenv(
+        SITE_CODES_ENV,
+        json.dumps(mapped({"referral_category": [{**SITE_REFERRAL, "as": "FR101"}]})),
+    )
+    with TestClient(create_app(db_path=tmp_path / "served.db")) as app:
+        answer = app.post(
+            "/api/packs/mendari/referral-router/fhir/decide",
+            json={
+                "resourceType": "Bundle",
+                "type": "collection",
+                "entry": [{"resource": r} for r in [site_only, *_entries(_record())]],
+            },
+        )
+    assert answer.status_code == 200, answer.text
+    decision = answer.json()["decision"]
+    assert (decision["outcome"], decision["recommendation"]) == ("HUMAN_REVIEW", "schedule")
+    assert decision["reasons"][-1] == "site code translated (referral_category): a person decides"
+
+
+def _entries(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """The resources of a `_record` prefetch, its search Bundles flattened."""
+    found: list[dict[str, Any]] = []
+    for value in record.values():
+        if value.get("resourceType") == "Bundle":
+            found += [entry["resource"] for entry in value["entry"]]
+        else:
+            found.append(value)
+    return found
 
 
 def _order_sign(orders: list[dict[str, Any]], prefetch: dict[str, Any]) -> dict[str, Any]:

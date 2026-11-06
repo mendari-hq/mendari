@@ -1,6 +1,6 @@
-spec_version: "0.2"
+spec_version: "0.3"
 id: mendari/clinical-trial-prescreener
-version: 0.2.0
+version: 0.3.0
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -63,18 +63,37 @@ card:
     - Criteria are computed only from the codes, units and names listed in
       logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared
       conversion, or a condition under an unlisted code is `unknown` or not found. Conditions
-      are listed in ICD-10-CM only (plus the local-site example's fictional codes), and through
-      FHIR only a Condition's first coding is read. So until the site adds its codes, a
-      diagnosis coded only in SNOMED CT is not found, nor is one whose first coding is SNOMED
-      CT even with an ICD-10-CM coding after it (type 2 diabetes is `unknown`, a heart attack
-      or stroke is missed). A metformin brand name (such as Glucophage) is not matched, so the
-      patient is wrongly `not_eligible`.
+      are listed in ICD-10-CM only (plus the local-site example's fictional codes). Through
+      FHIR a Condition is read by its ICD-10-CM coding wherever it sits among its codings (then
+      by a fictional code), a lab by its LOINC coding and a drug by its RxNorm coding, so a
+      site's own coding beside the standard one is passed over; but until the site adds its
+      codes, a diagnosis coded only in SNOMED CT or a site's own system is not found (type 2
+      diabetes is `unknown`, a heart attack or stroke is missed), and neither is a lab with no
+      LOINC coding. A metformin brand name (such as Glucophage) is not matched, so the patient
+      is wrongly `not_eligible` (medications are matched by name, not by their RxNorm code).
       On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has
       both, plus Spanish notes, eligibility is answered wrong far more often than on the
       benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset
       datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by
       subgroup). Add a site's codes, units and names before use, and validate locally.
     - An incomplete medication list reads as "not on metformin", which fails a criterion.
+    - Through FHIR, medications come from MedicationStatement and MedicationRequest. When a
+      MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7) that is not
+      yet clinically reviewed (a pharmacist's or research coordinator's review is owed before
+      real use). It starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`,
+      else on the day it was written (`authoredOn`), and it stops at that `boundsPeriod.end`,
+      else its stop is unknown. The stop is never inferred from the request's status
+      (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not
+      read, and a request entered in error is left out. So a renewed prescription with no
+      bounds starts on the day it was renewed, which can read as metformin started less than
+      90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and
+      `doNotPerform` are not read, so an active one reads as taken; and only the first dosage
+      instruction's bounds count. A MedicationRequest naming its drug by reference needs the
+      Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be
+      read, the pack abstains.
+    - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url
+      names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or
+      one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF.
     - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives
       `unknown`, so the patient needs review rather than being guessed.
     - The default note rules are English keyword patterns with a fixed-window negation and
@@ -375,6 +394,7 @@ cds_hooks:
     conditions: Condition?patient={{context.patientId}}
     observations: Observation?patient={{context.patientId}}&code=4548-4,33914-3,62238-1
     medications: MedicationStatement?patient={{context.patientId}}
+    medication_requests: MedicationRequest?patient={{context.patientId}}
     notes: DocumentReference?patient={{context.patientId}}&category=clinical-note
   card:
     summaries:

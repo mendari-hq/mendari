@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from mendari import Decision
@@ -18,11 +19,15 @@ from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_prior_auth
 from mendari.sandbox.synthetic_prior_auth import procedure_codings
 from mendari.standards import cds_hooks
+from tests.test_fhir_client import allow_ehr, fhir_json
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "prior-auth-preflight"
 STRUCTURED = ("service", "payer", "diagnosis_supports", "prior_imaging")
 TODAY = date.today()
+ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+PAYERS = "https://mendari.co/fhir/sid/fictional-payers"  # the pack's synthetic payer ids
+SITE_PAYERS = "https://site.example/fhir/sid/payers"  # a fictional site's own payer ids
 
 
 @pytest.fixture(scope="module")
@@ -126,35 +131,38 @@ def _order(id_: str, code: str) -> dict[str, Any]:
     }
 
 
-def _prefetch(payer: str, note: str) -> dict[str, Any]:
-    def bundle(*resources: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "resourceType": "Bundle",
-            "type": "searchset",
-            "entry": [{"resource": r} for r in resources],
-        }
+def _bundle(*resources: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "resourceType": "Bundle",
+        "type": "searchset",
+        "entry": [{"resource": r} for r in resources],
+    }
 
-    def coded(kind: str, id_: str, code: str, **extra: Any) -> dict[str, Any]:
-        return {"resourceType": kind, "id": id_, "code": {"coding": [{"code": code}]}, **extra}
+
+def _prefetch(payer: str, note: str, **payor: Any) -> dict[str, Any]:
+    """An order-sign prefetch; the payer is the payor's own identifier, or `payor` as given."""
+
+    def coded(kind: str, id_: str, codings: list[dict[str, str]], **extra: Any) -> dict[str, Any]:
+        return {"resourceType": kind, "id": id_, "code": {"coding": codings}, **extra}
+
+    def diagnosis(id_: str, code: str) -> dict[str, Any]:
+        return coded("Condition", id_, [{"system": ICD, "code": code}])
 
     data = base64.b64encode(note.encode()).decode()
+    given = payor or {"identifier": {"value": payer}}
     return {
         "patient": {"resourceType": "Patient", "id": "p1", "birthDate": f"{TODAY.year - 50}-01-01"},
-        "coverage": bundle(
-            {"resourceType": "Coverage", "id": "c1", "payor": [{"identifier": {"value": payer}}]}
+        "coverage": _bundle({"resourceType": "Coverage", "id": "c1", "payor": [given]}),
+        "conditions": _bundle(diagnosis("d1", "M54.16"), diagnosis("d2", "S83.241A")),
+        "procedures": _bundle(
+            coded("Procedure", "x1", procedure_codings("FX111"), performedDateTime=_ago(40)),
+            coded("Procedure", "x2", procedure_codings("FX211"), performedDateTime=_ago(40)),
         ),
-        "conditions": bundle(
-            coded("Condition", "d1", "M54.16"), coded("Condition", "d2", "S83.241A")
-        ),
-        "procedures": bundle(
-            coded("Procedure", "x1", "FX111", performedDateTime=_ago(40)),
-            coded("Procedure", "x2", "FX211", performedDateTime=_ago(40)),
-        ),
-        "notes": bundle(
+        "notes": _bundle(
             {
                 "resourceType": "DocumentReference",
                 "id": "n1",
-                "content": [{"attachment": {"data": data}}],
+                "content": [{"attachment": {"contentType": "text/plain", "data": data}}],
             }
         ),
     }
@@ -195,3 +203,81 @@ def test_beacon_sleep_study_needs_no_prior_auth(preflight: Decision) -> None:
     )
     assert result.recommendation == "not_required"
     assert result.answers["payer"].label == "beacon"
+
+
+def _payer(id_: str, system: str, value: str) -> dict[str, Any]:
+    return {
+        "resourceType": "Organization",
+        "id": id_,
+        "identifier": [{"system": system, "value": value}],
+    }
+
+
+def test_the_payer_is_read_by_coverage_reference(
+    preflight: Decision, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The FHIR mapping (spec 0.3) reads the payer through the Coverage's first payor: the
+    Organization it names, by its identifier in the synthetic payers' system, whether contained,
+    in the record or read from the EHR's FHIR server on a CDS hook; else the payor's own
+    identifier as the Coverage writes it, which is how the synthetic records name their payers
+    (the 0.2 mapping read only that, so a payer named by reference read as `other`). A site's
+    own payer identifier is neither, and no site code map translates an identifier: the payer
+    reads as `other` and the order as `not_checked` (the owner's open question). A reference the
+    decision could not read abstains, never reads as `other`."""
+    note = "Completed 8 weeks of physical therapy."
+    order = _order("mri", "FX101")
+
+    def decided(prefetch: dict[str, Any]) -> tuple[str | None, str | None]:
+        result, _ = preflight.decide_fhir(prefetch, focus=order)
+        return result.answers["payer"].label if result.answers else None, result.recommendation
+
+    in_record = _prefetch("", note, reference="Organization/o1")
+    in_record["payers"] = _bundle(_payer("o1", PAYERS, "acme"))
+    contained = _prefetch("", note, reference="#o1")
+    contained["coverage"]["entry"][0]["resource"]["contained"] = [_payer("o1", PAYERS, "beacon")]
+    assert decided(in_record) == ("acme", "submit_ready")
+    assert decided(contained) == ("beacon", "submit_ready")
+    assert decided(_prefetch("acme", note)) == ("acme", "submit_ready")  # the payor's own id
+    both = _prefetch("", note, reference="Organization/o1", identifier={"value": "beacon"})
+    both["payers"] = _bundle(_payer("o1", PAYERS, "acme"))
+    assert decided(both) == ("acme", "submit_ready")  # the Organization's wins
+    site = _prefetch("", note, reference="Organization/o2")
+    site["payers"] = _bundle(_payer("o2", SITE_PAYERS, "SP100"))
+    assert decided(site) == ("other", "not_checked")
+
+    unread, _ = preflight.decide_fhir(_prefetch("", note, reference="Organization/o9"), focus=order)
+    assert unread.outcome is Outcome.ABSTAIN
+    assert unread.reasons == ("could not read coverage.payer: not_fetched",)
+
+    # On a CDS hook, the Organization the record does not hold is read from the EHR's FHIR
+    # server (allow-listed, under its base), once, and decides as if it had been sent.
+    seen: list[httpx.Request] = []
+
+    def ehr(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/fhir/Organization/o9":
+            return fhir_json(_payer("o9", PAYERS, "acme"))
+        return fhir_json({"resourceType": "OperationOutcome", "issue": []}, 404)
+
+    allow_ehr(monkeypatch, ehr)
+    hook = {
+        "hook": "order-sign",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2eb",
+        "fhirServer": "https://ehr.example.org/fhir",
+        "fhirAuthorization": {
+            "access_token": "synthetic-token",
+            "token_type": "Bearer",
+            "expires_in": 300,
+            "scope": "user/Organization.rs",
+            "subject": "mendari",
+        },
+        "context": {
+            "userId": "Practitioner/1",
+            "patientId": "p1",
+            "draftOrders": {"resourceType": "Bundle", "entry": [{"resource": order}]},
+        },
+        "prefetch": _prefetch("", note, reference="Organization/o9"),
+    }
+    cards = cds_hooks.invoke(preflight, hook)["cards"]
+    assert [c["summary"] for c in cards] == ["Prior auth for Lumbar MRI (Acme): ready to submit"]
+    assert [str(r.url) for r in seen] == ["https://ehr.example.org/fhir/Organization/o9"]

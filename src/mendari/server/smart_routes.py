@@ -60,16 +60,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from mendari import notices
+from mendari.core import tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.session_seal import SealError
+from mendari.core.site_codes import SiteCodeMaps
 from mendari.errors import FhirError, PackNotFoundError, SmartError
 from mendari.server import security_log, sessions
 from mendari.server.auth import Auth, chain_name, ehr_id
 from mendari.standards import smart
 from mendari.standards.cds_hooks import fill_template, read_each
-from mendari.standards.fhir import FhirAdapter
+from mendari.standards.fhir import FhirAdapter, SiteCodes
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.linked import Linker
 from mendari.standards.smart import SmartSettings
@@ -97,6 +99,7 @@ def add_smart_routes(
     default_pack: str | None,
     auth: Auth,
     lifetime: sessions.Lifetime | None = None,
+    site_codes: SiteCodeMaps | None = None,
 ) -> None:
     lifetime = lifetime or sessions.Lifetime()
     ehrs = auth.ehrs or {}
@@ -353,8 +356,13 @@ def add_smart_routes(
         `X-Mendari-Launch` names another launch than the browser's (a later one replaced it)."""
         session = session_of(request)
         adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
+        # As the decision finds its focus: with the organization's site code map (LP-23k).
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        site = None if site_codes is None else site_codes.for_org(org)
         with ehr(request, session) as fhir:
-            return focus_items(fhir, adapter, session["patient"])
+            return focus_items(
+                fhir, adapter, session["patient"], site_codes=None if site is None else site.sets
+            )
 
     @app.post(
         "/api/smart/decide",
@@ -430,14 +438,23 @@ def patient_summary(patient: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def focus_items(fhir: FhirClient, adapter: FhirAdapter, patient_id: str) -> list[dict[str, Any]]:
-    """The patient's resources of the pack's focus type (only those the pack decides about)."""
+def focus_items(
+    fhir: FhirClient,
+    adapter: FhirAdapter,
+    patient_id: str,
+    *,
+    site_codes: SiteCodes | None = None,
+) -> list[dict[str, Any]]:
+    """The patient's resources of the pack's focus type (only those the pack decides about, as
+    its decision finds them: with the organization's site code map, `site_codes`, LP-23k)."""
     kind = adapter.mapping.focus
     if kind == "Patient":
         return [_summary(fhir.read(f"Patient/{patient_id}"))]
     bundle = fhir.read(f"{kind}?patient={quote(patient_id, safe='')}&_count={MAX_FOCUS}")
     resources = [e.get("resource") or {} for e in bundle.get("entry") or []]
-    found = [r for r in resources if r.get("resourceType") == kind and adapter.is_focus(r)]
+    found = adapter.focus_resources(
+        [r for r in resources if r.get("resourceType") == kind], site_codes=site_codes
+    )
     return [_summary(resource) for resource in found[:MAX_FOCUS]]
 
 

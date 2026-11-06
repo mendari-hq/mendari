@@ -4,6 +4,45 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.3.0
+
+- **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
+  2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only). A MINOR bump, by CONTRIBUTING.md's
+  rule (MINOR for a change in behaviour): what the pack decides through FHIR changes where the 0.2
+  mapping misread the data, and nothing else does.
+  - The order (and `focus_where`, which orders are the pack's), the diagnoses and the prior
+    procedures are read by their code system wherever the coding sits: the fictional procedure
+    codes and ICD-10-CM. With none of the pack's systems, the order's, a diagnosis's and a
+    procedure's first coding is read as before (a site's own code, which
+    `logic/structured.yaml` matches once the site lists it). An order is the pack's when one of
+    its codings is a fictional code the pack has a requirement set for, wherever it sits (the
+    0.2 mapping read the first coding only); one with none is not, as before.
+  - The payer is read through the Coverage's first payor: the Organization it names
+    (contained, in the record, or read from the EHR on a CDS hook or the SMART launch), by its
+    identifier in a new, fictional payer identifier system the pack declares
+    (`https://mendari.co/fhir/sid/fictional-payers`); else the payor's own identifier as the
+    Coverage writes it, which is how the synthetic records name their payers and all the 0.2
+    mapping read. A payer named by reference read as `other` before. A site's own payer
+    identifier is neither, and no site code map translates an identifier (codings only), so it
+    still reads as `other` and the order as `not_checked`: how a payer field is to read a
+    site's payer id is the owner's open question. A payor reference that could not be read
+    (`fhir/decide` and `$decide` never read one) makes the decision abstain (`could not read
+    coverage.payer: <reason>`), where it read as `other` before.
+  - Notes are read through `attachment_text`: text/plain and text/html, inline or in the
+    Binary the attachment's url names. An RTF, PDF or CDA note, or one that cannot be read,
+    makes the decision abstain; an inline note with no content type is now unreadable, and an
+    inline HTML note is read as its text.
+- Every case of the FHIR decisions golden (the bundled local-site example through FHIR, 300
+  cases, 41 of them refused for an order with no requirement set) is decided as before, input
+  hash included. On the vendor-shaped EHR profile, the patients whose linked note now reads are
+  decided `not_checked`, since their payer is the site's own payer id: no card and no coverage
+  information, where they abstained before. Inferno's CRD server suite, which runs the pack on
+  those patients, says so (`sandbox/inferno/crd_server_v221_expected.json`: 36 pass, 5 fail,
+  12 skip, where 0.2.1 gave 34, 11 and 8).
+- Criteria, rules, providers, policy, models and data are unchanged; the benchmark and its
+  ledger differ only in the run, the version and the digest. The digest changes because the
+  manifest and the mapping do.
+
 ## 0.2.1
 
 - The local-site known failure mode states its finding and the command that measures it,

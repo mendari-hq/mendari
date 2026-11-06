@@ -6,7 +6,7 @@ Every decision made from FHIR carries this record (`DecisionResult.data_coverage
 can see how a pack read its EHR's data: for the focus, each mapped field and each mapped list,
 
 - the paths looked for, the code systems the pack declares (`code_systems`) and the codes the
-  pack itself looks for (its `focus_where` values and a field's `map` keys);
+  pack itself looks for (its `focus_where` values or code set, and a field's `map` keys);
 - the resources of the path's type, counted, and the number of values found;
 - codings counted by declared system, every other system as one count (`other`);
 - what could not be read, as reason codes (`READ_REASONS`) with their counts: a prefetch read
@@ -188,7 +188,7 @@ def measure(
     focus = {
         "resource": mapping.focus,
         "paths": [f"{mapping.focus}.{where.path}"] if where is not None else [],
-        "codes": sorted(where.values) if where is not None else [],
+        "codes": _focus_codes(mapping),
         "resources": len(_as_list(indexed.get(mapping.focus))),
         "unreadable": dict(failed.get(mapping.focus, Counter())),
     }
@@ -233,6 +233,17 @@ def measure(
             "unreadable": dict(total),
         }
     )
+
+
+def _focus_codes(mapping: FhirMapping) -> list[str]:
+    """The pack's own codes `focus_where` looks for: its `in` values, or (spec 0.3, LP-23k) its
+    code set's codes, sorted; none without `focus_where`."""
+    where = mapping.focus_where
+    if where is None:
+        return []
+    if where.code_set is not None:
+        return sorted(mapping.code_sets[where.code_set].codes)
+    return sorted(where.values or ())
 
 
 def _source(

@@ -218,9 +218,13 @@ def invoke(
     orders: list[dict[str, Any]] = []
     if hooks.hook in ORDER_HOOKS:
         # One decision per draft order the pack is about (e.g. each referral, not the lab
-        # orders signed with it), each with the prefetched record.
+        # orders signed with it), each with the prefetched record: as the decision reads its
+        # record, with its organization's site code map (LP-23k).
         context = _object(request, "context")
-        orders = FhirAdapter.for_pack(decision.pack).focus_resources(context.get("draftOrders"))
+        site = decision.site_map()
+        orders = FhirAdapter.for_pack(decision.pack).focus_resources(
+            context.get("draftOrders"), site_codes=None if site is None else site.sets
+        )
         if len(orders) > most:
             raise CdsHooksError(
                 f"{len(orders)} draft orders to decide; at most {most} in one request"

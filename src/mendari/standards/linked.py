@@ -60,13 +60,13 @@ from mendari.standards.fhir import (
     Indexed,
     Reading,
     decoded_size,
+    followed_types,
     link_target,
     listed,
     located_fields,
     read_attachment,
     read_field,
     renditions,
-    split_path,
     waiting_link,
 )
 from mendari.standards.fhir_client import FhirClient
@@ -141,7 +141,7 @@ class Linker:
         for kind, mapped, scopes in _fields(mapping, record):
             if mapped.follow is None and mapped.transform != "attachment_text":
                 continue
-            types = {split_path(path)[0] for path in mapped.tried}
+            types = followed_types(mapped, kind)
             for scope in scopes:
                 if mapped.follow is not None:
                     for target in read_field(mapped, scope, kind, reading).missing:

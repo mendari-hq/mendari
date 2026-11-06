@@ -47,6 +47,11 @@ NEWER: dict[str, tuple[dict[str, Any], list[str]]] = {
         {"focus_where": {"path": f"identifier[system={SITE}].value", "in": ["x"]}},
         ["focus_where.path"],
     ),
+    "code_set in focus_where": (
+        {"code_sets": {"local": {"system": SITE, "codes": ["P1"]}},
+         "focus_where": {"path": "meta.tag", "code_set": "local"}},
+        ["code_sets", "focus_where.code_set"],
+    ),
     "follow": (
         {"fields": {"patient.age": {"follow": "Patient.link.other",
             "path": "Patient.birthDate", "transform": "age_years"}}},
@@ -181,21 +186,37 @@ def inbox_at_0_1(root: Path) -> Path:
     return root
 
 
+# The reference packs on spec 0.3 since LP-23k: their mappings read real EHR shapes.
+ON_0_3 = {
+    "mendari/clinical-trial-prescreener",
+    "mendari/prior-auth-preflight",
+    "mendari/referral-router",
+}
+
+
 def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
     """Every pack Mendari ships or tests with is 0.1 or 0.2 and loads as it did, its mapping
-    held to bare placeholders and finding no 0.3 key; and the four reference packs with a FHIR
-    mapping decide every case of the 23a golden as it says, input hash included (the mapping
-    read the same input, byte for byte)."""
+    held to bare placeholders and finding no 0.3 key, but the three reference packs LP-23k
+    moved to spec 0.3, which load held to its bounds and bare placeholders too; and the four
+    reference packs with a FHIR mapping decide every case of the 23a golden as it says, input
+    hash included (the mapping read the same input, byte for byte)."""
     roots = [p.parent for p in sorted((ROOT / "packs").glob("*/pack.yaml"))]
     roots += sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
     mapped = 0
+    newer = set()
     for root in roots:
         origin: Origin = "community" if root.parent.name == "community-packs" else "local"
         pack = load_pack(root, origin=origin)
+        if pack.manifest.spec_version == "0.3":
+            newer.add(pack.id)
+            assert newer_keys(FhirAdapter.for_pack(pack, bare=True).mapping), root
+            mapped += 1
+            continue
         assert pack.manifest.spec_version in ("0.1", "0.2"), root
         if pack.manifest.inputs.fhir is not None:
             assert newer_keys(FhirAdapter.for_pack(pack, bare=True).mapping) == [], root
             mapped += 1
+    assert newer == ON_0_3
     assert mapped == 6  # the four reference packs and two fixtures
     pinned = script.GOLDEN.read_text(encoding="utf-8")
     assert script.render(script.golden()) == pinned

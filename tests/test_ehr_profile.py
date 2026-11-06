@@ -8,8 +8,9 @@ Each pack decides on them through its own hook, as the sandbox's signed client c
 (`cds_client.hook_request`: no prefetch, the FHIR server named), here in this process: a FHIR
 server built from the profile (`profile_server`) answers the engine's reads. What each pack
 cannot read in these shapes yet is pinned (`ABSTAINS`, `NOT_DECIDED`, `MISSED`), each with why:
-a regression fixture, from which no rate is computed or shown. LP-23k takes entries off it when
-the shipped packs move to spec 0.3."""
+a regression fixture, from which no rate is computed or shown. LP-23k took entries off it when
+the shipped packs moved to spec 0.3: what is left is an RTF note, the site's own payer id, and
+the RxNorm code the EHR adds."""
 
 from __future__ import annotations
 
@@ -65,68 +66,38 @@ Handler = Callable[[httpx.Request], httpx.Response]
 
 # -- what each pack cannot read yet (the regression fixture) ---------------------------------------
 
-LINKED_NOTE = (
-    "a note is a link to a Binary, which the hook does not fetch (`not_fetched`): LP-23h reads "
-    "text/plain and text/html through the allow-listed client, and RTF stays unreadable"
+RTF_NOTE = (
+    "the note's Binary is RTF, which a pack never reads as text (`unsupported_type`, spec 0.3 "
+    "§2.4): the hook reads text/plain and text/html Binaries through the allow-listed client "
+    "(LP-23h), and the shipped packs read their notes so since LP-23k"
 )
-FIRST_CODING = (
-    "a Condition is read by its first coding, and the site's own diagnosis code comes first in "
-    "every other patient: LP-23g's selector by code system, which LP-23k adopts"
+RXNORM_READ = (
+    "read in addition, not missed: the EHR names the drug by an RxNorm-coded Medication, which "
+    "the case's own record (a name only) does not carry; the criteria match a medication by its "
+    "name, so no answer changes"
 )
-MEDICATION_REQUEST = (
-    "the pack reads MedicationStatement, and the EHR sends MedicationRequest naming a Medication: "
-    "LP-23g's MedicationRequest rule, which LP-23k adopts (owner decision 5)"
-)
-PAYER_REFERENCE = (
-    "the payer is read as Coverage.payor's identifier, and the EHR sends a reference to an "
-    "Organization: on spec 0.3, LP-23h follows it to the Organization's identifier, the site's "
-    "payer id, which no site code map translates (codings only); how a payer field reads it is "
-    "LP-23k's open owner question"
-)
-REFERRAL_CATEGORY = (
-    "a referral is found by its category's first coding, here the site's order type, so no order "
-    "is the pack's (no decision, no card): LP-23g's selector by code system, which LP-23k adopts"
+PAYER_SITE_ID = (
+    "the payer is read through Coverage.payor's reference (LP-23k), and the EHR's Organization "
+    "holds only the site's own payer id, which the pack does not know and no site code map "
+    "translates (codings only): how a payer field reads a site's payer id is the owner's open "
+    "question (#280)"
 )
 
 # The patients whose decision is an ABSTAIN, each with the decision's reasons; and why each reason.
 ABSTAINS: dict[str, dict[str, tuple[str, ...]]] = {
-    TRIAL: {
-        "ehr-trial-1": ("could not read notes: not_fetched",),
-        "ehr-trial-2": ("could not read notes: not_fetched",),
-        "ehr-trial-3": ("could not read notes: not_fetched",),
-    },
-    PRIOR_AUTH: {
-        "ehr-pa-1": ("could not read notes: not_fetched",),
-        "ehr-pa-2": ("could not read notes: not_fetched",),
-        "ehr-pa-3": ("could not read notes: not_fetched",),
-    },
+    TRIAL: {"ehr-trial-3": ("could not read notes: unsupported_type",)},
+    PRIOR_AUTH: {"ehr-pa-3": ("could not read notes: unsupported_type",)},
     REFERRAL_PACK: {},
 }
-WHY_ABSTAINED = {"could not read notes: not_fetched": LINKED_NOTE}
+WHY_ABSTAINED = {"could not read notes: unsupported_type": RTF_NOTE}
 # The patients the hook made no decision for, and why.
-NOT_DECIDED: dict[str, dict[str, str]] = {
-    TRIAL: {},
-    PRIOR_AUTH: {},
-    REFERRAL_PACK: {
-        "ehr-ref-1": REFERRAL_CATEGORY,
-        "ehr-ref-3": REFERRAL_CATEGORY,
-        "ehr-ref-5": REFERRAL_CATEGORY,
-    },
-}
+NOT_DECIDED: dict[str, dict[str, str]] = {TRIAL: {}, PRIOR_AUTH: {}, REFERRAL_PACK: {}}
 # Each part of the pack's input it reads less of, or otherwise, from the vendor-shaped patients
 # than from the same cases' own US Core records (`fhir_records`), over every patient it decided:
 # the input's path (a list's own name when it found fewer items), and why.
 MISSED: dict[str, dict[str, str]] = {
-    TRIAL: {
-        "conditions.code": FIRST_CODING,
-        "medications": MEDICATION_REQUEST,
-        "notes": LINKED_NOTE,
-    },
-    PRIOR_AUTH: {
-        "conditions.code": FIRST_CODING,
-        "coverage.payer": PAYER_REFERENCE,
-        "notes": LINKED_NOTE,
-    },
+    TRIAL: {"medications.code": RXNORM_READ, "notes": RTF_NOTE},
+    PRIOR_AUTH: {"coverage.payer": PAYER_SITE_ID, "notes": RTF_NOTE},
     REFERRAL_PACK: {},
 }
 
@@ -284,7 +255,8 @@ def test_what_each_pack_cannot_read_yet_is_pinned(
     """Per pack, the patients it abstains on (with the decision's reasons), those it makes no
     decision for, and each part of its input it reads otherwise than from the same cases' own US
     Core records, each with why. A step that teaches a pack to read a shape takes its entries off
-    (LP-23k, when the shipped packs move to spec 0.3); a shape that stops being read fails here."""
+    (LP-23k did, when the shipped packs moved to spec 0.3); a shape that stops being read fails
+    here."""
     called, _ = call_every_hook(tmp_path, monkeypatch)
     abstains: dict[str, dict[str, tuple[str, ...]]] = {
         spec.pack_id: {} for spec in ehr_profile.PACKS
@@ -312,13 +284,50 @@ def test_what_each_pack_cannot_read_yet_is_pinned(
     )
 
 
+def test_the_shipped_packs_read_the_profiles_linked_notes_through_the_allow_listed_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Since LP-23k the trial and prior-authorization packs read a note through spec 0.3's
+    `attachment_text`, and their hooks read what a note links to (LP-23h): each text/plain and
+    text/html note's Binary is read once, from the profile's FHIR server under its base, with a
+    GET, and the decision's notes are the case's own text. An RTF note's Binary is never read
+    (its content type is checked first), and that decision abstains on it. No referral is
+    missed: the router decides every referral patient, its FR101 coding first or second."""
+    called, seen = call_every_hook(tmp_path, monkeypatch)
+    held = ehr_profile.by_reference(TODAY)
+    reads = [str(r.url).removeprefix(f"{BASE}/") for r in seen if "/Binary/" in str(r.url)]
+    assert {r.method for r in seen} == {"GET"} and len(reads) == len(set(reads))
+    kinds = {held[read]["contentType"] for read in reads}
+    assert kinds == {"text/plain", "text/html"}
+    read_notes = 0
+    for call in called:
+        if call.patient.pack_id == REFERRAL_PACK:
+            assert len(call.decisions) == 1, call.patient.id
+            continue
+        (record,) = call.decisions
+        documents = [r for r in call.patient.resources if r["resourceType"] == "DocumentReference"]
+        if not documents:
+            assert "notes" not in record["input"], call.patient.id
+            continue
+        (document,) = documents
+        url = document["content"][0]["attachment"]["url"]
+        if held[url]["contentType"] == "text/rtf":
+            assert url not in reads and record["outcome"] == "ABSTAIN", call.patient.id
+            continue
+        assert url in reads, call.patient.id
+        assert record["input"]["notes"] == own_record_input(call.patient)["notes"], call.patient.id
+        read_notes += 1
+    assert read_notes == 4  # two patients each of the trial and prior-authorization packs
+
+
 def test_the_profiles_site_diagnosis_codes_are_read_through_a_site_code_map_and_never_automated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The trial patients' Conditions through `MENDARI_SITE_CODES` (LP-23i), as the sandbox's
-    client calls the hook: no shipped pack declares a code set yet, so the prescreen fixture at
-    spec 0.3 reads them, its `t2d` set over ICD-10-CM, and the map translates the profile's
-    fictional site diagnosis code for type 2 diabetes into `E11.9`. Sent as the profile has them
+    client calls the hook: the trial pack reads its conditions by code system, through no code
+    set (LP-23k), so the prescreen fixture at spec 0.3 reads them, its `t2d` set over
+    ICD-10-CM, and the map translates the profile's fictional site diagnosis code for type 2
+    diabetes into `E11.9`. Sent as the profile has them
     (the site's coding and ICD-10-CM), the pack's own code wins and every decision is as without
     a map, the map's version and digest recorded. Sent as a site that codes with its own system
     only (the ICD-10-CM coding left out), the diagnosis is read through the map, and what would

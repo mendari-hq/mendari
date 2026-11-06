@@ -642,7 +642,19 @@ gates:
               - tests/test_inbox_pack.py::test_the_inbox_card_has_its_own_template
               - tests/test_referral_pack.py::test_only_referrals_that_need_action_show_a_card
               - tests/test_registry_engine.py::test_the_reference_index_is_each_bundled_packs_id_version_and_digest
-          - pending: "LP-23k, the reference packs' mappings for real EHR data on spec 0.3 (A12.3b to A12.3e), after the owner's go-ahead (owner decision 5)"
+          # 23k: the reference packs' mappings for real EHR data on spec 0.3 (A12.3b to A12.3e,
+          # the owner's go-ahead given on 2026-11-06, owner decision 5): a condition by its
+          # ICD-10-CM coding wherever it sits, a MedicationRequest by the stated start and stop
+          # rule (not yet clinically reviewed: gate clinician-review), the payer through the
+          # Coverage's reference, a referral through the site code map, and the vendor-shaped
+          # patients' linked notes read through the allow-listed client.
+          - tests:
+              - tests/test_trial_pack.py::test_through_fhir_a_condition_is_read_by_its_icd10_coding_wherever_it_is
+              - tests/test_trial_pack.py::test_a_medication_request_is_read_with_its_stated_start_and_stop
+              - tests/test_prior_auth_pack.py::test_the_payer_is_read_by_coverage_reference
+              - tests/test_referral_pack.py::test_a_referral_under_a_site_code_is_decided_through_the_site_code_map
+              - tests/test_ehr_profile.py::test_the_shipped_packs_read_the_profiles_linked_notes_through_the_allow_listed_client
+              - tests/test_ehr_profile.py::test_what_each_pack_cannot_read_yet_is_pinned
           - pending: "owner: the Epic sandbox run from notes/epic-sandbox-checklist.md (every standard-hook pack decides on Epic's sandbox patients, A12.acc-3) and mendari smart check against Epic; then a build PR removes this line"
       - id: clinician-review
         what: "Each reference pack reviewed by a clinician of the right kind (B21.1-B21.5)"

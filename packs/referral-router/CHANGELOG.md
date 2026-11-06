@@ -4,6 +4,37 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.3.0
+
+- **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
+  2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only; `logic/` unchanged). A MINOR
+  bump, by CONTRIBUTING.md's rule (MINOR for a change in behaviour): what the pack decides through
+  FHIR changes where the 0.2 mapping misread the data.
+  - A referral is a ServiceRequest with a category coding of the new code set
+    `referral_category` (FR101, the fictional referral code), wherever it sits among the
+    categories' codings; the 0.2 mapping read only the first category's first coding, so a
+    referral whose EHR put its own order type first was not found. A site's own referral code
+    finds its referrals through its site code map (`MENDARI_SITE_CODES`, translating it into
+    FR101), with no pack file changed; a decision about a referral found so is never automated
+    (the `site_code` cap: HUMAN_REVIEW, `site code translated (referral_category): a person
+    decides`). Without a map, a referral under a site's code alone is still not found.
+  - The document and report codes `logic/checklist.yaml` looks for are read through the code
+    sets `checklist_documents` (11506-3, 11488-4, 11524-6) and `checklist_reports` (11524-6,
+    18748-4, 18726-0), LOINC, wherever the coding sits, so a site's own codes for them may be
+    translated in its site code map (capped the same way). A document or report under another
+    code is still an item, its date and name kept, but its code is no longer carried into the
+    input (it never counted), and a coding with no system is no longer read as LOINC. A lab's
+    code is read as before, since any lab counts.
+- The 300 cases of the FHIR decisions golden (the bundled local-site example through FHIR) are
+  decided as before, each outcome, recommendation, priority and answer; 162 of them read another
+  input (their input hash changes), each for one reason: a visit note filed as a history and
+  physical (LOINC 34117-2), which the checklist does not look for, is no longer carried with its
+  code. On the vendor-shaped EHR profile (`tests/test_ehr_profile.py`) every referral patient is
+  now decided, ehr-ref-1, 3 and 5 among them, whose site coding comes first.
+- Criteria, rules, providers, policy, models and data are unchanged; the benchmark and its
+  ledger differ only in the run, the version and the digest. The digest changes because the
+  manifest and the mapping do.
+
 ## 0.2.1
 
 - A CDS Hooks card only when the person signing the referral can act

@@ -67,8 +67,8 @@ def test_each_mapped_field_says_what_was_looked_for_and_found_as_counts() -> Non
     assert list(coverage["fields"]) == sorted(adapter.mapping.fields)
     assert list(coverage["lists"]) == sorted(adapter.mapping.lists)
     assert coverage["focus"] == {
-        "codes": ["FR101"],  # the pack's own referral code (`focus_where`)
-        "paths": ["ServiceRequest.category[0].coding[0].code"],
+        "codes": ["FR101"],  # the pack's own referral code (`focus_where`'s code set)
+        "paths": ["ServiceRequest.category.coding"],
         "resource": "ServiceRequest",
         "resources": 1,
         "unreadable": {},
@@ -95,7 +95,7 @@ def test_each_mapped_field_says_what_was_looked_for_and_found_as_counts() -> Non
     trial = decided(TRIAL, _bundle(*trial_record("Seen for diabetes follow-up.")))
     assert trial.data_coverage is not None
     notes = trial.data_coverage["fields"]["notes"]
-    assert notes["paths"] == ["DocumentReference.content.attachment.data"]
+    assert notes["paths"] == ["DocumentReference.content.attachment"]  # `attachment_text`
     assert (notes["resources"], notes["values"], notes["unreadable"]) == (
         {"DocumentReference": 1},
         1,
@@ -277,7 +277,7 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
             ]
     linked = copy.deepcopy(next(r for r in resources if r["resourceType"] == "DocumentReference"))
     linked["id"] = "linked-note"
-    linked["content"] = [{"attachment": {"url": f"Binary/{MRN}-note"}}]
+    linked["content"] = [{"attachment": {"contentType": "text/plain", "url": f"Binary/{MRN}-note"}}]
     decision = Decision.from_hub(TRIAL, store=store)
     results = [
         decision.decide_fhir(_bundle(*resources))[0],
@@ -334,9 +334,11 @@ def test_old_records_still_verify_beside_new_ones(
 
 
 def test_the_unreadable_notes_are_counted_by_reason() -> None:
-    """`unreadable_notes` counts each attachment once, by reason, and leaves out a note that
-    reads, an empty one and an attachment with neither data nor a link."""
-    pack = Decision.from_hub(TRIAL).pack
+    """`unreadable_notes` counts each attachment of a 0.2 `base64_text` note once, by reason, and
+    leaves out a note that reads, an empty one and an attachment with neither data nor a link.
+    (The prescreen fixture's notes are `base64_text`; the trial pack's are `attachment_text`
+    since LP-23k, whose reasons `tests/test_fhir_mapping_03.py` counts.)"""
+    pack = load_pack(ROOT / "tests" / "fixtures" / "packs" / "prescreen-mini")
     adapter = FhirAdapter.for_pack(pack)
     note = {
         "resourceType": "DocumentReference",

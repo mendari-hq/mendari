@@ -209,14 +209,17 @@ def test_a_later_search_page_that_is_not_a_bundle_abstains(
 def test_a_note_that_is_only_a_link_or_does_not_decode_abstains(
     app: TestClient, reason: str
 ) -> None:
-    """Data present but unreadable (LP-23d): a `base64_text` attachment with only a `url` is
-    `not_fetched`, and one whose data is base64 but not UTF-8 text is `undecodable`. Before, both
-    read as no notes, so the trial pack decided as if the record held none."""
+    """Data present but unreadable (LP-23d): an attachment with only a `url`, on a hook that names
+    no FHIR server to read it from, is `not_fetched`, and one whose data is base64 but not UTF-8
+    text is `undecodable`. Before, both read as no notes, so the trial pack decided as if the
+    record held none. (The trial pack reads its notes through spec 0.3's `attachment_text` since
+    LP-23k, whose reasons these are too.)"""
     resources = trial_record("Seen for diabetes follow-up.")
     note = next(r for r in resources if r["resourceType"] == "DocumentReference")
     unreadable = base64.b64encode(b"\xfa\xfb\xfc").decode()  # base64, but not UTF-8 text
     linked = {"contentType": "text/plain", "url": "Binary/n1"}
-    note["content"] = [{"attachment": linked if reason == "not_fetched" else {"data": unreadable}}]
+    undecodable = {"contentType": "text/plain", "data": unreadable}
+    note["content"] = [{"attachment": linked if reason == "not_fetched" else undecodable}]
     response = app.post(TRIAL, json=patient_view(resources))
     assert response.status_code == 200, response.text
     [card] = response.json()["cards"]

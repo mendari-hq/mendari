@@ -690,8 +690,9 @@ decision, each at most 1 MiB once decoded, each read once a request. A link to a
 outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
 (`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
 its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
-DocumentReference), one that reads is enough: the others are not read or counted. No shipped pack is
-on spec 0.3 yet, so none reads a link
+DocumentReference), one that reads is enough: the others are not read or counted. Since LP-23k the
+trial and prior-authorization packs are on spec 0.3 and read their notes, the Medication a
+MedicationRequest names and the payer's Organization so
 ([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#linked-data)).
 
 **A site's own codes (LP-23i).** An EHR often codes things its own way. `MENDARI_SITE_CODES`
@@ -706,8 +707,9 @@ none), and records the map's version and SHA-256 (`site_codes`, beside `data_cov
 is read with the same translations); `/api/health` shows the caller's. **A decision read
 through a translation never automates:** AUTO becomes HUMAN_REVIEW (`site code translated
 (<code set>): a person decides`), and so does a pack rule's BLOCK, and nothing lifts it,
-governance included, until the site validates its map. No shipped pack declares a code set
-yet. See
+governance included, until the site validates its map. Of the shipped packs, the Referral
+Router declares code sets (since LP-23k): its referral code and its checklist's document codes.
+See
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
 
 **Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
