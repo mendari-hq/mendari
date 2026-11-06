@@ -27,6 +27,25 @@ the narrow EHR principal exists only for SMART launches. It is built in steps (L
   organization's record in memberships mode, the route's permission), so a token refused for
   either claims nothing. And the key cache is each instance's own, so "once per client a
   minute" is per instance.
+- **23c (2026-10-18):** decisions 5 and 6, in `server/cds_clients.py` (`on_this_machine`,
+  `CdsOpenMode`, `cds_sandbox`, and the registry's `origins` and `from_its_origin`),
+  `server/auth.py` (the open-mode rule, first in the CDS branch, and the client's origin checked
+  before its `jti` is claimed), `server/cors.py` (new) and `server/origin.py`. Four details the
+  decisions leave open are settled there. `X-Forwarded-Host` and `X-Real-IP` are forwarding
+  headers too, beside `Forwarded` and `X-Forwarded-For`. `MENDARI_CDS_SANDBOX=0` is off, as
+  unset is, and any value but `1` or `0` stops startup. Every answer on `/cds-services` and its
+  children carries `Vary: Origin`, not only an answer to a registered origin. A registered origin
+  passes the cross-site check (`OriginCheck`) only without a Mendari cookie, so a page there
+  never calls as the person signed in. Three points differ from what 23a first wrote below, and
+  the decisions now say so. A registered origin's preflight is answered before the open-mode
+  rule too, in either mode and from any machine: it carries no credential and returns nothing,
+  and the call that follows meets the rule. A `cds` token from a page on this site's own origins
+  (the request's host, `MENDARI_PUBLIC_URL`, `MENDARI_TRUSTED_ORIGINS`) passes the client's
+  origin check, as one from no page does. And the test suite does not set the flag: it runs its
+  servers as if the flag were set wherever it may be, so no server a test starts in a
+  subprocess inherits it. A proxy on this machine that adds no forwarding header, nginx's
+  default among them, makes every call it forwards look local: behind any proxy, sign-in goes on
+  (threat E16).
 - **23d (2026-10-18):** decisions 7 and 8: a prefetch key that could not be read, or a note that
   is only a link or does not decode, gives a recorded ABSTAIN with its reason
   (`errors.ReadReason`), an `info` card whatever `show` says, and CRD's `indeterminate` coverage
@@ -104,12 +123,16 @@ Inferno's Da Vinci CRD kit sends exactly those, with a header of `alg`, `typ`, `
 5. **Open mode answers on this machine only (23c).** With sign-in off, `/cds-services` answers a
    request only when it is local (a loopback client address, a local `Host` and no forwarding
    header) or when `MENDARI_CDS_SANDBOX=1` is set. That flag stops startup on Vercel or with
-   sign-in on, and only the compose sandbox's engine and the test suite set it. A verified token
-   does not lift the rule.
+   sign-in on. Only the compose sandbox's open engine sets it, and the test suite runs its
+   servers as if it were set wherever it may be, without setting the variable. A verified token
+   does not lift the rule. A registered origin's preflight (decision 6) is answered before it,
+   from any machine: it carries no credential and returns nothing.
 6. **CORS for registered origins (23c).** On `/cds-services` and its children only, for the exact
    origins the registry lists, and never with credentials. A preflight from a registered origin
-   is answered before the guard. A cross-site `Origin` on a `cds` token must be one of that
-   client's own origins. Any other origin gets no CORS header and is refused as before.
+   is answered before the guard, and every answer there varies by `Origin`. A `cds` token from a
+   page must come from one of that client's own origins or from this site's own (the request's
+   host, `MENDARI_PUBLIC_URL`, `MENDARI_TRUSTED_ORIGINS`). Any other origin gets no CORS header
+   and is refused as before.
 7. **A record that cannot be read abstains (23d).** When a declared prefetch key could not be
    read (a failed fetch, an OperationOutcome, a structure error in a resource Mendari fetched
    itself, a note whose data does not decode or that is only a link), the decision is ABSTAIN,

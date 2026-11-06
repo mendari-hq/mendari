@@ -9,7 +9,8 @@ no section, or whose section is not the newest. Changes to a pack are in the pac
 
 The first release (not yet published).
 
-- **Decision Packs:** the specification (0.2; 0.1 still loads), and the runtime that runs a
+- **Decision Packs:** the specification (0.2, and 0.3 for the FHIR mapping; 0.1 still loads),
+  and the runtime that runs a
   pack's providers (rules, naive Bayes, Jev, LLMs, criteria, CQL, dosing) under a risk policy
   that may only lower automation.
 - **Five reference packs**, built and evaluated on synthetic data: Patient Inbox Router,
@@ -101,6 +102,97 @@ The first release (not yet published).
   - **Changed: a CDS Hooks request with neither the prefetch nor a `fhirServer` answers `412`**
     (`PrefetchRequired`), as CDS Hooks 2.0 says. It answered `422`. A key sent empty counts as
     not sent here too, as it did.
+- **FHIR mapping syntax 0.3** (LP-23g; no shipped pack adopts it, so nothing changes how a pack
+  decides). `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping. A pack that declares
+  `spec_version: "0.3"` may pick a coding or an identifier by its code system
+  (`code.coding[system=<uri>].code`, for a uri `code_systems` declares), give a field fallback
+  `paths`, `follow` one reference inside the record (contained, by `fullUrl` or `Type/id`, never
+  fetched), read plain-text and HTML notes as text (`attachment_text`, inline or from a Binary in
+  the record; any other type, data that does not decode and a link to a Binary the record does
+  not hold add nothing, each with its reason), match a set of its own codes (`code_sets` and
+  `code_set`, which a site's translations may feed once LP-23i passes them), and read several
+  resource types into one list (`resources`), with a MedicationRequest's start and stop by a
+  stated rule (`medication_period`: the dosage bounds, else when it was written; the stop never
+  inferred from its status; entered in error left out). A 0.1 or 0.2 pack that uses any of these
+  is refused at load, wherever it comes from, naming each key; a pack the deployment does not own
+  (and every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set. A
+  `follow` and an attachment's link are each one lookup in the record, so mapping a record takes
+  time in proportion to its size. Every 0.1 and 0.2 pack maps as before: the golden is
+  unchanged. `FhirAdapter.looked_for` says what each field and list looks for (paths, declared
+  systems, the pack's own codes), from the mapping alone, and LP-23d's data-coverage record
+  counts a 0.3 mapping against it: the paths a field read, in order, the systems it selects on,
+  its code set's codes, a `follow`'s references and what they reached, and a list of several
+  types by type (`sources`); a 0.1 or 0.2 pack's record is byte for byte as before. An
+  `attachment_text` note that cannot be read (`unsupported_type`, `undecodable`, `not_fetched`)
+  makes the decision ABSTAIN with its reason, as a `base64_text` one does. An engine that reads
+  only 0.2 refuses a 0.3 pack.
+- **Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f; card wording
+  changes).** A card's `uuid` is now its decision's id (it was a random one, stored nowhere), and
+  its one suggestion's a UUID 5 of it. A card says `selectionBehavior: at-most-one` and offers
+  three neutral override reasons, each with its display, from a new CodeSystem,
+  `https://mendari.co/fhir/CodeSystem/card-override-reasons` (`not-relevant`,
+  `already-addressed`, `clinical-judgement`), served under `/fhir` and checked by the HL7
+  validator with Mendari's other terminology. With `MENDARI_PUBLIC_URL` set, a card links to its
+  decision in the audit trail (`/?pack=<pack>#audit/<id>`), where the engine's reasons now are,
+  and `source.url` is the pack's card; when SMART is on and the request's `fhirServer` is
+  registered for launches to the caller's organization, a `smart` link opens the pack
+  (`/smart/launch?pack=<pack>`). Without the public URL the reasons stay in the detail, but for
+  the confidence thresholds' reason, whose figures carry no interval. A Da
+  Vinci CRD service (the prior authorization pack) declares `davinci-crd.version` (`2.2`) and the
+  `coverage-info` option in discovery, and each of its cards carries `source.topic`
+  (`coverage-info`), which CRD 2.2.1's response profile requires; a request that sets
+  `coverage-info` to false gets neither cards nor system actions, and is still decided and
+  recorded. `POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback (1 to 50 cards, all
+  or nothing): a suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not
+  define or an `outcomeTimestamp` with no time in UTC is a `422` (`extension`, which CDS Hooks
+  reserves for implementations, is accepted on any object and never kept), and a card that is
+  not a decision of that service in the caller's organization, or, with sign-in on, not one the
+  same caller asked for, is one `404`. Each is chained as `card.feedback`, a new kind on a decision
+  (codes and ids, the sender, and its decision's organization on every database), exported as
+  an AuditEvent; `userComment` is never kept. The route needs `decide` (the DECIDE scope, the
+  `cds-hooks` preset, a CDS client's own token) and counts against the decide rate limit, never
+  the daily cap. The dashboard's audit record of a FHIR decision shows what it read: counts by
+  field and by reason.
+  - **Changed: card wording.** Summaries read the pack's display names (`Prior auth for Lumbar
+    MRI (Acme)`, `Referral to Cardiology`, `Review: route to Nurse (stat)`), and the default
+    suggestion says `Create routing task for Nurse`; the Task a card suggests keeps its text
+    and performer code. A card's detail is the pack's status, the notice and one plain sentence
+    for the outcome: the line with the outcome code and the confidence as a bare percentage is
+    gone, and without the public URL the reasons leave out the confidence thresholds' (such as
+    `confidence 0.94 is below the auto threshold 0.95`), so no card shows the confidence, in
+    any configuration. The audit trail keeps every reason.
+  - **Changed: a card summary must be under 140 characters however it is filled**, as CDS
+    Hooks 2.0 says (Inferno's CRD kit fails a summary of 140). Every text it can give with
+    display names is measured when the pack loads: a pack the deployment does not own is
+    refused for one that can read 140 or more, your own pack is warned (`pack_warnings`; the
+    card cuts it to 139, where it cut at 140 before), and `mendari validate` refuses both.
+- **Who may call the CDS Hooks services from where (LP-23c, ADR-0014; a change for open mode
+  reached over a network).** With sign-in off, `/cds-services` and its children answer this
+  machine only: a call from a loopback address, to a `Host` that names this machine (`localhost`,
+  a `.localhost` name, a loopback address), with no forwarding header (`Forwarded`,
+  `X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`
+  with fixed words, before any credential is read, a valid EHR token included, logged
+  `open_mode_remote`. The rest of open mode answers any host, as before.
+  `MENDARI_CDS_SANDBOX=1` lifts this for a synthetic sandbox reached over a network, with a
+  warning at startup; the compose sandbox's open engine sets it (its signed-in engine, the
+  on-prem and Kubernetes templates and the hosted site do not), and the server refuses to start
+  with it on Vercel, with sign-in on, or with a value other than `1` or `0`. A registered CDS
+  client may now list `origins`, the browser origins its pages call from: on `/cds-services` and
+  its children only, a preflight from one is answered before the guard (`204`, `GET, POST,
+  OPTIONS`, the headers `authorization` and `content-type`, ten minutes), every answer to one
+  names it, every answer there varies by `Origin`, and none allows credentials; a page there
+  without a Mendari cookie passes the cross-site check on those paths only. A client's token
+  from a page on an origin that is neither its own nor this site's (the request's host,
+  `MENDARI_PUBLIC_URL`, `MENDARI_TRUSTED_ORIGINS`), another client's included, is a `403`
+  (`cds_origin`) before its `jti` is used. Any other origin gets no CORS header and is refused as
+  before, and with no origin registered nothing changes. **If you run open mode on a server
+  others reach:** CDS Hooks calls from them now get `403`; turn sign-in on, or for a synthetic
+  sandbox set `MENDARI_CDS_SANDBOX=1`. Behind a proxy, turn sign-in on: a proxy on this machine
+  that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1 among them) makes
+  every call it forwards look local. The API examples gain `cds.sh` (discovery and the inbox's
+  hook), run by CI in open mode on 127.0.0.1 with no flag, with a service key and with a
+  `cds-hooks` key. Threat-model rows I16 and E16; see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

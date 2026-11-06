@@ -598,9 +598,10 @@ class Decision:
         pack's own by default), so a required resource whose read failed is not refused as
         missing. A key that still holds what the client sent (a value that is not a resource)
         excuses nothing: a required resource it does not hold is refused, as before. Those keys,
-        and a note whose data does not decode or that is only a link, make the decision ABSTAIN
-        unless its input is refused (`decide`). The result carries its data-coverage record
-        (`standards/data_coverage.py`) in every case."""
+        and a note whose data does not decode or that is only a link (for a spec 0.3
+        `attachment_text` note, also one of a type it cannot read: `unreadable_notes`), make the
+        decision ABSTAIN unless its input is refused (`decide`). The result carries its
+        data-coverage record (`standards/data_coverage.py`) in every case."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 

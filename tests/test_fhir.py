@@ -133,7 +133,7 @@ def test_cds_discovery_and_card(router: Decision) -> None:
     )
     card = response["cards"][0]
     assert card["indicator"] == "critical"
-    assert len(card["summary"]) <= 140
+    assert len(card["summary"]) < 140  # CDS Hooks 2.0: under 140 characters
     assert card["suggestions"][0]["actions"][0]["resource"]["resourceType"] == "Task"
 
 

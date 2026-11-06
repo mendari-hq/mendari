@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from mendari import GovernanceOverride, Outcome, Pack, Priority, RiskLevel
-from mendari.core.policy import apply_policy
+from mendari.core.policy import apply_policy, threshold_reason
 from mendari.core.spec import PackManifest, Risk
 from mendari.providers import Answer, ProviderInfo
 
@@ -76,6 +76,27 @@ def test_provider_failure_never_automates(inbox_pack: Pack) -> None:
     result = apply_policy(inbox_pack.manifest, answers, {"urgency": "timeout"})
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert any("timeout" in reason for reason in result.reasons)
+
+
+def test_the_confidence_thresholds_reason_is_known_as_theirs(inbox_pack: Pack) -> None:
+    """Each of the thresholds' three reasons (AUTO, below the auto threshold, below the review
+    threshold) is theirs (`threshold_reason`), for a CDS Hooks card to leave out its bare
+    figures; a rule's, a cap's and a missing answer's are not."""
+    thresholds = ((0.95, Outcome.AUTO), (0.60, Outcome.HUMAN_REVIEW), (0.30, Outcome.ABSTAIN))
+    for confidence, outcome in thresholds:
+        result = apply_policy(inbox_pack.manifest, routine("nurse", confidence), {}, None, SCREENED)
+        assert result.outcome is outcome and result.rule is None
+        first, *others = result.reasons
+        assert threshold_reason(first) and not any(map(threshold_reason, others)), result.reasons
+    emergency = {
+        "destination": answer("destination", "billing", 0.99),
+        "urgency": answer("urgency", "urgent", 0.40),
+    }
+    capped = apply_policy(inbox_pack.manifest, routine("nurse", 0.99), {"urgency": "timeout"})
+    assert [threshold_reason(reason) for reason in capped.reasons] == [True, False]
+    missing = apply_policy(inbox_pack.manifest, {}, {"destination": "timeout"})
+    for result in (apply_policy(inbox_pack.manifest, emergency, {}), missing):
+        assert result.reasons and not any(map(threshold_reason, result.reasons)), result.reasons
 
 
 def test_missing_primary_answer_abstains(inbox_pack: Pack) -> None:

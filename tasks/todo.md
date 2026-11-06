@@ -811,8 +811,30 @@ Connect) is not supported yet.
     `cds_claims`; the session table keys a lone surrogate (`_session_key`, every older key
     unchanged); `cds_issued_at` folded into `cds_claims` and `cds_not_yet_valid`. Open mode still
     answers on any host until 23c.
-  - [ ] **23c** Open mode answers CDS Hooks on this machine or under the sandbox flag only; CORS
-    for registered origins.
+  - [x] **23c** (#269) Open mode answers CDS Hooks on this machine or under the sandbox flag
+    only; CORS for registered origins. `server/cds_clients.py`: `on_this_machine` (a loopback
+    `client_ip`, IPv4-mapped included; no `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or
+    `X-Real-IP`; one `Host` naming this machine), `CdsOpenMode`, and `cds_sandbox`
+    (`MENDARI_CDS_SANDBOX`: `1` or `0`, `1` stops startup on Vercel or with sign-in on, with a
+    warning when on); `CdsRegistry.origins` and `from_its_origin`. `server/auth.py`: with sign-in
+    off, `/cds-services` from elsewhere is a `403` (`open_mode_remote`) before any credential is
+    read, a verified token's too; a `cds` token from a page on an origin neither its client's nor
+    this site's is a `403` (`cds_origin`) before its `jti` is claimed. `server/cors.py` (new):
+    on `/cds-services` only, the registered origins' preflight answered before the guard,
+    `Access-Control-Allow-Origin` on their answers, `Vary: Origin`, never credentials.
+    `server/origin.py`: a registered origin passes on `/cds-services` only, without a Mendari
+    cookie (`is_this_site` shared). Only the compose sandbox's `engine` sets the flag
+    (`tests/test_deploy.py`); the suite runs as if it were set where it may be
+    (`tests/conftest.py` `_cds_sandbox`, which never sets the variable, so no subprocess server
+    inherits it), and `tests/test_cds_open_mode.py` takes that away. The API examples gain
+    `cds.sh` (discovery and the inbox's hook: README, the API guide, `/docs`, and the
+    `cds-hooks` preset's CI run). Tests: `tests/test_cds_open_mode.py`, `tests/test_cds_cors.py`
+    (SQLite and Postgres), `tests/browser/test_cds_cors.py`; the route matrix with open mode off
+    this machine, and the origin inventory with a registered origin. Threat-model rows I16 and
+    E16, E6 updated; the scorecard's WC-2b, WC-3a and WC-3b are met (who may call from where at
+    level 3; overall still level 1). Beyond the plan's letter: `X-Forwarded-Host` and
+    `X-Real-IP` count as forwarding headers too, and a registered origin passes the cross-site
+    check only without a Mendari cookie.
   - [x] **23d** (#264) A hook that always answers: an unreadable record gives a recorded ABSTAIN
     with its reason, and every FHIR decision carries its data-coverage record. Each prefetch key
     is read on its own (`cds_hooks.read_each`, shared with the SMART launch's decide); a key that
@@ -839,11 +861,95 @@ Connect) is not supported yet.
     that page.
   - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
     first end-to-end result).
-  - [ ] **23f** Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
-  - [ ] **23g** Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+  - [x] **23f** (#270) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
+    `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
+    `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three
+    neutral `overrideReasons` (owner decision 8) from the new CodeSystem
+    `https://mendari.co/fhir/CodeSystem/card-override-reasons`, defined in `terminology.py`
+    (served, pinned, written by `scripts/fhir_terminology.py` for `fhir-conformance`). Summaries
+    from the card-only `templates.fill_display` with `Question.name_of` (the default verb table
+    too; `fill`, Task text and performer codes unchanged), every expansion checked to be under
+    140 characters at load, as CDS Hooks 2.0 says (at most 139, `spec.SUMMARY_CHARS`, through
+    `spec.card_summary_problems` and `templates.longest`, in `manifest_template_problems`:
+    refused from a registry, warned when owned, refused by `mendari validate`; an owned pack's
+    card cuts it to 139). The detail is the status, the notice and one plain sentence; the
+    confidence is gone in every configuration (without `MENDARI_PUBLIC_URL` the reasons stay,
+    but for the confidence thresholds', `policy.threshold_reason`). With `MENDARI_PUBLIC_URL`: an
+    `absolute` link to
+    `/?pack=<pack>#audit/<id>`, the reasons behind it, `source.url` the pack's card; a `smart`
+    link to `/smart/launch?pack=<pack>` only with SMART on and the `fhirServer` a
+    `MENDARI_SMART_EHRS` base of the caller's organization (`CardLinks`). Discovery declares
+    `davinci-crd.version` `["2.2"]` and the `coverage-info` option for packs with
+    `coverage_information`; `coverage-info: false` sends neither cards nor system actions, and
+    still decides. `POST /cds-services/{service_id}/feedback`: a `decide` rule before the
+    catch-all, DECIDE in `_ROUTE_SCOPES`, the `cds-hooks` preset's calls; a closed body
+    (`cds_hooks.CardFeedback`: 1 to 50 cards, each once, accepted with the card's suggestion or
+    overridden with one of its reasons, an aware `outcomeTimestamp` with a time in UTC, CDS Hooks
+    2.0's Coding (`system`, `code`, `display`), `extension` on any object, never kept;
+    `userComment` dropped); all
+    or nothing in one transaction (`AuditStore.record_card_feedback`): the service's pack, the
+    caller's organization and, when the caller is named, its chained `requested_by`, else one
+    `404` (`UnknownCard`); the decide bucket, no daily cap. `card.feedback` joins
+    `DECISION_KINDS`, `audit_fhir._EVENTS` and the audit-event CodeSystem (its pin moved); it
+    names its organization on every database (it is not one of `BOUND_WHEN_MARKED`). The audit
+    view's data-coverage panel ("What it read", counts by field and reason; tokens only, no new
+    CSS). Threat-model rows R5 and I18; the scorecard's CW-2d and CW-3a to CW-3d are met, so
+    cards and workflow is at level 2 (CW-3e waits on 23j; the overall stays level 1). Tests:
+    `tests/test_cds_cards.py`, `tests/test_cds_feedback.py` (SQLite and Postgres), a browser
+    case with axe and the bare-percentage scan, and the route, scope, limit, preset, chained-event,
+    two-organization and leak-sweep inventories. Beyond the plan's letter: `source.topic`
+    (`coverage-info`) is set on a CRD service's cards, since CRD 2.2.1's base response profile
+    requires it (checked at the IG's 2.2.1 tag), and so `coverage-info: false` drops those cards
+    too, as CRD says; the audit link carries `?pack=`, so the dashboard opens on the decision's
+    pack; each `card.feedback` names who sent it (`reporter`). For the owner: conflict 30 (the
+    confidence leaves the card in every configuration) and conflict 31 (without the public URL
+    the reasons stay in the detail) are both kept by leaving out the one reason that gives the
+    confidence and a threshold as figures; the audit trail keeps it.
+  - [x] **23g** (#271) Mapping syntax 0.3 (engine and spec; no shipped pack adopts it).
+    `docs/spec/decision-pack-0.3.md` changes only the FHIR mapping (`spec_version: "0.3"`, a
+    nav entry, a pointer from 0.2): the `[system=<uri>]` predicate for a declared system,
+    fallback `paths`, one `follow` hop resolved inside the record and never fetched,
+    `attachment_text` (text/plain, and text/html through `html.parser` with scripts and styles
+    dropped; its reasons `unsupported_type`, `undecodable`, `not_fetched`), `code_sets` and a
+    `code_set` selector that takes a site's translations (nothing passes them until 23i), list
+    `resources`, and `medication_period` by conflict 39 (B21 clinician review still owed, and the
+    trial card's failure modes say it when 23k adopts it). A 0.1 or 0.2 pack with a 0.3 key is
+    refused at load wherever it comes from, naming each key; a pack the deployment does not own
+    (and every pack in `mendari validate`) has at most 4 paths a field and 200 codes a code set,
+    and a `follow` is one hop for every pack, resolved once a field by a lookup in the record. `FhirAdapter.looked_for` gives what each field and list
+    looks for (paths, declared systems, the pack's own codes) from the mapping alone, for 23d's
+    `data_coverage.measure`, and `read_attachment` the reason an attachment was not read. The
+    golden is unchanged, and the four mappings written with `paths` and `resources` read every
+    case alike (`tests/test_fhir_mapping_03.py`, `tests/test_spec_03.py`). Merged with 23d:
+    `index` keeps `excused` on the new `Indexed`; the mapping is read through public
+    `Reading`, `read_field` (each path read, a `follow` resolved once a field) and `list_item`
+    (one resource of one source type), which `to_input` and `data_coverage` share; and
+    `data_coverage.measure` counts a 0.3 mapping against `fhir.looked_for` (the adapter's
+    `looked_for`): its code set's codes, the systems it selects on (else the declared ones for a
+    coded path, as 0.2), the values and codings at the paths it read in order until one gave a
+    value, a `follow`'s references and what they reached, a list of several types under
+    `sources`, and an `attachment_text` note that cannot be read by `read_attachment`'s reason,
+    which abstains as a `base64_text` one does. A 0.1 or 0.2 pack's record is byte for byte 23d's
+    (its paths, as the mapping says them, and its systems, the declared ones, kept), checked over
+    every golden case with failed reads and broken notes;
+    `tests/test_data_coverage.py::test_a_0_3_mapping_is_counted_against_what_each_field_looks_for`
+    and `::test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason`.
   - [ ] **23h** Linked notes, payer and medication, read under the EHR's FHIR server.
+    From the 23d and 23g merge: the data-coverage record counts a `follow`'s references and how
+    many it reached inside the record, but a reference that reaches nothing is not unreadable
+    yet. Once linked reads exist, a reference or a Binary `url` that was not read (no server,
+    `fhir/decide`, `$decide`) or could not be (`off_server`, `cap`, a failed read) should count
+    in `data_coverage` by its reason and abstain, and an `attachment_text` note whose Binary 23h
+    reads should be counted as read; `unreadable_notes` already abstains on an `attachment_text`
+    `not_fetched`, so a note 23h fetches into the record stops abstaining with no change there.
+    The `unsupported_type` abstain (an RTF or PDF note) is the plan's default
+    (`test_html_is_read_as_text_and_rtf_abstains`): a DocumentReference with a text rendition
+    beside a PDF one abstains too, which 23h should confirm or narrow.
   - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
-    automated.
+    automated. From the 23d and 23g merge: `data_coverage.measure` reads the record with no site
+    codes (`Reading.of(mapping, indexed)`), so once `decide_fhir` passes them to `to_input`,
+    pass them to `measure` too, or a `code_set` field's items and values can disagree with the
+    input.
   - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
     **The owner confirms the `show` list.**
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it

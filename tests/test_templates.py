@@ -76,7 +76,7 @@ def test_task_and_card_templates_name_answers(tmp_path: Path) -> None:
         "notes": searchset([r for r in RECORD if r["resourceType"] == "DocumentReference"]),
     }
     card = cds_hooks.invoke(decision, cds_request(prefetch))["cards"][0]
-    assert card["summary"] == "Candidate (T2D yes)"
+    assert card["summary"] == "Candidate (T2D Yes)"  # a card reads display names (LP-23f)
 
 
 def test_unknown_placeholders_are_refused_when_the_pack_loads(tmp_path: Path) -> None:

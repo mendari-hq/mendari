@@ -26,7 +26,7 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 |---|---|
 | The engine's HTTP surface: REST `/api`, FHIR `/fhir` (read, search, `$decide`), CDS Hooks, DTR, PAS, the sign-in routes `/auth`, the SMART launch `/smart` | `src/mendari/server/`, `src/mendari/standards/` |
 | Authentication and authorization: OIDC sign-in, sessions, API keys, scopes, SMART Backend Services, an EHR's own signed CDS Hooks token (LP-23b, [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md)) | `server/auth.py`, `server/sessions.py`, `server/scopes.py`, `server/backend_services.py`, `server/cds_clients.py`, `standards/oidc.py` |
-| Abuse controls: the body cap, rate limits, quotas, the Origin check | `server/app.py` (`BodyCap`, `_guard`), `server/limits.py`, `server/origin.py`, `core/decision.py` (`CallBudget`) |
+| Abuse controls: the body cap, rate limits, quotas, the Origin check, CORS on `/cds-services` for the CDS clients' registered origins (LP-23c) | `server/app.py` (`BodyCap`, `_guard`), `server/limits.py`, `server/origin.py`, `server/cors.py`, `core/decision.py` (`CallBudget`) |
 | What is stored: the audit chain, PHI modes, notes, the keyed input hash | `core/audit.py`, `core/phi.py`, `core/decision.py` |
 | What is logged | `server/security_log.py` |
 | The dashboard and the API reference in the browser: CSP, cookies, the vendored Swagger UI | `src/mendari/dashboard/`, `server/app.py` (`_security_headers`, `versioned_page`) |
@@ -79,7 +79,10 @@ only `discover` and `decide`, on `/cds-services` only, in its registered organiz
 S21 and E15). Machines are `viewer` or `service` only (but an organization's grading key, which only the operator mints, LP-11); managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin, but for a JWT on
 `/cds-services`, which is verified and is then a `cds` principal: that mode is for local use and
-the sandbox.
+the sandbox, and there `/cds-services` answers this machine only, unless the sandbox flag
+`MENDARI_CDS_SANDBOX=1` is set (threat E16, LP-23c). A CDS client's registered `origins` get
+CORS on `/cds-services` alone, never with credentials, and its token is refused from a page on
+any origin but those and this site's own (threat I16).
 
 ## What changed in Phases 4 and 4b
 
@@ -229,7 +232,8 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   `test_vendor.py`, `test_supply_chain.py`, `test_phi.py`, `test_notes.py`,
   `test_record_hygiene.py`, `test_fhir_client.py`, `test_smart.py`, `test_smart_sealing.py`,
   `test_smart_check.py`, `test_cds_clients.py` and `test_cds_auth.py` (an EHR's own CDS Hooks
-  token), and the browser suite in `tests/browser/`.
+  token), `test_cds_open_mode.py` and `test_cds_cors.py` (who may call the CDS services from
+  where), and the browser suite in `tests/browser/`.
   Tests marked "SQLite and Postgres" run on both when `MENDARI_TEST_DATABASE_URL` is set.
 - **CI** (`.github/workflows/ci.yml`): the job `security` (pip-audit, npm audit, an OWASP ZAP
   scan with sign-in on), `hub-site` (the Hub against a seeded registry, a pack whose text

@@ -1236,6 +1236,11 @@ def served(world: World, org: Org) -> None:
         200,
         json=pas,
     )
+    shown = hook["cards"][0]["uuid"]  # a card's feedback (LP-23f)
+    when = "2026-10-18T12:00:00-04:00"
+    sent = {"feedback": [{"card": shown, "outcome": "overridden", "outcomeTimestamp": when}]}
+    feedback = "/cds-services/mendari.prior-auth-preflight/feedback"
+    ok(service, ("POST", "/cds-services/{service_id}/feedback"), feedback, 200, json=sent)
     ordered = {"name": "order", "resource": hook["systemActions"][0]["resource"]}
     package = "/fhir/Questionnaire/$questionnaire-package"
     ok(service, ("POST", package), package, 200, json=package_request(ordered))

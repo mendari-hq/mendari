@@ -191,6 +191,36 @@ def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
     expect(dialog).to_have_count(0)
 
 
+@pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
+def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_server: str) -> None:
+    """A decision made from FHIR opens, from the link a card gives (`?pack=…#audit/<id>`,
+    LP-23f), on a panel of what it read (its data-coverage record): each mapped field and list,
+    the resources read, the values found and what could not be read, as counts, never as a
+    share; and the drawer passes axe in both themes. A decision on JSON input has no panel."""
+    from tests.browser.test_accessibility import violations  # it imports this module
+    from tests.test_fhir import BUNDLE
+
+    made = httpx.post(f"{live_server}/api/packs/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
+    assert made.status_code == 200, made.text
+    decision = made.json()["decision"]["id"]
+    axe_page.goto(f"/?pack={INBOX}#audit/{decision}")
+    panel = axe_page.locator(".drawer section.coverage")
+    expect(panel).to_be_visible()
+    expect(panel.get_by_role("heading", name="What it read")).to_be_visible()
+    table = panel.locator("table")
+    expect(table).to_contain_text("Focus: Communication")
+    expect(table.locator("th")).to_have_text(
+        ["Field", "Resources read", "Values found", "Codings", "Could not read"]
+    )
+    assert axe_page.evaluate(BARE_PERCENT_IN, ".drawer section.coverage") == []
+    assert not re.search(r"\d+\s+(?:of|out of|/)\s*\d+", panel.inner_text())  # no k of n
+    assert violations(axe_page) == []
+    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": GUARD, "limit": 1}).json()
+    axe_page.goto(f"/?pack={GUARD}#audit/{latest[0]['id']}")
+    expect(axe_page.get_by_role("dialog")).to_contain_text(latest[0]["id"])
+    expect(axe_page.locator(".drawer section.coverage")).to_have_count(0)
+
+
 def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
     """The pack is in the address, so a link beats whatever pack the viewer chose last, a record
     link opens over that pack's list, and moving between views keeps it."""
@@ -548,6 +578,19 @@ BARE_PERCENT = r"""() => {
     .replace(/The vertical axis starts at [\d.]+%/g, "")
     .match(/[^\n]{0,40}\d\s?%[^\n]{0,20}/g) ?? [];
 }"""
+
+
+# BARE_PERCENT over one element (`selector`) instead of `main`: a drawer's panel, say.
+BARE_PERCENT_IN = (
+    BARE_PERCENT.replace("() => {", "(selector) => {", 1)
+    .replace('document.querySelector("main")', "document.querySelector(selector)", 1)
+    .replace(
+        'document.querySelectorAll("main [aria-label], main [title]")',
+        'document.querySelector(selector).querySelectorAll("[aria-label], [title]")',
+        1,
+    )
+)
+assert "main" not in BARE_PERCENT_IN.split("return")[0]
 
 
 @pytest.mark.parametrize(

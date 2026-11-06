@@ -86,6 +86,7 @@ from mendari.errors import (
     ReviewError,
     ScopeError,
     SmartError,
+    UnknownCard,
 )
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.compare import FROM_REGISTRY, not_compared
@@ -122,7 +123,8 @@ from mendari.server.backend_services import (
     oauth_error,
     throttled,
 )
-from mendari.server.cds_clients import cds_clients, fhir_server_allowed
+from mendari.server.cds_clients import CdsOpenMode, cds_clients, cds_sandbox, fhir_server_allowed
+from mendari.server.cors import Cors
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
@@ -143,7 +145,7 @@ from mendari.standards.pas import X12_CODE, PasError
 from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
 from mendari.standards.search import stored as stored_instant
-from mendari.standards.smart import smart_ehrs, smart_settings
+from mendari.standards.smart import registration, smart_ehrs, smart_settings
 from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -167,6 +169,7 @@ _STATUS = {
     LabelError: 422,  # names the question, never the value
     NoEvalset: 404,  # unknown or another organization's set: one answer (LP-11k)
     CdsHooksError: 400,
+    UnknownCard: 404,  # card feedback: unknown, another's or another caller's, one answer
     RateLimited: 429,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
@@ -808,9 +811,13 @@ def create_app(
     ehrs = smart_ehrs()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
+    trusted = trusted_origins()  # this site's other origins: a malformed one fails here
     # The CDS clients whose own signed tokens are principals (LP-23b): unset, none; anything
     # wrong in the list (or a missing public URL) fails here, at startup, naming the entry.
-    cds = cds_clients(signed_in=sign_in is not None, ehrs=ehrs)
+    cds = cds_clients(signed_in=sign_in is not None, ehrs=ehrs, trusted=trusted)
+    # Open mode answers CDS Hooks on this machine only, or from anywhere under the sandbox flag
+    # (LP-23c), which fails here on Vercel or with sign-in on.
+    cds_open = CdsOpenMode(sandbox=cds_sandbox(signed_in=sign_in is not None))
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     launch = smart_options is not None  # a launch fetches the patient's record
     # and plaintext where it must not be: never with sign-in, never on the hosted site
@@ -864,8 +871,10 @@ def create_app(
         lifetime=session_lifetime,
         ehrs=ehrs if smart_options is not None else None,
         cds=cds,
+        cds_open=cds_open,
     )
-    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
+    cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
+    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted, cds_origins=cds_origins)
     limiter = Limiter(store, rate_limits)
     # The daily cap per principal (MENDARI_PRINCIPAL_DAILY_LIMIT): sign-in only.
     cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
@@ -2520,7 +2529,54 @@ def create_app(
                 if capped is not None:
                     raise capped
 
-        return cds_hooks.invoke(decision_for(pack.id), request, most=most_orders, charge=charge)
+        links = card_links(caller, request.get("fhirServer"))
+        return cds_hooks.invoke(
+            decision_for(pack.id), request, most=most_orders, charge=charge, links=links
+        )
+
+    def card_links(caller: Principal, fhir_server: object) -> cds_hooks.CardLinks:
+        """Where this request's cards may link (LP-23f): the audit view under
+        `MENDARI_PUBLIC_URL`, read on each request as the FHIR base is, and the pack's SMART
+        launch only when SMART is on and the request's `fhirServer` is registered for launches
+        (`MENDARI_SMART_EHRS`) to the caller's own organization."""
+        public = os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/") or None
+        if public is None or urlsplit(public).scheme not in ("http", "https"):
+            return cds_hooks.CardLinks()
+        found = (
+            registration(ehrs, fhir_server)
+            if smart_options is not None and isinstance(fhir_server, str)
+            else None
+        )
+        org = caller.org if caller.org is not None else tenancy.DEFAULT_ORG
+        return cds_hooks.CardLinks(public_url=public, launch=found is not None and found.org == org)
+
+    @app.post(
+        "/cds-services/{service_id}/feedback",
+        tags=["FHIR and CDS Hooks"],
+        summary="Feedback on a CDS Hooks service's cards",
+    )
+    def cds_feedback(service_id: str, body: cds_hooks.CardFeedback) -> dict[str, Any]:
+        """CDS Hooks 2.0 feedback: what the clinician did with each card (1 to 50), accepted with
+        the suggestion taken or overridden, with one of the reasons the card offered or none,
+        and when. Each is chained on the card's decision as `card.feedback`, codes and ids only:
+        `userComment` is never kept. All or nothing: a suggestion or reason the card did not
+        offer is a `422`; a card that is not a decision of this service's pack in your
+        organization, or, with sign-in on (and for a CDS client's token), not one you asked
+        for, is one `404` for them all, and nothing is recorded. Not counted against the daily
+        cap: it decides nothing."""
+        pack = next(
+            (
+                p
+                for p in packs.values()
+                if p.manifest.cds_hooks is not None and cds_hooks.service_id(p) == service_id
+            ),
+            None,
+        )
+        if pack is None:  # a pack with no hook makes no card
+            raise PackNotFoundError(f"no CDS service {service_id!r}")
+        items = [item.chained() for item in body.feedback]
+        recorded = store.record_card_feedback(pack.id, service_id, items)
+        return {"recorded": len(recorded)}
 
     @app.post(
         "/api/packs/{namespace}/{name}/pas",
@@ -2927,6 +2983,10 @@ def create_app(
         with acting:
             response: Response = await call_next(request)
         return response
+
+    # Outside the guard, so a registered origin's preflight is answered before it and its
+    # refusals carry CORS too; inside the security headers and the request log (LP-23c).
+    app.add_middleware(Cors, origins=cds_origins)
 
     csp = content_security_policy(page)
 

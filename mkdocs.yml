@@ -70,6 +70,7 @@ nav:
       - Running a pack registry: operations/registry.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
+      - Decision Pack spec 0.3 (FHIR mapping): spec/decision-pack-0.3.md
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md
       - Decision Pack spec 0.1: spec/decision-pack-0.1.md

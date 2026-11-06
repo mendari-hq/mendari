@@ -29,8 +29,9 @@ a person can quote it and the line be found.
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships
 mode adds the reason `no_organization_record`; a CDS client's token refused, `cds_<reason>`,
 with the client its `iss` names as `cds:<id>` once it names one), `auth.permission.refused`
-(and the reasons `no_organization`, `org_changed`, `not_a_member`, `cds_only` and
-`cds_fhir_server_not_registered`), `cds.jwks.refused` (a CDS client's keys could not be
+(and the reasons `no_organization`, `org_changed`, `not_a_member`, `cds_only`,
+`cds_fhir_server_not_registered` and `open_mode_remote`: open mode's CDS Hooks services asked
+from another machine), `cds.jwks.refused` (a CDS client's keys could not be
 fetched, `unreachable`, or were not public signing keys, `invalid_keys`),
 `auth.organization.selected` and `auth.access.requested` (memberships mode: a person choosing
 one of their organizations, and asking to join one, refused as `unknown_organization`, `member`
@@ -39,7 +40,8 @@ or `open_requests`),
 `other_address` or `member`, with no organization),
 `admin.invitation.created|revoked`, `admin.membership.roles_changed|removed` and
 `admin.access.granted|refused` (an organization's administrators managing its people),
-`auth.origin.refused` (another site's request, server/origin.py),
+`auth.origin.refused` (another site's request, server/origin.py; or `cds_origin`, a CDS
+client's token from a page on an origin that is not the client's, with its `cds:<id>`),
 `auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session,
 with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:
 `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `unregistered`, `user_type` and the

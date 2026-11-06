@@ -25,7 +25,7 @@ hash-chained audit record.
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
 | let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
-| know exactly what a pack may contain | [The Decision Pack spec](spec/decision-pack-0.2.md) |
+| know exactly what a pack may contain | [The Decision Pack spec](spec/decision-pack-0.2.md), and the FHIR mapping of [0.3](spec/decision-pack-0.3.md) |
 | understand how the engine works | [Architecture](architecture.md) |
 | review its security | [Threat model](security/threat-model.md) |
 | see where the project is going | [Roadmap](roadmap.md) |

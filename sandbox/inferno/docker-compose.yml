@@ -40,6 +40,9 @@ services:
     image: mendari-engine:inferno
     environment:
       MENDARI_PHI_MODE: "off"
+      # Inferno and the inputs script reach this open engine over Docker's network, never from
+      # loopback, so its CDS Hooks services answer only under the sandbox flag (LP-23c).
+      MENDARI_CDS_SANDBOX: "1"
       MENDARI_PACKS: mendari/prior-auth-preflight
       MENDARI_PUBLIC_URL: http://engine:8000
     ports:
