@@ -1,0 +1,177 @@
+# SPDX-License-Identifier: Apache-2.0
+# Inferno's CRD server, SMART App Launch client and Bulk Data client suites against Mendari, on
+# synthetic data only (LP-23l, sandbox/inferno/README.md, "The scripted suites"). Standalone, as
+# sandbox/inferno/docker-compose.yml (the DTR suite) is: neither stacks on the root
+# docker-compose.yml, whose `engine` service the two would merge with.
+#
+# These suites wait for calls (a hook's answer, a SMART launch, a Bulk export), which only
+# Inferno's web app serves and only its worker resumes, so they run through the web app's REST
+# API (scripts/inferno_session.py), never with `inferno execute`. One suite per `up`, then
+# `down --volumes`:
+#
+#   docker compose -f sandbox/inferno/scripted/docker-compose.yml build engine inferno
+#   uv run python scripts/inferno_scripted_inputs.py crd --out var/inferno/crd_server_v221_inputs.json
+#   docker compose -f sandbox/inferno/scripted/docker-compose.yml up -d --wait engine-signin nginx
+#   uv run python scripts/inferno_session.py crd_server_v221 \
+#     --inputs var/inferno/crd_server_v221_inputs.json --groups 1 2 3.4 4 \
+#     --out var/inferno/crd_server_v221_results.json --tests var/inferno/crd_server_v221_tests.json
+#   uv run python scripts/inferno_check.py var/inferno/crd_server_v221_results.json \
+#     --expected sandbox/inferno/crd_server_v221_expected.json \
+#     --tests var/inferno/crd_server_v221_tests.json
+#   docker compose -f sandbox/inferno/scripted/docker-compose.yml down --volumes
+#
+# Every image is pinned by digest, or built here from a pinned base (the engine from the
+# repository's Dockerfile, the kits from ./Dockerfile). Inferno is given only this network's
+# addresses: INFERNO_HOST is the internal nginx, and FHIR_REFERENCE_SERVER, the server the Bulk
+# client suite passes an export on to, is this project's own HAPI (`fhir`). The validator
+# fetches the implementation guides it loads from packages.fhir.org, and validates without a
+# terminology server (offline_terminology.rb). Each JVM's heap is capped (JAVA_TOOL_OPTIONS),
+# so one suite's services fit in 8 GB.
+name: mendari-inferno-scripted
+
+x-inferno-environment: &inferno-environment
+  FHIR_RESOURCE_VALIDATOR_URL: http://hl7_validator_service:3500
+  FHIRPATH_URL: http://fhirpath:6789
+  REDIS_URL: redis://redis:6379/0
+  # The kits' URLs (a CRD token's iss and jku, the SMART and Bulk endpoints, each resume URL)
+  # are built on this host, by the web app and the worker alike, so both take it from here.
+  INFERNO_HOST: http://nginx
+  FHIR_REFERENCE_SERVER: http://fhir:8080/fhir
+  # No validator session is warmed up at boot for every suite the kits carry: a run's validator
+  # sessions start when its tests first validate.
+  INITIALIZE_VALIDATOR_SESSIONS: "false"
+
+services:
+  engine:
+    # Mendari in open mode (no sign-in), PHI mode `off`, for the SMART App Launch and Bulk Data
+    # client suites: Inferno plays the EHR (its authorization server and FHIR server, at
+    # http://nginx), and the engine is the client. One pack, so a launch needs no `pack`
+    # (Inferno adds `iss` and `launch` to the registered launch URL, and nothing else). The
+    # scopes leave out `openid fhirUser`: the kit's SMART configuration has no jwks_uri and its
+    # id_token no nonce, both of which Mendari's sign-in refuses (sandbox/inferno/README.md).
+    build:
+      context: ../../..
+    image: mendari-engine:inferno
+    environment:
+      MENDARI_PHI_MODE: "off"
+      MENDARI_PACKS: mendari/referral-router
+      MENDARI_PUBLIC_URL: http://engine:8000
+      MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
+      MENDARI_SMART_CLIENT_ID: mendari-sandbox
+      MENDARI_SMART_SCOPES: launch patient/*.rs
+    ports:
+      - "127.0.0.1:${MENDARI_INFERNO_ENGINE_PORT:-8090}:8000"
+
+  engine-signin:
+    # The engine with sign-in on, for the CRD server suite: Inferno is the EHR's CDS client,
+    # registered as an EHR is (docs/guides/connecting-an-ehr.md), deciding for organization
+    # `pilot`. Its tokens' iss is http://nginx/custom/crd_server_v221 (INFERNO_HOST plus the
+    # suite's path), their jku that plus /jwks.json, and the fhirServer it sends that plus /fhir.
+    # A token's aud is MENDARI_PUBLIC_URL plus the path called, so it is the URL the inputs give
+    # Inferno (`base_url`). Nobody signs in to Mendari here: the issuer turns sign-in on and is
+    # never called. The kit's signing keys are in its public repository, so this registration
+    # belongs in this sandbox only, never in a deployment.
+    image: mendari-engine:inferno
+    pull_policy: never
+    environment:
+      MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
+      MENDARI_PUBLIC_URL: http://engine-signin:8000
+      MENDARI_CDS_CLIENTS: '[{"id": "inferno-crd", "title": "Inferno CRD test kit (sandbox only)", "iss": "http://nginx/custom/crd_server_v221", "org": "pilot", "fhir_servers": ["http://nginx/custom/crd_server_v221/fhir"], "jwks_uri": "http://nginx/custom/crd_server_v221/jwks.json"}]'
+      MENDARI_OIDC_ISSUER: https://idp.example.org
+      MENDARI_OIDC_CLIENT_ID: mendari-sandbox
+      MENDARI_OIDC_ORG_CLAIM: org
+      # Sign-in never runs PHI mode `off`: `encrypt`, with two keys made for the run in the
+      # shell (`python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`),
+      # never committed. Without them this engine stops, naming the key it lacks.
+      MENDARI_PHI_MODE: encrypt
+      MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
+      MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
+    ports:
+      - "127.0.0.1:${MENDARI_INFERNO_SIGNIN_PORT:-8091}:8000"
+
+  inferno:
+    # The kits' web app: the REST API the driver uses, the endpoints each suite serves (the CRD
+    # Mock EHR and JWK Set, the SMART and Bulk servers) and the resume URLs.
+    build:
+      context: .
+    image: mendari-inferno-scripted:0.15.0
+    environment: *inferno-environment
+    volumes:
+      - inferno-data:/opt/inferno/data
+    depends_on:
+      redis:
+        condition: service_started
+
+  worker:
+    # Runs what a session starts through the web app, on the same database (the named volume,
+    # which starts as the image's migrated one): a run the web app queued reaches it there.
+    # It starts after the web app, which fills the new volume from the image first (two
+    # containers filling one new volume at once collide). Its image is the one `inferno` builds
+    # here, never one pulled by that name.
+    image: mendari-inferno-scripted:0.15.0
+    pull_policy: never
+    command: ["bundle", "exec", "sidekiq", "-r", "./worker.rb"]
+    environment: *inferno-environment
+    volumes:
+      - inferno-data:/opt/inferno/data
+    depends_on:
+      inferno:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+
+  hl7_validator_service:
+    # Only the CRD suite validates resources (the SMART and Bulk client suites define no
+    # validator), but nginx resolves every service it proxies to as it starts, so each run has
+    # it: idle, it holds no implementation guide.
+    image: infernocommunity/inferno-resource-validator:1.0.84@sha256:92ec7a22e3c6f4cdf5eed9db210150a93531034e100c7521e4930c975b3c9058
+    environment:
+      SESSION_CACHE_DURATION: "-1"  # minutes; a run's sessions last as long as the service
+      JAVA_TOOL_OPTIONS: -Xmx3g
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3500/validator/version"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  fhirpath:
+    image: infernocommunity/fhirpath-service:v0.1.0@sha256:067880db1ccbefb2c57060f43a81edf93b645cffcf37b63a3b8f9b114fffa2cb
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx512m
+
+  fhir:
+    # The FHIR server behind the Bulk client suite's export (FHIR_REFERENCE_SERVER): the kit
+    # passes the kick-off and the status requests on to it, and serves its files under its own
+    # URL. The root sandbox's HAPI, by the same digest, seeded with synthetic patients only.
+    profiles: [bulk]
+    image: hapiproject/hapi:v8.12.0-1@sha256:d7f38d3676900b07e8a7d3500426eaf8d90ea9ced9a6726416f080f68e230fb0
+    environment:
+      hapi.fhir.fhir_version: R4
+      hapi.fhir.default_encoding: json
+      spring.datasource.url: jdbc:h2:mem:mendari
+      hapi.fhir.bulk_export_enabled: "true"
+      JAVA_TOOL_OPTIONS: -Xmx1g
+
+  nginx:
+    # Inferno's host (INFERNO_HOST) for the engines, and the driver's way in, on this machine
+    # only: http://127.0.0.1:4580.
+    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    volumes:
+      - ../nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:${MENDARI_INFERNO_UI_PORT:-4580}:80"
+    depends_on:
+      inferno:
+        condition: service_started
+      worker:
+        condition: service_started
+      hl7_validator_service:
+        condition: service_healthy
+      fhirpath:
+        condition: service_started
+
+volumes:
+  inferno-data:

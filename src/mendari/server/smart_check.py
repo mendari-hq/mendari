@@ -14,13 +14,21 @@ It reports, in order:
 4. the SMART client: `MENDARI_SMART_CLIENT_ID` set, and scopes the launch accepts (no
    `offline_access`; with sign-in on, `openid fhirUser`);
 5. discovery: the EHR's `.well-known/smart-configuration`, its endpoints on the allow-list;
-6. PKCE: `S256` among the methods the EHR names;
-7. the JWKS: the keys that verify the id_token, at least one usable (RS256 or ES384).
+6. scopes (SMART on): each scope the launch asks for among the EHR's `scopes_supported`, in
+   SMART v1 or v2 form (`patient/*.*` covers `patient/*.rs`, a type wildcard covers a type,
+   and scopes published apart count together);
+7. PKCE: `S256` among the methods the EHR names;
+8. the JWKS: the keys that verify the id_token, at least one usable (RS256 or ES384).
 
 Only the EHR's own servers are called, through the same allow-listed client as a launch (none
 when the base is not allowed), and only for its public configuration and keys: no launch, no
-token. Each finding is `ok`, `warn` (works, but check it) or `fail` (launches will be refused,
-or their decisions reach no reviewer).
+token. Each finding is `ok`, `warn` (works, but check it), `unknown` (the EHR does not say, so
+nothing is assumed: ask it) or `fail` (launches will be refused, or their decisions reach no
+reviewer). Only `fail` makes the command exit 1, and `unknown` is never `ok`.
+
+A scope the EHR does not publish is `fail` (LP-23 plan, decision 56), though SMART 2.2.0 says
+`scopes_supported` need not be exhaustive, so an EHR may grant a scope it does not list: the
+detail says so. Whether that should be `warn` instead is the owner's question.
 """
 
 from __future__ import annotations
@@ -32,6 +40,7 @@ from typing import Any
 
 from mendari.core import accounts
 from mendari.errors import FhirError, MendariError
+from mendari.server import scopes
 from mendari.server.auth import DEFAULT_ORG, auth_settings
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
@@ -39,7 +48,7 @@ from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_o
 
 @dataclass(frozen=True)
 class Finding:
-    status: str  # "ok", "warn" or "fail"
+    status: str  # "ok", "warn", "unknown" or "fail"
     check: str
     detail: str
 
@@ -124,6 +133,8 @@ def check(base: str) -> list[Finding]:
     with GuardedHttp(allowed=allowed) as http:
         config = _discovery(key, http, say)
         if config is not None:
+            if settings is not None:  # SMART on: there are scopes to compare
+                _scopes(config, settings.scopes, say)
             _pkce(config, say)
             _jwks(config, http, say)
     return found
@@ -147,6 +158,62 @@ def _discovery(key: str, http: GuardedHttp, say: Say) -> dict[str, Any] | None:
     issuer = config.get("issuer") or key
     say("ok", "discovery", f"issuer {issuer}; authorize and token on the allow-list")
     return config
+
+
+def _scopes(config: dict[str, Any], asked: str, say: Say) -> None:
+    """Each scope a launch asks for (`MENDARI_SMART_SCOPES`) among those the EHR publishes. Only
+    Mendari's own scopes are named, never the EHR's text. An empty list says nothing either."""
+    wanted = list(dict.fromkeys(asked.split()))
+    published = config.get("scopes_supported")
+    if (
+        not published
+        or not isinstance(published, list)
+        or not all(isinstance(s, str) for s in published)
+    ):
+        say(
+            "unknown",
+            "scopes",
+            "the SMART configuration lists no scopes_supported, so nothing is assumed: ask the "
+            f"EHR whether it grants {' '.join(wanted)}",
+        )
+        return
+    missing = [scope for scope in wanted if not _published(scope, published)]
+    if missing:
+        say(
+            "fail",
+            "scopes",
+            f"the EHR does not publish {' '.join(missing)}. Its scopes_supported need not list "
+            "every scope it grants (SMART 2.2.0): ask the EHR, or change MENDARI_SMART_SCOPES",
+        )
+    else:
+        say(
+            "ok",
+            "scopes",
+            f"{' '.join(wanted)}: each among the {len(published)} the EHR publishes",
+        )
+
+
+def _published(asked: str, published: list[str]) -> bool:
+    """Whether a scope a launch asks for is among an EHR's published scopes: the same scope, or
+    the resource scopes of the same context (patient/, user/, system/) for the same type or `*`
+    whose permissions together include every one it asks, SMART v1 or v2 either side
+    (`patient/*.*`, or `patient/*.r` with `patient/*.s`, covers `patient/*.rs`); a granular
+    scope (`?param=`) also by the same without its query."""
+    if asked in published:
+        return True
+    wanted = scopes.resource_scope(asked)
+    if wanted is None:
+        return False
+    offered: set[str] = set()
+    for found in map(scopes.resource_scope, published):
+        if (
+            found is not None
+            and found.context == wanted.context
+            and found.type in ("*", wanted.type)
+            and found.query in ("", wanted.query)
+        ):
+            offered |= found.letters
+    return wanted.letters <= offered
 
 
 def _pkce(config: dict[str, Any], say: Say) -> None:

@@ -9,12 +9,17 @@ Order of evaluation:
    provider failures, and the pack's risk level. A deploying organisation may
    lift the risk cap for levels 2-3 with a named, recorded governance approval; level 4 can
    never run autonomously, nor can a community pack at any level.
+4. The `site_code` cap (LP-23i): an input that took a value through a site's translation of its
+   own code (`core/site_codes.py`) never automates, and a rule's BLOCK on it goes to a person
+   (a block is final at once). Nothing lifts it, governance included: a site's configuration
+   never makes AUTO, or a final BLOCK, that the pack alone could not. A decision already going
+   to a person (HUMAN_REVIEW, ABSTAIN) keeps its outcome and gets the same reason.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 
 from mendari.core.spec import Condition, Outcome, PackManifest, Priority, RiskLevel
@@ -69,13 +74,18 @@ def apply_policy(
     community: bool = False,
     hold: str | None = None,
     blocks_to_person: str | None = None,
+    site_code: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
     (`core/origin.py`) recommends and never automates, whatever its rules or confidence. A
     `hold` (why automation is stopped: an operator's hold, a used-up quota) turns AUTO into
     HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why a pack from a registry may
-    not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well."""
+    not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well. `site_code` names the
+    code sets a site's translation gave the input a value through (LP-23i): with any, AUTO and
+    a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
+    nothing else changes."""
+    translated = tuple(sorted(set(site_code)))
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -133,10 +143,31 @@ def apply_policy(
             "a community pack (not clinically reviewed) never blocks on its own: a person decides"
         )
         outcome = Outcome.HUMAN_REVIEW
+    if translated and rule_name is not None and outcome is Outcome.BLOCK:
+        # A rule's BLOCK on an input read through a site's translation (LP-23i): a wrong
+        # translation must reach a person, and a block is final at once and seen by nobody.
+        reasons.append(
+            f"site code translated ({', '.join(translated)}): a person decides instead of its "
+            "rule's BLOCK"
+        )
+        outcome = Outcome.HUMAN_REVIEW
     if outcome is Outcome.AUTO:
         outcome = _cap(
-            manifest, recommendation, failures, governance, variants or {}, reasons, community, hold
+            manifest,
+            recommendation,
+            failures,
+            governance,
+            variants or {},
+            reasons,
+            community,
+            hold,
+            translated,
         )
+    site_reason = f"site code translated ({', '.join(translated)}): a person decides"
+    if translated and not any(reason.startswith(site_reason) for reason in reasons):
+        # Already HUMAN_REVIEW or ABSTAIN: the reason only says a translation was read, for the
+        # person who decides; it changes no outcome.
+        reasons.append(site_reason)
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
@@ -170,9 +201,14 @@ def _cap(
     reasons: list[str],
     community: bool,
     hold: str | None = None,
+    site_code: Sequence[str] = (),
 ) -> Outcome:
-    """AUTO, or HUMAN_REVIEW with why. A hold keeps the reason the other caps would give too."""
+    """AUTO, or HUMAN_REVIEW with why. The site code cap and a hold keep the reason the other
+    caps would give too."""
     outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
+    if site_code:
+        reasons.append(f"site code translated ({', '.join(site_code)}): a person decides")
+        outcome = Outcome.HUMAN_REVIEW
     if hold is not None:
         reasons.append(f"automation is on hold: {hold}")
         return Outcome.HUMAN_REVIEW

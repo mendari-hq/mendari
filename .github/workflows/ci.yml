@@ -235,7 +235,9 @@ jobs:
     # and the engine. The inbox and referral packs run from a scripted SMART EHR launch, and every
     # input they decide on conforms to US Core. A second engine (profile `signin`) has sign-in on
     # and the launcher registered for organization `pilot` (ADR-0006): its launches must decide
-    # in that organization, chained as the launcher's `<issuer>|<subject>`.
+    # in that organization, chained as the launcher's `<issuer>|<subject>`. Last, a signed CDS
+    # client (compose service `cds-client`, LP-23e) calls both engines' CDS Hooks services over
+    # HTTP with its own tokens, on the vendor-shaped EHR profile.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -298,6 +300,12 @@ jobs:
         run: >-
           docker compose exec -T engine mendari sandbox bulk-check
           --fhir http://fhir:8080/fhir --pack mendari/referral-router
+      - name: A signed CDS client over HTTP, on the open engine (sandbox flag) and the signed-in one
+        # LP-23e: another container seeds the vendor-shaped EHR profile, serves its JWK Set and
+        # calls discovery and every standard hook with its own ES384 tokens, as an EHR does. Any
+        # answer but a 200, a hook answer that is not CDS Hooks', or a card saying a read failed
+        # (anything unread but a linked note), fails the job.
+        run: docker compose --profile signin run --rm -T --use-aliases cds-client
       - if: failure()
         run: docker compose --profile signin logs --tail 200
 

@@ -115,6 +115,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     ),
     "sandbox seed": (["--fhir", DEAD, "--wait", "1"], {}),
     "sandbox worker": (["--fhir", DEAD, "--engine", DEAD, "--once"], {}),
+    "sandbox cds-client": (["--engine", DEAD, "--fhir", DEAD, "--listen", "127.0.0.1:0"], {}),
     "sandbox smart-launch": (["--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD], {}),
     "sandbox pilot-check": (["--engine", DEAD], {}),
     "sandbox payer": (["--port", "0"], {}),

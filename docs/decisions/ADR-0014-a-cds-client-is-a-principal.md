@@ -1,14 +1,50 @@
 # ADR-0014: A CDS client is a principal, and a record it cannot read abstains
 
 ## Status
-Proposed (2026-10-17). It amends [ADR-0006](ADR-0006-an-ehr-launch-is-a-principal.md)'s rule that
-the narrow EHR principal exists only for SMART launches. It is built in steps (LP-23,
-`tasks/todo.md`), and each step records here what it built when it lands:
-- 23b, the registry of CDS clients, the token verifier and the `cds` principal;
-- 23c, open mode on this machine only, and CORS for registered origins;
-- 23d, a recorded ABSTAIN on an unreadable record, and the data-coverage record.
+Accepted (2026-11-06, LP-23m). Proposed 2026-10-17. It amends
+[ADR-0006](ADR-0006-an-ehr-launch-is-a-principal.md)'s rule that the narrow EHR principal exists
+only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
+`notes/lp23-plan.md`). What landed, in the order it was built:
+- 23a (#256), this record, the plan, the Epic sandbox checklist
+  (`notes/epic-sandbox-checklist.md`), the EHR scorecard (`notes/ehr-scorecard.md`) and a golden
+  of today's FHIR decisions;
+- 23b (#262), decisions 1 to 4: the registry of CDS clients, the token verifier and the `cds`
+  principal;
+- 23d (#264), decisions 7 and 8: a recorded ABSTAIN on an unreadable record, and the
+  data-coverage record;
+- 23c (#269), decisions 5 and 6: open mode on this machine only, and CORS for registered origins;
+  23f (#270), cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (the card's `uuid`
+  its decision's id, `selectionBehavior`, three neutral override reasons, and
+  `POST /cds-services/{id}/feedback` chained as `card.feedback`); and 23g (#271), the FHIR
+  mapping syntax 0.3, which no shipped pack adopts yet. 23c and 23f landed on main with 23g,
+  through #271;
+- 23e (#280, the LP-23 lane), a vendor-shaped synthetic EHR profile (`sandbox/ehr_profile.py`)
+  and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
+  against both engines;
+- 23h (#280), linked record data under the EHR's FHIR server: a note by its Binary link, the
+  payer and the medication by reference, at most 20 reads a decision;
+- 23i (#280), a site code map per organization (`MENDARI_SITE_CODES`), versioned, its digest in
+  each decision's record, and a decision that used it never automated;
+- 23l (#280), conformance outside the unit tests: Inferno's CRD server, SMART client and Bulk
+  client suites (`conformance.yml`), the HL7 validator with a terminology server on a schedule
+  (`terminology.yml`), and `mendari smart check` against the EHR's published scopes;
+- 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
+  risks, this status, the scorecard graded again, and the end-to-end test
+  (`tests/test_ehr_pilot_e2e.py`).
 
-23a wrote this record and the plan. What each step has built since:
+What stays open. 23j (the inbox's card template, and referral cards only when action is needed)
+waits on the owner's confirmation of the referral `show` list. 23k (the reference packs' mappings
+for real EHR data, on spec 0.3) waits on the owner's go-ahead, with a clinician's note on the
+MedicationRequest rule (B21). The Epic sandbox run, in which every pack with a standard hook
+decides on Epic's sandbox patients (A12.acc-3), and `mendari smart check` against Epic are the
+owner's. Gate G5-6's `a12-ehr-pilot` names all three as pending. `conformance.yml`'s new jobs
+(`crd-server`, `smart-client`, `bulk-client`) have not run on GitHub yet (its `dtr-payer` job
+already runs weekly on main), and `terminology.yml` has not run at all: their first runs on main
+are recorded in the `tasks/todo.md` build log after they happen. Refresh tokens and iframe mode
+stay unbuilt until the sandbox shows that Epic needs them. The defaults below hold unless the
+owner chooses otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
+
+What the first three steps built, with the details they settled:
 
 - **23b (2026-10-18):** decisions 1 to 4, in `server/cds_clients.py` (the registry, the key
   cache and the verifier) and `server/auth.py` (the `cds` principal and the CDS branch of the
@@ -52,8 +88,6 @@ the narrow EHR principal exists only for SMART launches. It is built in steps (L
   when the Coverage was read; neither prefetch nor `fhirServer` is a `412`, and request faults
   stay `4xx`. Every FHIR decision's record carries `data_coverage` (`standards/data_coverage.py`).
   The SMART launch's decide reads its record the same way.
-
-The defaults below hold unless the owner chooses otherwise.
 
 ## Context
 An EHR calls a CDS Hooks service with its own signed token. Mendari cannot take one today:
@@ -166,6 +200,10 @@ there amends ADR-0006.
   notes, for one) the packs may abstain often, and the data-coverage counts show it.
 - The only thing stored is the `jti` claims, which expire. Rolling back past 23b turns an EHR's
   tokens back into refusals.
+- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps five
+  residual risks of this design: trust in the EHR's key and its rotation, a compromised `jku`
+  host, the decision id disclosed to the EHR, a misconfigured site map, and frequent abstention
+  on RTF-heavy records.
 
 ## Alternatives Considered
 - **An EHR's token as a Mendari key.** Rejected: a key is Mendari's secret, handed to the EHR;

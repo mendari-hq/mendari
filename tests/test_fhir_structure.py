@@ -25,7 +25,7 @@ from jsonschema import Draft6Validator, ValidationError, validators
 from mendari.core.decision import Decision
 from mendari.core.spec import Outcome
 from mendari.errors import FhirStructureError
-from mendari.sandbox.fhir_workflow import INBOX, REFERRAL, seed_bundle
+from mendari.sandbox.fhir_workflow import EHR_PROFILE, INBOX, REFERRAL, seed_bundle
 from mendari.server.app import create_app
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir_structure import check
@@ -221,6 +221,7 @@ def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     documents = {name: load(name) for name in names}
     documents["sandbox-inbox"] = seed_bundle(INBOX, 20)
     documents["sandbox-referral"] = seed_bundle(REFERRAL, 40)
+    documents["sandbox-ehr-profile"] = seed_bundle(EHR_PROFILE, 0)  # LP-23e
     davinci = tmp_path_factory.mktemp("davinci")
     load_script("davinci_sample").main(davinci)
     for path in sorted(davinci.glob("*.json")):
@@ -232,8 +233,9 @@ def test_the_samples_are_clean_for_both(
     samples: dict[str, Any], jsonschema_check: Callable[[Any], list[ValidationError]]
 ) -> None:
     # 11 Da Vinci samples: PAS with every X12 code, and only required; DTR with a warning too;
-    # CRD's `indeterminate` coverage over a record that could not be read (LP-23d)
-    assert len(samples) == 17
+    # CRD's `indeterminate` coverage over a record that could not be read (LP-23d); and the
+    # sandbox's vendor-shaped EHR profile (LP-23e)
+    assert len(samples) == 18
     for name, document in samples.items():
         assert check(document) == [], name
         assert jsonschema_check(document) == [], name

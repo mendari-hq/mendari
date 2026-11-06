@@ -17,6 +17,12 @@ resolved inside the record and never fetched; the `attachment_text` transform; `
 the `code_set` selector; and list `resources`, several resource types into one list, with the
 `medication_period` derivation. A 0.1 or 0.2 pack that uses any of them is refused, and maps as
 it always did. `FhirAdapter.looked_for` says what each field and list looks for.
+
+The mapping never fetches. A CDS hook and the SMART launch's decide may first read what a 0.3
+mapping reaches by a link the record does not hold (`standards/linked.py`, LP-23h): each
+resource read is added to the record (`Indexed.link`) and found by the reference that named it,
+and each link not read keeps its reason (`Indexed.unread`), which the data-coverage record
+counts.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ import base64
 import html
 import re
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -42,7 +48,7 @@ from mendari.core.templates import (
     template_problems,
     unknown_placeholders,
 )
-from mendari.errors import FhirError, FhirStructureError, PackValidationError
+from mendari.errors import FhirError, FhirStructureError, PackValidationError, ReadReason
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
@@ -67,6 +73,14 @@ _RELATIVE = re.compile(
     r"^(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})(?:/_history/[A-Za-z0-9.-]{1,64})?$"
 )
 _CODE_SET = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+# A reference a runtime may read from a FHIR server (LP-23h, `link_target`): `Type/id`,
+# optionally of one version, relative or ending an absolute http(s) URL with no query. A URL's
+# scheme matches in any case, as RFC 3986 has it (and as `_ABSOLUTE` matches it).
+_LINK = re.compile(
+    r"^(?:(?i:https?)://[^\s?#]+/)?(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})"
+    r"(?:/_history/[A-Za-z0-9.-]{1,64})?$"
+)
+_ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 
 SPEC_03 = "0.3"  # the spec version whose mapping keys this module adds
 # Spec 0.3's bounds for a pack the deployment does not own (`Pack.bounded`), and for every pack
@@ -85,10 +99,16 @@ ENTERED_IN_ERROR = "entered-in-error"  # a MedicationRequest so marked is left o
 
 # Why an attachment's text was not read (`read_attachment`): reasons of the data-coverage
 # record's closed set (`READ_REASONS`, LP-23d).
-UNSUPPORTED_TYPE = "unsupported_type"  # not text/plain or text/html, or no content type
+# Not text/plain or text/html, or no content type; or a url to another type than a Binary, or to
+# a Binary with no content.
+UNSUPPORTED_TYPE = "unsupported_type"
 UNDECODABLE = "undecodable"  # data that is not base64, or not UTF-8 once decoded
 NOT_FETCHED = "not_fetched"  # only a `url`, to a Binary that is not in the record
 TEXT_TYPES = ("text/plain", "text/html")
+# The elements whose repetitions R4 defines as one document in other formats (`renditions`): a
+# DocumentReference's `content` ("each with a different format") and a DiagnosticReport's
+# `presentedForm` ("multiple formats are allowed but they SHALL be semantically equivalent").
+RENDITIONS = frozenset({("DocumentReference", "content"), ("DiagnosticReport", "presentedForm")})
 # The whitespace R4's base64Binary allows between its characters (`\s` of its regex, as XML
 # Schema has it: space, tab, line feed, carriage return), dropped before decoding.
 _BASE64_SPACE = str.maketrans("", "", " \t\n\r")
@@ -256,14 +276,26 @@ class Indexed(dict[str, list[dict[str, Any]]]):
     resource by its `fullUrl`, `ids` each resource that has an id by its type and id, and
     `contained` a resource's contained resources by id, so a reference (`#id`, `urn:uuid:…`,
     `Type/id`) resolves inside the record with one lookup (`resolve`), however many resources
-    the record or the resource holding the reference has."""
+    the record or the resource holding the reference has.
+
+    Linked reads (LP-23h, `standards/linked.py`) add to it: `linked` holds each resource read
+    for a link the record did not hold, by the reference as written (`link`), which `resolve`
+    then finds; `unread` each link that was not read, with why. A resource read so is reached by
+    its link only: it is not one of the record's resources of its type."""
 
     def __init__(self) -> None:
         super().__init__()
         self.urls: dict[str, dict[str, Any]] = {}
         self.ids: dict[tuple[str, str], dict[str, Any]] = {}
+        self.linked: dict[str, Mapping[str, Any]] = {}
+        self.unread: dict[str, ReadReason] = {}
         # By the container's identity, which the container held beside its table keeps.
         self._contained: dict[int, tuple[Any, dict[str, Mapping[str, Any]]]] = {}
+
+    def link(self, reference: str, resource: Mapping[str, Any]) -> None:
+        """`resource` is what `reference` (as written) names: `resolve` finds it from now on."""
+        self.linked[reference] = resource
+        self.unread.pop(reference, None)
 
     def contained(self, container: Any) -> Mapping[str, Mapping[str, Any]]:
         """The resources `container` (the resource holding a reference) contains, by id, the
@@ -301,7 +333,8 @@ class Indexed(dict[str, list[dict[str, Any]]]):
 
 
 # A site's translations into the mapping's code sets: {code set: [{system, code, as}]}, the
-# `sets` of one organization's site code map (LP-23i), read by `code_set` selectors only.
+# `sets` of one organization's site code map (LP-23i, `core/site_codes.py`), read by `code_set`
+# selectors only.
 SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 
 
@@ -309,11 +342,18 @@ SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 class Reading:
     """What a mapping reads a record with: the record indexed (for references), the mapping's
     code sets and a site's translations into them. `FhirAdapter.to_input` reads with one, and
-    the data-coverage record (`data_coverage.measure`) reads the same way."""
+    the data-coverage record (`data_coverage.measure`) reads the same way, with the same
+    translations. `translated` collects, as the record is read, each code set a translation
+    gave a field its value through (`read_field`)."""
 
     record: Indexed
     code_sets: Mapping[str, CodeSet]
     site_codes: SiteCodes
+    translated: set[str] = field(default_factory=set, compare=False)
+    # Each code set's translations as a lookup table (`translations`), built once per reading.
+    tables: dict[str, Mapping[tuple[str, str], str]] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
     @classmethod
     def of(
@@ -322,6 +362,26 @@ class Reading:
         """`record` read with `mapping`: references resolve in the record indexed by id once
         (`Indexed.of`), not by a scan for each."""
         return cls(Indexed.of(record), mapping.code_sets, site_codes or {})
+
+    def translations(self, name: str) -> Mapping[tuple[str, str], str]:
+        """The site's translations into code set `name` as a table (`translation_table`): built
+        the first time a field reads through the set, then shared by every field, path and
+        resource of the record, so a map of any size is read once per reading."""
+        table = self.tables.get(name)
+        if table is None:
+            given = self.site_codes.get(name, ())
+            table = self.tables[name] = translation_table(given, self.code_sets[name])
+        return table
+
+
+@dataclass(frozen=True)
+class MappedInput:
+    """A record read with a mapping (`FhirAdapter.read`): the pack's input, and the code sets a
+    site's translation gave a field its value through (LP-23i), sorted; empty without
+    translations, or when every value came from the pack's own codes."""
+
+    value: dict[str, Any]
+    translated: tuple[str, ...]
 
 
 class FhirAdapter:
@@ -420,9 +480,16 @@ class FhirAdapter:
     def to_input(
         self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
     ) -> dict[str, Any]:
-        """The pack's input from an indexed record. `site_codes` (LP-23i) are a site's
-        translations into the mapping's code sets, read by `code_set` selectors only; without
-        them a code set matches its own codes only. Nothing else reads them."""
+        """The pack's input from an indexed record: `read`'s value."""
+        return self.read(indexed, site_codes=site_codes).value
+
+    def read(
+        self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
+    ) -> MappedInput:
+        """The pack's input from an indexed record, and the code sets a translation gave it a
+        value through. `site_codes` (LP-23i) are a site's translations into the mapping's code
+        sets, read by `code_set` selectors only; without them a code set matches its own codes
+        only. Nothing else reads them."""
         reading = Reading.of(self.mapping, indexed, site_codes)
         result: dict[str, Any] = {}
         for target, mapped in self.mapping.fields.items():
@@ -437,7 +504,7 @@ class FhirAdapter:
                     if item:
                         items.append(item)
             _put(result, target, items)
-        return result
+        return MappedInput(result, tuple(sorted(reading.translated)))
 
     def looked_for(self) -> dict[str, Any]:
         """What each mapped field and list looks for, from the mapping alone, never the record:
@@ -596,10 +663,11 @@ def split_path(path: str) -> list[str]:
 def resolve(reference: Any, container: Any, record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The resource a FHIR Reference points to, found inside the record and never fetched: `#id`
     among the contained resources of `container` (the resource holding the reference), a
-    Bundle entry by its exact `fullUrl` (`urn:uuid:…`, or an absolute URL an entry has), or
-    `Type/id` among the record's resources. None for anything else: an absolute URL no entry
-    has, a reference by identifier only, a malformed one. In an `Indexed` record, a lookup; a
-    plain mapping is indexed for the call."""
+    Bundle entry by its exact `fullUrl` (`urn:uuid:…`, or an absolute URL an entry has), a
+    resource a linked read added for that reference as written (`Indexed.link`), or `Type/id`
+    among the record's resources. None for anything else: an absolute URL no entry has, a
+    reference by identifier only, a malformed one. In an `Indexed` record, a lookup; a plain
+    mapping is indexed for the call."""
     target = reference.get("reference") if isinstance(reference, Mapping) else None
     if not isinstance(target, str) or not target:
         return None
@@ -608,10 +676,70 @@ def resolve(reference: Any, container: Any, record: Mapping[str, Any]) -> Mappin
         return indexed.contained(container).get(target[1:])
     if target in indexed.urls:
         return indexed.urls[target]
+    if target in indexed.linked:
+        return indexed.linked[target]
     match = _RELATIVE.match(target)
     if match is None:
         return None
     return indexed.ids.get((match["type"], match["id"]))
+
+
+def link_target(reference: str) -> tuple[str, str] | None:
+    """The resource type and id a reference names when it may be read from a FHIR server
+    (LP-23h): `Type/id`, optionally `/_history/<version>`, relative or at the end of an absolute
+    http(s) URL with no query. None for anything else: `#id`, `urn:…`, a search, an operation."""
+    match = _LINK.match(reference)
+    return None if match is None else (match["type"], match["id"])
+
+
+def is_absolute(reference: str) -> bool:
+    """Whether a reference or url is an absolute http(s) URL."""
+    return _ABSOLUTE.match(reference) is not None
+
+
+def waiting_link(attachment: Any, container: Any, record: Mapping[str, Any]) -> str | None:
+    """The `url` an attachment's text waits on (LP-23h): a text/plain or text/html attachment
+    with no data, whose url names nothing inside the record (`resolve`) and is a link a runtime
+    may read, a relative `Type/id` or any absolute http(s) URL; the runtime reads only a Binary,
+    and gives any other type `UNSUPPORTED_TYPE`. None for anything else."""
+    if not isinstance(attachment, Mapping) or attachment.get("data") is not None:
+        return None
+    url = attachment.get("url")
+    if not isinstance(url, str) or _media_type(attachment.get("contentType")) not in TEXT_TYPES:
+        return None
+    if resolve({"reference": url}, container, record) is not None:
+        return None
+    return url if is_absolute(url) or link_target(url) is not None else None
+
+
+def renditions(path: str) -> bool:
+    """Whether a path reads renditions of one document (`RENDITIONS`): the attachments of a
+    DocumentReference's `content` or a DiagnosticReport's `presentedForm`."""
+    segments = split_path(path)
+    return len(segments) > 1 and (segments[0], segments[1].split("[", 1)[0]) in RENDITIONS
+
+
+def unread_attachments(
+    path: str, pairs: Sequence[tuple[Any, Any]], record: Mapping[str, Any]
+) -> list[str]:
+    """The reason (`read_attachment`) of each attachment at `path` that could not be read, in
+    order; `pairs` are the path's values, each with the resource holding it. An attachment with
+    neither data nor a url has nothing to read and counts for nothing. Where the path reads
+    renditions (`renditions`), one that cannot be read counts for nothing when another of the
+    same resource was read as text: it is the same document in another format (an RTF beside
+    the HTML of one note). Any other attachment that cannot be read counts."""
+    results: list[tuple[int, str | None, str | None]] = []
+    for container, attachment in pairs:
+        if (
+            isinstance(attachment, Mapping)
+            and attachment.get("data") is None
+            and attachment.get("url") is None
+        ):
+            continue  # nothing there to read
+        text, reason = read_attachment(attachment, container=container, record=record)
+        results.append((id(container), text, reason))
+    read = {held for held, text, _ in results if text} if renditions(path) else set()
+    return [reason for held, _, reason in results if reason is not None and held not in read]
 
 
 def read_attachment(
@@ -620,23 +748,30 @@ def read_attachment(
     """An Attachment's text and, when it could not be read, why (spec 0.3 `attachment_text`).
 
     Its content is its inline `data` or, with only a `url`, a Binary that url names inside the
-    record (`resolve`: contained in `container`, a Bundle entry, `Binary/<id>`; never fetched).
-    text/plain is read as it is, text/html as text through `html.parser` with scripts and styles
-    dropped, both as UTF-8. Returns (text, None) when read; (None, reason) when the content
-    could not be: `UNSUPPORTED_TYPE` for any other content type (a missing one included),
-    `UNDECODABLE` for data that is not base64 (line breaks and spaces in it aside) or not UTF-8,
-    `NOT_FETCHED` for a url to a Binary the record does not hold; (None, None) for an
-    attachment with no content, or empty text."""
+    record (`resolve`: contained in `container`, a Bundle entry, `Binary/<id>`, or one a linked
+    read added; never fetched here). text/plain is read as it is, text/html as text through
+    `html.parser` with scripts and styles dropped, both as UTF-8. Returns (text, None) when
+    read; (None, reason) when the content could not be: `UNSUPPORTED_TYPE` for any other
+    content type (a missing one included), and for a url to another type than a Binary or to a
+    Binary with no content; `UNDECODABLE` for data that is not base64 (line breaks and spaces in
+    it aside) or not UTF-8; and for a url to a resource the record does not hold, why a linked
+    read did not read it (`Indexed.unread`: `off_server`, `cap`, `unsupported_type`, a failed
+    read), else `NOT_FETCHED`; (None, None) for an attachment with no content, or empty text."""
     if not isinstance(attachment, Mapping):
         return None, UNSUPPORTED_TYPE
     kind = _media_type(attachment.get("contentType"))
     if kind not in TEXT_TYPES:
         return None, UNSUPPORTED_TYPE
     data = attachment.get("data")
-    if data is None and attachment.get("url") is not None:
-        binary = resolve({"reference": attachment.get("url")}, container, record or {})
-        if binary is None or binary.get("resourceType") != "Binary" or binary.get("data") is None:
-            return None, NOT_FETCHED
+    url = attachment.get("url")
+    if data is None and url is not None:
+        indexed = Indexed.of(record or {})
+        binary = resolve({"reference": url}, container, indexed)
+        if binary is None:
+            unread = indexed.unread.get(url) if isinstance(url, str) else None
+            return None, unread or NOT_FETCHED
+        if binary.get("resourceType") != "Binary" or binary.get("data") is None:
+            return None, UNSUPPORTED_TYPE  # another type, or a Binary that holds no content
         kind = _media_type(binary.get("contentType")) or kind  # what the Binary says it holds
         if kind not in TEXT_TYPES:
             return None, UNSUPPORTED_TYPE
@@ -658,6 +793,15 @@ def _media_type(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.split(";")[0].strip().lower() or None
+
+
+def decoded_size(data: Any) -> int:
+    """The bytes base64 `data` decodes to, from its length (the whitespace R4 allows between its
+    characters aside), without decoding it; 0 for anything that is not text."""
+    if not isinstance(data, str):
+        return 0
+    compact = data.translate(_BASE64_SPACE)
+    return max(len(compact) * 3 // 4 - compact[-2:].count("="), 0)
 
 
 class _HtmlText(HTMLParser):
@@ -710,15 +854,18 @@ def pick_code(
     """The first of a code set's own codes among `values` (Codings, or CodeableConcepts whose
     codings are read), by the set's system and code: spec 0.3's `code_set` selector. A coding
     of another system counts only through `translations` (a site's `{system, code, as}`,
-    LP-23i), and then only as an `as` the set lists; a coding of the set's own system wins over
-    a translated one wherever it is. None when no coding matches."""
-    codings = codings_of(values)
+    LP-23i), and then only as an `as` the set lists; a coding of the set's own system among
+    `values` wins over a translated one. (A field with `paths` reads every path for the set's
+    own codes before a translated one counts: `read_field`.) None when no coding matches."""
+    return picked(values, code_set, translation_table(translations, code_set))[0]
+
+
+def translation_table(translations: Iterable[Any], code_set: CodeSet) -> dict[tuple[str, str], str]:
+    """A site's translations into `code_set` as a lookup table: each site code (system, code) to
+    the set's own code it stands for. A translation whose `as` the set does not list, or whose
+    system, code or `as` is not text, is left out."""
     own = set(code_set.codes)
-    for coding in codings:
-        code = coding.get("code")
-        if coding.get("system") == code_set.system and isinstance(code, str) and code in own:
-            return code
-    table = {
+    return {
         pair: entry["as"]
         for entry in translations
         if isinstance(entry, Mapping)
@@ -726,11 +873,26 @@ def pick_code(
         and isinstance(entry.get("as"), str)
         and entry["as"] in own
     }
+
+
+def picked(
+    values: Iterable[Any], code_set: CodeSet, table: Mapping[tuple[str, str], str]
+) -> tuple[str | None, bool]:
+    """`pick_code`'s code, read with a translation table (`translation_table`; a reading builds
+    each set's once, `Reading.translations`), and whether a translation gave it (False for the
+    set's own code, and when there is none)."""
+    codings = codings_of(values)
+    own = set(code_set.codes)
     for coding in codings:
-        key = _system_code(coding)
-        if key is not None and key in table:
-            return str(table[key])
-    return None
+        code = coding.get("code")
+        if coding.get("system") == code_set.system and isinstance(code, str) and code in own:
+            return code, False
+    if table:
+        for coding in codings:
+            key = _system_code(coding)
+            if key is not None and key in table:
+                return table[key], True
+    return None, False
 
 
 def codings_of(values: Iterable[Any]) -> list[Mapping[str, Any]]:
@@ -779,13 +941,18 @@ class FieldRead:
     """How a field was read in one scope (`read_field`): its value (None when it got none) and
     each path it read, in order, as `select` reads it, with what it was read in and what it
     found there (each value with the resource it was read from). That is every path it tries
-    when none gives a value, else those up to the one that did. With `follow`, how many
-    references the field found and how many resources they reached inside the record."""
+    when none gives a value, else those up to the one that did (a value through a site's
+    translation reads on, for one of the set's own codes: `read_field`). With `follow`, how many
+    references the field found and how many resources they reached inside the record, and
+    `missing`, each reference as written that reached nothing and is a link (`link_target`) to a
+    type the field's paths read: what a linked read reads (LP-23h), and what the data-coverage
+    record counts by `Indexed.unread`'s reason, else `not_fetched`."""
 
     value: Any
     reads: tuple[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]], ...]
     references: int = 0
     reached: int = 0
+    missing: tuple[str, ...] = ()
 
 
 def read_field(
@@ -793,14 +960,20 @@ def read_field(
 ) -> FieldRead:
     """A field read in `scope` (the record, or one list resource as {its type: it}; `kind` is a
     list resource's type, which its relative paths start from): each of its paths in order, the
-    first that gives a value winning, so a later path is not read at all. A `follow` is resolved
-    once for the field, whatever number of paths it tries, and the paths are read in the
-    resources it reached."""
+    first that gives a value winning, so a later path is not read at all. A value a site's
+    translation gave (`code_set`, LP-23i) wins only when no path gives one of the set's own
+    codes (spec 0.3 §2.5): the paths after it are read for one, and when none gives one the
+    first translated value is the field's, its code set added to `reading.translated`. A
+    `follow` is resolved once for the field, whatever number of paths it tries, and the paths
+    are read in the resources it reached."""
     references, reached = 0, None
+    missing: tuple[str, ...] = ()
     if mapped.follow is not None:
-        references, reached = _followed(mapped.follow, scope, kind, reading.record)
+        types = {split_path(path)[0] for path in mapped.tried}
+        references, reached, missing = _followed(mapped.follow, scope, kind, reading.record, types)
     reads: list[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]]] = []
     value = None
+    through = None  # the first value a translation gave, while a later path may give an own code
     for path in mapped.tried:
         if reached is None:
             where, at = scope, _absolute(kind, path)
@@ -809,46 +982,76 @@ def read_field(
             where, at = {wanted: [r for r in reached if r.get("resourceType") == wanted]}, path
         found = _walk(where, at)
         reads.append((at, where, found))
-        value = _value(mapped, found, reading)
-        if value is not None:
+        given, translated = _value(mapped, found, reading)
+        if given is not None and not translated:
+            value = given
             break
-    return FieldRead(value, tuple(reads), references, len(reached or ()))
+        if through is None:
+            through = given
+    if value is None and through is not None and mapped.code_set is not None:
+        value = through
+        reading.translated.add(mapped.code_set)
+    return FieldRead(value, tuple(reads), references, len(reached or ()), missing)
 
 
 def _followed(
-    follow: str, scope: Mapping[str, Any], kind: str | None, record: Indexed
-) -> tuple[int, list[Mapping[str, Any]]]:
-    """How many references `follow` finds, and what they reach inside the record, in order,
-    each once."""
+    follow: str,
+    scope: Mapping[str, Any],
+    kind: str | None,
+    record: Indexed,
+    types: Collection[str],
+) -> tuple[int, list[Mapping[str, Any]], tuple[str, ...]]:
+    """How many references `follow` finds, what they reach inside the record, in order, each
+    once, and each reference that reached nothing and is a link to one of `types` (the types
+    the field's paths read), as written, in order."""
     reached: list[Mapping[str, Any]] = []
     seen: set[int] = set()  # by identity: a resource reached twice is read once
+    missing: list[str] = []
     references = _walk(scope, _absolute(kind, follow))
     for container, reference in references:
         found = resolve(reference, container, record)
-        if found is not None and id(found) not in seen:
+        if found is None:
+            target = _object(reference).get("reference")
+            named = link_target(target) if isinstance(target, str) else None
+            if named is not None and named[0] in types:
+                missing.append(str(target))
+        elif id(found) not in seen:
             seen.add(id(found))
             reached.append(found)
-    return len(references), reached
+    return len(references), reached, tuple(missing)
 
 
-def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: Reading) -> Any:
+def _value(
+    mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: Reading
+) -> tuple[Any, bool]:
+    """What one path gives a field (None for nothing), and whether a site's translation gave
+    it (a `code_set` field's only)."""
     if mapped.transform == "attachment_text":  # each attachment with the resource holding it
         texts = [read_attachment(v, container=c, record=reading.record)[0] for c, v in pairs]
-        return "\n\n".join(text for text in texts if text) or None
+        return "\n\n".join(text for text in texts if text) or None, False
     values = [value for _, value in pairs]
     if mapped.code_set is not None:
-        translations = reading.site_codes.get(mapped.code_set, ())
-        code = pick_code(values, reading.code_sets[mapped.code_set], translations)
-        return code if code is None or mapped.map is None else mapped.map.get(code)
-    return _apply(mapped, values)
+        table = reading.translations(mapped.code_set)
+        code, translated = picked(values, reading.code_sets[mapped.code_set], table)
+        value = code if code is None or mapped.map is None else mapped.map.get(code)
+        return value, translated and value is not None
+    return _apply(mapped, values), False
+
+
+def listed(source: ListSource, resource: Any) -> bool:
+    """Whether a resource of a list source's type can be an item of the list: all can but a
+    MedicationRequest entered in error, when its source derives its period (conflict 39). What
+    a resource left out so holds is not read: no linked read is made for it (LP-23h), and
+    nothing it could not read is counted."""
+    return source.medication_period is None or _object(resource).get("status") != ENTERED_IN_ERROR
 
 
 def list_item(kind: str, source: ListSource, resource: Any, reading: Reading) -> dict[str, Any]:
     """One resource of type `kind` as an item of a mapped list, by its source's fields and its
     `medication_period`: each key that has a value. An empty item is left out of the list, and
-    a MedicationRequest entered in error is empty when its source derives its period."""
+    a resource the list cannot hold (`listed`) is empty."""
     period = source.medication_period
-    if period is not None and _object(resource).get("status") == ENTERED_IN_ERROR:
+    if not listed(source, resource):
         return {}
     item: dict[str, Any] = {}
     for name, mapped in source.fields.items():

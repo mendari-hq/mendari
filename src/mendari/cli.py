@@ -1400,9 +1400,41 @@ def cmd_sandbox_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sandbox_cds_client(args: argparse.Namespace) -> int:
+    """The signed sandbox CDS client (LP-23e): its registry entry, then what each call got, and
+    each problem on stderr (exit 1). A server it cannot reach is `main`'s one error line, which
+    names its origin only."""
+    from mendari.sandbox.cds_client import SandboxClient
+
+    with SandboxClient(listen=args.listen, iss=args.iss) as client:
+        entry = client.entry(client_id=args.id, org=args.org, fhir_server=args.fhir)
+        print(f"MENDARI_CDS_CLIENTS entry: {json.dumps(entry)}", flush=True)
+        result = client.run(engine=args.engine, fhir=args.fhir, audience=args.audience)
+    _print_json(result)
+    for problem in result["problems"]:
+        print(f"cds-client: {problem}", file=sys.stderr)
+    return 1 if result["problems"] else 0
+
+
 def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
     from mendari.sandbox import smart_launch
 
+    if args.launch_url:
+        launched = smart_launch.from_launch_url(args.launch_url, engine=args.engine)
+        _print_json(launched)
+        failed = [
+            problem
+            for problem, ok in (
+                ("the patient in context was not read", launched["patient_read"]),
+                ("the session did not end at logout", launched["session_ended"]),
+            )
+            if not ok
+        ]
+        for problem in failed:
+            print(f"smart-launch: {problem}", file=sys.stderr)
+        return 1 if failed else 0
+    if not (args.launcher and args.fhir):
+        raise MendariError("smart-launch needs --launcher and --fhir, or --launch-url")
     result = smart_launch.run(
         engine=args.engine,
         launcher=args.launcher,
@@ -1438,7 +1470,7 @@ def cmd_smart_check(args: argparse.Namespace) -> int:
 
     findings = smart_check.check(args.base)
     for finding in findings:
-        print(f"{finding.status:<4}  {finding.check:<16}  {finding.detail}")
+        print(f"{finding.status:<7}  {finding.check:<16}  {finding.detail}")
     return 1 if any(finding.status == "fail" for finding in findings) else 0
 
 
@@ -1487,6 +1519,10 @@ def cmd_bulk_export(args: argparse.Namespace) -> int:
         )
     for output in manifest.get("output", []):
         print(f"{output['count']:>7} {output['type']:<20} {Path(args.out) / output['file']}")
+    if manifest["delete"] == "deleted":
+        print("the server was asked to delete the export, and accepted")
+    else:  # the files are here; the server drops its copy when the export expires
+        print(f"the server did not delete the export ({manifest['delete']})", file=sys.stderr)
     return 0
 
 
@@ -2533,6 +2569,14 @@ def _write_jsonl(path: Path, records: Sequence[dict[str, Any]]) -> None:
 # -- parser ----------------------------------------------------------------------------------
 
 
+def _listen(text: str) -> tuple[str, int]:
+    """`HOST:PORT`, checked before a server starts; port 0 is any free port."""
+    host, colon, port = text.rpartition(":")
+    if not colon or not host or not port.isdigit() or not 0 <= int(port) < 65536:
+        raise argparse.ArgumentTypeError(f"not HOST:PORT: {text!r}")
+    return host.strip("[]"), int(port)
+
+
 def _port(text: str) -> int:
     """A TCP port, checked before a server starts (argparse names the flag)."""
     try:
@@ -3086,8 +3130,15 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument(
         "--pack",
         default="mendari/patient-inbox-router",
-        choices=["mendari/patient-inbox-router", "mendari/referral-router"],
-        help="whose local-site cases (default: the inbox's messages)",
+        choices=[  # fhir_workflow.SEEDS
+            "mendari/patient-inbox-router",
+            "mendari/referral-router",
+            "mendari/clinical-trial-prescreener",
+            "mendari/prior-auth-preflight",
+            "ehr-profile",
+        ],
+        help="whose local-site cases (default: the inbox's messages), or ehr-profile: the "
+        "vendor-shaped EHR profile (LP-23e), under its own ids (--count does not apply)",
     )
     seed.add_argument("--count", type=int, default=40)
     seed.add_argument("--wait", type=int, default=180, help="seconds to wait for the server")
@@ -3099,12 +3150,45 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--interval", type=float, default=5.0)
     worker.add_argument("--once", action="store_true")
     worker.set_defaults(handler=cmd_sandbox_worker)
+    cds_client = sandbox.add_parser(
+        "cds-client",
+        help="call the CDS Hooks services over HTTP as an EHR does, with signed tokens (LP-23e)",
+    )
+    cds_client.add_argument("--engine", required=True, help="the engine's URL, to call")
+    cds_client.add_argument(
+        "--fhir", required=True, help="the FHIR server holding the EHR profile, sent as fhirServer"
+    )
+    cds_client.add_argument(
+        "--audience",
+        help="the engine's MENDARI_PUBLIC_URL, which tokens are addressed to (default: --engine)",
+    )
+    cds_client.add_argument(
+        "--listen",
+        type=_listen,
+        default=("127.0.0.1", 8300),
+        metavar="HOST:PORT",
+        help="where to serve the client's JWK Set (default 127.0.0.1:8300; port 0: any)",
+    )
+    cds_client.add_argument(
+        "--iss",
+        help="the client's URL as the engine reaches it: its iss, and its JWK Set's "
+        "(default: http://HOST:PORT of --listen)",
+    )
+    cds_client.add_argument("--id", default="sandbox-client", help="its id in the registry")
+    cds_client.add_argument("--org", default="default", help="its organization in the registry")
+    cds_client.set_defaults(handler=cmd_sandbox_cds_client)
     smart = sandbox.add_parser(
         "smart-launch", help="run a SMART EHR launch against the sandbox and decide the work items"
     )
     smart.add_argument("--engine", required=True, help="engine URL (its MENDARI_PUBLIC_URL)")
-    smart.add_argument("--launcher", required=True, help="smart-launcher-v2 base URL")
-    smart.add_argument("--fhir", required=True, help="FHIR R4 base URL, to find a patient")
+    smart.add_argument("--launcher", help="smart-launcher-v2 base URL")
+    smart.add_argument("--fhir", help="FHIR R4 base URL, to find a patient")
+    smart.add_argument(
+        "--launch-url",
+        metavar="URL",
+        help="instead of --launcher and --fhir: the launch URL an EHR made (the engine's "
+        "/smart/launch with the EHR's iss and launch); read the patient in context and log out",
+    )
     smart.add_argument(
         "--pack",
         default="mendari/referral-router",
@@ -3347,8 +3431,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     smart_check = smart_cmd.add_parser(
         "check",
-        help="before go-live: an EHR's registration, allow-list, discovery, PKCE and keys, "
-        "with this deployment's settings",
+        help="before go-live: an EHR's registration, allow-list, discovery, scopes, PKCE and "
+        "keys, with this deployment's settings (each ok, warn, unknown or fail; exit 1 on fail)",
     )
     smart_check.add_argument("base", help="the EHR's FHIR base, as it sends it in the launch's iss")
     smart_check.set_defaults(handler=cmd_smart_check)

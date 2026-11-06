@@ -244,3 +244,34 @@ def test_the_workflow_runs_what_the_expected_results_list() -> None:
     assert f"--suite {golden['suite']} --groups {groups}" in runs
     assert f"list_tests.rb {golden['suite']} {groups}" in runs
     assert "--expected sandbox/inferno/dtr_payer_server_v220_expected.json" in runs
+
+
+# -- the scripted suites (LP-23l): run through Inferno's web app by scripts/inferno_session.py --
+
+SCRIPTED_JOBS = {
+    "crd-server": ("crd_server_v221", "davinci-crd-test-kit", "hl7.fhir.us.davinci-crd_2.2.1@"),
+    "smart-client": ("smart_client_stu2_2", "smart-app-launch-test-kit", "hl7.fhir.uv."),
+    "bulk-client": ("bulk_data_v200_client", "bulk-data-test-kit", "hl7.fhir.uv."),
+}
+
+
+@pytest.mark.parametrize("job", SCRIPTED_JOBS)
+def test_the_scripted_jobs_run_what_their_expected_results_list(job: str) -> None:
+    """Each scripted job's driver writes the results and the run's tests the check reads, for
+    the suite its expected results name, and the check is the job's verdict."""
+    suite, kit, requirement = SCRIPTED_JOBS[job]
+    golden = json.loads((ROOT / "sandbox" / "inferno" / f"{suite}_expected.json").read_text())
+    entries = check.expected_results(golden)
+    assert (golden["suite"], golden["kit"]) == (suite, kit)
+    for entry in entries.values():
+        assert entry["id"].startswith(f"{suite}-")
+        assert all(r.startswith(requirement) for r in entry["requirements"]), entry["id"]
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    runs = [step.get("run", "") for step in workflow["jobs"][job]["steps"]]
+    (driven,) = [run for run in runs if "inferno_session.py" in run]
+    (verdict,) = [run for run in runs if "inferno_check.py" in run]
+    words = driven.split()  # `uv run python scripts/inferno_session.py <suite> ...`
+    assert words[words.index("scripts/inferno_session.py") + 1] == suite
+    for written in (f"var/inferno/{suite}_results.json", f"var/inferno/{suite}_tests.json"):
+        assert written in driven and written in verdict
+    assert f"--expected sandbox/inferno/{suite}_expected.json" in verdict

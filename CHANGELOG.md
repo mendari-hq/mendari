@@ -126,6 +126,45 @@ The first release (not yet published).
   `attachment_text` note that cannot be read (`unsupported_type`, `undecodable`, `not_fetched`)
   makes the decision ABSTAIN with its reason, as a `base64_text` one does. An engine that reads
   only 0.2 refuses a 0.3 pack.
+- **Linked record data** (LP-23h; no shipped pack is on spec 0.3, so nothing changes how a
+  shipped pack decides). What a spec 0.3 mapping reaches by a link the record does not hold, an
+  `attachment_text` note's url to a Binary or a reference a field follows (the payer behind
+  `Coverage.payor`, the drug behind `medicationReference`), is read before the mapping runs, on a
+  CDS hook with a `fhirServer` and in the SMART launch's decide (`standards/linked.py`): from that
+  server only, under its base, with the request's token (the session's in a SMART launch, where a
+  `401` ends the launch). Each read is one `GET` of one resource by `Type/id`, of the type the
+  field reads, no page followed; a Binary is read as FHIR JSON (`Accept: application/fhir+json`;
+  one answered as raw bytes is `not_json`), and the answer must be R4 (`not_r4`) and of that type
+  (`unsupported_type`, `operation_outcome`). A decision reads at most 20 links (past them, `cap`),
+  each at most 1 MiB once decoded (a resource's answer as it arrives, a Binary's content:
+  `too_large`), and a link is read once a request however it is written, so the draft orders of
+  one order hook share what was read. A link to another server, another scheme (in any case) or
+  outside the base is `off_server` and is never fetched; a hook whose `fhirServer` is off the
+  allow-list is refused (`422`) for a pack that reads links, before anything is decided and with
+  nothing fetched or recorded, as its prefetch read is (conflict 14). A MedicationRequest a list
+  leaves out as entered in error (`medication_period`) is not read for its links, nor counted. A
+  note's url to another type than a Binary is `unsupported_type`, never read. What was read joins
+  the record, found by its link only (it is not one of the record's resources of its type), and
+  is checked as the record is (its R4 and US Core issues recorded, by type alone in the stored
+  record, and refused under `enforce`). A link that is not read makes the decision ABSTAIN with
+  `could not read <field>: <reason>`, and the field's data-coverage record counts it by its
+  reason. `fhir/decide`, `$decide` and `mendari decide --fhir` never read a link: there it is
+  `not_fetched`. Threat-model row D14 (linked-read volume), E1 updated; see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#linked-data).
+  - **Changed for spec 0.3 packs: a reference that reaches nothing is unreadable.** A followed
+    reference that is `Type/id` (relative, or ending an absolute URL) of a type the field reads,
+    and that reaches nothing in the record and is not read, counted only among the references
+    found; it now makes the decision ABSTAIN (`not_fetched` without a server). A reference by
+    `#id`, `urn:` or identifier only, or to another type (a payor that is the patient), is as
+    before.
+  - **Changed for spec 0.3 packs: renditions.** An attachment of a DocumentReference's `content`
+    or a DiagnosticReport's `presentedForm`, which R4 makes one document in several formats,
+    that cannot be read (an RTF beside the HTML of one note) no longer makes the decision abstain
+    when another of the same resource was read as text. A note with no rendition read still
+    abstains, and so does any other attachment that cannot be read.
+  - **Changed for spec 0.3 packs: a note's url to another type, or to an empty Binary, is
+    `unsupported_type`.** It was `not_fetched`, which now means only that there was no server to
+    read from, or that the url names no `Type/id`. The decision abstains as before.
 - **Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f; card wording
   changes).** A card's `uuid` is now its decision's id (it was a random one, stored nowhere), and
   its one suggestion's a UUID 5 of it. A card says `selectionBehavior: at-most-one` and offers
@@ -193,6 +232,159 @@ The first release (not yet published).
   hook), run by CI in open mode on 127.0.0.1 with no flag, with a service key and with a
   `cds-hooks` key. Threat-model rows I16 and E16; see
   [Connecting an EHR](docs/guides/connecting-an-ehr.md).
+- **A vendor-shaped synthetic EHR profile, and a signed CDS client over HTTP in the sandbox
+  (LP-23e; no pack changes; one server change: `MENDARI_PUBLIC_URL` may be plain http on a
+  loopback or single-label host, below).** `sandbox/ehr_profile.py` builds five
+  synthetic patients for each reference pack with a standard hook (the trial prescreener's
+  `patient-view`, the prior-authorization and referral packs' `order-sign`) in the shapes Epic's
+  and Oracle Health's public FHIR documentation describe, never their data: notes as
+  DocumentReferences linked to a Binary (plain text, HTML and one kind that is unreadable, RTF),
+  Conditions coded by the site (a fictional system) and in ICD-10-CM in either order,
+  MedicationRequests naming an RxNorm Medication with a dosage `boundsPeriod` (ordered,
+  `authoredOn`, a week before it starts), `Coverage.payor` a reference to an Organization holding
+  the site's identifier and a site member id, referrals under the site's order type, no synthetic
+  case id and no SNOMED CT; the same resources and ids on every run. `mendari sandbox seed` now
+  seeds the trial and prior-authorization packs' cases too, and `--pack ehr-profile` the
+  profile, under its own ids (seeding again replaces it); a pack whose cases are already there
+  is found by its first case's Patient (the referral router's included, whose tagged
+  ServiceRequests the prior-authorization pack now shares), and `mendari sandbox smart-launch
+  --pack mendari/referral-router` looks for a patient by a referral's category.
+  `mendari sandbox cds-client` plays an EHR: an EC P-384 key made in memory, its JWK Set served, its
+  `MENDARI_CDS_CLIENTS` entry printed, then discovery and each standard hook called over HTTP once
+  per patient, each with a new ES384 token carrying `jku`, no prefetch and the FHIR server as
+  `fhirServer`; it exits 1 on any answer but a `200`, a hook answer that is not CDS Hooks', or a
+  card saying part of the record could not be read for anything but a linked note
+  (`notes: not_fetched`): every hook answers `200`, so a read of the FHIR server that failed shows
+  only there. The compose sandbox's two engines register it (`http://cds-client:8300`, its origin on
+  their allow-lists; the open engine's registry is empty-able, `MENDARI_CDS_CLIENTS=`, for a public
+  URL of your own), the new service `cds-client` (profile `signin`) runs it against both, and CI's
+  `sandbox-e2e` runs that on every change. **Server:** `MENDARI_PUBLIC_URL` may now be plain http
+  for any loopback address or a single-label host (a compose service, such as the signed-in engine's
+  `http://engine-signin:8000`), in every deployment, sign-in on included, as the FHIR allow-list and
+  a `jwks_uri` already allowed (before: `localhost` and `127.0.0.1` only). The CDS clients' registry
+  and SMART Backend Services check it by one rule (`origin.checked_public_url`), so neither takes a
+  value the other refuses; any other plain http URL still stops startup. Threat-model row S21. The
+  HL7 validator checks the profile against US Core 6.1.0 (`scripts/sandbox_fhir_sample.py`), and the
+  terminology the sandbox publishes for it gains the profile's two fictional site code systems.
+  Every hook answers on these patients, but the packs read little of their shapes yet: the trial and
+  prior-authorization packs abstain on a linked note, a site coding read first hides a diagnosis or
+  a referral, the trial pack reads no MedicationRequest and the prior-authorization pack no payer
+  reference. `tests/test_ehr_profile.py` pins each with why, as a regression fixture from which no
+  rate is computed; LP-23k takes entries off it when the shipped packs move to spec 0.3. See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client).
+- **A site code map per organization, versioned, hashed into each decision and never automated
+  (LP-23i; off until set, and no shipped pack declares a code set, so nothing changes how a pack
+  decides).** `MENDARI_SITE_CODES` (inline JSON, or the path of a JSON file) translates a site's
+  own codes into the codes a spec 0.3 pack's code sets declare, one map per organization:
+  `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default`
+  alone with sign-in off; at most 100 organizations and 10,000 translations a map; a site code
+  once in a set). It is read at startup and checked against the code sets of every pack found,
+  served or not: a set no pack declares, an `as` that is not a code of its set, a key given twice
+  or anything else wrong stops the server, naming the organization, the code set and the
+  translation's position, never a system or a code. A translation only fills in where the
+  pack's own codes give nothing: the set's own code wins on any of a field's paths, so a record
+  whose own codes give a field its value reads the same with the map as without. A FHIR
+  decision the server makes reads its record with the map of the organization it acts for,
+  never another's (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads
+  none), and records `site_codes`: the map's
+  `version` and the SHA-256 of its canonical form (`mendari.site-codes/1`, the organization in
+  it), so a changed map, or one organization's given to another, has another digest. It is
+  `null` without a map and on JSON decisions, and older records still verify. The data-coverage
+  record is now read with the same translations as the input (`data_coverage.measure`'s
+  `site_codes`), so a `code_set` field's paths, values and items agree with what was decided.
+  `/api/health` shows the caller's organization's map. A new policy cap, `site_code`: a decision
+  whose input took a value through a translation goes from AUTO to HUMAN_REVIEW, its reason
+  `site code translated (<code set>): a person decides`, and so does a pack rule's BLOCK on it
+  (`... a person decides instead of its rule's BLOCK`); a decision its policy already sends to
+  a person keeps its outcome, with the reason added; and nothing lifts it, a governance
+  approval included, until the site validates its map (G5-6 `site-validation`). What a linked
+  read (LP-23h) fetched is read with the same map; a map translates codings only, so a payer's
+  identifier is never translated. The reference packs were rebuilt for the policy change: their
+  data, models and ledgers are byte for byte as before, and their benchmarks and cards differ only
+  in the run block (its id, time and latency), so none is committed again. Threat-model row T9 (a
+  wrong or swapped map); see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#site-codes).
+- **Inferno's CRD server, SMART App Launch client and Bulk Data client suites against the
+  engines** (LP-23l, part 1; CI and sandbox files, and two client changes: a Bulk export now
+  asks the server to delete it, and `mendari sandbox smart-launch` takes an EHR's launch URL).
+  `conformance.yml` gains three jobs beside `dtr-payer`, weekly and by hand, never on a pull
+  request and not required: `crd-server` (the Da Vinci CRD test kit v0.15.0, suite
+  `crd_server_v221`, groups 1, 2, 3.4 and 4: Inferno as an EHR's CDS client, registered in
+  `MENDARI_CDS_CLIENTS` of a signed-in engine and signing each call, with the vendor-shaped
+  profile's prior-authorization patients in its Mock EHR), `smart-client` (suite
+  `smart_client_stu2_2`, a public client: Inferno as the EHR of a launch) and `bulk-client`
+  (suite `bulk_data_v200_client`: Inferno as the server of a patient-level export, with HAPI
+  behind it). They run from a second image, `sandbox/inferno/scripted/` (the CRD kit by commit
+  with the Bulk Data kit v0.14.0 added, inferno_core 1.6.0, every gem by sha256; the DTR image
+  is unchanged), in a compose project of their own where Inferno's web app and worker share one
+  database. Their tests wait for calls, so `scripts/inferno_session.py` works each session
+  through Inferno's REST API and does the client's part in the engine's container (a launch from
+  Inferno's launch URL; an export signed with a key made for the run, its private half passed
+  by environment only); `scripts/inferno_scripted_inputs.py` writes the inputs, on synthetic data
+  only, and `scripts/inferno_check.py` stays the verdict, each test's result pinned in
+  `sandbox/inferno/<suite>_expected.json` with the reason and requirement ids of each gap. First
+  results: SMART passes but for the https registration (plain http in the sandbox); Bulk passes
+  all 8 tests; CRD passes discovery with authentication, the signed calls, the request checks
+  and the Technical Issues answer (`indeterminate` coverage for a `technical` reason when the
+  EHR's FHIR server fails), and its known gaps are TLS, the cards' `mendari.decision_id` extension (not in CRD's response
+  model), the audit link card's suggestion, no member or active-coverage check, and no coverage
+  information when no Coverage could be read. CRD group 3.7 is not run: its must-support test
+  names no requirement. `mendari bulk export`, with every file downloaded, sends the DELETE Bulk
+  Data STU2 says a client may send to the status URL; its outcome is one of `deleted`,
+  `delete_refused`, `delete_timeout` and `delete_unreachable`, printed, and never fails, retries
+  or changes the export. `mendari sandbox smart-launch --launch-url` opens a launch URL an EHR
+  made (the engine's own launch path only), reads the patient in context and logs out. See
+  [sandbox/inferno/README.md](sandbox/inferno/README.md) and
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#conformance-runs).
+- **The HL7 validator with a terminology server, and `mendari smart check` compares scopes**
+  (LP-23l, part 2). `scripts/fhir_validate.py --tx URL` runs the validator with that
+  terminology server in place of none (`-tx n/a`, still the default); it cannot go with
+  `--offline` (a server needs HTTP), and the run still loads only the locked packages, from a
+  cache of its own, and fails if the validator put another in it. A new workflow,
+  `terminology.yml`, runs `fhir-conformance`'s steps (the same validator by sha256, locked
+  packages and generated inputs) with `--tx https://tx.fhir.org/r4`, weekly and by hand, never
+  on a pull request and not required; only the synthetic files' codes reach tx.fhir.org.
+  `mendari smart check`, with SMART on, now compares each scope a launch asks for
+  (`MENDARI_SMART_SCOPES`) with the EHR's `scopes_supported`, in SMART v1 or v2 form
+  (`patient/*.*`, or `patient/*.r` with `patient/*.s`, covers `patient/*.rs`, a type wildcard
+  covers each type, each of `patient/`, `user/` and `system/` only its own): a scope the EHR does not publish is `fail`, named, and
+  an EHR that publishes no list is the new status `unknown`, never `ok`, which leaves the exit
+  code as it is (1 on `fail` only). SMART 2.2.0 says the list need not be exhaustive, so the
+  detail says an EHR may grant a scope it does not list. smart-launcher-v2's published list
+  (`patient/*.*`, read from the pinned image) covers what `sandbox-e2e`'s signed-in engine asks
+  for. See
+  [Deploying with PHI](docs/deploying-with-phi.md#2-sign-in-and-roles).
+- **EHR pilot readiness, the close-out** (LP-23m; ADR-0014 now Accepted; one description changes,
+  nothing in how a pack decides). Launch gate G5-6's `a12-ehr-pilot` probes what LP-23 built:
+  the token tests (a valid token, the wrong issuer or audience, an expired or replayed one, an
+  unregistered `jku`), the `cds` principal reaching nothing but the CDS services, open mode on
+  this machine only, CORS for registered origins, an ABSTAIN recorded on a failed read, the
+  data-coverage record, every standard-hook pack deciding on the vendor-shaped patients,
+  `selectionBehavior`, card feedback, a linked note read through the allow-listed client, the
+  site code map recorded on each decision, the reasons of every expected Inferno result and the
+  CRD golden. It stays pending on three lines: the inbox's and referral cards (LP-23j, after
+  the owner confirms the referral `show` list), the shipped packs' mappings on spec 0.3 (LP-23k,
+  after the owner's go-ahead), and the owner's run on Epic's sandbox with `mendari smart check`
+  against Epic. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed ES384 token (its keys from a
+  pinned `jwks_uri`) through discovery and two `order-sign` hooks over HTTP, each reading a
+  vendor-shaped patient's record from the EHR's FHIR server, to one card each and feedback on
+  both, one accepted and one overridden, then `mendari audit verify`, which passes, and fails
+  at the event changed behind the store's back; on SQLite and Postgres, in about a second each,
+  with no connection off the machine. `notes/ehr-scorecard.md` is graded again at the
+  close-out commit beside its grade before LP-23, each row only on evidence in the repository:
+  client trust from level 2 to 3, who may call from where from 1 to 3, cards and workflow from 1
+  to 2, the others as they were, and level 1 overall before and after (failure behaviour, under
+  the default `MENDARI_FHIR_VALIDATION=warn`). A row whose evidence is a CI run that has not
+  happened yet is not met: the new `sandbox-e2e` and `fhir-conformance` steps until the lane's
+  pull request runs them, `conformance.yml`'s new jobs (`crd-server`, `smart-client`,
+  `bulk-client`; its `dtr-payer` job already runs weekly on main) and `terminology.yml` until
+  their first runs on main. The threat model keeps five residual risks: trust in the EHR's key and its rotation (a
+  key the EHR retires still verifies for up to an hour on an instance that kept it), a
+  compromised `jku` host, the decision id the EHR keeps beside its patient, a misconfigured site
+  map, and frequent abstention on records whose notes Mendari cannot read. The FHIR
+  CapabilityStatement's description now names card feedback, an EHR's own token and what Mendari
+  reads from an EHR's FHIR server. See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#before-a-pilot).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

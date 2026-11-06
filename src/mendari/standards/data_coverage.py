@@ -27,6 +27,23 @@ read counts by `fhir.read_attachment`'s reason (`unsupported_type`, `undecodable
 `not_fetched`); an attachment with neither data nor a link has nothing to read and counts for
 nothing, as for `base64_text`. A 0.1 or 0.2 mapping's record is as it was.
 
+Linked reads (LP-23h, `standards/linked.py`) add what they read to the record, so a note whose
+Binary was read counts as read, and a reference that reached a resource read so counts among
+what it reached. A link the record still does not hold counts by why it was not read
+(`Indexed.unread`: `off_server`, `cap`, `too_large`, a failed read's reason), else `not_fetched`
+(no server, `fhir/decide`, `$decide`): a note's url by `fhir.read_attachment`, and a followed
+reference that is a link to a type the field reads (`fhir.FieldRead.missing`) in the field's
+`unreadable`. Of renditions of one document (a DocumentReference's `content`, a
+DiagnosticReport's `presentedForm`: `fhir.renditions`), one that cannot be read counts for
+nothing when another of the same resource was read (`fhir.unread_attachments`). A resource its
+list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its source derives
+its period) is not an item: nothing it links to is read, and nothing it could not read counts.
+
+With a site code map (LP-23i, `core/site_codes.py`), the record is read with the organization's
+translations, as the input is (`measure`'s `site_codes`), so a `code_set` field's paths, values
+and items agree with what the input read. It holds no translation, and a coding a translation
+matched counts by its system, as any other.
+
 It holds counts and the pack's own words only: never a value, an id, text, a patient's code or a
 system the pack does not declare (a site's own system can name the site). The output is
 canonical, keys and lists sorted, so one record gives the same bytes on every run.
@@ -44,19 +61,22 @@ from mendari.errors import ReadReason
 from mendari.standards.fhir import (
     MEDICATION_END,
     MEDICATION_START,
+    NOT_FETCHED,
     FhirMapping,
     FieldMapping,
     Indexed,
     ListSource,
     LookedFor,
     Reading,
+    SiteCodes,
     codings_of,
     list_item,
+    listed,
     looked_for,
-    read_attachment,
     read_field,
     select,
     split_path,
+    unread_attachments,
 )
 
 FORMAT = "mendari.data-coverage/1"
@@ -90,6 +110,7 @@ class _Found:
     notes: Counter[str] = field(default_factory=Counter)  # unreadable attachments, by reason
     references: int = 0
     reached: int = 0
+    links: Counter[str] = field(default_factory=Counter)  # followed links not read, by reason
 
 
 def unreadable_notes(mapping: FhirMapping, indexed: Indexed) -> dict[str, dict[str, int]]:
@@ -108,7 +129,27 @@ def unreadable_notes(mapping: FhirMapping, indexed: Indexed) -> dict[str, dict[s
             scopes = [{kind: resource} for resource in _as_list(indexed.get(kind))]
             for key, mapped in source.fields.items():
                 if mapped.transform in _NOTES:
-                    counts = _read(mapped, kind, scopes, reading, None).notes
+                    counts = _read(mapped, kind, scopes, reading, None, source).notes
+                    found.setdefault(f"{name}.{key}", Counter()).update(counts)
+    return {key: dict(sorted(counts.items())) for key, counts in sorted(found.items()) if counts}
+
+
+def unreadable_links(mapping: FhirMapping, indexed: Indexed) -> dict[str, dict[str, int]]:
+    """Each field with `follow` (a list's as `<list>.<field>`) whose links the record does not
+    hold (`fhir.FieldRead.missing`), with a count by reason: why a linked read did not read each
+    (`Indexed.unread`), else `not_fetched` (LP-23h). Fields whose links all resolved are left
+    out. A 0.1 or 0.2 mapping has none."""
+    reading = Reading.of(mapping, indexed)
+    found: dict[str, Counter[str]] = {}
+    for target, mapped in mapping.fields.items():
+        if mapped.follow is not None:
+            found[target] = _read(mapped, None, [indexed], reading, None).links
+    for name, spec in mapping.lists.items():
+        for kind, source in spec.sources().items():
+            scopes = [{kind: resource} for resource in _as_list(indexed.get(kind))]
+            for key, mapped in source.fields.items():
+                if mapped.follow is not None:
+                    counts = _read(mapped, kind, scopes, reading, None, source).links
                     found.setdefault(f"{name}.{key}", Counter()).update(counts)
     return {key: dict(sorted(counts.items())) for key, counts in sorted(found.items()) if counts}
 
@@ -120,12 +161,16 @@ def measure(
     unreadable: Mapping[str, str],
     systems: Collection[str] = (),
     sources: Mapping[str, str] | None = None,
+    site_codes: SiteCodes | None = None,
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
     reason; `systems` the code systems the pack declares; `sources` the pack's prefetch
     templates, which say what resource type each key reads, so a field or a list whose resources
-    could not be read says so, and a list read and empty does not."""
+    could not be read says so, and a list read and empty does not; `site_codes` the site's
+    translations the input was read with (LP-23i), so a `code_set` field counts the paths, values
+    and items the input read, as the input read them. The record holds no translation: a coding
+    a translation matched counts by its system, as any other (`other` for a site's own)."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -135,7 +180,7 @@ def measure(
         template = (sources or {}).get(key)
         if template is not None:
             failed.setdefault(source_type(template), Counter())[reason] += 1
-    reading = Reading.of(mapping, indexed)
+    reading = Reading.of(mapping, indexed, site_codes)
     looked = looked_for(mapping)
     total = Counter(unreadable.values())
 
@@ -153,8 +198,10 @@ def measure(
         read_in = _types(mapped, None)
         record = _field(mapped, None, looked["fields"][target], found, declared)
         record["resources"] = {kind: len(_as_list(indexed.get(kind))) for kind in read_in}
-        record["unreadable"] = _merged(*(failed.get(kind) for kind in read_in), found.notes)
-        total.update(found.notes)
+        record["unreadable"] = _merged(
+            *(failed.get(kind) for kind in read_in), found.notes, found.links
+        )
+        total.update(found.notes + found.links)
         fields[target] = record
     lists: dict[str, Any] = {}
     for name, spec in mapping.lists.items():
@@ -199,17 +246,17 @@ def _source(
 ) -> tuple[dict[str, Any], set[str], Counter[str]]:
     """One resource type of a list: its record (the resources of the type, its items, each item
     key's field record, what could not be read), the resource types it reads (its own, and the
-    types its follows reach) and its unreadable notes by reason."""
+    types its follows reach) and what its fields could not read (notes, links) by reason."""
     resources = _as_list(indexed.get(kind))
     scopes = [{kind: resource} for resource in resources]
     fields: dict[str, Any] = {}
     kinds = {kind}
     notes: Counter[str] = Counter()
     for key, mapped in _item_keys(source):
-        found = _read(mapped, kind, scopes, reading, declared)
+        found = _read(mapped, kind, scopes, reading, declared, source)
         fields[key] = _field(mapped, kind, looked[key], found, declared)
         kinds.update(_types(mapped, kind))
-        notes.update(found.notes)
+        notes.update(found.notes + found.links)
     record = {
         "resource": kind,
         "resources": len(resources),
@@ -236,18 +283,27 @@ def _read(
     scopes: Sequence[Mapping[str, Any]],
     reading: Reading,
     declared: Sequence[str] | None,
+    source: ListSource | None = None,
 ) -> _Found:
     """What one field found across `scopes`, read as the mapping reads it (`fhir.read_field`):
     the values at the paths it read, the codings of the concepts they read (each coding once, by
     declared system or `other`), its unreadable attachments by reason and, with `follow`, the
-    references it found and what they reached. `declared` None counts no codings. A null is not
-    a value: R4 JSON pads a primitive array with nulls to line it up with its `_x` sibling, so a
-    null counts for nothing and is never an undecodable note, as LP-23d counted."""
+    references it found, what they reached and, by reason, each link among them the record does
+    not hold (`links`). `declared` None counts no codings. A null is not a value: R4 JSON pads a
+    primitive array with nulls to line it up with its `_x` sibling, so a null counts for nothing
+    and is never an undecodable note, as LP-23d counted. With a list's `source`, what a resource
+    the list leaves out (`fhir.listed`: a MedicationRequest entered in error) could not read is
+    not counted: the decision does not need it, so it neither reads its links nor abstains on
+    them (LP-23h); its values still count, as what the record holds."""
     found = _Found()
+    unread = reading.record.unread
     for scope in scopes:
         read = read_field(mapped, scope, kind, reading)
+        needed = source is None or kind is None or listed(source, scope.get(kind))
         found.references += read.references
         found.reached += read.reached
+        if needed:
+            found.links.update(unread.get(target, NOT_FETCHED) for target in read.missing)
         counted: set[int] = set()  # the codings an earlier path of the field counted
         for path, where, read_pairs in read.reads:
             pairs = [(container, value) for container, value in read_pairs if value is not None]
@@ -262,7 +318,8 @@ def _read(
                     counted_as = system if isinstance(system, str) and system in declared else OTHER
                     found.codings[counted_as] += 1
                 counted.update(id(coding) for coding in codings if isinstance(coding, Mapping))
-            found.notes.update(_notes(mapped, path, where, pairs, reading))
+            if needed:
+                found.notes.update(_notes(mapped, path, where, pairs, reading))
     return found
 
 
@@ -344,16 +401,7 @@ def _notes(
     the path's values with their resources, nulls dropped (`_read`)."""
     counts: Counter[str] = Counter()
     if mapped.transform == "attachment_text":
-        for container, attachment in pairs:
-            if (
-                isinstance(attachment, Mapping)
-                and attachment.get(_ATTACHMENT_DATA) is None
-                and attachment.get("url") is None
-            ):
-                continue  # nothing there to read
-            reason = read_attachment(attachment, container=container, record=reading.record)[1]
-            if reason is not None:
-                counts[reason] += 1
+        counts.update(unread_attachments(path, pairs, reading.record))
     elif mapped.transform == "base64_text":
         for _, value in pairs:
             if not decodes(value):

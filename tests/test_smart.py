@@ -86,6 +86,15 @@ class FakeEhr:
                 "authorization_endpoint": f"{self.root}/auth/authorize",
                 "token_endpoint": f"{self.root}/auth/token",
                 "code_challenge_methods_supported": ["S256"],
+                # What Mendari asks for by default (smart.DEFAULT_SCOPES), and more.
+                "scopes_supported": [
+                    "openid",
+                    "fhirUser",
+                    "launch",
+                    "launch/patient",
+                    "patient/*.rs",
+                    "user/*.rs",
+                ],
             }
             return httpx.Response(200, json={**config, **self.config_overrides})
         if url == f"{self.root}/keys":

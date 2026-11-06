@@ -1,0 +1,6 @@
+# The build context is only the files the Dockerfile copies.
+*
+!Gemfile
+!Gemfile.lock
+!lib/mendari_kits.rb
+!offline_terminology.rb

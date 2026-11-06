@@ -39,6 +39,12 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
+from mendari.sandbox.ehr_profile import (
+    SITE_DIAGNOSES,
+    SITE_DIAGNOSIS_SYSTEM,
+    SITE_ORDER_TYPE_SYSTEM,
+    SITE_ORDER_TYPES,
+)
 from mendari.sandbox.fhir_records import (
     CHANNEL_SYSTEM,
     CHANNELS,
@@ -213,10 +219,11 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
-    Communications' message channel, and the fictional codes of the reference packs' synthetic
+    Communications' message channel, the fictional codes of the reference packs' synthetic
     data (the Prior Authorization Preflight's procedures, the Clinical Trial Prescreener's
-    local-site conditions, the Referral Router's referral). CI loads them so the sandbox and
-    Da Vinci samples validate."""
+    local-site conditions, the Referral Router's referral), and the vendor-shaped EHR profile's
+    site codes (its diagnoses and its referral's order type, LP-23e). CI loads them so the
+    sandbox and Da Vinci samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -264,6 +271,27 @@ def sandbox_resources() -> list[dict[str, Any]]:
             "SNOMED CT or any real code system. A site maps its own referral code.",
             __version__,
             [_concept(code, shown) for code, shown in REFERRALS.items()],
+            experimental=True,
+        ),
+        _code_system(
+            SITE_DIAGNOSIS_SYSTEM,
+            "fictional-site-diagnoses",
+            "Mendari fictional site diagnosis codes",
+            "A synthetic EHR site's own diagnosis codes, which the sandbox's vendor-shaped profile "
+            "sends beside ICD-10-CM. Not SNOMED CT or any real code system.",
+            __version__,
+            [_concept(code, shown) for code, shown in sorted(SITE_DIAGNOSES.values())],
+            experimental=True,
+        ),
+        _code_system(
+            SITE_ORDER_TYPE_SYSTEM,
+            "fictional-site-order-types",
+            "Mendari fictional site order types",
+            "A synthetic EHR site's own order types, which the sandbox's vendor-shaped profile "
+            "sends as a referral's category beside the fictional referral code. Not SNOMED CT or "
+            "any real code system.",
+            __version__,
+            [_concept(code, shown) for code, shown in SITE_ORDER_TYPES.items()],
             experimental=True,
         ),
     ]

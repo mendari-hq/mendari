@@ -46,8 +46,8 @@ POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
 # exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
 # endpoint and key (and the origins they may be at), the alert webhook, the registry, the payer,
-# the CDS clients whose tokens a server would take (LP-23b), and the key holder's grading key
-# (LP-17e), which no test may sign with.
+# the CDS clients whose tokens a server would take (LP-23b), a site's code map (LP-23i), and the
+# key holder's grading key (LP-17e), which no test may sign with.
 # No test may reach them, whatever a module opens at import (the Vercel entrypoint builds its
 # app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected, and
 # so are the old OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A
@@ -60,7 +60,7 @@ LIVE_SETTINGS = (
     "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
     "CRON_SECRET", "MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY",
-    "MENDARI_CDS_CLIENTS",
+    "MENDARI_CDS_CLIENTS", "MENDARI_SITE_CODES",
     "MENDARI_GRADING_SIGNING_KEY",
 )  # fmt: skip
 for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:

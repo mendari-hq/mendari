@@ -13,7 +13,8 @@ import pytest
 
 from mendari.cli import main
 from mendari.errors import MendariError
-from mendari.sandbox import smart_launch
+from mendari.sandbox import fhir_workflow, smart_launch
+from mendari.sandbox.fhir_records import REFERRAL, SANDBOX_TAG
 from tests.test_smart import (
     DECIDE_BODY,
     REGISTERED,
@@ -51,6 +52,56 @@ def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) ->
     assert seen[0]["headers"]["cache-control"] == "no-cache"  # HAPI caches searches
     with pytest.raises(MendariError, match="launches"):
         smart_launch.find_patient("http://fhir:8080/fhir", "mendari/ai-guard")
+
+
+def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The prior-authorization pack's seeded orders are tagged ServiceRequests too, and come
+    first here: the referral router's launch still finds a patient with a referral (the search
+    names the referral category), and the inbox's search is as before."""
+    orders = [
+        e["resource"]
+        for pack in (fhir_workflow.PRIOR_AUTH, fhir_workflow.REFERRAL)
+        for e in fhir_workflow.seed_bundle(pack, 2)["entry"]
+        if e["resource"]["resourceType"] == "ServiceRequest"
+    ]
+    assert not orders[0].get("category")  # a prior-authorization order: not a referral
+    tag = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
+    asked: list[dict[str, str]] = []
+
+    def get(url: str, *, params: dict[str, str], **_: Any) -> httpx.Response:
+        asked.append(params)
+        found = [
+            o
+            for o in orders
+            if url.endswith(f"/{o['resourceType']}")
+            and params["_tag"] == tag
+            and all(
+                _coded(o.get("category"), params[name]) for name in params if name == "category"
+            )
+        ]
+        entries = [{"resource": o} for o in found[: int(params["_count"])]]
+        return httpx.Response(200, json={"entry": entries}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(smart_launch.httpx, "get", get)
+    found = smart_launch.find_patient("http://fhir:8080/fhir", "mendari/referral-router")
+    referrals = [o for o in orders if o.get("category")]
+    assert found == referrals[0]["subject"]["reference"].rsplit("/", 1)[-1]
+    assert asked[0]["category"] == f"{REFERRAL['system']}|{REFERRAL['code']}"
+    with pytest.raises(MendariError):  # no Communication here
+        smart_launch.find_patient("http://fhir:8080/fhir", "mendari/patient-inbox-router")
+    assert "category" not in asked[1]
+
+
+def _coded(categories: Any, wanted: str) -> bool:
+    """Whether a `category` holds the `system|code` a token search asks for."""
+    system, _, code = wanted.partition("|")
+    return any(
+        coding.get("system") == system and coding.get("code") == code
+        for concept in categories or []
+        for coding in concept.get("coding", [])
+    )
 
 
 def test_the_launch_reads_its_session_as_the_dashboard_does(
@@ -192,3 +243,103 @@ def test_expecting_an_organization_needs_the_engines_database() -> None:
         smart_launch.run(
             engine="http://e", launcher="http://l", fhir="http://f", pack_id="x", expect_org="o"
         )
+
+
+# -- a launch from the EHR's own launch URL (Inferno's SMART client suite, LP-23l) -------------
+
+INFERNO_FHIR = "http://nginx/custom/smart_client_stu2_2/fhir"
+LAUNCH_URL = f"http://engine:8000/smart/launch?iss={INFERNO_FHIR}&launch=abc123"
+
+
+def _ehr_launch(sent: list[tuple[str, str, dict[str, str]]]) -> Any:
+    """The engine and an EHR (Inferno's mock SMART server) that authorizes at once, as httpx
+    transports see them."""
+    session = {"active": True, "patient": "ehr-ref-1", "scope": "launch patient/*.rs"}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        sent.append((request.method, str(request.url), dict(request.headers)))
+        if path == "/smart/launch":
+            started = {
+                "location": "http://nginx/auth/authorize?x=1",
+                "set-cookie": "mendari_launch=b",
+            }
+            return httpx.Response(302, headers=started)
+        if path == "/auth/authorize":
+            callback = "http://engine:8000/smart/callback?code=c&state=s"
+            return httpx.Response(302, headers={"location": callback})
+        if path == "/smart/callback":
+            return httpx.Response(302, headers={"location": "/", "set-cookie": "mendari_smart=s"})
+        if path == "/api/smart/session":
+            ended = any(p.endswith("/api/smart/logout") for _, p, _ in sent)
+            return httpx.Response(200, json={"active": False} if ended else session)
+        if path == "/api/smart/patient":
+            return httpx.Response(200, json={"id": "ehr-ref-1", "gender": "female"})
+        return httpx.Response(204)  # the logout
+
+    return answer
+
+
+def test_a_launch_from_the_ehrs_launch_url_reads_the_patient_with_its_token_and_logs_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The EHR made the launch URL (its own `iss` and `launch`): the script opens it as it is,
+    follows the EHR's authorize endpoint back to the callback with the binding cookie, reads
+    the patient in context (the engine reads the EHR's FHIR server with the launch's token)
+    and logs out."""
+    sent: list[tuple[str, str, dict[str, str]]] = []
+    real = httpx.Client
+    monkeypatch.setattr(
+        smart_launch.httpx,
+        "Client",
+        lambda **kw: real(transport=httpx.MockTransport(_ehr_launch(sent)), **kw),
+    )
+    done = smart_launch.from_launch_url(LAUNCH_URL, engine="http://engine:8000/")
+    assert done == {
+        "patient": "ehr-ref-1",
+        "scope": "launch patient/*.rs",
+        "patient_read": True,
+        "session_ended": True,
+    }
+    assert sent[0][1] == LAUNCH_URL  # opened as the EHR made it, nothing added
+    callback = next(headers for _, url, headers in sent if "/smart/callback" in url)
+    assert callback["cookie"] == "mendari_launch=b"
+    reads = [(m, url.split("8000")[-1]) for m, url, _ in sent if "/api/" in url]
+    assert reads == [
+        ("GET", "/api/smart/session"), ("GET", "/api/smart/patient"),
+        ("POST", "/api/smart/logout"), ("GET", "/api/smart/session"),
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://elsewhere:8000/smart/launch?iss=x&launch=y",
+        "http://engine:8000/api/smart/decide?x=1",
+        "http://engine:8000/smart/launch",  # no iss, no launch
+    ],
+)
+def test_only_the_engines_own_launch_path_is_opened(url: str) -> None:
+    with pytest.raises(MendariError, match="not http://engine:8000/smart/launch"):
+        smart_launch.from_launch_url(url, engine="http://engine:8000")
+
+
+def test_the_cli_takes_a_launch_url_instead_of_the_launcher(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    launched = {"patient": "1", "scope": "launch", "patient_read": True, "session_ended": True}
+    seen: dict[str, Any] = {}
+
+    def fake(url: str, *, engine: str) -> dict[str, Any]:
+        seen.update(url=url, engine=engine)
+        return launched
+
+    monkeypatch.setattr(smart_launch, "from_launch_url", fake)
+    args = ["sandbox", "smart-launch", "--engine", "http://engine:8000", "--launch-url", LAUNCH_URL]
+    assert main(args) == 0 and seen == {"url": LAUNCH_URL, "engine": "http://engine:8000"}
+    launched["patient_read"] = False
+    assert main(args) == 1
+    assert "the patient in context was not read" in capsys.readouterr().err
+    # Without a launch URL, the launcher and the FHIR base are still needed.
+    assert main(["sandbox", "smart-launch", "--engine", "e", "--launcher", "l"]) != 0
+    assert "--launcher and --fhir, or --launch-url" in capsys.readouterr().err

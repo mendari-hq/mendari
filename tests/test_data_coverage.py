@@ -405,10 +405,11 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     """A spec 0.3 mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
     in the order it tries them, the systems it selects on and its code set's codes; what the
     paths it read found (in order, until one gave the field its value); a `follow`'s references
-    and how many it reached; a list of several types by type (`sources`, a `medication_period`'s
-    keys among a MedicationRequest's fields); and each `attachment_text` note that could not be
-    read, by its reason, while one with nothing in it counts for nothing. Never a value, an id,
-    text, a patient's code or a site's own system."""
+    and how many it reached, and (LP-23h) each link among them the record does not hold, as
+    `not_fetched` with no linked reads; a list of several types by type (`sources`, a
+    `medication_period`'s keys among a MedicationRequest's fields); and each `attachment_text`
+    note that could not be read, by its reason, while one with nothing in it counts for nothing.
+    Never a value, an id, text, a patient's code or a site's own system."""
     changes = {
         "code_sets": {"t2d": {"system": MINI_ICD, "codes": ["E11.9", "E11.65"]}},
         "fields": {
@@ -531,6 +532,10 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     assert data_coverage.unreadable_notes(mapped.mapping, indexed) == {
         "notes": {"not_fetched": 1, "undecodable": 1, "unsupported_type": 1}
     }
+    # `Medication/none` is a link the record does not hold (LP-23h); the payer is contained.
+    assert data_coverage.unreadable_links(mapped.mapping, indexed) == {
+        "medications.code": {"not_fetched": 1}
+    }
     systems = [use.url for use in mapped.pack.manifest.code_systems]
     sources = {"meds": "Medication?patient={{context.patientId}}"}
     coverage = data_coverage.measure(
@@ -571,7 +576,8 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     }
     medications = lists["medications"]
     assert sorted(medications) == ["items", "sources", "unreadable"]
-    assert medications["items"] == 2 and medications["unreadable"] == {"timeout": 1}
+    assert medications["items"] == 2
+    assert medications["unreadable"] == {"not_fetched": 1, "timeout": 1}
     statements = medications["sources"]["MedicationStatement"]
     assert (statements["resources"], statements["items"], statements["unreadable"]) == (1, 1, {})
     assert statements["fields"]["code"]["codings"] == {MED: 1, OTHER: 1}
@@ -581,7 +587,8 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
         3,
         1,  # one reaches nothing, one is entered in error
     )
-    assert requests["unreadable"] == {"timeout": 1}  # its follow reads Medication
+    # Its follow reads Medication, whose read failed, and one reference reaches nothing.
+    assert requests["unreadable"] == {"not_fetched": 1, "timeout": 1}
     assert requests["fields"]["code"] == {
         "codes": [],
         "codings": {OTHER: 2},  # the Medication's own coding, read by two requests
@@ -594,7 +601,7 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     assert requests["fields"]["start"]["paths"] == [f"{bounds}.start", "authoredOn"]
     assert (requests["fields"]["start"]["values"], requests["fields"]["end"]["values"]) == (1, 0)
     assert coverage["unreadable"] == {
-        "not_fetched": 1,
+        "not_fetched": 2,
         "timeout": 1,
         "undecodable": 1,
         "unsupported_type": 1,

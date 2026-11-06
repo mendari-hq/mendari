@@ -61,6 +61,16 @@ def allowed_servers(variable: str = "MENDARI_FHIR_ALLOWED_SERVERS") -> frozenset
     return frozenset(origins)
 
 
+def check_allowed(url: str, allowed: Collection[str] | None = None) -> None:
+    """A FhirError (`off_server`) unless `url`'s origin is on the allow-list (`allowed`, else
+    $MENDARI_FHIR_ALLOWED_SERVERS). Nothing is sent."""
+    origin = origin_of(url)
+    if origin is None or origin not in (allowed_servers() if allowed is None else allowed):
+        raise FhirError(
+            "the FHIR server is not on this deployment's allow-list", reason="off_server"
+        )
+
+
 class GuardedHttp:
     """HTTP to allow-listed origins only: no redirects, a timeout, and JSON answers under the size
     cap. `FhirClient` reads through it; SMART uses it for discovery, token and JWKS requests."""
@@ -84,14 +94,19 @@ class GuardedHttp:
         self._client.close()
 
     def check(self, url: str) -> None:
-        origin = origin_of(url)
-        if origin is None or origin not in self.allowed:
-            raise FhirError(
-                "the FHIR server is not on this deployment's allow-list", reason="off_server"
-            )
+        check_allowed(url, self.allowed)
 
-    def get_json(self, url: str, headers: Mapping[str, str] | None = None) -> dict[str, Any]:
-        return self._send("GET", url, headers=headers)
+    def get_json(
+        self,
+        url: str,
+        headers: Mapping[str, str] | None = None,
+        *,
+        max_bytes: int | None = None,
+    ) -> dict[str, Any]:
+        """A JSON answer to a GET. `max_bytes` caps this answer below `MAX_BYTES` (a linked read's,
+        LP-23h): past it, the answer stops arriving and is a `FhirError` (`too_large`)."""
+        extra = {} if max_bytes is None else {"max_bytes": max_bytes}
+        return self._send("GET", url, headers=headers, **extra)
 
     def post_form(
         self, url: str, data: Mapping[str, str], headers: Mapping[str, str] | None = None
@@ -175,6 +190,7 @@ class GuardedHttp:
     def _send(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
         self.check(url)
         stop: Callable[[], bool] | None = kwargs.pop("stop", None)
+        cap = min(MAX_BYTES, kwargs.pop("max_bytes", MAX_BYTES))
         try:
             with self._client.stream(method, url, **kwargs) as response:
                 if response.is_redirect:
@@ -184,8 +200,8 @@ class GuardedHttp:
                     if stop is not None and stop():
                         raise FhirError("the answer did not arrive in time", reason="timeout")
                     body += chunk
-                    if len(body) > MAX_BYTES:
-                        raise _too_large()
+                    if len(body) > cap:
+                        raise _too_large(cap)
                 if not response.is_success:
                     status = response.status_code
                     raise FhirError(
@@ -244,7 +260,7 @@ class FhirClient:
         page that is not a Bundle (`operation_outcome`, `not_r4`): a record cut short is not
         read. A page whose `entry` or `link` is not R4's shape, or whose `next` link is not a
         URL, is a `FhirError` (`not_r4`) in every mode, never a crash."""
-        result = self._http.get_json(self._resolve(relative), self._headers)
+        result = self._http.get_json(self.url_of(relative), self._headers)
         if result.get("resourceType") != "Bundle":
             return result
         entries = _entries(result)
@@ -252,7 +268,7 @@ class FhirClient:
             following = _next(result)
             if not following:
                 break
-            result = self._http.get_json(self._resolve(following), self._headers)
+            result = self._http.get_json(self.url_of(following), self._headers)
             if complete and result.get("resourceType") != "Bundle":
                 kind: ReadReason = (
                     "operation_outcome"
@@ -266,9 +282,16 @@ class FhirClient:
                 raise FhirError(f"the search has more than {MAX_PAGES + 1} pages", reason="cap")
         return {"resourceType": "Bundle", "type": "searchset", "entry": entries}
 
-    def _resolve(self, relative: str) -> str:
-        """An absolute URL under the base URL, or a FhirError for anything that escapes it (a
-        URL that does not parse cannot be shown to stay under it)."""
+    def read_resource(self, relative: str, *, max_bytes: int | None = None) -> dict[str, Any]:
+        """GET one resource (`Type/id`, or an absolute URL under the base URL): one request, no
+        page followed, its answer at most `max_bytes` (`MAX_BYTES` unless set lower). What a
+        linked read uses (LP-23h, `standards/linked.py`)."""
+        return self._http.get_json(self.url_of(relative), self._headers, max_bytes=max_bytes)
+
+    def url_of(self, relative: str) -> str:
+        """`relative` (a path, or an absolute URL) as an absolute URL under the base URL, or a
+        FhirError (`off_server`) for anything that escapes it (a URL that does not parse cannot
+        be shown to stay under it). Nothing is sent."""
         try:
             parts = urlsplit(urljoin(self.base, relative))
         except ValueError:  # e.g. a malformed IPv6 host
@@ -318,8 +341,9 @@ def _redirected(status: int) -> FhirError:
     return FhirError(f"the server redirected (HTTP {status})", reason="http_status")
 
 
-def _too_large() -> FhirError:
-    return FhirError(f"the response is larger than {MAX_BYTES} bytes", reason="too_large")
+def _too_large(cap: int | None = None) -> FhirError:
+    size = MAX_BYTES if cap is None else cap
+    return FhirError(f"the response is larger than {size} bytes", reason="too_large")
 
 
 def _unreachable(error: httpx.HTTPError) -> FhirError:

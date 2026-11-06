@@ -420,6 +420,27 @@ docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/re
   --expect-org pilot --db /data/mendari.db
 ```
 
+**A signed CDS client over HTTP (LP-23e).** With both engines up, the profile's service
+`cds-client` plays an EHR. It seeds a vendor-shaped EHR profile into HAPI: synthetic patients
+for the trial, prior-authorization and referral packs, in the shapes Epic's and Oracle Health's
+public FHIR documentation describe, with notes linked to a Binary, Conditions coded by the site
+and in ICD-10-CM, MedicationRequests, the payer by reference, and no SNOMED CT
+(`mendari sandbox seed --pack ehr-profile`). Then it makes an EC P-384 key in memory, serves its
+JWK Set, and calls discovery and every standard hook of each engine, a new ES384 token each
+call (`mendari sandbox cds-client`). Both engines register it in `MENDARI_CDS_CLIENTS`, and
+CI's `sandbox-e2e` runs it on every change:
+
+<!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
+```bash
+docker compose --profile signin run --rm --use-aliases cds-client
+```
+
+Every hook answers, but the packs read little of these shapes yet (linked notes, a site's
+coding first, MedicationRequest, the payer by reference): what each cannot read is pinned in
+`tests/test_ehr_profile.py`, and
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client)
+says how to run the client against your own engine.
+
 **Bulk FHIR into local validation.** Export a site's data, then evaluate a pack on it with the
 site's own labels (ground truth from chart review, joined by an identifier system):
 
@@ -442,7 +463,8 @@ follows.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
-exactly like the same cases read from the dataset file.
+exactly like the same cases read from the dataset file. Last, it runs the signed CDS client
+against both engines.
 
 ## Healthcare standards
 
@@ -621,7 +643,7 @@ registered is refused as before. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
-(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
+(Accepted). Where pilot readiness stands, criterion by criterion with the test that shows each,
 is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
 
 **A record Mendari cannot read (LP-23d).** A hook always answers. Each prefetch key is read on its
@@ -658,6 +680,53 @@ discovery, and honours `coverage-info: false`. The EHR may send back what the cl
 each card (`POST /cds-services/{id}/feedback`): each is chained as `card.feedback`, codes and ids
 only, and the comment is never kept. A card from another organization, another pack or another
 caller is one `404`. In the dashboard, a FHIR decision's record shows what it read, as counts.
+
+**Linked record data (LP-23h).** A pack on spec 0.3 may read a note that is only a link to a Binary,
+and what a reference points to (the payer behind `Coverage.payor`, the drug behind
+`medicationReference`). What the record holds is read from it. What it does not, a CDS hook with a
+`fhirServer` and the SMART launch's decide read from that server only, under its base, with the same
+token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 20 links a
+decision, each at most 1 MiB once decoded, each read once a request. A link to another server or
+outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
+(`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
+its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
+DocumentReference), one that reads is enough: the others are not read or counted. No shipped pack is
+on spec 0.3 yet, so none reads a link
+([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#linked-data)).
+
+**A site's own codes (LP-23i).** An EHR often codes things its own way. `MENDARI_SITE_CODES`
+translates a site's codes into the codes a spec 0.3 pack's code sets declare, one map per
+organization (inline JSON or a file: `{"<org>": {"version": ..., "sets": {"<code set>":
+[{"system", "code", "as"}]}}}`). Unset, no code is translated and nothing changes. It is checked
+at startup against the code sets of the packs found: a translation must land on a code its set
+declares, and anything wrong stops the server, naming the organization and the code set, never a
+code. A translation only fills in where the pack's own codes give nothing. A FHIR decision the
+server makes reads with its own organization's map, never another's (the command line reads
+none), and records the map's version and SHA-256 (`site_codes`, beside `data_coverage`, which
+is read with the same translations); `/api/health` shows the caller's. **A decision read
+through a translation never automates:** AUTO becomes HUMAN_REVIEW (`site code translated
+(<code set>): a person decides`), and so does a pack rule's BLOCK, and nothing lifts it,
+governance included, until the site validates its map. No shipped pack declares a code set
+yet. See
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
+
+**Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
+own signed tokens, open mode confined to this machine, CORS for registered origins, a hook that
+always answers, data coverage, cards and card feedback, mapping syntax 0.3 with linked reads and
+site code maps, a vendor-shaped synthetic profile with a signed sandbox client, and Inferno's
+CRD, SMART client and Bulk client suites. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed
+token through a hook over HTTP, its card and the clinician's feedback on it to `mendari audit
+verify`, which passes, and fails once one event is changed, on SQLite and Postgres. Left: the
+shipped packs' cards (the inbox's template, referral cards only when action is needed) and their
+mappings for real EHR data on spec 0.3, each waiting on the owner, and the run on Epic's own
+sandbox, which is the owner's. Launch gate G5-6's `a12-ehr-pilot` names all three as pending.
+The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure behaviour
+stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing that only
+a CI run not yet made would show is counted. The
+[threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)
+keeps five residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
+decision id the EHR keeps, a misconfigured site map, and frequent abstention on records whose
+notes Mendari cannot read.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
@@ -701,7 +770,8 @@ Open Mendari again from the EHR." when the launch's routes answer `401`:
 SMART is off until the client id is set. Launch it in a new window or the EHR's embedded
 window: inside an iframe the launch fails safely. Before go-live, `mendari smart check <FHIR
 base>` reports, with the deployment's settings, the base's registration key, whether it is
-allowed and registered, the scopes, and the EHR's discovery, PKCE S256 and keys.
+allowed and registered, the scopes, and the EHR's discovery, whether it publishes those scopes
+(`scopes_supported`, SMART v1 or v2; `unknown` when it publishes none), PKCE S256 and keys.
 
 **CQL.** A pack can compute answers with a CQL library (provider type `cql`), evaluated on a
 CQL engine at `MENDARI_CQL_URL` (HAPI FHIR with Clinical Reasoning; the sandbox's HAPI has
@@ -783,6 +853,10 @@ runs with no HTTP access, so its verdict depends on nothing fetched by version a
 has a package cache of its own with only what it loads, so the US Core run checks against US
 Core 6.1.0 and no other version.
 `scripts/fhir_packages.py lock` writes the lock again after a validator or guide version changes.
+It runs without a terminology server (`-tx n/a`). The workflow `terminology.yml`, weekly and by
+hand and never on a pull request, runs the same job with one (`scripts/fhir_validate.py --tx
+https://tx.fhir.org/r4`), so codes are checked against the code systems and value sets the
+server holds; only the synthetic files' codes reach it, and it is not a required check.
 
 ## Documentation
 

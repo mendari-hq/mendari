@@ -17,8 +17,11 @@ from mendari.evals.harness import load_dataset
 from mendari.sandbox import example_datasets_dir, fhir_workflow, synthetic_inbox
 from mendari.sandbox.fhir_records import inbox_entries, referral_entries
 from mendari.sandbox.fhir_workflow import (
+    EHR_PROFILE,
     INBOX,
+    PRIOR_AUTH,
     REFERRAL,
+    TRIAL,
     _process_batch,
     seed_bundle,
     to_resources,
@@ -199,3 +202,47 @@ def test_seeding_twice_is_a_no_op_even_with_hapis_search_cache(
     assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 3
     assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 0
     assert len(posted) == 1
+
+
+def test_the_trial_and_prior_auth_packs_and_the_ehr_profile_seed_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`seed` takes the trial and prior-authorization packs' cases, and the vendor-shaped EHR
+    profile (LP-23e). A pack already seeded is found by its first case's Patient, so the
+    prior-authorization pack's tagged ServiceRequests never pass for the referral router's; the
+    profile's PUTs are sent every time, and replace what an earlier seed of it made."""
+    posted: list[dict[str, Any]] = []
+
+    def get(url: str, **kwargs: Any) -> httpx.Response:
+        if url.endswith("/metadata"):
+            return httpx.Response(200, json={})
+        assert url.endswith("/Patient") and kwargs["headers"].get("cache-control") == "no-cache"
+        wanted = kwargs["params"]["identifier"]
+        held = [
+            identifier
+            for bundle in posted
+            for entry in bundle["entry"]
+            if entry["resource"]["resourceType"] == "Patient"
+            for identifier in entry["resource"]["identifier"]
+            if f"{identifier['system']}|{identifier['value']}" == wanted
+        ]
+        return httpx.Response(200, json={"total": len(held)})
+
+    def post(url: str, **kwargs: Any) -> httpx.Response:
+        posted.append(kwargs["json"])
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(fhir_workflow.httpx, "get", get)
+    monkeypatch.setattr(fhir_workflow.httpx, "post", post)
+    fhir = "http://fhir.test/fhir"
+    assert fhir_workflow.seed(fhir, count=3, pack_id=PRIOR_AUTH) == 3  # ServiceRequests
+    assert fhir_workflow.seed(fhir, count=3, pack_id=REFERRAL) == 3  # not taken for the above
+    assert fhir_workflow.seed(fhir, count=2, pack_id=TRIAL) == 2  # Patients
+    for pack_id in (PRIOR_AUTH, REFERRAL, TRIAL):
+        assert fhir_workflow.seed(fhir, count=3, pack_id=pack_id) == 0, pack_id
+    assert len(posted) == 3
+    for _ in range(2):
+        assert fhir_workflow.seed(fhir, count=0, pack_id=EHR_PROFILE) == 15  # its Patients
+    assert posted[-1] == posted[-2] and len(posted) == 5
+    assert {e["request"]["method"] for e in posted[-1]["entry"]} == {"PUT"}
+    assert seed_bundle(TRIAL, 0)["entry"] == []

@@ -29,9 +29,9 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch", "schedule"}
 # A schedule runs the default branch's own workflow and code, no one's input: only the weekly scan
-# of every ref, the sweep of Neon preview branches no pull request needs and the weekly Inferno
-# conformance run use one.
-SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml", "conformance.yml"}
+# of every ref, the sweep of Neon preview branches no pull request needs, the weekly Inferno
+# conformance run and the weekly HL7 validator run with a terminology server use one.
+SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml", "conformance.yml", "terminology.yml"}
 # The only write permissions, each on a job that publishes from its own environment in a
 # workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
 # their environments must have reviewers) and the docs deploy (`github-pages`, which allows only
@@ -391,11 +391,24 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
     assert runs.index(SCAN["run"]) < runs.index("uv build")
 
 
+# Each conformance job, the compose file it runs, and the command that runs its suite: DTR's
+# headless `inferno execute`, the scripted suites' driver (scripts/inferno_session.py).
+SCRIPTED_COMPOSE = "sandbox/inferno/scripted/docker-compose.yml"
+CONFORMANCE_JOBS = {
+    "dtr-payer": ("sandbox/inferno/docker-compose.yml", "inferno execute", "dtr_payer_server_v220"),
+    "crd-server": (SCRIPTED_COMPOSE, "inferno_session.py", "crd_server_v221"),
+    "smart-client": (SCRIPTED_COMPOSE, "inferno_session.py", "smart_client_stu2_2"),
+    "bulk-client": (SCRIPTED_COMPOSE, "inferno_session.py", "bulk_data_v200_client"),
+}
+
+
 def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing() -> None:
-    """conformance.yml (sandbox/inferno/README.md): Inferno against the open engine on synthetic
-    data, never on a pull request, with a read-only token and no secret. The checker's verdict
-    is the job's: only Inferno's own exit status (3 when a test does not pass) is set aside, and
-    the raw output, which can quote payloads, is an artifact for 7 days, never committed."""
+    """conformance.yml (sandbox/inferno/README.md): Inferno against the engines on synthetic
+    data, never on a pull request, with a read-only token and no secret. Each suite is a job of
+    its own, so each has its own verdict, the checker's: only Inferno's own exit status (3 when a
+    test does not pass) is set aside, and the raw output, which can quote payloads, is an
+    artifact for 7 days, never committed; each job ends by removing its containers and
+    volumes."""
     path = ROOT / ".github" / "workflows" / "conformance.yml"
     workflow = _workflow(path)
     assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
@@ -403,33 +416,74 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
     text = path.read_text()
     for unwanted in (r"secrets\.", r"git (push|commit)", r"\bgh\s", "continue-on-error"):
         assert not re.search(unwanted, text), unwanted
-    (job,) = workflow["jobs"].values()
-    assert "permissions" not in job and "if" not in job
-    steps = job["steps"]
-    (execute,) = [s for s in steps if "inferno execute" in s.get("run", "")]
+    assert set(workflow["jobs"]) == set(CONFORMANCE_JOBS)
+    assert "/var/" in (ROOT / ".gitignore").read_text().splitlines()  # never committed
+    for name, (compose, runner, suite) in CONFORMANCE_JOBS.items():
+        job = workflow["jobs"][name]
+        assert "permissions" not in job and "if" not in job, name
+        assert job["timeout-minutes"] >= 60, name
+        steps = job["steps"]
+        (execute,) = [s for s in steps if runner in s.get("run", "")]
+        assert suite in execute["run"] and "if" not in execute, name
+        (verdict,) = [s for s in steps if "inferno_check.py" in s.get("run", "")]
+        assert "if" not in verdict and "||" not in verdict["run"], name
+        assert f"--expected sandbox/inferno/{suite}_expected.json" in verdict["run"], name
+        assert steps.index(execute) < steps.index(verdict)
+        (upload,) = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
+        assert upload["with"]["path"] == "var/inferno/" and upload["with"]["retention-days"] <= 7
+        assert upload["if"] == "always()" and upload["with"]["name"] == f"inferno-{name}-raw"
+        last = steps[-1]
+        assert last["if"] == "always()", name
+        assert last["run"].startswith(f"docker compose -f {compose}"), name
+        assert last["run"].endswith("down --volumes"), name
+        for step in steps:  # every compose call is this job's own project
+            command = step.get("run", "")
+            if "docker compose" in command:
+                assert f"docker compose -f {compose}" in command, (name, command)
+    dtr = workflow["jobs"]["dtr-payer"]["steps"]
+    (execute,) = [s for s in dtr if "inferno execute" in s.get("run", "")]
     assert "--groups 1 3 4" in execute["run"]  # group 2, Backend Services, waits for LP-23
     assert execute["run"].rstrip().endswith('|| echo "inferno execute exited $?"')
-    (verdict,) = [s for s in steps if "inferno_check.py" in s.get("run", "")]
-    assert "if" not in verdict and "||" not in verdict["run"]
-    assert "--expected sandbox/inferno/dtr_payer_server_v220_expected.json" in verdict["run"]
-    assert steps.index(execute) < steps.index(verdict)
-    (upload,) = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
-    assert upload["with"]["path"] == "var/inferno/" and upload["with"]["retention-days"] <= 7
-    assert "/var/" in (ROOT / ".gitignore").read_text().splitlines()  # never committed
-    assert steps[-1] == {
-        "if": "always()",
-        "run": "docker compose -f sandbox/inferno/docker-compose.yml down --volumes",
-    }
+    for name in ("crd-server", "smart-client", "bulk-client"):  # the driver's status counts
+        (execute,) = [
+            s for s in workflow["jobs"][name]["steps"] if "inferno_session.py" in s.get("run", "")
+        ]
+        assert "||" not in execute["run"], name
+
+
+def test_the_signed_in_engines_keys_are_made_in_the_job_for_the_job_alone() -> None:
+    """crd-server's engine signs in, which never runs PHI mode `off`: its two keys are made in
+    the job (os.urandom), masked, and handed to the later compose calls through $GITHUB_ENV, as
+    ci.yml's sandbox-e2e does; never a secret, never in the repository."""
+    steps = _workflow(ROOT / ".github" / "workflows" / "conformance.yml")["jobs"]["crd-server"][
+        "steps"
+    ]
+    (keys,) = [s for s in steps if "MENDARI_PHI_KEY" in s.get("run", "")]
+    assert "os.urandom(32)" in keys["run"] and 'echo "::add-mask::$key"' in keys["run"]
+    assert '>> "$GITHUB_ENV"' in keys["run"]
+    started = next(
+        i for i, s in enumerate(steps) if "up -d --wait engine-signin" in s.get("run", "")
+    )
+    assert steps.index(keys) < started
 
 
 # -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------
 
 PACKAGE_LOCK = ROOT / "scripts" / "fhir_packages.lock"
+# The one workflow whose validator runs have a terminology server (`--tx`), and that server.
+TERMINOLOGY = ROOT / ".github" / "workflows" / "terminology.yml"
+TX = "https://tx.fhir.org/r4"
 # `--ig VALUE` to scripts/fhir_validate.py, or `-ig VALUE` (`-defn`) to the validator itself,
 # the flag quoted or not, the value after `=` or a space, quoted or not.
 IG_ARGUMENT = re.compile(r"(?<!\S)[\"']?(?:--ig|-ig|-defn)[\"']?(?:=|\s+)[\"']?([^\s\"']+)")
 # The shell joins a line that ends in a backslash with the next one.
 CONTINUED = re.compile(r"\\\r?\n")
+
+
+def _tx_values(words: list[str]) -> list[str]:
+    """The terminology servers a fhir_validate.py command line names (`--tx URL`, `--tx=URL`)."""
+    spaced = [words[i + 1] for i, word in enumerate(words[:-1]) if word == "--tx"]
+    return spaced + [word.removeprefix("--tx=") for word in words if word.startswith("--tx=")]
 
 
 def _locked_tarballs() -> set[str]:
@@ -455,9 +509,15 @@ def test_no_workflow_loads_a_fhir_package_the_lock_does_not_pin(path: Path) -> N
         for step in job.get("steps", []):
             script = step.get("run", "")
             assert not _unpinned_igs(script, locked), f"{path.name}: {step.get('name', script)}"
-            # And the validator runs offline, so a dependency comes from the checked cache too.
+            # And the validator runs offline, so a dependency comes from the checked cache too;
+            # in terminology.yml alone with a terminology server, the same cache checked after.
             if "scripts/fhir_validate.py" in script:
-                assert "--offline" in script.split(), f"{path.name}: {step.get('name', script)}"
+                words = script.split()
+                where = f"{path.name}: {step.get('name', script)}"
+                if path == TERMINOLOGY:
+                    assert "--offline" not in words and _tx_values(words) == [TX], where
+                else:
+                    assert "--offline" in words and _tx_values(words) == [], where
             if "validator_cli.jar" in script and "java " in script:
                 assert "-no-http-access" in script.split(), f"{path.name}: {script}"
 
@@ -517,6 +577,36 @@ def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     # The validator these packages were read from is the one the job downloads.
     lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
     assert f'VALIDATOR = "{job["env"]["VALIDATOR_VERSION"]}"' in lock_script
+
+
+def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request() -> None:
+    """terminology.yml (LP-23l) calls a live public service, tx.fhir.org, so it runs weekly and
+    by hand only, with a read-only token, no secret and no step allowed to fail quietly. Its job
+    is fhir-conformance's, step for step: the same validator by sha256, Java, locked packages
+    and generated inputs, so it checks what the required offline job checks; only each
+    validator run's `--offline` becomes `--tx https://tx.fhir.org/r4`."""
+    workflow = _workflow(TERMINOLOGY)
+    assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    text = TERMINOLOGY.read_text()
+    for unwanted in (r"secrets\.", r"git (push|commit)", r"\bgh\s", "continue-on-error"):
+        assert not re.search(unwanted, text), unwanted
+    (job,) = workflow["jobs"].values()
+    assert "permissions" not in job and "if" not in job
+    assert not [step for step in job["steps"] if "if" in step]
+    offline = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
+    assert job["env"] == offline["env"]
+    runs = [step.get("run", "") for step in job["steps"]]
+    validations = [run for run in runs if "scripts/fhir_validate.py" in run]
+    assert len(validations) == 2
+    assert all(_tx_values(run.split()) == [TX] for run in validations)
+    as_offline = [
+        {**step, "run": step["run"].replace(f"--tx {TX}", "--offline")}
+        if "scripts/fhir_validate.py" in step.get("run", "")
+        else step
+        for step in job["steps"]
+    ]
+    assert as_offline == offline["steps"]
 
 
 # -- the pack workflow ----------------------------------------------------------------------------

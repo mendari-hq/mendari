@@ -22,6 +22,9 @@ routes `needed()` names a scope for, and only with that scope; everything else, 
 Keys parse strictly (`parse`: a scope Mendari does not grant is a `ScopeError` naming it, a
 `422`); tokens leniently (`parse_lenient`, then `Grant.narrow` to what the client registered:
 writes, granular `?param=` scopes and anything not served are dropped, as SMART allows).
+
+`resource_scope` reads the same grammar in every SMART context (patient/, user/, system/), for
+the scopes an EHR publishes and a launch asks it for (`mendari smart check`); it grants nothing.
 """
 
 from __future__ import annotations
@@ -51,6 +54,7 @@ _LETTERS = "cruds"  # SMART v2's order
 _V1 = {"read": "rs", "write": "cud", "*": "cruds"}
 _RESOURCE = re.compile(r"(?P<context>[a-z]+)/(?P<type>\*|[A-Z][A-Za-z]{0,63})\.(?P<letters>[^?]+)")
 _V2_LETTERS = re.compile(r"c?r?u?d?s?")
+_CONTEXTS = ("patient", "user", "system")  # SMART's, for an EHR's scopes (`resource_scope`)
 _SHOWN = 100  # characters of a refused scope a message repeats
 
 
@@ -124,6 +128,32 @@ def parse_lenient(scope: str) -> Grant:
         pairs, _ = _resource(name, lenient=True)
         fhir |= pairs
     return _grant(frozenset(fhir), frozenset(actions))
+
+
+@dataclass(frozen=True)
+class ResourceScope:
+    """A SMART resource scope in any context, v1 or v2, as permissions: what an EHR publishes
+    or a launch asks it for (`mendari smart check`), not what Mendari grants."""
+
+    context: str  # patient, user or system
+    type: str  # a FHIR resource type, or * for every type
+    letters: frozenset[str]  # some of c, r, u, d, s
+    query: str  # a granular scope's ?param=value..., else ""
+
+
+def resource_scope(name: str) -> ResourceScope | None:
+    """`name` as a SMART resource scope (`patient/Observation.rs`, `user/*.read`,
+    `patient/Observation.rs?category=laboratory`), with SMART v1's `.read` as `rs`, `.write` as
+    `cud` and `.*` as all five letters; None for any other scope (`launch`, `openid`) and for a
+    malformed one (v2 letters out of SMART's order `cruds`)."""
+    base, mark, query = name.partition("?")
+    found = _RESOURCE.fullmatch(base)
+    if found is None or found["context"] not in _CONTEXTS or (mark and not query):
+        return None
+    letters = _V1.get(found["letters"], found["letters"])
+    if not letters or not _V2_LETTERS.fullmatch(letters):
+        return None
+    return ResourceScope(found["context"], found["type"], frozenset(letters), query)
 
 
 def _grant(fhir: frozenset[tuple[str, str]], actions: frozenset[str]) -> Grant:

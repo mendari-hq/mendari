@@ -185,3 +185,42 @@ def is_local_host(host: str | None) -> bool:
         return ip_address(name).is_loopback
     except ValueError:
         return False
+
+
+PUBLIC_URL_RULE = (
+    "MENDARI_PUBLIC_URL must be an https URL without a query or fragment (plain http only for a "
+    "loopback or single-label host)"
+)
+
+
+def plain_http_host(host: str) -> bool:
+    """Whether a URL on `host` may be plain http: this machine (`localhost`, a loopback address)
+    or a single-label name, such as a compose service, which no public DNS name is. The FHIR
+    allow-list has the same rule (`fhir_client.allowed_servers`)."""
+    if host == "localhost" or (bool(host) and "." not in host and ":" not in host):
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def checked_public_url(public: str) -> str:
+    """`public`, `MENDARI_PUBLIC_URL` without its trailing slash, as the audience a CDS client's
+    token (`cds_clients`) and a Backend Services assertion (`backend_services`) are addressed to:
+    https, or plain http on a `plain_http_host` (the compose sandbox's `http://engine:8000` and
+    `http://engine-signin:8000`), with a host and no query or fragment. Both check it here, so a
+    value one takes the other takes too; a refusal states the rule, never the value."""
+    try:
+        parts = urlsplit(public)
+        host = parts.hostname or ""
+    except ValueError:
+        raise MendariError(PUBLIC_URL_RULE) from None
+    if (
+        not host
+        or parts.query
+        or parts.fragment
+        or not (parts.scheme == "https" or (parts.scheme == "http" and plain_http_host(host)))
+    ):
+        raise MendariError(PUBLIC_URL_RULE)
+    return public

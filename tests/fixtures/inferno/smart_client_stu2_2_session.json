@@ -1,0 +1,756 @@
+{
+ "suite": "smart_client_stu2_2",
+ "recorded": "2026-11-06, a local run of sandbox/inferno/scripted, trimmed to what scripts/inferno_session.py reads",
+ "exchanges": [
+  {
+   "method": "GET",
+   "path": "/api/version",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "version": "1.6.0"
+   }
+  },
+  {
+   "method": "POST",
+   "path": "/api/test_sessions",
+   "status": 200,
+   "sent": {
+    "test_suite_id": "smart_client_stu2_2",
+    "suite_options": [
+     {
+      "id": "client_type",
+      "value": "SMART,authorization_code,public"
+     }
+    ]
+   },
+   "body": {
+    "id": "7zAw8mznaH4",
+    "test_suite_id": "smart_client_stu2_2",
+    "suite_options": [
+     {
+      "id": "client_type",
+      "value": "SMART,authorization_code,public"
+     }
+    ],
+    "test_suite": {
+     "id": "smart_client_stu2_2",
+     "title": "SMART App Launch STU2.2 Client",
+     "inputs": [
+      {
+       "name": "client_id",
+       "type": "text",
+       "optional": true
+      },
+      {
+       "name": "smart_launch_urls",
+       "type": "textarea",
+       "optional": true
+      },
+      {
+       "name": "smart_redirect_uris",
+       "type": "textarea"
+      },
+      {
+       "name": "launch_context",
+       "type": "textarea",
+       "optional": true
+      },
+      {
+       "name": "fhir_user_relative_reference",
+       "type": "text",
+       "optional": true
+      },
+      {
+       "name": "fhir_read_resources_bundle",
+       "type": "textarea",
+       "optional": true
+      },
+      {
+       "name": "echoed_fhir_response",
+       "type": "textarea",
+       "optional": true
+      }
+     ],
+     "test_groups": [
+      {
+       "id": "smart_client_stu2_2-smart_client_registration_alp",
+       "short_id": "3",
+       "title": "SMART App Launch Public Client Registration",
+       "run_as_group": true,
+       "inputs": [
+        {
+         "name": "client_id",
+         "type": "text",
+         "optional": true
+        },
+        {
+         "name": "smart_launch_urls",
+         "type": "textarea",
+         "optional": true
+        },
+        {
+         "name": "smart_redirect_uris",
+         "type": "textarea"
+        }
+       ],
+       "test_groups": [],
+       "tests": [
+        {
+         "id": "smart_client_stu2_2-smart_client_registration_alp-smart_client_registration_alp_verification",
+         "short_id": "3.01",
+         "title": "Verify SMART App Launch Public Client Registration",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@20",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@21"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "optional": true
+          },
+          {
+           "name": "smart_launch_urls",
+           "type": "textarea",
+           "optional": true
+          },
+          {
+           "name": "smart_redirect_uris",
+           "type": "textarea"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "smart_client_stu2_2-smart_client_access",
+       "short_id": "5",
+       "title": "Client Access",
+       "run_as_group": true,
+       "inputs": [
+        {
+         "name": "client_id",
+         "type": "text",
+         "locked": true
+        },
+        {
+         "name": "smart_launch_urls",
+         "type": "textarea",
+         "optional": true,
+         "locked": true
+        },
+        {
+         "name": "launch_context",
+         "type": "textarea",
+         "optional": true
+        },
+        {
+         "name": "fhir_user_relative_reference",
+         "type": "text",
+         "optional": true
+        },
+        {
+         "name": "fhir_read_resources_bundle",
+         "type": "textarea",
+         "optional": true
+        },
+        {
+         "name": "echoed_fhir_response",
+         "type": "textarea",
+         "optional": true
+        },
+        {
+         "name": "smart_redirect_uris",
+         "type": "textarea",
+         "locked": true
+        }
+       ],
+       "test_groups": [],
+       "tests": [
+        {
+         "id": "smart_client_stu2_2-smart_client_access-smart_client_access_alp_interaction",
+         "short_id": "5.03",
+         "title": "Access a secured FHIR endpoint using SMART App Launch",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@12",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@63",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@71"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "locked": true
+          },
+          {
+           "name": "smart_launch_urls",
+           "type": "textarea",
+           "optional": true,
+           "locked": true
+          },
+          {
+           "name": "launch_context",
+           "type": "textarea",
+           "optional": true
+          },
+          {
+           "name": "fhir_user_relative_reference",
+           "type": "text",
+           "optional": true
+          },
+          {
+           "name": "fhir_read_resources_bundle",
+           "type": "textarea",
+           "optional": true
+          },
+          {
+           "name": "echoed_fhir_response",
+           "type": "textarea",
+           "optional": true
+          }
+         ]
+        },
+        {
+         "id": "smart_client_stu2_2-smart_client_access-smart_client_authorization_request_alp_verification",
+         "short_id": "5.07",
+         "title": "Verify SMART App Launch Authorization Requests",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@3",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@32",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@33",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@34",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@35",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@37",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@41",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@42",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@44",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@45",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@235"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "locked": true
+          },
+          {
+           "name": "smart_redirect_uris",
+           "type": "textarea",
+           "locked": true
+          },
+          {
+           "name": "launch_key",
+           "type": "text",
+           "optional": true
+          }
+         ]
+        },
+        {
+         "id": "smart_client_stu2_2-smart_client_access-smart_client_token_request_alp_verification",
+         "short_id": "5.10",
+         "title": "Verify SMART Token Requests",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@13",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@63",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@67",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@68",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@69",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@70",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@71",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@105",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@317"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "locked": true
+          }
+         ]
+        },
+        {
+         "id": "smart_client_stu2_2-smart_client_access-smart_client_token_use_verification",
+         "short_id": "5.12",
+         "title": "Verify SMART Token Use",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@267"
+         ],
+         "inputs": [
+          {
+           "name": "smart_tokens",
+           "type": "text",
+           "optional": true
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_sessions/7zAw8mznaH4/session_data",
+   "status": 200,
+   "sent": null,
+   "body": []
+  },
+  {
+   "method": "POST",
+   "path": "/api/test_runs",
+   "status": 200,
+   "sent": {
+    "test_session_id": "7zAw8mznaH4",
+    "test_suite_id": "smart_client_stu2_2",
+    "inputs": [
+     {
+      "name": "client_id",
+      "value": "mendari-sandbox"
+     },
+     {
+      "name": "smart_launch_urls",
+      "value": "http://engine:8000/smart/launch"
+     },
+     {
+      "name": "smart_redirect_uris",
+      "value": "http://engine:8000/smart/callback"
+     },
+     {
+      "name": "launch_context",
+      "value": "{\"patient\": \"ehr-ref-1\"}"
+     },
+     {
+      "name": "fhir_read_resources_bundle",
+      "value": "{\"resourceType\": \"Bundle\", \"type\": \"collection\", \"entry\": [{\"fullUrl\": \"https://ehr.example.org/fhir/Patient/ehr-ref-1\", \"resource\": {\"resourceType\": \"Patient\", \"id\": \"ehr-ref-1\", \"meta\": {\"profile\": [\"http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient\"]}, \"identifier\": [{\"system\": \"https://mendari.co/fhir/sid/fictional-site-mrn\", \"value\": \"EHR-REF-1\"}], \"name\": [{\"family\": \"Synthetic\", \"given\": [\"ehr-ref-1\"]}], \"gender\": \"female\", \"birthDate\": \"1956-05-09\"}}]}"
+     }
+    ]
+   },
+   "body": {
+    "id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+    "test_session_id": "7zAw8mznaH4",
+    "status": "queued",
+    "test_suite_id": "smart_client_stu2_2",
+    "results": []
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/05e47d07-f82f-49d0-92d2-c7ed6c433611?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+    "test_session_id": "7zAw8mznaH4",
+    "status": "queued",
+    "test_suite_id": "smart_client_stu2_2",
+    "results": []
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/05e47d07-f82f-49d0-92d2-c7ed6c433611?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+    "test_session_id": "7zAw8mznaH4",
+    "status": "waiting",
+    "test_suite_id": "smart_client_stu2_2",
+    "results": [
+     {
+      "id": "aa0bb1f0-4e4a-4533-882a-05efc42fa853",
+      "test_id": "smart_client_stu2_2-smart_client_registration_alp-smart_client_registration_alp_verification",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "result_message": "Invalid registration details provided. See messages for details",
+      "optional": false,
+      "outputs": [
+       {
+        "name": "smart_launch_urls",
+        "type": "text",
+        "value": "http://engine:8000/smart/launch"
+       },
+       {
+        "name": "smart_redirect_uris",
+        "type": "text",
+        "value": "http://engine:8000/smart/callback"
+       }
+      ],
+      "messages": [
+       {
+        "type": "error"
+       },
+       {
+        "type": "error"
+       }
+      ]
+     },
+     {
+      "id": "c22d362d-a529-4e2d-8eab-2e4ca6054a21",
+      "test_group_id": "smart_client_stu2_2-smart_client_registration_alp",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "272c6508-b64b-4830-850e-b4c3db833154",
+      "test_id": "smart_client_stu2_2-smart_client_access-smart_client_access_alp_interaction",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "result_message": "**Launch and Access**\n\nThe app has been registered with Inferno's simulated SMART server as a\npublic client with client id `mendari-sandbox`.\n\nPerform a standalone launch to connect to Inferno's simulated FHIR server at:\n\n`http://nginx/custom/smart_client_stu2_2/fhir`\n\n\n\nOr open one of the following links in a new tab to perform an EHR launch:\n- [launch](http://engine:8000/smart/launch?iss=http%3A%2F%2Fnginx%2Fcustom%2Fsmart_client_stu2_2%2Ffhir&launch=0bad1cea01aa581e18c1455cdee89ad2177e8a0a54613ca527166d64fc3e4e1f)\n\nInferno will respond to requests with either:\n- A resource from the Bundle in the **Available Resources** input if the request is a read matching\n  a resource type and id found in the Bundle.\n- Otherwise, the contents of the **Default FHIR Response** if provided.\n- Otherwise, an OperationOutcome indicating nothing to echo.\n\n[Click here](http://nginx/custom/smart_client_stu2_2/resume_pass?token=mendari-sandbox) once the client has made a data access request.\n",
+      "optional": false,
+      "outputs": [
+       {
+        "name": "continuation_url",
+        "type": "text",
+        "value": "http://nginx/custom/smart_client_stu2_2/resume_pass?token=mendari-sandbox"
+       },
+       {
+        "name": "launch_urls",
+        "type": "text",
+        "value": "http://engine:8000/smart/launch?iss=http%3A%2F%2Fnginx%2Fcustom%2Fsmart_client_stu2_2%2Ffhir&launch=0bad1cea01aa581e18c1455cdee89ad2177e8a0a54613ca527166d64fc3e4e1f"
+       }
+      ],
+      "messages": []
+     },
+     {
+      "id": "e9fd1a21-dd8e-47ba-8466-25953aaae14a",
+      "test_group_id": "smart_client_stu2_2-smart_client_access",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "180d5c26-e8e7-4f82-a957-084f2d91673a",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "03c28e2e-36fe-42c7-853c-144a232618e7",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     }
+    ]
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/custom/smart_client_stu2_2/resume_pass?token=mendari-sandbox",
+   "status": 302,
+   "sent": null,
+   "body": null
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/05e47d07-f82f-49d0-92d2-c7ed6c433611?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+    "test_session_id": "7zAw8mznaH4",
+    "status": "done",
+    "test_suite_id": "smart_client_stu2_2",
+    "results": [
+     {
+      "id": "aa0bb1f0-4e4a-4533-882a-05efc42fa853",
+      "test_id": "smart_client_stu2_2-smart_client_registration_alp-smart_client_registration_alp_verification",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "result_message": "Invalid registration details provided. See messages for details",
+      "optional": false,
+      "outputs": [
+       {
+        "name": "smart_launch_urls",
+        "type": "text",
+        "value": "http://engine:8000/smart/launch"
+       },
+       {
+        "name": "smart_redirect_uris",
+        "type": "text",
+        "value": "http://engine:8000/smart/callback"
+       }
+      ],
+      "messages": [
+       {
+        "type": "error"
+       },
+       {
+        "type": "error"
+       }
+      ]
+     },
+     {
+      "id": "c22d362d-a529-4e2d-8eab-2e4ca6054a21",
+      "test_group_id": "smart_client_stu2_2-smart_client_registration_alp",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "272c6508-b64b-4830-850e-b4c3db833154",
+      "test_id": "smart_client_stu2_2-smart_client_access-smart_client_access_alp_interaction",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "pass",
+      "optional": false,
+      "outputs": [
+       {
+        "name": "continuation_url",
+        "type": "text",
+        "value": "http://nginx/custom/smart_client_stu2_2/resume_pass?token=mendari-sandbox"
+       },
+       {
+        "name": "launch_urls",
+        "type": "text",
+        "value": "http://engine:8000/smart/launch?iss=http%3A%2F%2Fnginx%2Fcustom%2Fsmart_client_stu2_2%2Ffhir&launch=0bad1cea01aa581e18c1455cdee89ad2177e8a0a54613ca527166d64fc3e4e1f"
+       }
+      ],
+      "messages": []
+     },
+     {
+      "id": "e9fd1a21-dd8e-47ba-8466-25953aaae14a",
+      "test_group_id": "smart_client_stu2_2-smart_client_access",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "180d5c26-e8e7-4f82-a957-084f2d91673a",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "03c28e2e-36fe-42c7-853c-144a232618e7",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "5be4cd30-cc61-443d-a1f9-85475cdc3347",
+      "test_group_id": "smart_client_stu2_2-smart_client_registration_alp",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "a63ab22d-5bdc-43eb-b922-c94a5c3585f7",
+      "test_id": "smart_client_stu2_2-smart_client_access-smart_client_authorization_request_alp_verification",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "3a56cc13-79c2-473f-ae14-191bdde2e22f",
+      "test_id": "smart_client_stu2_2-smart_client_access-smart_client_token_request_alp_verification",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "44deb214-b1e6-4767-8d34-beaff36b73c1",
+      "test_id": "smart_client_stu2_2-smart_client_access-smart_client_token_use_verification",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "01c6ad65-5c91-4607-98fe-456696aa9de3",
+      "test_group_id": "smart_client_stu2_2-smart_client_access",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "3ecdc3d3-4bd5-491a-b39c-7ad73b25c7c3",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "a218ac7d-859f-4092-b602-6dbe7ccc7815",
+      "test_suite_id": "smart_client_stu2_2",
+      "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+      "test_session_id": "7zAw8mznaH4",
+      "result": "fail",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     }
+    ]
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_sessions/7zAw8mznaH4/results",
+   "status": 200,
+   "sent": null,
+   "body": [
+    {
+     "id": "aa0bb1f0-4e4a-4533-882a-05efc42fa853",
+     "test_id": "smart_client_stu2_2-smart_client_registration_alp-smart_client_registration_alp_verification",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "fail",
+     "result_message": "Invalid registration details provided. See messages for details",
+     "optional": false,
+     "outputs": [
+      {
+       "name": "smart_launch_urls",
+       "type": "text",
+       "value": "http://engine:8000/smart/launch"
+      },
+      {
+       "name": "smart_redirect_uris",
+       "type": "text",
+       "value": "http://engine:8000/smart/callback"
+      }
+     ],
+     "messages": [
+      {
+       "type": "error"
+      },
+      {
+       "type": "error"
+      }
+     ]
+    },
+    {
+     "id": "272c6508-b64b-4830-850e-b4c3db833154",
+     "test_id": "smart_client_stu2_2-smart_client_access-smart_client_access_alp_interaction",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "pass",
+     "optional": false,
+     "outputs": [
+      {
+       "name": "continuation_url",
+       "type": "text",
+       "value": "http://nginx/custom/smart_client_stu2_2/resume_pass?token=mendari-sandbox"
+      },
+      {
+       "name": "launch_urls",
+       "type": "text",
+       "value": "http://engine:8000/smart/launch?iss=http%3A%2F%2Fnginx%2Fcustom%2Fsmart_client_stu2_2%2Ffhir&launch=0bad1cea01aa581e18c1455cdee89ad2177e8a0a54613ca527166d64fc3e4e1f"
+      }
+     ],
+     "messages": []
+    },
+    {
+     "id": "5be4cd30-cc61-443d-a1f9-85475cdc3347",
+     "test_group_id": "smart_client_stu2_2-smart_client_registration_alp",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "fail",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "a63ab22d-5bdc-43eb-b922-c94a5c3585f7",
+     "test_id": "smart_client_stu2_2-smart_client_access-smart_client_authorization_request_alp_verification",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "3a56cc13-79c2-473f-ae14-191bdde2e22f",
+     "test_id": "smart_client_stu2_2-smart_client_access-smart_client_token_request_alp_verification",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "44deb214-b1e6-4767-8d34-beaff36b73c1",
+     "test_id": "smart_client_stu2_2-smart_client_access-smart_client_token_use_verification",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "01c6ad65-5c91-4607-98fe-456696aa9de3",
+     "test_group_id": "smart_client_stu2_2-smart_client_access",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "a218ac7d-859f-4092-b602-6dbe7ccc7815",
+     "test_suite_id": "smart_client_stu2_2",
+     "test_run_id": "05e47d07-f82f-49d0-92d2-c7ed6c433611",
+     "test_session_id": "7zAw8mznaH4",
+     "result": "fail",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    }
+   ]
+  }
+ ]
+}

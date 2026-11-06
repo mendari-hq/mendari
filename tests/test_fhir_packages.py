@@ -5,7 +5,8 @@ needs; `scripts/fhir_packages.py install` puts only checked tarballs in a valida
 cache, where the validator looks for them, only what a run loads and what that needs, and
 refuses anything else before it writes; and `scripts/fhir_validate.py --offline` gives each run
 a cache of its own (so the US Core run holds US Core 6.1.0 alone), runs the validator with no
-HTTP access and fails when the validator put a package the run lacks in its cache. The
+HTTP access and fails when the validator put a package the run lacks in its cache; `--tx`, a
+terminology server in place of none, keeps HTTP for it and the same cache and check. The
 validator itself runs in CI's
 `fhir-conformance` job (tests/test_workflow_safety.py pins its steps); these tests need no Java
 and no network: their packages are built here."""
@@ -476,8 +477,8 @@ def _host(path: str) -> Path:
 
 class FakeValidator:
     """Stands in for `java -jar validator_cli.jar`: notes what its package cache (under
-    user.home) holds when it runs offline, writes an empty report (or none), and may put a
-    package in the cache, as a validator that fetched one would."""
+    user.home) holds when it runs offline or with a terminology server, writes an empty report
+    (or none), and may put a package in the cache, as a validator that fetched one would."""
 
     def __init__(self, fetches: str | None = None, report: bool = True) -> None:
         self.fetches, self.report = fetches, report
@@ -487,7 +488,7 @@ class FakeValidator:
     def __call__(self, command: list[str], **kwargs: Any) -> None:
         self.commands.append(command)
         kwargs["stdout"].write(b"Loading...\n  Unable to find package x.y#1.0.0\n")
-        if "-no-http-access" in command:
+        if "-no-http-access" in command or command[command.index("-tx") + 1] != "n/a":
             (home,) = [_host(arg.removeprefix(HOME)) for arg in command if arg.startswith(HOME)]
             cache = home / ".fhir" / "packages"
             self.cached.append(sorted(p.name for p in cache.iterdir()))
@@ -601,6 +602,108 @@ def test_offline_in_docker_runs_with_no_network(monkeypatch: pytest.MonkeyPatch)
     (home,) = [arg.removeprefix(HOME) for arg in command[image:] if arg.startswith(HOME)]
     assert f"HOME={home}" in command[:image] and home.startswith("/work/var/")  # the run's own
     assert fake.cached == [sorted([OWN, US_CORE, TERMINOLOGY])]
+
+
+TX = "https://tx.example.org/r4"  # a terminology server (terminology.yml: tx.fhir.org)
+
+
+def _tx(command: list[str]) -> list[str]:
+    """Each value the command gives the validator's `-tx`."""
+    return [command[i + 1] for i, arg in enumerate(command) if arg == "-tx"]
+
+
+@pytest.mark.usefixtures("locked")
+def test_offline_is_the_default_and_tx_is_opt_in(
+    monkeypatch: pytest.MonkeyPatch, resource: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With neither option the validator has no terminology server (`-tx n/a`), as with
+    `--offline`. `--tx` puts the server in its place, once, with HTTP (a server needs it) and
+    the run's own package cache from the lock; it is refused with `--offline`, before anything
+    runs. `ARGS` itself never changes."""
+    fake = _fake(monkeypatch)
+
+    def run(*options: str) -> int:
+        monkeypatch.setattr(sys, "argv", ["fhir_validate.py", *options, "--valid", str(resource)])
+        return validate.main()
+
+    assert run() == 0
+    assert _tx(fake.commands[0]) == ["n/a"] and "-no-http-access" not in fake.commands[0]
+    assert run("--offline") == 0
+    assert _tx(fake.commands[1]) == ["n/a"] and "-no-http-access" in fake.commands[1]
+    assert run("--tx", TX) == 0
+    command = fake.commands[2]
+    assert _tx(command) == [TX] and "-no-http-access" not in command
+    assert fake.cached == [sorted([OWN, US_CORE, TERMINOLOGY])] * 2  # --offline's, then --tx's
+    assert f"{HOME}{Path.home()}" not in command
+    assert validate.ARGS[validate.ARGS.index("-tx") + 1] == "n/a"
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as refused:
+        run("--offline", "--tx", TX)
+    assert refused.value.code == 2
+    assert "argument --tx: not allowed with argument --offline" in capsys.readouterr().err
+    assert len(fake.commands) == 3
+    with pytest.raises(ValueError, match="cannot go with --offline"):
+        validate.run_validator([resource], docker=False, offline=True, tx=TX)
+    assert len(fake.commands) == 3
+
+
+@pytest.mark.parametrize("fetches", ["hl7.terminology#9.9.9", DTR], ids=["unpinned", "not-run"])
+@pytest.mark.usefixtures("locked")
+def test_tx_fails_when_the_validator_put_a_package_the_run_lacks_in_its_cache(
+    monkeypatch: pytest.MonkeyPatch, resource: Path, fetches: str
+) -> None:
+    """With HTTP on for the terminology server, the validator could fetch a package too: the
+    run's cache is checked as an offline run's is."""
+    _fake(monkeypatch, fetches=fetches)
+    with pytest.raises(SystemExit, match=rf"put {re.escape(fetches)} in its package cache"):
+        validate.run_validator([resource], docker=False, tx=TX)
+
+
+@pytest.mark.usefixtures("locked")
+def test_tx_in_docker_has_a_network_and_the_runs_own_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _fake(monkeypatch)
+    inside = ROOT / "var" / "test-fhir-packages-tx-resource.json"
+    inside.parent.mkdir(exist_ok=True)
+    inside.write_text('{"resourceType": "Patient"}')
+    try:
+        validate.run_validator([inside], docker=True, tx=TX)
+    finally:
+        inside.unlink()
+    (command,) = fake.commands
+    image = command.index(validate.IMAGE)
+    assert "--network" not in command[:image] and "-no-http-access" not in command
+    assert _tx(command[image:]) == [TX]
+    (home,) = [arg.removeprefix(HOME) for arg in command[image:] if arg.startswith(HOME)]
+    assert home.startswith("/work/var/") and home != validate._mounted(validate.DOCKER_HOME)
+    assert fake.cached == [sorted([OWN, US_CORE, TERMINOLOGY])]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "tx.fhir.org/r4",  # no scheme
+        "ftp://tx.example.org/r4",
+        "https:///r4",  # no host
+        "https://user:secret@tx.example.org/r4",
+        "https://tx.example.org/r4?token=x",
+        "https://tx.example.org/r4#x",
+        "n/a",  # the default is no option at all
+    ],
+)
+@pytest.mark.usefixtures("locked")
+def test_a_terminology_server_is_an_http_url_with_no_credentials(
+    monkeypatch: pytest.MonkeyPatch, resource: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    fake = _fake(monkeypatch)
+    argv = ["fhir_validate.py", "--tx", value, "--valid", str(resource)]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit):
+        validate.main()
+    err = capsys.readouterr().err
+    assert "a terminology server is an http(s) URL" in err and "secret" not in err
+    assert fake.commands == []
 
 
 @pytest.mark.usefixtures("locked")

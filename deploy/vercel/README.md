@@ -55,6 +55,20 @@ immediate, no redeploy. The app's own limits stay; to turn those off in effect, 
 `MENDARI_RATE_LIMITS=log` for Production, redeploy, and confirm `rate_limits.mode` in
 `/api/health` signed in.
 
+## An EHR's own CDS Hooks tokens
+
+Off on the hosted project until a pilot is signed: then `MENDARI_CDS_CLIENTS` (and any
+`MENDARI_SITE_CODES`) is set for Production only, with the EHR's JWK Set origin and FHIR base on
+`MENDARI_FHIR_ALLOWED_SERVERS`. The open-mode sandbox flag is never set here: the server refuses
+to start with it on Vercel. The firewall stays off `/cds-services`, so these calls meet the app's
+limits only. One EHR's calls all come as one principal, `cds:<id>`, under the app's per-principal
+decide limit (600 a minute, bursts of 100) and `MENDARI_PRINCIPAL_DAILY_LIMIT`: measure the
+pilot's volume before it goes live. Each function instance keeps its own copy of the EHR's keys,
+so the EHR sees up to one request a minute for them from each instance, and a key it retires
+still verifies for up to an hour on an instance that kept it. Taking a client out of
+`MENDARI_CDS_CLIENTS` stops it at the redeploy
+([Connecting an EHR](../../docs/guides/connecting-an-ehr.md)).
+
 ## Order at launch
 
 All of Phase 4b, the external review and its fixes, this rule enforced after its week in log

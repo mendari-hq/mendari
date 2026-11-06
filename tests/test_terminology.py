@@ -54,6 +54,10 @@ PINNED = {
         # router's fictional codes.
         "CodeSystem/fictional-conditions": "2f0ec1f007434d56",
         "CodeSystem/fictional-referrals": "491fe1f31f0f3df5",
+        # Added in LP-23e, new urls (no earlier content): the vendor-shaped EHR profile's site
+        # diagnoses and order types.
+        "CodeSystem/fictional-site-diagnoses": "9049440f2ca39e04",
+        "CodeSystem/fictional-site-order-types": "21f35b7faf771d51",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
@@ -308,7 +312,13 @@ def test_every_resource_is_well_formed(served: Terminology) -> None:
         assert resource["text"]["div"].startswith('<div xmlns="http://www.w3.org/1999/xhtml">')
         if resource["resourceType"] == "CodeSystem":
             assert resource["caseSensitive"] is True
-            fictional = ("fictional-procedures", "fictional-conditions", "fictional-referrals")
+            fictional = (
+                "fictional-procedures",
+                "fictional-conditions",
+                "fictional-referrals",
+                "fictional-site-diagnoses",
+                "fictional-site-order-types",
+            )
             sandbox = ("sandbox", "message-channel", *fictional)
             assert resource["experimental"] is (resource["id"] in sandbox)
             for concept in resource["concept"]:
