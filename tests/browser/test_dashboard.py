@@ -37,6 +37,7 @@ PACKS = [
 ]
 VIEWS = ["overview", "review", "audit", "evals", "feedback", "card", "try"]
 PHONE: ViewportSize = {"width": 390, "height": 844}
+DOCS_SITE = "https://mendari-hq.github.io/mendari/"  # mkdocs.yml site_url
 
 # Form controls and buttons in the view with no accessible name.
 UNNAMED = """() => [...document.querySelectorAll(
@@ -416,18 +417,23 @@ def test_system_theme_follows_the_system_setting_live(page: Page) -> None:
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
 
 
-def test_the_leaderboard_shows_the_one_ranking_and_marks_the_deployed_row(page: Page) -> None:
-    """The shipped rows were measured on earlier versions (mendari.leaderboard/1): none ranks,
-    and each says why under its name."""
+def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page) -> None:
+    """Every set is public, so the comparison is a regression check, not a ranking (LP-17g): no
+    rank column, and the scoreboard linked. The shipped rows were measured on earlier versions
+    (mendari.leaderboard/1), and each says so under its name."""
     open_pack(page, GUARD, "evals")
     expect(page).to_have_url(re.compile("#evals$"))
     compare = page.get_by_role("link", name="Provider comparison")
     expect(compare).to_have_attribute("aria-current", "page")
+    panel = page.locator("#evals-body .panel").first
+    expect(panel).to_contain_text("Public set: regression check, not a ranking.")
+    scoreboard = panel.get_by_role("link", name="scoreboard")
+    expect(scoreboard).to_have_attribute("href", f"{DOCS_SITE}operations/scoreboard/")
     held_out = page.get_by_role("button", name=re.compile("unsafe_drafts_holdout"))
     expect(held_out).to_have_attribute("aria-pressed", "true")  # held-out set first
     table = page.locator("#board table").first  # the per-check table follows it
-    expect(table.locator("tbody .rank.none").first).to_be_visible()
-    assert set(table.locator("tbody .rank").all_inner_texts()) == {"\u2013"}  # an en dash
+    assert "Rank" not in table.locator("thead th").all_inner_texts()
+    expect(table.locator(".rank, .rank-cell")).to_have_count(0)
     expect(table.locator("tbody .standing").first).to_contain_text("its pack digest not recorded")
     # Locally the pack runs its default screen (the keyword rules).
     deployed = table.locator("tbody tr.deployed")
@@ -442,27 +448,30 @@ def test_the_leaderboard_shows_the_one_ranking_and_marks_the_deployed_row(page: 
     expect(page.locator("#board")).to_contain_text("recorded before leaderboards kept the counts")
 
 
-def test_a_ranked_board_shows_its_ranks_and_keeps_them_when_sorted(page: Page) -> None:
-    """The ranks are the server's (mendari.rank/1), in its order; sorting by a column moves the
-    rows (the row elements survive it), each keeping its own rank."""
+def test_a_template_board_shows_no_rank_and_keeps_its_order_when_sorted(page: Page) -> None:
+    """A board whose rows rank as data (mendari.rank/1) is listed in the server's order with no
+    rank shown, as every set is public (LP-17g); sorting by a column moves the rows (the row
+    elements survive it), and the listing order is what the table opens in."""
     board = counted_board(GUARD, positives=120)
     served = [r for r in board["rows"] if r["group"] == 0]
-    assert [r["rank"] for r in served] == list(range(1, len(served) + 1))  # all rank here
+    assert [r["rank"] for r in served] == list(range(1, len(served) + 1))  # all rank, as data
     serve_board(page, GUARD, board)
     open_pack(page, GUARD, "evals")
     page.get_by_role("button", name=board["groups"][0]["label"]).click()
     table = page.locator("#board table.data").first
-    rank_of = """(table) => Object.fromEntries([...table.querySelectorAll('tbody tr')].map((tr) =>
-      [tr.querySelector('.config').title, tr.querySelector('.rank').textContent]))"""
-    before = table.evaluate(rank_of)
-    assert before == {r["config"]: str(r["rank"]) for r in served}
-    assert table.locator("tbody .rank").all_inner_texts() == [str(r["rank"]) for r in served]
+    listed = """(table) => [...table.querySelectorAll('tbody tr')].map((tr) =>
+      tr.querySelector('.config').title)"""
+    assert table.evaluate(listed) == [r["config"] for r in served]  # the server's order
+    assert "Rank" not in table.locator("thead th").all_inner_texts()
+    expect(table.locator(".rank, .rank-cell")).to_have_count(0)
+    for rank in {str(r["rank"]) for r in served}:
+        expect(table.locator("tbody td", has_text=re.compile(rf"^{rank}$"))).to_have_count(0)
     table.locator("tbody tr").first.evaluate("(tr) => { tr.dataset.kept = 'yes'; }")
     table.get_by_role("button", name="Accuracy").click()
     expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "descending")
     expect(table.get_by_role("button", name="Accuracy")).to_be_focused()
     expect(table.locator("tbody tr[data-kept='yes']")).to_have_count(1)
-    assert table.evaluate(rank_of) == before  # each row keeps its rank
+    assert sorted(table.evaluate(listed)) == sorted(r["config"] for r in served)  # rows moved
     column = table.locator("th", has_text="Accuracy").evaluate("(th) => th.cellIndex")
     cells = table.locator(f"tbody td:nth-child({column + 1})").all_inner_texts()
     found = [re.match(r"(\d+) of (\d+)", c) for c in cells]
@@ -715,17 +724,19 @@ def test_subgroups_are_grouped_lowest_first(page: Page) -> None:
     assert len(values) == len(accuracies) and values == sorted(values)
 
 
-def test_the_leaderboard_keeps_rank_and_configuration_in_view_on_a_phone(page: Page) -> None:
+def test_the_leaderboard_keeps_the_configuration_in_view_on_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
     open_pack(page, GUARD, "evals")
     container = page.locator("#board .table-scroll").first
     assert container.evaluate("el => el.scrollWidth > el.clientWidth")  # it scrolls sideways...
-    for selector in ["tbody tr:first-child td.rank-cell", "tbody tr:first-child td.config-cell"]:
+    for selector in ["thead th:first-child", "tbody tr:first-child td.config-cell"]:
         cell = container.locator(selector)
         assert cell.evaluate("el => getComputedStyle(el).position") == "sticky", selector
     container.evaluate("el => el.scrollBy(400, 0)")
     box = container.locator("tbody tr:first-child td.config-cell").bounding_box()
-    assert box is not None and box["x"] < 120  # ...but rank and configuration stay in view
+    edge = container.bounding_box()
+    assert box is not None and edge is not None
+    assert abs(box["x"] - edge["x"]) < 2  # ...but the configuration stays at its left edge
 
 
 # -- charts ---------------------------------------------------------------------------------------

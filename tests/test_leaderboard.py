@@ -14,7 +14,7 @@ from mendari.cli import main
 from mendari.core.card import render_card
 from mendari.evals import evaluate, leaderboard, resolve_dataset
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR
+from tests.conftest import INBOX_DIR, ROOT
 
 PACK = "/api/packs/mendari/patient-inbox-router"
 
@@ -71,8 +71,9 @@ def test_markdown_and_card(inbox_pack: Pack, tmp_path: Path) -> None:
     board = leaderboard.build(inbox_pack, [report(inbox_pack, "red_flags_holdout")])
     table = "\n".join(leaderboard.markdown(board))
     assert "**`red_flags_holdout`** (n=30; k of n [exact 95% interval" in table
-    # 20 urgent positives: shown, never ranked (the evidence floor is 100).
-    assert "| none: insufficient evidence | safety_screen=rules · router=naive_bayes |" in table
+    # 20 urgent positives: shown with the evidence rule beside them, and no rank (LP-17g).
+    assert "| Configuration | Critical detected |" in table and "| Rank" not in table
+    assert "\n| safety_screen=rules · router=naive_bayes | 4 of 20 [" in table
     assert "(0 automated; insufficient evidence)" in table
 
     root = tmp_path / "pack"
@@ -80,7 +81,18 @@ def test_markdown_and_card(inbox_pack: Pack, tmp_path: Path) -> None:
     (root / leaderboard.PATH).write_text(json.dumps(board))
     card = render_card(load_pack(root))
     assert "## Provider comparison" in card and "red_flags_holdout" in card
+    assert "Public set: regression check, not a ranking." in card
+    assert f"[scoreboard]({leaderboard.SCOREBOARD})" in card
     assert load_pack(root).digest == load_pack(INBOX_DIR).digest  # evals/ is not the pack
+
+
+def test_the_card_links_the_scoreboard_page_in_the_repository() -> None:
+    """The card's link to the scoreboard is a URL (a card is read outside the repository), of
+    the page the scoreboard's generator writes."""
+    prefix = "https://github.com/mendari-hq/mendari/blob/main/"
+    assert leaderboard.SCOREBOARD.startswith(prefix)
+    page = ROOT / leaderboard.SCOREBOARD.removeprefix(prefix)
+    assert page.is_file() and page.read_text(encoding="utf-8").startswith("# Scoreboard")
 
 
 def test_other_questions_are_shown_where_configurations_differ(inbox_pack: Pack) -> None:

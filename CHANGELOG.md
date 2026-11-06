@@ -705,6 +705,30 @@ The first release (not yet published).
   results. Runbook: `docs/operations/scoreboard.md`; threat model T8 and R4. No reference
   pack's figures, formats (but the new `supersedes` field) or decisions change, and the cards,
   the dashboard and the leaderboards are as they were.
+- **Public sets relabelled: a regression check, not a ranking** (LP-17g, a display change).
+  Every set a leaderboard is measured on is public, in the repository and in the package, so no
+  surface prints a rank any more. The Decision Card's "Provider comparison" opens with "Public
+  set: regression check, not a ranking", says that nothing there is graded (grades and rankings
+  are given only on frozen hidden sets) and links the
+  [scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md); its
+  tables lose the Rank column, and a row of an earlier version of the pack says so beside its
+  configuration. `mendari leaderboard` prints the same tables. The dashboard's Provider
+  comparison drops its "Ranked" caption and its rank column (the table helper loses the rank
+  option), says the same and links the scoreboard's runbook, which links the page; its cost
+  chart names the deployed configuration and every one no other beats on both cost and
+  accuracy, no longer the first in the order. The rows are still listed in `mendari.rank/1`'s
+  order, now a listing order, and each keeps its `rank` and `standing` in
+  `evals/leaderboard.json` and the API. The five reference packs' cards are regenerated, so the
+  comparison section of any copy published before is stale; no data, model, benchmark, ledger,
+  figure or decision changes. The public page's scores (`web/index.html`) are no longer typed
+  in: `scripts/scoreboard_page.py` writes them from the results store between two marker
+  comments, and its `--check` (a step of the required `reference-pack` job) covers them. They are
+  the Patient Inbox Router's public `test` set: every arm, each figure k of n with its exact
+  interval, the insufficient-evidence banner (23 distinct urgent positives) and "not measured"
+  for the three arms with no result. The typed table's bare percentages, its best row, its
+  vendor and model names, its "100 cases" and its pack versions are gone; a remote model is
+  named there only once its result's disclosure is stated. Deploying `web/` stays the owner's
+  (gate G1-2).
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

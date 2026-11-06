@@ -2088,9 +2088,27 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
     derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
-  - [ ] **17g** Public template sets relabelled "public set: regression check, not a ranking" on
-    the card, the dashboard and `web/`, with no Rank column (a display bump; the five cards'
-    comparison sections become stale).
+  - [x] **17g** (lane PR) Public template sets relabelled "public set: regression check, not a
+    ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
+    cards' comparison sections become stale). The card's Provider comparison opens with the
+    label, says nothing there is graded and links the scoreboard page
+    (`leaderboard.SCOREBOARD`, a repository URL as the CLI's guides are); `leaderboard.markdown`
+    (the card and `mendari leaderboard`) loses its Rank column, an earlier version's row saying
+    so beside its configuration. The dashboard drops the "Ranked" caption, the rank column (and
+    `table.js`'s rank option and its styles) and the chart's `rank === 1` naming rule (now:
+    deployed, or not beaten on cost and accuracy). Its link goes to the scoreboard's runbook
+    (`operations/scoreboard.md`), which links the page: the page's own path holds the word
+    `tests/test_invite_page.py` bans from dashboard sources (LP-11 conflict 18). `rank` and
+    `standing` stay as data and in the API. The five cards regenerated with `mendari card
+    --write`; data, models, benchmarks and the page byte-identical. `web/index.html`'s typed
+    table is replaced by a block between markers that `scripts/scoreboard_page.py` writes and
+    `--check` checks: the inbox `test` set, every arm, the two measured entries k of n with
+    intervals and marks, the banner (23 distinct urgent positives), three arms "not measured";
+    no remote model named until a disclosure is stated. `tests/test_web_scores.py`,
+    `tests/test_ranking.py::test_no_card_or_board_prints_a_rank_for_a_public_set`, the three
+    renamed browser tests. Owner: the mendari.co entry's line about naming Jev, Claude and
+    gpt-oss results no longer applies to the page as it is (it names none); it applies again
+    when 17i's results are published.
   - [ ] **17h** Remote arms on public sets: 3 to 5 replicates, the spread and the flip rate, model
     freshness, the canary and disclosures; built, and refusing to start in CI.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets

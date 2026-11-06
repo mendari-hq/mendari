@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Data tables: a semantic <table> with a caption, a sticky header, right-aligned tabular numbers,
-// keyboard-operable sorting (aria-sort), an optional rank column and an optional sticky first
-// column. Views build HTML with tableHtml(spec), put it in the page, then call wireTables(root).
+// keyboard-operable sorting (aria-sort) and an optional sticky first column. Views build HTML with tableHtml(spec), put it in the page, then call wireTables(root).
 // Sorting moves the existing rows rather than redrawing the table, so anything a row holds and the
 // focused sort button survive it.
 //
@@ -19,9 +18,6 @@
 //   }],
 //   rows,
 //   defaultCompare(a, b),    the order before anyone sorts (default: as given)
-//   rank(row),               add a "Rank" column: the row's rank from the data (1-3 get a chip),
-//                            which stays with its row whatever the sort; null for a row without
-//   unranked(row),           one, and the reason, for the "–" it shows instead
 //   rowClass(row), rowAttrs(row),   trusted strings
 //   stickyFirst,             keep the first column in view when the table scrolls sideways
 //   limitHeight,             scroll inside a max height, so the sticky header stays visible
@@ -64,27 +60,17 @@ function tableInner(id) {
     return `<th scope="col" class="${cls(c)}"${c.sort ? ` aria-sort="${ariaSort}"` : ""}>${label}</th>`;
   }).join("");
   const body = rows.map((row) => {
-    const rank = spec.rank ? `<td class="num rank-cell">${rankCell(spec, row)}</td>` : "";
     const cells = spec.columns.map((c) => `<td class="${cls(c)}">${c.cell(row)}</td>`).join("");
-    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${rank}${cells}</tr>`;
+    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${cells}</tr>`;
   }).join("");
   const caption = spec.caption ? `<caption>${spec.caption}</caption>` : "";
-  return `<table class="data">${caption}<thead><tr>${spec.rank ? `<th scope="col" class="num rank-cell">Rank</th>` : ""}${header}</tr></thead><tbody>${body}</tbody></table>`;
+  return `<table class="data">${caption}<thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
 const sortIcon = (ariaSort) => icon(ariaSort === "ascending" ? "chevron-up" : ariaSort === "descending" ? "chevron-down" : "chevrons");
 
-function rankCell(spec, row) {
-  const rank = spec.rank(row);
-  if (rank === null || rank === undefined) {
-    const why = spec.unranked ? spec.unranked(row) : "";
-    return `<span class="rank none" title="${esc(why)}" aria-hidden="true">–</span><span class="sr-only">No rank${why ? `: ${esc(why)}` : ""}</span>`;
-  }
-  return `<span class="rank${rank <= 3 ? " top" : ""}">${esc(rank)}</span>`;
-}
-
 // Put the rendered table in the entry's current order: rows are moved (data-row is the row's index
-// in spec.rows), each with its own rank, and each header's aria-sort and arrow updated in place.
+// in spec.rows), and each header's aria-sort and arrow updated in place.
 function applySort(container, entry) {
   const tbody = container.querySelector("tbody");
   const rowElements = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.row), tr]));

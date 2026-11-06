@@ -695,17 +695,24 @@ td {
   display: none;
 }
 
-.best {
-  background: var(--accent-soft);
+/* A figure: k of n on one line, its interval under it (scripts/scoreboard_page.py writes the
+   scores). The table scrolls sideways in its region on a narrow screen. */
+td.num {
+  white-space: nowrap;
 }
 
-.best th span {
-  color: var(--ink-2);
+td .interval {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--muted);
 }
 
-.strong {
-  font-weight: 500;
-  color: var(--accent-text);
+.board-note {
+  padding: 1rem 1.5rem 0;
+}
+
+.board-note:last-child {
+  padding-bottom: 1.25rem;
 }
 
 /* Packs */
@@ -1033,10 +1040,15 @@ td {
   th:last-child {
     padding-right: 1rem;
   }
+
+  .board-note {
+    padding-inline: 1rem;
+  }
 }
 
 @media (max-width: 22rem) {
   .board-head,
+  .board-note,
   th:first-child {
     padding-left: 0.75rem;
   }

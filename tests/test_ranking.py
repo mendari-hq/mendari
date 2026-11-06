@@ -5,6 +5,7 @@ person reads is k of n with its interval."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from mendari import Decision, Pack
@@ -132,6 +133,61 @@ def test_the_reference_cards_hold_no_bare_percentage() -> None:
                 assert " of " in line or "no cases" in line, line
 
 
+REFERENCE_PACKS = (
+    "ai-guard",
+    "clinical-trial-prescreener",
+    "patient-inbox-router",
+    "prior-auth-preflight",
+    "referral-router",
+)
+
+
+def printed_ranks(text: str) -> list[str]:
+    """The lines of `text` that print a rank: a Rank column, a row whose first cell is a rank
+    or why it has none ("none: ..."), or the words "Ranked", "rank", "ranks" or "unranked"."""
+    return [
+        line
+        for line in text.splitlines()
+        if re.match(r"\| (Rank|\d+|none: [^|]*) \|", line)
+        or re.search(r"\b(Ranked|ranked|ranks?|unranked)\b", line)
+    ]
+
+
+def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
+    """Every set a leaderboard is measured on is public, so each of its tables is a regression
+    check, not a ranking (LP-17g): neither the five reference cards (as rendered, and as
+    committed) nor the command line's tables print a rank. The rows keep theirs as data, and
+    are listed in their order."""
+    from mendari.core.card import render_card
+    from mendari.evals import leaderboard
+
+    for name in REFERENCE_PACKS:
+        pack = resolve_pack(f"mendari/{name}")
+        for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
+            section = card[card.index("## Provider comparison") : card.index("## Known failure")]
+            assert section.count("Public set: regression check, not a ranking.") == 1, name
+            assert f"[scoreboard]({leaderboard.SCOREBOARD})" in section, name
+            assert "| Configuration | Critical detected |" in section, name
+            assert printed_ranks(section) == [], name
+
+    # Rows that rank as data (on the pack's digest, with enough critical positives).
+    rows = [
+        row("b-second", cost_per_decision_usd=0.01),
+        row("a-first"),
+        row("c-third", cost_per_decision_usd=0.02),
+    ]
+    board = {"rows": ranking.rank(rows, DIGEST)}
+    assert [(r["config"], r["rank"]) for r in board["rows"]] == [
+        ("a-first", 1),
+        ("b-second", 2),
+        ("c-third", 3),
+    ]
+    table = "\n".join(leaderboard.markdown(board, DIGEST, "1.0.0"))
+    assert printed_ranks(table) == []
+    listed = [line.split(" | ")[0] for line in table.splitlines() if line.startswith("| ")][1:]
+    assert listed == ["| a-first", "| b-second", "| c-third"]  # in the order, unnumbered
+
+
 def test_a_bound_too_close_to_print_never_reads_0_or_100() -> None:
     assert shown(stats.proportion(1, 60000)) == "1 of 60000 [<0.0001-0.01%]"
     assert shown(stats.proportion(59999, 60000)) == "59999 of 60000 [99.99->99.9999%]"
@@ -159,7 +215,7 @@ def test_each_table_is_one_set_of_records() -> None:
     assert len(tables) == 3
     assert tables[1].startswith(" (n=600; dataset hash not recorded;")
     assert tables[2].startswith(" (n=100; the first 100 cases of the file;")
-    assert "| none: version 1.0.0, its pack digest not recorded | old |" in tables[1]
+    assert "| old (version 1.0.0, its pack digest not recorded) |" in tables[1]
 
 
 def test_unranked_rows_come_after_the_ranked_whatever_their_names() -> None:
@@ -189,7 +245,7 @@ def test_a_row_from_leaderboard_1_has_no_accuracy_as_k_of_n() -> None:
     v1.update(dataset="red_flags", n=38, accuracy=0.75, pack_digest=None, dataset_sha256=None)
     v1.update(critical=[])
     table = "\n".join(markdown({"rows": [v1]}, DIGEST, "1.0.0"))
-    (line,) = [x for x in table.splitlines() if x.startswith("| none:")]
+    (line,) = [x for x in table.splitlines() if x.startswith("| v1 ")]
     assert "28 of 38" not in line and "| n/a | n/a | 0 of 38" in line
     assert "n/a on a row recorded before leaderboards kept the counts" in table
 

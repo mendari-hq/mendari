@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """The one ranking of a leaderboard's configurations (`mendari.rank/1`, LP-10): the card, the
-command line and the dashboard all show what this writes into the rows, never their own order.
+command line and the dashboard all list the rows in the order this writes, never their own.
+Every set a leaderboard is measured on is public, so since LP-17g that order is shown as a
+listing order and no surface prints a rank: each table is a regression check, not a ranking.
+`rank` and `standing` stay in the rows and the API as data.
 
 Only rows measured on the pack as it is (its digest) rank, against rows on the same records (the
 dataset's name, hash and size; a row that did not record the hash is never on the same records as

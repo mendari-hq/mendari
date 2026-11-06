@@ -40,7 +40,26 @@ It runs every local configuration of each reference pack on each of its public s
 `test` set, its enriched set and that set's holdout. Today that is 18 results, about 2.7 MB with
 their ledgers and run records. A result that is still current is kept, not run again: its
 pack's digest, its set and the method are unchanged, and it is not past its stale date. Then it
-writes the page. Commit `scoreboard/` and `docs/grading/scoreboard.md` together.
+writes the page, and the scores on the public page (`web/index.html`). Commit `scoreboard/`,
+`docs/grading/scoreboard.md` and `web/index.html` together.
+
+## The scores on the public page
+
+`scripts/scoreboard_page.py` also writes the scores `web/index.html` shows, between two marker
+comments; the rest of that page is written by hand. They are the Patient Inbox Router's public
+`test` set, from the same results as the page: every arm, each result's figures as k of n with
+their exact 95% interval, the insufficient-evidence banner, and "not measured" (or "not
+applicable") for each arm with no result. Each row says "unsigned", "method draft, not in
+effect" and the day it goes stale, as the page does. There is no Rank column and no best row:
+the set is public, a regression check, not a ranking.
+
+A remote model is named there only once its result's disclosure is stated in
+`scoreboard/disclosures.json`; until then the row shows "not published: disclosure pending" in
+place of its figures. Deploying `web/` is the owner's, after gate G1-2.
+
+The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
+of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
+and a link to the scoreboard (the dashboard links this page, which links the scoreboard).
 
 It is never part of `scripts/build-reference-pack.sh`. A run record holds each case's latency,
 as the runner measured it, and no rebuild gives the same latency twice.
@@ -95,8 +114,9 @@ uv run python scripts/scoreboard_page.py --check
 uv run python scripts/check_scoreboard.py --base origin/main
 ```
 
-The first fails when the page is not what the store gives. It runs before
-`scripts/build-reference-pack.sh`, which writes the page again. The second fails when:
+The first fails when the page, or the scores between the markers in `web/index.html`, are not
+what the store gives. It runs before `scripts/build-reference-pack.sh`, which writes the page
+again. The second fails when:
 
 - a file's name is not its content's hash, or its bytes are not in that kind's form;
 - a result of the base is removed or changed, but for a valid signature added to an unsigned

@@ -13,8 +13,8 @@ a ranking. The scoreboard's own formats are made under it: its arms (`mendari.ar
 entries (`mendari.scoreboard/1`), the run records and price tables an entry is computed from
 (`mendari.run/1`, `mendari.prices/1`), and the grades and band rankings given from entries on
 frozen hidden sets only. The other formats on this page do not change with it, and
-the leaderboards below are not made under it: until LP-17g relabels them, they still rank rows
-on public sets with `mendari.rank/1`, as their section says.
+the leaderboards below are not made under it: every set they are measured on is public, so each
+of their tables is shown as a regression check, not a ranking, as their section says.
 
 ## The report: `mendari.eval/2`
 
@@ -207,6 +207,24 @@ the row: a board can come from a registry upload. A row measured on another pack
 `earlier version` and no rank: its AUTO and false automation followed that version's policy. When
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.
+
+**How a leaderboard is shown (since LP-17g, a display change).** Every set a leaderboard is
+measured on is public: it is in the repository and in the package, so a configuration can be
+tuned to it. Under the [grading method](../grading/method-1.0.md) a public set is a regression
+check, never a ranking, so no surface prints a rank:
+
+- The Decision Card's "Provider comparison" opens with "Public set: regression check, not a
+  ranking", says that nothing there is graded, and links the
+  [scoreboard](../grading/scoreboard.md). Its tables have no Rank column. A row measured on an
+  earlier version of the pack says so beside its configuration.
+- `mendari leaderboard` prints the same tables.
+- The dashboard's Provider comparison says the same and links the scoreboard. It has no rank
+  column, and its cost chart names the deployed configuration and every configuration no other
+  beats on both cost and accuracy.
+
+The rows are listed in `mendari.rank/1`'s order: a listing order, the critical cases caught
+first. The data and the API do not change: each row keeps its `rank` and `standing`, and
+`GET /api/packs/{pack}` serves them as before.
 
 ## Arms: `mendari.arms/1`
 

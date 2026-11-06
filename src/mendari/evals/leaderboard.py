@@ -6,6 +6,12 @@ from local runs or from a deployment's evaluation endpoint (for providers whose 
 exist only there), so every configuration is measured on identical records with identical
 metrics. The leaderboard lives at `evals/leaderboard.json` in the pack; like the benchmark it
 is an attestation about the pack and is not part of its digest. It contains no case text.
+
+Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. Every set a leaderboard
+is measured on is public, so the card, the command line and the dashboard show each table as a
+regression check, not a ranking (LP-17g): the rows in `mendari.rank/1`'s order, a listing order,
+and no rank printed. Grades and rankings are given only on frozen hidden sets (the scoreboard,
+`mendari.evals.scoreboard`).
 """
 
 from __future__ import annotations
@@ -18,12 +24,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals import figures, ranking, stats
+from mendari.evals import figures, grade, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
+PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
+# The early scoreboard's page, where the reference packs' configurations on their public sets
+# are shown with every figure's interval and scope (a URL, so a card links it from anywhere).
+SCOREBOARD = "https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md"
 _COMPOSITES = ("any_of", "cascade", "vote")
 
 
@@ -167,10 +177,12 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
 def markdown(
     board: Mapping[str, Any], digest: str | None = None, version: str | None = None
 ) -> list[str]:
-    """One table per set of records (`ranking.grouped`), ranked against `digest` (the pack's
-    own; `version` is its version): ranked rows first, then the unranked, each saying why (an
-    earlier version of the pack, whose AUTO and false automation followed that version's policy,
-    or too few critical positives)."""
+    """One table per set of records (`ranking.grouped`), its rows in `mendari.rank/1`'s order
+    against `digest` (the pack's own; `version` is its version). The order is a listing order:
+    every set is public, a regression check, not a ranking, so no rank is printed (LP-17g). A
+    row of an earlier version of the pack says so beside its configuration (its AUTO and false
+    automation followed that version's policy), and a critical label with too few positives
+    says "insufficient evidence" beside its figure."""
     out: list[str] = []
     recorded = board.get("pack")
     recorded = recorded if isinstance(recorded, Mapping) else {}
@@ -186,14 +198,6 @@ def markdown(
             return f"{item['config']} ({why})"
         return str(item["config"])
 
-    def place(item: Mapping[str, Any]) -> str:
-        if item["rank"] is not None:
-            return str(item["rank"])
-        if item["standing"] == ranking.EARLIER:
-            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
-            return f"none: {why}"
-        return f"none: {item['standing']}"
-
     for group, rows in groups:
         name, _, n = group
         about = ranking.about(
@@ -204,14 +208,14 @@ def markdown(
         out += [
             f"**`{name}`** ({'; '.join(about)}; {INTERVALS})",
             "",
-            "| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO "
+            "| Configuration | Critical detected | False automation | Accuracy | AUTO "
             "| Macro-F1 | ECE | p50 latency | Cost / decision | Errors |",
-            "|---|---|---|---|---|---|---|---|---|---|---|",
+            "|---|---|---|---|---|---|---|---|---|---|",
         ]
         for item in rows:
             cost = item["cost_per_decision_usd"]
             out.append(
-                f"| {place(item)} | {item['config']} | {critical_text(item) or 'n/a'} "
+                f"| {config(item)} | {critical_text(item) or 'n/a'} "
                 f"| {shown(_false_automation(item))} | {shown(_accuracy(item))} "
                 f"| {shown(counted(item['auto_rate'], item['n']))} | {num(item['macro_f1'])} "
                 f"| {num(item['ece'])} | {_ms(item['latency_p50_ms'])} "
