@@ -420,6 +420,27 @@ docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/re
   --expect-org pilot --db /data/mendari.db
 ```
 
+**A signed CDS client over HTTP (LP-23e).** With both engines up, the profile's service
+`cds-client` plays an EHR. It seeds a vendor-shaped EHR profile into HAPI: synthetic patients
+for the trial, prior-authorization and referral packs, in the shapes Epic's and Oracle Health's
+public FHIR documentation describe, with notes linked to a Binary, Conditions coded by the site
+and in ICD-10-CM, MedicationRequests, the payer by reference, and no SNOMED CT
+(`mendari sandbox seed --pack ehr-profile`). Then it makes an EC P-384 key in memory, serves its
+JWK Set, and calls discovery and every standard hook of each engine, a new ES384 token each
+call (`mendari sandbox cds-client`). Both engines register it in `MENDARI_CDS_CLIENTS`, and
+CI's `sandbox-e2e` runs it on every change:
+
+<!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
+```bash
+docker compose --profile signin run --rm --use-aliases cds-client
+```
+
+Every hook answers, but the packs read little of these shapes yet (linked notes, a site's
+coding first, MedicationRequest, the payer by reference): what each cannot read is pinned in
+`tests/test_ehr_profile.py`, and
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client)
+says how to run the client against your own engine.
+
 **Bulk FHIR into local validation.** Export a site's data, then evaluate a pack on it with the
 site's own labels (ground truth from chart review, joined by an identifier system):
 
@@ -442,7 +463,8 @@ follows.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
-exactly like the same cases read from the dataset file.
+exactly like the same cases read from the dataset file. Last, it runs the signed CDS client
+against both engines.
 
 ## Healthcare standards
 

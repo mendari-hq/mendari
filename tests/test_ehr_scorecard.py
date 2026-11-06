@@ -156,8 +156,9 @@ def test_a_test_not_at_the_graded_commit_is_cited_only_where_the_row_names_23a()
     """The scope line says `COMMIT` with LP-23a. A test a row names (as its evidence, or in its
     last column) is a test function at `COMMIT`, or the row's last column says it rests on
     LP-23a's work, or, for a met criterion, on the work of the LP-23 step that met it (`23d: ...`,
-    as each step updates the rows it meets); and a row that says so names such a test. Skipped
-    in a shallow clone, which holds no history."""
+    as each step updates the rows it meets); and a row that says so names such a test. A partly
+    met criterion may name the tests of the step that met part of it, which its last column then
+    names first (`23e: ...`). Skipped in a shallow clone, which holds no history."""
     if _shallow():
         pytest.skip("a shallow clone holds no history")
     files: dict[str, str] = {}
@@ -172,6 +173,9 @@ def test_a_test_not_at_the_graded_commit_is_cited_only_where_the_row_names_23a()
                     files[file] = found.stdout if found.returncode == 0 else ""
                 if not re.search(rf"^def {name}\(", files[file], flags=re.MULTILINE):
                     new.append(node)
+            if row.status == "partial":
+                assert not new or re.match(r"23[a-m]: ", row.waits_on), (row.id, new)
+                continue
             step = r"23[a-m]: " if row.status == "met" else r"23a: "
             assert bool(new) is bool(re.match(step, row.waits_on)), (row.id, new)
 

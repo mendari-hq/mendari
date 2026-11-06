@@ -31,16 +31,22 @@ import httpx
 from mendari.core import tenancy
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import SANDBOX_TAG
+from mendari.sandbox.fhir_records import REFERRAL, SANDBOX_TAG
 from mendari.server.origin import OWN_REQUEST
 
 COOKIE = "mendari_smart"
 LAUNCH = "mendari_launch"  # ties the engine's /smart/launch to its /smart/callback
-_FOCUS = {
-    "mendari/patient-inbox-router": "Communication",
-    "mendari/referral-router": "ServiceRequest",
-}
 _TAG = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
+# Each pack's focus resource, and the search for one of its synthetic cases'. A referral is found
+# by its category: the prior-authorization pack's seeded orders are tagged ServiceRequests too
+# (`mendari sandbox seed --pack mendari/prior-auth-preflight`), and none is a referral.
+_FOCUS = {
+    "mendari/patient-inbox-router": ("Communication", {}),
+    "mendari/referral-router": (
+        "ServiceRequest",
+        {"category": f"{REFERRAL['system']}|{REFERRAL['code']}"},
+    ),
+}
 
 
 def launch_value(patient: str, provider: str) -> str:
@@ -51,13 +57,15 @@ def launch_value(patient: str, provider: str) -> str:
 
 
 def find_patient(fhir: str, pack_id: str) -> str:
-    """A synthetic patient who has one of the pack's focus resources."""
-    kind = _FOCUS.get(pack_id)
-    if kind is None:
+    """A synthetic patient who has one of the pack's focus resources (for the referral router,
+    a referral, whichever other packs' cases the server holds)."""
+    focus = _FOCUS.get(pack_id)
+    if focus is None:
         raise MendariError(f"the sandbox launches {sorted(_FOCUS)}, not {pack_id}")
+    kind, narrowed = focus
     response = httpx.get(
         f"{fhir.rstrip('/')}/{kind}",
-        params={"_tag": _TAG, "_count": "1"},
+        params={"_tag": _TAG, **narrowed, "_count": "1"},
         headers={"accept": "application/fhir+json", "cache-control": "no-cache"},
         timeout=30,
     )

@@ -35,6 +35,7 @@ from mendari.server import auth as auth_module
 from mendari.server import cds_clients as cds_module
 from mendari.server.app import create_app
 from mendari.server.auth import CDS_PERMISSIONS, Auth, AuthSettings, Principal
+from mendari.server.backend_services import backend_settings
 from mendari.server.cds_clients import (
     REASONS,
     CdsRegistry,
@@ -844,6 +845,50 @@ def test_the_registry_needs_its_public_url_and_matching_organizations(
         monkeypatch.setenv("MENDARI_PHI_MODE", "off")
     with pytest.raises(MendariError, match=words.replace("(", r"\(")):
         create_app(db_path=tmp_path / "refused.db")
+
+
+@pytest.mark.parametrize(
+    ("public_url", "taken"),
+    [
+        ("https://mendari.example.org", True),
+        ("http://localhost:8000", True),
+        ("http://127.0.0.1:8000", True),
+        ("http://[::1]:8000", True),
+        ("http://engine-signin:8000", True),  # a compose service: the sandbox's engines (LP-23e)
+        ("http://mendari.example.org", False),
+        ("http://mendari.internal:8000", False),
+        ("http://10.0.0.5:8000", False),
+        ("http://:8000", False),
+        ("https://:8000", False),
+        ("http://[::1:8000", False),  # not a URL: refused as one, never a ValueError
+        ("ftp://engine:8000", False),
+    ],
+)
+def test_the_public_url_is_plain_http_only_for_a_loopback_or_single_label_host(
+    monkeypatch: pytest.MonkeyPatch, public_url: str, taken: bool
+) -> None:
+    """A token's `aud` names the public URL, which is https, or plain http where the FHIR
+    allow-list and a `jwks_uri` take it: this machine, or a single-label name (a compose
+    service, which no public DNS name is). Any other plain http URL stops startup. SMART Backend
+    Services addresses its assertions to the same URL, and takes and refuses each value alike
+    (one check, `origin.checked_public_url`), with sign-in on as it needs."""
+    allowed = "https://ehr.example.org"
+    register(monkeypatch, public_url=public_url, allowed=allowed)
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    if taken:
+        registry = cds_clients(signed_in=False, ehrs={})
+        assert registry is not None and registry.public_url == public_url
+        backend = backend_settings(SETTINGS)
+        assert backend is not None and backend.public_url == public_url
+        return
+    for check in (
+        lambda: cds_clients(signed_in=False, ehrs={}),
+        lambda: backend_settings(SETTINGS),
+    ):
+        with pytest.raises(MendariError, match="must be an https URL") as refused:
+            check()
+        assert "plain http only for a loopback or single-label host" in str(refused.value)
+        assert public_url not in str(refused.value)
 
 
 def test_a_valid_registry_is_read_as_given() -> None:

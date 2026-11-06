@@ -2,11 +2,13 @@
 """Sandbox workflow against a FHIR R4 server (HAPI FHIR in docker compose).
 
 `seed` loads synthetic cases as US Core resources (`fhir_records`): inbox Patients and
-Communications (status `in-progress`), or referral Patients, ServiceRequests and their records.
-The sandbox FHIR server plays the part of the "local site", so cases come from the local-site
-example datasets. `run_worker` claims each in-progress Communication, asks the engine for a
-decision, and writes the resulting Task back. Only resources carrying the sandbox tag are ever
-touched.
+Communications (status `in-progress`), referral Patients, ServiceRequests and their records, or
+the trial and prior-authorization packs' Patients and records. The sandbox FHIR server plays the
+part of the "local site", so cases come from the local-site example datasets. It also loads the
+vendor-shaped EHR profile (`ehr_profile`, LP-23e) under the profile's own ids, which the sandbox
+CDS client (`cds_client`) names. `run_worker` claims each in-progress Communication, asks the
+engine for a decision, and writes the resulting Task back. Only resources carrying the sandbox
+tag are ever touched.
 
 Each Communication is claimed with a version-conditional update (`If-Match`) before the engine
 sees it, so a message is processed at most once even if searches return stale results (HAPI
@@ -25,11 +27,30 @@ import httpx
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals.harness import load_dataset, resolve_dataset
-from mendari.sandbox import example_datasets_dir
-from mendari.sandbox.fhir_records import SANDBOX_TAG, inbox_entries, referral_entries
+from mendari.sandbox import ehr_profile, example_datasets_dir
+from mendari.sandbox.fhir_records import (
+    CASE_SYSTEM,
+    SANDBOX_TAG,
+    inbox_entries,
+    prior_auth_entries,
+    referral_entries,
+    trial_entries,
+)
 
 INBOX = "mendari/patient-inbox-router"
 REFERRAL = "mendari/referral-router"
+TRIAL = "mendari/clinical-trial-prescreener"
+PRIOR_AUTH = "mendari/prior-auth-preflight"
+EHR_PROFILE = "ehr-profile"  # the vendor-shaped EHR profile (ehr_profile.py), not a pack
+SEEDS = (INBOX, REFERRAL, TRIAL, PRIOR_AUTH, EHR_PROFILE)
+# What `seed` counts of each: the resource a case or patient is about.
+_FOCUS = {
+    INBOX: "Communication",
+    REFERRAL: "ServiceRequest",
+    TRIAL: "Patient",
+    PRIOR_AUTH: "ServiceRequest",
+    EHR_PROFILE: "Patient",
+}
 _TAG_QUERY = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
 _FHIR_JSON = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
 # HAPI reuses cached search results for a while; a work queue must always see fresh state.
@@ -55,41 +76,64 @@ def to_resources(record: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def seed_bundle(pack_id: str, count: int) -> dict[str, Any]:
-    """The transaction `seed` posts: `count` local-site cases of the pack as FHIR resources."""
+    """The transaction `seed` posts: `count` local-site cases of the pack as FHIR resources, or
+    (`EHR_PROFILE`) the whole vendor-shaped profile, which PUTs each resource under its id."""
     if pack_id == INBOX:
         entries = [e for record in _sample(count) for e in inbox_entries(record)]
     elif pack_id == REFERRAL:
         cases = _local(REFERRAL, "referral")[:count]
         entries = [e for record in cases for e in referral_entries(record)]
+    elif pack_id == TRIAL:
+        entries = [e for record in _local(TRIAL, "trial")[:count] for e in trial_entries(record)]
+    elif pack_id == PRIOR_AUTH:
+        cases = _local(PRIOR_AUTH, "prior-auth")[:count]
+        entries = [e for record in cases for e in prior_auth_entries(record)]
+    elif pack_id == EHR_PROFILE:
+        return ehr_profile.bundle()
     else:
-        raise MendariError(f"the sandbox can seed {INBOX} or {REFERRAL}, not {pack_id}")
+        raise MendariError(f"the sandbox can seed {', '.join(SEEDS)}, not {pack_id}")
     return {"resourceType": "Bundle", "type": "transaction", "entry": entries}
 
 
 def seed(fhir: str, *, count: int, wait_seconds: int = 180, pack_id: str = INBOX) -> int:
     """Load `count` synthetic cases of the pack into the FHIR server, once (a server that already
-    holds the pack's tagged focus resources is left alone)."""
+    holds them is left alone), or the EHR profile, whose PUTs replace what an earlier seed of it
+    made. Returns how many of the cases' focus resources (or the profile's Patients) it sent."""
     fhir = fhir.rstrip("/")
     wait_for(fhir, wait_seconds)
-    focus = "Communication" if pack_id == INBOX else "ServiceRequest"
-    existing = (
-        httpx.get(
-            f"{fhir}/{focus}",
-            params={"_tag": _TAG_QUERY, "_summary": "count"},
-            headers=_NO_CACHE,  # a cached "0" from before an earlier seed would seed twice
-            timeout=30,
-        )
-        .json()
-        .get("total", 0)
-    )
-    if existing:
-        print(f"sandbox already seeded ({existing} synthetic {focus}s); skipping")
-        return 0
     bundle = seed_bundle(pack_id, count)
+    focus = _FOCUS[pack_id]
+    if pack_id != EHR_PROFILE and _seeded(fhir, pack_id, bundle):
+        print(f"sandbox already holds {pack_id}'s synthetic cases; skipping")
+        return 0
     response = httpx.post(fhir, json=bundle, headers=_FHIR_JSON, timeout=120)
     if not response.is_success:
         raise MendariError(f"seeding failed: HTTP {response.status_code} {response.text[:300]}")
     return sum(e["resource"]["resourceType"] == focus for e in bundle["entry"])
+
+
+def _seeded(fhir: str, pack_id: str, bundle: dict[str, Any]) -> int:
+    """Whether the server already holds the pack's cases (how many of what it counts): the
+    inbox's tagged Communications, as before. The referral router's and the prior-authorization
+    pack's focus is a ServiceRequest and the trial's a Patient, kinds each shares with another
+    pack's cases, so for those it counts the Patient of the bundle's first case, by its case id."""
+    params = {"_tag": _TAG_QUERY, "_summary": "count"}
+    kind = _FOCUS[pack_id]
+    if pack_id != INBOX:
+        patients = [
+            e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Patient"
+        ]
+        if not patients:  # `--count 0`: nothing to send, and nothing to look for
+            return 0
+        case = next(i["value"] for i in patients[0]["identifier"] if i["system"] == CASE_SYSTEM)
+        params, kind = {"identifier": f"{CASE_SYSTEM}|{case}", "_summary": "count"}, "Patient"
+    found = httpx.get(
+        f"{fhir}/{kind}",
+        params=params,
+        headers=_NO_CACHE,  # a cached "0" from before an earlier seed would seed twice
+        timeout=30,
+    )
+    return int(found.json().get("total", 0))
 
 
 def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: bool) -> None:

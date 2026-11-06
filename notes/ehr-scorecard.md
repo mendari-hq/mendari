@@ -38,7 +38,8 @@ Seven dimensions, each graded on five levels by named criteria:
 - **Source** is the vision audit's row, or the LP-23 requirement, the criterion comes from.
 - **Built in, or waits on** names the LP-23 step that builds an unmet criterion, or says what the
   owner has to do first. On a met criterion it names the LP-23 step whose work the row rests on,
-  and is empty when the row rests on `06d5332f` alone.
+  and is empty when the row rests on `06d5332f` alone. On a partial one that cites a later
+  step's tests, it names that step first, then the step that builds the rest.
 - **The overall grade is the lowest dimension's level**, shown beside every dimension, so a
   strong dimension cannot hide a missing one.
 
@@ -47,11 +48,11 @@ Seven dimensions, each graded on five levels by named criteria:
 | Dimension | Level | Overall | Scope |
 |---|---|---|---|
 | 1. Client trust | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
-| 2. Who may call from where | 3 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 2. Who may call from where | 4 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 3. Failure behaviour | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 4. Data shapes | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 5. Cards and workflow | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
-| 6. Conformance evidence | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 6. Conformance evidence | 3 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 7. Vendor fit | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 
 **Overall:** level 1, the lowest dimension (failure behaviour; who may call from where was
@@ -85,10 +86,10 @@ Which hosts and browser origins may reach the CDS services, with sign-in on and 
 | WC-2b | 2 | With sign-in off (open mode), `/cds-services` answers only on this machine or under an explicit sandbox flag. | met | `tests/test_cds_open_mode.py::test_open_mode_answers_cds_hooks_on_this_machine_only`, `tests/test_cds_open_mode.py::test_a_spoofed_host_or_forwarded_header_is_not_this_machine`, `tests/test_cds_open_mode.py::test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_with_sign_in`, `tests/test_cds_open_mode.py::test_a_verified_token_does_not_lift_the_rule_in_open_mode` | A12.1e | 23c: a loopback address, a local `Host` and no forwarding header, else `403` (`open_mode_remote`); `MENDARI_CDS_SANDBOX=1` refused on Vercel and with sign-in on (open mode answered any host before, a forged token included until 23b) |
 | WC-3a | 3 | CORS on `/cds-services` and its children only, for registered EHR origins, without credentials. | met | `tests/test_cds_cors.py::test_a_registered_origin_gets_cors_on_cds_services_only`, `tests/test_cds_cors.py::test_a_preflight_is_answered_before_the_guard_without_credentials`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before`, `tests/browser/test_cds_cors.py::test_a_page_on_a_registered_origin_reads_a_hook_answer` | A12.1d | 23c: `server/cors.py`, the clients' `origins` |
 | WC-3b | 3 | A cross-site `Origin` on a CDS client's token must be one of that client's own origins. | met | `tests/test_cds_cors.py::test_an_origin_registered_for_another_client_is_refused`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before` | A12.1d | 23c: `CdsRegistry.from_its_origin`, a `403` (`cds_origin`) before the `jti` is claimed |
-| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23e: 23c set the flag on the compose sandbox's open engine alone; the call from another container in CI is 23e's |
+| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | met | `tests/test_cds_client_sandbox.py::test_ci_runs_the_signed_client_against_both_engines`, `tests/test_cds_client_sandbox.py::test_both_compose_engines_register_the_sandbox_client`, `tests/test_deploy.py::test_only_the_sandbox_engine_answers_cds_hooks_from_the_network` | A12.5a | 23e: CI's `sandbox-e2e` runs the compose service `cds-client` from its own container against the open engine (the one flagged, by 23c) and the signed-in one, each registering it; the in-process run of the same client is `tests/test_cds_client_sandbox.py::test_the_sandbox_client_signs_what_the_engine_verifies` |
 | WC-5a | 5 | Epic's sandbox reaches Mendari's CDS services from Epic's own servers. | missing | missing | A12.acc-3 | the owner: whether Epic's free sandbox can call an external CDS service at all (owner decision 15) |
 
-**Grade:** level 3. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+**Grade:** level 4. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
 synthetic data and test keys only, not a vendor certification.
 
 ## 3. Failure behaviour
@@ -124,7 +125,7 @@ Whether the mappings read the shapes an EHR sends.
 | DS-3c | 3 | The payer is read by its Coverage reference. | missing | missing | A12.3c | 23h, 23k |
 | DS-3d | 3 | MedicationRequest is read, with a stated rule for its start and stop. | missing | missing | A12.3d | 23g, 23k, and the owner: the go-ahead for 23k, with a clinician's note on the rule (owner decision 5) |
 | DS-3e | 3 | A site's own codes are translated by a per-organization site code map, versioned and hashed into each decision. | missing | missing | A12.3e | 23i |
-| DS-4a | 4 | A vendor-shaped synthetic profile (linked notes, several codings, MedicationRequest) passes the HL7 validator against US Core 6.1.0 in CI, and every pack with a standard hook decides on it without a failed hook. | missing | missing | LP-23 requirement 10 | 23e |
+| DS-4a | 4 | A vendor-shaped synthetic profile (linked notes, several codings, MedicationRequest) passes the HL7 validator against US Core 6.1.0 in CI, and every pack with a standard hook decides on it without a failed hook. | partial | `tests/test_ehr_profile.py::test_every_reference_pack_with_a_standard_hook_decides_on_the_vendor_shaped_patients_without_a_failed_hook`, `tests/test_ehr_profile.py::test_the_profile_has_linked_notes_several_codings_and_medication_requests`, `tests/test_ehr_profile.py::test_the_profile_carries_no_snomed_ct`, `tests/test_fhir_structure.py::test_the_samples_are_clean_for_both` | LP-23 requirement 10 | 23e: the profile (`sandbox/ehr_profile.py`), and the HL7 validator checks it in CI's `fhir-conformance` (`scripts/sandbox_fhir_sample.py` writes `sandbox-ehr-profile.json`). Every hook answers `200`, and the trial and prior-authorization packs decide on every patient (an ABSTAIN on a linked note, recorded with its reason). Partial: the referral router makes no decision at all for the three patients whose site coding comes first (ehr-ref-1, ehr-ref-3, ehr-ref-5: no record, no card, no abstention), since it finds a referral by its category's first coding; that is not "decides". 23k meets it, when the router adopts 23g's selector by code system. Each gap is pinned with why in `tests/test_ehr_profile.py::test_what_each_pack_cannot_read_yet_is_pinned` (a regression fixture, not a rate) |
 | DS-5a | 5 | Every reference pack with a standard hook decides on Epic's sandbox patients without a failed hook. | missing | missing | A12.acc-3 | the owner: the Epic sandbox run |
 
 **Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
@@ -159,14 +160,14 @@ What outside tools have checked, in CI.
 |---|---|---|---|---|---|---|
 | CE-2a | 2 | The HL7 validator runs offline in CI over Mendari's outputs and the sandbox's inputs (the `fhir-conformance` job), over the same files the in-process US Core checks pass. | met | `tests/test_ehr_baseline.py::test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandboxs_inputs` | A12.5d | 23a: the test (the job is `06d5332f`'s) |
 | CE-2b | 2 | The SMART app runs against a third-party launcher (smart-launcher-v2) in CI (the `sandbox-e2e` job). | met | `tests/test_ehr_baseline.py::test_ci_runs_the_smart_app_against_smart_launcher_v2` | A12.5b | 23a: the test (the job is `06d5332f`'s) |
-| CE-3a | 3 | A CDS Hooks client calls the services over HTTP with signed tokens, in the sandbox and in CI. | missing | missing | A12.5a | 23e |
+| CE-3a | 3 | A CDS Hooks client calls the services over HTTP with signed tokens, in the sandbox and in CI. | met | `tests/test_cds_client_sandbox.py::test_the_sandbox_client_signs_what_the_engine_verifies`, `tests/test_cds_client_sandbox.py::test_it_keeps_its_key_in_memory_only`, `tests/test_cds_client_sandbox.py::test_ci_runs_the_signed_client_against_both_engines` | A12.5a | 23e: `mendari sandbox cds-client` (`sandbox/cds_client.py`), an ES384 key made in memory and its JWK Set served, run by the compose service `cds-client` in CI's `sandbox-e2e` |
 | CE-4a | 4 | Inferno's Da Vinci CRD kit runs as the CDS client in CI, with each test's outcome pinned with its reason. | missing | missing | A12.acc-1, A12.acc-2 | 23l |
 | CE-4b | 4 | Inferno's SMART App Launch and Bulk Data client suites run for Mendari's roles. | missing | missing | A12.5b, A12.5c | 23l |
 | CE-4c | 4 | The HL7 validator also runs with a terminology server, on a schedule. | missing | missing | A12.5d | 23l: today it runs offline only, on every change (CE-2a) |
 | CE-4d | 4 | The scopes Mendari asks for are checked against the scopes the EHR publishes (`scopes_supported`). | missing | missing | A12.5e | 23l |
 | CE-5a | 5 | `mendari smart check` and the scope check pass against Epic. | missing | missing | A12.5e | the owner: `mendari smart check` run against Epic's FHIR base |
 
-**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+**Grade:** level 3. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
 synthetic data and test keys only, not a vendor certification.
 
 ## 7. Vendor fit

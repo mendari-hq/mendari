@@ -22,7 +22,10 @@ sign-in behaves as before. Set, it is a JSON list checked at startup (`cds_clien
   any other site's origin, another client's included, may not use its token (`from_its_origin`).
 
 With sign-in off every organization must be `default`, and `MENDARI_PUBLIC_URL` must be set: a
-token's `aud` is that URL plus the path called. A refusal at startup names the setting, the
+token's `aud` is that URL plus the path called. It is https, or plain http for a loopback or
+single-label host only (a compose service, as the sandbox's engines are), the rule a `jwks_uri`
+and the FHIR allow-list follow, and one check with SMART Backend Services'
+(`origin.checked_public_url`), with sign-in on or off. A refusal at startup names the setting, the
 entry's position and the field, never a value or key material.
 
 **A token** (`verify`), checked in this order, each step before anything that costs more:
@@ -79,7 +82,13 @@ from mendari.server import security_log
 from mendari.server.auth import DEFAULT_ORG, CdsRefused
 from mendari.server.backend_services import ALGORITHMS, MAX_ASSERTION_BYTES, MAX_JTI, check_jwks
 from mendari.server.limits import client_ip
-from mendari.server.origin import is_local_host, is_this_site, trusted_origins
+from mendari.server.origin import (
+    checked_public_url,
+    is_local_host,
+    is_this_site,
+    plain_http_host,
+    trusted_origins,
+)
 from mendari.server.origin import origin_of as browser_origin
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
 from mendari.standards.smart import Registration, normalize_base
@@ -596,16 +605,9 @@ def _public_url() -> str:
             f"{ENV} needs MENDARI_PUBLIC_URL: a CDS client's token is addressed (aud) to it and "
             "the path it calls"
         )
-    parts = urlsplit(public)
-    local = (parts.hostname or "") in ("localhost", "127.0.0.1")
-    if (
-        not parts.netloc
-        or parts.query
-        or parts.fragment
-        or not (parts.scheme == "https" or (parts.scheme == "http" and local))
-    ):
-        raise MendariError("MENDARI_PUBLIC_URL must be an https URL without a query or fragment")
-    return public
+    # Backend Services' rule too: plain http as the FHIR allow-list and a `jwks_uri` have it,
+    # such as the compose sandbox's engines (`http://engine-signin:8000`, LP-23e).
+    return checked_public_url(public)
 
 
 def _client(
@@ -743,7 +745,7 @@ def _jwks_uri(
     if (
         origin_of(value) is None
         or parts.fragment
-        or not (parts.scheme == "https" or (parts.scheme == "http" and _local(host)))
+        or not (parts.scheme == "https" or (parts.scheme == "http" and plain_http_host(host)))
     ):
         raise refused(
             "jwks_uri must be https (plain http only for a loopback or single-label host), "
@@ -752,14 +754,3 @@ def _jwks_uri(
     if origin_of(value) not in servers:
         raise refused("the jwks_uri's origin is not on MENDARI_FHIR_ALLOWED_SERVERS")
     return value
-
-
-def _local(host: str) -> bool:
-    """Plain http is for this machine or a single-label name (a compose service) only, as the
-    FHIR allow-list has it (`fhir_client.allowed_servers`)."""
-    if host == "localhost" or ("." not in host and ":" not in host):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False

@@ -859,8 +859,35 @@ Connect) is not supported yet.
     before), and a later page that is not a Bundle is its reason (it was read as the first
     pages). The section for `docs/guides/connecting-an-ehr.md` waits for 23b, which creates
     that page.
-  - [ ] **23e** A vendor-shaped synthetic profile, and a signed sandbox CDS client over HTTP (the
-    first end-to-end result).
+  - [x] **23e** (lane PR) A vendor-shaped synthetic profile, and a signed sandbox CDS client over
+    HTTP (the first end-to-end result). `sandbox/ehr_profile.py`: five synthetic patients for
+    each reference pack with a standard hook (trial `patient-view`, prior auth and referral
+    `order-sign`), each made from a local-site case by `fhir_records` and reshaped after Epic's
+    and Oracle Health's public FHIR documentation: DocumentReference → Binary (text/plain,
+    text/html, one RTF to be unreadable), Conditions coded by a fictional site system and
+    ICD-10-CM in either order, MedicationRequest → Medication (RxNorm) with a dosage
+    `boundsPeriod`, `Coverage.payor` → Organization with a site identifier, referrals under a
+    site order type; the profile's own ids, no sandbox tag, no SNOMED CT; its two site code
+    systems published with the sandbox's terminology. `fhir_workflow.seed` seeds the trial and
+    prior-auth packs and `ehr-profile` too (a pack already there is found by its first case's
+    Patient, the referral router's included). `sandbox/cds_client.py`, `mendari sandbox
+    cds-client`: an EC P-384 key in memory, its JWK Set served, its registry entry printed, then
+    discovery and every standard hook per patient with a new ES384 token (`jku` set), no
+    prefetch; exit 1 on anything but a `200`, a hook answer that is not CDS Hooks', or a card
+    saying a read failed (anything unread but a linked note's `notes: not_fetched`). Compose:
+    both engines register it (`http://cds-client:8300`, on their allow-lists; the open engine
+    too, since without a registry a JWT is a `401` in open mode as well, its registry
+    empty-able for a public URL of your own); the service `cds-client` (profile `signin`) seeds
+    and runs it against both (`--audience` the open engine's own public URL setting);
+    `sandbox-e2e` runs it last. Server change: `MENDARI_PUBLIC_URL` may be plain http for any
+    loopback or single-label host (the engines' `http://engine:8000`,
+    `http://engine-signin:8000`), one check for the CDS registry and Backend Services
+    (`origin.checked_public_url`, S21). Scorecard: WC-4a and CE-3a met (who may call from where
+    to level 4, conformance evidence to 3; overall still 1); DS-4a partial until 23k, since the
+    referral router makes no decision for ehr-ref-1, 3 and 5. `tests/test_ehr_profile.py` pins what
+    each pack cannot read yet (abstains on a linked note; no referral found, or a diagnosis read as
+    the site's code, when the site's coding comes first; no MedicationRequest; no payer reference),
+    each with why, for 23h, 23i and 23k to take entries off.
   - [x] **23f** (#270) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
     `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
     `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three

@@ -45,8 +45,21 @@ services:
       JEV_MODEL: ${JEV_MODEL:-}
       JEV_API_KEY: ${JEV_API_KEY:-}
       MENDARI_PROVIDERS: ${MENDARI_PROVIDERS:-}
-      # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there.
-      MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200}
+      # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there,
+      # and the signed CDS client's JWK Set is fetched from `cds-client` (below). If you set your
+      # own list, keep http://fhir:8080 and http://cds-client:8300 on it, or set
+      # MENDARI_CDS_CLIENTS empty (below).
+      MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200,http://cds-client:8300}
+      # The sandbox's signed CDS client (service `cds-client`, LP-23e), registered as an EHR is
+      # (docs/guides/connecting-an-ehr.md): its tokens' iss, the FHIR base it sends, and the one
+      # URL its keys come from. With sign-in off its organization is `default`. With a client
+      # registered, MENDARI_PUBLIC_URL must be https, or plain http on a loopback or single-label
+      # host (http://192.168.1.5:8000 stops this engine), and the allow-list must hold the
+      # client's origins. For another URL or list, set this empty in your shell, `-` and not
+      # `:-` so only an unset variable takes this default; the engine then takes no signed
+      # client, and `cds-client` fails:
+      #   MENDARI_CDS_CLIENTS= MENDARI_PUBLIC_URL=http://192.168.1.5:8000 docker compose up
+      MENDARI_CDS_CLIENTS: '${MENDARI_CDS_CLIENTS-[{"id": "sandbox-client", "title": "Mendari sandbox CDS client", "iss": "http://cds-client:8300", "org": "default", "fhir_servers": ["http://fhir:8080/fhir"], "jwks_uri": "http://cds-client:8300/jwks.json"}]}'
       # SMART launch (a public client; the launcher accepts any client id).
       MENDARI_SMART_CLIENT_ID: ${MENDARI_SMART_CLIENT_ID:-mendari-sandbox}
       # The EHR launch on needs a chosen PHI mode: `off` keeps inputs in plaintext, for this
@@ -87,9 +100,11 @@ services:
     ports:
       - "127.0.0.1:8001:8000"
     environment:
-      MENDARI_FHIR_ALLOWED_SERVERS: http://fhir:8080,http://launcher
+      MENDARI_FHIR_ALLOWED_SERVERS: http://fhir:8080,http://launcher,http://cds-client:8300
       MENDARI_SMART_CLIENT_ID: mendari-sandbox
       MENDARI_PUBLIC_URL: http://engine-signin:8000
+      # The sandbox's signed CDS client, as on the open engine, deciding for organization `pilot`.
+      MENDARI_CDS_CLIENTS: '[{"id": "sandbox-client", "title": "Mendari sandbox CDS client", "iss": "http://cds-client:8300", "org": "pilot", "fhir_servers": ["http://fhir:8080/fhir"], "jwks_uri": "http://cds-client:8300/jwks.json"}]'
       MENDARI_OIDC_ISSUER: https://idp.example.org
       MENDARI_OIDC_CLIENT_ID: mendari-sandbox
       # Sign-in never runs PHI mode `off` (docs/deploying-with-phi.md): `encrypt`, with two keys
@@ -161,6 +176,41 @@ services:
         mendari sandbox seed --fhir http://fhir:8080/fhir --pack mendari/referral-router --count 40 &&
         mendari sandbox worker --fhir http://fhir:8080/fhir --engine http://engine:8000
     restart: on-failure
+    healthcheck:
+      disable: true  # the image's healthcheck is for the engine's HTTP server
+
+  cds-client:
+    # A signed CDS Hooks client over HTTP (LP-23e, profile `signin`, for CI's `sandbox-e2e`): it
+    # plays an EHR. It seeds the vendor-shaped EHR profile into HAPI, makes an EC P-384 key in
+    # memory, serves its JWK Set on port 8300, and calls discovery and every standard hook with
+    # a new signed token each, first on the open engine (under the sandbox flag), then on the
+    # signed-in one. Both register it (MENDARI_CDS_CLIENTS above), and its tokens for the open
+    # engine are addressed to that engine's MENDARI_PUBLIC_URL (`--audience`, the same setting).
+    # It exits 1 if any answer is not a 200, a hook's answer is not CDS Hooks', or a card says a
+    # read failed. `--use-aliases` gives the container the name `cds-client`, at which the
+    # engines fetch its keys:
+    #   docker compose --profile signin run --rm --use-aliases cds-client
+    # Run it again a minute later, not sooner: each run makes a new key, and an engine fetches a
+    # client's keys again at most once a minute.
+    profiles: [signin]
+    image: mendari-engine:0.1.0
+    depends_on:
+      engine:
+        condition: service_healthy
+      engine-signin:
+        condition: service_healthy
+      fhir:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - >-
+        mendari sandbox seed --fhir http://fhir:8080/fhir --pack ehr-profile --wait 300 &&
+        mendari sandbox cds-client --engine http://engine:8000 --fhir http://fhir:8080/fhir
+        --listen 0.0.0.0:8300 --iss http://cds-client:8300
+        --audience ${MENDARI_PUBLIC_URL:-http://engine:8000} &&
+        mendari sandbox cds-client --engine http://engine-signin:8000 --fhir http://fhir:8080/fhir
+        --listen 0.0.0.0:8300 --iss http://cds-client:8300 --org pilot
     healthcheck:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 

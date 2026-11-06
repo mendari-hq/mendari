@@ -193,6 +193,46 @@ The first release (not yet published).
   hook), run by CI in open mode on 127.0.0.1 with no flag, with a service key and with a
   `cds-hooks` key. Threat-model rows I16 and E16; see
   [Connecting an EHR](docs/guides/connecting-an-ehr.md).
+- **A vendor-shaped synthetic EHR profile, and a signed CDS client over HTTP in the sandbox
+  (LP-23e; no pack changes; one server change: `MENDARI_PUBLIC_URL` may be plain http on a
+  loopback or single-label host, below).** `sandbox/ehr_profile.py` builds five
+  synthetic patients for each reference pack with a standard hook (the trial prescreener's
+  `patient-view`, the prior-authorization and referral packs' `order-sign`) in the shapes Epic's
+  and Oracle Health's public FHIR documentation describe, never their data: notes as
+  DocumentReferences linked to a Binary (plain text, HTML and one kind that is unreadable, RTF),
+  Conditions coded by the site (a fictional system) and in ICD-10-CM in either order,
+  MedicationRequests naming an RxNorm Medication with a dosage `boundsPeriod` (ordered,
+  `authoredOn`, a week before it starts), `Coverage.payor` a reference to an Organization holding
+  the site's identifier and a site member id, referrals under the site's order type, no synthetic
+  case id and no SNOMED CT; the same resources and ids on every run. `mendari sandbox seed` now
+  seeds the trial and prior-authorization packs' cases too, and `--pack ehr-profile` the
+  profile, under its own ids (seeding again replaces it); a pack whose cases are already there
+  is found by its first case's Patient (the referral router's included, whose tagged
+  ServiceRequests the prior-authorization pack now shares), and `mendari sandbox smart-launch
+  --pack mendari/referral-router` looks for a patient by a referral's category.
+  `mendari sandbox cds-client` plays an EHR: an EC P-384 key made in memory, its JWK Set served, its
+  `MENDARI_CDS_CLIENTS` entry printed, then discovery and each standard hook called over HTTP once
+  per patient, each with a new ES384 token carrying `jku`, no prefetch and the FHIR server as
+  `fhirServer`; it exits 1 on any answer but a `200`, a hook answer that is not CDS Hooks', or a
+  card saying part of the record could not be read for anything but a linked note
+  (`notes: not_fetched`): every hook answers `200`, so a read of the FHIR server that failed shows
+  only there. The compose sandbox's two engines register it (`http://cds-client:8300`, its origin on
+  their allow-lists; the open engine's registry is empty-able, `MENDARI_CDS_CLIENTS=`, for a public
+  URL of your own), the new service `cds-client` (profile `signin`) runs it against both, and CI's
+  `sandbox-e2e` runs that on every change. **Server:** `MENDARI_PUBLIC_URL` may now be plain http
+  for any loopback address or a single-label host (a compose service, such as the signed-in engine's
+  `http://engine-signin:8000`), in every deployment, sign-in on included, as the FHIR allow-list and
+  a `jwks_uri` already allowed (before: `localhost` and `127.0.0.1` only). The CDS clients' registry
+  and SMART Backend Services check it by one rule (`origin.checked_public_url`), so neither takes a
+  value the other refuses; any other plain http URL still stops startup. Threat-model row S21. The
+  HL7 validator checks the profile against US Core 6.1.0 (`scripts/sandbox_fhir_sample.py`), and the
+  terminology the sandbox publishes for it gains the profile's two fictional site code systems.
+  Every hook answers on these patients, but the packs read little of their shapes yet: the trial and
+  prior-authorization packs abstain on a linked note, a site coding read first hides a diagnosis or
+  a referral, the trial pack reads no MedicationRequest and the prior-authorization pack no payer
+  reference. `tests/test_ehr_profile.py` pins each with why, as a regression fixture from which no
+  rate is computed; LP-23h, 23i and 23k take entries off it. See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

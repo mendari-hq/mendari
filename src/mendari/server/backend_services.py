@@ -2,7 +2,9 @@
 """SMART Backend Services: Mendari's own token endpoint for machines (ADR-0004).
 
 **Off unless a deployment turns it on** (`MENDARI_BACKEND_SERVICES=on`), and then only with
-sign-in configured and `MENDARI_PUBLIC_URL` set; otherwise the server refuses to start. When on:
+sign-in configured and `MENDARI_PUBLIC_URL` set (https, or plain http for a loopback or
+single-label host, as the CDS clients' registry checks it: `origin.checked_public_url`);
+otherwise the server refuses to start. When on:
 
 - **Clients** are registered by a signed-in person with the `keys` permission
   (`POST /api/auth/clients`; never by a key or a token): one organization, a machine's role
@@ -46,7 +48,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
@@ -68,6 +70,7 @@ from mendari.server.auth import (
     scope_of,
 )
 from mendari.server.limits import Limiter, client_ip
+from mendari.server.origin import checked_public_url
 
 ALGORITHMS = {"RS384": "RSA", "ES384": "EC"}  # the signing algorithm, and its key type
 ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
@@ -125,16 +128,8 @@ def backend_settings(sign_in: AuthSettings | None) -> BackendSettings | None:
             "MENDARI_BACKEND_SERVICES=on needs MENDARI_PUBLIC_URL: client assertions are "
             "addressed to its /auth/token"
         )
-    parts = urlsplit(public)
-    local = (parts.hostname or "") in ("localhost", "127.0.0.1")
-    if (
-        not parts.netloc
-        or parts.query
-        or parts.fragment
-        or not (parts.scheme == "https" or (parts.scheme == "http" and local))
-    ):
-        raise MendariError("MENDARI_PUBLIC_URL must be an https URL without a query or fragment")
-    return BackendSettings(public_url=public)
+    # The CDS clients' registry checks the same value by the same rule (LP-23e).
+    return BackendSettings(public_url=checked_public_url(public))
 
 
 def smart_configuration(settings: BackendSettings) -> dict[str, Any]:

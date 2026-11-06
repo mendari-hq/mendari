@@ -50,7 +50,9 @@ fictional):
 | `origins` | no | The browser origins (`https://host[:port]`, 0 to 20) the EHR's pages call from. A page there may call the CDS services and read their answers ([below](#from-a-browser)); a page anywhere else may not use this client's tokens. |
 
 Also set `MENDARI_PUBLIC_URL` to the address the EHR calls. A token's `aud` is that URL plus the
-path called, so without it the server does not start.
+path called, so without it the server does not start. It is https, or plain http only for a
+loopback address or a single-label host (a compose service, such as the sandbox's
+`http://engine-signin:8000`).
 
 Anything wrong in the list stops the server at startup. The message names the setting, the
 entry's position and the field, for example
@@ -273,10 +275,78 @@ When the clinician acts on a card, the EHR may send CDS Hooks 2.0 feedback to
 - It counts against the decide rate limit, as `cds:<id>`, and not against the daily cap: it
   decides nothing.
 
+## Try it with the sandbox's client
+
+Before an EHR does, the sandbox plays one: a CDS client that signs its own tokens, calling over
+HTTP, on synthetic patients shaped as an EHR's FHIR API returns them.
+
+**The vendor-shaped EHR profile.** `mendari sandbox seed --pack ehr-profile --fhir <FHIR base>`
+loads it into a FHIR server, each resource under its own id (`ehr-trial-1`, …), so seeding again
+replaces it. It holds five synthetic patients for each reference pack with a standard hook: the
+Clinical Trial Prescreener (`patient-view`), the Prior Authorization Preflight and the Referral
+Router (`order-sign`). Its shapes follow Epic's and Oracle Health's public FHIR documentation,
+and it holds none of their data:
+
+- a note is a DocumentReference that links to a Binary (`attachment.url`), as plain text, HTML or
+  RTF;
+- a Condition carries the site's own diagnosis code (a fictional system) and ICD-10-CM, the
+  site's coding first for some patients and second for others;
+- a medication is a MedicationRequest naming a Medication coded in RxNorm, with its dates in a
+  dosage `boundsPeriod`;
+- `Coverage.payor` refers to an Organization that holds the site's identifier for the payer;
+- a referral's category carries the site's order type beside the referral code;
+- no SNOMED CT anywhere.
+
+It carries neither the sandbox tag nor a synthetic case id, as an EHR's data would not, so the
+sandbox's worker, SMART launch and Bulk check never read it.
+
+**The client.** `mendari sandbox cds-client --engine <URL> --fhir <FHIR base>`:
+
+1. makes an EC P-384 key in memory, which it never writes anywhere, and serves its JWK Set at
+   `<iss>/jwks.json` (`--listen`, default `127.0.0.1:8300`; `--iss`, the URL the engine reaches
+   it at, default `http://` and the listening address);
+2. prints its `MENDARI_CDS_CLIENTS` entry, with its keys by `jwks_uri` (`--id`, default
+   `sandbox-client`; `--org`, default `default`);
+3. checks that the FHIR server holds the profile's patients;
+4. reads discovery, then calls each standard hook of each pack the profile has patients for,
+   once per patient. Each call carries a new ES384 token: `iss` its own URL, `aud` the engine's
+   public URL (`--audience`, default `--engine`) and the path, five minutes, a new `jti`, and
+   `jku` in the header. The request sends no prefetch and names the FHIR server as
+   `fhirServer`, so the engine reads the record there; an order hook's `draftOrders` are the
+   patient's orders, as drafts.
+
+It prints what each call answered, and exits 1 on any answer other than `200`, a hook answer
+that is not CDS Hooks' (a `cards` list, each with a summary, an indicator and a source), or a
+card saying part of the record could not be read for anything but a patient's linked note
+(`notes: not_fetched`, below). Every hook answers `200`, so a read of the FHIR server that
+failed (`could not read conditions: http_status`, say) shows only there. To run
+it against your own engine, register the entry it prints, put its origin and the FHIR server's
+on `MENDARI_FHIR_ALLOWED_SERVERS`, and give the engine's `MENDARI_PUBLIC_URL` as `--audience`.
+Each run makes a new key, and an engine fetches a client's keys again at most once a minute, so
+a second run within the minute is refused (`cds_key`).
+
+In the compose sandbox, the profile `signin`'s service `cds-client` seeds the profile and runs
+the client against both engines, the open one (under `MENDARI_CDS_SANDBOX=1`) and the signed-in
+one (in organization `pilot`). Both register it at `http://cds-client:8300`. CI's `sandbox-e2e`
+runs it on every change:
+
+```bash
+docker compose --profile signin run --rm --use-aliases cds-client
+```
+
+**What the packs cannot read in these shapes yet.** Every hook answers, but the packs read
+little of this data so far. A note that is only a link is not fetched, so the trial and
+prior-authorization packs abstain for each patient with a note (`could not read notes:
+not_fetched`, an `info` card). A Condition is read by its first coding, and the referral by its
+category's, so for the patients whose site coding comes first a diagnosis reads as the site's
+code, and no referral is found: no decision, no card. The trial pack reads MedicationStatement,
+not MedicationRequest. The prior-authorization pack reads the payer as an identifier, not a
+reference. `tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture,
+not a rate. The next LP-23 steps teach the packs these shapes (linked notes and the payer in
+23h, a site's codes in 23i, the packs' mappings in 23k).
+
 ## Not built yet
 
 These come in the next LP-23 steps:
 
-- A hook that always answers: a record Mendari cannot read gives a recorded ABSTAIN with its
-  reason, and every FHIR decision says what was read.
 - Inferno's CRD kit calling Mendari as the CDS client in CI.
