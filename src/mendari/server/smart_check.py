@@ -15,7 +15,8 @@ It reports, in order:
    `offline_access`; with sign-in on, `openid fhirUser`);
 5. discovery: the EHR's `.well-known/smart-configuration`, its endpoints on the allow-list;
 6. scopes (SMART on): each scope the launch asks for among the EHR's `scopes_supported`, in
-   SMART v1 or v2 form (`patient/*.*` covers `patient/*.rs`, a type wildcard covers a type);
+   SMART v1 or v2 form (`patient/*.*` covers `patient/*.rs`, a type wildcard covers a type,
+   and scopes published apart count together);
 7. PKCE: `S256` among the methods the EHR names;
 8. the JWKS: the keys that verify the id_token, at least one usable (RS256 or ES384).
 
@@ -194,20 +195,25 @@ def _scopes(config: dict[str, Any], asked: str, say: Say) -> None:
 
 def _published(asked: str, published: list[str]) -> bool:
     """Whether a scope a launch asks for is among an EHR's published scopes: the same scope, or
-    a resource scope of the same context (patient/, user/, system/) for the same type or `*`,
-    whose permissions include every one it asks, SMART v1 or v2 either side (`patient/*.*`
-    covers `patient/*.rs`); a granular scope (`?param=`) also by the same without its query."""
+    the resource scopes of the same context (patient/, user/, system/) for the same type or `*`
+    whose permissions together include every one it asks, SMART v1 or v2 either side
+    (`patient/*.*`, or `patient/*.r` with `patient/*.s`, covers `patient/*.rs`); a granular
+    scope (`?param=`) also by the same without its query."""
     if asked in published:
         return True
     wanted = scopes.resource_scope(asked)
-    return wanted is not None and any(
-        offered is not None
-        and offered.context == wanted.context
-        and offered.type in ("*", wanted.type)
-        and wanted.letters <= offered.letters
-        and offered.query in ("", wanted.query)
-        for offered in map(scopes.resource_scope, published)
-    )
+    if wanted is None:
+        return False
+    offered: set[str] = set()
+    for found in map(scopes.resource_scope, published):
+        if (
+            found is not None
+            and found.context == wanted.context
+            and found.type in ("*", wanted.type)
+            and found.query in ("", wanted.query)
+        ):
+            offered |= found.letters
+    return wanted.letters <= offered
 
 
 def _pkce(config: dict[str, Any], say: Say) -> None:

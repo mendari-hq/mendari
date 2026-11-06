@@ -99,6 +99,38 @@ def test_the_confidence_thresholds_reason_is_known_as_theirs(inbox_pack: Pack) -
         assert result.reasons and not any(map(threshold_reason, result.reasons)), result.reasons
 
 
+def test_a_site_code_is_named_in_the_reasons_whatever_the_outcome(inbox_pack: Pack) -> None:
+    """The `site_code` cap (LP-23i) turns AUTO into HUMAN_REVIEW; a decision already going to a
+    person (below the auto threshold, below the review threshold, a rule's HUMAN_REVIEW) keeps
+    its outcome and recommendation, and its reasons name the translation too, once."""
+    translated = "site code translated (t1d, t2d): a person decides"
+    emergency = {
+        "destination": answer("destination", "billing", 0.99),
+        "urgency": answer("urgency", "urgent", 0.40),
+    }
+    cases = [
+        (routine("nurse", 0.95), Outcome.AUTO, Outcome.HUMAN_REVIEW),
+        (routine("nurse", 0.70), Outcome.HUMAN_REVIEW, Outcome.HUMAN_REVIEW),
+        (routine("nurse", 0.30), Outcome.ABSTAIN, Outcome.ABSTAIN),
+        (emergency, Outcome.HUMAN_REVIEW, Outcome.HUMAN_REVIEW),
+    ]
+    for answers, alone, through in cases:
+        plain = apply_policy(inbox_pack.manifest, answers, {}, None, SCREENED)
+        site = apply_policy(
+            inbox_pack.manifest, answers, {}, None, SCREENED, site_code=("t2d", "t1d", "t2d")
+        )
+        assert (plain.outcome, site.outcome) == (alone, through)
+        assert not any("site code" in reason for reason in plain.reasons)
+        assert site.reasons.count(translated) == 1, site.reasons
+        if alone is not Outcome.AUTO:
+            assert site.reasons == (*plain.reasons, translated)
+            assert (site.recommendation, site.priority, site.rule) == (
+                plain.recommendation,
+                plain.priority,
+                plain.rule,
+            )
+
+
 def test_missing_primary_answer_abstains(inbox_pack: Pack) -> None:
     answers = {"urgency": answer("urgency", "routine", 0.9)}
     result = apply_policy(inbox_pack.manifest, answers, {"destination": "rate_limited"})

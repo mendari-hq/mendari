@@ -325,9 +325,9 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
   supported. Register only an EHR whose sign-in you trust: its id_token is what names the
   clinician.
 - **The scopes check** (SMART on) compares each scope in `MENDARI_SMART_SCOPES` (or the
-  default) with the EHR's `scopes_supported`, in SMART v1 or v2 form: `patient/*.*` or
-  `patient/*.read` covers `patient/*.rs`, a type wildcard covers each type, and `patient/`,
-  `user/` and `system/` cover only their own. A scope the EHR does not publish is `fail`, the
+  default) with the EHR's `scopes_supported`, in SMART v1 or v2 form: `patient/*.*`,
+  `patient/*.read`, or `patient/*.r` and `patient/*.s` published apart, covers `patient/*.rs`, a
+  type wildcard covers each type, and `patient/`, `user/` and `system/` cover only their own. A scope the EHR does not publish is `fail`, the
   scope named. SMART App Launch 2.2.0 says that list need not be exhaustive, so an EHR may grant
   a scope it does not list: ask the EHR before changing your scopes. An EHR that publishes no
   list (or not a list of strings, or an empty one) gives `unknown`: nothing is assumed, it is
@@ -1109,6 +1109,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       card is chained on that decision as `card.feedback`, reported by `cds <id>`, and
       `mendari audit verify` passes after it; and a token signed with another
       key, or sent a second time, is refused with `401` and a `cds_<reason>` line in the log.
+      If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
+      <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
+      and the same with any other origin answers `403` with no `Access-Control-` header.
 - [ ] Only if an EHR calls Mendari or launches it: choose `MENDARI_FHIR_VALIDATION` (§8).
       Under `warn`, the default, input that is R4 JSON but breaks R4's other rules is decided
       with its issues recorded on the decision; under `enforce` it is blocked before any provider
@@ -1119,9 +1122,6 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       so on an EHR that sends notes as links, or as RTF, a pack that reads notes may abstain for
       most patients with one, each decision going to a person with an `info` card
       ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
-      If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
-      <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
-      and the same with any other origin answers `403` with no `Access-Control-` header.
 - [ ] Only if an EHR calls with its own tokens, or launches Mendari, or you export with Bulk
       FHIR: know what Mendari's own conformance runs prove and what they leave to you. Weekly,
       on synthetic data, Inferno's test kits play the other side against Mendari's engines

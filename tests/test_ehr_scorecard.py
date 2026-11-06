@@ -29,9 +29,15 @@ SCOPE = (
     f"rubric v1; {GRADED} (the close-out commit); synthetic data and test keys only, not a "
     "vendor certification"
 )
-# What a criterion not yet shown in CI says it waits on: a workflow that has not run on GitHub.
-NOT_RUN = re.compile(r"`([\w.-]+)` has not run on GitHub yet")
+# What a criterion not yet shown in CI says it waits on: a workflow, or some of its jobs, that has
+# not run on GitHub (`conformance.yml` job `crd-server` has not run on GitHub yet).
+NOT_RUN = re.compile(
+    r"`([\w.-]+)`(?: jobs? ((?:`[\w-]+`(?:, | and )?)+))? (?:has|have) not run on GitHub yet"
+)
 WORKFLOWS = ("sandbox-e2e", "fhir-conformance", "conformance.yml", "terminology.yml")
+# `conformance.yml` already runs on main (its `dtr-payer` job, weekly): only the jobs the LP-23
+# lane adds to it have not run there.
+NEW_JOBS = {"conformance.yml": {"crd-server", "smart-client", "bulk-client"}}
 DIMENSIONS = (
     "Client trust",
     "Who may call from where",
@@ -219,7 +225,9 @@ def test_a_row_waiting_on_a_ci_run_is_not_met_after() -> None:
     """A criterion whose last column says a workflow has not run on GitHub yet is not met after,
     and names the workflow (a job of ci.yml, which the lane's pull request runs, or a scheduled
     workflow, which runs on main after the lane merges): the after grade counts no CI run that
-    has not happened. Each rests on its LP-23 step's work, named first."""
+    has not happened. A scheduled workflow that already runs on main (`conformance.yml`) is
+    named by the lane's new jobs in it, never as a whole. Each rests on its LP-23 step's work,
+    named first."""
     waiting = 0
     for body in sections().values():
         for row in criteria(body):
@@ -228,7 +236,13 @@ def test_a_row_waiting_on_a_ci_run_is_not_met_after() -> None:
                 continue
             waiting += 1
             assert row.status != "met", row.id
-            assert set(named) <= set(WORKFLOWS), (row.id, named)
+            for workflow, jobs in named:
+                assert workflow in WORKFLOWS, (row.id, workflow)
+                listed = set(re.findall(r"`([\w-]+)`", jobs))
+                if workflow in NEW_JOBS:
+                    assert listed and listed <= NEW_JOBS[workflow], (row.id, workflow, jobs)
+                else:
+                    assert not listed, (row.id, workflow, jobs)
             assert re.match(r"23[e-l]: ", row.waits_on), row.id
     assert waiting >= 8
 

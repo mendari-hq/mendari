@@ -407,6 +407,9 @@ not MedicationRequest. The prior-authorization pack reads the payer as an identi
 reference. `tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture,
 not a rate. The engine can read these shapes for a pack on spec 0.3 ([linked data](#linked-data),
 [site codes](#site-codes)); the shipped packs' mappings adopt them in a later LP-23 step (23k).
+The payer is still open: on spec 0.3 a linked read reaches the Organization's identifier, the
+site's own payer id, which no site code map translates (a map translates codings only), and how
+a payer field reads it is an owner's question for 23k.
 
 ## Site codes
 
@@ -475,10 +478,13 @@ What a decision does with it:
 - **A decision whose input took a value through a translation never automates.** AUTO becomes
   `HUMAN_REVIEW`, with the reason `site code translated (<code set>): a person decides`. A
   pack rule's BLOCK, which is final at once, becomes `HUMAN_REVIEW` too, with the reason `site
-  code translated (<code set>): a person decides instead of its rule's BLOCK`. Nothing in a
-  pack or a setting lifts this, a governance approval included. It stays until the site's map
-  is validated (launch gate G5-6, `site-validation`), and lifting it then is the owner's
-  decision.
+  code translated (<code set>): a person decides instead of its rule's BLOCK`. A decision its
+  policy already sends to a person (`HUMAN_REVIEW`, or `ABSTAIN`: a confidence below the review
+  threshold, no answer) keeps its outcome, with the first reason added; one that abstains
+  because part of the record could not be read asks no provider, and its reasons name only
+  what was not read. Nothing in a pack or a setting lifts this, a governance approval included.
+  It stays until the site's map is validated (launch gate G5-6, `site-validation`), and
+  lifting it then is the owner's decision.
 
 A map is configuration, not part of a pack: no pack file or digest changes. A site's own SNOMED
 CT codes may go in its map under its own licence; Mendari ships none. No shipped pack declares
@@ -535,9 +541,10 @@ to a pilot:
   vendor's sandbox patients without a failed hook, and that `mendari smart check` passes against
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
-- **Notes the packs may not read.** Every reference pack abstains on a note that is only a link
-  until its mapping moves to spec 0.3, and a pack on spec 0.3 reads a note as text only when it
-  is text/plain or text/html: an RTF, PDF or CDA note abstains (`unsupported_type`). On an EHR
+- **Notes the packs may not read.** The reference packs that read notes (the trial and
+  prior-authorization packs) abstain on a note that is only a link until their mappings move
+  to spec 0.3, and a pack on spec 0.3 reads a note as text only when it is text/plain or
+  text/html: an RTF, PDF or CDA note abstains (`unsupported_type`). On an EHR
   that sends notes that way, the packs that read notes may abstain for most patients with one,
   each decision going to a person with an `info` card. Read the decisions' data-coverage records
   (the audit view's "What it read") in the first days.

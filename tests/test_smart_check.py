@@ -361,6 +361,18 @@ def test_unpublished_scopes_are_unknown_not_passed(
         ("patient/*.rs", ["patient/*.r"], False),
         ("patient/*.cruds", ["patient/*.read"], False),
         ("patient/Observation.write", ["patient/Observation.rs"], False),
+        # A scope's permissions published as separate scopes count together.
+        ("patient/*.rs", ["patient/*.r", "patient/*.s"], True),
+        ("patient/*.*", ["patient/*.read", "patient/*.write"], True),
+        ("patient/Observation.rs", ["patient/*.r", "patient/Observation.s"], True),
+        ("patient/*.rs", ["patient/*.r", "user/*.s"], False),
+        ("patient/*.rs", ["patient/*.r", "patient/Observation.s"], False),
+        ("patient/*.*", ["patient/*.read", "patient/*.cud?category=laboratory"], False),
+        (
+            "patient/Observation.rs?category=laboratory",
+            ["patient/Observation.r", "patient/Observation.s?category=laboratory"],
+            True,
+        ),
         # A type wildcard covers each type, never the other way.
         ("patient/Observation.rs", ["patient/*.rs"], True),
         ("patient/Observation.read", ["patient/*.*"], True),

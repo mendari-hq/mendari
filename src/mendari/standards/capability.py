@@ -57,7 +57,9 @@ NOT_A_DATA_SERVER = (
     "/cds-services (with each service's card feedback, and an EHR's own signed token once the "
     "EHR is registered), the whole audit trail as FHIR NDJSON at /api/audit/export/fhir, and a "
     "SMART on FHIR app launch at /smart/launch. It reads an EHR's FHIR server only when that "
-    "server is on the deployment's allow-list, and serves nothing it reads."
+    "server is on the deployment's allow-list. It serves none of the FHIR resources it reads: "
+    "what a decision read is kept as that decision's input, shown only to its organization's "
+    "readers (outside PHI mode off, only to those who may read inputs, each read chained)."
 )
 SEARCH_RULES = (
     f"Search: GET [type] or POST [type]/_search with a form body. _count is {DEFAULT_COUNT} by "

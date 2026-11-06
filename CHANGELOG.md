@@ -270,7 +270,7 @@ The first release (not yet published).
   prior-authorization packs abstain on a linked note, a site coding read first hides a diagnosis or
   a referral, the trial pack reads no MedicationRequest and the prior-authorization pack no payer
   reference. `tests/test_ehr_profile.py` pins each with why, as a regression fixture from which no
-  rate is computed; LP-23h, 23i and 23k take entries off it. See
+  rate is computed; LP-23k takes entries off it when the shipped packs move to spec 0.3. See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client).
 - **A site code map per organization, versioned, hashed into each decision and never automated
   (LP-23i; off until set, and no shipped pack declares a code set, so nothing changes how a pack
@@ -295,7 +295,8 @@ The first release (not yet published).
   `/api/health` shows the caller's organization's map. A new policy cap, `site_code`: a decision
   whose input took a value through a translation goes from AUTO to HUMAN_REVIEW, its reason
   `site code translated (<code set>): a person decides`, and so does a pack rule's BLOCK on it
-  (`... a person decides instead of its rule's BLOCK`), and nothing lifts it, a governance
+  (`... a person decides instead of its rule's BLOCK`); a decision its policy already sends to
+  a person keeps its outcome, with the reason added; and nothing lifts it, a governance
   approval included, until the site validates its map (G5-6 `site-validation`). What a linked
   read (LP-23h) fetched is read with the same map; a map translates codings only, so a payer's
   identifier is never translated. The reference packs were rebuilt for the policy change: their
@@ -345,8 +346,8 @@ The first release (not yet published).
   on a pull request and not required; only the synthetic files' codes reach tx.fhir.org.
   `mendari smart check`, with SMART on, now compares each scope a launch asks for
   (`MENDARI_SMART_SCOPES`) with the EHR's `scopes_supported`, in SMART v1 or v2 form
-  (`patient/*.*` covers `patient/*.rs`, a type wildcard covers each type, each of `patient/`,
-  `user/` and `system/` only its own): a scope the EHR does not publish is `fail`, named, and
+  (`patient/*.*`, or `patient/*.r` with `patient/*.s`, covers `patient/*.rs`, a type wildcard
+  covers each type, each of `patient/`, `user/` and `system/` only its own): a scope the EHR does not publish is `fail`, named, and
   an EHR that publishes no list is the new status `unknown`, never `ok`, which leaves the exit
   code as it is (1 on `fail` only). SMART 2.2.0 says the list need not be exhaustive, so the
   detail says an EHR may grant a scope it does not list. smart-launcher-v2's published list
@@ -375,8 +376,9 @@ The first release (not yet published).
   to 2, the others as they were, and level 1 overall before and after (failure behaviour, under
   the default `MENDARI_FHIR_VALIDATION=warn`). A row whose evidence is a CI run that has not
   happened yet is not met: the new `sandbox-e2e` and `fhir-conformance` steps until the lane's
-  pull request runs them, `conformance.yml` and `terminology.yml` until their first runs on
-  main. The threat model keeps five residual risks: trust in the EHR's key and its rotation (a
+  pull request runs them, `conformance.yml`'s new jobs (`crd-server`, `smart-client`,
+  `bulk-client`; its `dtr-payer` job already runs weekly on main) and `terminology.yml` until
+  their first runs on main. The threat model keeps five residual risks: trust in the EHR's key and its rotation (a
   key the EHR retires still verifies for up to an hour on an instance that kept it), a
   compromised `jku` host, the decision id the EHR keeps beside its patient, a misconfigured site
   map, and frequent abstention on records whose notes Mendari cannot read. The FHIR

@@ -8,8 +8,8 @@ Each pack decides on them through its own hook, as the sandbox's signed client c
 (`cds_client.hook_request`: no prefetch, the FHIR server named), here in this process: a FHIR
 server built from the profile (`profile_server`) answers the engine's reads. What each pack
 cannot read in these shapes yet is pinned (`ABSTAINS`, `NOT_DECIDED`, `MISSED`), each with why:
-a regression fixture, from which no rate is computed or shown. LP-23h, 23i and 23k each take
-entries off it."""
+a regression fixture, from which no rate is computed or shown. LP-23k takes entries off it when
+the shipped packs move to spec 0.3."""
 
 from __future__ import annotations
 
@@ -79,7 +79,9 @@ MEDICATION_REQUEST = (
 )
 PAYER_REFERENCE = (
     "the payer is read as Coverage.payor's identifier, and the EHR sends a reference to an "
-    "Organization holding the site's identifier: LP-23h follows it, LP-23i maps the site's id"
+    "Organization: on spec 0.3, LP-23h follows it to the Organization's identifier, the site's "
+    "payer id, which no site code map translates (codings only); how a payer field reads it is "
+    "LP-23k's open owner question"
 )
 REFERRAL_CATEGORY = (
     "a referral is found by its category's first coding, here the site's order type, so no order "
@@ -282,7 +284,7 @@ def test_what_each_pack_cannot_read_yet_is_pinned(
     """Per pack, the patients it abstains on (with the decision's reasons), those it makes no
     decision for, and each part of its input it reads otherwise than from the same cases' own US
     Core records, each with why. A step that teaches a pack to read a shape takes its entries off
-    (LP-23h, 23i, 23k); a shape that stops being read fails here."""
+    (LP-23k, when the shipped packs move to spec 0.3); a shape that stops being read fails here."""
     called, _ = call_every_hook(tmp_path, monkeypatch)
     abstains: dict[str, dict[str, tuple[str, ...]]] = {
         spec.pack_id: {} for spec in ehr_profile.PACKS

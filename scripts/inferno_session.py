@@ -29,7 +29,7 @@ here for the run, an EC P-384 key: its public half is the client's registration 
 never a file or a command line, and dies with the run.
 
     uv run python scripts/inferno_session.py crd_server_v221 \\
-      --inputs var/inferno/crd_server_v221_inputs.json --groups 1 2 3.4 3.7 4 \\
+      --inputs var/inferno/crd_server_v221_inputs.json --groups 1 2 3.4 4 \\
       --out var/inferno/crd_server_v221_results.json --tests var/inferno/crd_server_v221_tests.json
 """
 

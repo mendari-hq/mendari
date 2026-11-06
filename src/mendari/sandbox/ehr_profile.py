@@ -35,8 +35,8 @@ the case's do), then reshaped:
 - No SNOMED CT anywhere: the codes are ICD-10-CM, LOINC, RxNorm, ICD-10-PCS (the payer codes
   the prior-authorization orders carry) and fictional systems named as such.
 
-What each pack cannot read in these shapes yet is pinned in tests/test_ehr_profile.py; LP-23h,
-23i and 23k each take entries off it.
+What each pack cannot read in these shapes yet is pinned in tests/test_ehr_profile.py; LP-23k
+takes entries off it when the shipped packs move to spec 0.3.
 """
 
 from __future__ import annotations

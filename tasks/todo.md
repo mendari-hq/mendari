@@ -893,7 +893,7 @@ Connect) is not supported yet.
     referral router makes no decision for ehr-ref-1, 3 and 5. `tests/test_ehr_profile.py` pins what
     each pack cannot read yet (abstains on a linked note; no referral found, or a diagnosis read as
     the site's code, when the site's coding comes first; no MedicationRequest; no payer reference),
-    each with why, for 23h, 23i and 23k to take entries off.
+    each with why; 23k takes entries off it when the shipped packs move to spec 0.3.
   - [x] **23f** (#270) Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
     `cds_hooks.card`: the card's `uuid` is the decision id and its suggestion's
     `uuid5(UUID(id), "suggestion")` (`suggestion_id`); `selectionBehavior: at-most-one`; three
@@ -1080,7 +1080,8 @@ Connect) is not supported yet.
     must-support elements need data no pack has); the scripted image has no `list_tests.rb` (the
     driver lists a run's tests from its session, with the suite's options and nested groups);
     Inferno's registration is the scripted engine's only CDS client (the root compose's 23e list
-    is untouched). Not yet run on GitHub: the first green `conformance.yml` run is 23m's record.
+    is untouched). Not yet run on GitHub: `conformance.yml` runs weekly on main (its `dtr-payer`
+    job), and the first green run of its new jobs there is 23m's record.
     **Part 2 built** (the validator with a terminology server on a schedule, and the scope check):
     `scripts/fhir_validate.py --tx URL` (in place of `-tx n/a`, still the default; refused with
     `--offline`; the run's own package cache from the lock and the "put an unlocked package in its
@@ -1268,8 +1269,10 @@ Connect) is not supported yet.
     (the scorecard's FB-2d).
   - [ ] Owner (decisions 1 and 2): once a pilot is signed, set `MENDARI_CDS_CLIENTS` (and any
     `MENDARI_SITE_CODES`) for Production only.
-  - [ ] Owner (decision 10): after four consecutive green weekly `conformance.yml` runs on main,
-    make its jobs required (a ruleset change).
+  - [ ] Owner (decision 10): after four consecutive green weekly `conformance.yml` runs on main
+    that include its new jobs (`crd-server`, `smart-client`, `bulk-client`), make its jobs
+    required (a ruleset change). Its three green `dtr-payer`-only runs on main so far
+    (2026-10-20, 2026-10-27, 2026-11-03) do not count toward the four.
   - [ ] Owner: answer the lane's three questions: a request-wide read and byte budget for
     linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k), and
     whether a scope the EHR does not publish is `fail` or `warn` (23l).
