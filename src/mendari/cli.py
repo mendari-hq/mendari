@@ -508,6 +508,12 @@ def cmd_scoreboard_sign(args: argparse.Namespace) -> int:
         f"with {signer}, public key {public_text(key.public_key())}: list it once in "
         f"{signing.KEYS_PATH} with the dates it is valid for"
     )
+    # The page marks each unsigned result and counts the signed ones: written before the
+    # signatures, its check (CI's `reference-pack` job) fails.
+    print(
+        "then: uv run python scripts/scoreboard_page.py (the page), and commit both with the keys "
+        "file"
+    )
     return 0
 
 

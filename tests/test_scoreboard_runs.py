@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import json
+import re
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -515,6 +516,48 @@ def test_a_run_refuses_to_start_in_ci(
         assert "--replicates" not in text and "scoreboard canary" not in text, workflow.name
 
 
+def test_a_run_whose_provider_is_not_set_up_is_refused_before_it_starts(
+    store: Store,
+    inbox: Pack,
+    replicated: results_store.Held,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Without its provider's settings every case would fail and go to a person, and the result
+    stored, of those failures, would supersede a good one (the runbook's step 8, run without
+    `MENDARI_CQL_URL`, stored 0 of 300 over 298 of 300). The run, and a canary, are refused
+    before anything runs, naming the setting, and nothing is stored."""
+    trial = results_store.maintained_pack("mendari/clinical-trial-prescreener")
+    cql = results_store.configuration_of(trial, ["structured=cql"])
+    declare(store, trial, arms.DETERMINISTIC, cql.providers)
+    commit(store)
+    monkeypatch.delenv("MENDARI_CQL_URL", raising=False)
+    unset = (
+        "notes=rules,structured=cql: structured=cql cannot run on this machine, so every case "
+        "would fail: not_configured: set MENDARI_CQL_URL"
+    )
+    with pytest.raises(MendariError, match=re.escape(unset)):
+        results_store.record_run(store, trial, "test", cql, date=DATE, replicates=3, again=True)
+    argv = ["scoreboard", "run", trial.id, "--config", "structured=cql", "--replicates", "3"]
+    assert main([*argv, "--again", "--store", str(store.root)]) == 1
+    assert capsys.readouterr().err.startswith(f"error: {unset}")
+    before = sorted(store.files("results"))
+    # Jev without its endpoint: neither the run nor a canary makes a call.
+    calls = fake_jev(monkeypatch)
+    monkeypatch.delenv("JEV_API_URL")
+    table = prices(tmp_path).read_bytes()
+    no_endpoint = "router=jev cannot run on this machine, so every case would fail: "
+    with pytest.raises(MendariError, match=f"{no_endpoint}not_configured: set JEV_API_URL"):
+        results_store.record_run(
+            store, inbox, "test", jev(inbox), date=DATE, replicates=3, prices=table, again=True
+        )
+    with pytest.raises(MendariError, match=f"{no_endpoint}not_configured: set JEV_API_URL"):
+        results_store.run_canary(store, inbox, jev(inbox), size=30, seed=3, date=DATE)
+    assert calls == [] and store.canaries() == {}
+    assert sorted(store.files("results")) == before == [f"{replicated.name}.json"]
+
+
 @pytest.fixture(scope="module")
 def test_replicates(inbox: Pack) -> results_store.Measured:
     """Three replicates of the inbox's Jev router on its `test` set (600 cases), which agree on
@@ -987,11 +1030,13 @@ def test_a_model_calling_configuration_needs_its_price_table(
     assert main([*argv, "--every-local", "--prices", str(table)]) == 1
     assert "is local: it calls no model" in capsys.readouterr().err
     assert calls == [] and not (store.root / "results").exists()
-    # CQL calls Mendari's own engine and no model: declared, it needs no table.
+    # CQL calls Mendari's own engine and no model: declared, with its engine set, it needs no
+    # table.
     trial = results_store.maintained_pack("mendari/clinical-trial-prescreener")
     cql = results_store.configuration_of(trial, ["structured=cql"])
     declare(store, trial, arms.DETERMINISTIC, cql.providers)
     commit(store)
+    monkeypatch.setenv("MENDARI_CQL_URL", "http://127.0.0.1:8080/fhir")
     declared = results_store.refuse_unrunnable(store, trial, "test", cql, replicates=3)
     assert declared == store.declaration(trial.id).sha256  # type: ignore[union-attr]
 
@@ -1119,17 +1164,22 @@ def test_canary_drift_marks_its_arms_remote_results_up_to_its_day(
     committed = [
         found.result
         for found in results_store.heads(Store.at(ROOT / "scoreboard").results()).values()
-        if found.pack_id == trial.id
+        if found.pack_id == trial.id and not found.is_hidden
     ]
+    # Dated the day after the latest of them, whenever they were measured (the runbook's step 8
+    # measures them again).
+    latest = max(result["scope"]["measured_on"] for result in committed)
     cql_drift = {
         "format": scoreboard.CANARY_FORMAT,
         "pack": {"id": trial.id},
         "arm": arms.DETERMINISTIC,
         "configuration": {"providers": {"notes": "rules", "structured": "cql"}},
-        "measured_on": "2026-11-06",
+        "measured_on": (
+            datetime.date.fromisoformat(latest) + datetime.timedelta(days=1)
+        ).isoformat(),
         "models": {},
         "drift": True,
-        "against": {"measured_on": "2026-11-05"},
+        "against": {"measured_on": latest},
     }
     shown = scoreboard.board(committed, {trial.id: scoreboard.Current.of(trial)}, [cql_drift])
     marked = {

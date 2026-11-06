@@ -629,7 +629,8 @@ The first release (not yet published).
   which now refuse to equal it too); a malformed or reused one stops the command, naming the
   variable, never the value. `mendari scoreboard sign FILE ...` is the key holder's: it refuses
   in CI (`CI` or `GITHUB_ACTIONS` set) and without the key, checks every file before writing
-  any, and adds the signature in place, leaving the body and its SHA-256 as they were.
+  any, and adds the signature in place, leaving the body and its SHA-256 as they were; it writes
+  no page, and says to write the page again, which marks each unsigned result.
   `mendari scoreboard verify FILE ... [--keys FILE | --public-key B64]` needs no secret and
   writes nothing: it refuses another format, a body that is not canonical JSON (a key twice,
   NaN or an infinity), a method hash that is not its version's, a key not in
@@ -736,10 +737,13 @@ The first release (not yet published).
   and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
   to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local
   configuration runs one), needs `--prices FILE` when the configuration calls a model (and
-  refuses one whose date another stored table holds, before any call), and runs
-  only the configuration a pack's declaration (`scoreboard/declared/<pack name>.json`,
-  `mendari.declared/1`: per arm one remote configuration, and one local one for hidden sets)
-  names for its arm, committed before the run. Replicate 1 is the headline. An entry of
+  refuses one whose date another stored table holds, before any call), refuses, before any
+  call, a provider this machine has not set up (its preflight: the CQL engine's URL, Jev's
+  endpoint and model, an LLM's model), which would fail every case and store a result of those
+  failures over a good one, and runs only the configuration a pack's declaration
+  (`scoreboard/declared/<pack name>.json`, `mendari.declared/1`: per arm one remote
+  configuration, and one local one for hidden sets) names for its arm, committed before the
+  run. Replicate 1 is the headline. An entry of
   replicates cites the declaration's SHA-256 (`inputs.declared`) and every replicate's ledger
   and run record (`inputs.replicates`), and `figures.replicates` holds the case flip rate (k of
   n cases whose primary prediction or outcome differs between any two replicates, matched by

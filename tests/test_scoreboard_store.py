@@ -274,17 +274,23 @@ def test_a_superseded_result_keeps_the_signature_it_had(store: Store, inbox: Pac
 def test_each_committed_result_is_what_its_inputs_give() -> None:
     """The repository's store: every result recomputes from its inputs, byte for byte, and each
     local ledger on its pack's current digest re-runs to the same bytes (or the result is kept,
-    saying why: its pack, set or method changed since)."""
+    saying why: its pack, set or method changed since). A hidden set's answer, which the owner
+    adds at the runbook's step 9, is kept as it is: no ledger of it is kept."""
     store = Store.at(ROOT / "scoreboard")
     base = files(store)
     found = results_store.check(store, base=base)
     assert found.problems == []
     assert found.results == len(base) >= 18
-    not_recomputed = [line for line in found.kept if "not recomputed" in line]
+    not_recomputed = [
+        line
+        for line in found.kept
+        if "not recomputed" in line or line.endswith(results_store.HIDDEN_KEPT)
+    ]
     assert found.recomputed + len(not_recomputed) == found.results
     assert found.rerun + len(found.kept) >= found.results
     for held in store.results().values():
-        assert held.result["scope"]["set"]["kind"] == "public"
+        kind = "hidden" if held.is_hidden else "public"
+        assert held.result["scope"]["set"]["kind"] == kind
         assert "signature" in held.result or results_store.name_of(held.result) == held.name
 
 

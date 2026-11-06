@@ -9,7 +9,8 @@ the commands docs/operations/scoreboard.md writes) and the hidden-set grading ro
    which the store's check recomputes byte for byte, re-running its ledger;
 3. `mendari scoreboard sign`, with a grading key made here and thrown away, on the key holder's
    machine (not CI): signed in place, its name unchanged, the key never printed; its public key
-   listed in `scoreboard/keys.json`;
+   listed in `scoreboard/keys.json`; the page, which says which results are signed, no longer
+   the one written before the signature;
 4. `mendari scoreboard verify`: it verifies with the public key alone, and the store's check
    takes the change against the unsigned base (a valid signature added, nothing else);
 5. tampering: one figure changed after signing fails `verify` and the store's check;
@@ -40,10 +41,11 @@ from mendari import Pack
 from mendari.cli import main
 from mendari.core import clock
 from mendari.core.checkpoint import key_id, public_text
-from mendari.evals import hidden, method, results_store, signing
+from mendari.evals import hidden, method, results_store, scoreboard, signing
 from tests.conftest import ROOT
 from tests.test_evalset_grading import deployment, started
 from tests.test_evalset_scoreboard import DAY, DECLARATION, DECLARED, answered, scored_set
+from tests.test_scoreboard_page import page_script
 from tests.test_scoreboard_signing import keys_file, seed_of
 
 INBOX = "mendari/patient-inbox-router"
@@ -155,13 +157,22 @@ def test_a_local_run_to_a_signed_verified_result(
     # 3. Signed in place with a throwaway key; its public half listed in the keys file.
     key = Ed25519PrivateKey.generate()
     signer, public = key_id(key.public_key()), public_text(key.public_key())
+    unsigned_page = page_script.page(store)
     assert signed_here(key, stored, monkeypatch) == 0
     said = capsys.readouterr().out
     assert said.splitlines() == [
         f"signed {stored} (body {signing.body_sha256(entry)})",
         f"with {signer}, public key {public}: list it once in {signing.KEYS_PATH} with the dates "
         "it is valid for",
+        "then: uv run python scripts/scoreboard_page.py (the page), and commit both with the keys "
+        "file",
     ]
+    # `sign` writes no page, and the page says which results are signed: one written before the
+    # signature is no longer the store's, so it is written again after (the runbook's step 10).
+    signed_page = page_script.page(store)
+    assert signed_page != unsigned_page
+    assert "0 signed. " in unsigned_page and f"| Marks | {scoreboard.UNSIGNED}; " in unsigned_page
+    assert "1 signed. " in signed_page and f"| Marks | {scoreboard.UNSIGNED}; " not in signed_page
     assert seed_of(key) not in said
     signed = json.loads(Path(stored).read_text(encoding="utf-8"))
     assert {k: v for k, v in signed.items() if k != "signature"} == entry

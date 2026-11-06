@@ -111,7 +111,8 @@ def test_all_five_packs_appear_on_every_public_scoring_set(text: str) -> None:
         assert f"| Accuracy | {scoreboard.DISCLOSURE_PENDING} | " in body
         assert f"| Case flip rate | {scoreboard.DISCLOSURE_PENDING} | none: one replicate |" in body
     store = Store.at(ROOT / "scoreboard")
-    heads = results_store.heads(store.results())
+    public = {name: found for name, found in store.results().items() if not found.is_hidden}
+    heads = results_store.heads(public)
     assert len(heads) == 21
     remote = [found for found in heads.values() if not found.local]
     assert sorted(found.set_name for found in remote) == sorted(
@@ -160,12 +161,40 @@ def test_the_page_has_no_bare_percentage_rank_or_ranked(text: str) -> None:
 
 
 def test_unsigned_and_draft_are_said_on_the_page(text: str) -> None:
+    """Each current result's marks open with "unsigned" while it has no signature, then the
+    method's draft mark while it was not in effect on the day measured, and end with the day it
+    goes stale; each superseded result is listed with the one that superseded it. All of it is
+    worked out from the store, so it holds as the owner re-measures and signs the results (the
+    runbook's steps 8 and 10)."""
+    public = {
+        name: found
+        for name, found in Store.at(ROOT / "scoreboard").results().items()
+        if not found.is_hidden
+    }
+    current = results_store.heads(public)
     rows = re.findall(r"^\| Marks \| (.+) \|$", text, flags=re.M)
     cells = [cell.strip() for row in rows for cell in row.split(" | ")]
-    assert (len(rows), len(cells)) == (15, 21)
+    assert (len(rows), len(cells)) == (15, len(current))
+
+    def opening(unsigned: bool, draft: bool) -> list[str]:
+        return [scoreboard.UNSIGNED] * unsigned + [scoreboard.DRAFT] * draft
+
+    said = []
     for cell in cells:
-        assert cell.startswith(f"{scoreboard.UNSIGNED}; {scoreboard.DRAFT}; "), cell
-        assert re.search(r"stale after \d{4}-\d{2}-\d{2}$", cell), cell
+        marks = cell.split("; ")
+        unsigned, draft = scoreboard.UNSIGNED in marks, scoreboard.DRAFT in marks
+        assert marks[: unsigned + draft] == opening(unsigned, draft), cell
+        assert re.fullmatch(r"stale after \d{4}-\d{2}-\d{2}", marks[-1]), cell
+        said.append((unsigned, draft))
+    held = [
+        ("signature" not in found.result, not found.result["scope"]["method"]["in_effect"])
+        for found in current.values()
+    ]
+    assert sorted(said) == sorted(held)
     assert '"unsigned" until the owner signs it' in text
     assert f'**"{scoreboard.DRAFT}":**' in text
-    assert "None yet: no stored result has been superseded." in text
+    later = results_store.superseded(public)
+    if not later:
+        assert "None yet: no stored result has been superseded." in text
+    for name, by in later.items():
+        assert f"| `{name[:16]}` | `{by[:16]}` |" in text

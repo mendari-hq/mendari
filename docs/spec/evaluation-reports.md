@@ -632,7 +632,9 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   set, without `--replicates 3` to `5` (a local one runs 1), unless the pack's declaration names
   it for its arm and is committed as it is, and, when it calls a model, without `--prices FILE`
   (stored under `prices/` when a result is priced from it), all before any call; so is a table
-  whose date another stored table holds. Every replicate's ledger and run record is stored. `mendari
+  whose date another stored table holds, and a provider this machine has not set up (its
+  preflight: the CQL engine's URL, Jev's endpoint and model, an LLM's model), which would fail
+  every case. Every replicate's ledger and run record is stored. `mendari
   scoreboard canary PACK --config ... --size 30 --seed S` runs a canary the same way, by hand, with
   no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
   `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.

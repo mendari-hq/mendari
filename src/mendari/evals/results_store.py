@@ -79,12 +79,12 @@ from mendari.core.pack import Pack
 from mendari.core.reference import bundled_dir
 from mendari.core.registry import SearchPath, discover
 from mendari.core.spec import is_pack_id, version_key
-from mendari.errors import MendariError, PackNotFoundError
+from mendari.errors import MendariError, PackNotFoundError, ProviderError
 from mendari.evals import arms, hidden, method, runs, scoreboard, signing
 from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems, resolve_dataset
 from mendari.evals.ledger import Ledger, canonical, case_hash
-from mendari.providers import MODEL_TYPES
+from mendari.providers import MODEL_TYPES, build_provider
 
 ROOT = "scoreboard"  # from the repository's root
 RESULTS, LEDGERS, RUNS, PRICES = "results", "ledgers", "runs", "prices"
@@ -809,6 +809,24 @@ def declared_for(store: Store, pack: Pack, configuration: arms.Configuration) ->
     return found.sha256
 
 
+def refuse_unconfigured(pack: Pack, configuration: arms.Configuration) -> None:
+    """A remote configuration whose providers this machine has not set up is refused before
+    anything runs: each provider it calls is preflighted (`Provider.preflight`, as a decision
+    preflights it: the CQL engine's URL, Jev's model and endpoint, an LLM's model). Run without
+    them, every case would fail and go to a person, and the result stored, of those failures,
+    would supersede a good one."""
+    for slot, variant in configuration.providers.items():
+        for leaf in build_provider(pack, slot, variant).leaves():
+            try:
+                leaf.preflight()
+            except ProviderError as error:
+                raise MendariError(
+                    f"{written(configuration.providers)}: {slot}={variant} cannot run on this "
+                    f"machine, so every case would fail: {error}; set its provider up before "
+                    "the run (docs/operations/scoreboard.md, step 8)"
+                ) from None
+
+
 def _metered(configuration: arms.Configuration) -> bool:
     """Whether the configuration calls a model type, whose tokens a price table prices."""
     return bool(MODEL_TYPES.intersection(configuration.remote_types))
@@ -960,7 +978,8 @@ def refuse_unrunnable(
     price table (`--prices`), so that its cost is priced from a dated table, never unknown for
     want of one. A configuration that calls no model (CQL) needs none: nothing is priced. A
     table the store could not keep (another table of its date is stored) is refused here, before
-    any call, not after every replicate has run (`Store.storable_prices`)."""
+    any call, not after every replicate has run (`Store.storable_prices`); and so is a provider
+    this machine has not set up (`refuse_unconfigured`)."""
     refuse_unmeasurable(pack, set_name, configuration, replicates=replicates)
     if configuration.local:
         if prices is not None:
@@ -977,6 +996,7 @@ def refuse_unrunnable(
         )
     if prices is not None:
         store.storable_prices(prices, where="--prices")
+    refuse_unconfigured(pack, configuration)
     return declared
 
 
@@ -1058,8 +1078,10 @@ def run_canary(
     """A canary (the method's section 12): a seeded draw of `size` cases from `pack`'s `test`
     set, decided once by `configuration`, by hand and never in CI, and compared with replicate 1
     of its current result there, which must hold replicates and be on the pack's current digest
-    and set. Its ledger, run record and canary (`mendari.canary/1`) are stored; gives the
-    canary's name and the canary. No schedule runs it."""
+    and set, with its providers set up on this machine (`refuse_unconfigured`: a canary of
+    failures would show drift, and canaries are never removed). Its ledger, run record and canary
+    (`mendari.canary/1`) are stored; gives the canary's name and the canary. No schedule runs
+    it."""
     refuse_in_ci("a canary")
     shown = written(configuration.providers)
     if pack.origin != MAINTAINED:
@@ -1084,6 +1106,7 @@ def run_canary(
         raise MendariError(
             f"{RESULTS}/{current}.json is of another digest or set: run its replicates again first"
         )
+    refuse_unconfigured(pack, configuration)
     hashes = [case_hash(dataset.case_key, record["id"]) for record in dataset.records]
     drawn = replace(dataset, records=[dataset.records[at] for at in runs.draw(hashes, size, seed)])
     decision, results, ledger = _decided(pack, drawn, configuration)

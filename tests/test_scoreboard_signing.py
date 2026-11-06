@@ -730,6 +730,8 @@ def test_the_command_line_signs_in_place_and_verifies(
         f"signed {second} (body {signing.body_sha256(result(arm='llm'))})",
         f"with {signer}, public key {public}: list it once in scoreboard/keys.json with the "
         "dates it is valid for",
+        "then: uv run python scripts/scoreboard_page.py (the page), and commit both with the keys "
+        "file",
     ]
     assert seed_of(key_holder) not in out
     assert first.read_text(encoding="utf-8") == signing.dump(signing.sign(result(), key_holder))

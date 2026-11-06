@@ -807,11 +807,13 @@ def test_no_grade_is_final_before_the_method_is_in_effect(
 ) -> None:
     """While the grading method has no effective date, the scope says it is not in effect and
     every attestation and the grade's method are draft; with an effective date on or before the
-    day measured (a test's own), none is."""
+    day measured (a test's own), none is. Both states are the test's own, so it holds once the
+    owner sets the repository's date (the runbook's step 4)."""
     set_id = scored_set(world, urgent=2, routine=2)
     grader = world.grader()
+    monkeypatch.setattr(method, "EFFECTIVE", None)
     shown = answered(world, set_id, grader)
-    assert method.EFFECTIVE is None and shown["scope"]["method"]["in_effect"] is False
+    assert shown["scope"]["method"]["in_effect"] is False
     attested = graded_arm(shown)["grade"]
     assert attested["method"]["in_effect"] is False
     assert all(item["draft"] for item in attested["attestations"])
@@ -1015,7 +1017,16 @@ def test_the_store_holds_a_hidden_answer_as_it_was_answered(
     drafted["scope"]["method"]["sha256"] = "0" * 64
     drafted["body_sha256"] = hidden.scoreboard_body_sha256(drafted)
     refused(drafted, "under the current method")
-    entry = json.loads(next(iter((ROOT / "scoreboard" / "results").glob("*.json"))).read_text())
+    # A public set's entry of the repository's store, which holds hidden sets' answers too once
+    # the owner grades them (the runbook's step 9).
+    entry = next(
+        found
+        for found in (
+            json.loads(path.read_text())
+            for path in sorted((ROOT / "scoreboard" / "results").glob("*.json"))
+        )
+        if found["format"] == scoreboard.FORMAT
+    )
     entry["scope"]["set"]["kind"] = "hidden"
     entry["body_sha256"] = scoreboard.body_sha256(entry)
     refused(entry, "not a public set's result")

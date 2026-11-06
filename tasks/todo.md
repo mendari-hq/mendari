@@ -2290,15 +2290,18 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, and on or after the
     effective date, run the prescreener's three `structured=cql` results again (`mendari
     scoreboard run mendari/clinical-trial-prescreener --config structured=cql --replicates 3
-    --again`, with the sandbox's HAPI FHIR up), and every local result (`./scripts/build-scoreboard.sh`),
-    and commit them with the page: stored pending, the CQL results stay "not published:
-    disclosure pending" until then (step 8).
+    --again`, with the sandbox's HAPI FHIR up and `MENDARI_CQL_URL=http://127.0.0.1:8080/fhir`
+    and `MENDARI_FHIR_ALLOWED_SERVERS=http://127.0.0.1:8080` set; each new result's accuracy
+    checked against the one it supersedes, 298 of 300 on `test`), and every local result
+    (`./scripts/build-scoreboard.sh`), and commit them with the page: stored pending, the CQL
+    results stay "not published: disclosure pending" until then (step 8).
   - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`, their rotation numbers at freeze:
     decision 4), mint a grading key, and on or after the effective date grade each pack's declared
     `local` configuration through the route and `mendari scoreboard add` each answer (step 9).
   - [ ] Owner: sign every result the branch adds (`mendari scoreboard sign`, by name), list the
-    public key in `scoreboard/keys.json`, verify, check and run the secret scan (a base64 public
-    key may need one path allowed in `.gitleaks.toml`) (step 10).
+    public key in `scoreboard/keys.json`, write the page again (`scripts/scoreboard_page.py`: it
+    marks each unsigned result), verify, check and run the secret scan (a base64 public key may
+    need one path allowed in `.gitleaks.toml`), and commit the page with the signatures (step 10).
   - [ ] Owner: publish the signed scoreboard: the docs site again and `web/` (step 11).
   - [ ] Owner (decision 1): which parts, if any, are built in a private repository (default:
     none; only the key, the hidden sets' content and the budgets stay out of the repository).

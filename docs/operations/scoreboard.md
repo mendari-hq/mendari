@@ -91,8 +91,9 @@ uv run python scripts/scoreboard_page.py
 - `--config slot=variant` chooses a slot's variant; the other slots take the pack's defaults.
   `--every-local` runs each local configuration instead. The environment's `MENDARI_PROVIDERS`
   is never read: what runs is what the command names.
-- A remote configuration is run only by hand, as the next section says, and is refused in CI
-  before anything runs.
+- A remote configuration is run only by hand, as the next section says, and is refused before
+  anything runs in CI, or when its provider is not set up on the machine (the CQL engine's URL,
+  Jev's endpoint and model, an LLM's model), since every case would fail.
 - `--again` runs a result that is still current again. The new result supersedes it.
 - `--store DIR` uses another store. Without it, the command must be run from the repository's
   root: it never makes a new store.
@@ -255,9 +256,14 @@ again. The second fails when:
   (or local) where it says;
 - a canary of the base is removed or changed, or a canary is not what its ledger, its run
   record and the result it was compared with give;
-- a hidden set's result does not fit `mendari.hidden_scoreboard/1` field by field, is not of a
-  pack Mendari maintains or, when new, is under another method or measured after today. It is
-  never recomputed: no ledger of a hidden set is kept.
+- a hidden set's result does not fit `mendari.hidden_scoreboard/1` field by field, or is not of
+  a pack Mendari maintains; when new, is under another method, is measured after today, says the
+  method is in effect when the method's effective date does not give that for the day measured
+  (or the reverse), does not cite its pack's declaration as the store holds it, or grades other
+  arms or configurations than exactly the `local` ones that declaration names; or, under the
+  current method, does not agree with its own figures (step 3 of [a hidden set's
+  scoreboard](#a-hidden-sets-scoreboard)). It is never recomputed: no ledger of a hidden set is
+  kept.
 
 It needs no secret, writes nothing and calls nothing off the machine. Both read the packs from
 the repository's `packs/`, never from `MENDARI_PACKS_PATH` or the registry cache.
@@ -302,7 +308,11 @@ signed and the method has not changed since any was made. The results a branch a
 of [the owner's runbook](#the-owners-runbook)).
 
 Signing adds the signature and changes nothing else, so the result keeps its name, and the check
-accepts the change once the public key is in `scoreboard/keys.json`. A current result's
+accepts the change once the public key is in `scoreboard/keys.json`. The page counts the signed
+results and marks each unsigned one, and `sign` writes no page: write it again
+(`uv run python scripts/scoreboard_page.py`), and commit the signatures, the keys file,
+`docs/grading/scoreboard.md` and `web/index.html` together, or the page's check
+(`scoreboard_page.py --check`, in CI's `reference-pack` job) fails. A current result's
 signature must keep verifying. When a key leaks and is taken out of the keys file, its results
 are run again with `--again`, in the same pull request: the new results supersede them, and the
 old ones stay in the store, as they were signed.
@@ -499,10 +509,14 @@ not signed: step 8 supersedes them.
 
 8. **Run the replicates** (LP-17i). From here to step 10, work on or after the effective date,
    on one branch. On your own machine, never in CI, with the deployment's provider settings in
-   your shell (`JEV_*` and `LLM_*`, as the deployment has them; the same model for every pack,
-   since a later result that reports another model of a type marks every earlier result of that
-   type stale), for each pack and each remote arm its declaration names, with `--config` for each
-   slot the declaration sets (repeated, or the slots separated by commas):
+   your shell, as the deployment has them: for Jev `JEV_API_URL`, `JEV_MODEL`, and `JEV_API_KEY`
+   or `JEV_CONNECTOR`; for an LLM `LLM_MODEL`, and `AI_GATEWAY_API_KEY`, or `LLM_BASE_URL` with
+   `LLM_API_KEY` for a local server. Keep the same model for every pack, since a later result
+   that reports another model of a type marks every earlier result of that type stale. A run
+   whose provider has no endpoint or model is refused before anything runs; one whose calls all
+   fail (a key missing, say) is stored as those failures, every case sent to a person, so check
+   the settings first. Run each pack and each remote arm its declaration names, with `--config`
+   for each slot the declaration sets (repeated, or the slots separated by commas):
 
     ```bash
     uv run mendari scoreboard run <pack id> --config <slot>=<variant> --replicates 3 \
@@ -510,13 +524,21 @@ not signed: step 8 supersedes them.
     ```
 
     The Clinical Trial Prescreener's CQL configuration calls no model and needs no table: with
-    the sandbox's HAPI FHIR up (`docker compose up fhir`, after checking which container holds
-    its port with `docker ps`), run its three public sets again:
+    the sandbox's HAPI FHIR up (`docker compose up fhir`, which publishes it on
+    `127.0.0.1:8080`, after checking which container holds that port with `docker ps`), point
+    the run at it, on the FHIR allow-list too, and run its three public sets again:
 
     ```bash
+    export MENDARI_CQL_URL=http://127.0.0.1:8080/fhir
+    export MENDARI_FHIR_ALLOWED_SERVERS=http://127.0.0.1:8080
     uv run mendari scoreboard run mendari/clinical-trial-prescreener --config structured=cql \
       --replicates 3 --again
     ```
+
+    Without `MENDARI_CQL_URL` the run is refused before anything runs. An engine off the
+    allow-list, or not up, fails every case, and the result stored, which supersedes the good
+    one, reads 0 correct: check each new result's accuracy against the one it supersedes (298
+    of 300 on `test` today) before you commit it.
 
     Then every local configuration again, under the method in effect, and the page:
 
@@ -526,6 +548,16 @@ not signed: step 8 supersedes them.
 
     Each new result supersedes the stale one, which stays in the store. Commit `scoreboard/`,
     `docs/grading/scoreboard.md` and `web/index.html` together.
+
+    Three tests pin what the store held before this step, and change with it in the same pull
+    request: a build session's edit, on your word. They are
+    `test_all_five_packs_appear_on_every_public_scoring_set` in `tests/test_scoreboard_page.py`
+    (21 current results, the CQL results the only remote ones and their disclosure pending,
+    every model's arm "not measured"), and in `tests/test_web_scores.py`
+    `test_the_sites_scores_are_the_stores` (the router's two local results, its other arms "not
+    measured") and `test_the_site_shows_no_bare_percentage_or_best_row` (no remote model
+    named). The other tests of the store work out what the page says from the store: signatures,
+    the method's effective date, superseded results and hidden sets' answers need no edit.
 
 9. **Grade the hidden sets.** Once a set is frozen (gate `hidden-sets-frozen`; its rotation
    numbers set at freeze, owner decision 4:
@@ -560,11 +592,13 @@ not signed: step 8 supersedes them.
     It prints the key's id and its public half, never the key. List them once in
     `scoreboard/keys.json`, with `valid_from` on or before the earliest day a signed result was
     measured, and `valid_until` `null` ([The keys file](../grading/verifying.md#the-keys-file)).
-    Then check, and scan for secrets before you push: a public key in base64 can look like an
-    API key to gitleaks, and if it is flagged, allow that one path in `.gitleaks.toml`, with the
-    reason, as the file's own comment asks:
+    Then write the page again, since it marks each unsigned result and `sign` writes no page,
+    check, and scan for secrets before you push: a public key in base64 can look like an API key
+    to gitleaks, and if it is flagged, allow that one path in `.gitleaks.toml`, with the reason,
+    as the file's own comment asks:
 
     ```bash
+    uv run python scripts/scoreboard_page.py
     uv run mendari scoreboard verify \
       $(git diff --name-only --diff-filter=A origin/main -- scoreboard/results/)
     uv run python scripts/check_scoreboard.py --base origin/main
@@ -572,7 +606,8 @@ not signed: step 8 supersedes them.
     ./scripts/secret_scan.sh
     ```
 
-    Commit the signatures and the keys file, and open the pull request.
+    Commit the signatures, the keys file, `docs/grading/scoreboard.md` and `web/index.html`,
+    and open the pull request.
 
 11. **Publish the scoreboard.** Once it merges: the site again (step 3's workflow), and the
     public page (`cd web && vercel deploy --prod`). Neither marks a signed result "unsigned", and

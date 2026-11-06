@@ -73,8 +73,8 @@ def test_the_sites_scores_are_the_stores(scores: str) -> None:
     current = [
         found.result
         for found in results_store.heads(store.results()).values()
-        if (found.pack_id, found.result["scope"]["set"]["name"])
-        == (page_script.WEB_PACK, page_script.WEB_SET)
+        if (found.pack_id, found.set_name, found.is_hidden)
+        == (page_script.WEB_PACK, page_script.WEB_SET, False)
     ]
     assert len(current) == 2  # the router's two local configurations, both "Mendari only"
     rows = cells(scores)
@@ -86,7 +86,9 @@ def test_the_sites_scores_are_the_stores(scores: str) -> None:
         )
         (key,) = [k for k in rows if configuration in k]
         assert key.startswith(arms.ARMS[entry["arm"]])
-        assert scoreboard.UNSIGNED in key and scoreboard.DRAFT in key
+        # As the store holds it, so signing (the runbook's step 10) needs no edit here.
+        assert (scoreboard.UNSIGNED in key) == ("signature" not in entry), key
+        assert (scoreboard.DRAFT in key) == (not entry["scope"]["method"]["in_effect"]), key
         expected = [
             figures["accuracy"],
             figures["automation"],
