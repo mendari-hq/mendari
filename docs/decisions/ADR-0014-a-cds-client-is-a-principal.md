@@ -31,7 +31,7 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
 - 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
   risks, this status, the scorecard graded again, and the end-to-end test
   (`tests/test_ehr_pilot_e2e.py`);
-- 23j (its own pull request), after the close-out, the shipped packs' cards: the inbox's own
+- 23j (#281), after the close-out, the shipped packs' cards: the inbox's own
   card template, and referral cards only when the person signing can act (`show:
   [return_for_info, urgent_review]`, the default the owner confirmed on 2026-11-06). No
   decision changes.

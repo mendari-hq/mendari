@@ -766,7 +766,7 @@ Connect) is not supported yet.
 
 - [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for one
   step and the owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the
-  referral `show` list on 2026-11-06, in its own PR): 23k, which waits on the owner's
+  referral `show` list on 2026-11-06, in #281): 23k, which waits on the owner's
   go-ahead, and the Epic sandbox run, which is the owner's. Gate G5-6's `a12-ehr-pilot` names
   both as pending, and the owner's lines below are what is left. The scorecard's after grade,
   at the close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
@@ -1059,7 +1059,7 @@ Connect) is not supported yet.
     site-map step for the payer is not built: a map translates codings only (spec 0.3 §2.5), and
     a payer's identifier is not one, so how a payer field reads a site's payer id is 23k's (the
     owner's question in #280).
-  - [x] **23j** (its own PR) Pack cards: the inbox's card template, referral cards only when action
+  - [x] **23j** (#281) Pack cards: the inbox's card template, referral cards only when action
     is needed. **The owner confirmed the `show` list on 2026-11-06** ("Confirm the default": owner
     decision 4, `[return_for_info, urgent_review]`). `packs/patient-inbox-router` 0.4.3 gains a
     `cds_hooks.card` block (conflict 45): an indicator per team (`info` for the front desk, a
@@ -1110,7 +1110,7 @@ Connect) is not supported yet.
     CW-2b; the scorecard's summary row for cards and workflow says CW-3e was graded again); changed
     deliberately: `tests/test_fhir_lists.py::test_the_inbox_card_wording_is_unchanged` and
     `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged` (the
-    inbox suggestion's label). The PR number goes in once the PR is opened.
+    inbox suggestion's label).
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
     changes FHIR-path decisions in three packs.
   - [x] **23l** (#280) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
@@ -1155,7 +1155,7 @@ Connect) is not supported yet.
     step (23b and 23c; 23d and 23e; 23f, 23h and 23i; 23l with
     `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
     pending lines: 23j (after the owner confirms the referral `show` list; confirmed on
-    2026-11-06, and the line replaced by 23j's tests in its own PR), 23k (after the owner's
+    2026-11-06, and the line replaced by 23j's tests in #281), 23k (after the owner's
     go-ahead), and the owner's Epic sandbox run in the plan's words (the LP-21n pattern); no
     count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
     and nothing the owner's is marked met.
@@ -1313,7 +1313,7 @@ Connect) is not supported yet.
   - [ ] Owner: do the Epic sandbox run (every pack with a standard hook decides on Epic's
     sandbox patients, A12.acc-3), which lets a build PR remove the gate's pending line.
   - [x] Owner (decision 4): confirm the referral `show` list, so 23j merges: confirmed
-    2026-11-06 ("Confirm the default": `[return_for_info, urgent_review]`), built in 23j's PR.
+    2026-11-06 ("Confirm the default": `[return_for_info, urgent_review]`), built in #281.
     What the list leaves without a card, for the owner to see: a referral Mendari refuses as
     invalid input (BLOCK) shows none and is not in the review queue, so only the EHR's own
     referral workflow carries it; and a referral to schedule, which `rules_and_jev` may automate,
