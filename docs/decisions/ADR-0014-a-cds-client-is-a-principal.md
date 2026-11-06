@@ -30,14 +30,17 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   (`terminology.yml`), and `mendari smart check` against the EHR's published scopes;
 - 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
   risks, this status, the scorecard graded again, and the end-to-end test
-  (`tests/test_ehr_pilot_e2e.py`).
+  (`tests/test_ehr_pilot_e2e.py`);
+- 23j (#281), after the close-out, the shipped packs' cards: the inbox's own
+  card template, and referral cards only when the person signing can act (`show:
+  [return_for_info, urgent_review]`, the default the owner confirmed on 2026-11-06). No
+  decision changes.
 
-What stays open. 23j (the inbox's card template, and referral cards only when action is needed)
-waits on the owner's confirmation of the referral `show` list. 23k (the reference packs' mappings
-for real EHR data, on spec 0.3) waits on the owner's go-ahead, with a clinician's note on the
-MedicationRequest rule (B21). The Epic sandbox run, in which every pack with a standard hook
-decides on Epic's sandbox patients (A12.acc-3), and `mendari smart check` against Epic are the
-owner's. Gate G5-6's `a12-ehr-pilot` names all three as pending. `conformance.yml`'s new jobs
+What stays open. 23k (the reference packs' mappings for real EHR data, on spec 0.3) waits on the
+owner's go-ahead, with a clinician's note on the MedicationRequest rule (B21). The Epic sandbox
+run, in which every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3), and
+`mendari smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names both as
+pending. `conformance.yml`'s new jobs
 (`crd-server`, `smart-client`, `bulk-client`) have not run on GitHub yet (its `dtr-payer` job
 already runs weekly on main), and `terminology.yml` has not run at all: their first runs on main
 are recorded in the `tasks/todo.md` build log after they happen. Refresh tokens and iframe mode

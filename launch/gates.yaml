@@ -635,7 +635,13 @@ gates:
           # changed event failing it (SQLite and Postgres).
           - tests:
               - tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end
-          - pending: "LP-23j, the inbox's card template and referral cards only when action is needed (A12.2c, A12.2e), after the owner confirms the referral `show` list (owner decision 4)"
+          # 23j: the inbox's own card template, and referral cards only when the person signing
+          # can act (A12.2c, A12.2e; the `show` list the owner confirmed on 2026-11-06, owner
+          # decision 4), with the registry's reference index naming each bundled pack's version.
+          - tests:
+              - tests/test_inbox_pack.py::test_the_inbox_card_has_its_own_template
+              - tests/test_referral_pack.py::test_only_referrals_that_need_action_show_a_card
+              - tests/test_registry_engine.py::test_the_reference_index_is_each_bundled_packs_id_version_and_digest
           - pending: "LP-23k, the reference packs' mappings for real EHR data on spec 0.3 (A12.3b to A12.3e), after the owner's go-ahead (owner decision 5)"
           - pending: "owner: the Epic sandbox run from notes/epic-sandbox-checklist.md (every standard-hook pack decides on Epic's sandbox patients, A12.acc-3) and mendari smart check against Epic; then a build PR removes this line"
       - id: clinician-review

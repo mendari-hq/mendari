@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/referral-router
-version: 0.2.0
+version: 0.2.1
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -48,8 +48,10 @@ card:
     - Emergencies. A referral is not the route for a patient who needs the emergency
       department today; the urgency screen only speeds up referrals that arrive anyway.
     - Deciding whether a referral is clinically appropriate, or triaging within a specialty.
-    - Checking the specialty the referrer chose against the suggested one (the card shows the
-      suggestion; the comparison is future work).
+    - Checking the specialty the referrer chose against the suggested one (future work). The
+      EHR card shows the suggestion only on a referral to send back or to review today; a
+      referral to schedule, which may be automated, or for a coordinator gets no card, so no one
+      signing it sees the suggested specialty.
     - Any real clinic's intake requirements. The required documents and urgency criteria are
       synthetic and were not written or reviewed by a clinician; a site sets its own.
   known_failure_modes:
@@ -332,4 +334,10 @@ cds_hooks:
       urgent_review: critical
       coordinator_review: info
       none: info
+    # A card only where the person signing the referral can act: send it back with what is
+    # missing, or review it today. A referral to schedule, for a coordinator or with no
+    # suggestion is decided and audited for the referral office, with no card, and so is one
+    # refused as invalid input (a BLOCK, which has no suggestion either). An ABSTAIN because
+    # part of the record could not be read still gets its card.
+    show: [return_for_info, urgent_review]
     suggestion: Create a referral task

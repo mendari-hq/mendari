@@ -177,10 +177,11 @@ def test_the_inbox_card_wording_is_unchanged(router: Decision) -> None:
         "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
     }
     card = cds_hooks.invoke(router, request)["cards"][0]
-    # The default wording, with the recommendation's display name since LP-23f (the Task's
-    # performer code stays the label); 23j gives the inbox its own template.
+    # A team's summary keeps the default wording, with the recommendation's display name since
+    # LP-23f (the Task's performer code stays the label); since LP-23j the suggestion's label is
+    # the inbox template's own (tests/test_inbox_pack.py::test_the_inbox_card_has_its_own_template).
     assert card["summary"] == "Review: route to Nurse (stat)"
-    assert card["suggestions"][0]["label"] == "Create routing task for Nurse"
+    assert card["suggestions"][0]["label"] == "Create a routing task"
     task = card["suggestions"][0]["actions"][0]["resource"]
     assert task["performerType"][0]["coding"][0]["code"] == "nurse"
 

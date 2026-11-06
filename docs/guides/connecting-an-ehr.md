@@ -272,6 +272,24 @@ Each card is CDS Hooks 2.0's:
 - The summary uses the pack's display names, under 140 characters. The detail is the pack's
   status, the notice and one plain sentence for the outcome, and never a percentage: the
   confidence the card used to show as one is gone.
+- Every decision is recorded, but a pack may show a card for some recommendations only (its
+  `cds_hooks.card.show`; a decision with no recommendation, an ABSTAIN or a BLOCK, is its
+  `none`). The referral router shows one only when the person signing can act: a referral to
+  send back with what is missing, or one to review today. A referral to schedule, for a
+  coordinator or with no suggestion gets no card, and the referral office works it from
+  Mendari. A referral Mendari refuses as invalid input (BLOCK, a reason over 5,000 characters
+  for one) gets no card either, and is in the audit trail only, not in the review queue: the
+  EHR's own referral workflow carries it. The trial pack is silent for a patient who is
+  clearly not eligible, and the prior authorization service for an order it has no requirement
+  set for. An ABSTAIN because part of the record could not be read always gets its `info` card,
+  whatever the pack shows otherwise; a decision whose input is also refused is a BLOCK, and
+  shows the card the pack shows for a BLOCK, if any.
+- The inbox's card (`mendari-message-received`, Mendari's own hook) names the team in its
+  summary, says whether the message was routed or needs a person to confirm the team, and is
+  `info` for the front desk, a medical assistant and billing, `warning` for a nurse and a
+  physician, and `critical` for a possible emergency. A message with no suggested team, whether
+  the engine abstained or refused it as invalid input, says it stays in the shared inbox for
+  manual triage, and the detail says which.
 - The prior authorization service is a Da Vinci CRD service. Its discovery entry declares
   `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
   is `coverage-info` in `source.topic`. A request with

@@ -240,8 +240,8 @@ def test_card_summaries_use_display_names_and_task_text_is_unchanged(tmp_path: P
     task = mri["suggestions"][0]["actions"][0]["resource"]
     assert task["description"] == "Prior auth for lumbar_mri (acme): submit_ready"
     (inbox,) = cards_of(client, INBOX)
-    assert inbox["summary"] == "Review: route to Nurse (stat)"  # the default wording
-    assert inbox["suggestions"][0]["label"] == "Create routing task for Nurse"
+    assert inbox["summary"] == "Review: route to Nurse (stat)"  # a team's: the default wording
+    assert inbox["suggestions"][0]["label"] == "Create a routing task"  # the inbox template's
     code = inbox["suggestions"][0]["actions"][0]["resource"]["performerType"][0]["coding"][0]
     assert code["code"] == "nurse"
     # `fill` is the Task's and unchanged; `fill_display` the card's.

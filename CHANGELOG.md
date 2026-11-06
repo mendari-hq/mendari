@@ -362,15 +362,16 @@ The first release (not yet published).
   data-coverage record, every standard-hook pack deciding on the vendor-shaped patients,
   `selectionBehavior`, card feedback, a linked note read through the allow-listed client, the
   site code map recorded on each decision, the reasons of every expected Inferno result and the
-  CRD golden. It stays pending on three lines: the inbox's and referral cards (LP-23j, after
-  the owner confirms the referral `show` list), the shipped packs' mappings on spec 0.3 (LP-23k,
+  CRD golden. It stays pending on two lines: the shipped packs' mappings on spec 0.3 (LP-23k,
   after the owner's go-ahead), and the owner's run on Epic's sandbox with `mendari smart check`
-  against Epic. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed ES384 token (its keys from a
-  pinned `jwks_uri`) through discovery and two `order-sign` hooks over HTTP, each reading a
-  vendor-shaped patient's record from the EHR's FHIR server, to one card each and feedback on
-  both, one accepted and one overridden, then `mendari audit verify`, which passes, and fails
-  at the event changed behind the store's back; on SQLite and Postgres, in about a second each,
-  with no connection off the machine. `notes/ehr-scorecard.md` is graded again at the
+  against Epic. A third, the inbox's and referral cards (LP-23j), is replaced by its tests: the
+  owner confirmed the referral `show` list. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed
+  ES384 token (its keys from a pinned `jwks_uri`) through discovery and two `order-sign` hooks
+  over HTTP, each reading a vendor-shaped patient's record from the EHR's FHIR server, to one
+  card each and feedback on both, one accepted and one overridden, then `mendari audit verify`,
+  which passes, and fails at the event changed behind the store's back; on SQLite and Postgres,
+  in about a second each, with no connection off the machine. `notes/ehr-scorecard.md` is
+  graded again at the
   close-out commit beside its grade before LP-23, each row only on evidence in the repository:
   client trust from level 2 to 3, who may call from where from 1 to 3, cards and workflow from 1
   to 2, the others as they were, and level 1 overall before and after (failure behaviour, under
@@ -385,6 +386,25 @@ The first release (not yet published).
   CapabilityStatement's description now names card feedback, an EHR's own token and what Mendari
   reads from an EHR's FHIR server. See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#before-a-pilot).
+- **The shipped packs' cards** (LP-23j; card wording and which cards show change, no decision
+  does). The Patient Inbox Router (0.4.3) has its own card template: a team's summary keeps the
+  engine's words with the team's display name ("Routed to Nurse", "Review: route to Nurse"),
+  its indicator is the team's (`info` for the front desk, a medical assistant and billing,
+  `warning` for a nurse and a physician, still `critical` for a possible emergency), a message
+  with no suggested team says it stays in the shared inbox, whether the engine abstained or
+  refused the message as invalid input (its summary no longer says "Blocked"; the detail
+  does), and the suggestion reads "Create a routing task". The Referral Router (0.2.1) shows a
+  card only when the person signing can act (`show: [return_for_info, urgent_review]`, the
+  default the owner confirmed on 2026-11-06): a referral to schedule, for a coordinator or with
+  no suggestion is decided and audited with no card, and so is one refused as invalid input
+  (BLOCK), which is not in the review queue either; an ABSTAIN because part of the record could
+  not be read still shows its `info` card. Every decision is the
+  same: the FHIR decisions golden is unchanged, and both benchmarks and their ledgers differ only
+  in the run, the version and the digest, so the critical-label figures are as they were. The
+  scoreboard's stored results for the two packs now read "stale: pack changed", as a pack change
+  makes them. Gate G5-6's `a12-ehr-pilot` probes 23j's tests in place of its pending line, and
+  the scorecard's CW-3e is met (cards and workflow at level 3; overall still level 1). See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#the-cards).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

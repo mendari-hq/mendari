@@ -764,13 +764,14 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
-- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for two
-  steps and the owner's run (2026-11-06, the LP-23 lane): 23j, which waits on the owner's
-  confirmation of the referral `show` list, 23k, which waits on the owner's go-ahead, and the
-  Epic sandbox run, which is the owner's. Gate G5-6's `a12-ehr-pilot` names all three as
-  pending, and the owner's lines below are what is left. The scorecard's after grade, at the
-  close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
-  `MENDARI_FHIR_VALIDATION`). Planned by a mapping workflow
+- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for one
+  step and the owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the
+  referral `show` list on 2026-11-06, in #281): 23k, which waits on the owner's
+  go-ahead, and the Epic sandbox run, which is the owner's. Gate G5-6's `a12-ehr-pilot` names
+  both as pending, and the owner's lines below are what is left. The scorecard's after grade,
+  at the close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
+  `MENDARI_FHIR_VALIDATION`), and 23j's CW-3e puts cards and workflow at level 3. Planned by a
+  mapping workflow
   (2026-10-17, against main `06d5332f`) as thirteen PRs, 23a to 23m, each safe alone; the full
   plan, its 60 conflicts with the default each PR follows, the owner decisions and the risks are
   in `notes/lp23-plan.md`. An EHR calls the CDS Hooks services with its own signed token, and
@@ -1058,8 +1059,58 @@ Connect) is not supported yet.
     site-map step for the payer is not built: a map translates codings only (spec 0.3 §2.5), and
     a payer's identifier is not one, so how a payer field reads a site's payer id is 23k's (the
     owner's question in #280).
-  - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
-    **The owner confirms the `show` list.**
+  - [x] **23j** (#281) Pack cards: the inbox's card template, referral cards only when action
+    is needed. **The owner confirmed the `show` list on 2026-11-06** ("Confirm the default": owner
+    decision 4, `[return_for_info, urgent_review]`). `packs/patient-inbox-router` 0.4.3 gains a
+    `cds_hooks.card` block (conflict 45): an indicator per team (`info` for the front desk, a
+    medical assistant and billing, `warning` for a nurse and a physician; a possible emergency stays
+    `critical`, priority stat), a `none` summary ("Message: no suggested team; it stays in the
+    shared inbox for manual triage", for an ABSTAIN and for a BLOCK on refused input alike, whose
+    summary said "Blocked; to manual triage" before: the detail still says which) and its
+    suggestion's label ("Create a routing task"); a team's summary keeps the engine's words with
+    display names ("Routed to", "Review: route to"), every decision still shows a card, the hook
+    stays `mendari-message-received` and off Inferno's list. `packs/referral-router` 0.2.1 gains
+    `show: [return_for_info, urgent_review]` (conflict 46): of the golden's 300 referrals, 235 show
+    a card and 65 (53 to schedule, 12 for a coordinator) are decided and audited with none, and so
+    is a referral refused as invalid input (BLOCK, the `none` key: no card, and not in the review
+    queue); an ABSTAIN because part of the record could not be read still shows its `info` card
+    (owner decision 6, unchanged), and one whose input is also refused is a BLOCK, with no card. The
+    referral pack's out-of-scope line says only a referral to send back or to review today shows the
+    suggested specialty. Both versions are PATCH bumps (CONTRIBUTING.md's rule, read as the packs'
+    changelogs have, 0.4.1 and 0.1.3 among them: what the cards say, with every decision identical).
+    Both changelogs, the root CHANGELOG, `connecting-an-ehr.md` (The cards) and README.
+    `./scripts/build-reference-pack.sh` rerun: data and models byte-identical; the two packs'
+    benchmarks and ledgers identical but for the run block, the version and the digest (critical
+    labels unchanged: inbox `urgency=urgent` 23 of 23, referral `urgency=urgent` 113 of 113 and
+    `next_step=urgent_review` 124 of 124, none automated); their cards, benchmarks, ledgers and the
+    scoreboard page (docs/grading/scoreboard.md, web/index.html) committed; the other three packs'
+    differ only in the run block and are not. The FHIR decisions golden is unchanged
+    (`scripts/fhir_decisions_golden.py --check`). The scoreboard: the 9 stored results of the two
+    packs (6 inbox, 3 referral) read "stale: pack changed"; the check against main passes (21
+    results recomputed from their inputs, their ledgers not re-run), as
+    `docs/operations/scoreboard.md` says a pack change does, and none is run again here
+    (`./scripts/build-scoreboard.sh` refreshes them, in this pull request or a later one). The
+    registry's reference index reads each bundled pack's new version and digest. Gate G5-6's
+    `a12-ehr-pilot`: the 23j pending line replaced by its tests; the scorecard's CW-3e is met,
+    graded again after the close-out (cards and workflow at level 3; overall still level 1);
+    ADR-0014's status lists 23j. Tests:
+    `tests/test_inbox_pack.py::test_the_inbox_card_has_its_own_template`,
+    `tests/test_referral_pack.py::test_only_referrals_that_need_action_show_a_card`,
+    `tests/test_registry_engine.py::test_the_reference_index_is_each_bundled_packs_id_version_and_digest`
+    (unchanged, passing on the new versions),
+    `tests/test_ehr_scorecard.py::test_a_row_graded_again_after_the_close_out_says_so`; from the
+    review:
+    `tests/test_inbox_pack.py::test_a_message_with_no_team_has_one_summary_and_its_detail_says_why`,
+    `tests/test_inbox_pack.py::test_the_landing_pages_example_is_this_versions_decision` (the
+    landing page's example names 0.4.3),
+    `tests/test_referral_pack.py::test_a_referral_refused_as_invalid_input_shows_no_card`,
+    `tests/test_ehr_scorecard.py::test_a_test_renamed_after_the_close_out_had_its_old_name_at_both_commits`
+    (`test_order_sign_gives_one_card_per_referral` is now
+    `tests/test_referral_pack.py::test_on_order_sign_only_a_referral_gets_a_card`, cited so by
+    CW-2b; the scorecard's summary row for cards and workflow says CW-3e was graded again); changed
+    deliberately: `tests/test_fhir_lists.py::test_the_inbox_card_wording_is_unchanged` and
+    `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged` (the
+    inbox suggestion's label).
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
     changes FHIR-path decisions in three packs.
   - [x] **23l** (#280) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
@@ -1103,9 +1154,10 @@ Connect) is not supported yet.
     replaced by the 18 tests 23m lists, each found under the name the plan gives it, in groups by
     step (23b and 23c; 23d and 23e; 23f, 23h and 23i; 23l with
     `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
-    pending lines: 23j (after the owner confirms the referral `show` list), 23k (after the
-    owner's go-ahead), and the owner's Epic sandbox run in the plan's words (the LP-21n
-    pattern); no count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
+    pending lines: 23j (after the owner confirms the referral `show` list; confirmed on
+    2026-11-06, and the line replaced by 23j's tests in #281), 23k (after the owner's
+    go-ahead), and the owner's Epic sandbox run in the plan's words (the LP-21n pattern); no
+    count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
     and nothing the owner's is marked met.
     `tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end`
     (SQLite and Postgres, about a second each, the socket guard of
@@ -1218,7 +1270,7 @@ Connect) is not supported yet.
     those decisions at HUMAN_REVIEW until G5-6 `site-validation`; 23i rebuilds the reference packs
     and expects no diff, 23j and 23k commit their rebuilt artifacts.
   - 23j (45, 46): the inbox pack gets a template and stays off Inferno's list; the referral
-    `show` list is `[return_for_info, urgent_review]`.
+    `show` list is `[return_for_info, urgent_review]` (confirmed by the owner on 2026-11-06).
   - 23k (47): built, its merge held for the owner's go-ahead.
   - 23l (48 to 56): Mendari's own Inferno Dockerfile and overlay, pinned by digest and commit; a
     separate report-only `conformance.yml`; test 1.01 (TLS) and CRD's standard prefetch forms
@@ -1236,7 +1288,7 @@ Connect) is not supported yet.
   `MENDARI_CDS_CLIENTS` for the pilot, a database-backed one before a second EHR; (2) the site
   code map in `MENDARI_SITE_CODES`, site-mapped decisions capped at HUMAN_REVIEW until G5-6
   `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
-  scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, before 23j merges;
+  scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, confirmed 2026-11-06;
   (5) the go-ahead for 23k, with a clinician's note on the MedicationRequest rule (B21); (6) an
   unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
   from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
@@ -1260,7 +1312,13 @@ Connect) is not supported yet.
   - [ ] Owner: run `mendari smart check` against Epic's FHIR base (the scorecard's CE-5a).
   - [ ] Owner: do the Epic sandbox run (every pack with a standard hook decides on Epic's
     sandbox patients, A12.acc-3), which lets a build PR remove the gate's pending line.
-  - [ ] Owner (decision 4): confirm the referral `show` list, so 23j merges.
+  - [x] Owner (decision 4): confirm the referral `show` list, so 23j merges: confirmed
+    2026-11-06 ("Confirm the default": `[return_for_info, urgent_review]`), built in #281.
+    What the list leaves without a card, for the owner to see: a referral Mendari refuses as
+    invalid input (BLOCK) shows none and is not in the review queue, so only the EHR's own
+    referral workflow carries it; and a referral to schedule, which `rules_and_jev` may automate,
+    shows none, so no one signing it sees the suggested specialty (checking it against the
+    referrer's is out of scope, future work). Say if either should show its card.
   - [ ] Owner (decision 5): the go-ahead for 23k, with a clinician's note on the
     MedicationRequest rule (B21).
   - [ ] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
