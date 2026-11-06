@@ -588,9 +588,11 @@ names the route's template.
 ### The hidden-set scoreboard
 
 The same route grades the arms of the scoreboard (LP-17k, the
-[grading method](../grading/method-1.0.md), sections 3 to 9). Mendari's own grading declares one
-configuration per arm before any hidden set is graded, and commits the declaration. A run sends
-that declaration's arms, as `arms`, with its SHA-256, as `declared`, in place of `variants`:
+[grading method](../grading/method-1.0.md), sections 3 to 9). Mendari's own grading declares, per
+arm, the local configuration a hidden set grades (its `local` entry in
+`scoreboard/declared/<pack name>.json`, `mendari.declared/1`) before any hidden set is graded,
+and commits the declaration. A run sends those configurations, as `arms`, with the
+declaration's SHA-256, as `declared`, in place of `variants`:
 
 ```bash
 curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
@@ -608,7 +610,10 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   a hidden set grades: a declared arm that calls Jev or an LLM is refused `remote_provider`, and
   nothing is read.
 - `declared` is the SHA-256 of the committed declaration (64 hex digits). The answer cites it;
-  the server does not read the file.
+  the server does not read the file. The results store does, when the answer is added
+  (`mendari scoreboard add`): it must cite the declaration as the store holds it, and grade the
+  arms it declares `local`, each with that configuration
+  ([a hidden set's scoreboard](scoreboard.md#a-hidden-sets-scoreboard)).
 - `arms` and `declared` come together, never with `variants`: anything else is a `422` of the
   body, and nothing is read.
 

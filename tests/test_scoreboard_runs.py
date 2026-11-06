@@ -1148,10 +1148,14 @@ def test_the_page_publishes_against_the_disclosures_file_as_it_is(
 ) -> None:
     """The page reads `scoreboard/disclosures.json` as it is now: a result stored with a
     statement shows its figures while the file holds that statement, and none of them, nor the
-    statement, once it is taken out or rewritten."""
+    statement, once it is taken out or rewritten. The site's scores (`web/index.html`, LP-17g)
+    are written from the same board, so they publish by the same rule: its figures and its
+    models while the file holds the statement, "not published: disclosure pending" in their
+    place once it does not."""
     from tests.test_scoreboard_page import page_script
 
     fake_jev(monkeypatch)
+    monkeypatch.setattr(page_script, "WEB_SET", SET)  # the site's set, as this result's
     statement = "No commercial relationship (a test's statement)."
     path = store.root / "disclosures.json"
 
@@ -1171,10 +1175,18 @@ def test_the_page_publishes_against_the_disclosures_file_as_it_is(
     target.write_text(signing.dump(measured.entry), encoding="utf-8")
     shown = page_script.page(store)
     assert statement in shown and " of 30 [" in shown
+    site = page_script.web_scores(store)
+    assert f"jev: {JEV_MODEL}" in site and " of 30" in site
+    assert scoreboard.DISCLOSURE_PENDING not in site
     for statements in ({}, {"jev": "Mendari now resells Jev (a test's statement)."}):
         write(statements)
         hidden = page_script.page(store)
         assert statement not in hidden and " of 30 [" not in hidden
         assert f"| Disclosure | {scoreboard.DISCLOSURE_PENDING} |" in hidden
+        site = page_script.web_scores(store)
+        assert JEV_MODEL not in site and " of 30" not in site
+        (row,) = [line for line in site.splitlines() if scoreboard.DISCLOSURE_PENDING in line]
+        assert f"configuration {page_script.WITHHELD}" in row and "router=" not in row
     path.unlink()
     assert " of 30 [" not in page_script.page(store)
+    assert " of 30" not in page_script.web_scores(store)

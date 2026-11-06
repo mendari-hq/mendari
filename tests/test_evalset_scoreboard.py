@@ -30,6 +30,7 @@ Keys are made per test, cases are hand-written synthetic text."""
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 import re
@@ -129,7 +130,16 @@ from tests.test_scoreboard_rank import (
 )
 from tests.test_scoreboard_rank import arm as forged
 
-DECLARED = "d" * 64  # a declaration's SHA-256, as the answer cites it (no file is read)
+# The inbox's declaration (`mendari.declared/1`, LP-17h): its deterministic arm's `local`
+# configuration, the one a hidden set grades. The route cites its SHA-256 and never reads it; the
+# results store holds it (`a_store`) and checks a new answer against it.
+DECLARATION: dict[str, Any] = {
+    "format": "mendari.declared/1",
+    "pack": "mendari/patient-inbox-router",
+    "date": "2026-10-17",
+    "arms": {"deterministic": {"local": LOCAL}},
+}
+DECLARED = hashlib.sha256(json.dumps(DECLARATION).encode()).hexdigest()
 DAY = datetime.date(2026, 10, 17)  # the day a test's answers are measured on, US Eastern
 SCOREBOARD = {"arms": {"deterministic": LOCAL}, "declared": DECLARED}
 URGENT_TEXT = "crushing chest pain spreading to my left arm and I cannot breathe"
@@ -924,12 +934,20 @@ def in_memory(
     ).model_dump(mode="json")
 
 
-def a_store(tmp_path: Path) -> results_store.Store:
-    """An empty results store, with the repository's keys file."""
+def a_store(
+    tmp_path: Path, declaration: Mapping[str, Any] | None = DECLARATION
+) -> results_store.Store:
+    """A results store with no result, the repository's keys file and the inbox's
+    `declaration` (none: no declaration), whose SHA-256 is `DECLARED`."""
     root = tmp_path / "scoreboard"
     root.mkdir(parents=True)
     shutil.copy(ROOT / "scoreboard" / "keys.json", root / "keys.json")
-    return results_store.Store.at(root)
+    store = results_store.Store.at(root)
+    if declaration is not None:
+        path = store.declaration_path(DECLARATION["pack"])
+        path.parent.mkdir()
+        path.write_text(json.dumps(declaration))
+    return store
 
 
 def test_the_store_holds_a_hidden_answer_as_it_was_answered(
@@ -1089,6 +1107,73 @@ def test_a_stored_answer_must_agree_with_its_own_figures(tmp_path: Path) -> None
         f"results/{name}.json (mendari/patient-inbox-router {first['scope']['set']['id']}): "
         "its deterministic arm's grade is not what its figures give"
     ]
+
+
+def test_a_stored_answer_grades_its_packs_declared_local_configuration(tmp_path: Path) -> None:
+    """A new hidden set's answer is stored only as its pack's declaration (`mendari.declared/1`,
+    LP-17h) declares it: the store holds the declaration, the answer cites its SHA-256 as the
+    store holds it, and it grades each arm the declaration names a `local` configuration for
+    (the one a hidden set grades), with that configuration, all in its one read. Refused: no
+    declaration; another declaration's SHA-256; a declaration that names another local
+    configuration of the arm, or none for it (a remote one only); and an answer that leaves out
+    an arm declared local, which the store's check also names in the declaration, since no other
+    arm of the inbox is local. An answer stored before its declaration changed is kept as it
+    was added; the same answer, new, is refused."""
+    pack = resolve_pack("mendari/patient-inbox-router")
+    answer = in_memory(hidden_dataset(resolve_dataset(pack, "red_flags_holdout").records))
+    rules = {"safety_screen": "rules", "router": "rules"}  # the arm's other local configuration
+    jev = {"safety_screen": "rules", "router": "jev"}
+
+    def citing(declaration: Mapping[str, Any]) -> dict[str, Any]:
+        found = json.loads(json.dumps(answer))
+        found["scope"]["declared"] = hashlib.sha256(json.dumps(declaration).encode()).hexdigest()
+        found["body_sha256"] = hidden.scoreboard_body_sha256(found)
+        assert hidden.scoreboard_problem(found) is None  # it fits the schema
+        return found
+
+    shown = "declared/patient-inbox-router.json"
+    for name, declaration, match in (
+        ("none", None, f"it cites a declaration, and the store has none \\({shown}\\)"),
+        ("other", {**DECLARATION, "date": "2026-10-16"}, f"not {shown} as it is"),
+        (
+            "rules",
+            {**DECLARATION, "arms": {"deterministic": {"local": rules}}},
+            f"its deterministic ran router=naive_bayes,safety_screen=rules, not the local "
+            f"configuration {shown} declares for it",
+        ),
+        (
+            "remote",
+            {**DECLARATION, "arms": {"classifier": {"remote": jev}}},
+            f"it grades deterministic, for which {shown} declares no local configuration",
+        ),
+        (
+            "two",
+            {
+                **DECLARATION,
+                "arms": {"deterministic": {"local": LOCAL}, "classifier": {"local": jev}},
+            },
+            f"it leaves out classifier, whose local configuration {shown} declares",
+        ),
+    ):
+        store = a_store(tmp_path / name, declaration)
+        sent = answer if name in ("none", "other") else citing(declaration or {})
+        with pytest.raises(MendariError, match=match):
+            store.add(sent, packs=lambda _: pack, today=DAY)
+        assert store.results() == {}, name
+    found = results_store.check(store, base={}, packs=lambda _: pack, today=DAY)
+    assert found.problems == [
+        f"{shown}: its local configuration of classifier, router=jev,safety_screen=rules, is remote"
+    ]
+
+    store = a_store(tmp_path / "declared")
+    name = store.add(answer, packs=lambda _: pack, today=DAY)
+    # The declaration rewritten after the answer was stored: kept as it was added, refused new.
+    store.declaration_path(pack.id).write_text(json.dumps({**DECLARATION, "date": "2026-10-16"}))
+    base = {name: (store.root / "results" / f"{name}.json").read_bytes()}
+    found = results_store.check(store, base=base, packs=lambda _: pack, today=DAY)
+    assert found.problems == [] and found.kept == [f"{name}: {results_store.HIDDEN_KEPT}"]
+    found = results_store.check(store, base={}, packs=lambda _: pack, today=DAY)
+    assert len(found.problems) == 1 and f"not {shown} as it is" in found.problems[0]
 
 
 def test_a_signature_covers_the_answer_and_its_run(tmp_path: Path) -> None:

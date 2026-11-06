@@ -568,9 +568,12 @@ strictly as a run record, and cited by the SHA-256 of its bytes.
 | `arms` | Per arm (`mendari.arms/1`), `remote`: the one remote configuration run on public sets with replicates; and `local`: the one local configuration a hidden set grades. Each is slot to variant, and an arm names one or both. |
 
 A remote configuration is run only as its arm's `remote` configuration, with the declaration
-committed as it is before the run (`mendari scoreboard run` checks git's `HEAD`). A declaration
-is refused when it names a configuration the pack does not have, one in another arm, or one that
-is not remote (or local) where it says.
+committed as it is before the run (`mendari scoreboard run` checks git's `HEAD`). A hidden set
+grades each arm's `local` configuration: a new hidden set's answer is stored only when it cites
+the declaration as the store holds it and grades every arm the declaration names a `local`
+configuration for, with that configuration (LP-17k, "Stored" below). A declaration is refused
+when it names a configuration the pack does not have, one in another arm, or one that is not
+remote (or local) where it says.
 
 A canary (`scoreboard/canaries/<sha256>.json`; the method's section 12) is a seeded draw of 30
 cases of a pack's `test` set, decided once by hand by a remote configuration, and compared with
@@ -629,9 +632,9 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   set, without `--replicates 3` to `5` (a local one runs 1), unless the pack's declaration names
   it for its arm and is committed as it is, and, when it calls a model, without `--prices FILE`
   (stored under `prices/` when a result is priced from it), all before any call; so is a table
-  whose date another stored table holds. Every replicate's ledger and run
-  record is stored. `mendari scoreboard canary PACK --config ... --size 30 --seed S` runs a
-  canary the same way, by hand, with no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
+  whose date another stored table holds. Every replicate's ledger and run record is stored. `mendari
+  scoreboard canary PACK --config ... --size 30 --seed S` runs a canary the same way, by hand, with
+  no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
   `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
 - **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
   `reference-pack` job, names each file whose name is not its content's, each result of the base
@@ -862,8 +865,12 @@ is a `422` of the body, and nothing is read.
 answered (`mendari scoreboard add FILE`), named by its body's SHA-256: one result per pack and
 set, its arms in it, so a second read of the same set is the same result. The store checks it
 against this closed schema field by field (its values rounded as above), against a pack Mendari
-maintains (any of its versions) and, when new, the current method, a day no later than today and
-`in_effect` as the method is on that day. Under the current method it also checks the answer
+maintains (any of its versions) and, when new, the current method, a day no later than today,
+`in_effect` as the method is on that day, and its pack's declaration
+(`scoreboard/declared/<pack name>.json`, `mendari.declared/1`): `declared` is the SHA-256 of the
+declaration as the store holds it, and the graded arms are the arms it names a `local`
+configuration for, each with that configuration, so the store, which the route never reads,
+holds the configurations declared before the run. Under the current method it also checks the answer
 against its own figures: each k of n's interval is the one its k and n give, each critical
 label's evidence the one its distinct positives give, each graded arm's grade `grade.grade`'s
 of its figures under the scope's method (so every attestation's state, figures and draft, and

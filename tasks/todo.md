@@ -2108,7 +2108,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `tests/test_ranking.py::test_no_card_or_board_prints_a_rank_for_a_public_set`, the three
     renamed browser tests. Owner: the mendari.co entry's line about naming Jev, Claude and
     gpt-oss results no longer applies to the page as it is (it names none); it applies again
-    when 17i's results are published.
+    when 17i's results are published. Lane: the page and the site's scores share one board,
+    built with 17h's canaries and the disclosures file as it is now, so the site publishes an
+    entry by 17h's `published`, and it reads public results only (17k).
   - [x] **17h** (lane PR) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
     rate, model freshness, the canary and disclosures; built, and refusing to start in CI.
     `mendari scoreboard run` takes a remote configuration by hand only (refused when `CI` or
@@ -2128,13 +2130,16 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the replicates themselves, marks every result of that type that named another. An entry with
     remote calls is published only while `scoreboard/disclosures.json` (added, empty) still
     holds, word for word, the statement each type had when it was stored; otherwise it shows its
-    scope and none of its figures, and the banner leaves it out. The store check recomputes a new remote result from its replicates
-    (never re-running a remote ledger), checks declarations and keeps canaries append-only. The
-    prescreener's `structured=cql` measured with Mendari's own CQL engine (compose `fhir`), 3
-    replicates on each of its three public sets, 2026-11-05: 0 flips, "not published: disclosure
-    pending", which they keep: once `cql` has a statement they are run again with `--again` (the
-    owner line below). `tests/test_scoreboard_runs.py`;
-    `test_cli_errors.BROKEN` gains `scoreboard canary`.
+    scope and none of its figures, and the banner leaves it out. The store check recomputes a new
+    remote result from its replicates (never re-running a remote ledger), checks declarations and
+    keeps canaries append-only. The prescreener's `structured=cql` measured with Mendari's own CQL
+    engine (compose `fhir`), 3 replicates on each of its three public sets, 2026-11-05: 0 flips,
+    "not published: disclosure pending", which they keep: once `cql` has a statement they are run
+    again with `--again` (the owner line below). `tests/test_scoreboard_runs.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard canary`. Lane review: threat model T8 names 17h's
+    rules and tests; a configuration of Jev and an LLM whose table prices only one, or whose type
+    reports two models, is stored as unknown cost, not refused after every call
+    (`test_a_run_of_two_model_types_its_table_cannot_price_is_stored_as_unknown`).
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
   - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
@@ -2170,7 +2175,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     schema, never recomputed, off the page). Spec section, runbooks (`evalsets.md`,
     `scoreboard.md`: post the declaration, `scoreboard add`, the owner signs), ADR-0011 notes,
     `api_docs.py`, threat model T8, I14 and I15. `tests/test_evalset_scoreboard.py`;
-    `test_evalset_leaks.py` sweeps a scoreboard run and its refusal.
+    `test_evalset_leaks.py` sweeps a scoreboard run and its refusal. Lane: a new answer is stored
+    only when it cites its pack's declaration as the store holds it and grades the arms that
+    declaration names a `local` configuration for (17h's `mendari.declared/1`), each with it
+    (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
     Blocked on LP-20 and owner decisions 4 and 10.
   - [ ] **17m** Close-out: gate probes for `a9-scoreboard` and `grading-method`, the threat

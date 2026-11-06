@@ -25,7 +25,9 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
   fits its closed schema, field by field, and its name is its body's SHA-256 (its run block
   left out); it is of a pack Mendari maintains; under the current method it agrees with its
   own figures (intervals, evidence, grades, banner, ranking, draft); and, when new, it is under
-  the current method, measured no later than today and in effect as the method is that day. It
+  the current method, measured no later than today, in effect as the method is that day, and
+  cites its pack's declaration as the store holds it, grading the `local` configurations it
+  declares. It
   is kept as it is: no ledger of a hidden set is kept, so its k and n are never recomputed.
 
 The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.

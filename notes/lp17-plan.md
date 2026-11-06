@@ -410,7 +410,7 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
       - `test_supersedes_names_an_earlier_result_of_the_same_entry`
       - `test_each_committed_result_is_what_its_inputs_give`
       - `test_a_ledger_on_an_older_digest_is_kept_and_not_rerun`
-      - `test_running_a_remote_configuration_is_refused`
+      - `test_running_a_remote_configuration_without_replicates_is_refused`
     - `tests/test_scoreboard_page.py`:
       - `test_the_page_is_regenerated_from_the_store`
       - `test_the_early_scoreboard_is_unranked_with_intervals_banner_and_scope`

@@ -11,7 +11,7 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
 | `runs/<sha256>.json` | Each result's run records (`mendari.run/1`, one per replicate), named by the SHA-256 of its bytes. |
 | `prices/<date>.json` | A dated price table (`mendari.prices/1`) a result is priced from: none yet. |
 | `canaries/<sha256>.json` | A canary (`mendari.canary/1`, LP-17h), named by its body's SHA-256: none yet. |
-| `declared/<pack name>.json` | A pack's declared configurations (`mendari.declared/1`, LP-17h), committed before any remote run. |
+| `declared/<pack name>.json` | A pack's declared configurations (`mendari.declared/1`, LP-17h): per arm its remote configuration and the local one a hidden set grades, committed before any remote run or hidden-set grading. |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`): none yet. |
 | `disclosures.json` | The disclosures (`mendari.disclosures/1`): no statement yet, so every remote result reads "not published: disclosure pending". |
 
@@ -29,7 +29,8 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
   its ledger, its dataset, its run record and the method give, byte for byte.
 - Every result is an engineering evaluation, not clinical validation. A public set's is a
   regression check, not a ranking. A hidden set's answer holds aggregates only, is checked against
-  its closed schema and its own figures, its k and n never recomputed (no ledger of a hidden set
-  is kept), and is not on the early scoreboard's page.
+  its closed schema, its own figures and, when new, its pack's declaration (it grades the `local`
+  configurations of `declared/<pack name>.json`), its k and n never recomputed (no ledger of a
+  hidden set is kept), and is not on the early scoreboard's page or the site.
 
 How to run, add, check and sign: [Running the scoreboard](../docs/operations/scoreboard.md).

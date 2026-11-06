@@ -1345,8 +1345,8 @@ replicates marks its arm's remote results stale, and another model reported, by 
 later run of the same model type, marks every result of that type that named another. A result
 with remote calls shows its figures only when each provider type it calls had a statement in
 `scoreboard/disclosures.json` (none yet) when it was stored, and the file still holds it;
-otherwise it reads "not published: disclosure pending", its figures kept off the page. The
-Clinical Trial Prescreener's CQL configuration is measured so, on Mendari's own CQL engine, and
+otherwise it reads "not published: disclosure pending", its figures kept off the page and `web/`.
+The Clinical Trial Prescreener's CQL configuration is measured so, on Mendari's own CQL engine, and
 stored pending; no Jev or LLM arm is measured.
 
 A grade (`mendari.evals.grade`) is a set of attestations, each met, not met or insufficient
@@ -1647,8 +1647,8 @@ packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
-scoreboard/      the results store: scoreboard results, their ledgers and run records, and the
-                 public grading keys (keys.json)
+scoreboard/      the results store: scoreboard results, their ledgers and run records, the packs'
+                 declared configurations (declared/) and the public grading keys (keys.json)
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log
 ```

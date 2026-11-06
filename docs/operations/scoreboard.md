@@ -62,8 +62,10 @@ A remote model is named there only once its provider type's disclosure is stated
 `scoreboard/disclosures.json`. Until then neither is a configuration that calls it (a variant's
 name, `rules_and_jev`, can name its provider): a result's row shows its arm and marks and "not
 published: disclosure pending" in place of its figures, and the arm's configurations not yet
-measured are counted in one row rather than named. Deploying `web/` is the owner's, after gate
-G1-2.
+measured are counted in one row rather than named. A result is published there by the page's
+rule, from the same board: its figures and models are shown only while the disclosures file
+still holds, word for word, the statement each type it calls had when it was stored, as the
+section on replicates below says. Deploying `web/` is the owner's, after gate G1-2.
 
 The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
 of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
@@ -304,33 +306,43 @@ hidden-set grading route ([Grading a hidden set](evalsets.md#the-hidden-set-scor
 grading key is the deployment's, minted by the operator; the set's cases never leave the
 deployment's database, and the answer holds aggregates only (`mendari.hidden_scoreboard/1`).
 
-1. **Declare.** Before any hidden set of the pack is graded, the owner declares one
-   configuration per arm and commits the declaration (`scoreboard/declared/<pack>.json`, the
-   method's section 3). Under the method 1.0 a hidden set is graded with local providers only
-   (owner decision 2), so the deterministic arm is the one declared arm that runs. Take the
-   SHA-256 of the committed file:
+1. **Declare.** Before any hidden set of the pack is graded, the owner declares the arm's
+   local configuration, the one a hidden set grades, as its `local` entry in the pack's
+   declaration (`scoreboard/declared/<pack name>.json`, `mendari.declared/1`: the method's
+   section 3, and [Declaring a configuration](#declaring-a-configuration)), and commits it.
+   Under the method 1.0 a hidden set is graded with local providers only (owner decision 2), so
+   the deterministic arm is the one declared arm that runs:
+
+    ```json
+    {
+      "format": "mendari.declared/1",
+      "pack": "mendari/patient-inbox-router",
+      "date": "2026-11-06",
+      "arms": {
+        "deterministic": {"local": {"router": "naive_bayes", "safety_screen": "rules"}}
+      }
+    }
+    ```
+
+    Take the SHA-256 of the committed file:
 
     ```bash
     shasum -a 256 scoreboard/declared/patient-inbox-router.json
     ```
 
-    The declaration's format, `mendari.declared/1`, comes with LP-17h, with the
-    `scoreboard/declared/` folder and the store's check of it: until it lands, nothing defines
-    what the file holds and no check reads it, so a declaration cannot be committed yet. The
-    grading route never reads the file either: it only cites the SHA-256 sent, and the answer
-    records the configuration each arm ran. Until LP-17h, keep to runs you do not mean to
-    store and sign.
+    The grading route never reads the file: it cites the SHA-256 sent, and the answer records
+    the configuration each arm ran. The store reads it when the answer is added (step 3).
 
-2. **Post it.** Send the declaration's arms and its SHA-256 to the set's grading route, with
-   the deployment's grading key, as the [evaluation-set runbook](evalsets.md#the-hidden-set-scoreboard)
-   shows. Each declared arm names a variant for every slot of the pack, as the declaration
-   does, and is checked before any case is read: one that calls a remote provider is refused
-   `remote_provider`, one that leaves a slot out or is declared under another arm `wrong_arm`,
-   and nothing is read or counted. Then one grading read decides every declared arm on the same
-   cases: one chained `evalset.graded`, one of the set's runs. Save the answer as it came:
-   `scoreboard-answer.json`. Undeclared arms read "not graded here" (their configurations call a
-   remote provider) or "not applicable", and the ranking reads "off: one arm graded" while only
-   the deterministic arm is local.
+2. **Post it.** Send each arm's `local` configuration as `arms`, and the declaration's SHA-256 as
+   `declared`, to the set's grading route, with the deployment's grading key, as the [evaluation-set
+   runbook](evalsets.md#the-hidden-set-scoreboard) shows. Each declared arm names a variant for
+   every slot of the pack, as the declaration does, and is checked before any case is read: one that
+   calls a remote provider is refused `remote_provider`, one that leaves a slot out or is declared
+   under another arm `wrong_arm`, and nothing is read or counted. Then one grading read decides
+   every declared arm on the same cases: one chained `evalset.graded`, one of the set's runs. Save
+   the answer as it came: `scoreboard-answer.json`. Undeclared arms read "not graded here" (their
+   configurations call a remote provider) or "not applicable", and the ranking reads "off: one arm
+   graded" while only the deterministic arm is local.
 
 3. **Store it.** From the repository's root:
 
@@ -339,17 +351,18 @@ deployment's database, and the answer holds aggregates only (`mendari.hidden_sco
     uv run mendari scoreboard add scoreboard-answer.json --supersedes <sha256>
     ```
 
-    It is stored as it was answered, under its body's SHA-256, which leaves the run block
-    (`run`, `runs_left`) out: a second read of the same set on the same day is the same result,
-    stored already. One pack and set has one current result, its arms in it; a later day's
-    answer supersedes the earlier with `--supersedes`. It is refused when it does not fit its
-    closed schema, is of a pack Mendari does not maintain, is under another method, is
-    measured after today or says the method is in effect when it is not (or the reverse), or
+    It is stored as it was answered, under its body's SHA-256, which leaves the run block (`run`,
+    `runs_left`) out: a second read of the same set on the same day is the same result, stored
+    already. One pack and set has one current result, its arms in it; a later day's answer
+    supersedes the earlier with `--supersedes`. It is refused when it does not fit its closed
+    schema, is of a pack Mendari does not maintain, is under another method, is measured after today
+    or says the method is in effect when it is not (or the reverse), does not cite its pack's
+    declaration as the store holds it or grades other arms or configurations than the `local` ones
+    it declares (a declaration changed after an answer was stored leaves that answer as it was), or
     does not agree with its own figures: each interval with its k and n, each critical label's
-    evidence with its distinct positives, each grade (every attestation's state and draft) and
-    the banner with the figures, and the ranking with the grades. Its k and n are never
-    recomputed, since no ledger of a hidden set is kept, and the page of public sets does not
-    show it.
+    evidence with its distinct positives, each grade (every attestation's state and draft) and the
+    banner with the figures, and the ranking with the grades. Its k and n are never recomputed,
+    since no ledger of a hidden set is kept, and the page of public sets does not show it.
 
 4. **Sign it.** The owner signs it on their own machine, as any result
    ([Signing](#signing)). The signature covers its body and its run block, so a signed hidden-set

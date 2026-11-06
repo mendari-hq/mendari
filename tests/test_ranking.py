@@ -154,10 +154,10 @@ def printed_ranks(text: str) -> list[str]:
 
 
 def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
-    """Every set a leaderboard is measured on is public, so each of its tables is a regression
-    check, not a ranking (LP-17g): neither the five reference cards (as rendered, and as
-    committed) nor the command line's tables print a rank. The rows keep theirs as data, and
-    are listed in their order."""
+    """A pack's own sets are public, and a board can also hold a site's own file, never a
+    frozen hidden set, so each of its tables is a regression check, not a ranking (LP-17g):
+    neither the five reference cards (as rendered, and as committed) nor the command line's
+    tables print a rank. The rows keep theirs as data, and are listed in their order."""
     from mendari.core.card import render_card
     from mendari.evals import leaderboard
 

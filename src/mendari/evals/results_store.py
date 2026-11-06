@@ -34,8 +34,9 @@ A hidden set's result (`mendari.hidden_scoreboard/1`, LP-17k) is the grading rou
 stored with `add` as it was answered: one result per pack and set (its arms are in it), named by
 its body's SHA-256, which leaves its run block out, so a second read of the same set is the same
 result. It must fit its closed schema (`hidden.scoreboard_problem`), be of a pack Mendari
-maintains and, when new, under the current method, measured no later than today and in effect
-as the method is that day; under the current method, it must agree with its own figures
+maintains and, when new, under the current method, measured no later than today, in effect as
+the method is that day, and citing its pack's declaration as the store holds it, whose `local`
+configurations are the arms it graded; under the current method, it must agree with its own figures
 (`hidden.scoreboard_disagreement`: intervals, evidence, grades, banner, ranking, draft). It is
 kept as it is: no ledger of a hidden set is kept, so its k and n are the owner's attestation,
 and their signature covers it with its run's number.
@@ -549,10 +550,12 @@ class Store:
         `supersedes` that names no stored result of the same pack, set, arm and configuration
         measured no later, or one another result supersedes already; a second current result of
         one pack, set, arm and configuration (a new one supersedes the old); a signature that
-        does not verify against `keys.json`; and a public result that is not of a local
-        configuration, on its pack's current digest, set and method, measured no later than
-        `today` (the clock's, by default), and what its stored inputs give, with a ledger that
-        re-runs to the same bytes (`check`'s rules for a new result)."""
+        does not verify against `keys.json`; and a result that breaks `check`'s rules for a new
+        one (`_verdict`): a public result not on its pack's current digest, set and method,
+        measured after `today` (the clock's, by default), or not what its stored inputs give,
+        with a local ledger that re-runs to the same bytes or a remote configuration's 3 to 5
+        replicates and its pack's declaration of it; a hidden set's result that `_hidden`
+        refuses."""
         found = held(result)
         path = self.root / RESULTS / f"{found.name}.json"
         if path.exists():
@@ -1292,22 +1295,26 @@ def _verdict(
 ) -> Verdict:
     """`_hidden` for a hidden set's result, `_public` for any other."""
     if found.is_hidden:
-        return _hidden(found, packs, new=new, today=today)
+        return _hidden(found, store, packs, new=new, today=today)
     return _public(found, store, packs, new=new, reruns=reruns, today=today)
 
 
 HIDDEN_KEPT = "kept as it is: a hidden set's result is never recomputed (no ledger of it is kept)"
 
 
-def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) -> Verdict:
+def _hidden(
+    found: Held, store: Store, packs: PackSource, *, new: bool, today: datetime.date
+) -> Verdict:
     """Whether a hidden set's result may stay in the store, or be added (`new`): of a pack
     Mendari maintains (any of its versions: the deployment graded the one it serves); when new,
-    under the current method, measured no later than `today`, and in effect or not as the
-    method is on the day measured; and, under the current method, agreeing with its own
+    under the current method, measured no later than `today`, in effect or not as the method is
+    on the day measured, and grading what its pack's declaration declares
+    (`_hidden_declaration_problem`); and, under the current method, agreeing with its own
     figures (`hidden.scoreboard_disagreement`: its intervals, evidence, grades, banner and
     ranking, each draft while its scope's method is not in effect). Its closed schema was
     checked when it was read (`held`). It is kept as it is: with no ledger, its k and n are
-    never recomputed. One under an earlier method is kept as it was added."""
+    never recomputed. One under an earlier method, or stored before its declaration changed, is
+    kept as it was added."""
     where = f"{RESULTS}/{found.name}.json ({found.shown})"
     if new and found.measured_on > today.isoformat():
         return Verdict(
@@ -1326,6 +1333,9 @@ def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) 
             f"{where}: its scope says the method is {'' if in_effect else 'not '}in effect on "
             f"{found.measured_on}, which the method's effective date does not give"
         )
+    problem = _hidden_declaration_problem(found, store) if new else None
+    if problem is not None:
+        return Verdict(f"{where}: {problem}")
     if found.method == method.METHOD_SHA256:
         problem = hidden.scoreboard_disagreement(found.result)
         if problem is not None:
@@ -1335,6 +1345,45 @@ def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) 
     except MendariError as error:
         return Verdict(f"{where}: {error}")
     return Verdict(kept=f"{found.name}: {HIDDEN_KEPT}")
+
+
+def _hidden_declaration_problem(found: Held, store: Store) -> str | None:
+    """Why a new hidden set's result does not grade what its pack's declaration declares
+    (`mendari.declared/1`, LP-17h), or None: the store holds the pack's declaration, the answer
+    cites its SHA-256 as the store holds it now (`scope.declared`), and the arms it graded are
+    the arms the declaration names a `local` configuration for (the one a hidden set grades),
+    each with that configuration, every one of them in the one read. The grading route never
+    reads the file, so this is where an answer meets it."""
+    shown = f"{DECLARED}/{store.declaration_path(found.pack_id).name}"
+    try:
+        declared = store.declaration(found.pack_id)
+    except MendariError as error:
+        return str(error)
+    if declared is None:
+        return f"it cites a declaration, and the store has none ({shown})"
+    cited = found.result["scope"]["declared"]
+    if declared.sha256 != cited:
+        return f"it cites the declaration {cited}, not {shown} as it is ({declared.sha256})"
+    graded = {
+        item["arm"]: item["configuration"]["providers"]
+        for item in found.result["arms"]
+        if item["status"] == hidden.GRADED
+    }
+    for arm in arms.ARMS:
+        local = declared.declared(arm, runs.LOCAL)
+        if arm in graded and local is None:
+            return f"it grades {arm}, for which {shown} declares no local configuration"
+        if arm in graded and graded[arm] != local:
+            return (
+                f"its {arm} ran {written(graded[arm])}, not the local configuration {shown} "
+                f"declares for it"
+            )
+        if arm not in graded and local is not None:
+            return (
+                f"it leaves out {arm}, whose local configuration {shown} declares: every "
+                "declared arm is graded in the one read"
+            )
+    return None
 
 
 def _stale_inputs(found: Held, pack: Pack) -> str | None:
@@ -1418,8 +1467,9 @@ def check(
       after `today`;
     - a hidden set's result that does not fit its closed schema (`held`), is not of a pack
       Mendari maintains, does not agree with its own figures under the current method or,
-      when new, is under another method, measured after `today` or says the method is in
-      effect when it is not, or the reverse (`_hidden`)."""
+      when new, is under another method, measured after `today`, says the method is in effect
+      when it is not (or the reverse), or does not grade the `local` configurations of the
+      declaration it cites as the store holds it (`_hidden`)."""
     found = Check()
     problems = found.problems
     listed: dict[str, dict[str, bytes]] = {}

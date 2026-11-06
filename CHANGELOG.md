@@ -810,9 +810,12 @@ The first release (not yet published).
   result per pack and set, named by its body's SHA-256, checked against its closed schema, a pack
   Mendari maintains, its own figures (its intervals, evidence, grades, banner and ranking, each
   draft while the method is not in effect) and, when new, the current method, a day no later than
-  today and `in_effect` as the method is that day (`scripts/check_scoreboard.py`); its k and n are
-  never recomputed (no ledger of a hidden set is kept), and it is left off the early scoreboard's
-  page and the site's scores; a signature covers its run's number too. Spec: `docs/spec/evaluation-reports.md`; runbooks
+  today, `in_effect` as the method is that day, and its pack's declaration
+  (`scoreboard/declared/<pack name>.json`, LP-17h's `mendari.declared/1`): it must cite the
+  declaration as the store holds it and grade the arms it declares `local`, each with that
+  configuration (`scripts/check_scoreboard.py`); its k and n are never recomputed (no ledger of a
+  hidden set is kept), and it is left off the early scoreboard's page and the site's scores; a
+  signature covers its run's number too. Spec: `docs/spec/evaluation-reports.md`; runbooks
   `docs/operations/evalsets.md` and `docs/operations/scoreboard.md`; threat model T8, I14 and I15.
   No figure, format or decision of a public result changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
