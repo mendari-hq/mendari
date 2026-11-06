@@ -394,7 +394,13 @@ def test_the_inferno_harness_reaches_only_its_own_services() -> None:
     assert engine["build"] == {"context": "../.."}  # the repository's own Dockerfile
     # Open mode, PHI mode off: nothing that turns sign-in on or carries a key, token or secret.
     environment = engine["environment"]
-    assert set(environment) == {"MENDARI_PHI_MODE", "MENDARI_PACKS", "MENDARI_PUBLIC_URL"}
+    assert set(environment) == {
+        "MENDARI_PHI_MODE",
+        "MENDARI_CDS_SANDBOX",  # Inferno calls it from another machine (LP-23c)
+        "MENDARI_PACKS",
+        "MENDARI_PUBLIC_URL",
+    }
+    assert environment["MENDARI_CDS_SANDBOX"] == "1"
     assert environment["MENDARI_PHI_MODE"] == "off"
     assert urlsplit(environment["MENDARI_PUBLIC_URL"]).hostname == "engine"
 
