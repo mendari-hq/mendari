@@ -14,6 +14,7 @@ entries off it."""
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import subprocess
 import sys
@@ -32,11 +33,13 @@ from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.reference import reference_packs
 from mendari.core.registry import resolve_pack
+from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.sandbox import cds_client, ehr_profile
 from mendari.sandbox.ehr_profile import (
     BASE,
     PRIOR_AUTH,
     REFERRAL_PACK,
+    SITE_DIAGNOSES,
     SITE_DIAGNOSIS_SYSTEM,
     SITE_MRN,
     SITE_ORDER_TYPE_SYSTEM,
@@ -52,6 +55,9 @@ from mendari.standards.data_coverage import FORMAT
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.record_fhir import ICD10, RXNORM
 from tests.test_fhir_client import allow_ehr, fhir_json
+from tests.test_site_codes import PACKS as PACKS_DIR
+from tests.test_site_codes import SERVICE as PRESCREEN_SERVICE
+from tests.test_site_codes import VERSION, mapped, site_pack
 
 ROOT = Path(__file__).resolve().parents[1]
 TODAY = date(2026, 10, 15)
@@ -302,6 +308,118 @@ def test_what_each_pack_cannot_read_yet_is_pinned(
     assert all(
         why for pinned in (*NOT_DECIDED.values(), *MISSED.values()) for why in pinned.values()
     )
+
+
+def test_the_profiles_site_diagnosis_codes_are_read_through_a_site_code_map_and_never_automated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The trial patients' Conditions through `MENDARI_SITE_CODES` (LP-23i), as the sandbox's
+    client calls the hook: no shipped pack declares a code set yet, so the prescreen fixture at
+    spec 0.3 reads them, its `t2d` set over ICD-10-CM, and the map translates the profile's
+    fictional site diagnosis code for type 2 diabetes into `E11.9`. Sent as the profile has them
+    (the site's coding and ICD-10-CM), the pack's own code wins and every decision is as without
+    a map, the map's version and digest recorded. Sent as a site that codes with its own system
+    only (the ICD-10-CM coding left out), the diagnosis is read through the map, and what would
+    automate goes to a person instead (`site_code`). A patient with a linked note still abstains
+    on it, map or not."""
+    site_pack(tmp_path)
+    site_code, _ = SITE_DIAGNOSES["E11.9"]
+    monkeypatch.setenv(
+        SITE_CODES_ENV,
+        json.dumps(
+            mapped({"t2d": [{"system": SITE_DIAGNOSIS_SYSTEM, "code": site_code, "as": "E11.9"}]})
+        ),
+    )
+    monkeypatch.setattr(clock, "today", lambda: TODAY)
+    trial = [p for p in ehr_profile.patients(TODAY) if p.pack_id == TRIAL]
+    as_sent = ehr_profile.resources(TODAY)
+    site_only = copy.deepcopy(as_sent)
+    for resource in site_only:
+        if resource["resourceType"] == "Condition":
+            codings = resource["code"]["coding"]
+            resource["code"]["coding"] = [c for c in codings if c["system"] != ICD10]
+    note = ("could not read notes: not_fetched",)
+    translated = "site code translated (t2d): a person decides"
+    decided = {
+        name: _prescreened(tmp_path / name, monkeypatch, resources, trial)
+        for name, resources in (("as-sent", as_sent), ("site-only", site_only))
+    }
+    stamps = {
+        record["site_codes"]["version"] for found in decided.values() for record in found.values()
+    }
+    assert stamps == {VERSION}  # every decision names the map it read with
+    pinned = {
+        name: {
+            patient: (record["outcome"], record["recommendation"], translated in record["reasons"])
+            for patient, record in found.items()
+        }
+        for name, found in decided.items()
+    }
+    assert pinned == {
+        "as-sent": {
+            "ehr-trial-1": ("ABSTAIN", None, False),
+            "ehr-trial-2": ("ABSTAIN", None, False),
+            "ehr-trial-3": ("ABSTAIN", None, False),
+            "ehr-trial-4": ("AUTO", "not_eligible", False),  # HbA1c out of range
+            "ehr-trial-5": ("AUTO", "candidate", False),
+        },
+        "site-only": {
+            "ehr-trial-1": ("ABSTAIN", None, False),
+            "ehr-trial-2": ("ABSTAIN", None, False),
+            "ehr-trial-3": ("ABSTAIN", None, False),
+            "ehr-trial-4": ("HUMAN_REVIEW", "not_eligible", True),
+            "ehr-trial-5": ("HUMAN_REVIEW", "candidate", True),
+        },
+    }
+    for found in decided.values():
+        for patient in ("ehr-trial-1", "ehr-trial-2", "ehr-trial-3"):
+            assert tuple(found[patient]["reasons"]) == note, patient
+    # Without the map: the profile as sent is decided the same, and the site's own code alone
+    # is not read as the pack's (the diagnosis unknown), so nothing is translated.
+    monkeypatch.delenv(SITE_CODES_ENV)
+    unmapped = {
+        name: _prescreened(tmp_path / f"{name}-unmapped", monkeypatch, resources, trial)
+        for name, resources in (("as-sent", as_sent), ("site-only", site_only))
+    }
+    assert all(r["site_codes"] is None for found in unmapped.values() for r in found.values())
+    same = lambda r: (r["outcome"], r["recommendation"], r["reasons"])  # noqa: E731
+    assert {p: same(r) for p, r in unmapped["as-sent"].items()} == {
+        p: same(r) for p, r in decided["as-sent"].items()
+    }
+    alone = {p: (r["outcome"], r["recommendation"]) for p, r in unmapped["site-only"].items()}
+    assert (alone["ehr-trial-4"], alone["ehr-trial-5"]) == (
+        ("AUTO", "not_eligible"),  # the HbA1c alone rules it out
+        (
+            "AUTO",
+            "needs_review",
+        ),  # the diagnosis unknown: a chart review, which this pack automates
+    )
+
+
+def _prescreened(
+    folder: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resources: list[dict[str, Any]],
+    patients: list[ProfilePatient],
+) -> dict[str, dict[str, Any]]:
+    """Each patient's decision record by the prescreen fixture's hook, called with no prefetch
+    on an engine whose FHIR reads go to a server holding `resources`."""
+    allow_ehr(monkeypatch, profile_server(resources))
+    folder.mkdir()
+    db = folder / "prescreen.db"
+    packs = [PACKS_DIR, folder.parent / "packs"]
+    found: dict[str, dict[str, Any]] = {}
+    with TestClient(create_app(db_path=db, packs_paths=packs)) as http, AuditStore(db) as store:
+        for patient in patients:
+            before = {d["id"] for d in store.query(limit=1000)}
+            body = cds_client.hook_request("patient-view", patient, BASE)
+            answer = http.post(PRESCREEN_SERVICE, json=body)
+            assert answer.status_code == 200, (patient.id, answer.text)
+            (made,) = [d["id"] for d in store.query(limit=1000) if d["id"] not in before]
+            stored = store.get(made)
+            assert stored is not None
+            found[patient.id] = stored["record"]
+    return found
 
 
 def own_record_input(patient: ProfilePatient) -> dict[str, Any]:

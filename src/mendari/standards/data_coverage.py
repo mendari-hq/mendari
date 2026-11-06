@@ -39,6 +39,11 @@ nothing when another of the same resource was read (`fhir.unread_attachments`). 
 list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its source derives
 its period) is not an item: nothing it links to is read, and nothing it could not read counts.
 
+With a site code map (LP-23i, `core/site_codes.py`), the record is read with the organization's
+translations, as the input is (`measure`'s `site_codes`), so a `code_set` field's paths, values
+and items agree with what the input read. It holds no translation, and a coding a translation
+matched counts by its system, as any other.
+
 It holds counts and the pack's own words only: never a value, an id, text, a patient's code or a
 system the pack does not declare (a site's own system can name the site). The output is
 canonical, keys and lists sorted, so one record gives the same bytes on every run.
@@ -63,6 +68,7 @@ from mendari.standards.fhir import (
     ListSource,
     LookedFor,
     Reading,
+    SiteCodes,
     codings_of,
     list_item,
     listed,
@@ -155,12 +161,16 @@ def measure(
     unreadable: Mapping[str, str],
     systems: Collection[str] = (),
     sources: Mapping[str, str] | None = None,
+    site_codes: SiteCodes | None = None,
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
     reason; `systems` the code systems the pack declares; `sources` the pack's prefetch
     templates, which say what resource type each key reads, so a field or a list whose resources
-    could not be read says so, and a list read and empty does not."""
+    could not be read says so, and a list read and empty does not; `site_codes` the site's
+    translations the input was read with (LP-23i), so a `code_set` field counts the paths, values
+    and items the input read, as the input read them. The record holds no translation: a coding
+    a translation matched counts by its system, as any other (`other` for a site's own)."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -170,7 +180,7 @@ def measure(
         template = (sources or {}).get(key)
         if template is not None:
             failed.setdefault(source_type(template), Counter())[reason] += 1
-    reading = Reading.of(mapping, indexed)
+    reading = Reading.of(mapping, indexed, site_codes)
     looked = looked_for(mapping)
     total = Counter(unreadable.values())
 

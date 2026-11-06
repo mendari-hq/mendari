@@ -24,9 +24,11 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_pack
+from mendari.core import site_codes
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import SearchPath
+from mendari.core.spec import Outcome
 from mendari.errors import FhirError
 from mendari.server.app import create_app
 from mendari.server.smart_routes import decide_for
@@ -43,6 +45,7 @@ ORIGIN = "https://ehr.example.org"
 TOKEN = "linked-test-token"  # made for these tests; no server outside them takes it
 MED = "https://site.example/fhir/CodeSystem/medications"  # fictional
 PAYER = "https://site.example/fhir/NamingSystem/payers"  # fictional
+SITE_FORMULARY = "https://site.example/fhir/CodeSystem/formulary"  # a site's own drug codes
 PACK = "mendari-test/prescreen-mini"
 SERVICE = "/cds-services/mendari-test.prescreen-mini"
 PATIENT = {"resourceType": "Patient", "id": "p1", "birthDate": "1970-01-01"}
@@ -619,6 +622,60 @@ def test_a_medication_reference_is_read_once(pack: Decision) -> None:
         "reached": 4,
         "references": 4,
     }
+
+
+def test_a_linked_resource_is_read_through_the_organizations_site_code_map(tmp_path: Path) -> None:
+    """LP-23h with LP-23i: what a linked read fetched is read with the organization's site code
+    map, as the rest of the record is. A drug the EHR codes only in the site's own formulary,
+    behind a `medicationReference` the record does not hold, is read from the EHR and then,
+    through the map, as the pack's code: the decision records the map, and since its input took
+    a value through a translation it goes to a person (`site_code`). The same drug coded the
+    pack's own way, and the site's code without a map, are decided by the pack alone, and
+    automate."""
+    medications = copy.deepcopy(MEDICATIONS)
+    field = medications["resources"]["MedicationRequest"]["fields"]["code"]
+    field.update(path="Medication.code.coding", code_set="drugs")
+    root = linked_pack(tmp_path / "packs", medications)
+    mapping_path = root / "fhir" / "mapping.yaml"
+    mapping = yaml.safe_load(mapping_path.read_text())
+    mapping["code_sets"] = {"drugs": {"system": MED, "codes": ["RX-1"]}}
+    mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False))
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["risk"]["level"] = 1  # may automate
+    manifest["policy"]["thresholds"]["auto"] = 0.8  # this record's eligibility gives 0.85
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    pack = load_pack(root)
+    translation = {"system": SITE_FORMULARY, "code": "F-77", "as": "RX-1"}
+    given = {"default": {"version": "2026-11-06.1", "sets": {"drugs": [translation]}}}
+    maps = site_codes.parse(json.dumps(given), signed_in=False)
+    site_codes.check(maps, [pack])
+    site_drug = {
+        "resourceType": "Medication",
+        "id": "m1",
+        "code": {"coding": [{"system": SITE_FORMULARY, "code": "F-77"}]},
+    }
+    order = request_for("r1", "Medication/m1")
+
+    ehr = Ehr(site_drug)
+    through, _ = Decision(pack, site_codes=maps).decide_fhir(
+        bundle(order), links=Linker.of(ehr.client())
+    )
+    assert ehr.reads() == ["Medication/m1"]
+    assert through.unreadable == ()
+    assert through.site_codes == maps.maps["default"].stamp()
+    assert through.outcome is Outcome.HUMAN_REVIEW
+    assert "site code translated (drugs): a person decides" in through.reasons
+
+    ehr = Ehr(medication("m1", "RX-1"))
+    own, _ = Decision(pack, site_codes=maps).decide_fhir(
+        bundle(order), links=Linker.of(ehr.client())
+    )
+    ehr = Ehr(site_drug)
+    alone, _ = Decision(pack).decide_fhir(bundle(order), links=Linker.of(ehr.client()))
+    assert own.outcome is alone.outcome is Outcome.AUTO
+    assert own.site_codes == through.site_codes and alone.site_codes is None
+    assert not any("site code" in reason for reason in (*own.reasons, *alone.reasons))
+    assert through.recommendation == own.recommendation == alone.recommendation
 
 
 def test_a_request_its_list_leaves_out_is_not_read_for_its_links(tmp_path: Path) -> None:

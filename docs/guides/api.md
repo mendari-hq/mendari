@@ -136,7 +136,9 @@ It holds no value, id or text. The answers of `fhir/decide` and the SMART launch
 too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id (the
 card's `uuid` and `extension.mendari.decision_id`, the GuidanceResponse `identifier`). In the
 dashboard, a FHIR decision's record shows it as "What it read": counts by field and by reason.
-A decision on JSON input carries `null`.
+A decision on JSON input carries `null`. Beside it, `site_codes` is the `version` and `sha256` of
+the site code map the decision read its record with (`MENDARI_SITE_CODES`, its organization's),
+or `null` without one ([Connecting an EHR](connecting-an-ehr.md#site-codes)).
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.

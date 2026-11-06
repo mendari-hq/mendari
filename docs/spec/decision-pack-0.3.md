@@ -94,8 +94,8 @@ A field gives one value. It has a `path` or (0.3) `paths`, not both, and optiona
 
 With `paths`, each path is tried in order, and the first that gives a value is the field's. A
 path that finds nothing, or whose value the transform or the map turns into nothing, passes to
-the next; once one gives a value, the others are not read. A field that gets no value is left
-out of the input.
+the next; once one gives a value, the others are not read (a value through a site's
+translation is the one exception, §2.5). A field that gets no value is left out of the input.
 
 ### 2.3 Following a reference (0.3)
 
@@ -191,8 +191,16 @@ the pack's value.
 A runtime MAY give the selector a site's translations into the set: `{system, code, as}`,
 where `as` is one of the set's codes. A translation counts only into a code the set lists, and
 only for its own set, and a coding of the set's own system wins over a translated one wherever
-it is. Translations are configuration, not part of the pack, so they change no digest. The
-reference runtime passes none yet.
+it is: among the codings one path finds, and across a field's `paths`. A path that gives a
+code only through a translation passes to the next, for one of the set's own codes; when no
+path gives one, the first translated code is the field's. A record whose own codes give a
+field its value is so read the same with translations as without. Translations are
+configuration, not part of the pack, so they change no digest. The reference runtime's server
+reads them from `MENDARI_SITE_CODES`, one map per organization, checked at startup against the
+code sets the packs declare (its command line reads none). A decision records the version and
+SHA-256 of the map it read with, and one whose input took a value through a translation is
+never AUTO, nor BLOCKed by a rule without a person
+([Connecting an EHR](../guides/connecting-an-ehr.md#site-codes)).
 
 ### 2.6 Lists
 

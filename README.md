@@ -694,6 +694,22 @@ DocumentReference), one that reads is enough: the others are not read or counted
 on spec 0.3 yet, so none reads a link
 ([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#linked-data)).
 
+**A site's own codes (LP-23i).** An EHR often codes things its own way. `MENDARI_SITE_CODES`
+translates a site's codes into the codes a spec 0.3 pack's code sets declare, one map per
+organization (inline JSON or a file: `{"<org>": {"version": ..., "sets": {"<code set>":
+[{"system", "code", "as"}]}}}`). Unset, no code is translated and nothing changes. It is checked
+at startup against the code sets of the packs found: a translation must land on a code its set
+declares, and anything wrong stops the server, naming the organization and the code set, never a
+code. A translation only fills in where the pack's own codes give nothing. A FHIR decision the
+server makes reads with its own organization's map, never another's (the command line reads
+none), and records the map's version and SHA-256 (`site_codes`, beside `data_coverage`, which
+is read with the same translations); `/api/health` shows the caller's. **A decision read
+through a translation never automates:** AUTO becomes HUMAN_REVIEW (`site code translated
+(<code set>): a person decides`), and so does a pack rule's BLOCK, and nothing lifts it,
+governance included, until the site validates its map. No shipped pack declares a code set
+yet. See
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
+
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
 Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on

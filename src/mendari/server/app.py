@@ -64,6 +64,7 @@ from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import SearchPath, discover, version_key
+from mendari.core.site_codes import site_codes
 from mendari.errors import (
     AuthError,
     CdsHooksError,
@@ -960,6 +961,10 @@ def create_app(
         if current is None or version_key(pack.version) > version_key(current.version):
             installed[pack.id] = pack
     packs = {pack_id: pack for pack_id, pack in installed.items() if not only or pack_id in only}
+    # The site code maps, per organization (LP-23i): unset, no code is translated. Anything wrong
+    # in them, or a translation into a code no pack found here declares (served or not, so one
+    # setting serves every per-pack image), fails here, at startup, naming the organization.
+    site_maps = site_codes(installed.values(), signed_in=sign_in is not None)
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
@@ -1052,6 +1057,7 @@ def create_app(
                 origin_approval=registry_approved,
                 recall_source=recall_watch.held,
                 deadline_s=deadline_s,
+                site_codes=site_maps,
             )
         except MendariError:
             raise
@@ -1338,8 +1344,9 @@ def create_app(
         on this request), the session policy, the organization's daily quotas with what it used
         today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
         or null), the registered CDS clients of the caller's organization (`cds_clients`: their
-        ids, or null when none is registered), and the id of the key that signs the daily
-        checkpoint (`checkpoint_key`, or null).
+        ids, or null when none is registered), the site code map of the caller's organization
+        (`site_codes`: its version and SHA-256, or null), and the id of the key that signs the
+        daily checkpoint (`checkpoint_key`, or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
         be built, the problems an owned pack loads with, `pack_warnings`) is
@@ -1393,6 +1400,13 @@ def create_app(
                 None
                 if cds is None
                 else cds.ids(None if principal.kind == "open" else principal.org)
+            ),
+            # The caller's organization's site code map (MENDARI_SITE_CODES, LP-23i): the version
+            # and SHA-256 its FHIR decisions record; None: no code is translated for it.
+            "site_codes": (
+                None
+                if site_maps is None or (found_map := site_maps.for_org(principal.org)) is None
+                else found_map.stamp()
             ),
             "phi_mode": phi.mode,
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and

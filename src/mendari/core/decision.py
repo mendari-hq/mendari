@@ -30,6 +30,7 @@ from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import origin_of, resolve_pack
+from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
 from mendari.core.spec import Outcome, Priority
 from mendari.errors import (
     FhirStructureError,
@@ -80,6 +81,9 @@ class DecisionResult:
     # `mendari.data-coverage/1`): counts, reason codes and the pack's own words, never a value.
     # None for a decision on JSON input.
     data_coverage: dict[str, Any] | None = None
+    # The site code map a FHIR decision read its record with (`core/site_codes.py`, LP-23i): the
+    # version and SHA-256 of its organization's map. None without one, and on JSON input.
+    site_codes: dict[str, str] | None = None
     # Why the input was refused before any provider ran (`$decide` reports these as failure).
     # In memory only: not in `to_dict`, so the audit record keeps its shape.
     rejected: bool = field(default=False, compare=False)
@@ -134,6 +138,7 @@ class DecisionResult:
             "governance": self.governance,
             "input_issues": list(self.input_issues),
             "data_coverage": self.data_coverage,
+            "site_codes": self.site_codes,
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -244,9 +249,13 @@ class Decision:
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
         deadline_s: float | None = None,
+        site_codes: SiteCodeMaps | None = None,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
         for each decision instead (a deployment's recorded approvals, per organization).
+        `site_codes` are the deployment's site code maps (`MENDARI_SITE_CODES`, LP-23i): a FHIR
+        decision reads its record with its own organization's, and never automates through one
+        of its translations.
         `deadline_s` is how long each decision's remote calls may take together (default: the
         deployment's `MENDARI_DECISION_DEADLINE_S`, `providers/deadline.py`); each decision
         starts its own clock, which is never kept here (one Decision serves every thread).
@@ -273,6 +282,7 @@ class Decision:
         self.budget = budget
         self.fhir_validation = fhir_validation
         self.deadline_s = deadline_s if deadline_s is not None else decision_deadline_s()
+        self.site_codes = site_codes
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -309,6 +319,16 @@ class Decision:
             if now:
                 held.append(now)
         return held
+
+    def site_map(self) -> SiteCodeMap | None:
+        """The site code map of the organization this decision acts for (`tenancy.current()`;
+        the default organization's when it acts for none, as in open mode), or None: always
+        None without `site_codes`, as for every decision the command line makes (`mendari
+        decide --fhir`; `mendari bulk dataset` reads none either), which never reads
+        `MENDARI_SITE_CODES`. Another organization's is never given."""
+        if self.site_codes is None:
+            return None
+        return self.site_codes.for_org(tenancy.current() or tenancy.DEFAULT_ORG)
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
@@ -412,6 +432,8 @@ class Decision:
         labels: Mapping[str, str] | None = None,
         unreadable: Sequence[tuple[str, str]] = (),
         data_coverage: Mapping[str, Any] | None = None,
+        site_codes: Mapping[str, str] | None = None,
+        translated: Sequence[str] = (),
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
         `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
@@ -421,7 +443,10 @@ class Decision:
         pairs (`errors.ReadReason`). Input that is refused still BLOCKs; otherwise the decision
         is ABSTAIN, before any provider runs, its reasons `could not read <key>: <reason>`, and
         recorded like any other (LP-23d). `data_coverage` is the FHIR decision's record of what
-        it looked for and found (`standards/data_coverage.py`), kept as given."""
+        it looked for and found (`standards/data_coverage.py`), kept as given, and `site_codes`
+        the version and digest of the site code map it read with (LP-23i). `translated` names the
+        code sets a site's translation gave the input a value through: then AUTO, and a rule's
+        BLOCK, become HUMAN_REVIEW (`policy.apply_policy`'s `site_code` cap)."""
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -537,6 +562,7 @@ class Decision:
                     community=self.pack.community,
                     hold=hold,
                     blocks_to_person="; ".join(origin_holds) or None,
+                    site_code=translated,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:
@@ -567,6 +593,7 @@ class Decision:
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
             data_coverage=None if data_coverage is None else dict(data_coverage),
+            site_codes=None if site_codes is None else dict(site_codes),
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
             labels=dict(labels or {}),
@@ -611,7 +638,12 @@ class Decision:
         what it reads is checked as the record is (its R4 and profile issues recorded, by type
         alone in the stored record, refused under `enforce`). A link it did not read, and
         without `links` every link the record does not hold (`not_fetched`), makes the decision
-        ABSTAIN too (`unreadable_links`)."""
+        ABSTAIN too (`unreadable_links`).
+
+        With a site code map for the organization it acts for (`site_map`, LP-23i), the record
+        is read, and its data coverage measured, with that map's translations, and the result
+        records the map's version and digest (`site_codes`); a decision whose input took a value
+        through a translation never automates, and its rule's BLOCK goes to a person."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
@@ -660,20 +692,26 @@ class Decision:
                 for reason in counts
             ),
         ]
+        site = self.site_map()
+        translations = None if site is None else site.sets
         coverage = data_coverage.measure(
             adapter.mapping,
             indexed,
             unreadable=failed,
             systems=[use.url for use in self.pack.manifest.code_systems],
             sources=templates,
+            site_codes=translations,
         )
+        mapped = adapter.read(indexed, site_codes=translations)
         result = self.decide(
-            adapter.to_input(indexed),
+            mapped.value,
             input_issues=[issue.to_dict() for issue in issues],
             rejected=rejected,
             labels=us_core.record_labels(given, issues),
             unreadable=unread,
             data_coverage=coverage,
+            site_codes=None if site is None else site.stamp(),
+            translated=mapped.translated,
         )
         return result, adapter.to_task(result, indexed)
 

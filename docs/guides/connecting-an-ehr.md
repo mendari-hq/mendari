@@ -390,8 +390,84 @@ category's, so for the patients whose site coding comes first a diagnosis reads 
 code, and no referral is found: no decision, no card. The trial pack reads MedicationStatement,
 not MedicationRequest. The prior-authorization pack reads the payer as an identifier, not a
 reference. `tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture,
-not a rate. The next LP-23 steps teach the packs these shapes (linked notes and the payer in
-23h, a site's codes in 23i, the packs' mappings in 23k).
+not a rate. The engine can read these shapes for a pack on spec 0.3 ([linked data](#linked-data),
+[site codes](#site-codes)); the shipped packs' mappings adopt them in a later LP-23 step (23k).
+
+## Site codes
+
+An EHR often codes things its own way: a local code system, or another code of a standard one.
+A pack at spec 0.3 names sets of its own codes (`code_sets`) and reads a field through one
+(`code_set`, [the spec](../spec/decision-pack-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
+says how a site's codes translate into a pack's, one organization at a time. Off until you set
+it: unset, no code is translated and every decision is made as before.
+
+It is inline JSON, or the path of a JSON file. For example (every code here is fictional):
+
+```json
+{
+  "default": {
+    "version": "2026-10-19.1",
+    "sets": {
+      "referral_category": [
+        {"system": "https://ehr.example.org/fhir/CodeSystem/order-types", "code": "REF-7",
+         "as": "FR101"}
+      ]
+    }
+  }
+}
+```
+
+| Field | What it is |
+|---|---|
+| `<org>` | The organization whose decisions read with this map: one your people sign in to, `default` with sign-in off (and then the only one). At most 100. |
+| `version` | Your own label for this version of the map, 1 to 64 visible ASCII characters. Every decision records it. |
+| `sets` | By the name of a code set a pack declares, the translations into it. |
+| `system`, `code` | The site's code: a code system URI (`http`, `https` or `urn:`) and a code in it. |
+| `as` | The pack's code it stands for: one of the codes the set declares. |
+
+At most 10,000 translations in one organization's map, and a site code once in a set. It is read
+at startup, so a change takes effect at the next restart or redeploy. It is checked against the
+code sets of the packs found on the server, served or not: a set no pack declares, or an `as`
+that is not a code of its set, stops the server. The message names the setting, the
+organization, the code set and the translation's position, for example
+`MENDARI_SITE_CODES organization 'default', code set 'referral_category', translation 1: it
+translates into a code the set does not declare`. It never shows a system or a code. A
+translation applies in a pack whose set of that name lists its `as`, and only for that set's
+fields. It only fills in where the pack's own codes give nothing: a coding in the set's own
+system wins over a translated one wherever the field finds it, among one path's codings or on
+a later one of its `paths`. A path that gives a code only through a translation passes to the
+next, and the first translated code counts only when no path gives one of the set's own. So a
+record whose own codes give a field its value is read the same with the map as without it.
+
+What a decision does with it:
+
+- A FHIR decision the server makes (`fhir/decide`, CDS Hooks, `$decide`, an EHR launch) reads
+  its record with the map of the organization it acts for, never another's. Its record keeps
+  `site_codes`: the map's `version` and `sha256`, the SHA-256 of the map's canonical form
+  (`mendari.site-codes/1`: the organization, the version and each set's translations sorted by
+  system and code). The same map written in another order has the same digest; any change, or
+  one organization's map given to another, has another. Without a map it is `null`, as it is on
+  a JSON decision. `/api/health` shows your organization's.
+- The command line reads no map. `mendari decide --fhir` (with `--db` too) and `mendari bulk
+  dataset` read every record as without one: a site's own codes are unknown, the decision
+  records `site_codes: null`, and `MENDARI_SITE_CODES` is not read or checked. A dataset built
+  from your bulk export is so not read as the server reads your records.
+- Its data-coverage record is read with the same translations, so it says what the input read.
+  It holds no translation, and a coding a translation matched counts by its system.
+- What a [linked read](#linked-data) fetched (the Medication behind a `medicationReference`, say)
+  is read with the same map, as the rest of the record is. A map translates codings only: a
+  payer's identifier (`Organization.identifier`) is read as it is, never through a map.
+- **A decision whose input took a value through a translation never automates.** AUTO becomes
+  `HUMAN_REVIEW`, with the reason `site code translated (<code set>): a person decides`. A
+  pack rule's BLOCK, which is final at once, becomes `HUMAN_REVIEW` too, with the reason `site
+  code translated (<code set>): a person decides instead of its rule's BLOCK`. Nothing in a
+  pack or a setting lifts this, a governance approval included. It stays until the site's map
+  is validated (launch gate G5-6, `site-validation`), and lifting it then is the owner's
+  decision.
+
+A map is configuration, not part of a pack: no pack file or digest changes. A site's own SNOMED
+CT codes may go in its map under its own licence; Mendari ships none. No shipped pack declares
+a code set yet.
 
 ## Not built yet
 

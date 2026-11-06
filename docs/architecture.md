@@ -41,8 +41,9 @@
   members' answers with exact probabilities (spec 0.2 §4.3), and adds expected values to score
   answers.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
-  holds all automation limits, including risk-level caps, governance overrides and the
-  community-pack cap (a community pack never automates).
+  holds all automation limits, including risk-level caps, governance overrides, the
+  community-pack cap (a community pack never automates) and the site code cap (a decision read
+  through a site's translation of its own code never automates, `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
   single call (`providers/batch.py`): the inbox router and the Jev half of its safety screen
@@ -69,12 +70,16 @@
    mapped onto the pack input by `fhir/mapping.yaml`, and the decision records what the mapping
    looked for and found, as counts (`standards/data_coverage.py`). A part of the record that
    could not be read (a prefetch read that failed, a note that is only a link) makes the
-   decision `ABSTAIN` after step 2, before any provider runs.
+   decision `ABSTAIN` after step 2, before any provider runs. With a site code map for the
+   caller's organization (`core/site_codes.py`, `MENDARI_SITE_CODES`), a site's own codes are
+   read as the pack's through its code sets, the decision records the map's version and
+   SHA-256, and one that read a value through a translation is never `AUTO`, nor a rule's
+   `BLOCK` without a person (step 4).
 2. JSON Schema validation. Invalid input becomes `BLOCK`, and no provider sees it.
 3. Each provider slot answers its questions. A provider error is recorded per question and
    never raised to the caller. Derived questions are then computed from their members'
    answers, and score answers get their expected value.
-4. Policy: rules, then thresholds, then caps.
+4. Policy: rules, then thresholds, then caps (the site code cap among them, `core/policy.py`).
 5. The `DecisionResult` is returned. With a store attached, the record is written and
    `decision.created` is chained (with sign-in on, naming who asked: `requested_by`).
    `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.

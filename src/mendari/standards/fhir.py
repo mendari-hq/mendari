@@ -31,7 +31,7 @@ import base64
 import html
 import re
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -333,7 +333,8 @@ class Indexed(dict[str, list[dict[str, Any]]]):
 
 
 # A site's translations into the mapping's code sets: {code set: [{system, code, as}]}, the
-# `sets` of one organization's site code map (LP-23i), read by `code_set` selectors only.
+# `sets` of one organization's site code map (LP-23i, `core/site_codes.py`), read by `code_set`
+# selectors only.
 SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 
 
@@ -341,11 +342,18 @@ SiteCodes = Mapping[str, Sequence[Mapping[str, Any]]]
 class Reading:
     """What a mapping reads a record with: the record indexed (for references), the mapping's
     code sets and a site's translations into them. `FhirAdapter.to_input` reads with one, and
-    the data-coverage record (`data_coverage.measure`) reads the same way."""
+    the data-coverage record (`data_coverage.measure`) reads the same way, with the same
+    translations. `translated` collects, as the record is read, each code set a translation
+    gave a field its value through (`read_field`)."""
 
     record: Indexed
     code_sets: Mapping[str, CodeSet]
     site_codes: SiteCodes
+    translated: set[str] = field(default_factory=set, compare=False)
+    # Each code set's translations as a lookup table (`translations`), built once per reading.
+    tables: dict[str, Mapping[tuple[str, str], str]] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
     @classmethod
     def of(
@@ -354,6 +362,26 @@ class Reading:
         """`record` read with `mapping`: references resolve in the record indexed by id once
         (`Indexed.of`), not by a scan for each."""
         return cls(Indexed.of(record), mapping.code_sets, site_codes or {})
+
+    def translations(self, name: str) -> Mapping[tuple[str, str], str]:
+        """The site's translations into code set `name` as a table (`translation_table`): built
+        the first time a field reads through the set, then shared by every field, path and
+        resource of the record, so a map of any size is read once per reading."""
+        table = self.tables.get(name)
+        if table is None:
+            given = self.site_codes.get(name, ())
+            table = self.tables[name] = translation_table(given, self.code_sets[name])
+        return table
+
+
+@dataclass(frozen=True)
+class MappedInput:
+    """A record read with a mapping (`FhirAdapter.read`): the pack's input, and the code sets a
+    site's translation gave a field its value through (LP-23i), sorted; empty without
+    translations, or when every value came from the pack's own codes."""
+
+    value: dict[str, Any]
+    translated: tuple[str, ...]
 
 
 class FhirAdapter:
@@ -452,9 +480,16 @@ class FhirAdapter:
     def to_input(
         self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
     ) -> dict[str, Any]:
-        """The pack's input from an indexed record. `site_codes` (LP-23i) are a site's
-        translations into the mapping's code sets, read by `code_set` selectors only; without
-        them a code set matches its own codes only. Nothing else reads them."""
+        """The pack's input from an indexed record: `read`'s value."""
+        return self.read(indexed, site_codes=site_codes).value
+
+    def read(
+        self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
+    ) -> MappedInput:
+        """The pack's input from an indexed record, and the code sets a translation gave it a
+        value through. `site_codes` (LP-23i) are a site's translations into the mapping's code
+        sets, read by `code_set` selectors only; without them a code set matches its own codes
+        only. Nothing else reads them."""
         reading = Reading.of(self.mapping, indexed, site_codes)
         result: dict[str, Any] = {}
         for target, mapped in self.mapping.fields.items():
@@ -469,7 +504,7 @@ class FhirAdapter:
                     if item:
                         items.append(item)
             _put(result, target, items)
-        return result
+        return MappedInput(result, tuple(sorted(reading.translated)))
 
     def looked_for(self) -> dict[str, Any]:
         """What each mapped field and list looks for, from the mapping alone, never the record:
@@ -819,15 +854,18 @@ def pick_code(
     """The first of a code set's own codes among `values` (Codings, or CodeableConcepts whose
     codings are read), by the set's system and code: spec 0.3's `code_set` selector. A coding
     of another system counts only through `translations` (a site's `{system, code, as}`,
-    LP-23i), and then only as an `as` the set lists; a coding of the set's own system wins over
-    a translated one wherever it is. None when no coding matches."""
-    codings = codings_of(values)
+    LP-23i), and then only as an `as` the set lists; a coding of the set's own system among
+    `values` wins over a translated one. (A field with `paths` reads every path for the set's
+    own codes before a translated one counts: `read_field`.) None when no coding matches."""
+    return picked(values, code_set, translation_table(translations, code_set))[0]
+
+
+def translation_table(translations: Iterable[Any], code_set: CodeSet) -> dict[tuple[str, str], str]:
+    """A site's translations into `code_set` as a lookup table: each site code (system, code) to
+    the set's own code it stands for. A translation whose `as` the set does not list, or whose
+    system, code or `as` is not text, is left out."""
     own = set(code_set.codes)
-    for coding in codings:
-        code = coding.get("code")
-        if coding.get("system") == code_set.system and isinstance(code, str) and code in own:
-            return code
-    table = {
+    return {
         pair: entry["as"]
         for entry in translations
         if isinstance(entry, Mapping)
@@ -835,11 +873,26 @@ def pick_code(
         and isinstance(entry.get("as"), str)
         and entry["as"] in own
     }
+
+
+def picked(
+    values: Iterable[Any], code_set: CodeSet, table: Mapping[tuple[str, str], str]
+) -> tuple[str | None, bool]:
+    """`pick_code`'s code, read with a translation table (`translation_table`; a reading builds
+    each set's once, `Reading.translations`), and whether a translation gave it (False for the
+    set's own code, and when there is none)."""
+    codings = codings_of(values)
+    own = set(code_set.codes)
     for coding in codings:
-        key = _system_code(coding)
-        if key is not None and key in table:
-            return str(table[key])
-    return None
+        code = coding.get("code")
+        if coding.get("system") == code_set.system and isinstance(code, str) and code in own:
+            return code, False
+    if table:
+        for coding in codings:
+            key = _system_code(coding)
+            if key is not None and key in table:
+                return table[key], True
+    return None, False
 
 
 def codings_of(values: Iterable[Any]) -> list[Mapping[str, Any]]:
@@ -888,7 +941,8 @@ class FieldRead:
     """How a field was read in one scope (`read_field`): its value (None when it got none) and
     each path it read, in order, as `select` reads it, with what it was read in and what it
     found there (each value with the resource it was read from). That is every path it tries
-    when none gives a value, else those up to the one that did. With `follow`, how many
+    when none gives a value, else those up to the one that did (a value through a site's
+    translation reads on, for one of the set's own codes: `read_field`). With `follow`, how many
     references the field found and how many resources they reached inside the record, and
     `missing`, each reference as written that reached nothing and is a link (`link_target`) to a
     type the field's paths read: what a linked read reads (LP-23h), and what the data-coverage
@@ -906,9 +960,12 @@ def read_field(
 ) -> FieldRead:
     """A field read in `scope` (the record, or one list resource as {its type: it}; `kind` is a
     list resource's type, which its relative paths start from): each of its paths in order, the
-    first that gives a value winning, so a later path is not read at all. A `follow` is resolved
-    once for the field, whatever number of paths it tries, and the paths are read in the
-    resources it reached."""
+    first that gives a value winning, so a later path is not read at all. A value a site's
+    translation gave (`code_set`, LP-23i) wins only when no path gives one of the set's own
+    codes (spec 0.3 §2.5): the paths after it are read for one, and when none gives one the
+    first translated value is the field's, its code set added to `reading.translated`. A
+    `follow` is resolved once for the field, whatever number of paths it tries, and the paths
+    are read in the resources it reached."""
     references, reached = 0, None
     missing: tuple[str, ...] = ()
     if mapped.follow is not None:
@@ -916,6 +973,7 @@ def read_field(
         references, reached, missing = _followed(mapped.follow, scope, kind, reading.record, types)
     reads: list[tuple[str, Mapping[str, Any], list[tuple[Any, Any]]]] = []
     value = None
+    through = None  # the first value a translation gave, while a later path may give an own code
     for path in mapped.tried:
         if reached is None:
             where, at = scope, _absolute(kind, path)
@@ -924,9 +982,15 @@ def read_field(
             where, at = {wanted: [r for r in reached if r.get("resourceType") == wanted]}, path
         found = _walk(where, at)
         reads.append((at, where, found))
-        value = _value(mapped, found, reading)
-        if value is not None:
+        given, translated = _value(mapped, found, reading)
+        if given is not None and not translated:
+            value = given
             break
+        if through is None:
+            through = given
+    if value is None and through is not None and mapped.code_set is not None:
+        value = through
+        reading.translated.add(mapped.code_set)
     return FieldRead(value, tuple(reads), references, len(reached or ()), missing)
 
 
@@ -957,16 +1021,21 @@ def _followed(
     return len(references), reached, tuple(missing)
 
 
-def _value(mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: Reading) -> Any:
+def _value(
+    mapped: FieldMapping, pairs: list[tuple[Any, Any]], reading: Reading
+) -> tuple[Any, bool]:
+    """What one path gives a field (None for nothing), and whether a site's translation gave
+    it (a `code_set` field's only)."""
     if mapped.transform == "attachment_text":  # each attachment with the resource holding it
         texts = [read_attachment(v, container=c, record=reading.record)[0] for c, v in pairs]
-        return "\n\n".join(text for text in texts if text) or None
+        return "\n\n".join(text for text in texts if text) or None, False
     values = [value for _, value in pairs]
     if mapped.code_set is not None:
-        translations = reading.site_codes.get(mapped.code_set, ())
-        code = pick_code(values, reading.code_sets[mapped.code_set], translations)
-        return code if code is None or mapped.map is None else mapped.map.get(code)
-    return _apply(mapped, values)
+        table = reading.translations(mapped.code_set)
+        code, translated = picked(values, reading.code_sets[mapped.code_set], table)
+        value = code if code is None or mapped.map is None else mapped.map.get(code)
+        return value, translated and value is not None
+    return _apply(mapped, values), False
 
 
 def listed(source: ListSource, resource: Any) -> bool:

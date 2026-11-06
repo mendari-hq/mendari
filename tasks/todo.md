@@ -1015,11 +1015,43 @@ Connect) is not supported yet.
     1,000 linked reads, each answer (at most 1 MiB, 2 MiB for a Binary) kept until the request ends,
     as the residual D14 states. A request-wide read and byte budget is not built; say if one is
     wanted.
-  - [ ] **23i** A site code map per organization, versioned, hashed into each decision, never
-    automated. From the 23d and 23g merge: `data_coverage.measure` reads the record with no site
-    codes (`Reading.of(mapping, indexed)`), so once `decide_fhir` passes them to `to_input`,
-    pass them to `measure` too, or a `code_set` field's items and values can disagree with the
-    input.
+  - [x] **23i** (lane PR) A site code map per organization, versioned, hashed into each decision,
+    never automated. `core/site_codes.py`: `MENDARI_SITE_CODES`, inline JSON or a file, `{org:
+    {version, sets: {<code set>: [{system, code, as}]}}}` (`default` alone with sign-in off; 100
+    organizations and 10,000 translations a map at most; a key given twice is refused), read and
+    checked at startup in `create_app` against the code sets of every pack found, served or not, so
+    one setting serves every per-pack image (a set no pack declares, or an `as` that is not a code
+    of its set, stops the server; the message names the organization, the code set and the position,
+    never a system or a code). Its canonical form (`mendari.site-codes/1`: format, organization,
+    version, each set's translations sorted by system and code, sorted-key ASCII JSON) and its
+    SHA-256. `Decision(site_codes=)` and `site_map()`: `decide_fhir` reads with the map of
+    `tenancy.current()` (the default organization in open mode) through `FhirAdapter.read`, which
+    also says which code sets a translation gave a value through (`MappedInput.translated`, from
+    `fhir.picked`); `data_coverage.measure` reads with the same translations (the 23g merge's note);
+    `DecisionResult.site_codes` (`{version, sha256}` or null) is in `to_dict` and the chained record
+    beside `data_coverage`; health shows the caller's. `core/policy.py`: the `site_code` cap, AUTO
+    to HUMAN_REVIEW with `site code translated (<code set>): a person decides`, after the other caps
+    and before a hold, and a rule's BLOCK to HUMAN_REVIEW, which nothing lifts (governance
+    included). `MENDARI_SITE_CODES` joins `LIVE_SETTINGS`, with a §8 row and a go-live line in
+    `docs/deploying-with-phi.md`. `./scripts/build-reference-pack.sh` was rerun for the policy
+    change: data, models, ledgers and the scoreboard page are byte-identical, and benchmarks and
+    cards differ only in the run block (id, time, latency), so nothing regenerated is committed.
+    Threat-model row T9, E3 updated; the scorecard's DS-3e is met (data shapes stays at level 2).
+    Tests: `tests/test_site_codes.py` (SQLite and Postgres). Docs: `connecting-an-ehr.md` (Site
+    codes, fictional codes only), the spec 0.3 document, the API guide, architecture. Not done:
+    `mendari decide --fhir` and `mendari bulk dataset` read no site code map (the command line acts
+    for no organization; now said in the guide, the §8 row and `site_map`); no reference pack
+    declares a code set until 23k. Review fixes: a field reads all its paths for the set's own code
+    before a translated one counts (`fhir.read_field`, as spec 0.3 §2.5 says); each set's
+    translation table is built once per reading (`Reading.translations`; 301 conditions with 10,000
+    translations went from about 11 s to 0.06 s); a pack rule's BLOCK on a translated input goes to
+    HUMAN_REVIEW too, as `blocks_to_person` does (T9).
+    Lane merge: `tests/test_ehr_profile.py` reads the profile's site diagnosis codes through a map
+    and pins the HUMAN_REVIEW, and `tests/test_fhir_linked.py` a linked Medication's
+    (`::test_a_linked_resource_is_read_through_the_organizations_site_code_map`). Conflict 41's
+    site-map step for the payer is not built: a map translates codings only (spec 0.3 §2.5), and
+    a payer's identifier is not one, so how a payer field reads a site's payer id is 23k's (the
+    owner's question in the lane PR).
   - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
     **The owner confirms the `show` list.**
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it

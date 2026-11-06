@@ -272,6 +272,37 @@ The first release (not yet published).
   reference. `tests/test_ehr_profile.py` pins each with why, as a regression fixture from which no
   rate is computed; LP-23h, 23i and 23k take entries off it. See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client).
+- **A site code map per organization, versioned, hashed into each decision and never automated
+  (LP-23i; off until set, and no shipped pack declares a code set, so nothing changes how a pack
+  decides).** `MENDARI_SITE_CODES` (inline JSON, or the path of a JSON file) translates a site's
+  own codes into the codes a spec 0.3 pack's code sets declare, one map per organization:
+  `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default`
+  alone with sign-in off; at most 100 organizations and 10,000 translations a map; a site code
+  once in a set). It is read at startup and checked against the code sets of every pack found,
+  served or not: a set no pack declares, an `as` that is not a code of its set, a key given twice
+  or anything else wrong stops the server, naming the organization, the code set and the
+  translation's position, never a system or a code. A translation only fills in where the
+  pack's own codes give nothing: the set's own code wins on any of a field's paths, so a record
+  whose own codes give a field its value reads the same with the map as without. A FHIR
+  decision the server makes reads its record with the map of the organization it acts for,
+  never another's (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads
+  none), and records `site_codes`: the map's
+  `version` and the SHA-256 of its canonical form (`mendari.site-codes/1`, the organization in
+  it), so a changed map, or one organization's given to another, has another digest. It is
+  `null` without a map and on JSON decisions, and older records still verify. The data-coverage
+  record is now read with the same translations as the input (`data_coverage.measure`'s
+  `site_codes`), so a `code_set` field's paths, values and items agree with what was decided.
+  `/api/health` shows the caller's organization's map. A new policy cap, `site_code`: a decision
+  whose input took a value through a translation goes from AUTO to HUMAN_REVIEW, its reason
+  `site code translated (<code set>): a person decides`, and so does a pack rule's BLOCK on it
+  (`... a person decides instead of its rule's BLOCK`), and nothing lifts it, a governance
+  approval included, until the site validates its map (G5-6 `site-validation`). What a linked
+  read (LP-23h) fetched is read with the same map; a map translates codings only, so a payer's
+  identifier is never translated. The reference packs were rebuilt for the policy change: their
+  data, models and ledgers are byte for byte as before, and their benchmarks and cards differ only
+  in the run block (its id, time and latency), so none is committed again. Threat-model row T9 (a
+  wrong or swapped map); see
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#site-codes).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

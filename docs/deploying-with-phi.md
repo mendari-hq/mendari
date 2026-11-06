@@ -1003,6 +1003,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
+| `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 pack's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the packs found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does a pack rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
@@ -1075,6 +1076,10 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
       <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
       and the same with any other origin answers `403` with no `Access-Control-` header.
+- [ ] Only if you set `MENDARI_SITE_CODES`: signed in, `/api/health` `site_codes` shows the
+      version and SHA-256 of your organization's map, the same as a FHIR decision's record
+      shows; and a decision whose record was read through one of its translations is
+      `HUMAN_REVIEW`, with the reason `site code translated (<code set>): a person decides`.
 - [ ] Only if you turn on EHR launches: a reviewer, signed in as usual, opens the launched
       decision's id (the one the clinician's window shows, "Recorded in your organization's
       audit trail as …") in the audit trail and sees it; a HUMAN_REVIEW one is in their review
