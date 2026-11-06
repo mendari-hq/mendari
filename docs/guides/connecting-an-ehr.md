@@ -1,7 +1,7 @@
 # Connecting an EHR
 
-An EHR calls Mendari's CDS Hooks services (`GET /cds-services` and
-`POST /cds-services/{id}`) in one of two ways:
+An EHR calls Mendari's CDS Hooks services (`GET /cds-services`, `POST /cds-services/{id}` and
+its card feedback, `POST /cds-services/{id}/feedback`) in one of two ways:
 
 - **With a Mendari key.** An administrator makes a key from the `cds-hooks` preset and the
   EHR sends it as `Authorization: Bearer ohk_…`
@@ -11,7 +11,9 @@ An EHR calls Mendari's CDS Hooks services (`GET /cds-services` and
   private key. Mendari never holds that key. This page is about this way.
 
 Off until you register a client: with `MENDARI_CDS_CLIENTS` unset, a JWT on `/cds-services` is
-refused in every mode, open mode included, and everything else works as before. The decision behind it is
+refused in every mode, open mode included, and everything else works as before. Registered or
+not, with sign-in off the CDS services answer this machine only ([In open mode](#in-open-mode)).
+The decision behind it is
 [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md).
 
 ## Register the EHR
@@ -45,7 +47,7 @@ fictional):
 | `sub` | no | When set, every token must carry exactly this `sub`. |
 | `tenant` | no | When set, every token must carry exactly this `tenant`. When not set, a token with any `tenant` is refused: an EHR shared by several organizations is not supported yet. |
 | `iss_is_fhir_server` | no | `true`: the `fhirServer` a call sends must also be its `iss` (which must then be one of `fhir_servers`). |
-| `origins` | no | The browser origins the EHR calls from. Not used yet: CORS comes in a later step. |
+| `origins` | no | The browser origins (`https://host[:port]`, 0 to 20) the EHR's pages call from. A page there may call the CDS services and read their answers ([below](#from-a-browser)); a page anywhere else may not use this client's tokens. |
 
 Also set `MENDARI_PUBLIC_URL` to the address the EHR calls. A token's `aud` is that URL plus the
 path called, so without it the server does not start.
@@ -102,7 +104,7 @@ hook call refused for its `fhirServer` (below) has passed all of them, so its `j
 ## What a client may do
 
 A verified token is a principal of kind `cds`, in the client's registered organization. It may
-list the services and call them, and nothing else:
+list the services, call them and send feedback on their cards, and nothing else:
 
 - It reaches `/cds-services` and its children only. On any other route the token is not a
   credential: with sign-in on the answer is the same `401` as for any other credential Mendari
@@ -117,12 +119,48 @@ list the services and call them, and nothing else:
 With an `Authorization` header there is no fallback to a session cookie: the token decides
 alone.
 
+## From a browser
+
+Some CDS clients run in the browser: a page on the EHR's own origin calls the services
+directly. For that, list the page's origin in the client's `origins`. Then, on
+`/cds-services` and its children only:
+
+- The browser's preflight from that origin is answered before anything else, with `204`:
+  `Access-Control-Allow-Origin` that origin, `Access-Control-Allow-Methods: GET, POST, OPTIONS`,
+  `Access-Control-Allow-Headers: authorization, content-type`, `Access-Control-Max-Age: 600`.
+- Every answer to that origin names it in `Access-Control-Allow-Origin`, a refusal included, so
+  the page can read why. Every answer there carries `Vary: Origin`.
+- `Access-Control-Allow-Credentials` is never sent. The page sends the EHR's token, never a
+  cookie, and a call that carries a Mendari cookie is refused as another site's.
+- A token from a page must come from one of its own client's `origins`, or from Mendari's own
+  site. From any other origin, another client's included, the call is a `403`
+  (`this CDS client does not call from this origin`) before the token's `jti` is used.
+
+A page on an origin no client registered gets no CORS header, and its calls are refused as
+before. Nothing else Mendari serves is open to other origins.
+
 ## In open mode
 
-With sign-in off, a JWT on `/cds-services` is verified too, and without a registry it is
+With sign-in off, the CDS services answer this machine only: a call from a loopback address
+(`127.0.0.1`, `::1`), to a `Host` that names this machine (`localhost`, a `.localhost` name or a
+loopback address), with no forwarding header (`Forwarded`, `X-Forwarded-For`,
+`X-Forwarded-Host`, `X-Real-IP`). From anywhere else every call is a `403`, before any
+credential is read, a valid token included, and the security log says `open_mode_remote`. An
+EHR on a network calls a server with sign-in on, and so does anything behind a proxy. A proxy
+that adds a forwarding header makes every call it forwards look remote. A proxy on this machine
+that adds none makes every call it forwards look local, wherever it came from. nginx's default is
+one: `proxy_pass http://127.0.0.1:8000` sends `Host: 127.0.0.1:8000` and no forwarding header.
+
+A synthetic sandbox reached over a network, such as the compose sandbox's open engine, which
+Docker reaches from its network's gateway, sets `MENDARI_CDS_SANDBOX=1`: it then answers from
+anywhere, and says so at startup. `0` is off, as unset is. The server refuses to start with any
+other value, and with `1` on Vercel or with sign-in on.
+
+On this machine, a JWT on `/cds-services` is verified too, and without a registry it is
 refused. A request with no credential is answered as before, so a local demo that sends no
-token still works. Off `/cds-services` open mode reads no credential, a JWT included. A tool that always sends its own JWT, such as the public CDS Hooks Sandbox,
-has to be registered first, with `org` set to `default`.
+token still works. Off `/cds-services` open mode reads no credential, a JWT included. A tool
+that always sends its own JWT, such as the public CDS Hooks Sandbox, has to be registered first,
+with `org` set to `default`, and its page's origin in `origins`.
 
 ## Check it
 
@@ -152,14 +190,93 @@ has to be registered first, with `org` set to `default`.
 | `cds_no_organization_record` | Memberships mode: the client's organization has no record. |
 
 A `fhirServer` refused for a `cds` principal is an `auth.permission.refused` line, reason
-`cds_fhir_server_not_registered`.
+`cds_fhir_server_not_registered`. A token from a page on an origin that is not its client's is
+an `auth.origin.refused` line, reason `cds_origin`, with `cds:<id>`. In open mode, a call from
+another machine is an `auth.permission.refused` line, reason `open_mode_remote`.
+
+## The cards
+
+Each card is CDS Hooks 2.0's:
+
+- Its `uuid` is the id of the decision it shows. Its one suggestion has its own `uuid`, and the
+  card says `selectionBehavior: at-most-one`.
+- It offers three override reasons, from
+  `https://mendari.co/fhir/CodeSystem/card-override-reasons` (served at
+  `/fhir/CodeSystem/card-override-reasons`): `not-relevant`, `already-addressed` and
+  `clinical-judgement`, each with its display.
+- The summary uses the pack's display names, under 140 characters. The detail is the pack's
+  status, the notice and one plain sentence for the outcome, and never a percentage: the
+  confidence the card used to show as one is gone.
+- The prior authorization service is a Da Vinci CRD service. Its discovery entry declares
+  `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
+  is `coverage-info` in `source.topic`. A request with
+  `"extension": {"davinci-crd.configuration": {"coverage-info": false}}` gets no cards and no
+  system actions. Each order is still decided and recorded.
+
+The links on a card need `MENDARI_PUBLIC_URL`:
+
+| Link | When | Where it goes |
+|---|---|---|
+| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link. |
+| The pack (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#card`, the pack's card. |
+| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<pack>`. The EHR adds `iss` and `launch`. |
+
+Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail, but for
+the confidence thresholds' reason (such as `confidence 0.94 is below the auto threshold 0.95`):
+its figures carry no interval, and the outcome's sentence says what it decided. The audit trail
+keeps it. A
+clinician without a Mendari account sees no reasons behind the link: give pilot clinicians
+accounts, or open the pack from the EHR (the launch link).
+
+## Card feedback
+
+When the clinician acts on a card, the EHR may send CDS Hooks 2.0 feedback to
+`POST /cds-services/{id}/feedback`, with a token for that URL (or the `cds-hooks` key):
+
+```json
+{
+  "feedback": [
+    {
+      "card": "<the card's uuid>",
+      "outcome": "accepted",
+      "acceptedSuggestions": [{"id": "<its suggestion's uuid>"}],
+      "outcomeTimestamp": "2026-10-18T12:00:00-04:00"
+    },
+    {
+      "card": "<another card's uuid>",
+      "outcome": "overridden",
+      "overrideReason": {
+        "reason": {
+          "system": "https://mendari.co/fhir/CodeSystem/card-override-reasons",
+          "code": "clinical-judgement"
+        }
+      },
+      "outcomeTimestamp": "2026-10-18T12:01:00-04:00"
+    }
+  ]
+}
+```
+
+- 1 to 50 cards in one request, each once. The answer is `{"recorded": <n>}`.
+- `accepted` names the card's one suggestion. `overridden` names one of the card's reasons, or
+  none. Anything the card did not offer, a field CDS Hooks 2.0 does not define (a Coding is
+  `system`, `code` and `display`), or an `outcomeTimestamp` with no time in UTC is a `422`.
+  `extension`, which CDS Hooks 2.0 reserves for implementations, is accepted on any object of
+  the body and never kept.
+- Each card must be a decision of that service, in the caller's organization, and, with sign-in
+  on (or for a CDS client's token), one the same caller asked for. Otherwise the answer is one
+  `404` for all of them, whichever it was.
+- It is all or nothing: a refused request records nothing.
+- Each card's feedback is chained on its decision as `card.feedback`: the service, the outcome,
+  the suggestion taken, the reason's system and code, the time and who sent it. `userComment`
+  is never kept.
+- It counts against the decide rate limit, as `cds:<id>`, and not against the daily cap: it
+  decides nothing.
 
 ## Not built yet
 
 These come in the next LP-23 steps:
 
-- Open mode answering CDS Hooks only on this machine, and CORS for the registered `origins`.
 - A hook that always answers: a record Mendari cannot read gives a recorded ABSTAIN with its
   reason, and every FHIR decision says what was read.
-- Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect.
 - Inferno's CRD kit calling Mendari as the CDS client in CI.

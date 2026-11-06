@@ -37,6 +37,7 @@ from mendari.core.spec import (
     Outcome,
     PackManifest,
     Priority,
+    card_summary_problems,
     licensed_systems,
     prefetch_problems,
     version_key,
@@ -262,7 +263,8 @@ def load_pack(
     bare placeholders (`manifest_template_problems`): a pack the deployment does not own is
     refused for any problem, and its FHIR mapping and Task text are checked too; an owned one
     loads, with the problems as its `warnings`, and a variant with one fails when it is built,
-    as before."""
+    as before. A 0.1 or 0.2 pack whose FHIR mapping uses a spec 0.3 key is refused wherever it
+    comes from (`standards.fhir.version_problems`)."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -393,6 +395,14 @@ def load_pack(
 
             FhirAdapter.for_pack(pack)
         return pack
+    if manifest.inputs.fhir is not None:
+        # Spec 0.3's mapping keys in a 0.1 or 0.2 pack: refused for every pack, as
+        # `cross_reference_problems` refuses 0.2 features in a 0.1 pack (the rest of an owned
+        # pack's mapping is read where it is used).
+        from mendari.standards.fhir import version_problems  # imports this module
+
+        if newer := version_problems(pack):
+            raise PackValidationError(manifest.id, newer)
     warnings = held + problems
     return replace(pack, warnings=tuple(warnings)) if warnings else pack
 
@@ -401,9 +411,11 @@ def manifest_template_problems(manifest: PackManifest) -> list[str]:
     """What a pack's manifest templates are held to beyond their shape (LP-16e): each CDS Hooks
     prefetch template is a read or search relative to the EHR's FHIR server
     (`spec.prefetch_problems`), and each card summary uses bare placeholders
-    (`templates.template_problems`; their names are checked with the manifest). `load_pack`
-    refuses a pack the deployment does not own for any and warns an owned one; `mendari
-    validate` refuses both. The FHIR Task text is the mapping's (`standards/fhir.py`)."""
+    (`templates.template_problems`; their names are checked with the manifest) and stays under
+    a card's 140 characters however its placeholders are filled (`spec.card_summary_problems`,
+    LP-23f). `load_pack` refuses a pack the deployment does not own for any and warns an owned
+    one; `mendari validate` refuses both. The FHIR Task text is the mapping's
+    (`standards/fhir.py`)."""
     hooks = manifest.cds_hooks
     problems = prefetch_problems(hooks)
     if hooks is not None and hooks.card is not None:
@@ -412,7 +424,7 @@ def manifest_template_problems(manifest: PackManifest) -> list[str]:
             for key, summary in hooks.card.summaries.items()
             for problem in template_problems(summary, manifest.questions)
         ]
-    return problems
+    return problems + card_summary_problems(manifest)
 
 
 def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:

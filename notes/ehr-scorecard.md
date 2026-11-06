@@ -47,16 +47,16 @@ Seven dimensions, each graded on five levels by named criteria:
 | Dimension | Level | Overall | Scope |
 |---|---|---|---|
 | 1. Client trust | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
-| 2. Who may call from where | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 2. Who may call from where | 3 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 3. Failure behaviour | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 4. Data shapes | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
-| 5. Cards and workflow | 1 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
+| 5. Cards and workflow | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 6. Conformance evidence | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 | 7. Vendor fit | 2 | 1 | rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only, not a vendor certification |
 
-**Overall:** level 1, the lowest dimension (who may call from where, failure behaviour, and cards
-and workflow). Rubric v1, graded at `06d5332f` with LP-23a, synthetic data and test keys only,
-not a vendor certification.
+**Overall:** level 1, the lowest dimension (failure behaviour; who may call from where was
+level 1 too until LP-23c, and cards and workflow until LP-23f). Rubric v1, graded at `06d5332f`
+with LP-23a, synthetic data and test keys only, not a vendor certification.
 
 ## 1. Client trust
 
@@ -82,13 +82,13 @@ Which hosts and browser origins may reach the CDS services, with sign-in on and 
 | Id | Level | Criterion | Status | Evidence | Source | Built in, or waits on |
 |---|---|---|---|---|---|---|
 | WC-2a | 2 | A request from another site reaches only the public routes and pages. | met | `tests/test_origin.py::test_another_sites_requests_reach_exactly_the_public_routes_and_pages` | A12.1d | |
-| WC-2b | 2 | With sign-in off (open mode), `/cds-services` answers only on this machine or under an explicit sandbox flag. | missing | missing | A12.1e | 23c: open mode answers on any host today, a forged token included |
-| WC-3a | 3 | CORS on `/cds-services` and its children only, for registered EHR origins, without credentials. | missing | missing | A12.1d | 23c |
-| WC-3b | 3 | A cross-site `Origin` on a CDS client's token must be one of that client's own origins. | missing | missing | A12.1d | 23c |
-| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23c, 23e |
+| WC-2b | 2 | With sign-in off (open mode), `/cds-services` answers only on this machine or under an explicit sandbox flag. | met | `tests/test_cds_open_mode.py::test_open_mode_answers_cds_hooks_on_this_machine_only`, `tests/test_cds_open_mode.py::test_a_spoofed_host_or_forwarded_header_is_not_this_machine`, `tests/test_cds_open_mode.py::test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_with_sign_in`, `tests/test_cds_open_mode.py::test_a_verified_token_does_not_lift_the_rule_in_open_mode` | A12.1e | 23c: a loopback address, a local `Host` and no forwarding header, else `403` (`open_mode_remote`); `MENDARI_CDS_SANDBOX=1` refused on Vercel and with sign-in on (open mode answered any host before, a forged token included until 23b) |
+| WC-3a | 3 | CORS on `/cds-services` and its children only, for registered EHR origins, without credentials. | met | `tests/test_cds_cors.py::test_a_registered_origin_gets_cors_on_cds_services_only`, `tests/test_cds_cors.py::test_a_preflight_is_answered_before_the_guard_without_credentials`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before`, `tests/browser/test_cds_cors.py::test_a_page_on_a_registered_origin_reads_a_hook_answer` | A12.1d | 23c: `server/cors.py`, the clients' `origins` |
+| WC-3b | 3 | A cross-site `Origin` on a CDS client's token must be one of that client's own origins. | met | `tests/test_cds_cors.py::test_an_origin_registered_for_another_client_is_refused`, `tests/test_cds_cors.py::test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before` | A12.1d | 23c: `CdsRegistry.from_its_origin`, a `403` (`cds_origin`) before the `jti` is claimed |
+| WC-4a | 4 | Over HTTP from another container in CI, a signed CDS client is answered by the signed-in engine, and only the sandbox's flagged engine answers in open mode. | missing | missing | A12.5a | 23e: 23c set the flag on the compose sandbox's open engine alone; the call from another container in CI is 23e's |
 | WC-5a | 5 | Epic's sandbox reaches Mendari's CDS services from Epic's own servers. | missing | missing | A12.acc-3 | the owner: whether Epic's free sandbox can call an external CDS service at all (owner decision 15) |
 
-**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+**Grade:** level 3. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
 synthetic data and test keys only, not a vendor certification.
 
 ## 3. Failure behaviour
@@ -139,16 +139,16 @@ What the clinician sees, and what comes back from them.
 | CW-2a | 2 | Discovery and every card say the pack's status and the notice. | met | `tests/test_pack_status.py::test_cds_hooks_say_it_in_discovery_and_on_every_card`, `tests/test_notice.py::test_cds_hooks_carry_it` | A12.2c | |
 | CW-2b | 2 | The trial, prior-authorization and referral cards use their pack's own plain-language summaries. | met | `tests/test_trial_pack.py::test_patient_view_card`, `tests/test_prior_auth_pack.py::test_order_sign_gives_a_card_per_covered_order`, `tests/test_referral_pack.py::test_order_sign_gives_one_card_per_referral` | A12.2c | |
 | CW-2c | 2 | A pack can decide and audit without showing a card (`show`), as the trial pack does for a patient who is clearly not eligible. | met | `tests/test_fhir_lists.py::test_patient_view_cards_use_the_packs_wording`, `tests/test_trial_pack.py::test_patient_view_card` | A12.2e | |
-| CW-2d | 2 | No card shows a bare percentage. | missing | missing | Definition of shipped §3 | 23f: today a card's detail shows the confidence as a bare percentage |
-| CW-3a | 3 | A card with suggestions says its `selectionBehavior`. | missing | missing | A12.2a | 23f |
-| CW-3b | 3 | A feedback endpoint records accepted and overridden cards in the chain. | missing | missing | A12.2b | 23f |
-| CW-3c | 3 | A card's words use the pack's display names, and the engine's detail sits behind a link to the audit view. | missing | missing | A12.2c-audit-link | 23f |
-| CW-3d | 3 | A card links to the EHR launch view. | missing | missing | A12.2d | 23f |
+| CW-2d | 2 | No card shows a bare percentage. | met | `tests/test_cds_cards.py::test_no_card_shows_a_bare_percentage` | Definition of shipped §3 | 23f: the confidence, shown as a bare percentage before, left the card's detail in every configuration |
+| CW-3a | 3 | A card with suggestions says its `selectionBehavior`. | met | `tests/test_cds_cards.py::test_a_card_with_suggestions_says_its_selection_behavior` | A12.2a | 23f: `at-most-one`, with the override reasons of Mendari's own CodeSystem |
+| CW-3b | 3 | A feedback endpoint records accepted and overridden cards in the chain. | met | `tests/test_cds_feedback.py::test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained`, `tests/test_cds_feedback.py::test_feedback_naming_another_organizations_packs_or_callers_decision_answers_as_unknown` | A12.2b | 23f: `POST /cds-services/{id}/feedback`, chained as `card.feedback`, codes and ids only |
+| CW-3c | 3 | A card's words use the pack's display names, and the engine's detail sits behind a link to the audit view. | met | `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged`, `tests/test_cds_cards.py::test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made` | A12.2c-audit-link | 23f: the link when `MENDARI_PUBLIC_URL` is set; without it, the reasons stay in the detail, but for the confidence thresholds' |
+| CW-3d | 3 | A card links to the EHR launch view. | met | `tests/test_cds_cards.py::test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_organization` | A12.2d | 23f: a `smart` link with `?pack=`, when SMART is on and the `fhirServer` is a launch-registered EHR of the caller's organization |
 | CW-3e | 3 | Referral cards show only when action is needed, and the inbox pack has a card template. | partial | `tests/test_trial_pack.py::test_patient_view_card` | A12.2e, A12.2c | 23j: the mechanism exists, and the referral and inbox packs do not use it yet; the owner confirms the referral `show` list (owner decision 4) |
-| CW-4a | 4 | Every card matches the CDS Hooks 2.0 card shape, and Inferno's CRD card tests pass. | missing | missing | A12.acc-1 | 23f, 23l |
+| CW-4a | 4 | Every card matches the CDS Hooks 2.0 card shape, and Inferno's CRD card tests pass. | missing | missing | A12.acc-1 | 23l: 23f checks every card against CDS Hooks 2.0's card shape in Mendari's own tests, and a CRD service's cards carry `source.topic`; Inferno's CRD card tests are 23l's |
 | CW-5a | 5 | Epic's sandbox shows the cards and sends feedback on them. | missing | missing | A12.2b | the owner: the Epic sandbox run, and whether Epic sends feedback (`notes/epic-sandbox-checklist.md`) |
 
-**Grade:** level 1. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
+**Grade:** level 2. **Overall:** level 1. Rubric v1, graded at `06d5332f` with LP-23a,
 synthetic data and test keys only, not a vendor certification.
 
 ## 6. Conformance evidence

@@ -166,6 +166,13 @@ class CdsHooksError(MendariError):
     one request may hold (a `400`; the EHR can send them in several requests)."""
 
 
+class UnknownCard(MendariError):
+    """CDS Hooks card feedback naming a card that is not a decision of the service's pack in the
+    caller's organization, or, when the caller is named (sign-in on, or a CDS client's token),
+    one another caller asked for: one refusal for them all (a `404`), whichever it is, and
+    nothing is recorded (`AuditStore.record_card_feedback`, LP-23f)."""
+
+
 class SmartError(MendariError):
     """A SMART on FHIR launch cannot continue: not configured, a bad or expired state, a token
     the authorization server should not have issued, or no session. `reason` is the fixed code

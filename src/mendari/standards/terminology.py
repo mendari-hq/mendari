@@ -9,6 +9,7 @@ what Mendari emits. The server serves them and CI loads them into the HL7 valida
 | `…/fhir/CodeSystem/decision-outcome` | `Outcome` | Task.businessStatus |
 | `…/fhir/CodeSystem/audit-event` | events chained on a decision | AuditEvent.subtype |
 | `…/fhir/CodeSystem/decision-pack` | `id@version` of the packs served | Task.meta.tag |
+| `…/fhir/CodeSystem/card-override-reasons` | why a card was overridden | `overrideReasons` |
 | a pack's `task.performer_system` | what `FhirAdapter.to_task` routes to | Task.performerType |
 | `…/packs/{pack}/CodeSystem/{question}` | labels, defined by their criteria | Da Vinci DTR |
 
@@ -86,6 +87,20 @@ OUTCOMES: dict[Outcome, tuple[str, str]] = {
     ),
 }
 _ACTIONS = {"C": "create", "R": "read", "U": "update", "D": "delete", "E": "execute"}
+# Why a clinician overrode a CDS Hooks card (its `overrideReasons`, and the reason card feedback
+# may name, LP-23f): three neutral codes (owner decision 8), each with its display.
+OVERRIDE_REASONS_SYSTEM = f"{_OWN}card-override-reasons"
+OVERRIDE_REASONS: dict[str, tuple[str, str]] = {
+    "not-relevant": ("Not relevant", "The card does not apply to this patient or this order."),
+    "already-addressed": (
+        "Already addressed",
+        "What the card suggests is already done, or under way.",
+    ),
+    "clinical-judgement": (
+        "Clinical judgement",
+        "The clinician decided otherwise, on their own clinical judgement.",
+    ),
+}
 NAMING_SYSTEMS = (
     (
         "decision-id",
@@ -186,6 +201,7 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
         _outcomes(),
         _audit_events(),
         _administrative_events(),
+        _override_reasons(),
         _decision_packs(served),
         *_performers(served),
         *(system for pack in served for system in _questions(pack)),
@@ -259,6 +275,27 @@ def resource_id(text: str) -> str:
     if slug and len(slug) <= 64:
         return slug
     return f"{slug[:55].rstrip('-.')}-{hashlib.sha256(text.encode()).hexdigest()[:8]}".lstrip("-")
+
+
+def override_reasons() -> list[dict[str, str]]:
+    """The reasons a card offers for overriding it (CDS Hooks 2.0 `overrideReasons`), as Codings
+    of `OVERRIDE_REASONS_SYSTEM`, each with its display."""
+    return [
+        {"system": OVERRIDE_REASONS_SYSTEM, "code": code, "display": shown}
+        for code, (shown, _) in OVERRIDE_REASONS.items()
+    ]
+
+
+def _override_reasons() -> dict[str, Any]:
+    return _code_system(
+        OVERRIDE_REASONS_SYSTEM,
+        "card-override-reasons",
+        "Mendari card override reason",
+        "Why a clinician overrode a CDS Hooks card from Mendari without taking its suggestion: "
+        "the card's overrideReasons, and the reason its feedback may give.",
+        __version__,
+        [_concept(code, shown, meaning) for code, (shown, meaning) in OVERRIDE_REASONS.items()],
+    )
 
 
 def _outcomes() -> dict[str, Any]:

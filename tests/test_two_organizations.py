@@ -68,6 +68,8 @@ from tests.conftest import (
 )
 from tests.test_ai_guard_pack import SAFE
 from tests.test_backend_services import Signer, assertion, bearer
+from tests.test_cds_feedback import feedback as card_feedback
+from tests.test_cds_feedback import overridden
 from tests.test_davinci import COMPLETE, PA, package_request, request
 from tests.test_hold import REFILL
 from tests.test_memberships import token_of
@@ -1127,6 +1129,16 @@ def refusals(world: World, x: Org, o: Org) -> None:
         404,
         json=pas,
     )
+    # Feedback on their card (its uuid is their decision's id): the one answer an unknown card
+    # gets, and nothing chained (LP-23f).
+    refused(
+        service,
+        ("POST", "/cds-services/{service_id}/feedback"),
+        "/cds-services/mendari.prior-auth-preflight/feedback",
+        o.one("prior"),
+        404,
+        json=card_feedback(overridden(o.one("prior"), "not-relevant")),
+    )
     # Their signed order names no decision of this organization: DTR's source data error (a 422,
     # spec-130), the same answer an unknown assertion id gets.
     package = refused(
@@ -1655,6 +1667,14 @@ def served(world: World, x: Org) -> None:
         ("POST", "/api/packs/{namespace}/{name}/pas"),
         f"/api/packs/{PA}/pas",
         json=pas,
+        expect=200,
+    )
+    world.call(
+        x,
+        service,
+        ("POST", "/cds-services/{service_id}/feedback"),
+        "/cds-services/mendari.prior-auth-preflight/feedback",
+        json=card_feedback(overridden(x.one("prior"), "already-addressed")),
         expect=200,
     )
     package = world.call(

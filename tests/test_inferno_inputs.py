@@ -43,8 +43,14 @@ ENGINE_IDS = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
-    with TestClient(create_app(db_path=tmp_path_factory.mktemp("inferno") / "e.db")) as client:
-        yield client
+    # As sandbox/inferno/docker-compose.yml's engine: open mode under the sandbox flag, since
+    # Inferno calls it from another machine (LP-23c). Built once for the module, before the
+    # suite's own per-test flag is set.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("MENDARI_CDS_SANDBOX", "1")
+        app = create_app(db_path=tmp_path_factory.mktemp("inferno") / "e.db")
+        with TestClient(app) as client:
+            yield client
 
 
 @pytest.fixture(scope="module")

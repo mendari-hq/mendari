@@ -143,7 +143,7 @@ def test_ci_runs_every_runner() -> None:
         "python3 scripts/doc_blocks.py run cli",
         "uv run python scripts/doc_blocks.py run python",
         "python3 scripts/doc_blocks.py run install",
-        "uv run python scripts/check_doc_snippets.py",  # REST, FHIR, AI Guard and server-db
+        "uv run python scripts/check_doc_snippets.py",  # REST, FHIR, CDS Hooks, AI Guard, server-db
     ):
         assert f"run: {command}" in quickstart, command
     assert "enable-cache: false" in quickstart  # a clean runner
