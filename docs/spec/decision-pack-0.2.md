@@ -523,7 +523,9 @@ macro-F1 and ECE, AUTO and false automation, critical detection and automated mi
 latency, cost per decision, error count and the report's ledger. A row is keyed by pack digest,
 dataset hash, size and configuration, and is ranked by one function
 ([`mendari.rank/1`](evaluation-reports.md#leaderboards-mendarileaderboard2-and-mendarirank1)),
-whose order the card, the command line and the dashboard all show. Rows for one dataset MUST
+whose order the card, the command line and the dashboard all list the rows in. Every set a
+leaderboard is measured on is public, so they show it as a listing order and print no rank: a
+regression check, not a ranking. Rows for one dataset MUST
 come from the same records. Like reports, a leaderboard MUST NOT contain case inputs. A
 `mendari.leaderboard/1` file still loads; its rows have no digest, so none ranks.
 

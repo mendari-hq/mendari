@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-// Provider comparison: the leaderboard in the one ranking (mendari.rank/1, written by the server),
-// cost against accuracy, per-check accuracy. Every share of cases is a figure the server worked
-// out (mendari.figures/1); this view only formats and orders what it is given.
+// Provider comparison: the leaderboard in the server's order (ranking.grouped: the rows that rank
+// as data first, in mendari.rank/1's order, then the rest by configuration name), cost against
+// accuracy, per-check accuracy. The pack's own sets are public, so each table is a regression
+// check, not a ranking: the order is a listing order and no rank is shown (LP-17g). Every share
+// of cases is a figure the server worked out (mendari.figures/1); this view only formats and
+// orders what it is given.
 
 import { chartHtml } from "./charts.js";
 import { criticalText, providerName, remoteModels, variantText } from "./pack.js";
 import { wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, esc, evidenceMark, figureHtml, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
+import { $, docsLink, esc, evidenceMark, figureHtml, icon, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
+
+// Where the scoreboard is said to be: its runbook, which links the page of results (the page's
+// own path names a word this dashboard never uses, tests/test_invite_page.py).
+const SCOREBOARD_DOC = "operations/scoreboard.md";
 
 const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model, a?.type).join() === remoteModels(b?.model, b?.type).join();
 
@@ -32,12 +39,15 @@ function boardGroups(board) {
 export function leaderboardView(board) {
   const { groups, current } = boardGroups(board);
   if (!current) return `<div class="panel"><h2>Provider comparison</h2><p class="muted">No configurations compared yet.</p></div>`;
+  const scoreboard = docsLink(SCOREBOARD_DOC);
   const min = board.ranking.min_positives;
   return `<div class="panel">
     <h2>Provider comparison</h2>
-    <p class="muted">Each set of records is compared on its own (updated ${esc(time(board.updated_at))}). Ranked (${esc(board.ranking.method)}) by the critical cases caught first:
-      fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never by accuracy alone.
-      Only configurations measured on this version of the pack rank, and only where a critical label has at least ${esc(min)} positives.</p>
+    <p class="muted"><b>Public set: regression check, not a ranking.</b> Each set of records is compared on its own (updated ${esc(time(board.updated_at))}).
+      Rows are a listing order: those measured on this version of the pack, where a critical label has at least ${esc(min)} positives, come first, the critical cases caught first
+      (fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never accuracy alone); every other row follows, by configuration name.
+      Sorting a column reorders the rows. Nothing here is graded: the pack's own sets are public, in the repository and in the package, and grades are given only on frozen hidden sets.
+      Mendari's <a href="${esc(scoreboard)}" target="_blank" rel="noopener noreferrer">scoreboard ${icon("external")}</a> shows the reference packs' configurations on their public sets, each figure with its interval and scope.</p>
     <div class="choices" role="group" aria-label="Records">${groups.map((g) =>
       `<button type="button" data-board-group="${g.index}" aria-pressed="${g === current}" title="${esc(g.about.join("; "))}">${esc(g.label)}</button>`).join("")}</div>
     <div id="board" class="mt-3">${boardTables(board, current)}</div>
@@ -55,7 +65,7 @@ export function wireLeaderboard(root, board) {
 }
 
 function boardTables(board, group) {
-  const rows = board.rows.filter((r) => r.group === group.index); // in the ranking's order
+  const rows = board.rows.filter((r) => r.group === group.index); // in the server's listing order
   const min = board.ranking.min_positives;
   const same = (value) => rows.length > 1 && new Set(rows.map((r) => JSON.stringify(value(r)))).size === 1;
   const slots = [...new Set(rows.flatMap((r) => Object.keys(r.providers)))];
@@ -116,8 +126,6 @@ function boardTables(board, group) {
     id: `board-${group.index}`,
     caption: `<b>${esc(group.dataset)}</b> · ${esc(group.about.join("; "))}`,
     rows,
-    rank: (r) => r.rank,
-    unranked: (r) => r.standing_text ?? "",
     stickyFirst: true,
     rowClass: (r) => (isDeployed(r) ? "deployed" : ""),
     columns,
@@ -137,12 +145,11 @@ function costChart(rows, varying, group) {
   const usable = rows.filter((r) => share(r.figures.accuracy) !== null && r.cost_per_decision_usd !== null && r.cost_per_decision_usd !== undefined);
   if (usable.length < 2 || new Set(usable.map((r) => r.cost_per_decision_usd)).size < 2) return "";
   const accuracy = (r) => share(r.figures.accuracy);
-  // Named on the chart: the deployed configuration, the first in the ranking, and every one that no
-  // other beats on both cost and accuracy (the frontier worth choosing from). The rest are named in
-  // their tooltips.
+  // Named on the chart: the deployed configuration, and every one that no other beats on both cost
+  // and accuracy (the frontier worth choosing from). The rest are named in their tooltips.
   const beaten = (r) => usable.some((o) => o !== r && o.cost_per_decision_usd <= r.cost_per_decision_usd && accuracy(o) >= accuracy(r)
     && (o.cost_per_decision_usd < r.cost_per_decision_usd || accuracy(o) > accuracy(r)));
-  const named = (r) => isDeployed(r) || r.rank === 1 || !beaten(r);
+  const named = (r) => isDeployed(r) || !beaten(r);
   return `<h3 class="chart-title">Cost against accuracy</h3>${chartHtml({
     id: `cost-${group.index}`,
     type: "scatter",
