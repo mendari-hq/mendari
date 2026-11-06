@@ -11,6 +11,7 @@ dictionary of guesses cannot match.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import hashlib
 import hmac
 import itertools
@@ -36,10 +37,13 @@ FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
 TRIAL = "mendari/clinical-trial-prescreener"
 PHI_KEY = os.urandom(32)
 # Marks planted in a synthetic case: a Patient id shaped like a medical record number, and an
-# HbA1c value and date no other part of a record could hold.
+# HbA1c value and date no other part of a record could hold. The date is 30 days before today,
+# inside the trial pack's 90-day HbA1c window: a fixed date ages out of it, and the HbA1c
+# criterion then answers "unknown" and shows no evidence (the fixed 2026-07-29 aged out in
+# late October 2026).
 MRN = "MRN4821937"
 LAB_VALUE = "8.37"
-LAB_DATE = "2026-07-29"
+LAB_DATE = (dt.datetime.now(dt.UTC).date() - dt.timedelta(days=30)).isoformat()
 KEYED = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
 
 
