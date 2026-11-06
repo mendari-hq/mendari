@@ -1276,8 +1276,9 @@ vercel curl /api/packs/mendari/patient-inbox-router/evals --deployment <url> -- 
 uv run mendari leaderboard mendari/patient-inbox-router --report jev-test.json
 ```
 
-The scoreboard and its scoped grades (LP-17, being built) follow a method written down before
-their code: the [grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
+The scoreboard and its scoped grades (LP-17, built but for two parts, below) follow a method
+written down before their code: the
+[grading method 1.0](https://github.com/mendari-hq/mendari/blob/main/docs/grading/method-1.0.md)
 (`mendari.grading/1.0`). It sets the arms by provider class, which figures carry which interval,
 the statistics (Clopper-Pearson simultaneous across a pack's critical labels, exact McNemar, the
 paired bootstrap, Holm), the attestations a grade is made of (never a letter or a score), the
@@ -1382,6 +1383,18 @@ public keys in `scoreboard/keys.json` (none yet, so every result reads "unsigned
 publisher's or a registry's key, and fails on any changed byte. The signature covers a prefix of
 its own, so no checkpoint, archive or recall signature passes as a result's
 ([Verifying a scoreboard result](https://github.com/mendari-hq/mendari/blob/main/docs/grading/verifying.md)).
+
+What is left is the owner's, once each and in order, in
+[the owner's runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md#the-owners-runbook):
+the method's numbers confirmed, the grading key made, the method published and its effective
+date set, then the price table, the disclosures and the declarations written, the remote arms'
+replicates run (LP-17i), the hidden sets graded, every new result signed, and the scoreboard
+published. Results are signed only after the effective date, since setting it re-pins the
+method's hash and a signature made before stops verifying. The developer flow, where a pack's
+own author submits to a hidden set (LP-17l), waits for the pack store (LP-20).
+`tests/test_scoreboard_end_to_end.py` takes a result from `mendari scoreboard run` to a signed,
+verified result and a tampered one that fails, and a hidden set's answer from the grading route
+to the store, with `mendari audit verify --evalsets` after it, on SQLite and Postgres.
 
 ## Feedback loop
 

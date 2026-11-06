@@ -3,7 +3,7 @@
 _Mendari engine, dashboard and registry, as of Phase 4b (2026-10-02), with community packs
 (2026-10-04), registry packs on the community engine (LP-16, 2026-10-08), and a registry that
 shows only what it checked, with recalls and the cap on pulled packs (LP-18, 2026-10-17), and CDS
-clients' own signed tokens, with open mode's CDS Hooks on this machine only and CORS for their registered origins (LP-23b and LP-23c, 2026-10-18). Reviewed before the public launch; update it with any change to a trust boundary. The checks named here run in CI.
+clients' own signed tokens, with open mode's CDS Hooks on this machine only and CORS for their registered origins (LP-23b and LP-23c, 2026-10-18), and the scoreboard: its results store, signed results and the hidden-set scoreboard (LP-17, 2026-11-06). Reviewed before the public launch; update it with any change to a trust boundary. The checks named here run in CI.
 Ids are stable: a new threat takes the next number in its letter, and a removed one leaves a
 gap. The packet for the external review is [`review-packet.md`](review-packet.md)._
 
@@ -499,6 +499,41 @@ Whatever it says, and whoever wrote it, a pack cannot:
   only the rule, the author's care and review stand against it. The hidden-case index matches
   the same two forms, so the pack store's upload check (LP-20) will miss a reworded hidden case
   too.
+- **A signed hidden-set result is the owner's attestation, and no one else can recompute it.**
+  Anyone can recompute a public set's result from what the repository holds: its ledger, its
+  dataset, its run record, its price table and the method (T8). A hidden set's answer
+  (`mendari.hidden_scoreboard/1`, LP-17k) has no ledger: its cases never leave the deployment's
+  database, and the grading read keeps nothing of them (ADR-0011). The results store checks the
+  answer against its closed schema and against its own figures (each interval with its k and n,
+  the evidence with its distinct positives, the grades, the banner and the ranking), and its
+  signature covers the run's number. Its k and n, and so every grade it gives, are still the
+  owner's word for what the deployment answered. The answer is bound to its run only by what
+  the run's chained `evalset.graded` also holds (the set, its commitment, the pack's digest, n and
+  the run's number), which an administrator of the deployment can compare with it; the chain
+  holds none of its figures (LP-17 conflict 35: no new event kind). Grading the set again, one
+  more of its runs, is the only second look.
+- **Raw intervals on sets built from templates look narrower than they are.** Every figure on a
+  public set is raw k of n with its exact 95% interval, and Clopper-Pearson takes the n cases as
+  independent. A set generated from templates repeats its inputs: AI Guard's `test` set has 600
+  cases but 81 distinct inputs under `norm/v1`, and 164 `verdict=block` positives but 30
+  distinct. Its intervals are as narrow as 600 independent cases would give, so they overstate
+  how sure each figure is. Against it: each scope names the set's distinct inputs beside n, the
+  evidence rule and the grade's bound count distinct positives (a group detected only when every
+  positive case in it is), the insufficient-evidence banner shows where they fall short, and
+  nothing is ranked or graded on a public set (ADR-0013). The raw interval itself is not
+  widened: that would change every published figure (`mendari.eval/2`, `Proportion.to_dict`).
+- **The key holder could sign an altered result.** A signature says that Mendari's owner vouches
+  for a result as it is (S20, E14); it does not make its figures right. A public result is
+  recomputed from its stored inputs, and its local ledgers re-run, whoever signed it, so one its
+  inputs do not give fails the store's check (T8); a remote configuration's ledgers are
+  recomputed from, never re-run, so its decisions are the word of whoever ran it. A hidden set's
+  answer cannot be recomputed at all: whoever holds `MENDARI_GRADING_SIGNING_KEY` could edit one
+  so that it still fits its schema and agrees with its own figures, give it its new body hash,
+  sign it and store it, and it would verify. What stands against it is around the key and the
+  store, not the result: one key, held offline by the owner, never by a server or CI (E14); the
+  review of each change to `scoreboard/`; the comparison with the run's chained `evalset.graded`
+  above; and, for a key that leaked, taking it out of `scoreboard/keys.json`, after which nothing
+  it signed verifies ([Verifying a scoreboard result](../grading/verifying.md)).
 
 ## Reporting a vulnerability
 

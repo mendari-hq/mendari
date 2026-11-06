@@ -818,6 +818,28 @@ The first release (not yet published).
   signature covers its run's number too. Spec: `docs/spec/evaluation-reports.md`; runbooks
   `docs/operations/evalsets.md` and `docs/operations/scoreboard.md`; threat model T8, I14 and I15.
   No figure, format or decision of a public result changes.
+- **The scoreboard's close-out** (LP-17m; ADR-0013 now Accepted). The launch gates probe what
+  LP-17 built: G3-4's `a9-scoreboard` names the acceptance tests of the statistics, the entries,
+  signing, the results store and its page, the grades and band ranking, and the hidden-set
+  scoreboard, with the no-leak tests, and stays pending on two lines: the owner's run of the
+  remote arms (LP-17i) and the developer flow (LP-17l, after LP-20 and the owner's decisions 4
+  and 10). `grading-method` probes the method's tests and the page's, beside the document; its
+  attestation stays the owner's. `tests/test_scoreboard_end_to_end.py` takes a local
+  configuration's result from `mendari scoreboard run` through `add`, `sign` (a key made for the
+  test) and `verify`, with a changed figure failing both `verify` and the store's check, then a
+  frozen hidden set graded over HTTP with the declared arm, its answer stored, signed and
+  verified, and `mendari audit verify --evalsets` passing, on SQLite and Postgres, in seconds and
+  with no connection off the machine. The scoreboard's runbook ends with the owner's runbook:
+  each owner step once, in order (the method's numbers, the grading key, the method published
+  and its effective date set, the price table, the disclosures, the declarations, the remote
+  replicates, the hidden sets, signing and publishing), with the commands as they are. Signing
+  comes after the effective date: setting it re-pins the method's hash, so a signature made
+  before stops verifying, and the store's check refuses a current result whose signature does
+  not. The runbook's signing command now names the results to sign (`sign` refuses a batch that
+  holds one signed already, or one made under an earlier hash). The threat model keeps three
+  residual risks: a signed hidden-set result is the owner's attestation, which no one else can
+  recompute; raw intervals on sets built from templates look narrower than they are; and the key
+  holder could sign an altered result. Nothing in the engine changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

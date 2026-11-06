@@ -292,7 +292,111 @@ gates:
         what: "A9: a scoreboard and grading service with exact intervals, paired tests and signed results"
         owner: build
         probes:
-          - pending: "LP-17, after LP-10 and LP-11"
+          # LP-17 (ADR-0013, notes/lp17-plan.md), by each step's acceptance. 17b: the statistics
+          # the scoreboard adds, and the references every interval, test and adjustment is held
+          # to (scipy, statsmodels).
+          - tests:
+              - tests/test_stats.py::test_stratified_bootstrap_matches_numpy_on_the_same_resamples
+              - tests/test_stats.py::test_stratified_bootstrap_keeps_each_stratums_size
+              - tests/test_stats.py::test_stratified_bootstrap_with_one_stratum_is_the_plain_bootstrap
+              - tests/test_stats.py::test_weighted_proportion_matches_scipy_beta_at_the_effective_counts
+              - tests/test_stats.py::test_weighted_proportion_with_unit_weights_is_clopper_pearson
+              - tests/test_stats.py::test_brier_reliability_matches_an_independent_numpy_implementation
+              - tests/test_stats.py::test_brier_reliability_is_not_estimable_under_30_per_bin
+              - tests/test_stats.py::test_clopper_pearson_matches_scipy_and_statsmodels
+              - tests/test_stats.py::test_clopper_pearson_at_extreme_levels
+              - tests/test_stats.py::test_mcnemar_matches_statsmodels_and_exact_arithmetic
+              - tests/test_stats.py::test_holm_matches_statsmodels
+              - tests/test_stats.py::test_bootstrap_matches_numpy_and_scipy_on_the_same_resamples
+              - tests/test_stats.py::test_paired_bootstrap_matches_numpy_and_scipy_on_the_same_resamples
+          # 17d: entries (`mendari.scoreboard/1`) and run records, a pure function of their
+          # inputs: evidence on distinct positives, every figure with its interval, a public set
+          # never ranked or graded.
+          - tests:
+              - tests/test_scoreboard.py::test_a_rebuild_from_the_same_inputs_is_byte_identical
+              - tests/test_scoreboard.py::test_twenty_emergency_positives_show_insufficient_evidence
+              - tests/test_scoreboard.py::test_evidence_counts_distinct_positives_never_raw
+              - tests/test_scoreboard.py::test_every_critical_label_needs_enough_not_just_one
+              - tests/test_scoreboard.py::test_the_grades_bound_is_simultaneous_and_over_distinct_groups
+              - tests/test_scoreboard.py::test_every_figure_is_k_of_n_with_its_interval_or_a_bootstrap_interval
+              - tests/test_scoreboard.py::test_ece_is_described_never_given_an_interval
+              - tests/test_scoreboard.py::test_cost_per_1000_is_from_tokens_and_the_dated_table_or_unknown
+              - tests/test_scoreboard.py::test_a_pack_set_or_built_in_price_is_never_used
+              - tests/test_scoreboard.py::test_latency_comes_from_the_run_record_and_is_never_ranked
+              - tests/test_scoreboard.py::test_a_run_record_must_agree_with_its_ledger
+              - tests/test_scoreboard.py::test_a_run_record_holds_no_key_endpoint_or_case_text
+              - tests/test_scoreboard.py::test_the_scope_names_digest_set_models_method_date_disclaimer_and_disclosure
+              - tests/test_scoreboard.py::test_a_public_set_is_a_regression_check_with_no_rank_and_no_grade
+              - tests/test_scoreboard.py::test_weighted_figures_match_a_hand_computation_and_recall_is_never_weighted
+              - tests/test_scoreboard.py::test_arms_are_measured_not_measured_or_not_applicable
+              - tests/test_scoreboard.py::test_freshness_is_worked_out_when_shown_and_never_stored
+              - tests/test_scoreboard.py::test_a_ledger_of_another_digest_or_dataset_is_refused
+              - tests/test_ledger.py::test_a_second_run_gives_byte_identical_results_and_ledgers
+          # 17e: signed results and the public verifier; the key offline, never a server's or
+          # CI's.
+          - tests:
+              - tests/test_scoreboard_signing.py::test_a_signed_result_verifies_and_any_changed_byte_fails
+              - tests/test_scoreboard_signing.py::test_a_result_signed_by_a_publisher_key_is_refused
+              - tests/test_scoreboard_signing.py::test_a_checkpoint_statement_or_archive_signature_never_verifies_as_a_result
+              - tests/test_scoreboard_signing.py::test_the_key_must_differ_from_every_other_key
+              - tests/test_scoreboard_signing.py::test_unset_means_off_and_a_malformed_key_stops_naming_no_value
+              - tests/test_scoreboard_signing.py::test_nan_or_a_non_canonical_body_is_never_signed
+              - tests/test_scoreboard_signing.py::test_verifying_needs_no_secret
+              - tests/test_scoreboard_signing.py::test_signing_refuses_to_run_in_ci
+              - tests/test_scoreboard_signing.py::test_no_server_workflow_or_deployment_names_the_key
+          # 17f: the append-only results store, checked in the required `reference-pack` job,
+          # and the early scoreboard's page (stage 3).
+          - tests:
+              - tests/test_scoreboard_store.py::test_a_result_is_stored_once_by_its_body_hash
+              - tests/test_scoreboard_store.py::test_an_edited_or_removed_result_fails_the_check
+              - tests/test_scoreboard_store.py::test_only_adding_a_valid_signature_may_change_a_result
+              - tests/test_scoreboard_store.py::test_supersedes_names_an_earlier_result_of_the_same_entry
+              - tests/test_scoreboard_store.py::test_each_committed_result_is_what_its_inputs_give
+              - tests/test_scoreboard_store.py::test_a_ledger_on_an_older_digest_is_kept_and_not_rerun
+              - tests/test_scoreboard_store.py::test_running_a_remote_configuration_without_replicates_is_refused
+              - tests/test_scoreboard_store.py::test_the_reference_pack_job_checks_the_store_and_the_page
+              - tests/test_scoreboard_page.py::test_the_page_is_regenerated_from_the_store
+              - tests/test_scoreboard_page.py::test_the_early_scoreboard_is_unranked_with_intervals_banner_and_scope
+              - tests/test_scoreboard_page.py::test_all_five_packs_appear_on_every_public_scoring_set
+              - tests/test_scoreboard_page.py::test_the_page_has_no_bare_percentage_rank_or_ranked
+              - tests/test_scoreboard_page.py::test_unsigned_and_draft_are_said_on_the_page
+          # 17j: grades as attestations and band ranking with its Holm family, given only on
+          # frozen hidden sets.
+          - tests:
+              - tests/test_scoreboard_rank.py::test_the_band_order_is_a_total_preorder_on_generated_arms
+              - tests/test_scoreboard_rank.py::test_equal_band_tuples_share_a_rank
+              - tests/test_scoreboard_rank.py::test_an_arm_failing_a_safety_floor_or_short_of_evidence_is_listed_unranked
+              - tests/test_scoreboard_rank.py::test_ece_and_latency_never_enter_the_order
+              - tests/test_scoreboard_rank.py::test_the_holm_family_is_every_pair_by_every_criterion_and_label_and_matches_statsmodels
+              - tests/test_scoreboard_rank.py::test_rank_intervals_match_hand_computed_references
+              - tests/test_scoreboard_rank.py::test_tests_never_reorder_ranks
+              - tests/test_scoreboard_rank.py::test_attestations_are_met_not_met_or_insufficient_never_a_letter_or_score
+              - tests/test_scoreboard_rank.py::test_an_attestation_is_insufficient_when_a_perfect_result_could_not_meet_it
+              - tests/test_scoreboard_rank.py::test_a_rerun_from_the_same_ledgers_and_seeds_is_byte_identical
+              - tests/test_scoreboard_rank.py::test_nothing_is_ranked_or_graded_on_a_public_set
+          # 17k: the hidden-set scoreboard through the existing grading route, aggregates only;
+          # and the no-leak tests it registers in (LP-11).
+          - tests:
+              - tests/test_evalset_scoreboard.py::test_every_declared_arm_is_decided_on_the_same_cases_in_one_read
+              - tests/test_evalset_scoreboard.py::test_a_declared_remote_arm_is_refused_before_any_case_is_read
+              - tests/test_evalset_scoreboard.py::test_undeclared_arms_say_not_graded_here_or_not_applicable
+              - tests/test_evalset_scoreboard.py::test_the_scoreboard_answer_holds_no_per_case_field
+              - tests/test_evalset_scoreboard.py::test_a_set_with_twenty_urgent_positives_says_insufficient_evidence
+              - tests/test_evalset_scoreboard.py::test_weights_reach_prevalence_dependent_figures_and_never_recall
+              - tests/test_evalset_scoreboard.py::test_two_reads_of_a_set_give_the_same_body
+              - tests/test_evalset_scoreboard.py::test_no_grade_is_final_before_the_method_is_in_effect
+              - tests/test_evalset_scoreboard.py::test_without_arms_the_answer_is_unchanged
+              - tests/test_evalset_scoreboard.py::test_audit_verify_passes_after_a_scoreboard_run
+              - tests/test_evalset_leaks.py::test_no_answer_log_export_or_command_shows_a_hidden_set
+              - tests/test_evalset_grading.py::test_the_result_holds_no_per_case_field
+              - tests/test_evalset_grading.py::test_a_remote_variant_is_refused_before_any_case_is_read
+              - tests/test_evalset_grading.py::test_runs_are_counted_and_the_rotation_rule_refuses
+          # 17m: a local run to a signed, verified result, then a hidden set graded over HTTP and
+          # stored, and the chain verified (SQLite and Postgres).
+          - tests:
+              - tests/test_scoreboard_end_to_end.py::test_a_local_run_to_a_signed_verified_result
+          - pending: "owner: LP-17i, the remote arms on the public `test` sets (the price table, the disclosures and the declarations written, then the run by hand, committed and signed: owner decisions 6 and 7); then a build PR removes this line"
+          - pending: "LP-17l, the developer flow, after LP-20 and owner decisions 4 and 10"
       - id: a10-registry-hub
         what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
         owner: build
@@ -400,9 +504,19 @@ gates:
         what: "The grading method published as a versioned document, with 30 days' notice before a change (B30)"
         owner: owner
         probes:
-          # The method, a draft not in effect (LP-17a); its hash is pinned in mendari.evals.method.
+          # The method, a draft not in effect (LP-17a); its hash is pinned in mendari.evals.method,
+          # and the page of public results is generated from the store under it (LP-17f).
           - file: docs/grading/method-1.0.md
-          - pending: "the rest of LP-17 (17b to 17m: 17m replaces this line with the method's tests)"
+          - tests:
+              - tests/test_grading_method.py::test_the_pinned_hash_is_the_method_documents
+              - tests/test_grading_method.py::test_every_parameter_in_the_code_is_in_the_documents_block
+              - tests/test_grading_method.py::test_the_parameters_are_the_numbers_the_statistics_use
+              - tests/test_grading_method.py::test_the_method_has_a_version_an_effective_date_line_and_a_changelog
+              - tests/test_grading_method.py::test_the_minimum_positives_reach_the_floor_with_a_perfect_result
+              - tests/test_grading_method.py::test_the_documents_evidence_table_is_what_the_code_gives
+              - tests/test_grading_method.py::test_nothing_is_in_effect_without_an_effective_date
+              - tests/test_grading_method.py::test_the_gate_probes_the_method_document
+              - tests/test_scoreboard_page.py::test_the_page_is_regenerated_from_the_store
           - attested: {what: "published at a public URL, with its version and effective date", by: "", date: ""}
 
   - id: G4-5

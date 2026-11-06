@@ -294,12 +294,17 @@ def test_nothing_is_in_effect_without_an_effective_date(monkeypatch: pytest.Monk
 
 
 def test_the_gate_probes_the_method_document() -> None:
-    """Gate `grading-method` (B30) is the owner's: it needs the document (this file probe), the
-    rest of LP-17 and the owner's attestation that it is published (tests/test_gates.py checks
-    that no build session filled that in)."""
+    """Gate `grading-method` (B30) is the owner's: it needs the document (this file probe), this
+    file's tests and the scoreboard page's (LP-17m: nothing of LP-17 is pending there) and the
+    owner's attestation that it is published (tests/test_gates.py checks that no build session
+    filled that in)."""
     gates = yaml.safe_load((ROOT / "launch" / "gates.yaml").read_text())["gates"]
     [prerequisite] = [
         p for gate in gates for p in gate["prerequisites"] if p["id"] == "grading-method"
     ]
     assert prerequisite["owner"] == "owner"
     assert {"file": method.METHOD_PATH} in prerequisite["probes"]
+    assert [next(iter(probe)) for probe in prerequisite["probes"]] == ["file", "tests", "attested"]
+    tests = prerequisite["probes"][1]["tests"]
+    assert "tests/test_grading_method.py::test_the_gate_probes_the_method_document" in tests
+    assert "tests/test_scoreboard_page.py::test_the_page_is_regenerated_from_the_store" in tests

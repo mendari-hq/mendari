@@ -1998,7 +1998,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   7. (18g) A regression is shown, not refused: the version is the publisher's; a pack that
      cannot be evaluated on its own test set with local providers says so.
 
-- [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Proposed). Planned by a mapping
+- [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Accepted 2026-11-06). Built
+  but for two steps (2026-11-06, the LP-17 lane): 17i, the owner's run of the remote arms, and
+  17l, the developer flow, blocked on LP-20 and owner decisions 4 and 10; gate G3-4's
+  `a9-scoreboard` names both as pending, and the owner's lines below are the runbook's steps
+  (`docs/operations/scoreboard.md`, "The owner's runbook"). Planned by a mapping
   workflow (2026-10-17) as thirteen PRs, 17a to 17m: twelve build PRs and one data PR the owner
   runs (17i). It adds a published grading method, a scoreboard computed from ledgers
   (`mendari.scoreboard/1`), and scoped grades and band ranking given only on frozen hidden sets.
@@ -2181,8 +2185,30 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
     Blocked on LP-20 and owner decisions 4 and 10.
-  - [ ] **17m** Close-out: gate probes for `a9-scoreboard` and `grading-method`, the threat
-    model's residual risks, ADR-0013 Accepted, the owner's runbook.
+  - [x] **17m** (lane PR) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
+    acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
+    end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
+    (after LP-20 and owner decisions 4 and 10). `grading-method`: the method's tests and
+    `test_the_page_is_regenerated_from_the_store` in place of its pending line, beside the
+    `file:` probe; the attestation stays empty. Threat model residual risks: a signed hidden-set
+    result is the owner's attestation and no one else can recompute it (bound to its run only by
+    what the chained `evalset.graded` holds); raw intervals on sets built from templates look
+    narrower than they are; the key holder could sign an altered result. ADR-0013 Accepted, its
+    status listing what landed, 17i and 17l open. The owner's runbook
+    (`docs/operations/scoreboard.md`), each owner step once, in order, with the commands as
+    `cli.py` has them: the method's numbers, the key, publishing the method, the effective date,
+    the price table, the disclosures, the declarations, the replicates, the hidden sets,
+    signing, publishing the scoreboard. Found while writing it: setting the effective date
+    re-pins the method's hash, so a result signed before stops verifying and the store's check
+    refuses it while it is current; so the runbook signs only after the effective date, and its
+    signing command names the new results (`sign scoreboard/results/*.json` refuses a batch with
+    one signed already or one under an earlier hash). `tests/test_scoreboard_end_to_end.py::
+    test_a_local_run_to_a_signed_verified_result` (SQLite and Postgres, about 3 s each, with a
+    socket guard refusing any connection off the machine): `scoreboard run`, `add`, `sign` with
+    a throwaway key, `verify`, a changed figure failing `verify` and the store's check; a frozen
+    hidden set graded over HTTP with the declared arm, `add`, signed and verified;
+    `mendari audit verify --evalsets`. `test_grading_method.py::test_the_gate_probes_the_method_document`
+    checks the gate holds no pending line. No pack, figure or decision changes.
 
   Order: 17a first; then 17b, 17c and 17e in parallel; 17d after 17b and 17c; 17f after 17d and
   17e; 17g and 17h after 17f; 17j after 17d; 17k after 17f and 17j; 17i after 17h; 17l after 17k
@@ -2234,17 +2260,52 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   signing key (default: made offline, its public key in `scoreboard/keys.json`); who a
   submitting developer is (LP-19, LP-20); publishing the docs site and the corrected
   `web/index.html` (after G1-2).
-  - [ ] Owner: generate the signing key, publish its public key and sign the committed results.
-  - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`) and mint a grading key once 17k
-    lands.
-  - [ ] Owner: write the price table, the disclosures and the declarations, then run 17i.
-  - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, run the prescreener's
-    three `structured=cql` results again (`mendari scoreboard run
-    mendari/clinical-trial-prescreener --config structured=cql --replicates 3 --again`, with the
-    sandbox's HAPI FHIR up), and commit them with the page: stored pending, they stay "not
-    published: disclosure pending" until then.
-  - [ ] Owner: attest `grading-method` once the site is published, and set the method's
-    effective date.
+  The owner's actions, one line each, in the order of the owner's runbook
+  (`docs/operations/scoreboard.md`, "The owner's runbook", steps 1 to 11). The paid runs, the
+  hidden-set grading and the signatures come on or after the effective date: setting it re-pins
+  the method's hash, so a result signed before stops verifying, and one measured before stays a
+  draft.
+  - [ ] Owner (decisions 3, 5 and 6): confirm or change the method's numbers (the floors, the
+    ceiling, the bands, the days to stale, the replicates, the canary; two-sided bounds; distinct
+    positives) before the method is published; a change is a method edit, a build PR on your
+    word (step 1).
+  - [ ] Owner (decision 9): make the grading key offline, a copy in `~/Documents/mendari-private`,
+    never a server or CI setting (step 2); its public key is listed at signing (below).
+  - [ ] Owner (decision 11, after gate G1-2): publish the docs site with the method and the early
+    scoreboard, and deploy `web/` (`cd web && vercel deploy --prod`); the day the method is at its
+    URL starts its 30 days' notice (step 3).
+  - [ ] Owner (decision 5): set the method's effective date, at least 30 days after the method is
+    published: the date and status lines, `EFFECTIVE` and `METHOD_SHA256` in one PR, the page
+    regenerated; publish the site again; then attest `grading-method` in `launch/gates.yaml`
+    (step 4).
+  - [ ] Owner (decision 8): the benchmark-publication terms of Jev, Claude and gpt-oss read, and
+    the commercial-relationship statement decided for each remote provider type (`jev`, `llm`,
+    `cql`); until then no remote result is published (step 6).
+  - [ ] Owner (decisions 6 and 7): write the price table (`scoreboard/prices/<date>.json`), the
+    disclosures (`scoreboard/disclosures.json`) and the declarations
+    (`scoreboard/declared/<pack name>.json`, every arm's `remote` and the deterministic arm's
+    `local` configuration, committed), then run 17i on or after the effective date: one declared
+    configuration per remote arm, 3 replicates, `test` sets only, 31,500 decisions, outside CI
+    (steps 5 to 8).
+  - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, and on or after the
+    effective date, run the prescreener's three `structured=cql` results again (`mendari
+    scoreboard run mendari/clinical-trial-prescreener --config structured=cql --replicates 3
+    --again`, with the sandbox's HAPI FHIR up), and every local result (`./scripts/build-scoreboard.sh`),
+    and commit them with the page: stored pending, the CQL results stay "not published:
+    disclosure pending" until then (step 8).
+  - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`, their rotation numbers at freeze:
+    decision 4), mint a grading key, and on or after the effective date grade each pack's declared
+    `local` configuration through the route and `mendari scoreboard add` each answer (step 9).
+  - [ ] Owner: sign every result the branch adds (`mendari scoreboard sign`, by name), list the
+    public key in `scoreboard/keys.json`, verify, check and run the secret scan (a base64 public
+    key may need one path allowed in `.gitleaks.toml`) (step 10).
+  - [ ] Owner: publish the signed scoreboard: the docs site again and `web/` (step 11).
+  - [ ] Owner (decision 1): which parts, if any, are built in a private repository (default:
+    none; only the key, the hidden sets' content and the budgets stay out of the repository).
+  - [ ] Owner (decision 2): remote providers on hidden sets (default: local only under the method
+    1.0, so nothing is ranked on a hidden set until this changes).
+  - [ ] Owner (decisions 4 and 10, for 17l): the submission budget per organization, lineage and
+    rotation, and who a submitting developer is and through which route (LP-19, LP-20).
 
 - [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
   by 18h, 2026-10-17): it waits on the owner's choice of where the registry runs.** The build

@@ -3,8 +3,9 @@
 The scoreboard's results live in the repository, in the results store under `scoreboard/`. The
 [early scoreboard](../grading/scoreboard.md) is generated from it. This page says how results
 are run, stored and checked, what to do when a pack changes, and how a hidden set's scoreboard
-is graded and stored. The rules are the [grading method](../grading/method-1.0.md)'s, sections
-3 to 9, 11, 12 and 14; the formats are in the
+is graded and stored. It ends with [the owner's runbook](#the-owners-runbook): every step that
+is the owner's, once each, in order. The rules are the [grading method](../grading/method-1.0.md)'s,
+sections 3 to 9, 11, 12 and 14; the formats are in the
 [spec](../spec/evaluation-reports.md#the-results-store-scoreboard).
 
 !!! warning "Engineering evaluation, not clinical validation"
@@ -290,8 +291,15 @@ never in CI ([verifying a scoreboard result](../grading/verifying.md)):
 
 ```bash
 MENDARI_GRADING_SIGNING_KEY="$(cat ~/private/mendari-grading.key)" \
-  mendari scoreboard sign scoreboard/results/*.json
+  mendari scoreboard sign scoreboard/results/<sha256>.json      # one or more files
 ```
+
+Name the results to sign. `sign` checks every file before it writes any, and refuses the whole
+batch for one result that is signed already, or that was made under an earlier hash of the
+method (which no longer verifies), so `scoreboard/results/*.json` works only while no result is
+signed and the method has not changed since any was made. The results a branch adds are
+`git diff --name-only --diff-filter=A origin/main -- scoreboard/results/`, once committed (step 10
+of [the owner's runbook](#the-owners-runbook)).
 
 Signing adds the signature and changes nothing else, so the result keeps its name, and the check
 accepts the change once the public key is in `scoreboard/keys.json`. A current result's
@@ -374,3 +382,205 @@ While the method has no effective date, the answer's scope says it is not in eff
 attestation (and a ranking, once one is on) is a draft. A 600-case set runs in about 5 seconds
 through the route, its read included, well within the route's deadline (300 seconds), so the
 run stays in the route and no figure is dropped.
+
+## The owner's runbook
+
+Every step here is the owner's: a build session does none of them, and never writes a price
+table, a disclosure, a declaration for a remote run or a signature. Each step is done once, in
+this order. `tasks/todo.md` keeps one owner line for each, and the owner's decisions each step
+rests on.
+
+The order follows one rule. Setting the effective date edits the method, which re-pins its
+SHA-256: every result made before goes stale ("stale: method changed"), and a signature made
+before stops verifying, since the result names a hash that is no longer its version's. The
+store's check refuses a current result whose signature does not verify, so a result signed
+before the effective date must be run again, in the very pull request that sets the date. A
+result measured before the effective day also keeps "method draft, not in effect" for good,
+since its scope records whether the method was in effect on the day it was measured. So the
+paid runs, the hidden-set grading and the signatures all come on or after the effective date.
+Done earlier, each is done again. The results committed today were made under the draft and are
+not signed: step 8 supersedes them.
+
+1. **Confirm the method's numbers** (owner decisions 3, 5 and 6). Every number in the
+   [method's parameters](../grading/method-1.0.md#parameters) is "owner to confirm": the recall
+   floor, the false-automation ceiling, the bands, the cost bands, the days to stale, the
+   replicates, the canary's size; and whether bounds are two-sided and evidence is counted on
+   distinct positives. A change is an edit to the method while it is a draft (the document, its
+   parameter block and `mendari.evals.method`, which a build session can make on your word), so
+   make every change before step 3.
+
+2. **Make the grading key** (owner decision 9), once, straight into a file in your own private
+   folder, never in the repository, so it is never on the screen
+   ([For the key holder](../grading/verifying.md#for-the-key-holder)):
+
+    ```bash
+    mkdir -p ~/private && chmod 700 ~/private
+    (umask 077 && openssl rand -base64 32 > ~/private/mendari-grading.key)
+    ```
+
+    Keep a copy where you keep your other private keys. It is never a server setting or a CI
+    secret. Its public half is listed in `scoreboard/keys.json` at step 10, when it first signs.
+
+3. **Publish the method** (owner decision 11, after gate G1-2): the documentation site, which
+   holds the method and the early scoreboard, and the public page's scores. The site deploys by
+   hand only: Actions, then `docs`, then Run workflow, from `main` (it deploys once the
+   repository is public). The public page is deployed from your own machine:
+
+    ```bash
+    cd web && vercel deploy --prod
+    ```
+
+    The day the method is at its URL starts its 30 days' notice (B30). Note the URL and the
+    day.
+
+4. **Set the effective date**, at least 30 days after step 3's day, in one pull request:
+   - `docs/grading/method-1.0.md`: the date line (`- **Effective date:** YYYY-MM-DD`), the status
+     line (`- **Status:** in effect from YYYY-MM-DD`) and a line in its changelog;
+   - `src/mendari/evals/method.py`: `EFFECTIVE = datetime.date(YYYY, M, D)`, and `METHOD_SHA256`
+     set to the edited document's hash, from `shasum -a 256 docs/grading/method-1.0.md`;
+   - `tests/test_grading_method.py`, whose checks of the draft change with it;
+   - the page and the public page's scores, written again (`uv run python
+     scripts/scoreboard_page.py`) and committed with it. Every stored result now reads "stale:
+     method changed", and stays as it is until step 8.
+
+    The pull request can merge before the day. Publish the site again (step 3's workflow), so
+    the method's page shows its date before it falls. Then fill in the attestation of gate
+    `grading-method` in `launch/gates.yaml` (`by` and `date`): the method at its public URL,
+    with its version and effective date. Once the day comes, the method does not change: a
+    change is a new version, with 30 days' notice of its own.
+
+5. **Write the price table.** `scoreboard/prices/<YYYY-MM-DD>.json` (`mendari.prices/1`), dated
+   the day you read the prices, with where you read them (`source`), and per model type and
+   model id the US dollars per 1,000 input and per 1,000 output tokens, for every model the run
+   calls (Jev's deployed model, and each LLM id it runs):
+
+    ```json
+    {
+      "format": "mendari.prices/1",
+      "date": "YYYY-MM-DD",
+      "source": "<where the prices were read>",
+      "prices": {
+        "jev": {"<model id>": {"input_per_1000": 0.0, "output_per_1000": 0.0}},
+        "llm": {"<model id>": {"input_per_1000": 0.0, "output_per_1000": 0.0}}
+      }
+    }
+    ```
+
+    Each `0.0` is a placeholder for the price you read. Never a price a pack sets, and never a
+    built-in one. A stored table never changes: new prices are a new date. A model the table
+    lacks makes the result's cost "unknown", not a refusal.
+
+6. **Write the disclosures** (owner decision 8). First read each provider's terms on publishing
+   benchmark results (Jev's and each LLM's), and check that the results may be published. Then
+   write, in `scoreboard/disclosures.json` (`mendari.disclosures/1`), per remote provider type
+   (`jev`, `llm`, `cql`), the statement of any commercial relationship between Mendari and that
+   provider, and the file's `date`:
+
+    ```json
+    {
+      "format": "mendari.disclosures/1",
+      "date": "YYYY-MM-DD",
+      "statements": {"cql": "<statement>", "jev": "<statement>", "llm": "<statement>"}
+    }
+    ```
+
+    A result keeps the statement the file held when it was stored, and its figures are shown
+    only while the file still holds it word for word, so the statements come before the runs. A
+    type with no statement reads "not published: disclosure pending" on every surface.
+
+7. **Write the declarations** (owner decision 7, the spend). For each pack,
+   `scoreboard/declared/<pack name>.json` (`mendari.declared/1`, [above](#declaring-a-configuration)):
+   per remote arm one `remote` configuration, run on the public `test` set with replicates, and
+   the deterministic arm's `local` configuration, the one a hidden set grades. `uv run mendari
+   scoreboard arms PACK` lists each arm's configurations. Write each declaration whole, once, and
+   commit it before any run of either kind: a remote run refuses a declaration that is not
+   committed as it is, and a hidden set's answer must cite the declaration as the store holds
+   it. The Clinical Trial Prescreener's declares its CQL configuration already: add to it.
+
+8. **Run the replicates** (LP-17i). From here to step 10, work on or after the effective date,
+   on one branch. On your own machine, never in CI, with the deployment's provider settings in
+   your shell (`JEV_*` and `LLM_*`, as the deployment has them; the same model for every pack,
+   since a later result that reports another model of a type marks every earlier result of that
+   type stale), for each pack and each remote arm its declaration names, with `--config` for each
+   slot the declaration sets (repeated, or the slots separated by commas):
+
+    ```bash
+    uv run mendari scoreboard run <pack id> --config <slot>=<variant> --replicates 3 \
+      --prices scoreboard/prices/<YYYY-MM-DD>.json --dataset test
+    ```
+
+    The Clinical Trial Prescreener's CQL configuration calls no model and needs no table: with
+    the sandbox's HAPI FHIR up (`docker compose up fhir`, after checking which container holds
+    its port with `docker ps`), run its three public sets again:
+
+    ```bash
+    uv run mendari scoreboard run mendari/clinical-trial-prescreener --config structured=cql \
+      --replicates 3 --again
+    ```
+
+    Then every local configuration again, under the method in effect, and the page:
+
+    ```bash
+    ./scripts/build-scoreboard.sh
+    ```
+
+    Each new result supersedes the stale one, which stays in the store. Commit `scoreboard/`,
+    `docs/grading/scoreboard.md` and `web/index.html` together.
+
+9. **Grade the hidden sets.** Once a set is frozen (gate `hidden-sets-frozen`; its rotation
+   numbers set at freeze, owner decision 4:
+   `mendari evalset freeze <set id> --max-runs <runs> --max-age-days <days> --db "$DATABASE_URL"`,
+   [Freezing a set](evalsets.md#freezing-a-set)), mint the organization's grading key
+   ([Grading a hidden set](evalsets.md#grading-a-hidden-set)):
+
+    ```bash
+    mendari access grader-key --org <org> --reason "LP-17's runner" --db "$DATABASE_URL"
+    ```
+
+    Then post each pack's declared `local` configuration and store the answer, as
+    [a hidden set's scoreboard](#a-hidden-sets-scoreboard) says (steps 2 and 3), and commit it:
+
+    ```bash
+    uv run mendari scoreboard add scoreboard-answer.json
+    ```
+
+    Each answer is one of the set's runs. Graded on or after the effective date, its grades are
+    final, not drafts.
+
+10. **Sign.** With every new result committed, sign the results the branch adds, by name: the
+    stale ones it superseded were made under the draft's hash, and `sign` refuses a batch that
+    holds one.
+
+    ```bash
+    MENDARI_GRADING_SIGNING_KEY="$(cat ~/private/mendari-grading.key)" \
+      uv run mendari scoreboard sign \
+      $(git diff --name-only --diff-filter=A origin/main -- scoreboard/results/)
+    ```
+
+    It prints the key's id and its public half, never the key. List them once in
+    `scoreboard/keys.json`, with `valid_from` on or before the earliest day a signed result was
+    measured, and `valid_until` `null` ([The keys file](../grading/verifying.md#the-keys-file)).
+    Then check, and scan for secrets before you push: a public key in base64 can look like an
+    API key to gitleaks, and if it is flagged, allow that one path in `.gitleaks.toml`, with the
+    reason, as the file's own comment asks:
+
+    ```bash
+    uv run mendari scoreboard verify \
+      $(git diff --name-only --diff-filter=A origin/main -- scoreboard/results/)
+    uv run python scripts/check_scoreboard.py --base origin/main
+    uv run python scripts/scoreboard_page.py --check
+    ./scripts/secret_scan.sh
+    ```
+
+    Commit the signatures and the keys file, and open the pull request.
+
+11. **Publish the scoreboard.** Once it merges: the site again (step 3's workflow), and the
+    public page (`cd web && vercel deploy --prod`). Neither marks a signed result "unsigned", and
+    each shows the figures of every remote result whose provider types have their statements; the
+    hidden sets' answers stay off both.
+
+Steps 5 to 7 may be done in any order, each before step 8. Of the owner's other decisions, 1
+(what is built in a private repository) and 2 (remote providers on hidden sets: local only under
+the method 1.0) change none of these steps; 4 sets each set's rotation numbers at its freeze
+(step 9), and its submission budget waits, with 10 (who a submitting developer is), for the
+developer flow (LP-17l, after LP-20).

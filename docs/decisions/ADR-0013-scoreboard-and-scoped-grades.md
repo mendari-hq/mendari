@@ -1,14 +1,42 @@
 # ADR-0013: A scoreboard and scoped grades
 
 ## Status
-Proposed (2026-10-17). Built in steps (LP-17, `tasks/todo.md`, planned in `notes/lp17-plan.md`);
-each step adds what it built here, in the order they land:
-- 17a, the [grading method 1.0](../grading/method-1.0.md) (`mendari.grading/1.0`, a draft not in
-  effect) and its pinned constants (`mendari.evals.method`: the version, the SHA-256 of the
-  document's bytes, the effective date left empty for the owner, and the parameters); nothing
-  imports them yet.
+Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
+planned in `notes/lp17-plan.md`). What landed, in the order it was built:
+- 17a (#257), the [grading method 1.0](../grading/method-1.0.md) (`mendari.grading/1.0`, a draft
+  not in effect) and its pinned constants (`mendari.evals.method`: the version, the SHA-256 of
+  the document's bytes, the effective date left empty for the owner, and the parameters);
+- 17b (#258), the statistics the scoreboard adds (`mendari.evals.stats`: the stratified
+  bootstrap, the Korn-Graubard weighted proportion and Brier's reliability term);
+- 17c (#259), arms by provider class (`mendari.arms/1`, `mendari scoreboard arms`);
+- 17d (#261), scoreboard entries and run records (`mendari.scoreboard/1`, `mendari.run/1`), the
+  price table (`mendari.prices/1`) and the disclosures file (`mendari.disclosures/1`), pure;
+- 17e (#263), signed results and the public verifier (`mendari.evals.signing`,
+  `mendari scoreboard sign` and `verify`), off without the key;
+- 17f (#267, merged with 17j in #268), the results store under `scoreboard/`, its check in the
+  required `reference-pack` job, and the early scoreboard's page (stage 3);
+- 17j (#268), grades as attestations and band ranking with its Holm family
+  (`mendari.evals.grade`, `mendari.evals.bands`), pure;
+- 17g (the LP-17 lane's pull request), the public template sets relabelled "public set:
+  regression check, not a ranking" on the Decision Cards, the dashboard and `web/`, with no Rank
+  column;
+- 17h (the lane), remote arms on public sets: replicates, the flip rate, the canary, the
+  declarations (`mendari.declared/1`) and the disclosures, run by hand and refused in CI; the
+  Clinical Trial Prescreener's CQL configuration measured on Mendari's own CQL engine;
+- 17k (the lane), the hidden-set scoreboard through the existing grading route
+  (`mendari.hidden_scoreboard/1`), stored as answered;
+- 17m (the lane), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
+  the threat model's residual risks, this status, the owner's runbook
+  ([Running the scoreboard](../operations/scoreboard.md#the-owners-runbook)) and the end-to-end
+  test.
 
-The defaults below hold unless the owner chooses otherwise.
+Two steps stay open. 17i is the owner's run: the remote arms' replicates on the public `test`
+sets, after the price table, the disclosures and the declarations are written. 17l, the
+developer flow (banded answers, a budget, a sealed confirmation split), waits on LP-20 and the
+owner's decisions on the rotation numbers and on who a submitting developer is. Gate G3-4's
+`a9-scoreboard` names both as pending. The method stays a draft until the owner sets its
+effective date (gate `grading-method`). The defaults below hold unless the owner chooses
+otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 
 ## Context
 Mendari compares a pack's configurations today with leaderboards (`mendari.leaderboard/2`), ranked
@@ -113,6 +141,9 @@ grade is given.
   Referral Router's `test` set has 100 distinct positives on every critical label.
 - A signed hidden-set result is the owner's attestation: no one else can recompute it, since no
   ledger of a hidden set is kept.
+- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps three
+  residual risks of this design: that attestation; raw intervals on sets built from templates,
+  which look narrower than they are; and the key holder, who could sign an altered result.
 
 ## Alternatives considered
 - **Change `mendari.rank/1` into the band ranking.** Rejected: every published card would become
