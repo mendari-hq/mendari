@@ -15,11 +15,13 @@ are run, stored and checked, and what to do when a pack changes. The rules are t
 ```text
 scoreboard/
   results/<sha256>.json    a result, named by its body's SHA-256
-  ledgers/<sha256>.jsonl   each result's ledger, named by its id
-  runs/<sha256>.json       each result's run record: every case's latency and tokens
-  prices/<date>.json       a dated price table (none yet: no local configuration is priced)
+  ledgers/<sha256>.jsonl   each result's ledgers (one per replicate), named by their ids
+  runs/<sha256>.json       each result's run records: every case's latency and tokens
+  prices/<date>.json       a dated price table (none yet: nothing measured calls a model)
+  canaries/<sha256>.json   a canary, named by its body's SHA-256 (none yet)
+  declared/<name>.json     a pack's declared configurations, one per arm
   keys.json                the public grading keys (none yet)
-  disclosures.json         the disclosures (none yet: every remote type's statement is pending)
+  disclosures.json         the disclosures (no statement yet: every remote type's is pending)
   README.md
 ```
 
@@ -83,14 +85,119 @@ uv run python scripts/scoreboard_page.py
 - `--config slot=variant` chooses a slot's variant; the other slots take the pack's defaults.
   `--every-local` runs each local configuration instead. The environment's `MENDARI_PROVIDERS`
   is never read: what runs is what the command names.
-- A remote configuration is refused before anything runs. That includes the Clinical Trial
-  Prescreener's `structured=cql`, which asks no model but calls Mendari's CQL engine: the page
-  says it is not measured yet.
+- A remote configuration is run only by hand, as the next section says, and is refused in CI
+  before anything runs.
 - `--again` runs a result that is still current again. The new result supersedes it.
 - `--store DIR` uses another store. Without it, the command must be run from the repository's
   root: it never makes a new store.
 - The pack is the repository's, from `packs/`. A copy on `MENDARI_PACKS_PATH`, or a pack pulled
   from a registry, is never run, checked or shown, whatever its version.
+
+## A remote configuration: replicates, by hand
+
+A remote configuration calls something off the machine: Jev, an LLM, or Mendari's own CQL
+engine (the Clinical Trial Prescreener's `structured=cql`, which asks no model). Its answers can
+change from one run to the next, so it runs 3 to 5 replicates (the method's section 10), on
+your own machine, never in CI:
+
+```bash
+uv run mendari scoreboard run mendari/patient-inbox-router --config router=jev \
+  --replicates 3 --prices scoreboard/prices/2026-11-05.json --dataset test
+```
+
+Before anything runs, it is refused:
+
+- when `CI` or `GITHUB_ACTIONS` is set: a remote configuration is never run in CI;
+- without `--replicates 3` to `5`. A local configuration is deterministic, so it runs one
+  replicate and never takes `--replicates` above 1;
+- unless the pack's declaration names it as its arm's remote configuration, and the
+  declaration is committed as it is (the next section);
+- without `--prices FILE` when it calls a model (Jev or an LLM): its cost is priced from that
+  dated table, which the store keeps under `prices/<date>.json` when a result is priced from it.
+  A configuration that calls no model (CQL) needs none: its cost is "0 (no metered calls)". A
+  local configuration is never given one;
+- when `scoreboard/prices/` already holds another table of the same date: a stored table never
+  changes, so date the new one.
+
+A table that cannot price the run (it lacks the model Jev or the LLM reported, or the model
+changed during replicate 1, so two are reported) does not lose it: the result is stored with its
+cost "unknown", and the reason, and cites no table.
+
+The replicates run one after another, each with its own providers. Replicate 1 is the headline:
+the result's figures are its figures, whichever replicate looks better. The result lists every
+replicate's ledger and run record (each stored), and shows the case flip rate (k of n cases
+whose primary prediction or outcome differs between any two replicates, matched by ledger hash,
+with its interval) and the spread of each figure in its column (its minimum to maximum across
+them). Subgroups and weighted figures have no spread: a subgroup's figures move only where its
+cases flip, which the flip rate counts, and the public sets are as sampled. Replicates that
+report more than one model of a type mark the result "stale: another model reported" from the
+start.
+
+A result keeps the statements `scoreboard/disclosures.json` held, for each remote provider type
+the configuration calls, when it was stored. The page shows its figures only when each type had
+a statement then and the file still holds that statement, word for word. Otherwise the result
+reads "not published: disclosure pending": the page shows its scope, and none of its figures,
+and its labels stay out of the insufficient-evidence banner. So write the statement first, then
+run. A result stored while its statement was pending, or whose statement was taken out or
+rewritten since (a commercial relationship begun, say), is run again (`--again`) once the file
+holds the statement it should carry. The Clinical Trial Prescreener's three `structured=cql`
+results were stored pending: once `cql` has a statement, run them again with `--again`, with the
+sandbox's HAPI FHIR up (`docker compose up fhir`), and commit them with the page.
+
+### Declaring a configuration
+
+Each pack's declaration is `scoreboard/declared/<pack name>.json` (`mendari.declared/1`):
+
+```json
+{
+  "format": "mendari.declared/1",
+  "pack": "mendari/clinical-trial-prescreener",
+  "date": "2026-11-05",
+  "arms": {
+    "deterministic": {"remote": {"notes": "rules", "structured": "cql"}}
+  }
+}
+```
+
+Per arm it names one remote configuration (`remote`), the one run on public sets with
+replicates, and may name one local configuration (`local`), the one a hidden set grades. Commit
+it before the run: the run refuses a declaration that is not committed as it is, so a run cannot
+pick its configuration after seeing results. The result cites the declaration's SHA-256. The
+check refuses a declaration that names a configuration the pack does not have, one in another
+arm, or one that is not remote (or local) where it says so; and a new remote result that does
+not cite the declaration as it is, or whose configuration it does not declare. A declaration
+changed later leaves the results stored before as they were.
+
+## Canaries
+
+A canary (the method's section 12) checks, by hand, that a remote configuration still answers
+as its replicates did. It is never run in CI, and nothing schedules it:
+
+```bash
+uv run mendari scoreboard canary mendari/patient-inbox-router --config router=jev --seed 7
+```
+
+It draws 30 cases of the pack's `test` set by the seed (the same seed draws the same cases),
+decides them once, and compares each with replicate 1 of the configuration's current result on
+`test`, which must hold replicates, on the pack's current digest and set. It stores its ledger,
+its run record and the canary (`canaries/<sha256>.json`, `mendari.canary/1`): its flip rate
+against replicate 1, with its interval, and whether it shows drift (that interval's lower bound
+above the upper bound of the replicates' flip rate) or reports another model (for a type both it
+and the replicates named: a canary whose calls all failed names none, which is not another).
+
+- Drift marks "stale: canary drift" the remote results of the pack's arm, of whichever
+  configuration was declared for it and on any set, measured before the canary's day, or no
+  later than the replicates it was compared with. A local configuration's results are never
+  marked: they are deterministic.
+- Another model, from a canary or any later result, marks "stale: another model reported" every
+  result, of any pack or configuration, whose runs named another model of that type and that
+  was measured no later (the same day included: a day holds no order). The deployment has one
+  `JEV_MODEL` and one `LLM_MODEL`, whatever calls them.
+
+`scoreboard run` does not read these marks: a result they mark is still current to it (its pack,
+set and method are unchanged), and it prints "kept". Run it again with `--again`; a result run
+again from the canary's day on is not marked by it. Canaries are kept as they were run: the
+check recomputes each from its inputs, and refuses one removed or changed.
 
 ## Adding a result made elsewhere
 
@@ -101,10 +208,12 @@ uv run mendari scoreboard add RESULT.json --supersedes <sha256>
 
 `add` stores a result under its body's SHA-256, and never writes over a file. A public set's
 result is stored only when its ledger and run record are in the store already and it is what
-they give, on its pack's current digest, set and method, measured no later than today. It must
-be of a local configuration: a remote one's ledger could not be re-run without a call off the
-machine, so nothing would check its decisions. A remote configuration's disclosure is the one in
-`scoreboard/disclosures.json`, never one the result brings. `--supersedes` names the stored
+they give, on its pack's current digest, set and method, measured no later than today. A remote
+configuration's result must also hold 3 to 5 replicates, each one's ledger and run record in the
+store, and cite its pack's declaration as the store holds it: its ledgers are recomputed from,
+never re-run, which would call off the machine. Its disclosure is the one in
+`scoreboard/disclosures.json`, never one the result brings; the page shows its figures only while
+the file still holds that statement. `--supersedes` names the stored
 result it replaces. The link is part of the result's body, so it is refused for a signed result:
 link it first, then sign it.
 
@@ -129,9 +238,14 @@ again. The second fails when:
   one measured later, or one another result supersedes too; or one pack, set, arm and
   configuration has two current results;
 - a current result's signature does not verify against `scoreboard/keys.json`;
-- a public result is not what its stored inputs give, byte for byte, or its ledger does not
-  re-run to the same bytes;
-- a new result is of a remote configuration, or is measured after today.
+- a public result is not what its stored inputs give, byte for byte, or its local ledger does
+  not re-run to the same bytes (a remote configuration's ledgers are never re-run);
+- a new result is measured after today, or is of a remote configuration without 3 to 5
+  replicates and its pack's declaration of it;
+- a declaration names a configuration its pack does not have, in another arm, or not remote
+  (or local) where it says;
+- a canary of the base is removed or changed, or a canary is not what its ledger, its run
+  record and the result it was compared with give.
 
 It needs no secret, writes nothing and calls nothing off the machine. Both read the packs from
 the repository's `packs/`, never from `MENDARI_PACKS_PATH` or the registry cache.

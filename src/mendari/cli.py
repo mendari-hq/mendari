@@ -566,16 +566,20 @@ def cmd_scoreboard_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_scoreboard_run(args: argparse.Namespace) -> int:
-    """Run local configurations of a maintained pack over its public scoring sets (LP-17f) and
+    """Run configurations of a maintained pack over its public scoring sets (LP-17f, LP-17h) and
     store each result, unsigned, with its ledger and its run record (each case's latency and
     tokens) in the results store (`scoreboard/`, from the repository's root, or --store). A
     result that is still current (the pack's digest, the set and the method unchanged, and not
     past its stale date) is kept, not run again, unless --again; a new one supersedes the stored
-    one. Refused before anything runs: a remote configuration, a fitting set (`train`,
-    `calibration`), anything but a set the pack names (so no file and no hidden set), and a
-    pack Mendari does not maintain: the pack is read from the bundled packs alone (the
-    repository's `packs/`), never from `MENDARI_PACKS_PATH` or the registry cache."""
-    from mendari.evals import results_store
+    one. A local configuration runs one replicate. A remote one is run by hand, never in CI (`CI`
+    or `GITHUB_ACTIONS` set): `--replicates 3` to `5`, as its arm's remote configuration in the
+    pack's declaration (`scoreboard/declared/<pack name>.json`, committed before the run), and
+    with `--prices FILE` when it calls a model. Refused before anything runs: any of those
+    unmet, a fitting set (`train`, `calibration`), anything but a set the pack names (so no file
+    and no hidden set), and a pack Mendari does not maintain: the pack is read from the bundled
+    packs alone (the repository's `packs/`), never from `MENDARI_PACKS_PATH` or the registry
+    cache."""
+    from mendari.evals import results_store, runs
 
     store = results_store.Store.at(args.store)
     pack = results_store.maintained_pack(args.pack)
@@ -583,16 +587,37 @@ def cmd_scoreboard_run(args: argparse.Namespace) -> int:
         configurations = results_store.local_configurations(pack)
     else:
         configurations = [results_store.configuration_of(pack, args.config)]
+    prices = None if args.prices is None else runs.read_prices(args.prices)[0]
     sets = list(dict.fromkeys(args.dataset)) or results_store.scoring_sets(pack)
+
+    def replicates(configuration: Any) -> int:
+        if args.replicates is not None:
+            return int(args.replicates)
+        return 1 if configuration.local else 0  # a remote one names its count
+
     for configuration in configurations:
         for name in sets:
-            results_store.refuse_unmeasurable(pack, name, configuration)
+            results_store.refuse_unrunnable(
+                store,
+                pack,
+                name,
+                configuration,
+                replicates=replicates(configuration),
+                prices=prices,
+            )
     today = clock.today()
     stored = False
     for configuration in configurations:
         for name in sets:
             outcome = results_store.record_run(
-                store, pack, name, configuration, date=today, again=args.again
+                store,
+                pack,
+                name,
+                configuration,
+                date=today,
+                again=args.again,
+                replicates=replicates(configuration),
+                prices=prices,
             )
             stored = stored or outcome.action == results_store.STORED
             print(outcome.line)
@@ -601,13 +626,50 @@ def cmd_scoreboard_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
+    """A canary (LP-17h; the grading method's section 12): a seeded draw of 30 cases from a
+    maintained pack's `test` set, decided once by a remote configuration, by hand and never in
+    CI, with no schedule, and compared with replicate 1 of its current result there, which must
+    hold replicates. Stored in the results store (`canaries/`, with its ledger and run record):
+    when it shows drift (its flip rate's lower bound above the replicates' upper bound), the page
+    marks the remote results of the pack's arm stale; when it reports another model of a type,
+    every result of that type measured no later that reported other models."""
+    from mendari.evals import results_store, scoreboard
+
+    store = results_store.Store.at(args.store)
+    pack = results_store.maintained_pack(args.pack)
+    configuration = results_store.configuration_of(pack, args.config)
+    name, found = results_store.run_canary(
+        store, pack, configuration, size=args.size, seed=args.seed, date=clock.today()
+    )
+    against = found["against"]["result"].removeprefix("sha256:")
+    print(
+        f"stored: {results_store.CANARIES}/{name}.json, against {results_store.RESULTS}/"
+        f"{against}.json"
+    )
+    marks = [
+        mark
+        for mark, on in (
+            (scoreboard.STALE_DRIFT, found["drift"]),
+            (scoreboard.STALE_MODEL, found["another_model"]),
+        )
+        if on
+    ]
+    # Drift marks the remote results of the pack's arm; another model, every result of a type
+    # it names that reported other models (the page works both out).
+    print(f"it marks: {', '.join(marks) if marks else 'nothing'}")
+    print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
+    return 0
+
+
 def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
     never over another file. `--supersedes HASH` names the stored result it replaces, which
     becomes part of its body: refused for a signed result, whose signature would no longer
-    hold. A public result must be of a local configuration, on its pack's current digest, set
-    and method, measured no later than today, and what its stored inputs give; a signed one
-    must verify against the store's keys."""
+    hold. A public result must be on its pack's current digest, set and method, measured no
+    later than today, and what its stored inputs give; a remote configuration's must also hold
+    3 to 5 replicates and its pack's declaration of it (LP-17h); a signed one must verify
+    against the store's keys."""
     from mendari.evals import results_store, scoreboard, signing
     from mendari.hub.client import config_dir
 
@@ -2698,8 +2760,8 @@ def build_parser() -> argparse.ArgumentParser:
     scoreboard_verify.set_defaults(handler=cmd_scoreboard_verify)
     scoreboard_run = scoreboard.add_parser(
         "run",
-        help="run local configurations of a maintained pack over its public scoring sets, and "
-        "store each result (unsigned) in the results store",
+        help="run configurations of a maintained pack over its public scoring sets, and store "
+        "each result (unsigned) in the results store; a remote one by hand, never in CI",
     )
     scoreboard_run.add_argument("pack", help="pack id (namespace/name[@version])")
     scoreboard_run.add_argument(
@@ -2727,9 +2789,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="run a result that is still current again (the new one supersedes it)",
     )
     scoreboard_run.add_argument(
+        "--replicates",
+        type=int,
+        metavar="N",
+        help="a remote configuration's replicates, 3 to 5 (a local one runs 1); replicate 1 is "
+        "the headline",
+    )
+    scoreboard_run.add_argument(
+        "--prices",
+        metavar="FILE",
+        help="the dated price table a remote configuration that calls a model is priced from "
+        "(scoreboard/prices/<date>.json)",
+    )
+    scoreboard_run.add_argument(
         "--store", default="scoreboard", help="the results store (default: scoreboard/)"
     )
     scoreboard_run.set_defaults(handler=cmd_scoreboard_run)
+    scoreboard_canary = scoreboard.add_parser(
+        "canary",
+        help="by hand, never in CI: a seeded draw of 30 test cases, decided once by a remote "
+        "configuration and compared with its replicates",
+    )
+    scoreboard_canary.add_argument("pack", help="pack id (namespace/name[@version])")
+    scoreboard_canary.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        metavar="SLOT=VARIANT",
+        help="a slot's variant (repeatable, or comma-separated); the other slots take the "
+        "pack's defaults",
+    )
+    scoreboard_canary.add_argument(
+        "--size", type=int, default=30, help="cases drawn from the test set (the method's 30)"
+    )
+    scoreboard_canary.add_argument(
+        "--seed", type=int, required=True, help="the draw's seed, a whole number"
+    )
+    scoreboard_canary.add_argument(
+        "--store", default="scoreboard", help="the results store (default: scoreboard/)"
+    )
+    scoreboard_canary.set_defaults(handler=cmd_scoreboard_canary)
     scoreboard_add = scoreboard.add_parser(
         "add", help="store a result made elsewhere in the results store, never over another"
     )

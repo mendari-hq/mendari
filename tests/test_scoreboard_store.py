@@ -362,13 +362,14 @@ def test_a_ledger_made_up_to_fit_its_result_is_found_by_a_new_run(
         assert problems(store, base) == [f"{refusal} (re-run, a byte differs)"]
 
 
-def test_a_remote_configurations_result_is_never_stored_here(
+def test_a_remote_result_of_one_replicate_is_never_stored_here(
     store: Store, inbox: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A remote configuration's ledger could not be re-run without a call off the machine, so
-    nothing would check its decisions: `add` refuses its result, and so does the check while it
-    is new against the base. Recomputed, its disclosure is the store's disclosures file's
-    (pending while there is none), never one the result brings."""
+    its result is stored only with 3 to 5 replicates and its pack's declaration of it (LP-17h,
+    tests/test_scoreboard_runs.py): `add` refuses one of one replicate, and so does the check
+    while it is new against the base. Recomputed, its disclosure is the store's disclosures
+    file's (pending while there is none), never one the result brings."""
     calm_jev(monkeypatch)
     built = build(INBOX, SET, {"safety_screen": "jev"})
     store.put_ledger(built.ledger)
@@ -390,7 +391,7 @@ def test_a_remote_configurations_result_is_never_stored_here(
     assert canonical(results_store.recompute(held, store, inbox)) == canonical(honest)
     # Neither is stored, whatever its disclosure.
     for result in (made_up, honest):
-        with pytest.raises(MendariError, match="a remote configuration's result: its ledger"):
+        with pytest.raises(MendariError, match="holds 3 to 5 replicates, not one"):
             store.add(result)
     assert not (store.root / "results").exists()
     # Written past `add`: refused while it is new against the base. One the base holds stays,
@@ -398,7 +399,7 @@ def test_a_remote_configurations_result_is_never_stored_here(
     path = result_file(store, held.name)
     path.parent.mkdir()
     path.write_text(signing.dump(honest), encoding="utf-8")
-    assert any("a remote configuration's result" in line for line in problems(store, {}))
+    assert any("holds 3 to 5 replicates, not one" in line for line in problems(store, {}))
     found_now = results_store.check(store, base=files(store))
     assert (found_now.problems, found_now.recomputed, found_now.rerun) == ([], 1, 0)
     assert found_now.kept == [f"{held.name}: its ledger not re-run (a remote configuration)"]
@@ -462,17 +463,25 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
         results_store.maintained_pack(str(copy))  # a directory is never a pack's id
 
 
-def test_running_a_remote_configuration_is_refused(
-    store: Store, inbox: Pack, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_running_a_remote_configuration_without_replicates_is_refused(
+    store: Store,
+    inbox: Pack,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Outside CI, a remote configuration runs 3 to 5 replicates as its arm's declared one
+    (LP-17h, tests/test_scoreboard_runs.py); with fewer it is refused before anything runs."""
+    for name in signing.CI_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
     jev = results_store.configuration_of(inbox, ["router=jev"])
-    with pytest.raises(MendariError, match="calls jev off this machine"):
+    with pytest.raises(MendariError, match="calls jev off this machine: it runs 3 to 5"):
         results_store.measure(inbox, SET, jev, date=DATE)
     cql = results_store.configuration_of(
         resolve_pack("mendari/clinical-trial-prescreener"), ["structured=cql"]
     )
     assert cql.arm == arms.DETERMINISTIC and not cql.local
-    with pytest.raises(MendariError, match="calls cql off this machine"):
+    with pytest.raises(MendariError, match="calls cql off this machine: it runs 3 to 5"):
         results_store.refuse_unmeasurable(
             resolve_pack("mendari/clinical-trial-prescreener"), "test", cql
         )
@@ -492,8 +501,8 @@ def test_running_a_remote_configuration_is_refused(
     errors = capsys.readouterr().err.splitlines()
     assert errors[0].startswith("error: train fits")
     assert errors[1] == (
-        "error: router=jev,safety_screen=rules calls jev off this machine: only local "
-        "configurations are run here"
+        "error: router=jev,safety_screen=rules calls jev off this machine: it runs 3 to 5 "
+        "replicates (--replicates N), not none"
     )
     assert errors[2].startswith("error: mendari/patient-inbox-router has no slot 'routr'")
     assert sorted(path.name for path in store.root.iterdir()) == ["keys.json"]

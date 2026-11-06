@@ -8,11 +8,19 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
 |---|---|
 | `results/<sha256>.json` | A result (`mendari.scoreboard/1`), named by its body's SHA-256. |
 | `ledgers/<sha256>.jsonl` | Each result's ledger (`mendari.ledger/1`), named by its id. |
-| `runs/<sha256>.json` | Each result's run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
+| `runs/<sha256>.json` | Each result's run records (`mendari.run/1`, one per replicate), named by the SHA-256 of its bytes. |
+| `prices/<date>.json` | A dated price table (`mendari.prices/1`) a result is priced from: none yet. |
+| `canaries/<sha256>.json` | A canary (`mendari.canary/1`, LP-17h), named by its body's SHA-256: none yet. |
+| `declared/<pack name>.json` | A pack's declared configurations (`mendari.declared/1`, LP-17h), committed before any remote run. |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`): none yet. |
+| `disclosures.json` | The disclosures (`mendari.disclosures/1`): no statement yet, so every remote result reads "not published: disclosure pending". |
 
-- Every file is written by `mendari scoreboard run` or `mendari scoreboard add`, or signed by
-  `mendari scoreboard sign`. Never edit one by hand.
+- Every file is written by `mendari scoreboard run`, `mendari scoreboard canary` or
+  `mendari scoreboard add`, or signed by `mendari scoreboard sign`. Never edit one by hand. The
+  declarations, the disclosures and the price tables are the owner's, and are written by hand.
+- A remote configuration's results (LP-17h) are run by hand, never in CI, in 3 to 5 replicates,
+  as their arm's declared configuration. The Clinical Trial Prescreener's `structured=cql` is
+  measured so, on Mendari's own CQL engine; no Jev or LLM configuration is.
 - The store is append-only. Nothing stored changes, except that the owner may add a valid
   signature to an unsigned result. A result out of date is run again, and the new one names the
   one it supersedes.

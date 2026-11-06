@@ -2109,8 +2109,32 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     renamed browser tests. Owner: the mendari.co entry's line about naming Jev, Claude and
     gpt-oss results no longer applies to the page as it is (it names none); it applies again
     when 17i's results are published.
-  - [ ] **17h** Remote arms on public sets: 3 to 5 replicates, the spread and the flip rate, model
-    freshness, the canary and disclosures; built, and refusing to start in CI.
+  - [x] **17h** (lane PR) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
+    rate, model freshness, the canary and disclosures; built, and refusing to start in CI.
+    `mendari scoreboard run` takes a remote configuration by hand only (refused when `CI` or
+    `GITHUB_ACTIONS` is set): `--replicates 3` to `5` (a local one runs 1), `--prices FILE` when
+    it calls a model (a CQL configuration calls none, so needs none), and only as its arm's
+    `remote` configuration in `scoreboard/declared/<pack name>.json` (`mendari.declared/1`, per
+    arm one `remote` and one `local` configuration), committed as it is before the run (git's
+    `HEAD`). Replicate 1 is the headline; `inputs.replicates` and `inputs.declared` (the
+    declaration's SHA-256) and `figures.replicates` (`runs.replicates`: count, the case flip rate
+    k of n matched by ledger hash with its interval, each figure's spread, the models) are
+    written only for an entry of replicates, so every stored result recomputes unchanged.
+    `mendari scoreboard canary PACK --config ... --size 30 --seed S` (`mendari.canary/1`,
+    `scoreboard/canaries/`, no schedule): drift (its lower bound above the replicates' upper
+    bound) marks the arm's remote results stale (any set, measured before the canary's day or
+    no later than its replicates, never a local configuration's); another model, from a canary,
+    a later result of the same model type (any pack or configuration, the same day included) or
+    the replicates themselves, marks every result of that type that named another. An entry with
+    remote calls is published only while `scoreboard/disclosures.json` (added, empty) still
+    holds, word for word, the statement each type had when it was stored; otherwise it shows its
+    scope and none of its figures, and the banner leaves it out. The store check recomputes a new remote result from its replicates
+    (never re-running a remote ledger), checks declarations and keeps canaries append-only. The
+    prescreener's `structured=cql` measured with Mendari's own CQL engine (compose `fhir`), 3
+    replicates on each of its three public sets, 2026-11-05: 0 flips, "not published: disclosure
+    pending", which they keep: once `cql` has a statement they are run again with `--again` (the
+    owner line below). `tests/test_scoreboard_runs.py`;
+    `test_cli_errors.BROKEN` gains `scoreboard canary`.
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
     (31,500 decisions).
   - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
@@ -2187,6 +2211,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`) and mint a grading key once 17k
     lands.
   - [ ] Owner: write the price table, the disclosures and the declarations, then run 17i.
+  - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, run the prescreener's
+    three `structured=cql` results again (`mendari scoreboard run
+    mendari/clinical-trial-prescreener --config structured=cql --replicates 3 --again`, with the
+    sandbox's HAPI FHIR up), and commit them with the page: stored pending, they stay "not
+    published: disclosure pending" until then.
   - [ ] Owner: attest `grading-method` once the site is published, and set the method's
     effective date.
 

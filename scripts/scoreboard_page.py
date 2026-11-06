@@ -66,10 +66,18 @@ def repository_pack(ref: str) -> Pack:
 
 
 def _board(store: results_store.Store, packs: Callable[[str], Pack]) -> dict[str, Any]:
-    """The board of the store's current results, against the packs they are of."""
+    """The board of the store's current results, against the packs they are of and the store's
+    canaries: the page's and the site's, so both publish an entry by the same rule."""
     current = results_store.heads(store.results())
     of = {found.pack_id: scoreboard.Current.of(packs(found.pack_id)) for found in current.values()}
-    return scoreboard.board([found.result for found in current.values()], of)
+    # Published against the disclosures file as it is now, never only the statements a result
+    # was stored with: a statement taken out or rewritten since hides the figures.
+    return scoreboard.board(
+        [found.result for found in current.values()],
+        of,
+        list(store.canaries().values()),
+        disclosures=store.disclosures(),
+    )
 
 
 def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_pack) -> str:
@@ -78,6 +86,8 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
     current = results_store.heads(results)
     later = results_store.superseded(results)
     board = _board(store, packs)
+    canaries = store.canaries()
+    disclosures = store.disclosures()
     signed = sum(found.signed for found in current.values())
     lines = [
         TITLE,
@@ -86,7 +96,8 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "",
         "The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14): every "
         "local configuration of each reference pack, on each of its public scoring sets (its "
-        "`test` set, its enriched set and that set's holdout). This page is generated from the "
+        "`test` set, its enriched set and that set's holdout), and each remote configuration "
+        "run by hand as its arm's declared one (section 10). This page is generated from the "
         "results store, `scoreboard/` in the repository, and from nothing else, so the same "
         "store gives the same page ([running and checking the "
         "scoreboard](../operations/scoreboard.md)).",
@@ -109,9 +120,30 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "- **Insufficient evidence:** a table whose critical label has fewer distinct positives "
         "than the method's minimum carries the banner, naming each such label.",
         "- **Not measured:** an arm, or a configuration of a measured arm, that no result covers "
-        "yet. Only local configurations are run here.",
+        "yet.",
+        "- **Remote configurations** (section 10) are run by hand, never in CI, as their arm's "
+        "declared configuration (`scoreboard/declared/`), in 3 to 5 replicates: replicate 1 is "
+        "the headline, with the case flip rate between any two replicates and the spread of each "
+        "figure in its column (not its subgroups', which move only where cases flip). A result "
+        "keeps the statements `scoreboard/disclosures.json` held for each remote provider type "
+        "it calls when it was stored. Its figures are shown only when each had one then, and "
+        "the file still holds it: otherwise it reads "
+        f'"{scoreboard.DISCLOSURE_PENDING}", with its scope shown and its figures not, until it '
+        "is run again (`--again`). A local configuration is deterministic: one replicate, no "
+        "flips.",
+        f'- **"{scoreboard.STALE_MODEL}":** a result whose replicates reported more than one '
+        "model of a type, or one for which a later run of the same model type reports another "
+        "model: a result or a canary, of any pack or configuration, the same day included.",
+        "- **Canaries** (section 12), run by hand: a seeded draw of 30 `test` cases. One that "
+        f'shows drift marks "{scoreboard.STALE_DRIFT}" the remote results of its pack\'s arm '
+        "measured before it (on any set), and those measured no later than the replicates it "
+        "was compared with.",
         "",
         scoreboard_markdown(board).rstrip("\n"),
+        "",
+        "## Canaries",
+        "",
+        *_canary_lines(canaries, results, disclosures),
         "",
         "## Superseded results",
         "",
@@ -130,6 +162,43 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
             what = ("not stored", "") if found is None else (found.shown, found.measured_on)
             lines.append(f"| `{name[:16]}` | `{by[:16]}` | {what[0]} | {what[1]} |")
     return "\n".join(lines) + "\n"
+
+
+def _canary_lines(
+    canaries: dict[str, dict[str, Any]],
+    results: dict[str, results_store.Held],
+    disclosures: runs.Disclosures | None,
+) -> list[str]:
+    """Each stored canary: what it was run on and against, and what it found. Its flip rate is
+    shown only when the result it was compared with is published (`scoreboard.published`)."""
+    if not canaries:
+        return ["None yet: no canary has been run."]
+    lines = [
+        "| Canary | Pack and configuration | Measured on | Against | Flip rate | Marks |",
+        "|---|---|---|---|---|---|",
+    ]
+    for name, found in sorted(canaries.items(), key=lambda item: (item[1]["measured_on"], item[0])):
+        against = str(found["against"]["result"]).removeprefix("sha256:")
+        held = results.get(against)
+        shown_rate = (
+            f"{shown(found['flip_rate'])} of drawn cases"
+            if held is not None and scoreboard.published(held.result, disclosures)
+            else scoreboard.DISCLOSURE_PENDING
+        )
+        marks = [
+            mark
+            for mark, on in (
+                (scoreboard.STALE_DRIFT, found["drift"]),
+                (scoreboard.STALE_MODEL, found["another_model"]),
+            )
+            if on
+        ]
+        providers = results_store.written(found["configuration"]["providers"])
+        lines.append(
+            f"| `{name[:16]}` | {found['pack']['id']} `{providers}` | {found['measured_on']} | "
+            f"`{against[:16]}` | {shown_rate} | {'; '.join(marks) or 'none'} |"
+        )
+    return lines
 
 
 def _counted(count: int, what: str) -> str:
