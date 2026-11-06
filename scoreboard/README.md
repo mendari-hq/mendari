@@ -6,7 +6,7 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
 
 | Path | What it holds |
 |---|---|
-| `results/<sha256>.json` | A result (`mendari.scoreboard/1`), named by its body's SHA-256. |
+| `results/<sha256>.json` | A result, named by its body's SHA-256: a public set's entry (`mendari.scoreboard/1`), or a hidden set's answer (`mendari.hidden_scoreboard/1`, LP-17k), stored as the grading route answered it, with no ledger or run record. |
 | `ledgers/<sha256>.jsonl` | Each result's ledger (`mendari.ledger/1`), named by its id. |
 | `runs/<sha256>.json` | Each result's run records (`mendari.run/1`, one per replicate), named by the SHA-256 of its bytes. |
 | `prices/<date>.json` | A dated price table (`mendari.prices/1`) a result is priced from: none yet. |
@@ -27,7 +27,9 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
 - CI checks it on every pull request (`scripts/check_scoreboard.py`, in the `reference-pack` job):
   each name is its content's hash, nothing is removed or changed, and each public result is what
   its ledger, its dataset, its run record and the method give, byte for byte.
-- Every set is public, and every result an engineering evaluation, not clinical validation. Each
-  is a regression check, not a ranking.
+- Every result is an engineering evaluation, not clinical validation. A public set's is a
+  regression check, not a ranking. A hidden set's answer holds aggregates only, is checked against
+  its closed schema and its own figures, its k and n never recomputed (no ledger of a hidden set
+  is kept), and is not on the early scoreboard's page.
 
 How to run, add, check and sign: [Running the scoreboard](../docs/operations/scoreboard.md).

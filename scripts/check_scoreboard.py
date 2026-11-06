@@ -20,7 +20,13 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
   recomputed from, never re-run;
 - each declaration names configurations its pack has, in their arms, remote or local as it says;
 - no canary of the base is removed or changed, and each canary is what its ledger, its run
-  record and the result it was compared with give.
+  record and the result it was compared with give;
+- each hidden set's result (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k)
+  fits its closed schema, field by field, and its name is its body's SHA-256 (its run block
+  left out); it is of a pack Mendari maintains; under the current method it agrees with its
+  own figures (intervals, evidence, grades, banner, ranking, draft); and, when new, it is under
+  the current method, measured no later than today and in effect as the method is that day. It
+  is kept as it is: no ledger of a hidden set is kept, so its k and n are never recomputed.
 
 The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.
 

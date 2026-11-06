@@ -1357,8 +1357,22 @@ arms graded in one read on a band tuple fixed by the method (the worst critical 
 false automation, accuracy, Brier, then cost), lists an arm that fails a safety attestation or
 lacks its evidence unranked, and gives each ranked arm a rank interval from a stated Holm family,
 which never reorders the ranks. ECE and latency never enter it. Both are given only on frozen
-hidden sets: on a public set the grade is null and the ranking is off. Nothing grades a hidden
-set with them yet: the hidden-set scoreboard comes with LP-17k.
+hidden sets: on a public set the grade is null and the ranking is off.
+
+The hidden-set scoreboard (`mendari.hidden_scoreboard/1`, LP-17k) grades them through the same
+grading route as above: a run that sends `arms` (each declared arm with its configuration) and
+`declared` (the SHA-256 of the committed declaration they come from) decides every declared arm
+on the same cases in one grading read, one of the set's runs. Each declared configuration is
+checked before any case is read: under the method 1.0 a hidden set is graded with local
+providers only, so an arm that calls Jev or an LLM is refused, and the other arms read "not
+graded here" (or "not applicable"). The answer holds, per graded arm, its figures with their
+intervals, evidence on distinct positives, its attestations (draft while the method is not in
+effect) and the insufficient-evidence banner; the ranking ("off: one arm graded" while only the
+deterministic arm is local); the scope, with the set's id and freeze commitment; and the run's
+number, outside its body's hash. Never cost, latency, a subgroup or a case. Without `arms`, the
+route answers `mendari.hidden_result/1` as before. `mendari scoreboard add` stores the answer as
+it was answered, and the owner signs it
+([a hidden set's scoreboard](https://github.com/mendari-hq/mendari/blob/main/docs/operations/scoreboard.md#a-hidden-sets-scoreboard)).
 
 Scoreboard results are signed by Mendari's owner with a grading key held offline
 (`MENDARI_GRADING_SIGNING_KEY`), never by a server or by CI: `mendari scoreboard sign FILE` is

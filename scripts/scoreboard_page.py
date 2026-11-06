@@ -2,12 +2,12 @@
 """The early scoreboard's page (LP-17f; the grading method's section 14): writes
 docs/grading/scoreboard.md from the results store (scoreboard/) and the repository's packs
 (packs/, never `MENDARI_PACKS_PATH` or the registry cache) alone, so its bytes depend only on the
-repository. It shows the current results (`results_store.heads`) one table
-per pack and set (`scoreboard.board`, `render.scoreboard_markdown`): the scope statement, the
-insufficient-evidence banner where it applies, the arms as measured, "not measured" or "not
-applicable", and the marks "unsigned", "method draft, not in effect" and "stale after DATE" (or
-why it is stale); then each superseded result, with the one that superseded it. No Rank column,
-no bare percentage.
+repository. It shows the current results of public sets (`results_store.heads`; a hidden set's
+result, LP-17k, is not shown here) one table per pack and set (`scoreboard.board`,
+`render.scoreboard_markdown`): the scope statement, the insufficient-evidence banner where it
+applies, the arms as measured, "not measured" or "not applicable", and the marks "unsigned",
+"method draft, not in effect" and "stale after DATE" (or why it is stale); then each superseded
+result, with the one that superseded it. No Rank column, no bare percentage.
 
 It also writes the scores web/index.html shows (LP-17g), between its two marker comments: the
 Patient Inbox Router's public `test` set from the same board, every arm, a measured entry's
@@ -65,10 +65,17 @@ def repository_pack(ref: str) -> Pack:
     return results_store.maintained_pack(ref, PACKS)
 
 
+def _public_results(store: results_store.Store) -> dict[str, results_store.Held]:
+    """The store's results of public sets: a hidden set's result (LP-17k) is on neither the page
+    nor the site."""
+    return {name: found for name, found in store.results().items() if not found.is_hidden}
+
+
 def _board(store: results_store.Store, packs: Callable[[str], Pack]) -> dict[str, Any]:
-    """The board of the store's current results, against the packs they are of and the store's
-    canaries: the page's and the site's, so both publish an entry by the same rule."""
-    current = results_store.heads(store.results())
+    """The board of the store's current results of public sets, against the packs they are of
+    and the store's canaries: the page's and the site's, so both publish an entry by the same
+    rule."""
+    current = results_store.heads(_public_results(store))
     of = {found.pack_id: scoreboard.Current.of(packs(found.pack_id)) for found in current.values()}
     # Published against the disclosures file as it is now, never only the statements a result
     # was stored with: a statement taken out or rewritten since hides the figures.
@@ -81,8 +88,9 @@ def _board(store: results_store.Store, packs: Callable[[str], Pack]) -> dict[str
 
 
 def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_pack) -> str:
-    """The page's text: from the store's results and the packs they are of, nothing else."""
-    results = store.results()
+    """The page's text: from the store's results of public sets and the packs they are of,
+    nothing else. A hidden set's result (LP-17k) is not on this page."""
+    results = _public_results(store)
     current = results_store.heads(results)
     later = results_store.superseded(results)
     board = _board(store, packs)

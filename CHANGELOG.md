@@ -641,7 +641,7 @@ The first release (not yet published).
   the shell's history, and what to do when a key leaks (run its results again; a result is
   signed once); threat model S20 and E14. No figure, format or decision changes.
 - **Grades and band ranking** (LP-17j, `mendari.evals.grade` and `mendari.evals.bands`, pure:
-  nothing grades a hidden set with them yet, LP-17k will). A grade is a set of attestations
+  the hidden-set scoreboard, LP-17k, grades with them). A grade is a set of attestations
   under the grading method, each met, not met or insufficient evidence, with no letter, score or
   composite: no critical case automated (a positive decided AUTO makes it not met whatever the
   evidence), each critical label's recall floor on the grade's bound, and the false-automation
@@ -777,6 +777,41 @@ The first release (not yet published).
   `--again` (with the sandbox's HAPI FHIR up), an owner step in `tasks/todo.md`. No model
   provider was called, and no remote arm (Jev, an LLM) is measured: each still reads "not
   measured".
+- **The hidden-set scoreboard** (LP-17k, `mendari.hidden_scoreboard/1`, `evals/hidden.py`; the
+  grading method's sections 3 to 9), through the existing grading route. A run of
+  `POST /api/evalsets/{set_id}/runs` may now send `arms` (each declared arm with its whole
+  configuration, a variant for every slot of the pack) and `declared` (the SHA-256 of the committed
+  declaration they come from), together and never with `variants`. Each declared configuration is
+  refused before any case is read as `variants` is (`wrong_pack`, `unknown_variant`,
+  `remote_provider`), or `wrong_arm` (new, `422`) when it leaves a slot out (which would run the
+  deployment's choice) or is not of the arm it is declared under; under the method 1.0 a hidden set
+  is graded with local providers only, so the deterministic arm is the one that runs. Then one
+  grading read decides every declared arm on the same records (their ledgers pair: one case key),
+  one chained `evalset.graded` and one of the set's runs. Each arm's entry, grade and the ranking
+  are computed in memory, never stored, and answered as a closed schema: per arm its status
+  ("graded", "not graded here" for an arm whose configurations call a remote provider, or "not
+  applicable"), its configuration and providers, its figures (each proportion k of n with its exact
+  95% interval, every mean with its bootstrap interval, evidence on distinct positives, ECE as one
+  number, the weighted figures from the records' `attributes.weight`, never detection, withheld
+  unless 10 cases or more of each share carry each weight, since a weight is a stratum's) and its
+  attestations, draft while the method is not in effect; the insufficient-evidence banner; the
+  ranking ("off: one arm graded" while only the deterministic arm is local) and its Holm family;
+  the scope, with the set's id and freeze commitment, never a hash of its cases, and the
+  declaration's SHA-256; and, in a run block outside the body's hash, this run's number and the
+  runs left. Never cost, latency, a subgroup, an equal-mass bin, a case's id or hash, the dataset's
+  name or hash or a ledger's id. Shares are rounded to 4 places and means to 3, as
+  `mendari.hidden_result/1`'s are. Two reads of one set on one day give the same body. A 600-case
+  set runs in about 5 s through the route, its read included, well inside the route's deadline, so
+  no figure moves to the command line. Without `arms`, the route answers `mendari.hidden_result/1`,
+  unchanged. The results store holds the answer as it was answered (`mendari scoreboard add`): one
+  result per pack and set, named by its body's SHA-256, checked against its closed schema, a pack
+  Mendari maintains, its own figures (its intervals, evidence, grades, banner and ranking, each
+  draft while the method is not in effect) and, when new, the current method, a day no later than
+  today and `in_effect` as the method is that day (`scripts/check_scoreboard.py`); its k and n are
+  never recomputed (no ledger of a hidden set is kept), and it is left off the early scoreboard's
+  page and the site's scores; a signature covers its run's number too. Spec: `docs/spec/evaluation-reports.md`; runbooks
+  `docs/operations/evalsets.md` and `docs/operations/scoreboard.md`; threat model T8, I14 and I15.
+  No figure, format or decision of a public result changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

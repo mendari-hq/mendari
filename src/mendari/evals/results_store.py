@@ -30,6 +30,16 @@ call off the machine, so they are recomputed from, never re-run). The packs are 
 ones Mendari maintains, read from the bundled packs alone (`maintained_pack`: the repository's
 `packs/` in a checkout), never from `MENDARI_PACKS_PATH` or the registry cache.
 
+A hidden set's result (`mendari.hidden_scoreboard/1`, LP-17k) is the grading route's answer,
+stored with `add` as it was answered: one result per pack and set (its arms are in it), named by
+its body's SHA-256, which leaves its run block out, so a second read of the same set is the same
+result. It must fit its closed schema (`hidden.scoreboard_problem`), be of a pack Mendari
+maintains and, when new, under the current method, measured no later than today and in effect
+as the method is that day; under the current method, it must agree with its own figures
+(`hidden.scoreboard_disagreement`: intervals, evidence, grades, banner, ranking, draft). It is
+kept as it is: no ledger of a hidden set is kept, so its k and n are the owner's attestation,
+and their signature covers it with its run's number.
+
 `measure` runs one configuration of a maintained pack over one of its public scoring sets (every
 set it declares but its fitting sets, `train` and `calibration`), and gives its ledger, its run
 record (each case's latency and tokens, from its `DecisionResult`) and its entry. It refuses a
@@ -69,7 +79,7 @@ from mendari.core.reference import bundled_dir
 from mendari.core.registry import SearchPath, discover
 from mendari.core.spec import is_pack_id, version_key
 from mendari.errors import MendariError, PackNotFoundError
-from mendari.evals import arms, method, runs, scoreboard, signing
+from mendari.evals import arms, hidden, method, runs, scoreboard, signing
 from mendari.evals import ledger as ledgers
 from mendari.evals.harness import Dataset, record_problems, resolve_dataset
 from mendari.evals.ledger import Ledger, canonical, case_hash
@@ -79,9 +89,9 @@ ROOT = "scoreboard"  # from the repository's root
 RESULTS, LEDGERS, RUNS, PRICES = "results", "ledgers", "runs", "prices"
 CANARIES, DECLARED = "canaries", "declared"
 KEYS, DISCLOSURES = "keys.json", "disclosures.json"
-# The formats the store holds. A hidden set's answer (`mendari.hidden_scoreboard/1`) joins with
-# LP-17k, with its closed schema.
-FORMATS = (scoreboard.FORMAT,)
+# The formats the store holds: a scoreboard entry, and a hidden set's answer (LP-17k), held to
+# its closed schema.
+FORMATS = (scoreboard.FORMAT, hidden.HIDDEN_SCOREBOARD_FORMAT)
 # A pack's sets that fit its models (naive Bayes is trained on one, calibrated on the other):
 # never scored. Every other set it declares is a public scoring set.
 FITTING_SETS = ("train", "calibration")
@@ -135,7 +145,10 @@ def scoring_sets(pack: Pack) -> list[str]:
 
 
 def name_of(result: Mapping[str, Any]) -> str:
-    """The name a result is stored under: its body's SHA-256 (`scoreboard.body_sha256`), in hex."""
+    """The name a result is stored under: its body's SHA-256 (`scoreboard.body_sha256`; a hidden
+    set's, `hidden.scoreboard_body_sha256`, which leaves its run block out), in hex."""
+    if result.get("format") == hidden.HIDDEN_SCOREBOARD_FORMAT:
+        return hidden.scoreboard_body_sha256(result).removeprefix("sha256:")
     return scoreboard.body_sha256(result).removeprefix("sha256:")
 
 
@@ -223,8 +236,17 @@ class Held:
 
     @property
     def shown(self) -> str:
-        """The pack, set and configuration, for a message."""
-        return f"{self.pack_id} {self.set_name} {written(self.providers)}"
+        """The pack, set and configuration (none for a hidden set's result), for a message."""
+        return " ".join(
+            part for part in (self.pack_id, self.set_name, written(self.providers)) if part
+        )
+
+    @property
+    def is_hidden(self) -> bool:
+        """Whether it is a hidden set's result: by its format (`mendari.hidden_scoreboard/1`),
+        never by what its scope says, so an entry that calls its set hidden is still checked as
+        a public one, and refused."""
+        return bool(self.result["format"] == hidden.HIDDEN_SCOREBOARD_FORMAT)
 
 
 def held(result: Any, *, name: str | None = None) -> Held:
@@ -236,6 +258,8 @@ def held(result: Any, *, name: str | None = None) -> Held:
         raise MendariError(f"not a result the store holds ({' or '.join(FORMATS)})")
     result = dict(result)
     signing.body_bytes(result)  # canonical JSON, or a MendariError
+    if result["format"] == hidden.HIDDEN_SCOREBOARD_FORMAT:
+        return _held_hidden(result, name)
     found = name_of(result)
     if result.get("body_sha256") != f"sha256:{found}":
         raise MendariError("its body_sha256 is not its body's SHA-256")
@@ -310,6 +334,41 @@ def _replicate_inputs(inputs: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
             raise ValueError("replicates")
         found.append((item["ledger"], item["run"]))
     return tuple(found)
+
+
+def _held_hidden(result: dict[str, Any], name: str | None) -> Held:
+    """A hidden set's result as the store reads it: it fits its closed schema, its body's
+    SHA-256 is its `body_sha256` (and `name`, when given), and it names a day of the calendar.
+    It has no ledger, run record, price table or dataset hash: those fields are empty, and its
+    arm and configuration too (its arms are in it), so one pack and set has one current
+    result."""
+    problem = hidden.scoreboard_problem(result)
+    if problem is not None:
+        raise MendariError(problem)
+    found = name_of(result)
+    if name is not None and name != found:
+        raise MendariError(f"its name is not its body's SHA-256 ({found})")
+    scope, supersedes = result["scope"], result["supersedes"]
+    if _day(scope["measured_on"]) is None:
+        raise MendariError("its scope names no day it was measured (YYYY-MM-DD)")
+    return Held(
+        name=found,
+        result=result,
+        pack_id=scope["pack"]["id"],
+        pack_digest=scope["pack"]["digest"],
+        set_kind=scope["set"]["kind"],
+        set_name=scope["set"]["id"],
+        arm="",
+        providers={},
+        local=True,
+        measured_on=scope["measured_on"],
+        supersedes=None if supersedes is None else supersedes.removeprefix("sha256:"),
+        ledger="",
+        run="",
+        prices=None,
+        dataset="",
+        method=scope["method"]["sha256"],
+    )
 
 
 def _day(text: str) -> datetime.date | None:
@@ -514,7 +573,7 @@ class Store:
                 problem = f"its signature does not verify: {signature}"
         if problem is None:
             day = clock.today() if today is None else today
-            problem = _public(found, self, packs, new=True, reruns={}, today=day).problem
+            problem = _verdict(found, self, packs, new=True, reruns={}, today=day).problem
         if problem is not None:
             raise MendariError(problem)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1222,6 +1281,62 @@ def _remote_problem(found: Held, store: Store) -> str | None:
     return None
 
 
+def _verdict(
+    found: Held,
+    store: Store,
+    packs: PackSource,
+    *,
+    new: bool,
+    reruns: dict[str, bool],
+    today: datetime.date,
+) -> Verdict:
+    """`_hidden` for a hidden set's result, `_public` for any other."""
+    if found.is_hidden:
+        return _hidden(found, packs, new=new, today=today)
+    return _public(found, store, packs, new=new, reruns=reruns, today=today)
+
+
+HIDDEN_KEPT = "kept as it is: a hidden set's result is never recomputed (no ledger of it is kept)"
+
+
+def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) -> Verdict:
+    """Whether a hidden set's result may stay in the store, or be added (`new`): of a pack
+    Mendari maintains (any of its versions: the deployment graded the one it serves); when new,
+    under the current method, measured no later than `today`, and in effect or not as the
+    method is on the day measured; and, under the current method, agreeing with its own
+    figures (`hidden.scoreboard_disagreement`: its intervals, evidence, grades, banner and
+    ranking, each draft while its scope's method is not in effect). Its closed schema was
+    checked when it was read (`held`). It is kept as it is: with no ledger, its k and n are
+    never recomputed. One under an earlier method is kept as it was added."""
+    where = f"{RESULTS}/{found.name}.json ({found.shown})"
+    if new and found.measured_on > today.isoformat():
+        return Verdict(
+            f"{where}: it is measured on {found.measured_on}, after today ({today.isoformat()}): "
+            "a result is dated the day it is run"
+        )
+    if new and found.method != method.METHOD_SHA256:
+        return Verdict(
+            f"{where}: a new result is made under the current method ({scoreboard.STALE_METHOD})"
+        )
+    measured = _day(found.measured_on)
+    assert measured is not None  # `held` refused any other
+    in_effect = found.result["scope"]["method"]["in_effect"]
+    if new and in_effect != method.in_effect(measured):
+        return Verdict(
+            f"{where}: its scope says the method is {'' if in_effect else 'not '}in effect on "
+            f"{found.measured_on}, which the method's effective date does not give"
+        )
+    if found.method == method.METHOD_SHA256:
+        problem = hidden.scoreboard_disagreement(found.result)
+        if problem is not None:
+            return Verdict(f"{where}: {problem}")
+    try:
+        packs(found.pack_id)
+    except MendariError as error:
+        return Verdict(f"{where}: {error}")
+    return Verdict(kept=f"{found.name}: {HIDDEN_KEPT}")
+
+
 def _stale_inputs(found: Held, pack: Pack) -> str | None:
     """Which of `found`'s set, method and pack digest is not the current one (the first, in
     that order), or None."""
@@ -1300,7 +1415,11 @@ def check(
       remote (or local) where it says so;
     - a canary of `base_canaries` removed or changed, or a canary that is not what its stored
       ledger, run record and the result it was compared with give, or that is new and measured
-      after `today`."""
+      after `today`;
+    - a hidden set's result that does not fit its closed schema (`held`), is not of a pack
+      Mendari maintains, does not agree with its own figures under the current method or,
+      when new, is under another method, measured after `today` or says the method is in
+      effect when it is not, or the reverse (`_hidden`)."""
     found = Check()
     problems = found.problems
     listed: dict[str, dict[str, bytes]] = {}
@@ -1363,7 +1482,7 @@ def check(
     day = clock.today() if today is None else today
     for name, held_result in sorted(results.items()):
         new = name not in base
-        verdict = _public(held_result, store, packs, new=new, reruns=reruns, today=day)
+        verdict = _verdict(held_result, store, packs, new=new, reruns=reruns, today=day)
         if verdict.problem is not None:
             problems.append(verdict.problem)
         if verdict.kept is not None:

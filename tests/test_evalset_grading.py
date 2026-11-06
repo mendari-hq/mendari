@@ -928,7 +928,8 @@ def test_the_runbooks_grading_runs_as_written(
     capsys.readouterr()
     assert main(argv[1:]) == 0
     key = json.loads(capsys.readouterr().out)
-    (posted,) = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
+    found = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
+    (posted,) = [line for line in found if '"arms"' not in line]  # the scoreboard's is LP-17k's
     body = json.loads(shlex.split(posted)[-1])
     answered = world.client.post(
         url(set_id), json=body, headers={"authorization": f"Bearer {key['key']}"}
