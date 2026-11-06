@@ -17,7 +17,8 @@ _Graded twice, before LP-23 and at its close-out, from the vision audit's A12 ro
   `terminology.yml` run on main on a schedule or by hand only. `conformance.yml` already runs
   there (its `dtr-payer` job, weekly); its new jobs `crd-server`, `smart-client` and
   `bulk-client` first run after the lane merges, and so does `terminology.yml`, which is not on
-  main yet._
+  main yet. A step that lands after the close-out grades its own rows again, on its own tests,
+  and says so under their dimension: LP-23j (#281) grades CW-3e._
 - _The Evidence column and the last column are the after grade's. A test a row cites that was not
   at `06d5332f` is a test of LP-23a's or of a later step's, which the row's last column names
   first (`23d: ...`). A grade's level is always the rule applied to its own column._
@@ -65,7 +66,7 @@ Seven dimensions, each graded on five levels by named criteria:
 | 2. Who may call from where | 1 | 3 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
 | 3. Failure behaviour | 1 | 1 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
 | 4. Data shapes | 2 | 2 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
-| 5. Cards and workflow | 1 | 2 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
+| 5. Cards and workflow | 1 | 3 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
 | 6. Conformance evidence | 2 | 2 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
 | 7. Vendor fit | 2 | 2 | 1 | 1 | rubric v1; before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit); synthetic data and test keys only, not a vendor certification |
 
@@ -173,13 +174,17 @@ What the clinician sees, and what comes back from them.
 | CW-3b | 3 | A feedback endpoint records accepted and overridden cards in the chain. | missing | met | `tests/test_cds_feedback.py::test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained`, `tests/test_cds_feedback.py::test_feedback_naming_another_organizations_packs_or_callers_decision_answers_as_unknown`, `tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end` | A12.2b | 23f: `POST /cds-services/{id}/feedback`, chained as `card.feedback`, codes and ids only; 23m's end-to-end test sends it with a signed token and verifies the chain |
 | CW-3c | 3 | A card's words use the pack's display names, and the engine's detail sits behind a link to the audit view. | missing | met | `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged`, `tests/test_cds_cards.py::test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made` | A12.2c-audit-link | 23f: the link when `MENDARI_PUBLIC_URL` is set; without it, the reasons stay in the detail, but for the confidence thresholds' |
 | CW-3d | 3 | A card links to the EHR launch view. | missing | met | `tests/test_cds_cards.py::test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_organization` | A12.2d | 23f: a `smart` link with `?pack=`, when SMART is on and the `fhirServer` is a launch-registered EHR of the caller's organization |
-| CW-3e | 3 | Referral cards show only when action is needed, and the inbox pack has a card template. | partial | partial | `tests/test_trial_pack.py::test_patient_view_card` | A12.2e, A12.2c | 23j: the mechanism exists, and the referral and inbox packs do not use it yet; the owner confirms the referral `show` list (owner decision 4) |
+| CW-3e | 3 | Referral cards show only when action is needed, and the inbox pack has a card template. | partial | met | `tests/test_referral_pack.py::test_only_referrals_that_need_action_show_a_card`, `tests/test_inbox_pack.py::test_the_inbox_card_has_its_own_template` | A12.2e, A12.2c | 23j: #281, the referral router's `show: [return_for_info, urgent_review]` (owner decision 4, the default the owner confirmed on 2026-11-06), the others decided and audited with no card and an unreadable record's card still shown; the inbox's own template (an indicator per team, a `none` summary, its suggestion's label), a team's summary keeping the engine's words |
 | CW-4a | 4 | Every card matches the CDS Hooks 2.0 card shape, and Inferno's CRD card tests pass. | missing | partial | `tests/test_inferno_check.py::test_the_scripted_jobs_run_what_their_expected_results_list`, `tests/test_inferno_setup.py::test_every_expected_failure_or_skip_has_a_reason` | A12.acc-1 | 23l: Inferno's CRD card tests run (`sandbox/inferno/crd_server_v221_expected.json`, 2.3.01 and 3.4.3.01 to 3.4.3.15): coverage information's form (3.4.3.05 and 3.4.3.07: its system actions valid, none sent as a card), unknown configuration, context and elements, and the coverage-info off switch pass locally; partial: response validation fails on the cards' `mendari.decision_id` extension (not in CRD's response model), 3.4.3.06 (Hook responses include Coverage Information system actions) fails because ehr-pa-4 and ehr-pa-5 carry no coverage-information action, the External Reference test fails on the audit link card's suggestion (a Task with no id), and `conformance.yml` job `crd-server` has not run on GitHub yet. 23f checks every card against CDS Hooks 2.0's card shape in Mendari's own tests, and a CRD service's cards carry `source.topic` |
 | CW-5a | 5 | Epic's sandbox shows the cards and sends feedback on them. | missing | missing | missing | A12.2b | the owner: the Epic sandbox run, and whether Epic sends feedback (`notes/epic-sandbox-checklist.md`) |
 
-**Grade:** level 1 before, level 2 after. **Overall:** level 1 before, level 1 after. Rubric v1;
+**Grade:** level 1 before, level 3 after. **Overall:** level 1 before, level 1 after. Rubric v1;
 before graded at `06d5332f` with LP-23a, after at `d2ef0201` with LP-23m (the close-out commit);
 synthetic data and test keys only, not a vendor certification.
+
+CW-3e is graded again by LP-23j (#281), which landed after the close-out commit, on the tests
+that step added: met, so this dimension is at level 3 after, where the close-out graded it at
+level 2. Every other row is as the close-out graded it.
 
 ## 6. Conformance evidence
 

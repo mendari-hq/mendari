@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/referral-router` · version **0.2.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.2.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:6d5285971648637aa2c454a6514388d0360ee01934d1e5e2c6839d7ff4a3ab70` |
-| Last validation | 2026-10-07 on `test` (n=600, sha256 `f085362d6bc2…`) |
+| Pack digest | `sha256:fc843d27f5a93a962a49f512a7870391ec5cf0707f73c13f1e73f2c279e33630` |
+| Last validation | 2026-11-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
 
@@ -184,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 2.14 / 5.13 ms |
+| Latency p50 / p95 | 1.89 / 2.05 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |
@@ -392,7 +392,21 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.2.0
+#### 0.2.1
+
+- A CDS Hooks card only when the person signing the referral can act
+  (`cds_hooks.card.show: [return_for_info, urgent_review]`, LP-23j; the owner confirmed the
+  list on 2026-11-06): a referral to send back with what is missing, and one to review today.
+  A referral to schedule, for a coordinator, or with no suggestion is decided and audited as
+  before, for the referral office, and shows no card. A record that could not be read still
+  shows its `info` card for every referral. Of the 300 referrals the FHIR decisions golden
+  holds (the bundled local-site example, sent through FHIR), 235 show a card and 65 do not (53
+  to schedule, 12 for a coordinator); each of the 300 showed one before.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
+  (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
+  the manifest does.
+
+### 0.2.0
 
 - No SNOMED CT: the FHIR mapping's `focus_where`, which tells a referral from the other
   ServiceRequests (lab and imaging orders), matched the SNOMED CT code for a patient referral.

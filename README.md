@@ -716,13 +716,15 @@ always answers, data coverage, cards and card feedback, mapping syntax 0.3 with 
 site code maps, a vendor-shaped synthetic profile with a signed sandbox client, and Inferno's
 CRD, SMART client and Bulk client suites. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed
 token through a hook over HTTP, its card and the clinician's feedback on it to `mendari audit
-verify`, which passes, and fails once one event is changed, on SQLite and Postgres. Left: the
-shipped packs' cards (the inbox's template, referral cards only when action is needed) and their
-mappings for real EHR data on spec 0.3, each waiting on the owner, and the run on Epic's own
-sandbox, which is the owner's. Launch gate G5-6's `a12-ehr-pilot` names all three as pending.
-The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure behaviour
-stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing that only
-a CI run not yet made would show is counted. The
+verify`, which passes, and fails once one event is changed, on SQLite and Postgres. The shipped
+packs' cards followed (LP-23j): the inbox has its own card template, and the referral router
+shows a card only when the person signing can act (a referral to send back with what is
+missing, or one to review today), deciding and auditing the others with no card. Left: the
+shipped packs' mappings for real EHR data on spec 0.3, waiting on the owner, and the run on
+Epic's own sandbox, which is the owner's. Launch gate G5-6's `a12-ehr-pilot` names both as
+pending. The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure
+behaviour stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing
+that only a CI run not yet made would show is counted. The
 [threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)
 keeps five residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
 decision id the EHR keeps, a misconfigured site map, and frequent abstention on records whose

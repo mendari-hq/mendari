@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/referral-router
-version: 0.2.0
+version: 0.2.1
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -332,4 +332,9 @@ cds_hooks:
       urgent_review: critical
       coordinator_review: info
       none: info
+    # A card only where the person signing the referral can act: send it back with what is
+    # missing, or review it today. A referral to schedule, for a coordinator or with no
+    # suggestion is decided and audited for the referral office, with no card; a record that
+    # could not be read still gets its card.
+    show: [return_for_info, urgent_review]
     suggestion: Create a referral task

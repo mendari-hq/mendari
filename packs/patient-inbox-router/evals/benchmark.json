@@ -2,8 +2,8 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/patient-inbox-router",
-    "version": "0.4.2",
-    "digest": "sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef"
+    "version": "0.4.3",
+    "digest": "sha256:81111184492aae94e804383f0ecbf91289745ff21f654d0ab09775bed19ab4af"
   },
   "providers": {
     "safety_screen": {
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:96f8abe90810cc04a1630a79aed53ba2d3f33ae95bd887d02a31e0bf14892de4",
+    "id": "sha256:961fcd2a563a96fdeb1c31350f0c226d71d46232ab6c742a0f44a451cd104e2e",
     "cases": 600
   },
   "seeds": {
@@ -960,15 +960,15 @@
     }
   ],
   "run": {
-    "id": "2e9de0b7-5346-4cd4-a62c-c4496ea9766a",
-    "created_at": "2026-10-08T02:19:31+00:00",
+    "id": "662e511f-a6bc-431d-a1dc-e3d9941d811a",
+    "created_at": "2026-11-06T16:31:51+00:00",
     "latency_ms": {
-      "mean": 0.32069838683431345,
-      "p50": 0.18358416855335236,
-      "p95": 0.8387090638279915,
-      "max": 14.298082794994116
+      "mean": 0.1509045964727799,
+      "p50": 0.1482921652495861,
+      "p95": 0.1920829527080059,
+      "max": 0.5439999513328075
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:233f8a5e936a5bc041e77e717f98b8c660460facae01ee5b96cbfded26bb77c8"
+  "result_sha256": "sha256:e7627a5b3a1d835c5f3b19dc6560de8c334749294349c5cd747a35f728dbe4d9"
 }

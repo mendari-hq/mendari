@@ -4,6 +4,22 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.4.3
+
+- The CDS Hooks card has its own template (`cds_hooks.card`, LP-23j). A team's card keeps the
+  engine's words, with the team's display name, so it still says whether the message was routed
+  or needs a person to confirm the team ("Routed to Nurse", "Review: route to Nurse"). Its
+  indicator is the team's: `info` for the front desk, a medical assistant and billing, `warning`
+  for a nurse and a physician (it was `warning` for every message a person reviews, and `info`
+  for every routed one). A possible emergency is still `critical`. A message with no suggested
+  team says "Message: no suggested team; it stays in the shared inbox for manual triage" (it
+  said "No recommendation; to manual triage"), and the suggestion is "Create a routing task"
+  (it was "Create routing task for" the team). Every decision still shows a card, and the
+  suggested Task, its text and its team's code are unchanged.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
+  (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
+  the manifest does.
+
 ## 0.4.2
 
 - A comment in the manifest no longer names a default chat model: Mendari has none. The

@@ -4,6 +4,20 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.2.1
+
+- A CDS Hooks card only when the person signing the referral can act
+  (`cds_hooks.card.show: [return_for_info, urgent_review]`, LP-23j; the owner confirmed the
+  list on 2026-11-06): a referral to send back with what is missing, and one to review today.
+  A referral to schedule, for a coordinator, or with no suggestion is decided and audited as
+  before, for the referral office, and shows no card. A record that could not be read still
+  shows its `info` card for every referral. Of the 300 referrals the FHIR decisions golden
+  holds (the bundled local-site example, sent through FHIR), 235 show a card and 65 do not (53
+  to schedule, 12 for a coordinator); each of the 300 showed one before.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
+  (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
+  the manifest does.
+
 ## 0.2.0
 
 - No SNOMED CT: the FHIR mapping's `focus_where`, which tells a referral from the other

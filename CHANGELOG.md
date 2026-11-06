@@ -385,6 +385,22 @@ The first release (not yet published).
   CapabilityStatement's description now names card feedback, an EHR's own token and what Mendari
   reads from an EHR's FHIR server. See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#before-a-pilot).
+- **The shipped packs' cards** (LP-23j; card wording and which cards show change, no decision
+  does). The Patient Inbox Router (0.4.3) has its own card template: a team's summary keeps the
+  engine's words with the team's display name ("Routed to Nurse", "Review: route to Nurse"),
+  its indicator is the team's (`info` for the front desk, a medical assistant and billing,
+  `warning` for a nurse and a physician, still `critical` for a possible emergency), a message
+  with no suggested team says it stays in the shared inbox, and the suggestion reads "Create a
+  routing task". The Referral Router (0.2.1) shows a card only when the person signing can act
+  (`show: [return_for_info, urgent_review]`, the default the owner confirmed on 2026-11-06): a
+  referral to schedule, for a coordinator or with no suggestion is decided and audited with no
+  card, and a record that could not be read still shows its `info` card. Every decision is the
+  same: the FHIR decisions golden is unchanged, and both benchmarks and their ledgers differ only
+  in the run, the version and the digest, so the critical-label figures are as they were. The
+  scoreboard's stored results for the two packs now read "stale: pack changed", as a pack change
+  makes them. Gate G5-6's `a12-ehr-pilot` probes 23j's tests in place of its pending line, and
+  the scorecard's CW-3e is met (cards and workflow at level 3; overall still level 1). See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#the-cards).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

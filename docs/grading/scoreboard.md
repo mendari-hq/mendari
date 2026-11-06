@@ -447,7 +447,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `router=naive_bayes,safety_screen=rules` | Mendari only: `router=rules,safety_screen=rules` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` |
 | Set | public, sha256 `66dd801d74e5…`, 38 cases, 38 distinct inputs (norm/v1) | public, sha256 `66dd801d74e5…`, 38 cases, 38 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -530,7 +530,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `router=naive_bayes,safety_screen=rules` | Mendari only: `router=rules,safety_screen=rules` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` |
 | Set | public, sha256 `3f6f35b3b67c…`, 30 cases, 30 distinct inputs (norm/v1) | public, sha256 `3f6f35b3b67c…`, 30 cases, 30 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -609,7 +609,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `router=naive_bayes,safety_screen=rules` | Mendari only: `router=rules,safety_screen=rules` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` | 0.4.2, `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` |
 | Set | public, sha256 `2997856d17a5…`, 600 cases, 591 distinct inputs (norm/v1) | public, sha256 `2997856d17a5…`, 600 cases, 591 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -889,7 +889,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` |
 |---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:6d5285971648637aa2c454a6514388d0360ee01934d1e5e2c6839d7ff4a3ab70` |
 | Set | public, sha256 `f085362d6bc2…`, 600 cases, 600 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -956,7 +956,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` |
 |---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:6d5285971648637aa2c454a6514388d0360ee01934d1e5e2c6839d7ff4a3ab70` |
 | Set | public, sha256 `3b5be3be3223…`, 30 cases, 30 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -1019,7 +1019,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `checklist=criteria,specialty_reader=naive_bayes,triage_screen=rules` |
 |---|---|
-| Marks | unsigned; method draft, not in effect; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:6d5285971648637aa2c454a6514388d0360ee01934d1e5e2c6839d7ff4a3ab70` |
 | Set | public, sha256 `93aac7e27485…`, 24 cases, 24 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` |

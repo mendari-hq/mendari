@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/patient-inbox-router` · version **0.4.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/patient-inbox-router` · version **0.4.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:179ceb9588eb562e7a2873ed982245e5c9a6c47ce08f0f6292d95c9c56eb75ef` |
-| Last validation | 2026-10-07 on `test` (n=600, sha256 `2997856d17a5…`) |
+| Pack digest | `sha256:81111184492aae94e804383f0ecbf91289745ff21f654d0ab09775bed19ab4af` |
+| Last validation | 2026-11-06 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 
@@ -108,7 +108,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`. Each 
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 598 [0.1-1.5%] |
-| Latency p50 / p95 | 0.18 / 0.84 ms |
+| Latency p50 / p95 | 0.15 / 0.19 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23 of 23 [85.2-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
@@ -266,7 +266,23 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.4.2
+#### 0.4.3
+
+- The CDS Hooks card has its own template (`cds_hooks.card`, LP-23j). A team's card keeps the
+  engine's words, with the team's display name, so it still says whether the message was routed
+  or needs a person to confirm the team ("Routed to Nurse", "Review: route to Nurse"). Its
+  indicator is the team's: `info` for the front desk, a medical assistant and billing, `warning`
+  for a nurse and a physician (it was `warning` for every message a person reviews, and `info`
+  for every routed one). A possible emergency is still `critical`. A message with no suggested
+  team says "Message: no suggested team; it stays in the shared inbox for manual triage" (it
+  said "No recommendation; to manual triage"), and the suggestion is "Create a routing task"
+  (it was "Create routing task for" the team). Every decision still shows a card, and the
+  suggested Task, its text and its team's code are unchanged.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
+  (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
+  the manifest does.
+
+### 0.4.2
 
 - A comment in the manifest no longer names a default chat model: Mendari has none. The
   `llm` and `rules_and_llm` variants ask the model `LLM_MODEL` names; without it the `llm`

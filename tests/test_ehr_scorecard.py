@@ -4,8 +4,9 @@ criterion is graded twice, before LP-23 (as LP-23a merged it) and at the close-o
 criterion cites a test that exists or says "missing", every grade states its rubric version,
 commits and scope, a test that was not at the before commit is cited only by a row that names
 the LP-23 step whose test it is, a row whose evidence is a CI run that has not happened yet is not
-met, no figure is a percentage or a fraction, and each grade is what its column's criteria give,
-the overall grade the lowest dimension's."""
+met, a row a step landing after the close-out grades again says so (LP-23j: CW-3e), no figure is
+a percentage or a fraction, and each grade is what its column's criteria give, the overall grade
+the lowest dimension's."""
 
 from __future__ import annotations
 
@@ -48,6 +49,9 @@ DIMENSIONS = (
     "Vendor fit",
 )
 LEVELS = (1, 2, 3, 4, 5)
+# The rows a step that landed after the close-out commit graded again, on its own tests: the
+# step, its pull request, the row's dimension and that dimension's after grade at the close-out.
+REGRADED = {"CW-3e": ("23j", "#281", "Cards and workflow", 2)}
 NODE = re.compile(r"tests/[\w/]+\.py::\w+")
 CRITERION = re.compile(r"^\| (?P<id>[A-Z]{2}-(?P<level>\d)[a-z]) \| ")
 
@@ -245,6 +249,39 @@ def test_a_row_waiting_on_a_ci_run_is_not_met_after() -> None:
                     assert not listed, (row.id, workflow, jobs)
             assert re.match(r"23[e-l]: ", row.waits_on), row.id
     assert waiting >= 8
+
+
+def test_a_row_graded_again_after_the_close_out_says_so() -> None:
+    """A step that landed after the close-out commit (LP-23j, #281) grades its own rows again,
+    on the tests it added: each such row is met after, cites tests that were not at the close-out
+    commit (skipped in a shallow clone, which holds no history), names the step and its pull
+    request first in its last column, and its dimension says, under its grade, that the row was
+    graded again and every other row is the close-out's. The scope lines keep naming the
+    close-out commit."""
+    found = sections()
+    for row_id, (step, pull, title, closed_at) in REGRADED.items():
+        (row,) = [row for row in criteria(found[title]) if row.id == row_id]
+        assert row.status == "met" and row.before != "met", row_id
+        assert row.waits_on.startswith(f"{step}: {pull}, "), row_id
+        cited = NODE.findall(row.evidence)
+        assert cited, row_id
+        for node in cited if not _shallow() else []:
+            file, name = node.split("::")
+            shown = ["git", "show", f"{AFTER}:{file}"]
+            then = subprocess.run(shown, cwd=ROOT, capture_output=True, text=True).stdout
+            assert not re.search(rf"^def {name}\(", then, flags=re.MULTILINE), node
+        said = [p for p in paragraphs(found[title]) if p.startswith(f"{row_id} is graded again")]
+        assert said == [
+            f"{row_id} is graded again by LP-{step} ({pull}), which landed after the close-out "
+            "commit, on the tests that step added: met, so this dimension is at level "
+            f"{level_of(criteria(found[title]))} after, where the close-out graded it at level "
+            f"{closed_at}. Every other row is as the close-out graded it."
+        ], row_id
+    whole = " ".join(text().split())
+    assert "A step that lands after the close-out grades its own rows again" in whole
+    for step, pull in {(step, pull) for step, pull, _, _ in REGRADED.values()}:
+        rows = ", ".join(sorted(row for row, graded in REGRADED.items() if graded[0] == step))
+        assert f"LP-{step} ({pull}) grades {rows}." in whole
 
 
 def test_the_scorecard_shows_no_percentage_or_fraction() -> None:
