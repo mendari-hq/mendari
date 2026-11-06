@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:13b77abf11922c8b8c13382e32ed78b42154f602eeb1cefa5bcbdbe5e5b60c7d` |
+| Pack digest | `sha256:1d0e003753fc10fa7a8d128f7a3f3bf17c89ea8ac49e3366a1302145847d82dc` |
 | Last validation | 2026-11-06 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
@@ -196,7 +196,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 300 [0.0-1.2%] |
 | Expected human override (of reviewed) | 2 of 300 [0.1-2.4%] |
-| Latency p50 / p95 | 0.40 / 0.43 ms |
+| Latency p50 / p95 | 0.41 / 0.46 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12 of 13 [64.0-99.8%] detected, 0 automated (insufficient evidence: under 100 positives) |
 | Critical `note_pancreatitis=yes` | 6 of 6 [54.1-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
@@ -375,8 +375,8 @@ Other questions (accuracy / ECE):
 
 - Criteria are computed only from the codes, units and names listed in logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared conversion, or a condition under an unlisted code is `unknown` or not found. Conditions are listed in ICD-10-CM only (plus the local-site example's fictional codes). Through FHIR a Condition is read by its ICD-10-CM coding wherever it sits among its codings (then by a fictional code), a lab by its LOINC coding and a drug by its RxNorm coding, so a site's own coding beside the standard one is passed over; but until the site adds its codes, a diagnosis coded only in SNOMED CT or a site's own system is not found (type 2 diabetes is `unknown`, a heart attack or stroke is missed), and neither is a lab with no LOINC coding. A metformin brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible` (medications are matched by name, not by their RxNorm code). On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has both, plus Spanish notes, eligibility is answered wrong far more often than on the benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by subgroup). Add a site's codes, units and names before use, and validate locally.
 - An incomplete medication list reads as "not on metformin", which fails a criterion.
-- Through FHIR, medications come from MedicationStatement and MedicationRequest. When a MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7) that is not yet clinically reviewed (a pharmacist's or research coordinator's review is owed before real use). It starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the day it was written (`authoredOn`), and it stops at that `boundsPeriod.end`, else its stop is unknown. The stop is never inferred from the request's status (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not read, and a request entered in error is left out. So a renewed prescription with no bounds starts on the day it was renewed, which can read as metformin started less than 90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and `doNotPerform` are not read, so an active one reads as taken; and only the first dosage instruction's bounds count. A MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
-- Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF.
+- Through FHIR, medications come from MedicationStatement and MedicationRequest. When a MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7) that is not yet clinically reviewed (a pharmacist's or research coordinator's review is owed before real use). It starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the day it was written (`authoredOn`), and it stops at that `boundsPeriod.end`, else its stop is unknown. The stop is never inferred from the request's status (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not read, and a request entered in error is left out. So a renewed prescription with no bounds starts on the day it was renewed, which can read as metformin started less than 90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and `doNotPerform` are not read, so an active one reads as taken; and only the first dosage instruction's bounds count. The criteria count a medication as current only when its status is `active`, or when it ended within the window they look at, which takes a bounds end. So a `completed`, `stopped`, `on-hold`, `cancelled`, `draft` or `unknown` request with no bounds end, the usual shape of a request, reads as not taken. Insulin on a `completed` request written 20 days ago reads as off insulin (`no_insulin` "yes", where its stop is in fact unknown), and an `on-hold` metformin as not on metformin (`stable_metformin` "no", the prescreen `not_eligible`, which shows no card). Of several requests for one drug, the first in the record's order decides, which may be a renewal rather than the earliest. The clinician's review is to say whether any of this changes. A MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
+- Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do notes longer than 20,000 characters in all, which the input does not allow (`too_large`; the text is never cut), and more links than one decision reads (20, `cap`). A hook reads every clinical note of the patient, each linked note's Binary and each Medication a MedicationRequest names counting as one link, so a long record may reach either.
 - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives `unknown`, so the patient needs review rather than being guessed.
 - The default note rules are English keyword patterns with a fixed-window negation and family-member heuristic. On hand-written notes they found 15/15 exclusions in the set they were written on but 8/12 in the held-out set (all 4 pregnancies; 1 of 2 pancreatitis, 1 of 3 cancer treatments, 2 of 3 recent cardiovascular events). They miss most notes in other languages and misread Spanish negation ("Sin antecedentes de pancreatitis"), and cannot compare dates written in the text, so any mention of a heart attack or stroke without a recency cue is flagged for review. That flag also tips the overall result to `not_eligible` at about 50 % confidence, which keeps the patient-view card silent for a patient who may be a candidate (2 of 24 held-out patients). The rules are an offline fallback, not a deployment choice.
 - Deploy with a model reading the notes. In the provider comparison (measured on an earlier version), Jev and each LLM alone found every held-out exclusion; adding the rules to a model (`rules_and_jev`, `rules_and_llm`) kept every exclusion but answered eligibility wrong more often, held out and at the local site, through the rules' flags and Spanish negation errors. If the model is unavailable the pack abstains and the coordinator screens the chart as usual; nothing is automated at risk level 2.
@@ -417,14 +417,20 @@ rules, models, data and results did not.
     dispensing window is not read, and a request entered in error is left out. **The rule is not
     yet clinically reviewed** (a pharmacist's or research coordinator's review is owed, B21);
     the card's known failure modes say so, and what follows from it (a renewal read as a recent
-    start, `intent` and `doNotPerform` not read). A drug named by a reference that could not be
-    read makes the decision abstain (`could not read medications.code: <reason>`).
+    start, `intent` and `doNotPerform` not read; a request that is not `active` and has no
+    bounds end read as not taken, since the criteria count only `active` as current, so a
+    `completed` insulin written 20 days ago reads `no_insulin` "yes"; the first matching request
+    in the record's order deciding). A drug named by a reference that could not be read makes
+    the decision abstain (`could not read medications.code: <reason>`).
   - Notes are read through `attachment_text`: text/plain and text/html, inline or in the
     Binary the attachment's url names, read from the EHR on a CDS hook or the SMART launch. An
-    RTF, PDF or CDA note, or one that cannot be read, makes the decision abstain. Two smaller
-    changes: an inline note with no content type (R4's att-1 requires one with data) is now
-    unreadable, where it was decoded as text; and an inline HTML note is read as its text, its
-    markup dropped.
+    RTF, PDF or CDA note, or one that cannot be read, makes the decision abstain, and so do notes
+    longer than 20,000 characters in all, which the input schema does not allow (`could not read
+    notes: too_large`; a long inline note was refused before as invalid input, with no card), and
+    more links than a decision reads (20, `cap`: each linked note's Binary and each Medication a
+    MedicationRequest names). Two smaller changes: an inline note with no content type (R4's att-1
+    requires one with data) is now unreadable, where it was decoded as text; and an inline HTML note
+    is read as its text, its markup dropped.
   - A CDS client that sends a prefetch without the new key and no `fhirServer` now gets the
     `412` every left-out key gets: an EHR sends it (null for no data), as discovery lists it.
 - Every case of the FHIR decisions golden (the bundled local-site example through FHIR, 150

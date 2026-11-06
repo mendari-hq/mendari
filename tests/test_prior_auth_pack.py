@@ -16,6 +16,7 @@ import pytest
 from mendari import Decision
 from mendari.cli import main
 from mendari.core.policy import Outcome
+from mendari.errors import FhirError
 from mendari.sandbox import synthetic_prior_auth
 from mendari.sandbox.synthetic_prior_auth import procedure_codings
 from mendari.standards import cds_hooks
@@ -195,6 +196,87 @@ def test_order_sign_gives_a_card_per_covered_order(preflight: Decision) -> None:
     task = cards[0]["suggestions"][0]["actions"][0]["resource"]
     assert task["focus"] == {"reference": "ServiceRequest/mri"}
     assert task["description"] == "Prior auth for lumbar_mri (acme): submit_ready"
+
+
+def _order_sign(prefetch: dict[str, Any], *orders: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hook": "order-sign",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ec",
+        "context": {
+            "userId": "Practitioner/1",
+            "patientId": "p1",
+            "draftOrders": {"resourceType": "Bundle", "entry": [{"resource": o} for o in orders]},
+        },
+        "prefetch": prefetch,
+    }
+
+
+def test_long_notes_with_a_red_flag_abstain_with_a_card_at_the_order(preflight: Decision) -> None:
+    """A patient's notes, joined, may be longer than the input schema lets `notes` be (20,000
+    characters). The order then abstains (`could not read notes: too_large`) and shows its
+    `info` card, with CRD's `indeterminate` coverage information, where the schema would have
+    refused the whole input (a BLOCK, which shows no card) and the red flag in its first note gone
+    unseen by the clinician signing it."""
+    prefetch = _prefetch("acme", "New saddle anesthesia and urinary retention.")
+    filler = base64.b64encode((" Completed 8 weeks of physical therapy." * 300).encode()).decode()
+    prefetch["notes"]["entry"] += [
+        {
+            "resource": {
+                "resourceType": "DocumentReference",
+                "id": f"n{n}",
+                "content": [{"attachment": {"contentType": "text/plain", "data": filler}}],
+            }
+        }
+        for n in (2, 3)
+    ]  # 11,700 characters each
+    result, _ = preflight.decide_fhir(prefetch, focus=_order("mri", "FX101"))
+    assert result.outcome is Outcome.ABSTAIN
+    assert result.reasons == ("could not read notes: too_large",)
+    answer = cds_hooks.invoke(preflight, _order_sign(prefetch, _order("mri", "FX101")))
+    assert [(c["summary"], c["indicator"]) for c in answer["cards"]] == [
+        (cds_hooks.UNREADABLE_SUMMARY, "info")
+    ]
+    assert "- notes: too_large" in answer["cards"][0]["detail"]
+    assert "indeterminate" in json.dumps(answer["systemActions"])
+
+
+def test_through_fhir_an_order_and_its_payer_reference_are_read_as_the_changelog_says(
+    preflight: Decision,
+) -> None:
+    """Two FHIR-path changes of 0.3.0 its changelog states: an order whose fictional code has no
+    system is not the pack's (the 0.2 mapping read the first coding whatever its system), so it
+    gets no decision; and a payor reference that could not be read abstains even when the payor
+    also carries an identifier (the 0.2 mapping read that identifier)."""
+    note = "Completed 8 weeks of physical therapy."
+    bare = _order("mri", "FX101")
+    bare["code"] = {"coding": [{"code": "FX101"}]}
+    with pytest.raises(FhirError, match="missing required FHIR resources: ServiceRequest"):
+        preflight.decide_fhir(_prefetch("acme", note), focus=bare)
+    both = _prefetch("", note, reference="Organization/o9", identifier={"value": "acme"})
+    result, _ = preflight.decide_fhir(both, focus=_order("mri", "FX101"))
+    assert result.outcome is Outcome.ABSTAIN
+    assert result.reasons == ("could not read coverage.payer: not_fetched",)
+
+
+def test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card(
+    preflight: Decision,
+) -> None:
+    """The default built while the owner's payer question is open, stated on the card: a site's
+    own payer id reads as `other`, so the order is `not_checked`, which the card template does
+    not show. A possible red flag in its notes sends it to the review queue at urgent priority,
+    but the clinician signing the order sees no card for it; with a payer the pack knows, the
+    same note shows the order's card."""
+    note = "New saddle anesthesia and urinary retention."
+    site = _prefetch("", note, reference="Organization/o2")
+    site["payers"] = _bundle(_payer("o2", SITE_PAYERS, "SP100"))
+    order = _order("mri", "FX101")
+    result, _ = preflight.decide_fhir(site, focus=order)
+    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "not_checked")
+    assert result.priority.value == "urgent"
+    assert result.answers["red_flag"].label == "yes"
+    assert cds_hooks.invoke(preflight, _order_sign(site, order))["cards"] == []
+    known = cds_hooks.invoke(preflight, _order_sign(_prefetch("acme", note), order))["cards"]
+    assert len(known) == 1
 
 
 def test_beacon_sleep_study_needs_no_prior_auth(preflight: Decision) -> None:

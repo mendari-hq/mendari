@@ -50,8 +50,12 @@ window a criterion looks at.
     or is not listed; "unknown" when it is active with no start date.
   - `no_insulin`: "no" when a medication whose name contains "insulin" is active, or ended in
     the last 90 days; otherwise "yes".
-- The pack's result is never automated: it is at risk level 2, so every result goes to a
-  research coordinator, who confirms eligibility against the protocol and the source documents.
+- The pack's result is not automated by default: it is at risk level 2, so every result goes to
+  a research coordinator, who confirms eligibility against the protocol and the source documents.
+  A recorded governance override (`core/policy.py`) may let a site automate a confident result
+  other than `candidate`, `not_eligible` included, which this rule can decide (a renewal with no
+  bounds reads as metformin started recently, so `stable_metformin` is "no"). `candidate` is
+  never automated, override or not (the pack's `policy.yaml`: `allow_auto: false`).
 - No other shipped pack reads medications.
 
 ## What each FHIR element means (FHIR R4)
@@ -135,7 +139,10 @@ These follow from the rule as built. Each is a reason the review matters; none i
 2. Should a request with no bounds, whose stop is unknown, count as current when its status is
    `active`?
 3. Should `completed` or `stopped` ever give a stop date (for example the request's last update),
-   or is "unknown" right?
+   or is "unknown" right? And while the stop is unknown, should a listed insulin or metformin
+   whose status is not `active` read as "unknown" (cannot tell from the list) rather than as not
+   taken, as it does now (`no_insulin` "yes" for a `completed` insulin written 20 days ago; the
+   card states this)?
 4. Should renewals be joined, for example by taking the earliest start among requests for the
    same drug?
 5. Should a request whose `intent` is `plan` or `proposal`, or whose `doNotPerform` is true, be
@@ -148,12 +155,12 @@ These follow from the rule as built. Each is a reason the review matters; none i
 ## The review
 
 To be filled in by the reviewer, and recorded by the owner in gate `clinician-review`'s
-attestation. A build session leaves it blank.
+attestation. A build session leaves it blank. The reviewer's name is not written here: the gate
+keeps it in a note outside the repository.
 
 | Field | Value |
 |---|---|
 | Reviewer's role (pharmacist, research coordinator, other) | |
-| Reviewer's name | |
 | Date | |
 | Pack and version reviewed | |
 | Pack digest reviewed (`mendari validate packs/clinical-trial-prescreener`) | |

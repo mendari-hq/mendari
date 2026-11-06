@@ -609,7 +609,14 @@ Whatever it says, and whoever wrote it, a pack cannot:
   abstains (`test_html_is_read_as_text_and_rtf_abstains`,
   `tests/test_ehr_profile.py::test_the_shipped_packs_read_the_profiles_linked_notes_through_the_allow_listed_client`). If Epic sends many
   notes as RTF, as the plan expects and only the sandbox run will show, those packs may abstain on
-  most patients with a note. Each abstention goes to a person, which only lowers automation, and shows an
+  most patients with a note. RTF is not the only cause on a real record. A hook reads every
+  clinical note of the patient (`DocumentReference?patient=…&category=clinical-note`) and, for
+  the trial pack, every MedicationRequest, and past `linked.MAX_READS` (20) each further link, a
+  note's Binary or the Medication a request names, is `cap` and the decision abstains; and notes
+  longer in all than the pack's input allows (20,000 characters for both packs) are left out of
+  the input, never cut, and abstain (`too_large`, `fhir.overlong`, LP-23k), rather than let the
+  schema refuse the whole input (a BLOCK, which shows no card). On a long history either may be
+  the commoner cause. Each abstention goes to a person, which only lowers automation, and shows an
   `info` card whatever the pack's `show` says (owner decision 6), so the risk is workload and
   cards clinicians learn to pass over, not a wrong `AUTO`. Each decision's data-coverage record
   counts its unreadable notes by reason, so the sandbox run shows how often it happens; LP-23

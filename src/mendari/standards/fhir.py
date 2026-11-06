@@ -106,6 +106,8 @@ ENTERED_IN_ERROR = "entered-in-error"  # a MedicationRequest so marked is left o
 UNSUPPORTED_TYPE = "unsupported_type"
 UNDECODABLE = "undecodable"  # data that is not base64, or not UTF-8 once decoded
 NOT_FETCHED = "not_fetched"  # only a `url`, to a Binary that is not in the record
+# Notes whose joined text is longer than the pack's input schema lets the field be (`overlong`).
+TOO_LARGE = "too_large"
 TEXT_TYPES = ("text/plain", "text/html")
 # The elements whose repetitions R4 defines as one document in other formats (`renditions`): a
 # DocumentReference's `content` ("each with a different format") and a DiagnosticReport's
@@ -839,6 +841,37 @@ def read_attachment(
         return None, UNDECODABLE
     text = html_text(text) if kind == "text/html" else text.strip()
     return text or None, None
+
+
+def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[str, ...]:
+    """Each `attachment_text` field of the mapping's `fields` whose text in `value` (the input
+    `FhirAdapter.read` gave) is longer than the `maxLength` the pack's input `schema` gives that
+    field (found by `properties`, one part of its dotted target at a time), sorted, each taken
+    out of `value` (spec 0.3 §2.4). The texts of all of a patient's notes, joined, can be longer
+    than the schema allows one field, which would refuse the whole input (a BLOCK, which shows no
+    card); without the field, the decision abstains instead (`could not read <field>:
+    too_large`), for a person, as for a note it could not read. The text is never cut: a cut
+    could lose the very sentence a criterion reads."""
+    found = []
+    for target, mapped in mapping.fields.items():
+        if mapped.transform != "attachment_text":
+            continue
+        node: Any = schema
+        for part in target.split("."):
+            properties = node.get("properties") if isinstance(node, Mapping) else None
+            node = properties.get(part) if isinstance(properties, Mapping) else None
+        most = node.get("maxLength") if isinstance(node, Mapping) else None
+        if not isinstance(most, int) or isinstance(most, bool):
+            continue
+        *parents, leaf = target.split(".")
+        holder: Any = value
+        for part in parents:
+            holder = holder.get(part) if isinstance(holder, dict) else None
+        text = holder.get(leaf) if isinstance(holder, dict) else None
+        if isinstance(text, str) and len(text) > most:
+            del holder[leaf]
+            found.append(target)
+    return tuple(sorted(found))
 
 
 def _media_type(value: Any) -> str | None:

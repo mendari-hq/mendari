@@ -427,10 +427,11 @@ wherever they sit, so every referral is found. The trial pack reads the Medicati
 the Medication each names (its RxNorm code, which the case's own record does not carry, is read
 in addition). The prior-authorization pack follows the payer's reference to its Organization,
 but the Organization holds only the site's own payer id, which the pack does not know and no
-site code map translates (a map translates codings only): the payer reads as `other`, and the
-order as `not_checked`. How a payer field should read a site's payer id is still the owner's
-question. `tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture,
-not a rate.
+site code map translates (a map translates codings only): the payer reads as `other`, and the order
+as `not_checked`, which shows no card at `order-sign`, a possible red flag in its notes included
+(that one reaches the review queue at urgent priority). How a payer field should read a site's payer
+id is still the owner's question. `tests/test_ehr_profile.py` pins each of these, with why: it is a
+regression fixture, not a rate.
 
 ## Site codes
 
@@ -567,12 +568,14 @@ to a pilot:
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
 - **Notes the packs may not read.** The reference packs that read notes (the trial and
-  prior-authorization packs) abstain on a note that is only a link until their mappings move
-  to spec 0.3, and a pack on spec 0.3 reads a note as text only when it is text/plain or
-  text/html: an RTF, PDF or CDA note abstains (`unsupported_type`). On an EHR
-  that sends notes that way, the packs that read notes may abstain for most patients with one,
-  each decision going to a person with an `info` card. Read the decisions' data-coverage records
-  (the audit view's "What it read") in the first days.
+  prior-authorization packs) are on spec 0.3 since LP-23k, and read a note that is only a link
+  from the FHIR server, but as text only when it is text/plain or text/html: an RTF, PDF or CDA
+  note abstains (`unsupported_type`). So do notes longer than the pack's input allows in all (20,000
+  characters, `too_large`; the text is never cut) and more links than a decision reads (20, `cap`),
+  which a patient with many notes may reach. On an EHR that sends notes that way, or keeps many
+  notes for each patient, the packs that read notes may abstain for most patients with one, each
+  decision going to a person with an `info` card. Read the decisions' data-coverage records (the
+  audit view's "What it read") in the first days.
 - **The validation mode.** Under `MENDARI_FHIR_VALIDATION=warn`, the default, input that is R4
   JSON but breaks R4's other rules is decided with its issues recorded; `enforce` blocks it
   before any provider runs ([Settings at a glance](../deploying-with-phi.md#8-settings-at-a-glance)).

@@ -21,7 +21,8 @@ code_sets:
     system: https://mendari.co/fhir/CodeSystem/fictional-referrals
     codes: ["FR101"]
   # The document and report codes logic/checklist.yaml looks for (LOINC): a site's own codes
-  # for the same documents translate into these.
+  # for the same documents translate into these. Keep the two in step: a code added to
+  # logic/checklist.yaml alone is not read through FHIR.
   checklist_documents:
     system: http://loinc.org
     codes: ["11506-3", "11488-4", "11524-6"]  # progress note, consult note, ECG

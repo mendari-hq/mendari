@@ -17,11 +17,10 @@ resources:
 
 fields:
   order.code:
-    # The pack's fictional procedure code wherever it sits, else the first coding (a site's own
-    # code, which logic/structured.yaml matches only once the site lists it there).
-    paths:
-      - "ServiceRequest.code.coding[system=https://mendari.co/fhir/CodeSystem/fictional-procedures].code"
-      - ServiceRequest.code.coding[0].code
+    # The pack's fictional procedure code wherever it sits. An order without one is not the
+    # pack's (`focus_where`), so no other coding is read: a site's own order code that
+    # logic/structured.yaml lists counts on JSON input, not through FHIR.
+    path: "ServiceRequest.code.coding[system=https://mendari.co/fhir/CodeSystem/fictional-procedures].code"
   order.name:
     path: ServiceRequest.code.text
   coverage.payer:

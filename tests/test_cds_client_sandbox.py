@@ -192,7 +192,7 @@ def test_a_card_for_a_read_that_failed_fails_the_run(
     assert all(re.search(r"could not read \w+: http_status ", problem) for problem in failed)
 
 
-def test_only_a_linked_note_may_be_left_unread() -> None:
+def test_only_an_rtf_note_may_be_left_unread() -> None:
     """What the client takes as unread, card by card: `notes: unsupported_type` for a patient
     whose linked note is RTF (since LP-23k the packs read a text/plain or text/html one, so
     nothing for those), nothing for one without a note; and what a card names (its detail's

@@ -1210,7 +1210,46 @@ Connect) is not supported yet.
     changes to know: a CDS client that sends the trial's old prefetch without `medication_requests`
     and no `fhirServer` gets the `412` any left-out key gets; an inline note with no content type
     is unreadable (R4's att-1 requires one); a payor or `medicationReference` the record does not
-    hold abstains on `fhir/decide` and `$decide` (they never read a link).
+    hold abstains on `fhir/decide` and `$decide` (they never read a link). Review fixes: notes
+    whose joined text is longer than the pack's input schema lets the field be (20,000 characters
+    for the trial and prior-authorization packs; a hook reads every clinical note of the patient)
+    were refused as invalid input, a BLOCK with no card, so a pregnancy or a red flag in them went
+    unseen at the chart; the engine now leaves such a field out of the input, never cutting its
+    text, and the decision abstains (`could not read notes: too_large`, `fhir.overlong`, counted
+    in the data-coverage record, spec 0.3 §2.4), with its `info` card. The prior-authorization
+    mapping's order code lost its first-coding fallback, which `focus_where` made unreachable
+    (behaviour unchanged). The cards now state what the review found unstated: the trial's
+    criteria count only an `active` request as current, so a request that is not active and has
+    no bounds end reads as not taken (a `completed` insulin written 20 days ago reads
+    `no_insulin` "yes", an `on-hold` metformin `stable_metformin` "no"), and the first matching
+    request decides (the behaviour is the adopted rule's, left for the clinician's review:
+    question 3 of the brief now asks it); a `not_checked` prior-authorization order shows no card
+    at `order-sign`, a possible red flag in its notes included, which reaches the review queue at
+    urgent priority only (left for the owner's payer question below); an order is the
+    prior-authorization pack's only by its fictional code through FHIR; a referral checklist code
+    is read through FHIR only once the mapping's code set has it too, and a system-less LOINC
+    coding is not read as LOINC; and the 20-link cap and the length limit beside RTF in both
+    note-reading cards and the threat model's residual risk. The changelogs state the system-less
+    codings no longer read (an order's FX code, a referral's FR101, a drug's) and that an unread
+    payor reference abstains even beside an identifier. The brief no longer says the trial's
+    result is never automated (a governance override may automate one but `candidate`), and its
+    review table asks for no name (the gate keeps it outside the repository). Stale lines fixed
+    in README, CHANGELOG (the 23m entry's pending lines), ADR-0014, the scorecard's DS-4a, the
+    connecting guide, `ci.yml`'s `cds-client` comment and two sandbox docstrings;
+    `tests/test_cds_client_sandbox.py::test_only_an_rtf_note_may_be_left_unread` is the renamed
+    `::test_only_a_linked_note_may_be_left_unread`. `./scripts/build-reference-pack.sh` rerun:
+    data and models byte-identical, the three packs' benchmarks and ledgers differing only in the
+    run, the digest and the result's hash, their cards in the known failure modes, the
+    scoreboard page unchanged (its results already stale); the FHIR decisions golden unchanged,
+    every case; the CRD session not rerun (no decision on the profile's patients changes, nor any
+    card's words). Tests:
+    `tests/test_trial_pack.py::test_notes_longer_than_the_input_allows_abstain_and_show_a_card`,
+    `tests/test_prior_auth_pack.py::test_long_notes_with_a_red_flag_abstain_with_a_card_at_the_order`,
+    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card`
+    (the default, pinned),
+    `tests/test_prior_auth_pack.py::test_through_fhir_an_order_and_its_payer_reference_are_read_as_the_changelog_says`,
+    `tests/test_referral_pack.py::test_the_mappings_code_sets_hold_exactly_the_checklists_document_and_report_codes`,
+    `tests/test_referral_pack.py::test_a_system_less_loinc_document_code_is_not_read_through_fhir`.
   - [x] **23l** (#280) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
     SMART App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
     schedule, and the vendor scope check. **Part 1 built** (Inferno's CRD server, SMART client and
@@ -1421,7 +1460,7 @@ Connect) is not supported yet.
     shows none, so no one signing it sees the suggested specialty (checking it against the
     referrer's is out of scope, future work). Say if either should show its card.
   - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #PR-23K.
-  - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review.
+  - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
   - [ ] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard.
   - [ ] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`
@@ -1436,8 +1475,11 @@ Connect) is not supported yet.
     linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k; 23k
     built without it: the prior-authorization pack reads the payer's Organization by the pack's
     own payer system or the payor's identifier as written, so a site's own payer id reads as
-    `other` and the order as `not_checked`), and whether a scope the EHR does not publish is
-    `fail` or `warn` (23l).
+    `other` and the order as `not_checked`, which shows no card at `order-sign`, so on a real
+    EHR's data a possible red flag in an order's notes reaches only the review queue, at urgent
+    priority, and not the clinician signing it; the card states this, and the answer may also
+    say whether `not_checked` should show a card, or the red-flag rule set a recommendation that
+    does), and whether a scope the EHR does not publish is `fail` or `warn` (23l).
 
 **Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
 owner received in October 2026, no image goes to GHCR until it carries what the licences of

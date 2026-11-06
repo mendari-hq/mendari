@@ -88,12 +88,24 @@ card:
       bounds starts on the day it was renewed, which can read as metformin started less than
       90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and
       `doNotPerform` are not read, so an active one reads as taken; and only the first dosage
-      instruction's bounds count. A MedicationRequest naming its drug by reference needs the
-      Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be
-      read, the pack abstains.
+      instruction's bounds count. The criteria count a medication as current only when its
+      status is `active`, or when it ended within the window they look at, which takes a bounds
+      end. So a `completed`, `stopped`, `on-hold`, `cancelled`, `draft` or `unknown` request
+      with no bounds end, the usual shape of a request, reads as not taken. Insulin on a
+      `completed` request written 20 days ago reads as off insulin (`no_insulin` "yes", where
+      its stop is in fact unknown), and an `on-hold` metformin as not on metformin
+      (`stable_metformin` "no", the prescreen `not_eligible`, which shows no card). Of several
+      requests for one drug, the first in the record's order decides, which may be a renewal
+      rather than the earliest. The clinician's review is to say whether any of this changes. A
+      MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or
+      the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
     - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url
       names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or
-      one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF.
+      one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do
+      notes longer than 20,000 characters in all, which the input does not allow (`too_large`;
+      the text is never cut), and more links than one decision reads (20, `cap`). A hook reads
+      every clinical note of the patient, each linked note's Binary and each Medication a
+      MedicationRequest names counting as one link, so a long record may reach either.
     - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives
       `unknown`, so the patient needs review rather than being guessed.
     - The default note rules are English keyword patterns with a fixed-window negation and

@@ -162,8 +162,8 @@ def prior_auth_entries(record: dict[str, Any], today: date | None = None) -> lis
     """One prior-authorization case (the Prior Authorization Preflight's): the Patient, the order
     as a ServiceRequest, the Coverage naming the payer, the diagnoses, the prior procedures and
     the clinic note as a DocumentReference, moved to today. An order or procedure carries its
-    fictional code first (the pack reads `coding[0]`), then the ICD-10-PCS code a payer reads,
-    where it has one (`procedure_codings`)."""
+    fictional code (which the pack reads by its system, wherever it sits), then the ICD-10-PCS
+    code a payer reads, where it has one (`procedure_codings`)."""
     today = today or datetime.now(UTC).date()
     data = record["input"]
     moved = _mover(data["as_of"], today)

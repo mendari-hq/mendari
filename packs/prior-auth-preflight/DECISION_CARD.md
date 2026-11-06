@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:52a899bc95f0249da94a2fc06d92c5c43bc2417201e36dff6a6598c8df6d2eac` |
+| Pack digest | `sha256:678f401a4ab0e388deb6387e9dd9680f6d5fafd85434b367538d333d1dd8160c` |
 | Last validation | 2026-11-06 on `test` (n=600, sha256 `e74e45ea35d5…`) |
 
 ## Intended use
@@ -188,7 +188,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 0 of 600 [0.0-0.6%] |
-| Latency p50 / p95 | 3.40 / 3.57 ms |
+| Latency p50 / p95 | 3.51 / 14.85 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25 of 25 [86.3-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
@@ -366,8 +366,8 @@ Other questions (accuracy / ECE):
 ## Known failure modes
 
 - Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under another code (for example FX112, four or more views) reads as missing imaging. On the bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has such X-rays and shorthand notes, prior imaging and the next step are answered wrong more often than on the benchmark, the next step most often on shorthand notes (`mendari eval mendari/prior-auth-preflight --dataset datasets/prior-auth-local-site-example.jsonl` compares the next step with the benchmark, by label and by subgroup, and its report, with `--json`, holds prior imaging). Add a site's codes before use.
-- Through FHIR, the payer is read from the Organization the Coverage's first payor names, by its identifier in the synthetic payers' system, else from the payor's own identifier as written. A site's own payer identifier (an EHR's payer id on the Organization) is neither, and no site code map translates an identifier yet, so the payer reads as `other` and the result is `not_checked` (how a site's payer id is to be read is the owner's open question). The order, diagnoses and prior procedures are read by their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM). No medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this pack.
-- Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF.
+- Through FHIR, the payer is read from the Organization the Coverage's first payor names, by its identifier in the synthetic payers' system, else from the payor's own identifier as written. A site's own payer identifier (an EHR's payer id on the Organization) is neither, and no site code map translates an identifier yet, so the payer reads as `other` and the result is `not_checked` (how a site's payer id is to be read is the owner's open question). A `not_checked` order shows no card at `order-sign`, so a possible red flag in its notes goes to the review queue at urgent priority but is not shown to the clinician signing the order. On a real EHR's data, until its payer ids are read, that is every order. The order, diagnoses and prior procedures are read by their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM). An order is the pack's only when one of its codings is a fictional procedure code it has a requirement set for. A site's own order code listed in logic/structured.yaml counts on JSON input, but through FHIR the order gets no decision until the EHR sends the fictional code beside it. No medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this pack.
+- Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do notes longer than 20,000 characters in all, which the input does not allow (`too_large`; the text is never cut), and more links than one decision reads (20, `cap`). A hook reads every clinical note of the patient, each linked note's Binary counting as one link, so a long record may reach either.
 - Durations are read as written in the notes ("8 weeks of physical therapy"). A note like "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
 - The keyword rules read English notes only and miss phrasings they do not list, including red flags. On hand-written notes they found 7/7 red flags in the set they were written on but 3/6 held out ("breast cancer treated 3 years ago", "numbness around the anus" and "lost 10 pounds without trying" were missed), and 9/11 at the local site. The policy therefore allows AUTO only while the notes are also read by a model (`automation_requires`), and a possible red flag always goes to a person.
 - The overall probability treats every answer as independent.
@@ -392,11 +392,16 @@ rules, models, data and results did not.
   mapping misread the data, and nothing else does.
   - The order (and `focus_where`, which orders are the pack's), the diagnoses and the prior
     procedures are read by their code system wherever the coding sits: the fictional procedure
-    codes and ICD-10-CM. With none of the pack's systems, the order's, a diagnosis's and a
-    procedure's first coding is read as before (a site's own code, which
-    `logic/structured.yaml` matches once the site lists it). An order is the pack's when one of
-    its codings is a fictional code the pack has a requirement set for, wherever it sits (the
-    0.2 mapping read the first coding only); one with none is not, as before.
+    codes and ICD-10-CM. With none of the pack's systems, a diagnosis's and a procedure's first
+    coding is read as before (a site's own code, which `logic/structured.yaml` matches once the
+    site lists it). An order is the pack's when one of its codings is in the fictional procedure
+    code system and is a code the pack has a requirement set for, wherever it sits (the 0.2
+    mapping read the first coding only, whatever its system), and only that system is read for
+    the order: a site's own order code that `logic/structured.yaml` lists counts on JSON input,
+    never through FHIR. An order with no such coding is not the pack's, as before, and that now
+    includes one whose fictional code has no system (`{code: FX101}`), which the 0.2 mapping read
+    as the pack's: it gets no decision and no card (`missing required FHIR resources:
+    ServiceRequest` on `fhir/decide`).
   - The payer is read through the Coverage's first payor: the Organization it names
     (contained, in the record, or read from the EHR on a CDS hook or the SMART launch), by its
     identifier in a new, fictional payer identifier system the pack declares
@@ -405,13 +410,19 @@ rules, models, data and results did not.
     mapping read. A payer named by reference read as `other` before. A site's own payer
     identifier is neither, and no site code map translates an identifier (codings only), so it
     still reads as `other` and the order as `not_checked`: how a payer field is to read a
-    site's payer id is the owner's open question. A payor reference that could not be read
-    (`fhir/decide` and `$decide` never read one) makes the decision abstain (`could not read
-    coverage.payer: <reason>`), where it read as `other` before.
+    site's payer id is the owner's open question. Meanwhile a `not_checked` order shows no card
+    at `order-sign`, so a possible red flag in its notes reaches the review queue at urgent
+    priority but not the clinician signing the order; the card says so. A payor reference that
+    could not be read (`fhir/decide` and `$decide` never read one) makes the decision abstain
+    (`could not read coverage.payer: <reason>`), whether or not the payor also carries an
+    identifier: the 0.2 mapping read it as `other`, or as that identifier when it had one.
   - Notes are read through `attachment_text`: text/plain and text/html, inline or in the
     Binary the attachment's url names. An RTF, PDF or CDA note, or one that cannot be read,
     makes the decision abstain; an inline note with no content type is now unreadable, and an
-    inline HTML note is read as its text.
+    inline HTML note is read as its text. Notes longer than 20,000 characters in all, which the
+    input schema does not allow, abstain too (`could not read notes: too_large`), where a long
+    inline note was refused before as invalid input, with no card; so do more links than a
+    decision reads (20, `cap`).
 - Every case of the FHIR decisions golden (the bundled local-site example through FHIR, 300
   cases, 41 of them refused for an order with no requirement set) is decided as before, input
   hash included. On the vendor-shaped EHR profile, the patients whose linked note now reads are

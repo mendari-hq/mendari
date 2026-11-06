@@ -66,11 +66,14 @@ card:
       the FHIR mapping reads through its code sets `checklist_documents` and
       `checklist_reports` (LOINC, wherever the coding sits). A visit note filed under another
       code (e.g. a history and physical, LOINC 34117-2) reads as missing, so a complete
-      referral goes back to the referrer; the bundled local-site example shows this. Add a
-      site's codes before use, in logic/checklist.yaml or, through FHIR, in its site code map,
-      where a decision read through a translation is never automated. No medication is read,
-      so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in
-      this pack.
+      referral goes back to the referrer; the bundled local-site example shows this. So does a
+      visit note whose LOINC coding has no system, which the code sets do not read as LOINC.
+      Add a site's codes before use, in logic/checklist.yaml for pack inputs sent directly,
+      and through FHIR also in the mapping's code set (a code only logic/checklist.yaml lists is
+      not read through FHIR) or, without changing the pack, in the site's code map, where a
+      decision read through a translation is never automated. No medication is read, so spec
+      0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this
+      pack.
     - The keyword urgency screen misses phrasings it does not list. On hand-written
       referrals it caught 16/16 urgent ones in the set it was written on but 7/12 in the
       held-out set. So the policy allows AUTO only while the screen includes a model

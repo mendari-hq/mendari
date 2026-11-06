@@ -16,8 +16,8 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   23f (#270), cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (the card's `uuid`
   its decision's id, `selectionBehavior`, three neutral override reasons, and
   `POST /cds-services/{id}/feedback` chained as `card.feedback`); and 23g (#271), the FHIR
-  mapping syntax 0.3, which no shipped pack adopts yet. 23c and 23f landed on main with 23g,
-  through #271;
+  mapping syntax 0.3, which no shipped pack adopted until 23k. 23c and 23f landed on main with
+  23g, through #271;
 - 23e (#280, the LP-23 lane), a vendor-shaped synthetic EHR profile (`sandbox/ehr_profile.py`)
   and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
   against both engines;
@@ -41,13 +41,16 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   stated start and stop rule), the prior-authorization pack its payer through the Coverage's
   reference, both their notes through `attachment_text` (a linked Binary read from the EHR), and
   the referral router its referrals and checklist documents through code sets a site's code map
-  can translate into. Two engine additions it needed: `focus_where` through a code set, and a
-  followed field's fallback to a path of its own type.
+  can translate into. Three engine additions it needed: `focus_where` through a code set, a
+  followed field's fallback to a path of its own type, and notes longer in all than a pack's
+  input allows abstaining (`too_large`) rather than refusing the input.
 
 What stays open. The clinician's note on the MedicationRequest rule 23k adopts (B21; the draft
 for the reviewer is `notes/clinician-review-medication-period.md`, and gate `clinician-review`'s
 attestation records the review), and how a payer field is to read a site's own payer identifier
-(the owner's question; 23k reads it as no payer the pack knows). The Epic sandbox run, in which
+(the owner's question; 23k reads it as no payer the pack knows, so the order is `not_checked` and
+shows no card at `order-sign`, a possible red flag in its notes included, which reaches only the
+review queue). The Epic sandbox run, in which
 every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3), and `mendari
 smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
 pending. `conformance.yml`'s new jobs

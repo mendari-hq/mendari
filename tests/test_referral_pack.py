@@ -187,6 +187,44 @@ def test_a_fhir_referral_becomes_a_task_for_the_specialty(router: Decision) -> N
     assert task["focus"] == {"reference": "ServiceRequest/sr1"}
 
 
+def test_the_mappings_code_sets_hold_exactly_the_checklists_document_and_report_codes() -> None:
+    """Through FHIR the checklist's documents and reports are read through the mapping's code
+    sets, which copy the codes logic/checklist.yaml looks for: a code in the checklist alone
+    would count on pack inputs sent directly and never through FHIR (LP-23k review). So the two
+    lists stay equal, list by list (the card says a site keeps them so)."""
+    checklist = yaml.safe_load((PACK_DIR / "logic" / "checklist.yaml").read_text())
+    code_sets = yaml.safe_load((PACK_DIR / "fhir" / "mapping.yaml").read_text())["code_sets"]
+    looked_for: dict[str, set[str]] = {"documents": set(), "reports": set()}
+    for question in checklist["questions"].values():
+        for check in question["checks"]:
+            exists = check.get("exists") or {}
+            if exists.get("in") in looked_for:
+                looked_for[exists["in"]].update(exists["codes"])
+    assert looked_for["documents"] == set(code_sets["checklist_documents"]["codes"])
+    assert looked_for["reports"] == set(code_sets["checklist_reports"]["codes"])
+    assert {code_sets[name]["system"] for name in ("checklist_documents", "checklist_reports")} == {
+        LOINC
+    }
+
+
+def test_a_system_less_loinc_document_code_is_not_read_through_fhir(router: Decision) -> None:
+    """A coding with no system is not read as LOINC by the checklist's code sets (spec 0.3
+    code sets match by system), so a visit note coded {code: 11506-3} alone is not on file and
+    the referral goes back to the referrer, as the card says; the 0.2 mapping read the first
+    coding's code whatever its system."""
+    prefetch = _record()
+    order = _order("sr1", "Palpitations for 6 months, ECG normal. Please assess.")
+    documents = prefetch["documents"]["entry"]
+    assert any(e["resource"]["type"]["coding"][0]["code"] == "11506-3" for e in documents)
+    coded, _ = router.decide_fhir(prefetch, focus=order)
+    assert coded.answers["recent_visit_note"].label == "yes"
+    for entry in documents:
+        for coding in entry["resource"]["type"]["coding"]:
+            coding.pop("system", None)
+    bare, _ = router.decide_fhir(prefetch, focus=order)
+    assert bare.answers["recent_visit_note"].label == "no"
+
+
 def test_a_referral_under_a_site_code_is_decided_once_the_site_lists_it(
     router: Decision, tmp_path: Path
 ) -> None:

@@ -319,7 +319,9 @@ def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Deci
     }
 
 
-def test_patient_view_card(trial: Decision) -> None:
+def _patient_view(record: list[dict[str, Any]]) -> dict[str, Any]:
+    """A patient-view request whose prefetch holds `record` (its Patient first)."""
+
     def searchset(resources: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "resourceType": "Bundle",
@@ -327,24 +329,62 @@ def test_patient_view_card(trial: Decision) -> None:
             "entry": [{"resource": r} for r in resources],
         }
 
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for resource in record[1:]:
+        by_type.setdefault(resource["resourceType"], []).append(resource)
+    return {
+        "hook": "patient-view",
+        "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
+        "context": {"patientId": "p1", "userId": "Practitioner/1"},
+        "prefetch": {
+            "patient": record[0],
+            "conditions": searchset(by_type["Condition"]),
+            "observations": searchset(by_type["Observation"]),
+            "medications": searchset(by_type["MedicationStatement"]),
+            "medication_requests": searchset([]),
+            "notes": searchset(by_type["DocumentReference"]),
+        },
+    }
+
+
+def test_notes_longer_than_the_input_allows_abstain_and_show_a_card(trial: Decision) -> None:
+    """A patient's notes, joined, may be longer than the input schema lets `notes` be (20,000
+    characters). The decision then abstains with `could not read notes: too_large` and the hook
+    shows its `info` card, where the schema would have refused the whole input (a BLOCK, which
+    shows no card) and the pregnancy in the first note gone unseen at the chart. The text is never
+    cut, and notes as long as the schema allows are read."""
+    filler = " Seen for diabetes follow-up; the glucose log was reviewed." * 200  # 11,800
+    record = _record("She is 12 weeks pregnant." + filler)
+    record.append({**_note(filler), "id": "n2"})
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [{"resource": r} for r in record],
+    }
+    result, _ = trial.decide_fhir(bundle)
+    assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
+    assert result.reasons == ("could not read notes: too_large",)
+    assert result.unreadable == (("notes", "too_large"),)
+    assert result.data_coverage is not None
+    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"too_large": 1}
+    assert result.data_coverage["unreadable"] == {"too_large": 1}
+    cards = cds_hooks.invoke(trial, _patient_view(record))["cards"]
+    assert [(c["summary"], c["indicator"]) for c in cards] == [
+        (cds_hooks.UNREADABLE_SUMMARY, "info")
+    ]
+    assert "- notes: too_large" in cards[0]["detail"]
+
+    head = "She is 12 weeks pregnant."
+    at_most = _record(head + "x" * (20_000 - len(head)))  # exactly the schema's maxLength
+    bundle["entry"] = [{"resource": r} for r in at_most]
+    result, _ = trial.decide_fhir(bundle)
+    assert result.outcome is Outcome.HUMAN_REVIEW and not result.unreadable
+    assert result.answers["note_pregnancy"].label == "yes"
+
+
+def test_patient_view_card(trial: Decision) -> None:
     def request(notes: str) -> dict[str, Any]:
-        record = _record(notes)
-        by_type: dict[str, list[dict[str, Any]]] = {}
-        for resource in record[1:]:
-            by_type.setdefault(resource["resourceType"], []).append(resource)
-        return {
-            "hook": "patient-view",
-            "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
-            "context": {"patientId": "p1", "userId": "Practitioner/1"},
-            "prefetch": {
-                "patient": record[0],
-                "conditions": searchset(by_type["Condition"]),
-                "observations": searchset(by_type["Observation"]),
-                "medications": searchset(by_type["MedicationStatement"]),
-                "medication_requests": searchset([]),
-                "notes": searchset(by_type["DocumentReference"]),
-            },
-        }
+        return _patient_view(_record(notes))
 
     cards = cds_hooks.invoke(trial, request("Seen for diabetes follow-up."))["cards"]
     assert [c["summary"] for c in cards] == ["Possible GLYCEMIA-2 candidate: confirm eligibility"]

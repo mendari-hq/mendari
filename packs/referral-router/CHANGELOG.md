@@ -13,7 +13,9 @@ rules, models, data and results did not.
   - A referral is a ServiceRequest with a category coding of the new code set
     `referral_category` (FR101, the fictional referral code), wherever it sits among the
     categories' codings; the 0.2 mapping read only the first category's first coding, so a
-    referral whose EHR put its own order type first was not found. A site's own referral code
+    referral whose EHR put its own order type first was not found. The coding must carry the
+    fictional referral system: a category coded `{code: FR101}` with no system, which the 0.2
+    mapping read as a referral, is no longer one (no decision, no card). A site's own referral code
     finds its referrals through its site code map (`MENDARI_SITE_CODES`, translating it into
     FR101), with no pack file changed; a decision about a referral found so is never automated
     (the `site_code` cap: HUMAN_REVIEW, `site code translated (referral_category): a person
@@ -23,8 +25,11 @@ rules, models, data and results did not.
     18748-4, 18726-0), LOINC, wherever the coding sits, so a site's own codes for them may be
     translated in its site code map (capped the same way). A document or report under another
     code is still an item, its date and name kept, but its code is no longer carried into the
-    input (it never counted), and a coding with no system is no longer read as LOINC. A lab's
-    code is read as before, since any lab counts.
+    input (it never counted), and a coding with no system is no longer read as LOINC, so a visit
+    note so coded reads as missing (the referral goes back to the referrer, as the card says). A
+    code a site adds to `logic/checklist.yaml` is read through FHIR only once it is in the code
+    set too: `tests/test_referral_pack.py` keeps the shipped pack's two lists equal, and the card
+    says so. A lab's code is read as before, since any lab counts.
 - The 300 cases of the FHIR decisions golden (the bundled local-site example through FHIR) are
   decided as before, each outcome, recommendation, priority and answer; 162 of them read another
   input (their input hash changes), each for one reason: a visit note filed as a history and

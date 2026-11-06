@@ -628,9 +628,11 @@ class Decision:
         missing. A key that still holds what the client sent (a value that is not a resource)
         excuses nothing: a required resource it does not hold is refused, as before. Those keys,
         and a note whose data does not decode or that is only a link (for a spec 0.3
-        `attachment_text` note, also one of a type it cannot read: `unreadable_notes`), make the
-        decision ABSTAIN unless its input is refused (`decide`). The result carries its
-        data-coverage record (`standards/data_coverage.py`) in every case.
+        `attachment_text` note, also one of a type it cannot read: `unreadable_notes`, and notes
+        whose joined text is longer than the pack's input schema lets the field be, left out of
+        the input: `fhir.overlong`, `too_large`), make the decision ABSTAIN unless its input is
+        refused (`decide`). The result carries its data-coverage record
+        (`standards/data_coverage.py`) in every case.
 
         `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
         reaches by a link the record does not hold, a note's Binary or a followed reference,
@@ -647,7 +649,7 @@ class Decision:
         one about a focus that the mapping's `focus_where` code set found only through a
         translation (LP-23k): which resources of the focus type count is read with the map too."""
         from mendari.standards import data_coverage, fhir_structure, us_core
-        from mendari.standards.fhir import FhirAdapter
+        from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong
 
         adapter = FhirAdapter.for_pack(self.pack)
         failed = dict(unreadable or {})
@@ -687,6 +689,9 @@ class Decision:
             ]
         notes = data_coverage.unreadable_notes(adapter.mapping, indexed)
         unlinked = data_coverage.unreadable_links(adapter.mapping, indexed)
+        mapped = adapter.read(indexed, site_codes=translations)
+        # Notes longer in all than the input allows are left out and abstain, never refused.
+        too_long = overlong(adapter.mapping, mapped.value, self.pack.input_schema)
         unread = [
             *failed.items(),
             *(
@@ -695,6 +700,7 @@ class Decision:
                 for field, counts in found.items()
                 for reason in counts
             ),
+            *((field, TOO_LARGE) for field in too_long),
         ]
         coverage = data_coverage.measure(
             adapter.mapping,
@@ -703,8 +709,8 @@ class Decision:
             systems=[use.url for use in self.pack.manifest.code_systems],
             sources=templates,
             site_codes=translations,
+            too_long=too_long,
         )
-        mapped = adapter.read(indexed, site_codes=translations)
         result = self.decide(
             mapped.value,
             input_issues=[issue.to_dict() for issue in issues],

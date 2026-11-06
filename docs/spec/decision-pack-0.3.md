@@ -189,6 +189,14 @@ reference runtime counts each in the decision's data-coverage record and, as for
 `could not read <field>: <reason>`. An attachment with neither `data` nor a `url` has nothing to
 read, and counts for nothing.
 
+**Longer than the input allows.** The texts of all of a record's notes, joined, can be longer
+than the `maxLength` the pack's input schema gives the field. The reference runtime never cuts
+the text (a cut could lose the very sentence a question reads) and does not let the schema
+refuse the whole input for it: it leaves the field out of the input and makes the decision
+ABSTAIN with `could not read <field>: too_large`, counted once in the data-coverage record.
+This applies to a top-level field (`fields`) whose schema property, found through `properties`,
+has a `maxLength`.
+
 **Renditions.** R4 makes the repetitions of a DocumentReference's `content` one document in
 different formats, and a DiagnosticReport's `presentedForm` semantically equivalent forms of one
 report. Where a path reads either, an attachment that cannot be read counts for nothing when
@@ -303,7 +311,7 @@ Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of
 | `paths`, tried in order, the first that gives a value winning | §2.2 |
 | `follow`: one reference hop, inside the record, never fetched by the mapping; a path of the field's own type read in place | §2.3 |
 | Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
-| The `attachment_text` transform, its three reasons, and renditions | §2.4 |
+| The `attachment_text` transform, its three reasons, renditions, and notes longer than the input allows | §2.4 |
 | `code_sets` and the `code_set` selector, for a field and for `focus_where`, which a site's translations may feed | §2.5 |
 | List `resources`: several resource types into one list | §2.6 |
 | `medication_period` for a MedicationRequest | §2.7 |

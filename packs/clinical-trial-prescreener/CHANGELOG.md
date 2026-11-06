@@ -27,14 +27,20 @@ rules, models, data and results did not.
     dispensing window is not read, and a request entered in error is left out. **The rule is not
     yet clinically reviewed** (a pharmacist's or research coordinator's review is owed, B21);
     the card's known failure modes say so, and what follows from it (a renewal read as a recent
-    start, `intent` and `doNotPerform` not read). A drug named by a reference that could not be
-    read makes the decision abstain (`could not read medications.code: <reason>`).
+    start, `intent` and `doNotPerform` not read; a request that is not `active` and has no
+    bounds end read as not taken, since the criteria count only `active` as current, so a
+    `completed` insulin written 20 days ago reads `no_insulin` "yes"; the first matching request
+    in the record's order deciding). A drug named by a reference that could not be read makes
+    the decision abstain (`could not read medications.code: <reason>`).
   - Notes are read through `attachment_text`: text/plain and text/html, inline or in the
     Binary the attachment's url names, read from the EHR on a CDS hook or the SMART launch. An
-    RTF, PDF or CDA note, or one that cannot be read, makes the decision abstain. Two smaller
-    changes: an inline note with no content type (R4's att-1 requires one with data) is now
-    unreadable, where it was decoded as text; and an inline HTML note is read as its text, its
-    markup dropped.
+    RTF, PDF or CDA note, or one that cannot be read, makes the decision abstain, and so do notes
+    longer than 20,000 characters in all, which the input schema does not allow (`could not read
+    notes: too_large`; a long inline note was refused before as invalid input, with no card), and
+    more links than a decision reads (20, `cap`: each linked note's Binary and each Medication a
+    MedicationRequest names). Two smaller changes: an inline note with no content type (R4's att-1
+    requires one with data) is now unreadable, where it was decoded as text; and an inline HTML note
+    is read as its text, its markup dropped.
   - A CDS client that sends a prefetch without the new key and no `fhirServer` now gets the
     `412` every left-out key gets: an EHR sends it (null for no data), as discovery lists it.
 - Every case of the FHIR decisions golden (the bundled local-site example through FHIR, 150

@@ -25,7 +25,9 @@ says how many references it found and how many resources they reached inside the
 `medication_period`'s two keys among its fields. An `attachment_text` note that could not be
 read counts by `fhir.read_attachment`'s reason (`unsupported_type`, `undecodable`,
 `not_fetched`); an attachment with neither data nor a link has nothing to read and counts for
-nothing, as for `base64_text`. A 0.1 or 0.2 mapping's record is as it was.
+nothing, as for `base64_text`. A note field whose joined text is longer than the pack's input
+lets it be counts once as `too_large` (`fhir.overlong`, LP-23k). A 0.1 or 0.2 mapping's record
+is as it was.
 
 Linked reads (LP-23h, `standards/linked.py`) add what they read to the record, so a note whose
 Binary was read counts as read, and a reference that reached a resource read so counts among
@@ -62,6 +64,7 @@ from mendari.standards.fhir import (
     MEDICATION_END,
     MEDICATION_START,
     NOT_FETCHED,
+    TOO_LARGE,
     FhirMapping,
     FieldMapping,
     Indexed,
@@ -162,6 +165,7 @@ def measure(
     systems: Collection[str] = (),
     sources: Mapping[str, str] | None = None,
     site_codes: SiteCodes | None = None,
+    too_long: Collection[str] = (),
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
@@ -170,7 +174,9 @@ def measure(
     could not be read says so, and a list read and empty does not; `site_codes` the site's
     translations the input was read with (LP-23i), so a `code_set` field counts the paths, values
     and items the input read, as the input read them. The record holds no translation: a coding
-    a translation matched counts by its system, as any other (`other` for a site's own)."""
+    a translation matched counts by its system, as any other (`other` for a site's own).
+    `too_long` names the fields left out because their notes' text is longer than the input
+    allows (`fhir.overlong`, LP-23k), each counted once as `too_large`."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -198,10 +204,11 @@ def measure(
         read_in = _types(mapped, None)
         record = _field(mapped, None, looked["fields"][target], found, declared)
         record["resources"] = {kind: len(_as_list(indexed.get(kind))) for kind in read_in}
+        longer = Counter({TOO_LARGE: 1} if target in too_long else {})
         record["unreadable"] = _merged(
-            *(failed.get(kind) for kind in read_in), found.notes, found.links
+            *(failed.get(kind) for kind in read_in), found.notes, found.links, longer
         )
-        total.update(found.notes + found.links)
+        total.update(found.notes + found.links + longer)
         fields[target] = record
     lists: dict[str, Any] = {}
     for name, spec in mapping.lists.items():
