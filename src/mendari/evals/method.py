@@ -120,6 +120,24 @@ def min_positives(floor: float, labels: int) -> int:
     return max(MIN_POSITIVES, n)
 
 
+def min_labelled(ceiling: float) -> int:
+    """The labelled cases false automation's ceiling needs (the method's section 8): the smallest
+    n whose 0-of-n upper bound at LEVEL (`stats.clopper_pearson`) is at or below `ceiling`, 183
+    for 0.02. On fewer, even a result with no wrong AUTO is insufficient evidence."""
+    if isinstance(ceiling, bool) or not isinstance(ceiling, int | float):
+        raise TypeError("ceiling must be a number")
+    if not 0.0 < ceiling < 1.0:
+        raise ValueError("ceiling must be in (0, 1)")
+    # The 0-of-n upper bound is 1 - ((1 - LEVEL) / 2) ** (1 / n): start from the n that solves it
+    # and step, so the answer is the bound `stats` computes, not this estimate.
+    n = max(1, math.floor(math.log((1.0 - LEVEL) / 2.0) / math.log(1.0 - ceiling)))
+    while stats.clopper_pearson(0, n, LEVEL)[1] > ceiling:
+        n += 1
+    while n > 1 and stats.clopper_pearson(0, n - 1, LEVEL)[1] <= ceiling:
+        n -= 1
+    return n
+
+
 def in_effect(today: datetime.date) -> bool:
     """Whether the method is in effect on `today` (the caller's date: nothing here reads a
     clock). Never before the owner sets EFFECTIVE."""

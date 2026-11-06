@@ -10,8 +10,9 @@ The scoreboard and its scoped grades (LP-17) follow the
 [grading method 1.0](../grading/method-1.0.md), a draft not in effect: the arms, the figures and
 their statistics, the evidence rule, and why, under it, a public set is a regression check, never
 a ranking. The scoreboard's own formats are made under it: its arms (`mendari.arms/1`), its
-entries (`mendari.scoreboard/1`), and the run records and price tables an entry is computed from
-(`mendari.run/1`, `mendari.prices/1`). The other formats on this page do not change with it, and
+entries (`mendari.scoreboard/1`), the run records and price tables an entry is computed from
+(`mendari.run/1`, `mendari.prices/1`), and the grades and band rankings given from entries on
+frozen hidden sets only. The other formats on this page do not change with it, and
 the leaderboards below are not made under it: until LP-17g relabels them, they still rank rows
 on public sets with `mendari.rank/1`, as their section says.
 
@@ -262,8 +263,9 @@ function of five inputs: the ledger (`mendari.ledger/1`), the dataset (by its SH
 record (`mendari.run/1`), the price table (`mendari.prices/1`, by its SHA-256) and the method (by
 its SHA-256). The same inputs give the same bytes, and every bootstrap is the method's: 2,000
 resamples, seed 0, at 95%. Where `mendari.eval/2`'s result already holds a figure, the entry
-reuses it. No format on this page changes. Nothing writes or stores an entry yet: the results
-store comes with LP-17f.
+reuses it. No format on this page changes. Entries are kept in the
+[results store](#the-results-store-scoreboard), and the
+[early scoreboard](../grading/scoreboard.md) is generated from it.
 
 An entry is refused, with a message that names ids and hashes and never a case, when:
 
@@ -272,7 +274,8 @@ An entry is refused, with a message that names ids and hashes and never a case, 
   are not the dataset's cases in the dataset's order;
 - the configuration is not the ledger's (slot by slot), or not in the arm named;
 - the run record is not the ledger's (see [run records](#run-records-mendarirun1)), or names
-  tokens or models of a type the configuration does not call.
+  tokens or models of a type the configuration does not call;
+- `supersedes` is not `sha256:` and 64 hex digits.
 
 | Field | What it holds |
 |---|---|
@@ -281,8 +284,9 @@ An entry is refused, with a message that names ids and hashes and never a case, 
 | `inputs` | The ledger's id, the dataset's SHA-256, the run record's SHA-256 with its replicate and engine version, the price table's SHA-256 and date when the cost is priced from it (else null, so an entry no table priced is the same whichever table is at hand), and the method's SHA-256. |
 | `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
 | `scope` | What the figures are of (below). |
-| `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null. |
+| `ranking`, `grade` | On a public set, `{status: "off", reason: "public set: regression check, not a ranking"}` and null (see [Grades and band ranking](#grades-and-band-ranking)). |
 | `figures` | The figures (below). |
+| `supersedes` | The earlier result this one supersedes in the results store, `sha256:` and its body's SHA-256, or null. It is part of the body, so its hash and any signature cover it. |
 | `body_sha256` | `sha256:` and the SHA-256 of the entry's canonical JSON without `body_sha256` and `signature`. |
 
 The scope holds the pack (`id`, `version`, `digest`) and its `status` line (the synthetic-example
@@ -341,24 +345,102 @@ canonical JSON holds it (keys sorted), so entries just built and the same entrie
 a store give the same board. A configuration is written `slot=variant`, its slots in sorted
 order. Each table holds:
 
-- its standing, "public set: regression check, not a ranking", and the words "engineering
-  evaluation, not clinical validation";
+- its ranking (`bands.ranking`): on a public set, off, "public set: regression check, not a
+  ranking"; and the words "engineering evaluation, not clinical validation";
 - the insufficient-evidence banner when any entry's critical label is short of evidence, naming
   each such label, its distinct positives and the minimum;
 - each arm's status: measured, "not measured", or "not applicable" for an arm the pack cannot
-  build;
+  build; and each configuration of a measured arm that has no entry in the table (`not_measured`,
+  "not measured yet"), such as the Clinical Trial Prescreener's `structured=cql`, which is
+  deterministic but calls Mendari's CQL engine;
 - each entry with its marks, worked out when the board is built and never stored: "unsigned"
   (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
   "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
   "stale: another model reported" (a later run of the same configuration of the pack reports
   another model of a type), and "stale after DATE", 45 days after it was measured. No clock is
-  read, so the date is shown and never checked.
+  read, so the date is shown and never checked;
+- each entry's grade (`grade.grade`): null on a public set.
+
+A board holds no ledger, so it never ranks a hidden set's arms: a hidden table of one entry
+reads "off: one arm graded", and one of two or more is refused.
 
 `render.scoreboard_markdown(board)` writes it in Markdown: per table its standing, the banner, the
 arms, then one column per entry with its marks, its scope and its figures. A proportion is k of n
 with its exact 95% interval (as [How a figure is shown](#how-a-figure-is-shown) says), a mean is
 its value with its bootstrap interval, and ECE is "a description: no interval". It has no Rank
 column, no bare percentage, and names no case.
+
+### Grades and band ranking
+
+A grade and a ranking are given only on a frozen hidden set, under the
+[grading method 1.0](../grading/method-1.0.md) (sections 6 and 7; `evals/grade.py` and
+`evals/bands.py`, LP-17j). On a public set the grade is null and the ranking is off. Neither is a
+stored format: the hidden-set scoreboard (LP-17k) computes both in memory, in the grading read
+that decides every declared arm. While the method is not in effect, every attestation and every
+ranking is marked draft.
+
+`grade.grade(entry)` is the entry's attestations, each `met`, `not met` or
+`insufficient evidence`, with the method it is made under. There is no letter, no score and no
+composite.
+
+| Attestation | Met when | Insufficient evidence when |
+|---|---|---|
+| `no_critical_automated` | no positive of any critical label was decided AUTO | a critical label has fewer than 100 distinct positives (a positive decided AUTO makes it `not met` whatever the evidence) |
+| `recall_floor`, one per critical label | the grade's bound, the lower bound at `1 - 0.05/L` over the distinct groups, is at or above 0.95 | the label has fewer distinct positives than `method.min_positives(0.95, L)` |
+| `false_automation_ceiling` | false automation's 95% upper bound is at or below 0.02 | fewer than 183 cases are labelled for the primary question (`method.min_labelled(0.02)`) |
+
+Insufficient evidence means that even a perfect result on these cases could not meet the
+attestation. Each attestation holds the entry's figures it was decided on, each k of n with its
+interval (the grade's bound at its own level), and the minimum it needed. Every decision is
+worked out from k and n, never from a stored (rounded) bound, so a bound just under a floor never
+rounds up to meet it. An entry made under
+another method's SHA-256, or whose grade's bound is not at the method's level, is refused.
+
+`bands.ranking(entries, ledgers=..., records=...)` ranks the declared arms graded on one set,
+one configuration per arm. Their ledgers must pair: the same cases in the same order (one
+grading read, so one case key), with the same positives. The records give the distinct groups,
+and must give each entry's distinct counts. It is off on a public set, and off with one arm
+graded. Otherwise it holds:
+
+- `ranked`: each arm whose safety attestations (`no_critical_automated` and each
+  `recall_floor`) are all met, with its `rank`, its rank `interval`, its `bands` and its `key`;
+- `unranked`: each other arm, with each safety attestation it did not meet and that
+  attestation's state;
+- `family`: the Holm family, what it is `of`, its `alpha`, its `size`, its seeds and its
+  `tests`;
+- `method` and `draft`.
+
+The band tuple, in this order, each element a band position, 0 the best:
+
+1. the worst critical label's grade's bound, banded at 0.99, 0.98, 0.97, 0.95 and 0.90;
+2. false automation's 95% upper bound, banded at 0.005, 0.01, 0.02 and 0.05;
+3. accuracy's 95% lower bound, in bands of 0.05;
+4. Brier's 95% upper bound, in bands of 0.05;
+5. cost per 1,000 decisions, its estimate, banded at 0, 1, 10 and 100 USD (0 with no metered
+   call, and an unknown cost in the last band).
+
+A value's band is the first edge it reaches, or one past the last edge. In bands of 0.05 it is
+the largest multiple at or below the value (accuracy) or the smallest at or above it (Brier). A
+value is read as the decimal it is written as, so 0.95 is in the band of 0.95, never the one
+below. A figure that is not estimable sits after every band. ECE, latency and subgroups never
+enter the tuple. Arms are ordered on their tuples, lexicographically. Equal tuples share a
+competition rank (1, 2, 2, 4) and are listed by configuration.
+
+The family is every pair of ranked arms, by each critical label's detection (exact McNemar on
+that label's distinct positive groups), false automation and accuracy (exact McNemar on the
+cases labelled for the primary question) and Brier (the paired bootstrap's p-value, on the cases
+both arms scored), adjusted with Holm at 0.05. With R ranked arms and L critical labels it holds
+R(R - 1)/2 times (L + 3) tests. Each test names its pair, its criterion (and label), its p-value,
+its adjusted p-value, whether it is rejected and which arm it favours. `mendari.compare/1` keeps
+its own family.
+
+Arm j is significantly ahead of arm i when j's tuple is the better one and the family's test on
+the first criterion where the two differ rejects, in j's favour. On detection it is the test on
+the label that sets the lower arm's band. Cost has no test, so arms apart first on cost are never
+significantly apart. An arm's rank interval runs from 1 plus the arms significantly ahead of it
+to the ranked arms less the arms significantly behind it. The tests set the intervals and never
+reorder the ranks, so every interval holds its arm's rank. Nothing is resampled for them. A
+re-run from the same ledgers and seeds gives the same bytes.
 
 ## Run records: `mendari.run/1`
 
@@ -416,6 +498,59 @@ The disclosures file (`scoreboard/disclosures.json`) holds `format` (`mendari.di
 `date`, and `statements`: per remote provider type (`jev`, `llm`, `cql`), the statement of any
 commercial relationship between Mendari and that provider. Both are closed schemas, and a
 refusal of either names a key the input chose as `<key>`, as a run record's does.
+
+## The results store: `scoreboard/`
+
+Scoreboard results are kept in the repository, under `scoreboard/` at its root
+(`evals/results_store.py`, LP-17f; the [grading method](../grading/method-1.0.md), section 11).
+It is outside the wheel, the sdist and the site: a pack's own `evals/` is in every archive, where
+a publisher's pack could carry a forged result. Each file is named by its content:
+
+| Path | What it holds |
+|---|---|
+| `results/<sha256>.json` | A result, named by its body's SHA-256 (`body_sha256` without `sha256:`), sorted and indented, with one newline at the end. |
+| `ledgers/<sha256>.jsonl` | A ledger (`mendari.ledger/1`), named by its id. |
+| `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
+| `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
+| `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
+| `disclosures.json` | The disclosures (`mendari.disclosures/1`): none yet, so every remote type's statement is pending. |
+
+- **Append-only.** Nothing stored changes, except that a valid signature may be added to an
+  unsigned result whose body stays the same. `mendari scoreboard add FILE [--supersedes HASH]`
+  never writes over a file.
+- **Supersedes.** A result may name the earlier result it supersedes: one of the same pack, set,
+  arm and configuration, measured no later, which no other result supersedes. Both stay. The
+  later is the current one, and one pack, set, arm and configuration has one current result at
+  most.
+- **Running.** `mendari scoreboard run PACK [--dataset NAME ...] [--config slot=variant ... |
+  --every-local] [--again]` runs a configuration of a pack Mendari maintains over its public
+  scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
+  run record (each case's latency and tokens) and the entry, unsigned. A result that is still
+  current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
+  stale date) is kept unless `--again`; a new one supersedes it. It refuses a remote
+  configuration, a fitting set and anything but a set the pack names, so a file or a hidden set
+  is never run. The pack is read from the repository's `packs/` (the bundled packs), never from
+  `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
+- **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
+  `reference-pack` job, names each file whose name is not its content's, each result of the base
+  removed or changed (but for a valid signature added), each `supersedes` link that breaks the
+  rules above, and each current result whose signature does not verify against `keys.json`, or
+  was made with a publisher's or a registry's key this machine pinned (CI pins none). It
+  recomputes every public result from its stored ledger, its dataset (SHA-256 checked), its run
+  record, its price table and the method, byte for byte, and re-runs every local ledger on its
+  pack's current digest. A result of an older digest is recomputed and kept, never re-run; one
+  whose set or method changed is kept as it is, and shown stale. A new result must be of a local
+  configuration (a remote one's ledger could not be re-run without a call off the machine), on
+  its pack's current digest, set and method, and measured no later than today. A remote
+  configuration's disclosure is recomputed from `disclosures.json` while its result is new, never
+  taken from the result; once stored, it keeps the statements it holds. A superseded result
+  keeps the signature it had, so a key taken out of the keys file leaves what it signed as
+  history.
+- **The page.** `scripts/scoreboard_page.py` writes
+  [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
+  and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
+  `reference-pack`, before `scripts/build-reference-pack.sh` writes the page again) fails when
+  the page is not the store's. Its bytes depend only on the repository: the store and `packs/`.
 
 ## Paired comparisons: `mendari.compare/1`
 
