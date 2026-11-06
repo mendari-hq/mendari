@@ -2063,8 +2063,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`mendari.grading-keys/1`) is empty. `docs/grading/verifying.md` in the nav; threat model
     S20 and E14. `tests/test_scoreboard_signing.py`; `test_cli_errors.BROKEN` gains both
     commands, and `test_read_only_commands.FILES_ONLY` gains `verify`.
-  - [x] **17f** (#267) The results store (`mendari.evals.results_store`, `scoreboard/`) and
-    the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
+  - [x] **17f** (#267, merged with 17j in #268) The results store
+    (`mendari.evals.results_store`, `scoreboard/`) and the early scoreboard (stage 3). Results named by their body's SHA-256 beside their ledgers
     and run records (each named by its own hash), append-only; `supersedes` (a new field of the
     entry's body) names an earlier result of the same pack, set, arm and configuration, one
     current result each. `mendari scoreboard run PACK [--dataset] [--config | --every-local]
@@ -2092,7 +2092,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
     derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
-  - [x] **17g** (lane PR) Public template sets relabelled "public set: regression check, not a
+  - [x] **17g** (#279) Public template sets relabelled "public set: regression check, not a
     ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
     cards' comparison sections become stale). The card's Provider comparison opens with the
     label, says nothing there is graded and links the scoreboard page
@@ -2115,7 +2115,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     when 17i's results are published. Lane: the page and the site's scores share one board,
     built with 17h's canaries and the disclosures file as it is now, so the site publishes an
     entry by 17h's `published`, and it reads public results only (17k).
-  - [x] **17h** (lane PR) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
+  - [x] **17h** (#279) Remote arms on public sets: 3 to 5 replicates, the spread and the flip
     rate, model freshness, the canary and disclosures; built, and refusing to start in CI.
     `mendari scoreboard run` takes a remote configuration by hand only (refused when `CI` or
     `GITHUB_ACTIONS` is set): `--replicates 3` to `5` (a local one runs 1), `--prices FILE` when
@@ -2159,7 +2159,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     decisions, which never reorder the ranks. Given only on frozen hidden sets, from paired
     ledgers: on a public set the ranking is off and the grade null, wired into `board` (which
     refuses a hidden table of two or more, holding no ledger). `tests/test_scoreboard_rank.py`.
-  - [x] **17k** (lane PR) The hidden-set scoreboard through the existing grading route
+  - [x] **17k** (#279) The hidden-set scoreboard through the existing grading route
     (`mendari.hidden_scoreboard/1`, every declared arm in one grading read). `GradingRequest` takes
     `arms` with `declared` (a SHA-256), never with `variants`; without them the answer is
     `mendari.hidden_result/1`, unchanged. Each declared configuration is refused before any case is
@@ -2185,7 +2185,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
     Blocked on LP-20 and owner decisions 4 and 10.
-  - [x] **17m** (lane PR) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
+  - [x] **17m** (#279) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
     acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
     end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
     (after LP-20 and owner decisions 4 and 10). `grading-method`: the method's tests and

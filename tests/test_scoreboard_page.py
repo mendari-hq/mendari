@@ -8,6 +8,7 @@ Rank column, no "ranked" and no bare percentage."""
 
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import re
 import shutil
@@ -18,7 +19,7 @@ from typing import Any
 import pytest
 
 from mendari.core.registry import resolve_pack
-from mendari.evals import results_store, scoreboard
+from mendari.evals import method, results_store, scoreboard
 from mendari.evals.results_store import Store
 from tests.test_scoreboard import bare_percentages
 
@@ -193,8 +194,20 @@ def test_unsigned_and_draft_are_said_on_the_page(text: str) -> None:
     assert sorted(said) == sorted(held)
     assert '"unsigned" until the owner signs it' in text
     assert f'**"{scoreboard.DRAFT}":**' in text
+    legend = "the method has no effective date yet."
+    assert (legend in text) == (method.EFFECTIVE is None)
     later = results_store.superseded(public)
     if not later:
         assert "None yet: no stored result has been superseded." in text
     for name, by in later.items():
         assert f"| `{name[:16]}` | `{by[:16]}` |" in text
+
+
+def test_the_draft_legend_follows_the_effective_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once the owner sets the effective date (the runbook's step 4), the legend says the mark is
+    on the results measured before that day, not that the method has none."""
+    monkeypatch.setattr(method, "EFFECTIVE", datetime.date(2026, 12, 15))
+    text = page_script.page(Store.at(ROOT / "scoreboard"))
+    legend = "measured before the method's effective date, 2026-12-15."
+    assert f'- **"{scoreboard.DRAFT}":** {legend}' in text
+    assert "the method has no effective date yet." not in text

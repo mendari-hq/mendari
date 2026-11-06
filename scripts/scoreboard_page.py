@@ -119,7 +119,7 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         f"({_counted(len(later), 'superseded result')} listed at the end), "
         f'{signed} signed. A result reads "{scoreboard.UNSIGNED}" until the owner signs it '
         "([verifying a result](verifying.md)).",
-        f'- **"{scoreboard.DRAFT}":** the method has no effective date yet.',
+        _draft_legend(),
         "- **Stale:** each result shows the day it goes stale, "
         f"{method.STALE_AFTER_DAYS} days after it was measured, "
         'as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: '
@@ -211,6 +211,17 @@ def _canary_lines(
 
 def _counted(count: int, what: str) -> str:
     return f"{count} {what}{'' if count == 1 else 's'}"
+
+
+def _draft_legend() -> str:
+    """What the draft mark means as the method stands: a result keeps the mark it was measured
+    with, so once the owner sets the effective date (`method.EFFECTIVE`, the runbook's step 4)
+    the mark is on the results measured before that day."""
+    if method.EFFECTIVE is None:
+        meaning = "the method has no effective date yet."
+    else:
+        meaning = f"measured before the method's effective date, {method.EFFECTIVE.isoformat()}."
+    return f'- **"{scoreboard.DRAFT}":** {meaning}'
 
 
 def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = repository_pack) -> str:
