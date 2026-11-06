@@ -41,8 +41,10 @@ remote provider, "not applicable"), its configuration and providers, its figures
 label's detection and positives decided AUTO as k of n with its distinct positives, the grade's
 bound and the evidence; false automation, the AUTO error rate, automation and accuracy as k of
 n; macro-F1, Brier and Brier's reliability with their intervals, a Brier interval only over
-`MIN_GROUP` scored cases or more; ECE as a single number; the weighted figures) and its
-attestations; the insufficient-evidence banner; the ranking and its Holm family (each ranked
+`MIN_GROUP` scored cases or more; ECE as a single number; the weighted figures, withheld when
+fewer than `method.SUBGROUP_MIN` cases of a share carry one of its weights, whose stratum the
+pair of weighted and unweighted figures would show) and its attestations; the
+insufficient-evidence banner; the ranking and its Holm family (each ranked
 arm's bands without cost, which is 0 for every local configuration); the scope (the pack, the
 set's id and commitment with its size and distinct inputs, the method and whether it is in
 effect, the day, "engineering evaluation, not clinical validation", "no model provider" and the
@@ -50,7 +52,10 @@ declaration's SHA-256); the seeds; and, in a run block outside its body's hash, 
 number and the runs left. So two reads of one frozen set on one day give the same body
 (`scoreboard_body_sha256`), and a signature (LP-17e) covers the run's number too. It never holds
 cost, latency, subgroups, equal-mass bins, a case's id or hash, the dataset's name or hash, or a
-ledger's id. Its figures are 6 places, as `mendari.scoreboard/1`'s are.
+ledger's id. Its figures are rounded as `mendari.hidden_result/1`'s are (`evals/share.py`): every
+share to 4 places, every mean, score and effective n to 3, so its digits confirm a guessed set no
+more than that answer's do; the method's levels, floors and ceilings are kept as the method
+fixes them. A stored answer is checked against its own figures (`scoreboard_disagreement`).
 """
 
 from __future__ import annotations
@@ -61,11 +66,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from mendari.core.evalsets import RUNS_CAP, GradingRead
 from mendari.errors import MendariError
-from mendari.evals import arms, bands, grade, method, scoreboard
+from mendari.evals import arms, bands, grade, method, scoreboard, stats
 from mendari.evals import ledger as ledgers
 from mendari.evals.harness import record_problems
 from mendari.evals.ledger import canonical
@@ -337,8 +342,19 @@ _CONFIGURATION = rf"{_NAME_PART}={_NAME_PART}(?:,{_NAME_PART}={_NAME_PART}){{0,6
 _ARM = r"[a-z][a-z_]{0,31}"
 _NUMBER = r"[0-9]+(?:\.[0-9]+)?"
 
-Share = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
-Score = Annotated[float, Field(ge=0.0, le=2.0, allow_inf_nan=False)]  # a Brier score: 0 to 2
+# Rounded as `mendari.hidden_result/1`'s figures are (share.py's `Rate` and `Positive`): the digits
+# past these say nothing about a pack and could say something about a single case, or confirm a
+# guessed set.
+Share = Rate  # a share, a proportion's bound, a p-value: 4 places
+Score = Annotated[  # a mean (macro-F1, Brier, its reliability term), 0 to 2: 3 places
+    float, Field(ge=0.0, le=2.0, allow_inf_nan=False), AfterValidator(lambda v: round(v, 3))
+]
+Difference = Annotated[  # Brier's paired difference: 3 places
+    float, Field(ge=-2.0, le=2.0, allow_inf_nan=False), AfterValidator(lambda v: round(v, 3))
+]
+# The method's own levels, floors, ceilings and alpha (its constants and the number of critical
+# labels fix them): kept as they are, so a stored answer can be checked against the method.
+Level = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 BodySha256 = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 Day = Annotated[str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
@@ -369,7 +385,7 @@ TestName = Annotated[
 
 
 class Figure(_Closed):
-    """k of n with its exact Clopper-Pearson 95% interval, 6 places (null bounds when n is 0)."""
+    """k of n with its exact Clopper-Pearson 95% interval, 4 places (null bounds when n is 0)."""
 
     k: Count
     n: Count
@@ -388,7 +404,7 @@ class Figure(_Closed):
 class Bound(Figure):
     """The grade's bound: detected groups of the positive groups, at the simultaneous level."""
 
-    level: Share
+    level: Level
     labels: Annotated[int, Field(ge=1, le=MAX_CRITICAL)]
 
 
@@ -447,7 +463,7 @@ class WeightedShare(_Closed):
 
     n: Count
     estimate: Share | None
-    effective_n: Annotated[float, Field(ge=0.0, le=1e9, allow_inf_nan=False)] | None
+    effective_n: Positive | None
     low: Share | None
     high: Share | None
 
@@ -456,8 +472,19 @@ class AsSampled(_Closed):
     status: Literal["as sampled"]
 
 
+class WeightedWithheld(_Closed):
+    """The weighted figures left out: a weight is a stratum's (N_h / n_h), so beside the
+    unweighted k of n over the same cases they would give a stratum's figures, and some share
+    has fewer than `method.SUBGROUP_MIN` cases of one weight (`scoreboard.WEIGHTS_WITHHELD`)."""
+
+    status: Literal["withheld"]
+    reason: Literal["fewer than 10 cases of a share carry one of its weights"]
+
+
 class Weighted(_Closed):
-    """The weighted figures, beside the unweighted ones: detection is never weighted."""
+    """The weighted figures, beside the unweighted ones: detection is never weighted. Given only
+    when every weight of each share is carried by `method.SUBGROUP_MIN` cases or more of it, so
+    the stratum figures the pair could give are of cells as large as a subgroup's minimum."""
 
     status: Literal["weighted"]
     accuracy: WeightedShare
@@ -478,7 +505,7 @@ class ScoredFigures(_Closed):
     brier: Mean | None
     brier_reliability: Term | NotEstimable | None
     ece: Ece | NotEstimable | None
-    weighted: AsSampled | Weighted
+    weighted: AsSampled | Weighted | WeightedWithheld
 
 
 class GradeMethod(_Closed):
@@ -507,7 +534,7 @@ class RecallFloor(_Closed):
     question: Name
     label: Name
     state: State
-    floor: Share
+    floor: Level
     bound: Bound
     needed: Count
     draft: bool
@@ -516,9 +543,9 @@ class RecallFloor(_Closed):
 class FalseAutomationCeiling(_Closed):
     attestation: Literal["false_automation_ceiling"]
     state: State
-    ceiling: Share
+    ceiling: Level
     false_automation: Figure
-    level: Share
+    level: Level
     needed: Count
     draft: bool
 
@@ -645,7 +672,7 @@ class FamilyTest(_Closed):
     label: Name | None
     n: Count
     discordant: Annotated[list[Count], Field(min_length=2, max_length=2)] | None
-    difference: Annotated[float, Field(ge=-2.0, le=2.0, allow_inf_nan=False)] | None
+    difference: Difference | None
     p: Share
     adjusted: Share
     reject: bool
@@ -659,7 +686,7 @@ class FamilySeeds(_Closed):
 
 class Family(_Closed):
     of: Annotated[str, Field(max_length=200)]
-    alpha: Share
+    alpha: Level
     size: Count
     seeds: FamilySeeds
     tests: Annotated[list[FamilyTest], Field(max_length=6 * (MAX_CRITICAL + 3))]
@@ -1017,4 +1044,101 @@ def scoreboard_problem(result: Any) -> str | None:
         return f"it is not {HIDDEN_SCOREBOARD_FORMAT} as an answer holds it"
     if body["body_sha256"] != scoreboard_body_sha256(body):
         return "its body_sha256 is not its body's SHA-256"
+    return None
+
+
+_PROPORTIONS = ("false_automation", "auto_error_rate", "automation", "accuracy")
+
+
+def _intervals_hold(figures: Mapping[str, Any]) -> bool:
+    """Whether every k of n of a graded arm's figures holds the interval its k and n give, as an
+    answer rounds it: each at 95%, a critical label's bound at its own level."""
+    held = [(figures[name], method.LEVEL) for name in _PROPORTIONS]
+    for item in figures["critical"]:
+        held += [(item["detected"], method.LEVEL), (item["automated"], method.LEVEL)]
+        held.append((item["bound"], item["bound"]["level"]))
+    return all(
+        Figure.model_validate(stats.proportion(found["k"], found["n"], level).to_dict())
+        == Figure.model_validate({key: found[key] for key in Figure.model_fields})
+        for found, level in held
+    )
+
+
+def scoreboard_disagreement(answer: Mapping[str, Any]) -> str | None:
+    """Why an answer that fits `mendari.hidden_scoreboard/1` (`scoreboard_problem`) and is made
+    under the current method does not agree with its own figures, or None. Recomputed from what
+    it holds: each graded arm's intervals from their k and n, each critical label's evidence
+    from its distinct positives, its grade (`grade.grade` of its figures under its scope's
+    method, so every attestation's state, figures and draft, and the grade's `in_effect`), the
+    banner from the evidence, and the ranking: on with two graded arms or more and off with one,
+    under the scope's method, draft while it is not in effect, each graded arm unranked with the
+    safety attestations it did not meet and ranked otherwise. What no ledger is kept to
+    recompute stays the owner's word (their signature covers it): each k and n, and a ranking's
+    ranks, intervals, bands and tests. Names an arm or a part, never a value."""
+    scope = answer["scope"]["method"]
+    if (scope["version"], scope["sha256"]) != (method.METHOD, method.METHOD_SHA256):
+        return f"it is not under the current method ({method.METHOD})"
+    graded: list[dict[str, Any]] = []
+    short: list[dict[str, Any]] = []
+    for item in answer["arms"]:
+        if item["status"] != GRADED:
+            continue
+        arm, figures = item["arm"], item["figures"]
+        if not _intervals_hold(figures):
+            return f"its {arm} arm's intervals are not what their k and n give"
+        needed = method.min_positives(method.RECALL_FLOOR, len(figures["critical"]))
+        for critical in figures["critical"]:
+            enough = critical["distinct"]["positives"] >= needed
+            status = scoreboard.SUFFICIENT if enough else scoreboard.INSUFFICIENT
+            if critical["evidence"] != {"status": status, "needed": needed}:
+                return f"its {arm} arm's evidence is not what its distinct positives give"
+        entry = {
+            "arm": arm,
+            "configuration": item["configuration"],
+            "scope": {"set": {"kind": scoreboard.HIDDEN}, "method": scope},
+            "figures": figures,
+        }
+        try:
+            expected = ScoredGrade.model_validate(grade.grade(entry)).model_dump(mode="json")
+        except (MendariError, ValidationError):
+            expected = None
+        if expected != item["grade"]:
+            return f"its {arm} arm's grade is not what its figures give"
+        graded.append(entry)
+        written = bands.configuration_name(entry)
+        short += [
+            {"arm": arm, "configuration": written, **label}
+            for label in scoreboard.short_of_evidence(entry)
+        ]
+    if answer["banner"] != ({"short": short} if short else None):
+        return "its banner is not what its arms' evidence gives"
+    ranking = answer["ranking"]
+    if (ranking["status"] == bands.ON) != (len(graded) >= 2):
+        return "its ranking is on with two graded arms or more, and off with one"
+    if ranking["status"] != bands.ON:
+        return None
+    if ranking["method"] != scope or ranking["draft"] != (not scope["in_effect"]):
+        return "its ranking's method or draft is not its scope's"
+    unranked = []
+    for entry in graded:
+        reasons = [
+            {
+                "attestation": found["attestation"],
+                "question": found.get("question"),
+                "label": found.get("label"),
+                "state": found["state"],
+            }
+            for found in grade.attestations(entry)
+            if found["attestation"] in grade.SAFETY and found["state"] != grade.MET
+        ]
+        if reasons:
+            name = bands.configuration_name(entry)
+            unranked.append({"arm": entry["arm"], "configuration": name, "reasons": reasons})
+    ranked = {row["arm"] for row in ranking["ranked"]}
+    if (
+        ranking["graded"] != len(graded)
+        or ranking["unranked"] != unranked
+        or ranked != {entry["arm"] for entry in graded} - {row["arm"] for row in unranked}
+    ):
+        return "its ranking's arms are not its graded arms, by the safety attestations they met"
     return None

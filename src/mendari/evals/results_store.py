@@ -31,8 +31,10 @@ A hidden set's result (`mendari.hidden_scoreboard/1`, LP-17k) is the grading rou
 stored with `add` as it was answered: one result per pack and set (its arms are in it), named by
 its body's SHA-256, which leaves its run block out, so a second read of the same set is the same
 result. It must fit its closed schema (`hidden.scoreboard_problem`), be of a pack Mendari
-maintains and, when new, under the current method and measured no later than today. It is kept
-as it is, never recomputed: no ledger of a hidden set is kept, so it is the owner's attestation,
+maintains and, when new, under the current method, measured no later than today and in effect
+as the method is that day; under the current method, it must agree with its own figures
+(`hidden.scoreboard_disagreement`: intervals, evidence, grades, banner, ranking, draft). It is
+kept as it is: no ledger of a hidden set is kept, so its k and n are the owner's attestation,
 and their signature covers it with its run's number.
 
 `measure` runs one local configuration of a maintained pack over one of its public scoring sets
@@ -908,9 +910,13 @@ HIDDEN_KEPT = "kept as it is: a hidden set's result is never recomputed (no ledg
 
 def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) -> Verdict:
     """Whether a hidden set's result may stay in the store, or be added (`new`): of a pack
-    Mendari maintains (any of its versions: the deployment graded the one it serves) and, when
-    new, under the current method and measured no later than `today`. Its closed schema was
-    checked when it was read (`held`). It is kept as it is, never recomputed."""
+    Mendari maintains (any of its versions: the deployment graded the one it serves); when new,
+    under the current method, measured no later than `today`, and in effect or not as the
+    method is on the day measured; and, under the current method, agreeing with its own
+    figures (`hidden.scoreboard_disagreement`: its intervals, evidence, grades, banner and
+    ranking, each draft while its scope's method is not in effect). Its closed schema was
+    checked when it was read (`held`). It is kept as it is: with no ledger, its k and n are
+    never recomputed. One under an earlier method is kept as it was added."""
     where = f"{RESULTS}/{found.name}.json ({found.shown})"
     if new and found.measured_on > today.isoformat():
         return Verdict(
@@ -921,6 +927,18 @@ def _hidden(found: Held, packs: PackSource, *, new: bool, today: datetime.date) 
         return Verdict(
             f"{where}: a new result is made under the current method ({scoreboard.STALE_METHOD})"
         )
+    measured = _day(found.measured_on)
+    assert measured is not None  # `held` refused any other
+    in_effect = found.result["scope"]["method"]["in_effect"]
+    if new and in_effect != method.in_effect(measured):
+        return Verdict(
+            f"{where}: its scope says the method is {'' if in_effect else 'not '}in effect on "
+            f"{found.measured_on}, which the method's effective date does not give"
+        )
+    if found.method == method.METHOD_SHA256:
+        problem = hidden.scoreboard_disagreement(found.result)
+        if problem is not None:
+            return Verdict(f"{where}: {problem}")
     try:
         packs(found.pack_id)
     except MendariError as error:
@@ -999,8 +1017,9 @@ def check(
       to the same bytes; or a new one of a remote configuration, not on its pack's current
       digest, set and method, or measured after `today` (`_public`);
     - a hidden set's result that does not fit its closed schema (`held`), is not of a pack
-      Mendari maintains or, when new, is under another method or measured after `today`
-      (`_hidden`)."""
+      Mendari maintains, does not agree with its own figures under the current method or,
+      when new, is under another method, measured after `today` or says the method is in
+      effect when it is not, or the reverse (`_hidden`)."""
     found = Check()
     problems = found.problems
     listed: dict[str, dict[str, bytes]] = {}

@@ -53,6 +53,7 @@ import hashlib
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -80,6 +81,10 @@ UNKNOWN = "unknown"
 NOT_REPRODUCIBLE = "measured on the runner, not reproducible"
 TOO_FEW = "too few"
 AS_SAMPLED = "as sampled"
+# A hidden set's weighted figures left out (`hidden_entry`): a weight is a stratum's (N_h / n_h),
+# so beside the unweighted k of n over the same cases they could give a stratum's figures.
+WITHHELD = "withheld"
+WEIGHTS_WITHHELD = f"fewer than {method.SUBGROUP_MIN} cases of a share carry one of its weights"
 NOT_ESTIMABLE = "not_estimable"
 SUFFICIENT, INSUFFICIENT = "sufficient", grade.INSUFFICIENT
 MEASURED, NOT_MEASURED = "measured", "not measured"
@@ -231,7 +236,9 @@ def hidden_entry(
     frozen hidden set (LP-17k): `dataset` is what the set's grading read handed over (its id
     `set_id`, its freeze `commitment`), `ledger` the run's ledger over it, and `measured_on` the
     day of the read. Its figures are an entry's but cost, latency and subgroups: no run record
-    is kept of a hidden set, and a hidden set's answer holds none of them. `cost_per_1000` is
+    is kept of a hidden set, and a hidden set's answer holds none of them. Its weighted figures
+    are withheld when fewer than `method.SUBGROUP_MIN` cases of a share carry one of its weights
+    (`_weighted`), whose stratum they would show beside the unweighted ones. `cost_per_1000` is
     "0 (no metered calls)", which a local configuration's is by construction, for the band tuple
     only. Its scope's set is `{kind: "hidden", id, commitment, n, distinct_inputs, norm}`: never
     a name or a hash of the cases. Its `inputs` name the ledger's id, for `bands.ranking` to
@@ -258,7 +265,7 @@ def hidden_entry(
         # Local only: no metered call, by construction. The band tuple's last element; a hidden
         # set's answer holds no cost.
         "cost_per_1000": {"status": "none", "text": NO_METERED_CALLS},
-        "weighted": _weighted(header, cases, dataset),
+        "weighted": _weighted(header, cases, dataset, min_class=method.SUBGROUP_MIN),
     }
     scope = {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
@@ -633,11 +640,18 @@ def _subgroups(
 
 
 def _weighted(
-    header: Mapping[str, Any], cases: Sequence[Mapping[str, Any]], dataset: Dataset
+    header: Mapping[str, Any],
+    cases: Sequence[Mapping[str, Any]],
+    dataset: Dataset,
+    *,
+    min_class: int | None = None,
 ) -> dict[str, Any]:
     """Korn-Graubard versions of accuracy, false automation, automation and the AUTO error rate
     when every record carries a sampling weight (`attributes.weight`), aligned to the ledger's
-    order; "as sampled" when none does. Recall is never weighted."""
+    order; "as sampled" when none does. Recall is never weighted. With `min_class` (a hidden
+    set's), "withheld" when fewer than `min_class` cases of a share (all, labelled or AUTO) carry
+    one of its weights: a weight is a stratum's, and the pair of weighted and unweighted figures
+    over few cases of one weight could be solved for that stratum's figures."""
     weights = [found.get("attributes", {}).get(WEIGHT) for found in dataset.records]
     if all(weight is None for weight in weights):
         return {"status": AS_SAMPLED}
@@ -652,6 +666,12 @@ def _weighted(
     numbered = list(zip(cases, (float(w) for w in weights), strict=True))
     labelled = [(c, w) for c, w in numbered if _truth(c, primary) is not None]
     auto = [(c, w) for c, w in labelled if c["o"] == "AUTO"]
+    if min_class is not None and any(
+        count < min_class
+        for members in (numbered, labelled, auto)
+        for count in Counter(w for _, w in members).values()
+    ):
+        return {"status": WITHHELD, "reason": WEIGHTS_WITHHELD}
 
     def share(members: Sequence[tuple[Mapping[str, Any], float]], hit: Callable[..., bool]) -> Any:
         found = stats.weighted_proportion([hit(c) for c, _ in members], [w for _, w in members])

@@ -2109,23 +2109,26 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     ledgers: on a public set the ranking is off and the grade null, wired into `board` (which
     refuses a hidden table of two or more, holding no ledger). `tests/test_scoreboard_rank.py`.
   - [x] **17k** (lane PR) The hidden-set scoreboard through the existing grading route
-    (`mendari.hidden_scoreboard/1`, every declared arm in one grading read). `GradingRequest`
-    takes `arms` with `declared` (a SHA-256), never with `variants`; without them the answer is
-    `mendari.hidden_result/1`, unchanged. Each declared configuration is refused before any case
-    is read as `variants` is, or `wrong_arm` (new) when it is not of its arm; one grading read
-    decides every declared arm on the same records (one `evalset.graded`, one of `max_runs`);
-    entries (`scoreboard.hidden_entry`, distinct groups from the inputs, weights from
-    `attributes.weight`), grades and the ranking in memory, never stored. The closed answer:
-    per arm its status ("graded", "not graded here", "not applicable"), figures, attestations;
-    the banner; the ranking ("off: one arm graded"); the scope with the set's id and commitment
-    and the declaration's SHA-256; the run block outside the body's hash. No cost, latency,
-    subgroups, equal-mass bins, case ids or hashes, dataset name or hash, or ledger id. A
-    600-case set runs in about 4 s, so the run stays in the route. The results store holds the
-    answer as answered (closed schema, never recomputed, off the page). Spec section, runbooks
-    (`evalsets.md`, `scoreboard.md`: post the declaration, `scoreboard add`, the owner signs),
-    ADR-0011 notes, `api_docs.py`, threat model I14 and I15.
-    `tests/test_evalset_scoreboard.py`; `test_evalset_leaks.py` sweeps a scoreboard run and its
-    refusal.
+    (`mendari.hidden_scoreboard/1`, every declared arm in one grading read). `GradingRequest` takes
+    `arms` with `declared` (a SHA-256), never with `variants`; without them the answer is
+    `mendari.hidden_result/1`, unchanged. Each declared configuration is refused before any case is
+    read as `variants` is, or `wrong_arm` (new) when it is not of its arm; one grading read decides
+    every declared arm on the same records (one `evalset.graded`, one of `max_runs`); entries
+    (`scoreboard.hidden_entry`, distinct groups from the inputs, weights from `attributes.weight`),
+    grades and the ranking in memory, never stored. The closed answer: per arm its status
+    ("graded", "not graded here", "not applicable"), figures, attestations; the banner; the ranking
+    ("off: one arm graded"); the scope with the set's id and commitment and the declaration's
+    SHA-256; the run block outside the body's hash. No cost, latency, subgroups, equal-mass bins,
+    case ids or hashes, dataset name or hash, or ledger id. A 600-case set runs in about 5 s
+    through the route, its read included, so the run stays in the route. Review fixes: a declared
+    arm names every slot (`wrong_arm` otherwise); the weighted figures are withheld when fewer than
+    10 cases of a share carry a weight; shares are rounded to 4 places and means to 3, as
+    `mendari.hidden_result/1`'s; the store checks a stored answer against its own figures
+    (`hidden.scoreboard_disagreement`). The results store holds the answer as answered (closed
+    schema, never recomputed, off the page). Spec section, runbooks (`evalsets.md`,
+    `scoreboard.md`: post the declaration, `scoreboard add`, the owner signs), ADR-0011 notes,
+    `api_docs.py`, threat model T8, I14 and I15. `tests/test_evalset_scoreboard.py`;
+    `test_evalset_leaks.py` sweeps a scoreboard run and its refusal.
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
     Blocked on LP-20 and owner decisions 4 and 10.
   - [ ] **17m** Close-out: gate probes for `a9-scoreboard` and `grading-method`, the threat

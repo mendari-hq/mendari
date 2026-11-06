@@ -566,10 +566,10 @@ names the set, and a run's could name a case):
 |---|---|---|
 | `no_set` | 404 | No set of the key's organization has that id: another organization's set, an unknown id and a malformed one are one answer, naming no id. |
 | `wrong_pack` | 422 | `pack` is not the set's, or the pack served here no longer asks the set's questions. |
-| `unknown_variant` | 422 | `variants` names a slot or a variant the pack does not have. |
+| `unknown_variant` | 422 | `variants`, or an arm in `arms`, names a slot or a variant the pack does not have. |
 | `remote_provider` | 422 | A slot would run a remote provider. |
-| `wrong_arm` | 422 | A scoreboard run's declared configuration is not of the arm it is declared under ([below](#the-hidden-set-scoreboard)). |
-| `pack_unavailable` | 409 | The set's pack is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. |
+| `wrong_arm` | 422 | A scoreboard run's declared arm does not name a variant for every slot of the pack, or its configuration is not of the arm it is declared under ([below](#the-hidden-set-scoreboard)). |
+| `pack_unavailable` | 409 | The set's pack is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. For a scoreboard run, also a pack with no critical label (or more than 64): a grade attests its critical labels. |
 | `not_gradable` | 409 | The set is a draft, or retired (its chain's word, whatever its row says). |
 | `no_runs_left` | 409 | The set has had its `--max-runs`: retire it and freeze another. |
 | `expired` | 409 | The set froze `--max-age-days` days ago or more: retire it and freeze another. |
@@ -600,9 +600,11 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
 ```
 
 - `arms` names each declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`)
-  with its configuration, a variant for any slot as `variants` takes them. Each is checked as
-  `variants` is, before any case is read, and must be of the arm it is declared under
-  (`wrong_arm`). Under the method 1.0 only the deterministic arm is local, so it is the one arm
+  with its whole configuration: a variant for every slot of the pack, since a slot left out
+  would run the deployment's choice, and the same declaration would grade other configurations
+  on other deployments. Each is checked as `variants` is, before any case is read, and must name
+  every slot and be of the arm it is declared under (`wrong_arm`). Under the method 1.0 only the
+  deterministic arm is local, so it is the one arm
   a hidden set grades: a declared arm that calls Jev or an LLM is refused `remote_provider`, and
   nothing is read.
 - `declared` is the SHA-256 of the committed declaration (64 hex digits). The answer cites it;
@@ -616,13 +618,17 @@ so it is one chained `evalset.graded` and one of the set's runs. The answer is
 spec](../spec/evaluation-reports.md#the-hidden-set-scoreboard-mendarihidden_scoreboard1)): per
 arm, its status ("graded", "not graded here" for an arm whose configurations call a remote
 provider, or "not applicable"), its figures (each proportion as k of n with its exact 95%
-interval, each mean with its bootstrap interval, evidence on distinct positives), its
+interval, each mean with its bootstrap interval, evidence on distinct positives, and the
+weighted figures, withheld when fewer than 10 cases of a share carry one of its weights, since
+a weight is a stratum's and the pair would show that stratum's figures), its
 attestations (met, not met or insufficient evidence; draft while the method is not in effect)
 and the insufficient-evidence banner; the ranking (off, "one arm graded", while only the
 deterministic arm is local); the scope, with the set's id and commitment, never a hash of its
-cases; and this run's number and the runs left. Never cost, latency, a subgroup or a case. Two
+cases; and this run's number and the runs left. Never cost, latency, a subgroup or a case.
+Shares are rounded to 4 places and means to 3, as `mendari.hidden_result/1`'s are. Two
 reads of one set on one day give the same body, so its `body_sha256` is the same. A 600-case set
-runs in a few seconds, well within the route's deadline. Keep the answer as you would the set's
+runs in about 5 seconds through the route, its read included, well within the route's
+deadline (300 seconds). Keep the answer as you would the set's
 aggregates, then store it in the repository, where the owner signs it
 ([Running the scoreboard](scoreboard.md#a-hidden-sets-scoreboard)).
 
@@ -833,12 +839,13 @@ outside the repository.
   status and each labeller's assignments by user id, with labels coming in.
 - **`hidden-sets-frozen`** (gate G3-4): "each set's id, freeze hash and positives per critical
   label (100 or more)", for each frozen set. Its id is the one `mendari evalset list` prints.
-  Its freeze hash is its commitment (no signature yet: LP-17), which `freeze` prints and `show`
-  reads back. Its positives per critical label are `freeze`'s `critical` list, the `distinct`
-  count of each label, computed from the labels as the set freezes; `show` reads back the coverage
-  freezing stored, checked against the commitment `evalset.frozen` chained to it
-  ([Verifying](#verifying)). A set frozen before LP-11p has no such commitment, and `show` reads
-  its coverage as it is, unchecked: for such a set, take the positives from `freeze`'s own output,
-  kept when it froze. A set counts only when
+  Its freeze hash is its commitment, which `freeze` prints and `show` reads back. It stays a
+  salted hash, never signed on its own: a signed hidden-set result carries it (the
+  [grading method](../grading/method-1.0.md), section 11). Its positives per critical label are
+  `freeze`'s `critical` list, the `distinct` count of each label, computed from the labels as
+  the set freezes; `show` reads back the coverage freezing stored, checked against the
+  commitment `evalset.frozen` chained to it ([Verifying](#verifying)). A set frozen before
+  LP-11p has no such commitment, and `show` reads its coverage as it is, unchecked: for such a
+  set, take the positives from `freeze`'s own output, kept when it froze. A set counts only when
   none of its critical labels is `insufficient` (fewer than 100 distinct positives): a set
   frozen with that warning does not.

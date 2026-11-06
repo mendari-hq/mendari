@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import re
 import secrets
 import shlex
@@ -100,6 +101,7 @@ from mendari.evals.hidden import (
     UnrankedReason,
     Weighted,
     WeightedShare,
+    WeightedWithheld,
 )
 from mendari.server.app import GRADING_REFUSALS
 from tests.conftest import ROOT, calm_jev, hand_written
@@ -188,6 +190,7 @@ PINNED: dict[type[BaseModel], set[str]] = {
     NotEstimable: {"status", "reason"},
     Ece: {"status", "value"},
     AsSampled: {"status"},
+    WeightedWithheld: {"status", "reason"},
     Weighted: {"status", "accuracy", "false_automation", "automation", "auto_error_rate"},
     WeightedShare: {"n", "estimate", "effective_n", "low", "high"},
     ScoredGrade: {"method", "attestations"},
@@ -445,10 +448,12 @@ def test_a_declared_remote_arm_is_refused_before_any_case_is_read(
     (Jev, an LLM, a composite of them, or the deployment's own choice for a slot it leaves out),
     alone or beside a local arm, is a `422` `remote_provider`; a local configuration declared
     under another arm is `wrong_arm`; a slot or variant the pack lacks `unknown_variant`, another
-    pack `wrong_pack`. `arms` without `declared`, `declared` without `arms`, both beside
-    `variants`, an arm that is not one and a declaration that is not a SHA-256 are `422`s of
-    the body. Each opens the set's header at most: no case is read, no run counted, nothing
-    chained. Naming every slot local in the deterministic arm is answered."""
+    pack `wrong_pack`. Each sentence names `arms`, the field the run sent, never only
+    `variants`, which a scoreboard run may not send. `arms` without `declared`, `declared`
+    without `arms`, both beside `variants`, an arm that is not one and a declaration that is not
+    a SHA-256 are `422`s of the body. Each opens the set's header at most: no case is read, no
+    run counted, nothing chained. Naming every slot local in the deterministic arm is
+    answered."""
     monkeypatch.setattr(clock, "today", lambda: DAY)
     keys = deployment(monkeypatch, "memberships")
     db = str(tmp_path / "audit.db")
@@ -478,6 +483,7 @@ def test_a_declared_remote_arm_is_refused_before_any_case_is_read(
             refused = world.run(set_id, grader, arms=arms_sent, declared=DECLARED)
             assert (refused.status_code, refused.json()["reason"]) == (422, reason), arms_sent
             assert refused.json()["detail"] == GRADING_REFUSALS[reason][1]
+            assert "`arms`" in refused.json()["detail"], reason  # the field this run sent
             assert opened == ["header"], arms_sent
         refused = world.run(set_id, grader, pack="mendari/ai-guard", **SCOREBOARD)
         assert (refused.status_code, refused.json()["reason"]) == (422, "wrong_pack")
@@ -497,6 +503,61 @@ def test_a_declared_remote_arm_is_refused_before_any_case_is_read(
         assert graded_events(world, set_id) == [] and world.state(set_id) == "frozen"
         shown = answered(world, set_id, grader)
         assert graded_arm(shown)["configuration"]["providers"] == LOCAL
+
+
+def test_a_declared_arm_names_every_slot(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """On a deployment whose own choice for the slot left out is local, a declared arm that
+    names only some of the pack's slots would run that choice, so one cited declaration would
+    grade other configurations on other deployments: it is `wrong_arm`, before any case is read,
+    and uses no run. The same arm with every slot named is answered, and runs what it sent."""
+    set_id = scored_set(world, urgent=2, routine=2)
+    grader = world.grader()
+    opened: list[str] = []
+    real = EvalsetKeys.open
+
+    def spied(keys: EvalsetKeys, kind: Any, *bound: Any) -> tuple[Any, str]:
+        opened.append(kind)
+        return real(keys, kind, *bound)
+
+    monkeypatch.setattr(EvalsetKeys, "open", spied)
+    partial = {"deterministic": {"router": LOCAL["router"]}}
+    refused = world.run(set_id, grader, arms=partial, declared=DECLARED)
+    assert (refused.status_code, refused.json()["reason"]) == (422, "wrong_arm"), refused.text
+    assert refused.json()["detail"] == GRADING_REFUSALS["wrong_arm"][1]
+    assert opened == ["header"] and graded_events(world, set_id) == []
+    shown = answered(world, set_id, grader)
+    assert graded_arm(shown)["configuration"]["providers"] == LOCAL
+
+
+def test_a_failed_scoreboard_run_counts_and_is_told_by_its_code_only(
+    world: World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A scoreboard run whose answer would hold a field the closed schema does not (here a
+    critical label's missed cases, with a case's text in them) fails after its read: `500`
+    `run_failed`, its fixed sentence only, naming nothing of the set; the read stays chained,
+    so it counts as one of the set's runs (one `evalset.graded`); the operator's log names the
+    set and the error's type only."""
+    caplog.set_level(logging.WARNING, logger="mendari.evalsets")
+    set_id = scored_set(world, urgent=2, routine=2)
+    real = hidden._figures
+
+    def leaking(entry: Mapping[str, Any], ledger: Any) -> dict[str, Any]:
+        found = real(entry, ledger)
+        (critical, *_) = found["critical"]
+        missed = [f"{MARKS['input']} case 0: {URGENT_TEXT}"]
+        return {**found, "critical": [{**critical, "missed_cases": missed}]}
+
+    monkeypatch.setattr(hidden, "_figures", leaking)
+    refused = world.run(set_id, world.grader(), **SCOREBOARD)
+    assert (refused.status_code, refused.json()["reason"]) == (500, "run_failed")
+    assert refused.json()["detail"] == GRADING_REFUSALS["run_failed"][1]
+    assert [mark for mark in private_of(world, set_id) if mark in refused.text] == []
+    assert URGENT_TEXT not in refused.text
+    assert [e["payload"]["run"] for e in graded_events(world, set_id)] == [1]
+    (warned,) = [r for r in caplog.records if r.name == "mendari.evalsets"]
+    assert warned.getMessage() == (
+        f"a grading run of evaluation set {set_id} failed (MendariError): it counts as a run"
+    )
 
 
 def test_undeclared_arms_say_not_graded_here_or_not_applicable(world: World) -> None:
@@ -539,7 +600,11 @@ def test_the_scoreboard_answer_holds_no_per_case_field(world: World) -> None:
     no ledger's id: its only `sha256:` values are the pack's digest and its own body's, and the
     set is named by its id and commitment. Every proportion is k of n with its 95% interval,
     and ECE a single number. A field added to it is refused, and a run that would answer one
-    is `run_failed`, naming nothing."""
+    is `run_failed`, naming nothing
+    (`test_a_failed_scoreboard_run_counts_and_is_told_by_its_code_only`). Every share is
+    rounded to 4 places and every mean, score and effective n to 3, as
+    `mendari.hidden_result/1`'s figures are (its Brier is the plain run's); the method's levels
+    are kept as it fixes them, and a stored answer with a 6-place figure is not an answer's."""
     for model, fields in PINNED.items():
         assert model.model_config.get("extra") == "forbid", model.__name__
         assert set(model.model_fields) == fields, model.__name__
@@ -591,6 +656,32 @@ def test_the_scoreboard_answer_holds_no_per_case_field(world: World) -> None:
     assert graded_arm(small)["figures"]["brier"]["low"] is None
     graded_arm(small)["figures"]["brier"]["estimate"]  # the mean is still shown
 
+    # Rounded as `mendari.hidden_result/1` rounds: shares to 4 places, means to 3. The same
+    # set's plain run answers the same Brier score.
+    def at_most(value: float | None, digits: int) -> bool:
+        return value is None or round(value, digits) == value
+
+    proportions = [figures[name] for name in ("false_automation", "auto_error_rate", "accuracy")]
+    proportions += [figures["automation"], critical["detected"], critical["automated"]]
+    proportions.append(critical["bound"])
+    assert all(at_most(found[bound], 4) for found in proportions for bound in ("low", "high"))
+    for mean in (figures["brier"], figures["macro_f1"]):
+        assert all(at_most(mean[part], 3) for part in ("estimate", "low", "high"))
+    plain = world.run(set_id, world.grader(), variants=LOCAL)
+    assert plain.status_code == 200, plain.text
+    question = plain.json()["questions"][plain.json()["primary"]]
+    assert question["brier"] == figures["brier"]["estimate"]
+    level = method.simultaneous_level(3)  # 0.98333...: the method's, kept as it is
+    bound = {"k": 0, "n": 0, "low": None, "high": None, "level": level, "labels": 3}
+    assert Bound.model_validate(bound).level == level
+    # A stored answer with a 6-place figure, its body hash made again, is not an answer's.
+    six = json.loads(json.dumps(shown))
+    six["arms"][0]["figures"]["brier"]["estimate"] = figures["brier"]["estimate"] + 0.000123
+    six["body_sha256"] = hidden.scoreboard_body_sha256(six)
+    assert hidden.scoreboard_problem(six) == (
+        f"it is not {HIDDEN_SCOREBOARD_FORMAT} as an answer holds it"
+    )
+
 
 def test_a_set_with_twenty_urgent_positives_says_insufficient_evidence(world: World) -> None:
     """Twenty urgent positives, every one detected: raw 20 of 20 with its interval and 20
@@ -604,7 +695,7 @@ def test_a_set_with_twenty_urgent_positives_says_insufficient_evidence(world: Wo
     assert critical["detected"] == {
         "k": 20,
         "n": 20,
-        "low": round(statistics.clopper_pearson(20, 20, 0.95)[0], 6),
+        "low": round(statistics.clopper_pearson(20, 20, 0.95)[0], 4),
         "high": 1.0,
     }
     assert critical["distinct"] == {"positives": 20, "detected": 20}
@@ -631,31 +722,58 @@ def test_a_set_with_twenty_urgent_positives_says_insufficient_evidence(world: Wo
     assert shown["ranking"] == {"status": "off", "reason": "one arm graded"}
 
 
+def weighted_share(hits: Sequence[bool], weights: Sequence[float]) -> dict[str, Any]:
+    """A Korn-Graubard share of `hits` with `weights`, rounded as an answer holds it."""
+    found = statistics.weighted_proportion(hits, weights).to_dict()
+    return WeightedShare.model_validate(found).model_dump(mode="json")
+
+
 def test_weights_reach_prevalence_dependent_figures_and_never_recall(world: World) -> None:
-    """Four urgent cases drawn of four (weight 1) and four routine ones of twelve (weight 3),
-    the routine ones sent to the front desk (the router says nurse, so they are wrong): the
+    """Ten urgent cases drawn of ten (weight 1) and ten routine ones of thirty (weight 3), the
+    routine ones sent to the front desk (the router says nurse, so they are wrong): the
     weighted accuracy, false automation, automation and AUTO error rate are the Korn-Graubard
-    figures of the decisions with those weights, beside the unweighted k of n (accuracy 4 of
-    8, weighted 0.25); detection is 4 of 4 and has no weighted figure."""
+    figures of the decisions with those weights, beside the unweighted k of n (accuracy 10 of
+    20, weighted 0.25, effective n 16); detection is 10 of 10 and has no weighted figure."""
     set_id = scored_set(
-        world, urgent=4, routine=12, per_stratum=4, routine_destination="front_desk"
+        world, urgent=10, routine=30, per_stratum=10, routine_destination="front_desk"
     )
     shown = answered(world, set_id, world.grader())
     figures = graded_arm(shown)["figures"]
-    assert figures["accuracy"]["k"] == 4 and figures["accuracy"]["n"] == 8
-    weights = [1.0] * 4 + [3.0] * 4
-    hits = [True] * 4 + [False] * 4
-    expected = statistics.weighted_proportion(hits, weights).to_dict()
+    assert figures["accuracy"]["k"] == 10 and figures["accuracy"]["n"] == 20
+    weights = [1.0] * 10 + [3.0] * 10
+    expected = weighted_share([True] * 10 + [False] * 10, weights)
     assert figures["weighted"]["status"] == "weighted"
     assert figures["weighted"]["accuracy"] == expected
-    assert expected["estimate"] == 0.25 and expected["effective_n"] == 6.4
-    nothing = statistics.weighted_proportion([False] * 8, weights).to_dict()
+    assert expected["estimate"] == 0.25 and expected["effective_n"] == 16.0
+    nothing = weighted_share([False] * 20, weights)
     assert figures["weighted"]["automation"] == nothing  # no case is decided AUTO
     assert figures["weighted"]["false_automation"] == nothing
     assert figures["weighted"]["auto_error_rate"]["n"] == 0
     (critical,) = figures["critical"]
-    assert critical["detected"]["k"] == critical["detected"]["n"] == 4
+    assert critical["detected"]["k"] == critical["detected"]["n"] == 10
     assert "weighted" not in critical and not keys_of(critical) & {"estimate", "effective_n"}
+
+
+def test_weights_carried_by_few_cases_are_withheld(world: World) -> None:
+    """Four urgent cases drawn of four (weight 1) and four routine ones of twelve (weight 3),
+    the routine ones wrong: beside accuracy 4 of 8, a weighted 0.25 would be solved by one split
+    only, all four cases of weight 1 right and all four of weight 3 wrong: a stratum's figures
+    over four cases (a weight is a stratum's, N_h / n_h). Fewer than ten cases of a share carry
+    each weight, so the weighted figures are withheld, with the reason; the unweighted k of n
+    stay."""
+    set_id = scored_set(
+        world, urgent=4, routine=12, per_stratum=4, routine_destination="front_desk"
+    )
+    figures = graded_arm(answered(world, set_id, world.grader()))["figures"]
+    assert figures["accuracy"]["k"] == 4 and figures["accuracy"]["n"] == 8
+    assert figures["weighted"] == {"status": "withheld", "reason": scoreboard.WEIGHTS_WITHHELD}
+    assert method.SUBGROUP_MIN == 10  # the reason's number, as the closed model holds it
+    splits = [
+        (right_of_one, 4 - right_of_one)
+        for right_of_one in range(5)
+        if (right_of_one + 3 * (4 - right_of_one)) / 16 == 0.25
+    ]
+    assert splits == [(4, 0)]  # what the weighted estimate would have given away
 
 
 def test_two_reads_of_a_set_give_the_same_body(world: World) -> None:
@@ -770,7 +888,25 @@ def test_a_ranking_of_graded_arms_fits_the_answer_without_cost(tmp_path: Path) -
     assert not keys_of(found) & PER_CASE
     assert all(item["status"] == hidden.GRADED for item in found["arms"])
     grades = {entry["arm"]: grade.grade(entry) for entry, _ in graded}
-    assert grades == {item["arm"]: item["grade"] for item in found["arms"]}
+
+    def states(attested: Mapping[str, Any] | None) -> list[tuple[str, str, bool]]:
+        assert attested is not None
+        return [(a["attestation"], a["state"], a["draft"]) for a in attested["attestations"]]
+
+    assert {arm_id: states(attested) for arm_id, attested in grades.items()} == {
+        item["arm"]: states(item["grade"]) for item in found["arms"]
+    }
+    # The store's check: its grades, banner and ranking agree with its own figures, and a
+    # ranking edited to say otherwise does not.
+    assert hidden.scoreboard_disagreement(found) is None
+    for part, value, match in (
+        ("draft", False, "ranking's method or draft"),
+        ("unranked", [], "ranking's arms"),
+        ("graded", 3, "ranking's arms"),
+    ):
+        edited = json.loads(json.dumps(found))
+        edited["ranking"][part] = value
+        assert match in (hidden.scoreboard_disagreement(edited) or ""), part
 
 
 # -- the results store, signing, the page ----------------------------------------------------------
@@ -871,6 +1007,90 @@ def test_the_store_holds_a_hidden_answer_as_it_was_answered(
     assert page == empty  # the page shows public sets only
 
 
+def test_a_stored_answer_must_agree_with_its_own_figures(tmp_path: Path) -> None:
+    """The store checks a hidden set's answer against its own figures, never against a ledger
+    (none is kept): each edit below is made to fit, its body hash made again, and each still
+    fits the closed schema, yet it is refused. Every attestation met and final, with the method
+    in effect, on 20 distinct positives where 100 are needed, before the method is in effect
+    (the review's probe); the method said to be in effect on its day, every draft dropped to
+    fit; an attestation met, or its draft dropped, with the method not in effect; a grade's
+    method in effect alone; an interval, the evidence or the banner that its k and n, or its
+    distinct positives, do not give. `results_store.check` finds such an answer among the
+    base's results too, under the current method. The answer as answered agrees."""
+    store = a_store(tmp_path)
+    pack = resolve_pack("mendari/patient-inbox-router")
+    first = in_memory(hidden_dataset(resolve_dataset(pack, "red_flags_holdout").records))
+    assert hidden.scoreboard_disagreement(first) is None
+    (critical,) = graded_arm(first)["figures"]["critical"]
+    assert critical["distinct"]["positives"] == 20 and not first["scope"]["method"]["in_effect"]
+
+    def in_effect(found: dict[str, Any]) -> None:
+        found["scope"]["method"]["in_effect"] = True
+        found["arms"][0]["grade"]["method"]["in_effect"] = True
+        for item in found["arms"][0]["grade"]["attestations"]:
+            item["draft"] = False
+
+    def probe(found: dict[str, Any]) -> None:
+        in_effect(found)
+        for item in found["arms"][0]["grade"]["attestations"]:
+            item["state"] = "met"
+
+    def met(found: dict[str, Any]) -> None:
+        for item in found["arms"][0]["grade"]["attestations"]:
+            item["state"] = "met"
+
+    def final(found: dict[str, Any]) -> None:
+        found["arms"][0]["grade"]["attestations"][1]["draft"] = False
+
+    def grade_in_effect(found: dict[str, Any]) -> None:
+        found["arms"][0]["grade"]["method"]["in_effect"] = True
+
+    def interval(found: dict[str, Any]) -> None:
+        accuracy = found["arms"][0]["figures"]["accuracy"]
+        accuracy["low"] = accuracy["high"]  # an interval of no width, on hundreds of cases
+
+    def evidence(found: dict[str, Any]) -> None:
+        found["arms"][0]["figures"]["critical"][0]["evidence"]["status"] = "sufficient"
+
+    def banner(found: dict[str, Any]) -> None:
+        found["banner"] = None
+
+    def edited(edit: Any) -> dict[str, Any]:
+        found = json.loads(json.dumps(first))
+        edit(found)
+        found["body_sha256"] = hidden.scoreboard_body_sha256(found)
+        assert hidden.scoreboard_problem(found) is None, edit.__name__  # it fits the schema
+        return found
+
+    for edit, match in (
+        (probe, "says the method is in effect on 2026-10-17"),
+        (in_effect, "says the method is in effect on 2026-10-17"),
+        (met, "deterministic arm's grade is not what its figures give"),
+        (final, "deterministic arm's grade is not what its figures give"),
+        (grade_in_effect, "deterministic arm's grade is not what its figures give"),
+        (interval, "deterministic arm's intervals are not what their k and n give"),
+        (evidence, "deterministic arm's evidence is not what its distinct positives give"),
+        (banner, "its banner is not what its arms' evidence gives"),
+    ):
+        with pytest.raises(MendariError, match=match):
+            store.add(edited(edit), packs=lambda _: pack, today=DAY)
+    assert store.results() == {}
+
+    # Written behind the store's back, as if it were in the base already.
+    kept = edited(met)
+    name = results_store.name_of(kept)
+    (store.root / "results").mkdir(exist_ok=True)
+    path = store.root / "results" / f"{name}.json"
+    path.write_text(signing.dump(kept))
+    found = results_store.check(
+        store, base={name: path.read_bytes()}, packs=lambda _: pack, today=DAY
+    )
+    assert found.problems == [
+        f"results/{name}.json (mendari/patient-inbox-router {first['scope']['set']['id']}): "
+        "its deterministic arm's grade is not what its figures give"
+    ]
+
+
 def test_a_signature_covers_the_answer_and_its_run(tmp_path: Path) -> None:
     """A hidden set's answer is signed and verified as any result is (LP-17e): the signature
     covers its body and its run block, so its run's number cannot change unnoticed, while the
@@ -898,12 +1118,30 @@ def _page_script() -> Any:
 # -- the route's deadline, the chain, the runbook --------------------------------------------------
 
 
-def test_a_600_case_run_fits_the_routes_deadline() -> None:
-    """The scoreboard of the inbox's deterministic arm over 600 synthetic cases with sampling
-    weights, every bootstrap at 2,000 resamples, runs in the process well within the function's
-    deadline (vercel.json's `maxDuration`, 300 s): under a fifth of it. So the run stays in the
-    route, and no figure is dropped (about 4 s where it was measured)."""
+def test_a_600_case_run_fits_the_routes_deadline(world: World) -> None:
+    """Through the route, in one request: a frozen set of 600 hand-written cases (300 urgent,
+    300 routine), its scoreboard run of the deterministic arm: the grading read
+    (each case's input, attributes and labels opened, the content recomputed against the
+    commitment, the read chained, in one exclusive transaction) and the run, every bootstrap at
+    2,000 resamples (about 5 s where it was measured). Then, in memory, the same arm over 600 of
+    the pack's own cases, whose varied texts and three sampling weights cost more to compute
+    (about 5 s). The two together, more than one run does, take under a fifth of the
+    function's deadline (vercel.json's `maxDuration`, 300 s), so the run stays in the route and
+    no figure is dropped."""
     deadline = json.loads(VERCEL.read_text())["functions"]["app.py"]["maxDuration"]
+    set_id = scored_set(world, urgent=300, routine=300)
+    grader = world.grader()
+    started_at = time.perf_counter()
+    shown = answered(world, set_id, grader)
+    through_the_route = time.perf_counter() - started_at
+    assert shown["scope"]["set"]["n"] == 600
+    figures = graded_arm(shown)["figures"]
+    assert figures["weighted"]["status"] == "weighted"
+    assert figures["brier_reliability"]["status"] == "ok" and figures["ece"]["status"] == "ok"
+    (read,) = graded_events(world, set_id)
+    assert read["payload"]["n"] == 600
+    assert hidden.scoreboard_disagreement(shown) is None  # as the store will check it
+
     pack = resolve_pack("mendari/patient-inbox-router")
     records = [
         {**record, "attributes": {**record.get("attributes", {}), "weight": 1.0 + number % 3}}
@@ -912,8 +1150,8 @@ def test_a_600_case_run_fits_the_routes_deadline() -> None:
     assert len(records) == 600
     started_at = time.perf_counter()
     answer = in_memory(hidden_dataset(records))
-    elapsed = time.perf_counter() - started_at
-    assert elapsed < deadline / 5, elapsed
+    in_memory_only = time.perf_counter() - started_at
+    assert through_the_route + in_memory_only < deadline / 5, (through_the_route, in_memory_only)
     figures = graded_arm(answer)["figures"]
     assert figures["weighted"]["status"] == "weighted"
     assert figures["brier_reliability"]["status"] == "ok" and figures["ece"]["status"] == "ok"

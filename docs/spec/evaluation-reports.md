@@ -508,7 +508,7 @@ a publisher's pack could carry a forged result. Each file is named by its conten
 
 | Path | What it holds |
 |---|---|
-| `results/<sha256>.json` | A result, named by its body's SHA-256 (`body_sha256` without `sha256:`), sorted and indented, with one newline at the end. |
+| `results/<sha256>.json` | A result, named by its body's SHA-256 (`body_sha256` without `sha256:`), sorted and indented, with one newline at the end: a public set's entry (`mendari.scoreboard/1`), with its ledger and run record beside it, or a hidden set's answer (`mendari.hidden_scoreboard/1`), with neither. |
 | `ledgers/<sha256>.jsonl` | A ledger (`mendari.ledger/1`), named by its id. |
 | `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
 | `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
@@ -521,7 +521,9 @@ a publisher's pack could carry a forged result. Each file is named by its conten
 - **Supersedes.** A result may name the earlier result it supersedes: one of the same pack, set,
   arm and configuration, measured no later, which no other result supersedes. Both stay. The
   later is the current one, and one pack, set, arm and configuration has one current result at
-  most.
+  most. A hidden set's answer has no arm or configuration of its own (its arms are in it): one
+  pack and set has one current answer, as
+  [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says.
 - **Running.** `mendari scoreboard run PACK [--dataset NAME ...] [--config slot=variant ... |
   --every-local] [--again]` runs a configuration of a pack Mendari maintains over its public
   scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
@@ -545,7 +547,11 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   configuration's disclosure is recomputed from `disclosures.json` while its result is new, never
   taken from the result; once stored, it keeps the statements it holds. A superseded result
   keeps the signature it had, so a key taken out of the keys file leaves what it signed as
-  history.
+  history. These recomputations and the rules for a new result are a public result's: a hidden
+  set's answer (`mendari.hidden_scoreboard/1`) has no ledger, run record or dataset to
+  recompute from, may be of any version of a pack Mendari maintains, and is checked as
+  [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says
+  ("Stored").
 - **The page.** `scripts/scoreboard_page.py` writes
   [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
   and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
@@ -673,13 +679,17 @@ so it uses none of the set's runs.
 What the same route answers a run that declares its arms (LP-17k, `evals/hidden.py`; the
 [grading method 1.0](../grading/method-1.0.md), sections 3 to 9). The request sends `arms`, each
 declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`, one to four) with its
-configuration as `variants` takes one, and `declared`, the SHA-256 of the committed declaration
+whole configuration (a variant for every slot of the pack, as `variants` names them), and
+`declared`, the SHA-256 of the committed declaration
 they come from (64 hex digits), in place of `variants`. `arms` and `declared` come together, and
 never with `variants`. Without `arms`, the answer is `mendari.hidden_result/1`, as above.
 
 Before any case is read, each declared configuration is resolved and refused as `variants` is
 (`wrong_pack`, `pack_unavailable`, `unknown_variant`, `remote_provider`), then refused
-`wrong_arm` when it is not a configuration of the arm it is declared under, and the pack is
+`wrong_arm` when the configuration it would run is not the one sent, slot for slot (a slot left
+out would run the deployment's choice, so one cited declaration would grade other
+configurations on other deployments), or not a configuration of the arm it is declared under,
+and the pack is
 refused `pack_unavailable` when it has no critical label to attest (or more than 64). Under the
 method 1.0 a hidden set is graded with local providers only (owner decision 2), so only the
 deterministic arm can be declared. Then one grading read hands the cases, in memory, to every
@@ -714,12 +724,28 @@ bound and the evidence), `false_automation`, `auto_error_rate`, `automation` and
 interval; Brier's null over fewer than 10 scored cases, whose bounds would be single cases'
 scores), `brier_reliability`, `ece` (one `value`, never its bins) and `weighted`. Its grade is
 `grade.grade`'s: the method and the attestations, each draft while the method is not in effect.
-Figures are rounded to 6 places, as an entry's are.
+Figures are rounded as `mendari.hidden_result/1`'s are: every share (each bound of a k of n,
+ECE, a weighted share, detection's band value, a p-value) to 4 places, and every mean, score,
+effective n, Brier difference and other band value to 3, so the answer's digits confirm a
+guessed set no more than that answer's do. The method's levels, floors, ceilings and alpha are
+kept as the method fixes them.
+
+`weighted` is `{status: "as sampled"}` when no case carries a sampling weight. Otherwise it is
+`{status: "withheld", reason: "fewer than 10 cases of a share carry one of its weights"}`
+unless every weight is carried by 10 cases or more (the method's subgroup minimum) of each share
+it is computed over (all cases, the labelled ones, those decided AUTO); then it is `weighted`,
+with each share's Hájek estimate, Kish's effective n and Korn-Graubard interval. A weight is
+its stratum's (N_h / n_h), so the weighted figures beside the unweighted k of n over the same
+cases can be solved for a stratum's figures: over a few cases of one weight, that would be a
+subgroup's figures on a cell smaller than the subgroup minimum.
 
 It MUST NOT hold cost, latency, subgroups, equal-mass bins, a case's id or hash, a missed or
 misclassified case, the dataset's name or hash, or a ledger's id. Its only `sha256:` values are
 the pack's digest and its own body's. It names the pack's labels beside counts and rates, never
-beside a case.
+beside a case. Residual: when the weighted figures are given, a stratum's figures over 10 cases
+or more can still be worked out from them, as a subgroup's at its minimum could; and two shares
+over overlapping cases (all cases and the labelled ones, say) can be differenced for a count
+in a smaller cell.
 
 Two reads of one frozen set on one day give the same body, so the same `body_sha256`: only the
 run block differs. A refused run is answered as a grading run's refusals are, `wrong_arm` among
@@ -730,9 +756,16 @@ is a `422` of the body, and nothing is read.
 **Stored.** The answer is stored in the [results store](#the-results-store-scoreboard) as it was
 answered (`mendari scoreboard add FILE`), named by its body's SHA-256: one result per pack and
 set, its arms in it, so a second read of the same set is the same result. The store checks it
-against this closed schema field by field, against a pack Mendari maintains (any of its
-versions) and, when new, the current method and a day no later than today. It is kept as it is
-and never recomputed, since no ledger of a hidden set is kept: a signed one is the owner's
-attestation. Its signature (LP-17e) covers its body and its run block, so its run's number cannot
-change unnoticed. The [early scoreboard](../grading/scoreboard.md), of public sets, does not show
-it.
+against this closed schema field by field (its values rounded as above), against a pack Mendari
+maintains (any of its versions) and, when new, the current method, a day no later than today and
+`in_effect` as the method is on that day. Under the current method it also checks the answer
+against its own figures: each k of n's interval is the one its k and n give, each critical
+label's evidence the one its distinct positives give, each graded arm's grade `grade.grade`'s
+of its figures under the scope's method (so every attestation's state, figures and draft, and
+the grade's `in_effect`), the banner the one the evidence gives, and the ranking on with two
+graded arms or more and off with one, under the scope's method, a draft while it is not in
+effect, with each graded arm unranked by the safety attestations it did not meet and ranked
+otherwise. What no ledger is kept to recompute is kept as it is: each k and n, and a ranking's
+ranks, intervals, bands and tests are the owner's attestation once signed. Its signature
+(LP-17e) covers its body and its run block, so its run's number cannot change unnoticed. The
+[early scoreboard](../grading/scoreboard.md), of public sets, does not show it.

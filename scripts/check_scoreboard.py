@@ -18,9 +18,10 @@ against the commit a change is made on (`mendari.evals.results_store.check`):
   on the current ones, and measured no later than today;
 - each hidden set's result (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k)
   fits its closed schema, field by field, and its name is its body's SHA-256 (its run block
-  left out); it is of a pack Mendari maintains and, when new, under the current method and
-  measured no later than today. It is kept as it is: no ledger of a hidden set is kept, so it
-  is never recomputed.
+  left out); it is of a pack Mendari maintains; under the current method it agrees with its
+  own figures (intervals, evidence, grades, banner, ranking, draft); and, when new, it is under
+  the current method, measured no later than today and in effect as the method is that day. It
+  is kept as it is: no ledger of a hidden set is kept, so its k and n are never recomputed.
 
 The packs are the repository's (packs/), never `MENDARI_PACKS_PATH` or the registry cache.
 

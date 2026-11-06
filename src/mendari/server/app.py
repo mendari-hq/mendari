@@ -734,10 +734,10 @@ class GradingRequest(BaseModel):
         default=None,
         min_length=1,
         max_length=4,
-        description="the hidden-set scoreboard (LP-17k): each declared arm with its "
-        "configuration, a variant for any of the pack's slots as `variants` takes them; "
-        "every one local, and each in the arm it is declared under. With `declared`, never "
-        "with `variants`: the answer is `mendari.hidden_scoreboard/1`",
+        description="the hidden-set scoreboard (LP-17k): each declared arm with its whole "
+        "configuration, a variant for every one of the pack's slots (none is filled in from "
+        "the deployment's choice); every one local, and each in the arm it is declared under. "
+        "With `declared`, never with `variants`: the answer is `mendari.hidden_scoreboard/1`",
         examples=[{"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}],
     )
     declared: str | None = Field(
@@ -764,13 +764,20 @@ GRADING_REFUSALS: dict[str, tuple[int, str]] = {
     "no_set": (404, NO_SET),
     "wrong_pack": (422, "a hidden set is graded with the pack it was made for: name it as `pack`"),
     "pack_unavailable": (409, "the set's pack does not run on this server"),
-    "unknown_variant": (422, "`variants` names a slot or a variant the pack does not have"),
+    "unknown_variant": (
+        422,
+        "`variants`, or an arm in `arms`, names a slot or a variant the pack does not have",
+    ),
     "remote_provider": (
         422,
-        "a hidden set is graded with local providers only: name a local variant in `variants` "
-        "for each slot that runs a remote one here",
+        "a hidden set is graded with local providers only: name a local variant, in `variants` "
+        "or in each arm of `arms`, for each slot that runs a remote one here",
     ),
-    "wrong_arm": (422, "each arm in `arms` is declared with a configuration of that arm"),
+    "wrong_arm": (
+        422,
+        "each arm in `arms` names a variant for every slot of the pack, a configuration of "
+        "that arm",
+    ),
     "not_gradable": (409, "only a frozen or active set is graded"),
     "no_runs_left": (409, "the set has had all the grading runs its rotation rule allows"),
     "expired": (409, "the set is older than its rotation rule allows for grading"),
@@ -3455,17 +3462,20 @@ def add_grading_routes(
         scoreboard's order), with the configuration it runs and its Decision: each
         configuration resolved and refused as `variants` is (`grading`: `wrong_pack`,
         `pack_unavailable`, `unknown_variant`, `remote_provider`, so a declared arm that calls a
-        remote provider is refused here), then `wrong_arm` when the
-        configuration it runs is not of the arm it is declared under, and `pack_unavailable`
-        when no grade of the pack could be answered (`scoreboard_holds`: it has no critical
-        label to attest). Before any case is read."""
+        remote provider is refused here), then `wrong_arm` when the configuration it runs is not
+        the one sent, slot for slot (an arm that leaves a slot out would run the deployment's
+        choice for it, so one cited declaration would grade other configurations on other
+        deployments), or not of the arm it is declared under, and `pack_unavailable` when no
+        grade of the pack could be answered (`scoreboard_holds`: it has no critical label to
+        attest). Before any case is read."""
         assert body.arms is not None
         found = []
         for arm, variants in body.arms.items():
             asked = body.model_copy(update={"variants": variants, "arms": None, "declared": None})
             decision = grading(header, asked)
             configuration = configuration_of(decision)
-            if configuration is None or configuration.arm != arm:
+            sent = (arm, variants)  # the whole configuration, as declared
+            if configuration is None or (configuration.arm, configuration.providers) != sent:
                 raise grading_refused("wrong_arm")
             found.append(Declared(arm, configuration, decision))
         if not scoreboard_holds(found[0].decision.pack):

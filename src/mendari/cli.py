@@ -606,7 +606,8 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     hold. A public result must be of a local configuration, on its pack's current digest, set
     and method, measured no later than today, and what its stored inputs give; a hidden set's
     (the grading route's `mendari.hidden_scoreboard/1` answer, LP-17k) must fit its closed
-    schema, under the current method; a signed one must verify against the store's keys."""
+    schema, under the current method, and agree with its own figures; a signed one must verify
+    against the store's keys."""
     from mendari.evals import results_store, signing
     from mendari.hub.client import config_dir
 

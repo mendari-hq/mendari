@@ -21,7 +21,7 @@ ADR-0013). This folder is outside the wheel, the sdist and the documentation sit
   its ledger, its dataset, its run record and the method give, byte for byte.
 - Every result is an engineering evaluation, not clinical validation. A public set's is a
   regression check, not a ranking. A hidden set's answer holds aggregates only, is checked against
-  its closed schema and never recomputed (no ledger of a hidden set is kept), and is not on the
-  early scoreboard's page.
+  its closed schema and its own figures, its k and n never recomputed (no ledger of a hidden set
+  is kept), and is not on the early scoreboard's page.
 
 How to run, add, check and sign: [Running the scoreboard](../docs/operations/scoreboard.md).
