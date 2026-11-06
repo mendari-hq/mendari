@@ -596,7 +596,48 @@ gates:
         what: "A12: EHR pilot readiness (EHR-signed CDS Hooks tokens, selectionBehavior, a feedback endpoint, mappings for real EHR data)"
         owner: build
         probes:
-          - pending: "LP-23, after LP-12 (B38 chosen 2026-10-07: Epic, backup Oracle Health; the owner's sandbox sign-up when LP-23 starts)"
+          # LP-23's acceptance (notes/vision-audit.md, A12; notes/lp23-plan.md, 23m). 23b: an EHR's
+          # own signed token is verified (iss, aud, exp, jti replay per client, the registered jku)
+          # and is a `cds` principal that reads discovery, calls the hooks and reaches nothing else;
+          # 23c: open mode answers CDS Hooks on this machine only, CORS for registered origins only.
+          - tests:
+              - tests/test_cds_clients.py::test_a_valid_token_is_accepted
+              - tests/test_cds_clients.py::test_a_wrong_issuer_is_refused
+              - tests/test_cds_clients.py::test_a_wrong_audience_is_refused
+              - tests/test_cds_clients.py::test_an_expired_token_is_refused
+              - tests/test_cds_clients.py::test_a_replayed_jti_is_refused_and_a_jti_is_per_client
+              - tests/test_cds_clients.py::test_an_unregistered_jku_is_refused
+              - tests/test_cds_auth.py::test_a_valid_token_reads_discovery_and_calls_the_hook
+              - tests/test_cds_auth.py::test_a_cds_client_reaches_nothing_but_cds_services
+              - tests/test_cds_open_mode.py::test_open_mode_answers_cds_hooks_on_this_machine_only
+              - tests/test_cds_cors.py::test_a_registered_origin_gets_cors_on_cds_services_only
+          # 23d: a record that cannot be read gives a recorded ABSTAIN with its reason, and every
+          # FHIR decision carries its data-coverage record; 23e: every reference pack with a
+          # standard hook decides on the vendor-shaped synthetic patients without a failed hook.
+          - tests:
+              - tests/test_cds_unreadable.py::test_a_fetch_failure_gives_abstain_with_a_reason_and_a_recorded_decision
+              - tests/test_data_coverage.py::test_every_fhir_decision_carries_its_data_coverage
+              - tests/test_ehr_profile.py::test_every_reference_pack_with_a_standard_hook_decides_on_the_vendor_shaped_patients_without_a_failed_hook
+          # 23f: selectionBehavior on a card with suggestions, and card feedback recorded and
+          # chained; 23h: a linked note read through the allow-listed client; 23i: each decision
+          # records its organization's site code map, version and digest.
+          - tests:
+              - tests/test_cds_cards.py::test_a_card_with_suggestions_says_its_selection_behavior
+              - tests/test_cds_feedback.py::test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained
+              - tests/test_fhir_linked.py::test_a_linked_note_is_read_through_the_allow_listed_client
+              - tests/test_site_codes.py::test_each_decision_records_the_maps_version_and_digest_for_its_organization
+          # 23l: Inferno's CRD server suite against the engine, each expected failure or skip with
+          # its reason in the golden (the `crd-server` job in conformance.yml runs the suite).
+          - tests:
+              - tests/test_inferno_setup.py::test_every_expected_failure_or_skip_has_a_reason
+          - file: sandbox/inferno/crd_server_v221_expected.json
+          # 23m: a signed hook, its card and its feedback, then `mendari audit verify`, and a
+          # changed event failing it (SQLite and Postgres).
+          - tests:
+              - tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end
+          - pending: "LP-23j, the inbox's card template and referral cards only when action is needed (A12.2c, A12.2e), after the owner confirms the referral `show` list (owner decision 4)"
+          - pending: "LP-23k, the reference packs' mappings for real EHR data on spec 0.3 (A12.3b to A12.3e), after the owner's go-ahead (owner decision 5)"
+          - pending: "owner: the Epic sandbox run from notes/epic-sandbox-checklist.md (every standard-hook pack decides on Epic's sandbox patients, A12.acc-3) and mendari smart check against Epic; then a build PR removes this line"
       - id: clinician-review
         what: "Each reference pack reviewed by a clinician of the right kind (B21.1-B21.5)"
         owner: owner

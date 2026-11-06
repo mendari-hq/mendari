@@ -260,8 +260,30 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
   start with it on Vercel or with sign-in on. An EHR on a network calls a server with sign-in on,
   and so does anything behind a proxy: a proxy on this machine that adds no forwarding header
   (nginx's default among them) makes every call it forwards look local.
+- **Card feedback** (`POST /cds-services/{id}/feedback`) takes the same kind of token, for cards
+  that client asked for only, and chains what the clinician did as `card.feedback`, codes and
+  ids only: the clinician's comment is never kept.
+- **Retiring a key, or a client.** A key the EHR takes out of its JWK Set still verifies for up
+  to an hour on each instance that kept it, and a key given by value until you redeploy. A key
+  the EHR rotates in may be refused (`cds_key`) for up to a minute on an instance that fetched
+  the keys in the last minute. To stop a client at once, take it out of `MENDARI_CDS_CLIENTS`
+  and redeploy. Whoever controls the `jwks_uri`'s host can publish a key there that Mendari will
+  trust: register keys by value instead for an EHR whose tokens carry no `jku`.
+- **The EHR keeps each card's decision id** (a card's `uuid` is its decision's id) beside the
+  patient it sent. Treat an export or archive of the audit chain as identifiable beside the
+  EHR's records, under your agreements with the EHR
+  ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
 - Each field, the token's rules and the log's reasons are in
   [Connecting an EHR](guides/connecting-an-ehr.md).
+
+**A site's own codes (optional, off by default).** A pack on spec 0.3 may read a field through a
+set of its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate into them, one
+map per organization, read and checked at startup. Each FHIR decision records its
+organization's map by version and SHA-256, and a decision that read a value through a
+translation never automates: it goes to a person, and so does a pack rule's BLOCK on it, until
+your site validates the map on its own chart-reviewed data. No reference pack declares a code
+set yet, so set it only for a pack of your own that does
+([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
 
 **Upgrading from a release without key expiry (before Phase 4).** The first start of this
 release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
@@ -1013,6 +1035,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
 | `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 pack's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the packs found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does a pack rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
+| `MENDARI_FHIR_VALIDATION` | `warn` | The US Core and base R4 checks on FHIR input: `warn` decides input that is R4 JSON but breaks R4's other rules, with its issues recorded on the decision; `enforce` blocks it before any provider runs; `off` skips the checks. Input that is not R4 JSON is refused in every mode. Choose it for an EHR pilot before go-live | 9 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch. `mendari smart check` compares each with the EHR's `scopes_supported` (`unknown` when it publishes none) | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
@@ -1082,8 +1105,20 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       launch in the same browser leaves the first window saying it was replaced.
 - [ ] Only if an EHR calls with its own tokens: signed in, `/api/health` `cds_clients` lists
       exactly the clients you registered for your organization; a hook the EHR calls is in
-      that organization's audit trail, asked for by `cds <id>`; and a token signed with another
+      that organization's audit trail, asked for by `cds <id>`; the feedback the EHR sends on its
+      card is chained on that decision as `card.feedback`, reported by `cds <id>`, and
+      `mendari audit verify` passes after it; and a token signed with another
       key, or sent a second time, is refused with `401` and a `cds_<reason>` line in the log.
+- [ ] Only if an EHR calls Mendari or launches it: choose `MENDARI_FHIR_VALIDATION` (§8).
+      Under `warn`, the default, input that is R4 JSON but breaks R4's other rules is decided
+      with its issues recorded on the decision; under `enforce` it is blocked before any provider
+      runs.
+- [ ] Only if an EHR calls Mendari or launches it: in the first days, read the data-coverage
+      record of the decisions it makes (the audit view's "What it read"). A pack reads a note
+      that is only a link to a Binary only on spec 0.3, and then only as text/plain or text/html,
+      so on an EHR that sends notes as links, or as RTF, a pack that reads notes may abstain for
+      most patients with one, each decision going to a person with an `info` card
+      ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
       If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
       <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
       and the same with any other origin answers `403` with no `Access-Control-` header.

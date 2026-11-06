@@ -643,7 +643,7 @@ registered is refused as before. How it works, field by field, is
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
 the decision, and what a hook is to do with a record it cannot read, is
 [ADR-0014](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0014-a-cds-client-is-a-principal.md)
-(Proposed). Where pilot readiness stands, criterion by criterion with the test that shows each,
+(Accepted). Where pilot readiness stands, criterion by criterion with the test that shows each,
 is graded in [`notes/ehr-scorecard.md`](https://github.com/mendari-hq/mendari/blob/main/notes/ehr-scorecard.md).
 
 **A record Mendari cannot read (LP-23d).** A hook always answers. Each prefetch key is read on its
@@ -709,6 +709,24 @@ through a translation never automates:** AUTO becomes HUMAN_REVIEW (`site code t
 governance included, until the site validates its map. No shipped pack declares a code set
 yet. See
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
+
+**Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
+own signed tokens, open mode confined to this machine, CORS for registered origins, a hook that
+always answers, data coverage, cards and card feedback, mapping syntax 0.3 with linked reads and
+site code maps, a vendor-shaped synthetic profile with a signed sandbox client, and Inferno's
+CRD, SMART client and Bulk client suites. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed
+token through a hook over HTTP, its card and the clinician's feedback on it to `mendari audit
+verify`, which passes, and fails once one event is changed, on SQLite and Postgres. Left: the
+shipped packs' cards (the inbox's template, referral cards only when action is needed) and their
+mappings for real EHR data on spec 0.3, each waiting on the owner, and the run on Epic's own
+sandbox, which is the owner's. Launch gate G5-6's `a12-ehr-pilot` names all three as pending.
+The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure behaviour
+stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing that only
+a CI run not yet made would show is counted. The
+[threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)
+keeps five residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
+decision id the EHR keeps, a misconfigured site map, and frequent abstention on records whose
+notes Mendari cannot read.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.

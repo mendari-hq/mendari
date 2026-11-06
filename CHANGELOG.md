@@ -353,6 +353,36 @@ The first release (not yet published).
   (`patient/*.*`, read from the pinned image) covers what `sandbox-e2e`'s signed-in engine asks
   for. See
   [Deploying with PHI](docs/deploying-with-phi.md#2-sign-in-and-roles).
+- **EHR pilot readiness, the close-out** (LP-23m; ADR-0014 now Accepted; one description changes,
+  nothing in how a pack decides). Launch gate G5-6's `a12-ehr-pilot` probes what LP-23 built:
+  the token tests (a valid token, the wrong issuer or audience, an expired or replayed one, an
+  unregistered `jku`), the `cds` principal reaching nothing but the CDS services, open mode on
+  this machine only, CORS for registered origins, an ABSTAIN recorded on a failed read, the
+  data-coverage record, every standard-hook pack deciding on the vendor-shaped patients,
+  `selectionBehavior`, card feedback, a linked note read through the allow-listed client, the
+  site code map recorded on each decision, the reasons of every expected Inferno result and the
+  CRD golden. It stays pending on three lines: the inbox's and referral cards (LP-23j, after
+  the owner confirms the referral `show` list), the shipped packs' mappings on spec 0.3 (LP-23k,
+  after the owner's go-ahead), and the owner's run on Epic's sandbox with `mendari smart check`
+  against Epic. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed ES384 token (its keys from a
+  pinned `jwks_uri`) through discovery and two `order-sign` hooks over HTTP, each reading a
+  vendor-shaped patient's record from the EHR's FHIR server, to one card each and feedback on
+  both, one accepted and one overridden, then `mendari audit verify`, which passes, and fails
+  at the event changed behind the store's back; on SQLite and Postgres, in about a second each,
+  with no connection off the machine. `notes/ehr-scorecard.md` is graded again at the
+  close-out commit beside its grade before LP-23, each row only on evidence in the repository:
+  client trust from level 2 to 3, who may call from where from 1 to 3, cards and workflow from 1
+  to 2, the others as they were, and level 1 overall before and after (failure behaviour, under
+  the default `MENDARI_FHIR_VALIDATION=warn`). A row whose evidence is a CI run that has not
+  happened yet is not met: the new `sandbox-e2e` and `fhir-conformance` steps until the lane's
+  pull request runs them, `conformance.yml` and `terminology.yml` until their first runs on
+  main. The threat model keeps five residual risks: trust in the EHR's key and its rotation (a
+  key the EHR retires still verifies for up to an hour on an instance that kept it), a
+  compromised `jku` host, the decision id the EHR keeps beside its patient, a misconfigured site
+  map, and frequent abstention on records whose notes Mendari cannot read. The FHIR
+  CapabilityStatement's description now names card feedback, an EHR's own token and what Mendari
+  reads from an EHR's FHIR server. See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#before-a-pilot).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

@@ -83,6 +83,18 @@ nothing, and drops what was kept. A failed fetch (no answer, an error, or an ans
 JSON or is nested too deep to read) keeps what was kept until it is an hour old. Each is one
 `cds.jwks.refused` line in the security log.
 
+**Retiring a key, and trusting its host.** Mendari learns that the EHR retired a key only when it
+fetches the keys again. A key taken out of the JWK Set still verifies for up to an hour on each
+instance that kept it, unless a token under a `kid` it does not hold makes that instance fetch
+sooner. A key given by value verifies until you change `MENDARI_CDS_CLIENTS` and redeploy, which
+is also how to stop a client at once. A key the EHR rotates in is found at the next fetch: on an
+instance that fetched in the last minute, its tokens are refused (`cds_key`) until that minute
+has passed. Mendari trusts whatever public keys the `jwks_uri` serves, so whoever controls that
+host, its DNS or a certificate for its name can publish one, and a successful fetch is not
+logged. An EHR whose tokens carry no `jku` can be registered with its keys by value instead,
+which takes the host out of the trust; a client registered so refuses any token that names a
+`jku`.
+
 ## The token
 
 The EHR signs one token for each call:
@@ -249,7 +261,10 @@ read. No shipped pack is on spec 0.3 yet, so the shipped packs read no links.
 Each card is CDS Hooks 2.0's:
 
 - Its `uuid` is the id of the decision it shows. Its one suggestion has its own `uuid`, and the
-  card says `selectionBehavior: at-most-one`.
+  card says `selectionBehavior: at-most-one`. The EHR keeps the `uuid` beside the patient it
+  sent, so an export or archive of the audit chain is identifiable beside the EHR's records,
+  after Mendari's retention has removed the inputs too
+  ([threat model](../security/threat-model.md#residual-risks-and-assumptions)).
 - It offers three override reasons, from
   `https://mendari.co/fhir/CodeSystem/card-override-reasons` (served at
   `/fhir/CodeSystem/card-override-reasons`): `not-relevant`, `already-addressed` and
@@ -506,3 +521,30 @@ export`, and `terminology.yml` runs the HL7 validator over Mendari's synthetic F
 with a terminology server (tx.fhir.org). For an EHR that launches Mendari, `mendari smart check
 <its FHIR base>` also compares the scopes a launch asks for with the EHR's `scopes_supported`
 ([Sign-in and roles](../deploying-with-phi.md#2-sign-in-and-roles)).
+
+## Before a pilot
+
+What Mendari's own tests and runs show, on synthetic data and test keys only, and what they leave
+to a pilot:
+
+- **End to end.** An EHR's signed token, a hook over HTTP whose record is read from the EHR's
+  FHIR server, its card, the clinician's feedback on that card, then `mendari audit verify`
+  passing over the trail, and failing once one of its events is changed, on SQLite and Postgres
+  ([`tests/test_ehr_pilot_e2e.py`](https://github.com/mendari-hq/mendari/blob/main/tests/test_ehr_pilot_e2e.py)).
+- **Not yet shown on a vendor's own EHR.** That every pack with a standard hook decides on the
+  vendor's sandbox patients without a failed hook, and that `mendari smart check` passes against
+  the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
+  backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
+- **Notes the packs may not read.** Every reference pack abstains on a note that is only a link
+  until its mapping moves to spec 0.3, and a pack on spec 0.3 reads a note as text only when it
+  is text/plain or text/html: an RTF, PDF or CDA note abstains (`unsupported_type`). On an EHR
+  that sends notes that way, the packs that read notes may abstain for most patients with one,
+  each decision going to a person with an `info` card. Read the decisions' data-coverage records
+  (the audit view's "What it read") in the first days.
+- **The validation mode.** Under `MENDARI_FHIR_VALIDATION=warn`, the default, input that is R4
+  JSON but breaks R4's other rules is decided with its issues recorded; `enforce` blocks it
+  before any provider runs ([Settings at a glance](../deploying-with-phi.md#8-settings-at-a-glance)).
+- **What stays a risk** with all of this in place: trust in the EHR's key and its rotation, a
+  compromised `jku` host, the decision id the EHR keeps, a misconfigured site map, and frequent
+  abstention on records whose notes Mendari cannot read
+  ([threat model](../security/threat-model.md#residual-risks-and-assumptions)).

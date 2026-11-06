@@ -68,7 +68,6 @@ clinical resources.
 EHR calls them with a Mendari key (the `cds-hooks` preset), or, once registered, with its own
 signed token: [Connecting an EHR](connecting-an-ehr.md).
 
-`POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards.
 A prefetch key you leave out, or send empty (`{}`, `[]`, `""`), is read from your `fhirServer`,
 if the deployment allows it; with no `fhirServer` the request is a `412`. A null value means you
 have no data, and it is not read. Every value you send goes through the structural R4 check: a
@@ -81,7 +80,12 @@ malformed field, a required resource you sent something else for) is still a `4x
 spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
 MedicationRequest's drug) from your `fhirServer`, at most 20 links a decision; a link it does not
 read is a reason too, and `fhir/decide` and `$decide` never read one
-([linked data](connecting-an-ehr.md#linked-data)).
+([linked data](connecting-an-ehr.md#linked-data)). Such a pack reads a note as text only when it
+is text/plain or text/html: an RTF, PDF or CDA note abstains with `could not read <field>:
+unsupported_type`.
+A decision that read a value through the deployment's site code map is never automated: its
+reasons say `site code translated (<code set>): a person decides`
+([site codes](connecting-an-ehr.md#site-codes)).
 
 **Cards and feedback.** A card's `uuid` is its decision's id. Its one suggestion has a `uuid` of
 its own, and the card says `selectionBehavior: at-most-one` and offers three `overrideReasons`

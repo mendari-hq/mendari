@@ -764,7 +764,13 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
-- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Proposed). Planned by a mapping workflow
+- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for two
+  steps and the owner's run (2026-11-06, the LP-23 lane): 23j, which waits on the owner's
+  confirmation of the referral `show` list, 23k, which waits on the owner's go-ahead, and the
+  Epic sandbox run, which is the owner's. Gate G5-6's `a12-ehr-pilot` names all three as
+  pending, and the owner's lines below are what is left. The scorecard's after grade, at the
+  close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
+  `MENDARI_FHIR_VALIDATION`). Planned by a mapping workflow
   (2026-10-17, against main `06d5332f`) as thirteen PRs, 23a to 23m, each safe alone; the full
   plan, its 60 conflicts with the default each PR follows, the owner decisions and the risks are
   in `notes/lp23-plan.md`. An EHR calls the CDS Hooks services with its own signed token, and
@@ -1092,8 +1098,59 @@ Connect) is not supported yet.
     and so which expected warnings it needs, is known only after its first run, 23m's record).
     **The owner's question:** a scope the EHR does not publish is `fail` (decision 56), though
     SMART 2.2.0 says `scopes_supported` need not be exhaustive; `warn` would match the spec.
-  - [ ] **23m** Close-out: gate `a12-ehr-pilot` names its tests and keeps one owner `pending:`
-    line for the Epic run; ADR-0014 Accepted; the scorecard graded again at the close-out commit.
+  - [x] **23m** (lane PR) Close-out. Gate G5-6's `a12-ehr-pilot`: its LP-23 pending probe
+    replaced by the 18 tests 23m lists, each found under the name the plan gives it, in groups by
+    step (23b and 23c; 23d and 23e; 23f, 23h and 23i; 23l with
+    `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
+    pending lines: 23j (after the owner confirms the referral `show` list), 23k (after the
+    owner's go-ahead), and the owner's Epic sandbox run in the plan's words (the LP-21n
+    pattern); no count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
+    and nothing the owner's is marked met.
+    `tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end`
+    (SQLite and Postgres, about a second each, the socket guard of
+    `tests/test_scoreboard_end_to_end.py` with its positive control): sign-in on, the EHR
+    registered by a pinned `jwks_uri` (its JWK Set an in-process transport, fetched once), ES384
+    tokens with `jku`, discovery and two `order-sign` hooks over HTTP for two vendor-shaped
+    patients (ehr-ref-2, ehr-ref-4), the record read from the profile's FHIR server with no
+    prefetch; one card each (its `uuid` the decision id, `at-most-one`, its suggestion's id
+    derived from it); feedback with a signed token, one accepted with its suggestion and one
+    overridden with a reason the card offered, chained as `card.feedback` after both decisions
+    and reported by `cds epic`; `mendari audit verify` passing, then failing at the changed
+    event once the override is turned into an acceptance behind the store's back. Threat model
+    residual risks: trust in the EHR's key and its rotation (a retired key still verifies for
+    up to an hour on each instance that kept it from a `jwks_uri`, or until a redeploy by value,
+    and a rotated-in one is `cds_key` for up to a minute), a compromised `jku` host (a successful
+    fetch is not logged; keys by value only for a client whose tokens carry no `jku`, and Epic's
+    carry one), the decision id disclosed to the EHR (a chain beside the EHR's records is
+    identifiable, after retention too), a misconfigured site map (a wrong translation reaches a
+    person on the wrong code; a missing one is not capped), and frequent abstention on RTF-heavy
+    records. ADR-0014 Accepted, its status listing what landed with PR numbers (#256, #262,
+    #264, #269 and #270 through #271) and the lane's steps, and what is open (23j, 23k, the Epic
+    run, the first runs of `conformance.yml` and `terminology.yml`); one more consequence, the
+    five residual risks. The scorecard graded again at the close-out commit (`d2ef0201` with
+    LP-23m), beside a Before column that is each row as LP-23a merged it (#256), every row on
+    evidence in the repository only (a test, a golden, a run recorded there): client trust 2 to
+    3, who may call from where 1 to 3, cards and workflow 1 to 2, the other four unchanged
+    (failure behaviour 1, data shapes 2, conformance evidence 2, vendor fit 2), overall level 1
+    before and after (failure behaviour, FB-2d: the pilot's `MENDARI_FHIR_VALIDATION`, owner
+    decision 16). Not counted: WC-4a and CE-3a, which 23e marked met, are partial after, since
+    `sandbox-e2e` has not run on GitHub with the signed client yet (the lane PR's run); DS-4a
+    waits on `fhir-conformance` the same way, CE-4d on `sandbox-e2e`, CT-4a, FB-4a, CW-4a,
+    CE-4a, CE-4b and VF-4a on `conformance.yml`'s first run on main, and CE-4c on
+    `terminology.yml`'s. `tests/test_ehr_scorecard.py` checks both columns, that Before is
+    LP-23a's (`git show 75ccf3bf`, skipped in a shallow clone), and that no row waiting on a CI
+    run that has not happened is met. Docs: `docs/deploying-with-phi.md` §2 (card feedback,
+    retiring a key and stopping a client, the decision id the EHR keeps, a site's own codes),
+    §8 (`MENDARI_FHIR_VALIDATION`) and §9 (feedback and `audit verify` after a hook, the
+    pilot's validation mode, reading the first decisions' data coverage);
+    `connecting-an-ehr.md` (retiring a key and the `jku` host, the decision id the EHR keeps,
+    "Before a pilot"); `api.md` (a repeated sentence dropped, notes read as text, a site-coded
+    decision never automated); the `NOT_A_DATA_SERVER` text (card feedback, an EHR's own token,
+    what Mendari reads from an EHR's FHIR server); `deploy/vercel/README.md` (an EHR's own
+    tokens on Vercel); the `/docs` landing's CDS Hooks paragraph; README; CHANGELOG. **The first
+    green `conformance.yml` run on main** (the acceptance "the CRD client job passes") cannot
+    exist before the lane merges: its URL is recorded here after the first run of the new jobs
+    on main, and so is `terminology.yml`'s. No pack, figure, format or decision changes.
 
   **Order:** 23a first; then 23b, 23d and 23g in parallel; 23c after 23b; 23f after 23b and 23d;
   23e after 23b, 23c and 23d; 23h and 23i in parallel, after 23d and 23g; 23j after 23f; 23k after
@@ -1193,12 +1250,29 @@ Connect) is not supported yet.
   that is R4 JSON but breaks R4's other rules is decided with its issues recorded and failure
   behaviour stays at level 1 (FB-2d), or `enforce`, which blocks it before any provider runs.
 
-  **Owner actions** (not decisions): sign up for Epic's sandbox from
-  `notes/epic-sandbox-checklist.md` and note back its `iss`, `jku`, `aud` form, `sub` and
-  `tenant`, feedback support, scopes and launch handling; put Epic's JWKS origin and FHIR base on
-  `MENDARI_FHIR_ALLOWED_SERVERS`; set `MENDARI_CDS_CLIENTS` (and any site codes) for Production
-  only once a pilot is signed; run `mendari smart check` against Epic; do the Epic sandbox run
-  that lets a build PR remove the gate's pending line.
+  **The owner's actions left**, one line each (the Epic ones in the order of
+  `notes/epic-sandbox-checklist.md`):
+  - [ ] Owner (decision 15): sign up for Epic's sandbox from `notes/epic-sandbox-checklist.md`,
+    and note back its `iss`, `jku`, `aud` form, `sub` and `tenant`, feedback support, scopes and
+    launch handling, and whether it can call an external CDS service at all.
+  - [ ] Owner: put Epic's JWKS origin and FHIR base on `MENDARI_FHIR_ALLOWED_SERVERS`.
+  - [ ] Owner: run `mendari smart check` against Epic's FHIR base (the scorecard's CE-5a).
+  - [ ] Owner: do the Epic sandbox run (every pack with a standard hook decides on Epic's
+    sandbox patients, A12.acc-3), which lets a build PR remove the gate's pending line.
+  - [ ] Owner (decision 4): confirm the referral `show` list, so 23j merges.
+  - [ ] Owner (decision 5): the go-ahead for 23k, with a clinician's note on the
+    MedicationRequest rule (B21).
+  - [ ] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
+    original scorecard.
+  - [ ] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`
+    (the scorecard's FB-2d).
+  - [ ] Owner (decisions 1 and 2): once a pilot is signed, set `MENDARI_CDS_CLIENTS` (and any
+    `MENDARI_SITE_CODES`) for Production only.
+  - [ ] Owner (decision 10): after four consecutive green weekly `conformance.yml` runs on main,
+    make its jobs required (a ruleset change).
+  - [ ] Owner: answer the lane's three questions: a request-wide read and byte budget for
+    linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k), and
+    whether a scope the EHR does not publish is `fail` or `warn` (23l).
 
 **Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
 owner received in October 2026, no image goes to GHCR until it carries what the licences of

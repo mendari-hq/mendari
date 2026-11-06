@@ -54,8 +54,10 @@ NOT_A_DATA_SERVER = (
     "seeing only its organization's); the conformance resources that describe it; and Da Vinci "
     "DTR's $questionnaire-package. Outside this FHIR base it also offers "
     "/api/packs/{namespace}/{name}/fhir/decide (FHIR in, Mendari JSON out), CDS Hooks at "
-    "/cds-services, the whole audit trail as FHIR NDJSON at /api/audit/export/fhir, and a SMART "
-    "on FHIR app launch at /smart/launch."
+    "/cds-services (with each service's card feedback, and an EHR's own signed token once the "
+    "EHR is registered), the whole audit trail as FHIR NDJSON at /api/audit/export/fhir, and a "
+    "SMART on FHIR app launch at /smart/launch. It reads an EHR's FHIR server only when that "
+    "server is on the deployment's allow-list, and serves nothing it reads."
 )
 SEARCH_RULES = (
     f"Search: GET [type] or POST [type]/_search with a form body. _count is {DEFAULT_COUNT} by "

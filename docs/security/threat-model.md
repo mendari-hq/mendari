@@ -3,7 +3,7 @@
 _Mendari engine, dashboard and registry, as of Phase 4b (2026-10-02), with community packs
 (2026-10-04), registry packs on the community engine (LP-16, 2026-10-08), and a registry that
 shows only what it checked, with recalls and the cap on pulled packs (LP-18, 2026-10-17), and CDS
-clients' own signed tokens, with open mode's CDS Hooks on this machine only and CORS for their registered origins (LP-23b and LP-23c, 2026-10-18), and the scoreboard: its results store, signed results and the hidden-set scoreboard (LP-17, 2026-11-06). Reviewed before the public launch; update it with any change to a trust boundary. The checks named here run in CI.
+clients' own signed tokens, with open mode's CDS Hooks on this machine only and CORS for their registered origins (LP-23b and LP-23c, 2026-10-18), and the scoreboard: its results store, signed results and the hidden-set scoreboard (LP-17, 2026-11-06), and the EHR pilot's reads and answers: recorded abstentions, data coverage, card feedback, linked reads and site code maps (LP-23, 2026-11-06). Reviewed before the public launch; update it with any change to a trust boundary. The checks named here run in CI.
 Ids are stable: a new threat takes the next number in its letter, and a removed one leaves a
 gap. The packet for the external review is [`review-packet.md`](review-packet.md)._
 
@@ -538,6 +538,79 @@ Whatever it says, and whoever wrote it, a pack cannot:
   review of each change to `scoreboard/`; the comparison with the run's chained `evalset.graded`
   above; and, for a key that leaked, taking it out of `scoreboard/keys.json`, after which nothing
   it signed verifies ([Verifying a scoreboard result](../grading/verifying.md)).
+- **Trust in the EHR's key, and its rotation.** A token that verifies is the registered client's
+  word (S21): Mendari checks that the client's key signed it, for the URL it was sent to, once,
+  and nothing about who or what at the EHR made the call (a CDS Hooks token names the EHR, not a
+  person, and `sub` is checked only when pinned). Whoever holds the EHR's private key can call
+  as the client: the EHR's own systems and staff, its vendor's, or anyone who takes the key from
+  them. What holds then is the client's confinement (E15): `discover` and `decide` on
+  `/cds-services` only, in its one organization, reading only its registered FHIR bases, feedback
+  only on the cards it asked for (R5), its rate limit and daily cap as `cds:<id>`, and each call
+  chained as `cds <id>`; it reads no decision, no audit trail and no other route. Mendari learns
+  that a key was retired only when it fetches the keys again. Keys from a `jwks_uri` are kept an
+  hour on each instance (D13), so a key the EHR takes out of its JWK Set, a stolen one included,
+  still verifies there for up to an hour, unless a token under a `kid` the kept keys do not hold
+  makes that instance fetch sooner (at most once a minute) or it restarts; keys given by value
+  verify until the registry is changed and the server redeployed. A key the EHR rotates in
+  verifies from the first fetch after it: an instance that fetched in the last minute refuses its
+  tokens (`cds_key`) until that minute has passed, so an EHR that switches keys at once can see up
+  to a minute of `401`s on each instance, and a hook that gets one shows no card. To stop a client
+  at once, take it out of `MENDARI_CDS_CLIENTS` and redeploy.
+- **A compromised `jku` host.** A client registered by `jwks_uri` trusts whatever public keys
+  that URL serves: the URL is pinned, its origin is on `MENDARI_FHIR_ALLOWED_SERVERS`, each
+  token's `jku` must equal it exactly, and it is fetched through the allow-listed client (https
+  but for a loopback or single-label host, no redirects, a size cap, public signing keys only).
+  None of that tells a key the EHR published from one someone else put there. Whoever controls
+  that host, its DNS or a certificate for its name can publish a key of their own; the next fetch
+  (when the kept keys are an hour old, or at once for a token under a new `kid`, at most once a
+  minute) keeps it, and their tokens are then the client's, with the confinement above and no
+  more. A successful fetch is not logged, so nothing in Mendari shows the change. A client whose
+  tokens carry no `jku` can be registered with its keys by value, which takes the host out of the
+  trust at the cost of a redeploy for each rotation; a client registered so refuses any token
+  that names a `jku`, and Epic's tokens name one (ADR-0014), so the Epic pilot trusts its host.
+  The sandbox run records the `jku` Epic sends and whether it is always the same
+  (`notes/epic-sandbox-checklist.md`).
+- **The decision id disclosed to the EHR.** A card's `uuid` is its decision's id (I18), and with
+  `MENDARI_PUBLIC_URL` set its link opens `/?pack=<pack>#audit/<id>`, so the EHR holds each id
+  beside the patient and the order it sent, in whatever it keeps of the call (its logs, its own
+  audit, its feedback, a vendor's copies), for as long as it keeps them. The id names no one (a
+  random UUID 4 the engine made) and opens nothing by itself: a decision is read only with `read`
+  in its organization, feedback on it is taken only from the client that asked for it (R5), and
+  the trail holds no patient id (I17). The link is the EHR's: whoever holds the EHR's record of
+  the call and Mendari's trail, or a copy of the chain, can tie each chained decision record (its
+  pack, outcome, reasons and data-coverage counts, kept for good) to a patient, after Mendari's
+  retention has removed the decision's input. Mendari's retention never reaches the EHR's copy.
+  Treat a pilot's chain, exported or archived, as identifiable beside the EHR's records, under
+  the site's agreements (B39).
+- **A misconfigured site map.** `MENDARI_SITE_CODES` is checked at startup for its shape and its
+  codes, not for its meaning (T9), and three mistakes pass. A translation into the wrong declared
+  code reads a record as saying what it does not: the decision is capped at `HUMAN_REVIEW`, a
+  rule's `BLOCK` included, so it reaches a person, whose recommendation is still built on the
+  wrong code; its reason (`site code translated (<code set>): a person decides`) says that a
+  translation was used, not that it was right. A site code the map leaves out reads as it would
+  with no map, as no value: nothing was translated, so nothing is capped, and the pack decides
+  (and may automate) as on a record without that code; only the decision's data-coverage record
+  shows it, counting the coding under `other`. A map under another organization's key is applied
+  to that organization's decisions (capped, as above) and missing from the intended one's (as a
+  gap). Against these: each decision records its map's version and digest, `/api/health` shows
+  the caller's, the cap holds until the site validates on its own chart-reviewed data (G5-6
+  `site-validation`, owner decision 2), and no reference pack declares a code set until LP-23k, so
+  a map can be set today only for a pack of the deployment's own that declares one.
+- **Frequent abstention on RTF-heavy records.** A pack on spec 0.3 reads a note as text only when
+  it is text/plain or text/html (owner decision 9). An RTF, PDF or CDA note is `unsupported_type`,
+  and a note none of whose renditions reads makes its decision ABSTAIN (`could not read notes:
+  unsupported_type`). A pack before spec 0.3, as every reference pack is until LP-23k, abstains on
+  a note that is only a link (`not_fetched`), and decodes a note's inline data whatever its type,
+  so an inline RTF note is read with its markup. On the vendor-shaped profile, whose notes are
+  links, every trial and prior-auth patient with a note abstains today, and the one with an RTF
+  note will after LP-23k too (`test_html_is_read_as_text_and_rtf_abstains`). If Epic sends many
+  notes as RTF, as the plan expects and only the sandbox run will show, those packs may abstain on
+  most patients with a note. Each abstention goes to a person, which only lowers automation, and shows an
+  `info` card whatever the pack's `show` says (owner decision 6), so the risk is workload and
+  cards clinicians learn to pass over, not a wrong `AUTO`. Each decision's data-coverage record
+  counts its unreadable notes by reason, so the sandbox run shows how often it happens; LP-23
+  computes no rate from them. Reading RTF is not built: it waits on what the sandbox shows (owner
+  decision 9).
 
 ## Reporting a vulnerability
 
