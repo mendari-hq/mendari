@@ -17,15 +17,14 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
   required `reference-pack` job, and the early scoreboard's page (stage 3);
 - 17j (#268), grades as attestations and band ranking with its Holm family
   (`mendari.evals.grade`, `mendari.evals.bands`), pure;
-- 17g (the LP-17 lane's pull request), the public template sets relabelled "public set:
-  regression check, not a ranking" on the Decision Cards, the dashboard and `web/`, with no Rank
-  column;
-- 17h (the lane), remote arms on public sets: replicates, the flip rate, the canary, the
+- 17g (#279, the LP-17 lane), the public template sets relabelled "public set: regression check,
+  not a ranking" on the Decision Cards, the dashboard and `web/`, with no Rank column;
+- 17h (#279), remote arms on public sets: replicates, the flip rate, the canary, the
   declarations (`mendari.declared/1`) and the disclosures, run by hand and refused in CI; the
   Clinical Trial Prescreener's CQL configuration measured on Mendari's own CQL engine;
-- 17k (the lane), the hidden-set scoreboard through the existing grading route
+- 17k (#279), the hidden-set scoreboard through the existing grading route
   (`mendari.hidden_scoreboard/1`), stored as answered;
-- 17m (the lane), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
+- 17m (#279), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
   the threat model's residual risks, this status, the owner's runbook
   ([Running the scoreboard](../operations/scoreboard.md#the-owners-runbook)) and the end-to-end
   test.

@@ -18,17 +18,17 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   `POST /cds-services/{id}/feedback` chained as `card.feedback`); and 23g (#271), the FHIR
   mapping syntax 0.3, which no shipped pack adopts yet. 23c and 23f landed on main with 23g,
   through #271;
-- 23e (the LP-23 lane's pull request), a vendor-shaped synthetic EHR profile
-  (`sandbox/ehr_profile.py`) and a signed sandbox CDS client over HTTP (`mendari sandbox
-  cds-client`), which compose runs against both engines;
-- 23h (the lane), linked record data under the EHR's FHIR server: a note by its Binary link, the
+- 23e (#280, the LP-23 lane), a vendor-shaped synthetic EHR profile (`sandbox/ehr_profile.py`)
+  and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
+  against both engines;
+- 23h (#280), linked record data under the EHR's FHIR server: a note by its Binary link, the
   payer and the medication by reference, at most 20 reads a decision;
-- 23i (the lane), a site code map per organization (`MENDARI_SITE_CODES`), versioned, its digest
-  in each decision's record, and a decision that used it never automated;
-- 23l (the lane), conformance outside the unit tests: Inferno's CRD server, SMART client and Bulk
+- 23i (#280), a site code map per organization (`MENDARI_SITE_CODES`), versioned, its digest in
+  each decision's record, and a decision that used it never automated;
+- 23l (#280), conformance outside the unit tests: Inferno's CRD server, SMART client and Bulk
   client suites (`conformance.yml`), the HL7 validator with a terminology server on a schedule
   (`terminology.yml`), and `mendari smart check` against the EHR's published scopes;
-- 23m (the lane), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
+- 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
   risks, this status, the scorecard graded again, and the end-to-end test
   (`tests/test_ehr_pilot_e2e.py`).
 
@@ -40,9 +40,9 @@ decides on Epic's sandbox patients (A12.acc-3), and `mendari smart check` agains
 owner's. Gate G5-6's `a12-ehr-pilot` names all three as pending. `conformance.yml`'s new jobs
 (`crd-server`, `smart-client`, `bulk-client`) have not run on GitHub yet (its `dtr-payer` job
 already runs weekly on main), and `terminology.yml` has not run at all: their first runs on main
-are recorded in the `tasks/todo.md` build log after they happen. Refresh tokens and iframe mode stay unbuilt until the
-sandbox shows that Epic needs them. The defaults below hold unless the owner chooses otherwise:
-the owner's decisions still open are listed in `tasks/todo.md`.
+are recorded in the `tasks/todo.md` build log after they happen. Refresh tokens and iframe mode
+stay unbuilt until the sandbox shows that Epic needs them. The defaults below hold unless the
+owner chooses otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 
 What the first three steps built, with the details they settled:
 

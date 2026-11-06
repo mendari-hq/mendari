@@ -865,7 +865,7 @@ Connect) is not supported yet.
     before), and a later page that is not a Bundle is its reason (it was read as the first
     pages). The section for `docs/guides/connecting-an-ehr.md` waits for 23b, which creates
     that page.
-  - [x] **23e** (lane PR) A vendor-shaped synthetic profile, and a signed sandbox CDS client over
+  - [x] **23e** (#280) A vendor-shaped synthetic profile, and a signed sandbox CDS client over
     HTTP (the first end-to-end result). `sandbox/ehr_profile.py`: five synthetic patients for
     each reference pack with a standard hook (trial `patient-view`, prior auth and referral
     `order-sign`), each made from a local-site case by `fhir_records` and reshaped after Epic's
@@ -967,7 +967,7 @@ Connect) is not supported yet.
     every golden case with failed reads and broken notes;
     `tests/test_data_coverage.py::test_a_0_3_mapping_is_counted_against_what_each_field_looks_for`
     and `::test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason`.
-  - [x] **23h** (lane PR) Linked notes, payer and medication, read under the EHR's FHIR server.
+  - [x] **23h** (#280) Linked notes, payer and medication, read under the EHR's FHIR server.
     `standards/linked.py` (`Linker`): on a CDS hook with a `fhirServer` (`cds_hooks.linker`, its
     client opened when a link first needs it, the request's token) and in the SMART launch's
     decide (`smart_routes.decide_for`, the session's client; a `401` still ends the launch),
@@ -1021,7 +1021,7 @@ Connect) is not supported yet.
     1,000 linked reads, each answer (at most 1 MiB, 2 MiB for a Binary) kept until the request ends,
     as the residual D14 states. A request-wide read and byte budget is not built; say if one is
     wanted.
-  - [x] **23i** (lane PR) A site code map per organization, versioned, hashed into each decision,
+  - [x] **23i** (#280) A site code map per organization, versioned, hashed into each decision,
     never automated. `core/site_codes.py`: `MENDARI_SITE_CODES`, inline JSON or a file, `{org:
     {version, sets: {<code set>: [{system, code, as}]}}}` (`default` alone with sign-in off; 100
     organizations and 10,000 translations a map at most; a key given twice is refused), read and
@@ -1057,12 +1057,12 @@ Connect) is not supported yet.
     (`::test_a_linked_resource_is_read_through_the_organizations_site_code_map`). Conflict 41's
     site-map step for the payer is not built: a map translates codings only (spec 0.3 §2.5), and
     a payer's identifier is not one, so how a payer field reads a site's payer id is 23k's (the
-    owner's question in the lane PR).
+    owner's question in #280).
   - [ ] **23j** Pack cards: the inbox's card template, referral cards only when action is needed.
     **The owner confirms the `show` list.**
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
     changes FHIR-path decisions in three packs.
-  - [x] **23l** (lane PR) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
+  - [x] **23l** (#280) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
     SMART App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
     schedule, and the vendor scope check. **Part 1 built** (Inferno's CRD server, SMART client and
     Bulk client suites, run by a driver against the engine): a second image,
@@ -1099,7 +1099,7 @@ Connect) is not supported yet.
     and so which expected warnings it needs, is known only after its first run, 23m's record).
     **The owner's question:** a scope the EHR does not publish is `fail` (decision 56), though
     SMART 2.2.0 says `scopes_supported` need not be exhaustive; `warn` would match the spec.
-  - [x] **23m** (lane PR) Close-out. Gate G5-6's `a12-ehr-pilot`: its LP-23 pending probe
+  - [x] **23m** (#280) Close-out. Gate G5-6's `a12-ehr-pilot`: its LP-23 pending probe
     replaced by the 18 tests 23m lists, each found under the name the plan gives it, in groups by
     step (23b and 23c; 23d and 23e; 23f, 23h and 23i; 23l with
     `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
@@ -1135,7 +1135,7 @@ Connect) is not supported yet.
     (failure behaviour 1, data shapes 2, conformance evidence 2, vendor fit 2), overall level 1
     before and after (failure behaviour, FB-2d: the pilot's `MENDARI_FHIR_VALIDATION`, owner
     decision 16). Not counted: WC-4a and CE-3a, which 23e marked met, are partial after, since
-    `sandbox-e2e` has not run on GitHub with the signed client yet (the lane PR's run); DS-4a
+    `sandbox-e2e` has not run on GitHub with the signed client yet (#280's run); DS-4a
     waits on `fhir-conformance` the same way, CE-4d on `sandbox-e2e`, CT-4a, FB-4a, CW-4a,
     CE-4a, CE-4b and VF-4a on `conformance.yml`'s first run on main, and CE-4c on
     `terminology.yml`'s. `tests/test_ehr_scorecard.py` checks both columns, that Before is
