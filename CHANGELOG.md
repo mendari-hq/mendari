@@ -303,6 +303,38 @@ The first release (not yet published).
   in the run block (its id, time and latency), so none is committed again. Threat-model row T9 (a
   wrong or swapped map); see
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#site-codes).
+- **Inferno's CRD server, SMART App Launch client and Bulk Data client suites against the
+  engines** (LP-23l, part 1; CI and sandbox files, and two client changes: a Bulk export now
+  asks the server to delete it, and `mendari sandbox smart-launch` takes an EHR's launch URL).
+  `conformance.yml` gains three jobs beside `dtr-payer`, weekly and by hand, never on a pull
+  request and not required: `crd-server` (the Da Vinci CRD test kit v0.15.0, suite
+  `crd_server_v221`, groups 1, 2, 3.4 and 4: Inferno as an EHR's CDS client, registered in
+  `MENDARI_CDS_CLIENTS` of a signed-in engine and signing each call, with the vendor-shaped
+  profile's prior-authorization patients in its Mock EHR), `smart-client` (suite
+  `smart_client_stu2_2`, a public client: Inferno as the EHR of a launch) and `bulk-client`
+  (suite `bulk_data_v200_client`: Inferno as the server of a patient-level export, with HAPI
+  behind it). They run from a second image, `sandbox/inferno/scripted/` (the CRD kit by commit
+  with the Bulk Data kit v0.14.0 added, inferno_core 1.6.0, every gem by sha256; the DTR image
+  is unchanged), in a compose project of their own where Inferno's web app and worker share one
+  database. Their tests wait for calls, so `scripts/inferno_session.py` works each session
+  through Inferno's REST API and does the client's part in the engine's container (a launch from
+  Inferno's launch URL; an export signed with a key made for the run, its private half passed
+  by environment only); `scripts/inferno_scripted_inputs.py` writes the inputs, on synthetic data
+  only, and `scripts/inferno_check.py` stays the verdict, each test's result pinned in
+  `sandbox/inferno/<suite>_expected.json` with the reason and requirement ids of each gap. First
+  results: SMART passes but for the https registration (plain http in the sandbox); Bulk passes
+  all 8 tests; CRD passes discovery with authentication, the signed calls, the request checks
+  and the Technical Issues answer (`indeterminate` coverage for a `technical` reason when the
+  EHR's FHIR server fails), and its known gaps are TLS, the cards' `mendari.decision_id` extension (not in CRD's response
+  model), the audit link card's suggestion, no member or active-coverage check, and no coverage
+  information when no Coverage could be read. CRD group 3.7 is not run: its must-support test
+  names no requirement. `mendari bulk export`, with every file downloaded, sends the DELETE Bulk
+  Data STU2 says a client may send to the status URL; its outcome is one of `deleted`,
+  `delete_refused`, `delete_timeout` and `delete_unreachable`, printed, and never fails, retries
+  or changes the export. `mendari sandbox smart-launch --launch-url` opens a launch URL an EHR
+  made (the engine's own launch path only), reads the patient in context and logs out. See
+  [sandbox/inferno/README.md](sandbox/inferno/README.md) and
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#conformance-runs).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

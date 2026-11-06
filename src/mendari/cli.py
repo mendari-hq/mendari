@@ -1419,6 +1419,22 @@ def cmd_sandbox_cds_client(args: argparse.Namespace) -> int:
 def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
     from mendari.sandbox import smart_launch
 
+    if args.launch_url:
+        launched = smart_launch.from_launch_url(args.launch_url, engine=args.engine)
+        _print_json(launched)
+        failed = [
+            problem
+            for problem, ok in (
+                ("the patient in context was not read", launched["patient_read"]),
+                ("the session did not end at logout", launched["session_ended"]),
+            )
+            if not ok
+        ]
+        for problem in failed:
+            print(f"smart-launch: {problem}", file=sys.stderr)
+        return 1 if failed else 0
+    if not (args.launcher and args.fhir):
+        raise MendariError("smart-launch needs --launcher and --fhir, or --launch-url")
     result = smart_launch.run(
         engine=args.engine,
         launcher=args.launcher,
@@ -1503,6 +1519,10 @@ def cmd_bulk_export(args: argparse.Namespace) -> int:
         )
     for output in manifest.get("output", []):
         print(f"{output['count']:>7} {output['type']:<20} {Path(args.out) / output['file']}")
+    if manifest["delete"] == "deleted":
+        print("the server was asked to delete the export, and accepted")
+    else:  # the files are here; the server drops its copy when the export expires
+        print(f"the server did not delete the export ({manifest['delete']})", file=sys.stderr)
     return 0
 
 
@@ -3161,8 +3181,14 @@ def build_parser() -> argparse.ArgumentParser:
         "smart-launch", help="run a SMART EHR launch against the sandbox and decide the work items"
     )
     smart.add_argument("--engine", required=True, help="engine URL (its MENDARI_PUBLIC_URL)")
-    smart.add_argument("--launcher", required=True, help="smart-launcher-v2 base URL")
-    smart.add_argument("--fhir", required=True, help="FHIR R4 base URL, to find a patient")
+    smart.add_argument("--launcher", help="smart-launcher-v2 base URL")
+    smart.add_argument("--fhir", help="FHIR R4 base URL, to find a patient")
+    smart.add_argument(
+        "--launch-url",
+        metavar="URL",
+        help="instead of --launcher and --fhir: the launch URL an EHR made (the engine's "
+        "/smart/launch with the EHR's iss and launch); read the patient in context and log out",
+    )
     smart.add_argument(
         "--pack",
         default="mendari/referral-router",

@@ -1,0 +1,80 @@
+{
+  "kit": "bulk-data-test-kit",
+  "version": "0.14.0",
+  "commit": "7428430c05fa399ae3e84d411e6b7e270f14fb5e",
+  "suite": "bulk_data_v200_client",
+  "groups": [
+    "1",
+    "2",
+    "3"
+  ],
+  "tests": [
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_registration-smart_client_registration_bsca_verification",
+      "short_id": "1.01",
+      "title": "Verify SMART Backend Services Confidential Asymmetric Client Registration",
+      "result": "pass",
+      "requirements": [
+        "hl7.fhir.uv.smart-app-launch_2.2.0@22",
+        "hl7.fhir.uv.smart-app-launch_2.2.0@293",
+        "hl7.fhir.uv.smart-app-launch_2.2.0@294"
+      ]
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_wait",
+      "short_id": "2.01",
+      "title": "Wait For Request Sequence",
+      "result": "pass",
+      "requirements": []
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_kick_off",
+      "short_id": "2.02",
+      "title": "Bulk Data Kick-off Request",
+      "result": "pass",
+      "requirements": [
+        "hl7.fhir.uv.bulkdata_2.0.0@17"
+      ]
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_status",
+      "short_id": "2.03",
+      "title": "Bulk Data Status Request",
+      "result": "pass",
+      "requirements": []
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_output",
+      "short_id": "2.04",
+      "title": "Bulk Data Output File Request",
+      "result": "pass",
+      "requirements": []
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_delete",
+      "short_id": "2.05",
+      "title": "Bulk Data Delete Request",
+      "result": "pass",
+      "requirements": []
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_auth_verification-bulk_data_client_token_smart_bsca_verification",
+      "short_id": "3.01",
+      "title": "Verify SMART Token Requests",
+      "result": "pass",
+      "requirements": [
+        "hl7.fhir.uv.bulkdata_2.0.0@15",
+        "hl7.fhir.uv.bulkdata_2.0.0@16"
+      ]
+    },
+    {
+      "id": "bulk_data_v200_client-bulk_data_client_auth_verification-smart_client_token_use_verification",
+      "short_id": "3.02",
+      "title": "Verify SMART Token Use",
+      "result": "pass",
+      "requirements": [
+        "hl7.fhir.uv.smart-app-launch_2.2.0@267"
+      ]
+    }
+  ]
+}

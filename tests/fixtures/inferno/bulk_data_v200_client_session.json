@@ -1,0 +1,757 @@
+{
+ "suite": "bulk_data_v200_client",
+ "recorded": "2026-11-06, a local run of sandbox/inferno/scripted, trimmed to what scripts/inferno_session.py reads",
+ "exchanges": [
+  {
+   "method": "GET",
+   "path": "/api/version",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "version": "1.6.0"
+   }
+  },
+  {
+   "method": "POST",
+   "path": "/api/test_sessions",
+   "status": 200,
+   "sent": {
+    "test_suite_id": "bulk_data_v200_client",
+    "suite_options": []
+   },
+   "body": {
+    "id": "76UZfeEGXSw",
+    "test_suite_id": "bulk_data_v200_client",
+    "suite_options": [],
+    "test_suite": {
+     "id": "bulk_data_v200_client",
+     "title": "Bulk Data Access v2.0.0 Export - Client",
+     "inputs": [
+      {
+       "name": "client_id",
+       "type": "text",
+       "optional": true
+      },
+      {
+       "name": "smart_jwk_set",
+       "type": "textarea"
+      },
+      {
+       "name": "export_type",
+       "type": "radio",
+       "default": "System"
+      },
+      {
+       "name": "group_id",
+       "type": "radio"
+      }
+     ],
+     "test_groups": [
+      {
+       "id": "bulk_data_v200_client-bulk_data_client_registration",
+       "short_id": "1",
+       "title": "Client Registration",
+       "run_as_group": true,
+       "inputs": [
+        {
+         "name": "client_id",
+         "type": "text",
+         "optional": true
+        },
+        {
+         "name": "smart_jwk_set",
+         "type": "textarea"
+        },
+        {
+         "name": "export_type",
+         "type": "radio",
+         "default": "System"
+        },
+        {
+         "name": "group_id",
+         "type": "radio"
+        }
+       ],
+       "test_groups": [],
+       "tests": [
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_registration-smart_client_registration_bsca_verification",
+         "short_id": "1.01",
+         "title": "Verify SMART Backend Services Confidential Asymmetric Client Registration",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@22",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@293",
+          "hl7.fhir.uv.smart-app-launch_2.2.0@294"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "optional": true
+          },
+          {
+           "name": "smart_jwk_set",
+           "type": "textarea"
+          },
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "bulk_data_v200_client-bulk_data_client_export_group",
+       "short_id": "2",
+       "title": "Bulk Data Client Export Tests",
+       "run_as_group": true,
+       "inputs": [
+        {
+         "name": "client_id",
+         "type": "text",
+         "optional": true,
+         "locked": true
+        },
+        {
+         "name": "export_type",
+         "type": "radio",
+         "default": "System"
+        },
+        {
+         "name": "group_id",
+         "type": "radio"
+        }
+       ],
+       "test_groups": [],
+       "tests": [
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_wait",
+         "short_id": "2.01",
+         "title": "Wait For Request Sequence",
+         "verifies_requirements": [],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "optional": true,
+           "locked": true
+          },
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        },
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_kick_off",
+         "short_id": "2.02",
+         "title": "Bulk Data Kick-off Request",
+         "verifies_requirements": [
+          "hl7.fhir.uv.bulkdata_2.0.0@17"
+         ],
+         "inputs": [
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        },
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_status",
+         "short_id": "2.03",
+         "title": "Bulk Data Status Request",
+         "verifies_requirements": [],
+         "inputs": [
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        },
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_output",
+         "short_id": "2.04",
+         "title": "Bulk Data Output File Request",
+         "verifies_requirements": [],
+         "inputs": [
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        },
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_delete",
+         "short_id": "2.05",
+         "title": "Bulk Data Delete Request",
+         "verifies_requirements": [],
+         "inputs": [
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "bulk_data_v200_client-bulk_data_client_auth_verification",
+       "short_id": "3",
+       "title": "Review Authentication Interactions",
+       "run_as_group": true,
+       "inputs": [
+        {
+         "name": "client_id",
+         "type": "text",
+         "locked": true
+        },
+        {
+         "name": "smart_jwk_set",
+         "type": "textarea",
+         "locked": true
+        },
+        {
+         "name": "export_type",
+         "type": "radio",
+         "default": "System"
+        },
+        {
+         "name": "group_id",
+         "type": "radio"
+        }
+       ],
+       "test_groups": [],
+       "tests": [
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_auth_verification-bulk_data_client_token_smart_bsca_verification",
+         "short_id": "3.01",
+         "title": "Verify SMART Token Requests",
+         "verifies_requirements": [
+          "hl7.fhir.uv.bulkdata_2.0.0@15",
+          "hl7.fhir.uv.bulkdata_2.0.0@16"
+         ],
+         "inputs": [
+          {
+           "name": "client_id",
+           "type": "text",
+           "locked": true
+          },
+          {
+           "name": "smart_jwk_set",
+           "type": "textarea",
+           "locked": true
+          },
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        },
+        {
+         "id": "bulk_data_v200_client-bulk_data_client_auth_verification-smart_client_token_use_verification",
+         "short_id": "3.02",
+         "title": "Verify SMART Token Use",
+         "verifies_requirements": [
+          "hl7.fhir.uv.smart-app-launch_2.2.0@267"
+         ],
+         "inputs": [
+          {
+           "name": "smart_tokens",
+           "type": "text",
+           "optional": true
+          },
+          {
+           "name": "export_type",
+           "type": "radio",
+           "default": "System"
+          },
+          {
+           "name": "group_id",
+           "type": "radio"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_sessions/76UZfeEGXSw/session_data",
+   "status": 200,
+   "sent": null,
+   "body": []
+  },
+  {
+   "method": "POST",
+   "path": "/api/test_runs",
+   "status": 200,
+   "sent": {
+    "test_session_id": "76UZfeEGXSw",
+    "test_suite_id": "bulk_data_v200_client",
+    "inputs": [
+     {
+      "name": "client_id",
+      "value": "mendari-bulk-sandbox"
+     },
+     {
+      "name": "smart_jwk_set",
+      "value": "{\"keys\": [{\"kty\": \"EC\", \"crv\": \"P-384\", \"x\": \"q0XXklmfOIByAmL32d6Y9-wR6NGro6w6Q-TFTo0b8swivwfw4RaKiSGF0937bfai\", \"y\": \"diJbAyC1tvdnfg6JBKFF4J8Ze3Dd-Cl4s8_BrMZ-_jPqP0nJNuKu1EbgdeNDQ5Zh\", \"kid\": \"mendari-bulk-run\", \"alg\": \"ES384\", \"use\": \"sig\"}]}"
+     },
+     {
+      "name": "export_type",
+      "value": "Patient"
+     },
+     {
+      "name": "group_id",
+      "value": "1a"
+     }
+    ]
+   },
+   "body": {
+    "id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+    "test_session_id": "76UZfeEGXSw",
+    "status": "queued",
+    "test_suite_id": "bulk_data_v200_client",
+    "results": []
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/9247ef1b-5bb0-4480-9559-a5c42f6d7bd9?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+    "test_session_id": "76UZfeEGXSw",
+    "status": "queued",
+    "test_suite_id": "bulk_data_v200_client",
+    "results": []
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/9247ef1b-5bb0-4480-9559-a5c42f6d7bd9?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+    "test_session_id": "76UZfeEGXSw",
+    "status": "waiting",
+    "test_suite_id": "bulk_data_v200_client",
+    "results": [
+     {
+      "id": "a6d19472-5022-4bf6-abd0-84f8ca7972f1",
+      "test_id": "bulk_data_v200_client-bulk_data_client_registration-smart_client_registration_bsca_verification",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": [
+       {
+        "type": "warning"
+       }
+      ]
+     },
+     {
+      "id": "7d0af32c-4e4b-44bb-b0ff-e46e6592407d",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_registration",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "55d18856-bd7e-4733-a90d-a2ce11e62f35",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_wait",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "wait",
+      "result_message": "\nPerform a **Patient** endpoint type bulk export kick-off using the following base URL:\n\nhttp://nginx/custom/bulk_data_v200_client/fhir\n\n\n\nUse client id `mendari-bulk-sandbox` to obtain a backend services access token from the SMART authorization\nserver for this FHIR server and include the access token on all subsequent requests.\n\nAfter the kick-off is made, subsequent status request(s) (using the URL provided in the response\nto the kick-off request), a download request (using the URL provided in the response to\nthe status request), and finally a delete request are expected.\n\nThe entire request sequence will be recorded and verified to check conformance to the\n[Bulk Data IG](https://build.fhir.org/ig/HL7/bulk-data/export.html#sequence-overview).\n\n[Click here](http://nginx/custom/bulk_data_v200_client/resume_pass?id=mendari-bulk-sandbox) when finished.\n\n",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "17ad6198-90bd-4861-988d-3d9f77013818",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_export_group",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "6912dc3e-7f5b-4f4f-b688-6c9e26feccd3",
+      "test_suite_id": "bulk_data_v200_client",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     }
+    ]
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/custom/bulk_data_v200_client/resume_pass?id=mendari-bulk-sandbox",
+   "status": 302,
+   "sent": null,
+   "body": null
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_runs/9247ef1b-5bb0-4480-9559-a5c42f6d7bd9?include_results=true",
+   "status": 200,
+   "sent": null,
+   "body": {
+    "id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+    "test_session_id": "76UZfeEGXSw",
+    "status": "done",
+    "test_suite_id": "bulk_data_v200_client",
+    "results": [
+     {
+      "id": "a6d19472-5022-4bf6-abd0-84f8ca7972f1",
+      "test_id": "bulk_data_v200_client-bulk_data_client_registration-smart_client_registration_bsca_verification",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": [
+       {
+        "type": "warning"
+       }
+      ]
+     },
+     {
+      "id": "7d0af32c-4e4b-44bb-b0ff-e46e6592407d",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_registration",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "55d18856-bd7e-4733-a90d-a2ce11e62f35",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_wait",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "17ad6198-90bd-4861-988d-3d9f77013818",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_export_group",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "6912dc3e-7f5b-4f4f-b688-6c9e26feccd3",
+      "test_suite_id": "bulk_data_v200_client",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "wait",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "3d4620b5-995d-4dd2-b274-bf0016328396",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_registration",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "1f55659a-9a39-491e-a5b8-5e579a9726d4",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_kick_off",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "23f9a3c7-dd0a-48ca-8f0d-456af37ccd5a",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_status",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "feb5abe1-fa2d-44f7-a0ad-ddebfe13d351",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_output",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "9806f051-08e4-406b-a290-07384b11a3b4",
+      "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_delete",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "b2c4671c-95f0-4ec7-9acc-c770c3bb6266",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_export_group",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "ec23eb0e-8c74-4cfb-90b8-ac491be60274",
+      "test_id": "bulk_data_v200_client-bulk_data_client_auth_verification-bulk_data_client_token_smart_bsca_verification",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "590a7748-9178-46d2-8cb3-3cfd7c901836",
+      "test_id": "bulk_data_v200_client-bulk_data_client_auth_verification-smart_client_token_use_verification",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "429ba6f9-0a5e-4063-a0a1-cd9e85f1b878",
+      "test_group_id": "bulk_data_v200_client-bulk_data_client_auth_verification",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "eda54272-6dd0-4a10-94e0-bc676d45a90f",
+      "test_suite_id": "bulk_data_v200_client",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     },
+     {
+      "id": "06953cd0-1736-4f42-9eaa-336ab91602d5",
+      "test_suite_id": "bulk_data_v200_client",
+      "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+      "test_session_id": "76UZfeEGXSw",
+      "result": "pass",
+      "optional": false,
+      "outputs": [],
+      "messages": []
+     }
+    ]
+   }
+  },
+  {
+   "method": "GET",
+   "path": "/api/test_sessions/76UZfeEGXSw/results",
+   "status": 200,
+   "sent": null,
+   "body": [
+    {
+     "id": "a6d19472-5022-4bf6-abd0-84f8ca7972f1",
+     "test_id": "bulk_data_v200_client-bulk_data_client_registration-smart_client_registration_bsca_verification",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": [
+      {
+       "type": "warning"
+      }
+     ]
+    },
+    {
+     "id": "55d18856-bd7e-4733-a90d-a2ce11e62f35",
+     "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_wait",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "3d4620b5-995d-4dd2-b274-bf0016328396",
+     "test_group_id": "bulk_data_v200_client-bulk_data_client_registration",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "1f55659a-9a39-491e-a5b8-5e579a9726d4",
+     "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_kick_off",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "23f9a3c7-dd0a-48ca-8f0d-456af37ccd5a",
+     "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_status",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "feb5abe1-fa2d-44f7-a0ad-ddebfe13d351",
+     "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_output",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "9806f051-08e4-406b-a290-07384b11a3b4",
+     "test_id": "bulk_data_v200_client-bulk_data_client_export_group-bulk_data_client_delete",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "b2c4671c-95f0-4ec7-9acc-c770c3bb6266",
+     "test_group_id": "bulk_data_v200_client-bulk_data_client_export_group",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "ec23eb0e-8c74-4cfb-90b8-ac491be60274",
+     "test_id": "bulk_data_v200_client-bulk_data_client_auth_verification-bulk_data_client_token_smart_bsca_verification",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "590a7748-9178-46d2-8cb3-3cfd7c901836",
+     "test_id": "bulk_data_v200_client-bulk_data_client_auth_verification-smart_client_token_use_verification",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "429ba6f9-0a5e-4063-a0a1-cd9e85f1b878",
+     "test_group_id": "bulk_data_v200_client-bulk_data_client_auth_verification",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    },
+    {
+     "id": "06953cd0-1736-4f42-9eaa-336ab91602d5",
+     "test_suite_id": "bulk_data_v200_client",
+     "test_run_id": "9247ef1b-5bb0-4480-9559-a5c42f6d7bd9",
+     "test_session_id": "76UZfeEGXSw",
+     "result": "pass",
+     "optional": false,
+     "outputs": [],
+     "messages": []
+    }
+   ]
+  }
+ ]
+}

@@ -17,6 +17,11 @@ With sign-in on and the launcher registered (`MENDARI_SMART_EHRS`, the compose p
 `signin`), `expect_org` also reads the engine's own audit store (`db`, so the script runs next
 to the engine) for who each decision's `decision.created` event says asked, as that
 organization: a decision another organization owns reads as nobody (ADR-0006).
+
+`from_launch_url` is the browser alone, for an EHR that makes its own launch URL (the engine's
+`/smart/launch` with the EHR's `iss` and `launch`, as Inferno's SMART App Launch client suite
+does, sandbox/inferno/README.md): the same three steps from that URL, then the patient in
+context read through the EHR's FHIR server with the launch's token, and logging out.
 """
 
 from __future__ import annotations
@@ -145,6 +150,37 @@ def run(
         ids = [item["decision_id"] for item in decided]
         result |= {"org": expect_org, "requested_by": who_asked(db, expect_org, ids)}
     return result
+
+
+def from_launch_url(url: str, *, engine: str) -> dict[str, Any]:
+    """An EHR launch from the launch URL the EHR made (`url`: the engine's `/smart/launch` with
+    the EHR's own `iss` and `launch`): follow it to the EHR's authorize endpoint and back to the
+    engine's callback, read the patient in context (`/api/smart/patient`, which reads the EHR's
+    FHIR server with the launch's token), and log out. Only a URL on the engine's own launch
+    path is opened."""
+    engine = engine.rstrip("/")
+    if not url.startswith(f"{engine}/smart/launch?"):
+        raise MendariError(f"the launch URL is not {engine}/smart/launch")
+    with httpx.Client(follow_redirects=False, timeout=60) as browser:
+        started = browser.get(url)
+        authorize = _redirect(started, "the engine's launch")
+        binding = _cookie(started, LAUNCH, "launch")
+        approved = _redirect(browser.get(authorize), "the EHR's authorize endpoint")
+        if not approved.startswith(f"{engine}/smart/callback"):
+            raise MendariError(f"the EHR sent the browser to {approved.split('?')[0]}")
+        done = browser.get(approved, headers={"cookie": binding})
+        _redirect(done, "the engine's callback")
+        cookie = {"cookie": _cookie(done, COOKIE, "session"), OWN_REQUEST: "1"}
+        session = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
+        patient = _json(browser.get(f"{engine}/api/smart/patient", headers=cookie))
+        browser.post(f"{engine}/api/smart/logout", headers=cookie).raise_for_status()
+        ended = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
+    return {
+        "patient": session["patient"],
+        "scope": session.get("scope"),
+        "patient_read": patient.get("id") == session["patient"],
+        "session_ended": not ended["active"],
+    }
 
 
 def who_asked(db: str, org: str, decision_ids: list[str]) -> list[str | None]:

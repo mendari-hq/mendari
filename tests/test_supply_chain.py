@@ -21,13 +21,32 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 INFERNO = ROOT / "sandbox" / "inferno"
+# The scripted Inferno suites' image and compose project (LP-23l): the CRD kit with the Bulk
+# Data kit beside it, on their own lock.
+SCRIPTED = INFERNO / "scripted"
 COMPOSE_FILES = [
     ROOT / "docker-compose.yml",
     ROOT / "deploy" / "onprem" / "docker-compose.yml",
     INFERNO / "docker-compose.yml",
+    SCRIPTED / "docker-compose.yml",
 ]
 # Each Dockerfile, with the least number of FROM lines it has (the engine's is multi-stage).
-DOCKERFILES = {ROOT / "Dockerfile": 2, INFERNO / "Dockerfile": 1}
+DOCKERFILES = {ROOT / "Dockerfile": 2, INFERNO / "Dockerfile": 1, SCRIPTED / "Dockerfile": 1}
+# Each Inferno image: its folder, the kit it builds from source (the one gem of its lock
+# without a checksum: it is fetched by commit), and the Linux platforms its lock lists (the
+# images CI builds, amd64, and a local run on Apple silicon, arm64).
+INFERNO_IMAGES = {
+    "dtr": (
+        INFERNO,
+        "davinci_dtr_test_kit (0.18.0)",
+        ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"],
+    ),
+    "scripted": (
+        SCRIPTED,
+        "davinci_crd_test_kit (0.15.0)",
+        ["aarch64-linux", "aarch64-linux-gnu", "arm-linux", "x86-linux", "x86_64-linux"],
+    ),
+}
 
 COMMIT_PIN = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 # The comment Dependabot keeps in step with the SHA, and the only way a reader sees the version.
@@ -311,12 +330,15 @@ def _gem_specs(lock: str, section: str, indent: int) -> list[str]:
     return [line.strip() for line in block.splitlines() if re.match(rf"^ {{{indent}}}\S", line)]
 
 
-def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -> None:
-    """The Inferno kit publishes no image and its own Dockerfile pins nothing (LP-23 reuses this
-    one): its source is fetched by commit SHA and checked against it, Bundler is checked against
-    its sha256 before it is installed, and every gem is installed from Mendari's Gemfile.lock,
-    whose CHECKSUMS Bundler checks (a changed sha256 fails the build), frozen."""
-    dockerfile = (INFERNO / "Dockerfile").read_text()
+@pytest.mark.parametrize("image", INFERNO_IMAGES)
+def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum(image: str) -> None:
+    """The Inferno kits publish no image and their own Dockerfiles pin nothing (LP-23 reuses this
+    pattern): each kit's source is fetched by commit SHA and checked against it, Bundler is
+    checked against its sha256 before it is installed, and every gem is installed from
+    Mendari's Gemfile.lock, whose CHECKSUMS Bundler checks (a changed sha256 fails the build),
+    frozen."""
+    folder, kit, platforms_wanted = INFERNO_IMAGES[image]
+    dockerfile = (folder / "Dockerfile").read_text()
     commit = re.search(r"^ARG KIT_COMMIT=([0-9a-f]{40})$", dockerfile, re.M)
     assert commit is not None
     for line in (
@@ -332,7 +354,7 @@ def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -
     assert "gem install bundler" not in dockerfile  # never an unchecked download
     bundler = re.search(r"^ARG BUNDLER_VERSION=(\S+)$", dockerfile, re.M)
     assert bundler is not None
-    lock = (INFERNO / "Gemfile.lock").read_text()
+    lock = (folder / "Gemfile.lock").read_text()
     assert lock.rstrip().endswith(f"BUNDLED WITH\n   {bundler[1]}")
     gems = _gem_specs(lock, "GEM\n  remote: https://rubygems.org/\n  specs:", 4)
     listed = _gem_specs(lock, "CHECKSUMS", 2)
@@ -340,33 +362,84 @@ def test_the_inferno_image_takes_the_kit_by_commit_and_every_gem_by_checksum() -
     assert len(gems) > 100 and set(gems) == set(checked)
     assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in checked.values())
     # The only gem without a checksum is the kit itself, fetched by commit above.
-    assert [line for line in listed if " sha256=" not in line] == ["davinci_dtr_test_kit (0.18.0)"]
-    # Linux only: the images CI builds (amd64) and a local run on Apple silicon (arm64).
+    assert [line for line in listed if " sha256=" not in line] == [kit]
     platforms = lock.split("\nPLATFORMS\n", 1)[1].split("\n\n", 1)[0].split()
-    assert platforms == ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"]
+    assert platforms == platforms_wanted and all("linux" in p for p in platforms)
 
 
-def test_the_inferno_kit_validates_without_a_terminology_server() -> None:
-    """No resource Inferno validates goes to tx.fhir.org, the kit's default
-    (sandbox/inferno/README.md, "What leaves the machine"): the image puts
-    offline_terminology.rb at the top of the kit's lib/, where Inferno loads it at boot, after
-    the kit, and the override takes the terminology server from every validator of every suite,
-    group and test."""
+def test_the_scripted_image_adds_the_bulk_kit_to_the_crd_kits_gemfile() -> None:
+    """The scripted image's one change to the CRD kit: its Gemfile gains the Bulk Data kit at
+    one version, which the lock holds with its checksum, and a loader in lib/ (Inferno loads only
+    lib/*.rb) registers its suites."""
+    dockerfile = (SCRIPTED / "Dockerfile").read_text()
+    assert "COPY Gemfile ./Gemfile" in dockerfile
+    assert "COPY lib/mendari_kits.rb lib/mendari_kits.rb" in dockerfile
+    gemfile = (SCRIPTED / "Gemfile").read_text()
+    assert "\ngemspec\n\ngem 'bulk_data_test_kit', '0.14.0'\n" in gemfile
+    lock = (SCRIPTED / "Gemfile.lock").read_text()
+    assert "\n  bulk_data_test_kit (= 0.14.0)\n" in lock  # DEPENDENCIES
+    assert re.search(r"^  bulk_data_test_kit \(0\.14\.0\) sha256=[0-9a-f]{64}$", lock, re.M)
+    assert re.search(r"^    inferno_core \(1\.6\.0\)$", lock, re.M)
+    loader = (SCRIPTED / "lib" / "mendari_kits.rb").read_text()
+    assert [line for line in loader.splitlines() if line.startswith("require")] == [
+        "require 'bulk_data_test_kit'"
+    ]
+
+
+@pytest.mark.parametrize("image", INFERNO_IMAGES)
+def test_the_inferno_kit_validates_without_a_terminology_server(image: str) -> None:
+    """No resource Inferno validates goes to tx.fhir.org, the kits' default
+    (sandbox/inferno/README.md, "What leaves the machine"): each image puts
+    offline_terminology.rb last in the kit's lib/, where Inferno loads it at boot, after the
+    kits, and the override takes the terminology server from every validator of every suite,
+    group and test. DTR's requires its kit by name; the scripted image's every other file in
+    lib/, whichever kits it carries."""
+    folder = INFERNO_IMAGES[image][0]
     copies = [
         line.split()[1:]
-        for line in (INFERNO / "Dockerfile").read_text().splitlines()
+        for line in (folder / "Dockerfile").read_text().splitlines()
         if line.split()[:1] == ["COPY"]
     ]
     (target,) = [words[-1] for words in copies if words[0] == "offline_terminology.rb"]
-    assert re.fullmatch(r"lib/[\w.-]+\.rb", target), target
-    override = (INFERNO / "offline_terminology.rb").read_text()
-    assert "require_relative 'davinci_dtr_test_kit'" in override  # the kit's validators first
+    assert re.fullmatch(r"lib/zz_[\w.-]+\.rb", target), target  # last in name order
+    loaded = [words[-1] for words in copies if words[-1].startswith("lib/")]
+    assert max(loaded) == target
+    override = (folder / "offline_terminology.rb").read_text()
+    if image == "dtr":
+        assert "require_relative 'davinci_dtr_test_kit'" in override  # the kit's validators first
+    else:
+        assert "Dir.glob(File.join(__dir__, '*.rb')).sort.each do |path|" in override
+        assert "require_relative path unless File.realpath(path) == File.realpath(__FILE__)" in (
+            override
+        )
     kinds = re.search(r"^\[(.+)\]\.each do \|kind\|$", override, re.M)
     assert kinds is not None
     entities = {f"Inferno::Entities::{kind}" for kind in ("TestSuite", "TestGroup", "Test")}
     assert {kind.strip() for kind in kinds[1].split(",")} == entities
     assert "kind.descendants.each do |runnable|" in override
     assert "validator.validation_context { txServer nil }" in override
+
+
+def _no_way_out(services: dict[str, Any]) -> None:
+    """What a compose file of Inferno's may not give a service: another network's address, a
+    file of settings or secrets, a host's name; and what it publishes binds this machine."""
+    for name, service in services.items():
+        assert not {"network_mode", "env_file", "secrets", "extra_hosts"} & set(service), name
+        for port in service.get("ports", []):
+            assert isinstance(port, str) and port.startswith("127.0.0.1:"), (name, port)
+
+
+def _inferno_urls(services: dict[str, Any], name: str) -> dict[str, Any]:
+    """Each URL Inferno's service `name` is configured with names a service of the file, or this
+    machine; INFERNO_HOST is the internal nginx."""
+    loopback = {"127.0.0.1", "localhost", "::1"}
+    environment = services[name]["environment"]
+    urls = {key: urlsplit(str(value)) for key, value in environment.items() if "://" in value}
+    assert {"INFERNO_HOST", "FHIR_REFERENCE_SERVER"} <= set(urls), name
+    for key, url in urls.items():
+        assert url.hostname in set(services) | loopback, (name, key, url.geturl())
+    assert urls["INFERNO_HOST"].geturl() == "http://nginx"
+    return urls
 
 
 def test_the_inferno_harness_reaches_only_its_own_services() -> None:
@@ -376,20 +449,10 @@ def test_the_inferno_harness_reaches_only_its_own_services() -> None:
     URL. What is published binds this machine only, and the engine runs open on synthetic data,
     PHI mode off, with no credential of any kind."""
     services = yaml.safe_load((INFERNO / "docker-compose.yml").read_text())["services"]
-    loopback = {"127.0.0.1", "localhost", "::1"}
-    for name, service in services.items():
-        assert not {"network_mode", "env_file", "secrets", "extra_hosts"} & set(service), name
-        for port in service.get("ports", []):
-            assert isinstance(port, str) and port.startswith("127.0.0.1:"), (name, port)
+    _no_way_out(services)
     for name in ("inferno", "worker"):
-        environment = services[name]["environment"]
-        urls = {key: urlsplit(str(value)) for key, value in environment.items() if "://" in value}
-        assert {"INFERNO_HOST", "FHIR_REFERENCE_SERVER"} <= set(urls), name
-        for key, url in urls.items():
-            assert url.hostname in set(services) | loopback, (name, key, url.geturl())
-        assert urls["INFERNO_HOST"].hostname == "nginx"
-        reference = urls["FHIR_REFERENCE_SERVER"]
-        assert reference.hostname in loopback and reference.port == 9  # discard: no listener
+        reference = _inferno_urls(services, name)["FHIR_REFERENCE_SERVER"]
+        assert reference.hostname == "127.0.0.1" and reference.port == 9  # discard: no listener
     engine = services["engine"]
     assert engine["build"] == {"context": "../.."}  # the repository's own Dockerfile
     # Open mode, PHI mode off: nothing that turns sign-in on or carries a key, token or secret.
@@ -403,6 +466,45 @@ def test_the_inferno_harness_reaches_only_its_own_services() -> None:
     assert environment["MENDARI_CDS_SANDBOX"] == "1"
     assert environment["MENDARI_PHI_MODE"] == "off"
     assert urlsplit(environment["MENDARI_PUBLIC_URL"]).hostname == "engine"
+
+
+def test_the_scripted_harness_reaches_only_its_own_services() -> None:
+    """The scripted suites' project (sandbox/inferno/scripted): the same rules, with the Bulk
+    client suite's reference server this project's own HAPI (`fhir`), the web app and its worker
+    on one database (a named volume) with one INFERNO_HOST, and two engines: the open one for
+    the SMART and Bulk clients (PHI mode off, nothing that signs in), and the signed-in one for
+    CRD, whose PHI keys come from the shell that starts it, never from this file."""
+    services = yaml.safe_load((SCRIPTED / "docker-compose.yml").read_text())["services"]
+    _no_way_out(services)
+    for name in ("inferno", "worker"):
+        urls = _inferno_urls(services, name)
+        assert urls["FHIR_REFERENCE_SERVER"].geturl() == "http://fhir:8080/fhir"
+        assert services[name]["volumes"] == ["inferno-data:/opt/inferno/data"]
+    assert services["inferno"]["environment"] == services["worker"]["environment"]
+    assert services["fhir"]["profiles"] == ["bulk"]
+    engine = services["engine"]
+    assert engine["build"] == {"context": "../../.."}  # the repository's own Dockerfile
+    assert set(engine["environment"]) == {
+        "MENDARI_PHI_MODE",
+        "MENDARI_PACKS",
+        "MENDARI_PUBLIC_URL",
+        "MENDARI_FHIR_ALLOWED_SERVERS",
+        "MENDARI_SMART_CLIENT_ID",
+        "MENDARI_SMART_SCOPES",
+    }
+    assert engine["environment"]["MENDARI_PHI_MODE"] == "off"
+    signin = services["engine-signin"]
+    assert signin["image"] == engine["image"] and signin["pull_policy"] == "never"
+    environment = signin["environment"]
+    assert "MENDARI_CDS_SANDBOX" not in environment  # it stops a signed-in server
+    assert environment["MENDARI_PHI_MODE"] == "encrypt"
+    for key in ("MENDARI_PHI_KEY", "MENDARI_INPUT_HASH_KEY"):
+        assert environment[key] == f"${{{key}:-}}"  # the shell's, made per run
+    assert (
+        urlsplit(environment["MENDARI_OIDC_ISSUER"]).hostname == "idp.example.org"
+    )  # never called
+    for service in (engine, signin):
+        assert urlsplit(service["environment"]["MENDARI_PUBLIC_URL"]).port == 8000
 
 
 def test_the_image_installs_exactly_the_lock() -> None:

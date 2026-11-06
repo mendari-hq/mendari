@@ -40,7 +40,7 @@ fictional):
 |---|---|---|
 | `id` | yes | Lower-case letters, digits and hyphens, at most 63. The client is the principal `cds:<id>`, and the audit chain names it `cds <id>`. |
 | `title` | yes | A name for people, at most 100 characters. |
-| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base; Inferno's CRD kit sends its own URL. |
+| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base; Inferno's CRD kit sends its suite's own URL, `<its host>/custom/crd_server_v221`, with `jku` that URL plus `/jwks.json` ([Conformance runs](#conformance-runs)). |
 | `org` | yes | The organization its calls act for, and whose decisions they become. With sign-in off it must be `default`. In memberships mode it needs a record. |
 | `fhir_servers` | yes | The FHIR bases (1 to 20) the EHR may send as `fhirServer`. Each must have its origin on `MENDARI_FHIR_ALLOWED_SERVERS`, and if `MENDARI_SMART_EHRS` registers the same base for launches, it must be to the same organization. |
 | `jwks` or `jwks_uri` | one of the two | The EHR's public keys. `jwks` is a JWK Set by value. `jwks_uri` is the one URL Mendari fetches them from: https (plain http only for a loopback or single-label host), with its origin on `MENDARI_FHIR_ALLOWED_SERVERS`. |
@@ -469,8 +469,37 @@ A map is configuration, not part of a pack: no pack file or digest changes. A si
 CT codes may go in its map under its own licence; Mendari ships none. No shipped pack declares
 a code set yet.
 
-## Not built yet
+## Conformance runs
 
-These come in the next LP-23 steps:
+Mendari's own repository runs Inferno's Da Vinci CRD test kit (v0.15.0, suite
+`crd_server_v221`) as an EHR's CDS client against a signed-in engine, weekly and by hand
+(`conformance.yml`; how to run it yourself, and every known gap with its reason, in
+[`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno)).
+It is registered as any EHR is: the entry below, in that sandbox only. The kit's signing keys
+are in its public repository, so never register it on a deployment.
 
-- Inferno's CRD kit calling Mendari as the CDS client in CI.
+```json
+[
+  {
+    "id": "inferno-crd",
+    "title": "Inferno CRD test kit (sandbox only)",
+    "iss": "http://nginx/custom/crd_server_v221",
+    "org": "pilot",
+    "fhir_servers": ["http://nginx/custom/crd_server_v221/fhir"],
+    "jwks_uri": "http://nginx/custom/crd_server_v221/jwks.json"
+  }
+]
+```
+
+Each hook call carries a new ES384 token with exactly these header fields (`alg`, `kid`, `typ`,
+`jku`), and its `aud` is the engine's `MENDARI_PUBLIC_URL` plus the path called. The run proves,
+on synthetic data, that discovery and the prior-authorization pack's `order-sign` answer a
+signed CRD client, read the record from the EHR's FHIR server with the token the hook carries,
+and abstain, saying what they could not read, when part of it cannot be read: with the EHR's
+FHIR server failing every read (the kit's Technical Issues group), the answer's coverage is
+`indeterminate` for a `technical` reason. With no Coverage to name, no coverage information is
+sent at all. It does not prove your
+deployment: TLS (the kit's test 1.01), your EHR's keys and their rotation, and your EHR's own
+requests are yours to check (`Check it`, above). The same weekly run has Inferno's SMART App
+Launch client suite against an EHR launch and the Bulk Data client suite against `mendari bulk
+export`.

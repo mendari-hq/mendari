@@ -3,8 +3,11 @@
 
 `export` asks a FHIR server for a patient-level or group export, polls the status URL (honouring
 `Retry-After`), and downloads the NDJSON files, checking each file's line count against the
-manifest. Every URL, including the status URL and the file URLs the server hands back, goes
-through the allow-listed `GuardedHttp`.
+manifest. With every file downloaded, it asks the server to delete the export (a `DELETE` to the
+status URL, which Bulk Data STU2 says a client MAY send, so the server can drop the files at
+once): one try, whose outcome is one of `DELETE_OUTCOMES` in the result, and never a failure of
+the export, which is complete by then. Every URL, including the status URL and the file URLs the
+server hands back, goes through the allow-listed `GuardedHttp`.
 
 Authentication is none (the sandbox), a bearer token, or SMART Backend Services: a
 `client_credentials` grant with a `private_key_jwt` assertion signed RS384 or ES384, for which the
@@ -37,6 +40,10 @@ from mendari.standards.fhir_client import GuardedHttp
 MAX_FILE_BYTES = 1024 * 1024 * 1024  # one NDJSON file
 MAX_WAIT_SECONDS = 3600
 _ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+# What became of the request to delete a finished export (`export`'s `delete`): the server
+# accepted it (any 2xx), answered anything else (a 4xx, a 5xx, a redirect), did not answer in
+# time, or could not be reached. Nothing of the server's answer is kept.
+DELETE_OUTCOMES = ("deleted", "delete_refused", "delete_timeout", "delete_unreachable")
 _ID_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.")
 
 
@@ -95,7 +102,8 @@ def export(
     max_wait: float = MAX_WAIT_SECONDS,
 ) -> dict[str, Any]:
     """Run an export to completion; the files land in `out`. Returns the server's manifest, with
-    each output's local `file` and line `count`."""
+    each output's local `file` and line `count`, and what became of the request to delete the
+    export on the server (`delete`, one of `DELETE_OUTCOMES`)."""
     base = fhir.rstrip("/")
     if group is not None and not set(group) <= _ID_CHARS:
         raise BulkError("the group id is not a FHIR id")
@@ -110,7 +118,8 @@ def export(
     status, answer, body = http.raw("GET", url, headers=headers, params=params)
     if status != 202 or not answer.get("content-location"):
         raise BulkError(f"the server did not start an export (HTTP {status}){_diagnostics(body)}")
-    manifest = _wait(answer["content-location"], http=http, auth=auth, sleep=sleep, limit=max_wait)
+    status_url = answer["content-location"]
+    manifest = _wait(status_url, http=http, auth=auth, sleep=sleep, limit=max_wait)
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = defaultdict(int)
     for output in manifest.get("output", []):
@@ -127,7 +136,23 @@ def export(
         if isinstance(output.get("count"), int) and output["count"] != lines:
             raise BulkError(f"{path.name}: the manifest says {output['count']} lines, got {lines}")
         output["file"], output["count"] = path.name, lines
+    manifest["delete"] = _delete(status_url, http=http, auth=auth)
     return manifest
+
+
+def _delete(status_url: str, *, http: GuardedHttp, auth: Mapping[str, str]) -> str:
+    """Ask the server to delete a finished export (Bulk Data STU2, "Bulk Data Delete Request"),
+    once: one of `DELETE_OUTCOMES`. A refusal or a failure is the server's to clean up when the
+    export expires, so it never fails, retries or changes the export."""
+    try:
+        status, _, _ = http.raw(
+            "DELETE", status_url, headers={"accept": "application/json", **auth}
+        )
+    except FhirError as error:
+        if error.reason == "timeout":
+            return "delete_timeout"
+        return "delete_unreachable" if error.reason == "network" else "delete_refused"
+    return "deleted" if 200 <= status < 300 else "delete_refused"
 
 
 def _wait(

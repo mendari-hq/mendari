@@ -31,7 +31,9 @@ STATUS = "https://ehr.example.org/fhir/$export-poll-status?_jobId=1"
 
 
 class FakeBulk:
-    """Kick-off, a status URL that answers 202 a few times, then a manifest, and the files."""
+    """Kick-off, a status URL that answers 202 a few times, then a manifest, and the files; a
+    DELETE to the status URL gets `deleted` (202 Accepted, as Bulk Data's own server answers), or
+    raises it when it is an exception."""
 
     def __init__(self, files: dict[str, list[dict[str, Any]]], *, pending: int = 2) -> None:
         self.files = files
@@ -40,10 +42,16 @@ class FakeBulk:
         self.manifest_extra: dict[str, Any] = {}
         self.kickoff: httpx.Response | None = None
         self.counts: dict[str, int] = {}
+        self.deleted: httpx.Response | Exception = httpx.Response(202)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         url = str(request.url)
+        if request.method == "DELETE":
+            assert url == STATUS
+            if isinstance(self.deleted, Exception):
+                raise self.deleted
+            return self.deleted
         if "/$export?" in url or url.endswith("/$export"):
             assert request.headers["prefer"] == "respond-async"
             return self.kickoff or httpx.Response(202, headers={"content-location": STATUS})
@@ -113,6 +121,66 @@ def test_an_export_polls_then_downloads_every_file(tmp_path: Path) -> None:
     downloads = [r for r in fake.requests if "/files/" in str(r.url)]
     assert {r.headers["authorization"] for r in downloads} == {"Bearer t0"}  # requiresAccessToken
     assert len((tmp_path / "ServiceRequest.001.ndjson").read_text().splitlines()) == 2
+
+
+def test_a_finished_export_is_deleted_on_the_server_once_every_file_is_here(
+    tmp_path: Path,
+) -> None:
+    """Bulk Data STU2's "Bulk Data Delete Request" (a client MAY send it): one DELETE to the
+    status URL, with the token, after the last download, so the server can drop the files."""
+    fake = FakeBulk({"Patient": [{"resourceType": "Patient", "id": "p1"}]}, pending=0)
+    manifest, _ = run(fake, tmp_path, token="t0")
+    assert manifest["delete"] == "deleted"
+    last = fake.requests[-1]
+    assert (last.method, str(last.url)) == ("DELETE", STATUS)
+    assert last.headers["authorization"] == "Bearer t0"
+    assert [r.method for r in fake.requests].count("DELETE") == 1
+    assert "/files/" in str(fake.requests[-2].url)  # after the download
+
+
+@pytest.mark.parametrize(
+    ("answer", "outcome"),
+    [
+        (httpx.Response(404, json={"issue": [{"diagnostics": "patient 123 secret"}]}), "refused"),
+        (httpx.Response(500, text="patient 123 secret"), "refused"),
+        (httpx.Response(302, headers={"location": "https://ehr.example.org/x"}), "refused"),
+        (httpx.ReadTimeout("patient 123 secret"), "timeout"),
+        (httpx.ConnectError("patient 123 secret"), "unreachable"),
+    ],
+    ids=["404", "500", "redirect", "timeout", "refused-connection"],
+)
+def test_a_delete_that_fails_never_fails_retries_or_changes_the_export(
+    tmp_path: Path, answer: httpx.Response | Exception, outcome: str
+) -> None:
+    """The export is complete when the DELETE goes: whatever becomes of it is one stable code,
+    never the server's answer, and the files and manifest are as they were."""
+    rows = [{"resourceType": "Patient", "id": "p1"}]
+    fake = FakeBulk({"Patient": rows}, pending=0)
+    fake.deleted = answer
+    manifest, slept = run(fake, tmp_path)
+    assert manifest["delete"] == f"delete_{outcome}" and manifest["delete"] in bulk.DELETE_OUTCOMES
+    assert "secret" not in json.dumps(manifest)
+    assert [(o["type"], o["file"], o["count"]) for o in manifest["output"]] == [
+        ("Patient", "Patient.001.ndjson", 1)
+    ]
+    assert json.loads((tmp_path / "Patient.001.ndjson").read_text()) == rows[0]
+    assert [r.method for r in fake.requests].count("DELETE") == 1 and slept == []
+
+
+def test_the_cli_says_whether_the_server_deleted_the_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for outcome, said in (
+        ("deleted", "asked to delete the export, and accepted"),
+        ("delete_refused", "did not delete the export (delete_refused)"),
+    ):
+        monkeypatch.setattr(
+            bulk, "export", lambda *a, outcome=outcome, **k: {"output": [], "delete": outcome}
+        )
+        args = ["bulk", "export", "--fhir", FHIR, "--out", str(tmp_path)]
+        assert main(args) == 0  # the export is done either way
+        printed = capsys.readouterr()
+        assert said in printed.out + printed.err
 
 
 def test_a_group_export_uses_the_group_endpoint(tmp_path: Path) -> None:

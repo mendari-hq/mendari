@@ -1076,6 +1076,17 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       If its pages call from a browser, `curl -i -X OPTIONS <your URL>/cds-services -H 'Origin:
       <its origin>' -H 'Access-Control-Request-Method: GET'` answers `204` naming that origin,
       and the same with any other origin answers `403` with no `Access-Control-` header.
+- [ ] Only if an EHR calls with its own tokens, or launches Mendari, or you export with Bulk
+      FHIR: know what Mendari's own conformance runs prove and what they leave to you. Weekly,
+      on synthetic data, Inferno's test kits play the other side against Mendari's engines
+      ([`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno),
+      `conformance.yml`): the Da Vinci CRD kit as a signed CDS client, the SMART App Launch
+      client suite as the EHR of a launch, the Bulk Data client suite as the export's server,
+      and the DTR kit as a DTR client. Each test's result is pinned, every known gap with its
+      reason and requirement id. They run over plain HTTP inside Docker, so TLS (CRD 1.01, SMART
+      3.01's https registration) is your deployment's to show, as are your EHR's keys, its
+      requests and its own conformance; the sign-in SMART profile (`openid fhirUser`) is not
+      run against Inferno (the README says why), so check a launch from your EHR as above.
 - [ ] Only if you set `MENDARI_SITE_CODES`: signed in, `/api/health` `site_codes` shows the
       version and SHA-256 of your organization's map, the same as a FHIR decision's record
       shows; and a decision whose record was read through one of its translations is

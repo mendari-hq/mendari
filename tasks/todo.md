@@ -1056,9 +1056,27 @@ Connect) is not supported yet.
     **The owner confirms the `show` list.**
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
     changes FHIR-path decisions in three packs.
-  - [ ] **23l** Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the SMART
-    App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
-    schedule, and the vendor scope check.
+  - [ ] **23l** (lane PR) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
+    SMART App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
+    schedule, and the vendor scope check. **Part 1 built** (Inferno's CRD server, SMART client and
+    Bulk client suites, run by a driver against the engine): a second image,
+    `sandbox/inferno/scripted/` (CRD kit v0.15.0 by commit, Bulk Data kit v0.14.0, inferno_core
+    1.6.0, the lock the build brief resolved), a standalone compose project whose web app and
+    worker share one database, `scripts/inferno_session.py` (the REST API driver, the client's
+    part in the engine's container), `scripts/inferno_scripted_inputs.py`, the goldens
+    `crd_server_v221_expected.json` (groups 1, 2, 3.4, 4: 53 tests, 34 pass, 11 fail, 8 skip),
+    `smart_client_stu2_2_expected.json` (public client: 4 of 5 pass, 3.01 is https) and
+    `bulk_data_v200_client_expected.json` (8 of 8 pass), each from a local run and confirmed by
+    a second; `conformance.yml` jobs `crd-server`, `smart-client` and `bulk-client`. A Bulk export
+    deletes itself on the server after the downloads (a failed DELETE is a stable code, never a
+    failure), and `mendari sandbox smart-launch --launch-url` takes the launch URL an EHR made.
+    Deviations: group 3.7 is not started (3.7.02 names no requirement and cannot pass: the
+    must-support elements need data no pack has); the scripted image has no `list_tests.rb` (the
+    driver lists a run's tests from its session, with the suite's options and nested groups);
+    Inferno's registration is the scripted engine's only CDS client (the root compose's 23e list
+    is untouched). Not yet run on GitHub: the first green `conformance.yml` run is 23m's record.
+    **Part 2 follows:** the validator with a terminology server on a schedule (`--tx`,
+    `terminology.yml`) and the vendor scope check (`mendari smart check`).
   - [ ] **23m** Close-out: gate `a12-ehr-pilot` names its tests and keeps one owner `pending:`
     line for the Epic run; ADR-0014 Accepted; the scorecard graded again at the close-out commit.
 
