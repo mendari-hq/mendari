@@ -752,7 +752,8 @@ Open Mendari again from the EHR." when the launch's routes answer `401`:
 SMART is off until the client id is set. Launch it in a new window or the EHR's embedded
 window: inside an iframe the launch fails safely. Before go-live, `mendari smart check <FHIR
 base>` reports, with the deployment's settings, the base's registration key, whether it is
-allowed and registered, the scopes, and the EHR's discovery, PKCE S256 and keys.
+allowed and registered, the scopes, and the EHR's discovery, whether it publishes those scopes
+(`scopes_supported`, SMART v1 or v2; `unknown` when it publishes none), PKCE S256 and keys.
 
 **CQL.** A pack can compute answers with a CQL library (provider type `cql`), evaluated on a
 CQL engine at `MENDARI_CQL_URL` (HAPI FHIR with Clinical Reasoning; the sandbox's HAPI has
@@ -834,6 +835,10 @@ runs with no HTTP access, so its verdict depends on nothing fetched by version a
 has a package cache of its own with only what it loads, so the US Core run checks against US
 Core 6.1.0 and no other version.
 `scripts/fhir_packages.py lock` writes the lock again after a validator or guide version changes.
+It runs without a terminology server (`-tx n/a`). The workflow `terminology.yml`, weekly and by
+hand and never on a pull request, runs the same job with one (`scripts/fhir_validate.py --tx
+https://tx.fhir.org/r4`), so codes are checked against the code systems and value sets the
+server holds; only the synthetic files' codes reach it, and it is not a required check.
 
 ## Documentation
 

@@ -335,6 +335,24 @@ The first release (not yet published).
   made (the engine's own launch path only), reads the patient in context and logs out. See
   [sandbox/inferno/README.md](sandbox/inferno/README.md) and
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#conformance-runs).
+- **The HL7 validator with a terminology server, and `mendari smart check` compares scopes**
+  (LP-23l, part 2). `scripts/fhir_validate.py --tx URL` runs the validator with that
+  terminology server in place of none (`-tx n/a`, still the default); it cannot go with
+  `--offline` (a server needs HTTP), and the run still loads only the locked packages, from a
+  cache of its own, and fails if the validator put another in it. A new workflow,
+  `terminology.yml`, runs `fhir-conformance`'s steps (the same validator by sha256, locked
+  packages and generated inputs) with `--tx https://tx.fhir.org/r4`, weekly and by hand, never
+  on a pull request and not required; only the synthetic files' codes reach tx.fhir.org.
+  `mendari smart check`, with SMART on, now compares each scope a launch asks for
+  (`MENDARI_SMART_SCOPES`) with the EHR's `scopes_supported`, in SMART v1 or v2 form
+  (`patient/*.*` covers `patient/*.rs`, a type wildcard covers each type, each of `patient/`,
+  `user/` and `system/` only its own): a scope the EHR does not publish is `fail`, named, and
+  an EHR that publishes no list is the new status `unknown`, never `ok`, which leaves the exit
+  code as it is (1 on `fail` only). SMART 2.2.0 says the list need not be exhaustive, so the
+  detail says an EHR may grant a scope it does not list. smart-launcher-v2's published list
+  (`patient/*.*`, read from the pinned image) covers what `sandbox-e2e`'s signed-in engine asks
+  for. See
+  [Deploying with PHI](docs/deploying-with-phi.md#2-sign-in-and-roles).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

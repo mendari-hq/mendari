@@ -296,11 +296,20 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
   registered to an organization other than `default` and `MENDARI_OIDC_ORG_CLAIM` is unset;
   `warn` in open mode; in memberships mode `warn`, and `fail` for an id no record can have),
   the SMART client
-  and scopes, and the EHR's discovery, PKCE S256 and keys, each `ok`, `warn` or `fail` (exit 1
-  on any `fail`). It
-  reads only the EHR's public configuration and keys. Two tenants on one EHR host are two
-  bases, so two organizations; one base serving several organizations is not supported.
-  Register only an EHR whose sign-in you trust: its id_token is what names the clinician.
+  and scopes, the EHR's discovery, whether the EHR publishes the scopes a launch asks for, and
+  its PKCE S256 and keys, each `ok`, `warn`, `unknown` or `fail` (exit 1 on any `fail`, and
+  only then). It reads only the EHR's public configuration and keys. Two tenants on one EHR
+  host are two bases, so two organizations; one base serving several organizations is not
+  supported. Register only an EHR whose sign-in you trust: its id_token is what names the
+  clinician.
+- **The scopes check** (SMART on) compares each scope in `MENDARI_SMART_SCOPES` (or the
+  default) with the EHR's `scopes_supported`, in SMART v1 or v2 form: `patient/*.*` or
+  `patient/*.read` covers `patient/*.rs`, a type wildcard covers each type, and `patient/`,
+  `user/` and `system/` cover only their own. A scope the EHR does not publish is `fail`, the
+  scope named. SMART App Launch 2.2.0 says that list need not be exhaustive, so an EHR may grant
+  a scope it does not list: ask the EHR before changing your scopes. An EHR that publishes no
+  list (or not a list of strings, or an empty one) gives `unknown`: nothing is assumed, it is
+  never `ok`, and it does not change the exit code; ask the EHR which scopes it grants.
 - **What is refused, at the launch, never at startup:** a base not registered (before anything
   is sent to it), scopes without `openid fhirUser` in `MENDARI_SMART_SCOPES` (the default has
   both), an id_token without a subject, and a user who is not a Practitioner or
@@ -1004,7 +1013,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
 | `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 pack's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the packs found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does a pack rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
-| `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
+| `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch. `mendari smart check` compares each with the EHR's `scopes_supported` (`unknown` when it publishes none) | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
@@ -1064,7 +1073,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] Only if you turn on EHR launches: each EHR is registered in `MENDARI_SMART_EHRS` (§2),
       to the organization your people's sign-in gives them (`default` without
       `MENDARI_OIDC_ORG_CLAIM`), and `mendari smart check <base>`, run with the server's
-      settings, reports no `fail` for it. Then launch from the EHR in a new window or its
+      settings, reports no `fail` for it; an `unknown` for its scopes (the EHR publishes no
+      `scopes_supported`) means you confirm with the EHR that it grants every scope in
+      `MENDARI_SMART_SCOPES`. Then launch from the EHR in a new window or its
       embedded window (not an iframe, which fails with `browser`): the clinician sees the
       patient view alone, a decision there is in the audit trail of the registered
       organization, under the EHR's `<issuer>|<subject>` (or verified email), and a second
@@ -1087,6 +1098,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       3.01's https registration) is your deployment's to show, as are your EHR's keys, its
       requests and its own conformance; the sign-in SMART profile (`openid fhirUser`) is not
       run against Inferno (the README says why), so check a launch from your EHR as above.
+      Weekly too, `terminology.yml` runs the HL7 validator over the synthetic resources the
+      required offline check reads, with tx.fhir.org as its terminology server; your site's own
+      codes, and the scopes your EHR grants (`mendari smart check`, above), are yours to check.
 - [ ] Only if you set `MENDARI_SITE_CODES`: signed in, `/api/health` `site_codes` shows the
       version and SHA-256 of your organization's map, the same as a FHIR decision's record
       shows; and a decision whose record was read through one of its translations is

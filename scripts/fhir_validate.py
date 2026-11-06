@@ -2,7 +2,8 @@
 """Check FHIR resources with the official HL7 FHIR validator against US Core 6.1.0.
 
     uv run python scripts/fhir_validate.py --valid FILE... [--invalid FILE...] [--docker]
-                                           [--offline] [--ig PACKAGE#VERSION|FOLDER|FILE.tgz ...]
+                                           [--offline | --tx URL]
+                                           [--ig PACKAGE#VERSION|FOLDER|FILE.tgz ...]
 
 - `--valid` files must have no errors, and no warnings but those `EXPECTED_WARNINGS` lists
   with the reason, so a new one is noticed: they are what Mendari produces or accepts as
@@ -17,7 +18,7 @@
 guides for the prior authorization samples (`var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz`),
 a package by name (`hl7.fhir.us.davinci-crd#2.2.1`), or a folder of resources, e.g. Mendari's
 terminology (`scripts/fhir_terminology.py`), so a code Mendari emits that its CodeSystem lacks is an
-error. The validator runs without a terminology
+error. By default the validator runs without a terminology
 server (`-tx n/a`), so the result does not depend on a remote service. Java comes from the PATH,
 or from the eclipse-temurin image with `--docker`. Set `FHIR_VALIDATOR_JAR` to the jar (default
 `var/validator/validator_cli.jar`).
@@ -31,6 +32,14 @@ it: a package by name then resolves to the locked one, a package the lock lacks 
 and so does one the validator put in its cache while it ran. A resource that cites a canonical
 of a guide the run does not load (a Da Vinci operation in the US Core run) cannot pull that
 guide in, with another US Core it needs, for the files after it.
+
+`--tx URL` runs the validator with that terminology server in place of `-tx n/a` (the scheduled
+workflow `terminology.yml` uses `https://tx.fhir.org/r4`). It needs HTTP, so it cannot go with
+`--offline`, but the run's package cache is built from the lock the same way, and a package the
+validator put in it that the lock does not pin still fails the run. Only the codes in the files
+reach the server: run it on synthetic resources only. The warnings `NO_TERMINOLOGY_SERVER`
+explains should then not appear (an expected warning that never appears fails nothing), and
+what the server finds is an issue like any other, until it has an entry here with its reason.
 """
 
 from __future__ import annotations
@@ -44,6 +53,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -164,23 +174,34 @@ EXPECTED_WARNINGS = (
 
 
 def run_validator(
-    files: list[Path], docker: bool, igs: list[str] | None = None, offline: bool = False
+    files: list[Path],
+    docker: bool,
+    igs: list[str] | None = None,
+    offline: bool = False,
+    tx: str | None = None,
 ) -> dict[str, list[dict[str, str]]]:
     """Errors and warnings per file:
-    [{"severity": "error", "resource": "Patient/p1", "where": ..., "text": ...}]."""
+    [{"severity": "error", "resource": "Patient/p1", "where": ..., "text": ...}].
+    `tx` is a terminology server, in place of none (`-tx n/a`); `offline` and `tx` both run
+    with the run's own package cache, from the lock, and only `offline` without HTTP."""
+    if offline and tx is not None:
+        raise ValueError("a terminology server needs HTTP: --tx cannot go with --offline")
     local = _mounted if docker else str
     loaded = [local(Path(ig)) if Path(ig).exists() else ig for ig in igs or []]
-    args = [*ARGS, *([OFFLINE] if offline else []), *(p for ig in loaded for p in ("-ig", ig))]
+    args = [*_arguments(tx), *([OFFLINE] if offline else [])]
+    args += [p for ig in loaded for p in ("-ig", ig)]
+    locked = offline or tx is not None  # the run's own package cache, from the lock
     (ROOT / "var").mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=ROOT / "var") as scratch:
         out = Path(scratch) / "out.json"
         log = Path(scratch) / "validator.log"
-        # The package cache follows user.home (Java ignores HOME). Offline, the run has a cache
-        # of its own with only what it loads, so a resource that cites another package's
-        # canonical finds nothing more to load (scripts/fhir_packages.py, GUIDES).
-        home = Path(scratch) / "home" if offline else DOCKER_HOME if docker else Path.home()
+        # The package cache follows user.home (Java ignores HOME). Offline or with a terminology
+        # server, the run has a cache of its own with only what it loads, so a resource that
+        # cites another package's canonical finds nothing more to load (scripts/fhir_packages.py,
+        # GUIDES).
+        home = Path(scratch) / "home" if locked else DOCKER_HOME if docker else Path.home()
         cache = home / ".fhir" / "packages"
-        installed = _install(cache, igs or []) if offline else set()
+        installed = _install(cache, igs or []) if locked else set()
         command = ["java", f"-Duser.home={local(home)}", "-jar", local(JAR)]
         if docker:
             network = ["--network", "none"] if offline else []
@@ -194,7 +215,7 @@ def run_validator(
             print("\n".join(tail), file=sys.stderr)
             sys.exit("the validator produced no report; the end of its output is above")
         report = json.loads(out.read_text(encoding="utf-8"))
-        fetched = sorted(_cached(cache) - installed) if offline else []
+        fetched = sorted(_cached(cache) - installed) if locked else []
     if fetched:
         sys.exit(
             f"the validator put {', '.join(fetched)} in its package cache, which this run's "
@@ -219,6 +240,31 @@ def run_validator(
             )
         issues[str(path)] = found
     return issues
+
+
+def _arguments(tx: str | None) -> list[str]:
+    """`ARGS`, with the terminology server `tx` in place of none (`-tx n/a`)."""
+    arguments = list(ARGS)
+    if tx is not None:
+        arguments[arguments.index("-tx") + 1] = tx
+    return arguments
+
+
+def _terminology_server(value: str) -> str:
+    """`--tx`: an http(s) URL with a host, and no credentials, query or fragment (the validator
+    prints the URL it calls)."""
+    parts = urlsplit(value)
+    if (
+        parts.scheme not in ("http", "https")
+        or not parts.hostname
+        or "@" in parts.netloc
+        or parts.query
+        or parts.fragment
+    ):
+        raise argparse.ArgumentTypeError(
+            "a terminology server is an http(s) URL with no credentials, query or fragment"
+        )
+    return value
 
 
 def _mounted(path: Path) -> str:
@@ -278,8 +324,15 @@ def main() -> int:
     parser.add_argument("--valid", nargs="*", default=[], type=Path)
     parser.add_argument("--invalid", nargs="*", default=[], type=Path)
     parser.add_argument("--docker", action="store_true", help="run Java in the temurin image")
-    parser.add_argument(
+    network = parser.add_mutually_exclusive_group()
+    network.add_argument(
         "--offline", action="store_true", help="no HTTP access: only the locked packages"
+    )
+    network.add_argument(
+        "--tx",
+        type=_terminology_server,
+        metavar="URL",
+        help="a terminology server in place of none (-tx n/a); the locked packages only",
     )
     parser.add_argument(
         "--ig",
@@ -294,7 +347,7 @@ def main() -> int:
     for ig in args.ig:
         if ig.endswith(".tgz") and not Path(ig).is_file():
             parser.error(f"--ig {ig}: no such package tarball (see scripts/fhir_packages.lock)")
-    issues = run_validator(files, args.docker, args.ig, args.offline)
+    issues = run_validator(files, args.docker, args.ig, args.offline, args.tx)
     failed = False
     for path in args.valid:
         found = issues[str(path)]

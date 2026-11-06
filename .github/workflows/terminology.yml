@@ -1,0 +1,92 @@
+name: terminology
+
+# The HL7 FHIR validator with a terminology server, weekly and by hand (LP-23l): the same
+# validator, packages and generated inputs as ci.yml's fhir-conformance job, step for step, with
+# `--tx https://tx.fhir.org/r4` in place of `--offline` (scripts/fhir_validate.py), so codes are
+# checked against the code systems and value sets a terminology server holds. Never on a pull
+# request: a run calls a live public service, and tx.fhir.org being down fails only this job.
+# Not a required check; the offline fhir-conformance job stays the required gate.
+#
+# What reaches tx.fhir.org: only the codes in the files validated, which are synthetic (the US
+# Core fixtures, the sandbox's records, Mendari's outputs and its own terminology; no SNOMED CT,
+# LP-14). The validator still loads only the packages scripts/fhir_packages.lock pins, each
+# checked against its sha256, and a package it put in its cache that the lock does not pin fails
+# the run, as offline.
+# The warnings the offline runs expect because there is no terminology server should not
+# appear here; what the server finds is reported as any other issue, and an expected one needs
+# its entry, with its reason, in scripts/fhir_validate.py once a run has shown it.
+on:
+  schedule:
+    - cron: "41 10 * * 3"  # Wednesdays, 06:41 EDT or 05:41 EST (cron runs on UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validator-tx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VALIDATOR_VERSION: "6.10.4"
+      VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.12"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        # Only downloads, each checked against its sha256 below on every run; each validator
+        # run's package cache is built afresh from them, so nothing unchecked is restored.
+        with:
+          path: |
+            var/validator/validator_cli.jar
+            var/fhir-packages
+          key: fhir-validator-${{ env.VALIDATOR_VERSION }}-packages-${{ hashFiles('scripts/fhir_packages.lock') }}
+      - name: Download the HL7 FHIR validator (pinned, checksum verified)
+        run: |
+          mkdir -p var/validator
+          if [ ! -f var/validator/validator_cli.jar ]; then
+            curl -sSfL -o var/validator/validator_cli.jar \
+              "https://github.com/hapifhir/org.hl7.fhir.core/releases/download/${VALIDATOR_VERSION}/validator_cli.jar"
+          fi
+          echo "${VALIDATOR_SHA256}  var/validator/validator_cli.jar" | sha256sum -c -
+      - name: Download the FHIR packages the validator loads (scripts/fhir_packages.lock, checksum verified)
+        # One line per package: name, version, sha256, URL. A mismatch fails the job here.
+        run: |
+          mkdir -p var/fhir-packages
+          while read -r name version sha256 url; do
+            file="var/fhir-packages/${name}-${version}.tgz"
+            if [ ! -f "$file" ]; then
+              curl -sSfL --retry 3 -o "$file" "$url"
+            fi
+            echo "${sha256}  $file" | sha256sum -c -
+          done < <(grep -Ev '^(#|$)' scripts/fhir_packages.lock)
+      - run: uv sync --locked
+      - run: uv run python scripts/fhir_terminology.py var/fhir-terminology
+      - run: uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
+      - run: uv run python scripts/task_fhir_sample.py var/fhir-samples
+      - run: uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
+      - run: uv run python scripts/fhir_output_sample.py var/fhir-samples
+      - run: >-
+          uv run python scripts/fhir_validate.py --tx https://tx.fhir.org/r4
+          --ig var/fhir-terminology
+          --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json var/fhir-terminology/*.json
+          --invalid tests/fixtures/us-core/invalid/*.json
+      - run: uv run python scripts/davinci_sample.py var/fhir-samples/davinci
+      - name: Da Vinci resources conform to their implementation guides
+        # With the CapabilityStatement (scripts/fhir_output_sample.py), which cites DTR's operation.
+        run: >-
+          uv run python scripts/fhir_validate.py --tx https://tx.fhir.org/r4
+          --ig var/fhir-terminology
+          --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz
+          --ig var/fhir-packages/hl7.fhir.us.davinci-dtr-2.2.0.tgz
+          --ig var/fhir-packages/hl7.fhir.us.davinci-pas-2.2.1.tgz
+          --valid var/fhir-samples/davinci/*.json

@@ -201,3 +201,41 @@ def test_every_supported_scope_is_granted_to_a_key() -> None:
     assert parse(" ".join(supported)).fhir == EVERY_READ
     assert {DECIDE, OUTCOME} <= set(supported)
     assert "system/NamingSystem.rs" not in supported
+
+
+@pytest.mark.parametrize(
+    ("scope", "read"),
+    [
+        ("patient/*.rs", ("patient", "*", "rs", "")),
+        ("user/Observation.read", ("user", "Observation", "rs", "")),  # SMART v1
+        ("system/Task.write", ("system", "Task", "cud", "")),
+        ("patient/*.*", ("patient", "*", "cruds", "")),
+        (
+            "patient/Observation.rs?category=laboratory",
+            ("patient", "Observation", "rs", "category=laboratory"),
+        ),
+        ("launch", None),
+        ("launch/patient", None),
+        ("openid", None),
+        ("patient/*.sr", None),  # out of SMART's order
+        ("patient/*.", None),
+        ("patient/*.rs?", None),
+        ("practitioner/*.rs", None),
+        ("Patient/*.rs", None),
+    ],
+)
+def test_an_ehrs_resource_scope_is_read_in_any_context(
+    scope: str, read: tuple[str, str, str, str] | None
+) -> None:
+    """For `mendari smart check`: the scopes an EHR publishes and a launch asks for, in
+    patient/, user/ and system/ alike. Reading one grants nothing: a key's `parse` still refuses
+    every context but system/."""
+    found = scopes.resource_scope(scope)
+    if read is None:
+        assert found is None
+    else:
+        context, kind, letters, query = read
+        assert found == scopes.ResourceScope(context, kind, frozenset(letters), query)
+    if found is not None and found.context != "system":
+        with pytest.raises(ScopeError, match=r"granular scopes|only system/ scopes are granted"):
+            parse(scope)

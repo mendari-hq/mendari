@@ -502,4 +502,7 @@ sent at all. It does not prove your
 deployment: TLS (the kit's test 1.01), your EHR's keys and their rotation, and your EHR's own
 requests are yours to check (`Check it`, above). The same weekly run has Inferno's SMART App
 Launch client suite against an EHR launch and the Bulk Data client suite against `mendari bulk
-export`.
+export`, and `terminology.yml` runs the HL7 validator over Mendari's synthetic FHIR resources
+with a terminology server (tx.fhir.org). For an EHR that launches Mendari, `mendari smart check
+<its FHIR base>` also compares the scopes a launch asks for with the EHR's `scopes_supported`
+([Sign-in and roles](../deploying-with-phi.md#2-sign-in-and-roles)).

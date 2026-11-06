@@ -1470,7 +1470,7 @@ def cmd_smart_check(args: argparse.Namespace) -> int:
 
     findings = smart_check.check(args.base)
     for finding in findings:
-        print(f"{finding.status:<4}  {finding.check:<16}  {finding.detail}")
+        print(f"{finding.status:<7}  {finding.check:<16}  {finding.detail}")
     return 1 if any(finding.status == "fail" for finding in findings) else 0
 
 
@@ -3431,8 +3431,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     smart_check = smart_cmd.add_parser(
         "check",
-        help="before go-live: an EHR's registration, allow-list, discovery, PKCE and keys, "
-        "with this deployment's settings",
+        help="before go-live: an EHR's registration, allow-list, discovery, scopes, PKCE and "
+        "keys, with this deployment's settings (each ok, warn, unknown or fail; exit 1 on fail)",
     )
     smart_check.add_argument("base", help="the EHR's FHIR base, as it sends it in the launch's iss")
     smart_check.set_defaults(handler=cmd_smart_check)

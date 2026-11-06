@@ -1056,7 +1056,7 @@ Connect) is not supported yet.
     **The owner confirms the `show` list.**
   - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
     changes FHIR-path decisions in three packs.
-  - [ ] **23l** (lane PR) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
+  - [x] **23l** (lane PR) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
     SMART App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
     schedule, and the vendor scope check. **Part 1 built** (Inferno's CRD server, SMART client and
     Bulk client suites, run by a driver against the engine): a second image,
@@ -1075,8 +1075,23 @@ Connect) is not supported yet.
     driver lists a run's tests from its session, with the suite's options and nested groups);
     Inferno's registration is the scripted engine's only CDS client (the root compose's 23e list
     is untouched). Not yet run on GitHub: the first green `conformance.yml` run is 23m's record.
-    **Part 2 follows:** the validator with a terminology server on a schedule (`--tx`,
-    `terminology.yml`) and the vendor scope check (`mendari smart check`).
+    **Part 2 built** (the validator with a terminology server on a schedule, and the scope check):
+    `scripts/fhir_validate.py --tx URL` (in place of `-tx n/a`, still the default; refused with
+    `--offline`; the run's own package cache from the lock and the "put an unlocked package in its
+    cache" check kept, now apart from `-no-http-access`); `.github/workflows/terminology.yml`
+    (schedule and dispatch only, `fhir-conformance`'s steps with `--tx https://tx.fhir.org/r4`,
+    pinned step for step by
+    `tests/test_workflow_safety.py::test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request`);
+    `mendari smart check` compares the scopes asked with `scopes_supported` (SMART v1 and v2,
+    wildcards, the three contexts; `server/scopes.py` `resource_scope`), `fail` for one not
+    published, `unknown` for no list (never `ok`, exit 1 on `fail` only), smart-launcher-v2's
+    published `patient/*.*` covering the default `patient/*.rs`. Deviations: the `--tx` tests are
+    in `tests/test_fhir_packages.py` beside the validator script's other tests and fakes, not a new
+    `tests/test_fhir_validate.py`; an empty `scopes_supported` list is `unknown` too. Not run:
+    `terminology.yml` itself (never run from a build session; which issues tx.fhir.org raises,
+    and so which expected warnings it needs, is known only after its first run, 23m's record).
+    **The owner's question:** a scope the EHR does not publish is `fail` (decision 56), though
+    SMART 2.2.0 says `scopes_supported` need not be exhaustive; `warn` would match the spec.
   - [ ] **23m** Close-out: gate `a12-ehr-pilot` names its tests and keeps one owner `pending:`
     line for the Epic run; ADR-0014 Accepted; the scorecard graded again at the close-out commit.
 
