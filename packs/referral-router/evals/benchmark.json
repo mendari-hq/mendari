@@ -3,7 +3,7 @@
   "pack": {
     "id": "mendari/referral-router",
     "version": "0.2.1",
-    "digest": "sha256:fc843d27f5a93a962a49f512a7870391ec5cf0707f73c13f1e73f2c279e33630"
+    "digest": "sha256:110d716c9786cc9c19a60ab6cba67fbf7b6ca1e0231070ba91bce36c6e4d03c8"
   },
   "providers": {
     "specialty_reader": {
@@ -37,7 +37,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:baf7b95669d2478ab0c2142d8f1a70d2a60240a3e998bcd6d4da79e7e096539a",
+    "id": "sha256:12fb55edc174a598d0d0419f7f778c351ca83ec4719f39b57ff6753062df7964",
     "cases": 600
   },
   "seeds": {
@@ -1894,15 +1894,15 @@
     }
   ],
   "run": {
-    "id": "0f3a0836-a24d-4660-adfb-fe5d8295bfab",
-    "created_at": "2026-11-06T16:31:57+00:00",
+    "id": "9020b17c-40ff-4487-8ba5-6238a07a07af",
+    "created_at": "2026-11-06T17:52:13+00:00",
     "latency_ms": {
-      "mean": 1.9095627094308536,
-      "p50": 1.8871664069592953,
-      "p95": 2.054582815617323,
-      "max": 3.909165970981121
+      "mean": 1.839079250736783,
+      "p50": 1.8330421298742294,
+      "p95": 1.9049998372793198,
+      "max": 2.2303746081888676
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:c255681ca13f3503c67fbebe7d8aa0f0dc5420bf325924a6164c5652741d0f9e"
+  "result_sha256": "sha256:1c625a08e502d24591cab60315d00a53ebafef34453177dde3abc4271bdc00f3"
 }

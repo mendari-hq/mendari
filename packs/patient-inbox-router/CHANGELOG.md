@@ -12,10 +12,13 @@ rules, models, data and results did not.
   indicator is the team's: `info` for the front desk, a medical assistant and billing, `warning`
   for a nurse and a physician (it was `warning` for every message a person reviews, and `info`
   for every routed one). A possible emergency is still `critical`. A message with no suggested
-  team says "Message: no suggested team; it stays in the shared inbox for manual triage" (it
-  said "No recommendation; to manual triage"), and the suggestion is "Create a routing task"
-  (it was "Create routing task for" the team). Every decision still shows a card, and the
-  suggested Task, its text and its team's code are unchanged.
+  team says "Message: no suggested team; it stays in the shared inbox for manual triage",
+  whether the engine abstained or refused the message as invalid input (BLOCK, a body over
+  10,000 characters for one): it said "No recommendation; to manual triage" for the first and
+  "Blocked; to manual triage" for the second, and the card's detail still says which. The
+  suggestion is "Create a routing task" (it was "Create routing task for" the team). Every
+  decision still shows a card, and the suggested Task, its text and its team's code are
+  unchanged.
 - Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
   (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
   the manifest does.

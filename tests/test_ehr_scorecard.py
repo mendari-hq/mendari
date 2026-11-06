@@ -4,9 +4,10 @@ criterion is graded twice, before LP-23 (as LP-23a merged it) and at the close-o
 criterion cites a test that exists or says "missing", every grade states its rubric version,
 commits and scope, a test that was not at the before commit is cited only by a row that names
 the LP-23 step whose test it is, a row whose evidence is a CI run that has not happened yet is not
-met, a row a step landing after the close-out grades again says so (LP-23j: CW-3e), no figure is
-a percentage or a fraction, and each grade is what its column's criteria give, the overall grade
-the lowest dimension's."""
+met, a row a step landing after the close-out grades again says so (LP-23j: CW-3e), on that row
+and in its dimension's summary, a test a later step renamed had its old name at both commits, no
+figure is a percentage or a fraction, and each grade is what its column's criteria give, the
+overall grade the lowest dimension's."""
 
 from __future__ import annotations
 
@@ -50,8 +51,16 @@ DIMENSIONS = (
 )
 LEVELS = (1, 2, 3, 4, 5)
 # The rows a step that landed after the close-out commit graded again, on its own tests: the
-# step, its pull request, the row's dimension and that dimension's after grade at the close-out.
-REGRADED = {"CW-3e": ("23j", "#281", "Cards and workflow", 2)}
+# step, the row's dimension and that dimension's after grade at the close-out.
+REGRADED = {"CW-3e": ("23j", "Cards and workflow", 2)}
+# The tests a step that landed after the close-out commit renamed, cited by their new names: the
+# step and the name the test had at both graded commits.
+RENAMED = {
+    "tests/test_referral_pack.py::test_on_order_sign_only_a_referral_gets_a_card": (
+        "23j",
+        "test_order_sign_gives_one_card_per_referral",
+    )
+}
 NODE = re.compile(r"tests/[\w/]+\.py::\w+")
 CRITERION = re.compile(r"^\| (?P<id>[A-Z]{2}-(?P<level>\d)[a-z]) \| ")
 
@@ -168,9 +177,20 @@ def test_every_grade_states_its_rubric_version_commit_and_scope() -> None:
     summary = [line for line in text().splitlines() if re.match(r"^\| \d\. ", line)]
     assert len(summary) == len(DIMENSIONS)
     for line in summary:
-        assert line.rstrip().endswith(f"| {SCOPE} |"), line
+        assert line.rstrip().endswith(f"| {SCOPE}{regraded_note(line)} |"), line
     (overall,) = [p for p in paragraphs(text()) if p.startswith("**Overall:**")]
     assert overall.endswith(f"R{SCOPE[1:]}."), overall
+
+
+def regraded_note(line: str) -> str:
+    """What a summary row adds to its scope for each of its dimension's rows a later step graded
+    again (`REGRADED`): nothing for the others."""
+    title = line.strip().strip("|").split("|")[0].strip().split(". ", 1)[1]
+    return "".join(
+        f"; {row} graded again by LP-{step}, after the close-out commit, on that step's tests"
+        for row, (step, dimension, _) in sorted(REGRADED.items())
+        if dimension == title
+    )
 
 
 def _shallow() -> bool:
@@ -252,17 +272,17 @@ def test_a_row_waiting_on_a_ci_run_is_not_met_after() -> None:
 
 
 def test_a_row_graded_again_after_the_close_out_says_so() -> None:
-    """A step that landed after the close-out commit (LP-23j, #281) grades its own rows again,
-    on the tests it added: each such row is met after, cites tests that were not at the close-out
-    commit (skipped in a shallow clone, which holds no history), names the step and its pull
-    request first in its last column, and its dimension says, under its grade, that the row was
-    graded again and every other row is the close-out's. The scope lines keep naming the
-    close-out commit."""
+    """A step that landed after the close-out commit (LP-23j) grades its own rows again, on the
+    tests it added: each such row is met after, cites tests that were not at the close-out commit
+    (skipped in a shallow clone, which holds no history), names the step first in its last
+    column, and its dimension says, under its grade, that the row was graded again and every
+    other row is the close-out's. The scope lines keep naming the close-out commit, and the
+    dimension's summary row adds that the row was graded again (`regraded_note`)."""
     found = sections()
-    for row_id, (step, pull, title, closed_at) in REGRADED.items():
+    for row_id, (step, title, closed_at) in REGRADED.items():
         (row,) = [row for row in criteria(found[title]) if row.id == row_id]
         assert row.status == "met" and row.before != "met", row_id
-        assert row.waits_on.startswith(f"{step}: {pull}, "), row_id
+        assert row.waits_on.startswith(f"{step}: "), row_id
         cited = NODE.findall(row.evidence)
         assert cited, row_id
         for node in cited if not _shallow() else []:
@@ -272,16 +292,43 @@ def test_a_row_graded_again_after_the_close_out_says_so() -> None:
             assert not re.search(rf"^def {name}\(", then, flags=re.MULTILINE), node
         said = [p for p in paragraphs(found[title]) if p.startswith(f"{row_id} is graded again")]
         assert said == [
-            f"{row_id} is graded again by LP-{step} ({pull}), which landed after the close-out "
+            f"{row_id} is graded again by LP-{step}, which landed after the close-out "
             "commit, on the tests that step added: met, so this dimension is at level "
             f"{level_of(criteria(found[title]))} after, where the close-out graded it at level "
             f"{closed_at}. Every other row is as the close-out graded it."
         ], row_id
+        (line,) = [line for line in text().splitlines() if re.match(rf"^\| \d\. {title} \|", line)]
+        assert f"; {row_id} graded again by LP-{step}, after the close-out commit" in line
     whole = " ".join(text().split())
     assert "A step that lands after the close-out grades its own rows again" in whole
-    for step, pull in {(step, pull) for step, pull, _, _ in REGRADED.values()}:
+    for step in {step for step, _, _ in REGRADED.values()}:
         rows = ", ".join(sorted(row for row, graded in REGRADED.items() if graded[0] == step))
-        assert f"LP-{step} ({pull}) grades {rows}." in whole
+        assert f"LP-{step} grades {rows}." in whole
+
+
+def test_a_test_renamed_after_the_close_out_had_its_old_name_at_both_commits() -> None:
+    """A test a later step renamed (`RENAMED`) is cited by its new name, by a row whose last column
+    names the step first and gives the old name, which is the name the test had at the before
+    and the close-out commits, and which no test has now. Skipped in a shallow clone, which holds
+    no history."""
+    if _shallow():
+        pytest.skip("a shallow clone holds no history")
+    rows = [row for body in sections().values() for row in criteria(body)]
+    for node, (step, old) in RENAMED.items():
+        file, name = node.split("::")
+        citing = [row for row in rows if node in NODE.findall(row.evidence)]
+        assert citing, node
+        for row in citing:
+            assert row.waits_on.startswith(f"{step}: ") and f"`{old}`" in row.waits_on, row.id
+        for commit in (COMMIT, AFTER):
+            shown = ["git", "show", f"{commit}:{file}"]
+            then = subprocess.run(shown, cwd=ROOT, capture_output=True, text=True).stdout
+            assert re.search(rf"^def {old}\(", then, flags=re.MULTILINE), (commit, old)
+            assert not re.search(rf"^def {name}\(", then, flags=re.MULTILINE), (commit, name)
+        now = (ROOT / file).read_text(encoding="utf-8")
+        assert re.search(rf"^def {name}\(", now, flags=re.MULTILINE), name
+        assert not re.search(rf"^def {old}\(", now, flags=re.MULTILINE), old
+        assert f"::{old}`" not in text(), old
 
 
 def test_the_scorecard_shows_no_percentage_or_fraction() -> None:

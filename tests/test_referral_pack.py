@@ -210,7 +210,10 @@ def _order_sign(orders: list[dict[str, Any]], prefetch: dict[str, Any]) -> dict[
     }
 
 
-def test_order_sign_gives_one_card_per_referral(router: Decision) -> None:
+def test_on_order_sign_only_a_referral_gets_a_card(router: Decision) -> None:
+    """Of the orders signed together, only a referral ServiceRequest is decided and may show a
+    card: the lab order and the MedicationRequest never do. (A referral gets a card only when
+    the person signing can act: `test_only_referrals_that_need_action_show_a_card`.)"""
     orders = [
         _order("sr1", "New chest tightness on exertion for 3 weeks, eases with rest. Please see."),
         _order("lab1", "Annual bloods", category=LAB),
@@ -234,8 +237,9 @@ EACH_STEP = {
 def test_only_referrals_that_need_action_show_a_card(tmp_path: Path) -> None:
     """A card only where the person signing the referral can act (`show`, owner decision 4,
     confirmed 2026-11-06): one to send back with what is missing, and one to review today. A
-    referral to schedule or for a coordinator is decided and audited, with no card. A record
-    that could not be read still shows its `info` card for every referral (owner decision 6)."""
+    referral to schedule or for a coordinator is decided and audited, with no card. An ABSTAIN
+    because part of the record could not be read still shows its `info` card for every referral
+    (owner decision 6)."""
     template = load_pack(PACK_DIR).manifest.cds_hooks
     assert template is not None and template.card is not None
     assert template.card.show == ["return_for_info", "urgent_review"]
@@ -268,3 +272,40 @@ def test_only_referrals_that_need_action_show_a_card(tmp_path: Path) -> None:
             (cds_hooks.UNREADABLE_SUMMARY, "info")
         }
         assert len(store.query(pack_id=router.pack.id, outcome="ABSTAIN")) == len(EACH_STEP)
+
+
+def test_a_referral_refused_as_invalid_input_shows_no_card(tmp_path: Path) -> None:
+    """A referral the engine refuses as invalid input (a reason over 5,000 characters) is a
+    BLOCK with no suggestion, the `none` key, which `show` leaves out: decided and audited, with
+    no card, and not in the review queue (the EHR's own referral workflow carries it). A record
+    that could not be read does not change that: the refused input makes it a BLOCK, not the
+    ABSTAIN whose `info` card always shows (owner decision 6)."""
+    template = load_pack(PACK_DIR).manifest.cds_hooks
+    assert template is not None and template.card is not None and template.card.show is not None
+    assert "none" not in template.card.show
+    unread = _record() | {
+        "labs": {
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "exception"}],
+        }
+    }
+    with AuditStore(tmp_path / "audit.db") as store:
+        router = Decision.from_path(PACK_DIR, store=store)
+        for prefetch in (_record(), unread):
+            refused = [_order("sr-long", "Palpitations for 6 months. " + "x" * 5_000)]
+            assert cds_hooks.invoke(router, _order_sign(refused, prefetch)) == {"cards": []}
+        decided = store.query(pack_id=router.pack.id)
+        assert [
+            (row["outcome"], row["recommendation"], row["review_status"]) for row in decided
+        ] == [("BLOCK", None, "not_required")] * 2
+        reasons = []
+        for row in decided:
+            held = store.get(row["id"])
+            assert held is not None and held["events"]
+            reasons.append(held["record"]["reasons"])
+        refused_reason = "input rejected: referral/reason: must have at most 5000 characters"
+        assert all(refused_reason in each for each in reasons)
+        # One of the two was decided on a record whose labs could not be read.
+        unreadable = ["could not read labs: operation_outcome" in each for each in reasons]
+        assert sorted(unreadable) == [False, True]
+        assert store.query(pack_id=router.pack.id, review_status="pending") == []

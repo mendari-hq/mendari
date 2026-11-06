@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:81111184492aae94e804383f0ecbf91289745ff21f654d0ab09775bed19ab4af` |
+| Pack digest | `sha256:d076c4d9e59eda856fa8246daa8e2aea3f5533fe7523daaf61024871f593dfc2` |
 | Last validation | 2026-11-06 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -108,7 +108,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`. Each 
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 598 [0.1-1.5%] |
-| Latency p50 / p95 | 0.15 / 0.19 ms |
+| Latency p50 / p95 | 0.15 / 0.18 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23 of 23 [85.2-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
@@ -274,10 +274,13 @@ rules, models, data and results did not.
   indicator is the team's: `info` for the front desk, a medical assistant and billing, `warning`
   for a nurse and a physician (it was `warning` for every message a person reviews, and `info`
   for every routed one). A possible emergency is still `critical`. A message with no suggested
-  team says "Message: no suggested team; it stays in the shared inbox for manual triage" (it
-  said "No recommendation; to manual triage"), and the suggestion is "Create a routing task"
-  (it was "Create routing task for" the team). Every decision still shows a card, and the
-  suggested Task, its text and its team's code are unchanged.
+  team says "Message: no suggested team; it stays in the shared inbox for manual triage",
+  whether the engine abstained or refused the message as invalid input (BLOCK, a body over
+  10,000 characters for one): it said "No recommendation; to manual triage" for the first and
+  "Blocked; to manual triage" for the second, and the card's detail still says which. The
+  suggestion is "Create a routing task" (it was "Create routing task for" the team). Every
+  decision still shows a card, and the suggested Task, its text and its team's code are
+  unchanged.
 - Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
   (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
   the manifest does.

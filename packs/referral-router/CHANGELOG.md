@@ -10,10 +10,16 @@ rules, models, data and results did not.
   (`cds_hooks.card.show: [return_for_info, urgent_review]`, LP-23j; the owner confirmed the
   list on 2026-11-06): a referral to send back with what is missing, and one to review today.
   A referral to schedule, for a coordinator, or with no suggestion is decided and audited as
-  before, for the referral office, and shows no card. A record that could not be read still
-  shows its `info` card for every referral. Of the 300 referrals the FHIR decisions golden
-  holds (the bundled local-site example, sent through FHIR), 235 show a card and 65 do not (53
-  to schedule, 12 for a coordinator); each of the 300 showed one before.
+  before, for the referral office, and shows no card. So is a referral Mendari refuses as
+  invalid input (BLOCK, a reason over 5,000 characters for one), which has no suggestion
+  either: it showed "Referral: no suggestion; the referral office will review it" before, and
+  it is not in Mendari's review queue, so the EHR's own referral workflow carries it. An ABSTAIN
+  because part of the record could not be read still shows its `info` card for every referral;
+  a referral whose input is also refused is a BLOCK, with no card. Of the 300 referrals the
+  FHIR decisions golden holds (the bundled local-site example, sent through FHIR), 235 show a
+  card and 65 do not (53 to schedule, 12 for a coordinator); each of the 300 showed one before.
+- The out-of-scope line on checking the referrer's specialty says that only a referral to send
+  back or to review today shows the suggested specialty on a card.
 - Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
   (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
   the manifest does.

@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:fc843d27f5a93a962a49f512a7870391ec5cf0707f73c13f1e73f2c279e33630` |
+| Pack digest | `sha256:110d716c9786cc9c19a60ab6cba67fbf7b6ca1e0231070ba91bce36c6e4d03c8` |
 | Last validation | 2026-11-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
@@ -36,7 +36,7 @@ Adults referred from primary care to one of eight outpatient specialties, with r
 
 - Emergencies. A referral is not the route for a patient who needs the emergency department today; the urgency screen only speeds up referrals that arrive anyway.
 - Deciding whether a referral is clinically appropriate, or triaging within a specialty.
-- Checking the specialty the referrer chose against the suggested one (the card shows the suggestion; the comparison is future work).
+- Checking the specialty the referrer chose against the suggested one (future work). The EHR card shows the suggestion only on a referral to send back or to review today; a referral to schedule, which may be automated, or for a coordinator gets no card, so no one signing it sees the suggested specialty.
 - Any real clinic's intake requirements. The required documents and urgency criteria are synthetic and were not written or reviewed by a clinician; a site sets its own.
 
 ## Inputs
@@ -184,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 1.89 / 2.05 ms |
+| Latency p50 / p95 | 1.83 / 1.90 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |
@@ -398,10 +398,16 @@ rules, models, data and results did not.
   (`cds_hooks.card.show: [return_for_info, urgent_review]`, LP-23j; the owner confirmed the
   list on 2026-11-06): a referral to send back with what is missing, and one to review today.
   A referral to schedule, for a coordinator, or with no suggestion is decided and audited as
-  before, for the referral office, and shows no card. A record that could not be read still
-  shows its `info` card for every referral. Of the 300 referrals the FHIR decisions golden
-  holds (the bundled local-site example, sent through FHIR), 235 show a card and 65 do not (53
-  to schedule, 12 for a coordinator); each of the 300 showed one before.
+  before, for the referral office, and shows no card. So is a referral Mendari refuses as
+  invalid input (BLOCK, a reason over 5,000 characters for one), which has no suggestion
+  either: it showed "Referral: no suggestion; the referral office will review it" before, and
+  it is not in Mendari's review queue, so the EHR's own referral workflow carries it. An ABSTAIN
+  because part of the record could not be read still shows its `info` card for every referral;
+  a referral whose input is also refused is a BLOCK, with no card. Of the 300 referrals the
+  FHIR decisions golden holds (the bundled local-site example, sent through FHIR), 235 show a
+  card and 65 do not (53 to schedule, 12 for a coordinator); each of the 300 showed one before.
+- The out-of-scope line on checking the referrer's specialty says that only a referral to send
+  back or to review today shows the suggested specialty on a card.
 - Criteria, rules, providers, policy, models and data are unchanged; every decision is identical
   (the benchmark's figures, its ledger and the FHIR decisions golden). The digest changes because
   the manifest does.
