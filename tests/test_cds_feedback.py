@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -334,7 +335,7 @@ def test_an_extension_is_taken_on_any_object_and_never_kept(tmp_path: Path) -> N
         "system": OVERRIDE_REASONS_SYSTEM,
         "code": "not-relevant",
     }
-    with sqlite3.connect(db) as raw:
+    with closing(sqlite3.connect(db)) as raw:
         tables = [
             row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
         ]
@@ -361,7 +362,7 @@ def test_the_comment_is_not_kept(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert exported.status_code == 200 and COMMENT not in exported.text
     assert COMMENT not in client.get(f"/api/audit/{card}").text
     assert COMMENT not in capsys.readouterr().out
-    with sqlite3.connect(db) as raw:
+    with closing(sqlite3.connect(db)) as raw:
         tables = [
             row[0] for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
         ]
