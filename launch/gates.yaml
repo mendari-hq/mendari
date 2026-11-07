@@ -17,7 +17,8 @@
 #   attested: {what, by, date}
 #                       the owner writes their name (by) and the date (YYYY-MM-DD) once it is
 #                       true. Only for an owner prerequisite, and only the owner fills it in: a
-#                       build session never does. With `digests`, it is bound to the packs: the
+#                       build session never does, except to record one the owner attested in
+#                       chat, at the owner's instruction, saying so in a comment. With `digests`, it is bound to the packs: the
 #                       owner lists every pack under packs/ with the digest attested
 #                       (`mendari validate` prints it), and it is void once one changes.
 #   setting values are compared with their type: quote yes, no, on, off and numbers meant as text.
@@ -82,13 +83,13 @@ gates:
         owner: owner
         probes:
           # The owner attested this in chat on 2026-11-07; recorded at the owner's instruction.
-          - attested: {what: "both templates approved by counsel (or: no design partners, waived): no design partners, waived", by: "the owner (in chat)", date: "2026-11-07"}
+          - attested: {what: "no design partners, waived", by: "the owner (in chat)", date: "2026-11-07"}
       - id: patent-decision
         what: "Whether to file a provisional patent, decided with counsel before any public disclosure (B04)"
         owner: owner
         probes:
           # The owner attested this in chat on 2026-11-07; recorded at the owner's instruction.
-          - attested: {what: "the decision, and the serial number if filed: no provisional, decided with counsel", by: "the owner (in chat)", date: "2026-11-07"}
+          - attested: {what: "decided with counsel: no provisional patent filed", by: "the owner (in chat)", date: "2026-11-07"}
       - id: synthetic-example-label
         what: "Every reference pack labelled a synthetic example on every surface (A2 step 6, B21)"
         owner: build

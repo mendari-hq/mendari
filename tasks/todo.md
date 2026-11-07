@@ -2651,7 +2651,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
     derived" rule could name `docs/grading/scoreboard.md` and `web/index.html` among the files
-    to commit. The owner said yes (2026-11-07); CLAUDE.md is not changed yet.
+    to commit. The owner said yes (2026-11-07); CLAUDE.md names both.
   - [x] **17g** (#279) Public template sets relabelled "public set: regression check, not a
     ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
     cards' comparison sections become stale). The card's Provider comparison opens with the
