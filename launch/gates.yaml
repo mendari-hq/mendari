@@ -17,7 +17,8 @@
 #   attested: {what, by, date}
 #                       the owner writes their name (by) and the date (YYYY-MM-DD) once it is
 #                       true. Only for an owner prerequisite, and only the owner fills it in: a
-#                       build session never does. With `digests`, it is bound to the packs: the
+#                       build session never does, except to record one the owner attested in
+#                       chat, at the owner's instruction, saying so in a comment. With `digests`, it is bound to the packs: the
 #                       owner lists every pack under packs/ with the digest attested
 #                       (`mendari validate` prints it), and it is void once one changes.
 #   setting values are compared with their type: quote yes, no, on, off and numbers meant as text.
@@ -81,12 +82,14 @@ gates:
         what: "A mutual NDA and a design-partner pilot agreement, synthetic data only (B07)"
         owner: owner
         probes:
-          - attested: {what: "both templates approved by counsel (or: no design partners, waived)", by: "", date: ""}
+          # The owner attested this in chat on 2026-11-07; recorded at the owner's instruction.
+          - attested: {what: "no design partners, waived", by: "the owner (in chat)", date: "2026-11-07"}
       - id: patent-decision
         what: "Whether to file a provisional patent, decided with counsel before any public disclosure (B04)"
         owner: owner
         probes:
-          - attested: {what: "the decision, and the serial number if filed", by: "", date: ""}
+          # The owner attested this in chat on 2026-11-07; recorded at the owner's instruction.
+          - attested: {what: "decided with counsel: no provisional patent filed", by: "the owner (in chat)", date: "2026-11-07"}
       - id: synthetic-example-label
         what: "Every reference pack labelled a synthetic example on every surface (A2 step 6, B21)"
         owner: build
@@ -202,10 +205,10 @@ gates:
               - tests/test_limits.py::test_each_principal_has_its_own_daily_cap_shared_by_every_instance
               - tests/test_auth.py::test_every_route_principal_role_and_scope_gets_what_it_should
       - id: partners-3
-        what: "Three or more design partners active, each under a signed NDA and pilot agreement"
+        what: "Design partners, optional: any active partner under a signed NDA and pilot agreement, or waived"
         owner: owner
         probes:
-          - attested: {what: "the number of partners with signed agreements (the documents stay outside the repository)", by: "", date: ""}
+          - attested: {what: "the number of partners with signed agreements (the documents stay outside the repository), or: none, waived", by: "", date: ""}
       - id: labelling-underway
         what: "Hidden-set labelling under way: clinician labellers working in A8's labelling workflow"
         owner: owner
@@ -396,7 +399,7 @@ gates:
           - tests:
               - tests/test_scoreboard_end_to_end.py::test_a_local_run_to_a_signed_verified_result
           - pending: "owner: LP-17i, the remote arms on the public `test` sets (the price table, the disclosures and the declarations written, then the run by hand, committed and signed: owner decisions 6 and 7); then a build PR removes this line"
-          - pending: "LP-17l, the developer flow, after LP-20 and owner decisions 4 and 10"
+          - pending: "LP-17l, the developer flow, after LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07)"
       - id: a10-registry-hub
         what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
         owner: build
@@ -462,7 +465,7 @@ gates:
               - tests/test_registry_chain.py::test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify
               - tests/test_registry_chain.py::test_a_registry_from_before_the_chain_records_what_it_held_once
               - tests/test_shipped.py::test_every_state_changing_route_is_in_the_inventory
-          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): waits on the owner's choice of where the registry runs"
+          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): the registry runs under the engine (ADR-0012, LP-19's option A); its build is next"
       - id: external-review
         what: "An external security review whose scope covers the registry, the Hub and the pack store (B29)"
         owner: owner
@@ -660,7 +663,7 @@ gates:
               - tests/test_prior_auth_pack.py::test_long_notes_with_a_red_flag_abstain_with_a_card_at_the_order
           - pending: "owner: the Epic sandbox run from notes/epic-sandbox-checklist.md (every standard-hook pack decides on Epic's sandbox patients, A12.acc-3) and mendari smart check against Epic; then a build PR removes this line"
       - id: clinician-review
-        what: "Each reference pack reviewed by a clinician of the right kind (B21.1-B21.5)"
+        what: "Each reference pack reviewed by a clinician: of B21.1-B21.5's kind, or the owner, a physician, the review record disclosing that the reviewer is also the author (the owner's rule of 2026-11-07, CONTRIBUTING.md)"
         owner: owner
         probes:
           - attested: {what: "per pack, the reviewer's role and name (in a note outside the repository); digests: each pack's digest reviewed", by: "", date: "", digests: {}}

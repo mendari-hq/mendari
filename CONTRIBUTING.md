@@ -33,6 +33,10 @@ for review when:
 - all data is synthetic or openly licensed and de-identified: **never real patient data**;
 - a clinician other than the author has reviewed the criteria (say who in the PR).
 
+The five reference packs Mendari maintains in `packs/` are the owner's demonstrations of how a
+pack is built. Their reviewer is the owner, a physician, and each review record discloses that
+the reviewer is also the author. Every other pack keeps the rule above.
+
 A pack contributed for others to use goes in `community-packs/<name>/` with the id
 `community/<name>`. [Contributing a community pack](docs/guides/contributing-a-pack.md) is the
 whole path: propose it with a "Propose a pack" issue, start it with

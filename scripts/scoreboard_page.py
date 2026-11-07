@@ -15,7 +15,7 @@ figures as k of n with their intervals, the insufficient-evidence banner, and ev
 "not measured" or "not applicable". A remote model, and a configuration that calls one (a
 variant's name, `rules_and_jev`, can name its provider), is written only once its provider
 type's disclosure is stated; until then an entry's figures are withheld too. Deploying web/
-stays the owner's (gate G1-2).
+stays the owner's (after gate G1-2's patent-decision).
 
     uv run python scripts/scoreboard_page.py           # write the page and the site's scores
     uv run python scripts/scoreboard_page.py --check   # exit 1 when either is not the store's

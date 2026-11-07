@@ -726,7 +726,8 @@ packs' cards followed (LP-23j): the inbox has its own card template, and the ref
 shows a card only when the person signing can act (a referral to send back with what is
 missing, or one to review today), deciding and auditing the others with no card. The shipped
 packs' mappings for real EHR data on spec 0.3 followed (LP-23k, after the owner's go-ahead; the
-clinician's note on its MedicationRequest rule is still owed). Left: the run on Epic's own
+owner, a physician, answered the brief on its MedicationRequest rule on 2026-11-07, acceptable
+with changes not built yet, so the rule is not clinically reviewed). Left: the run on Epic's own
 sandbox, which is the owner's, and which launch gate G5-6's `a12-ehr-pilot` names as pending.
 The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure
 behaviour stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing
@@ -1123,7 +1124,8 @@ case). The runbook walks
 and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
 on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
 the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
-how labellers will reach it is the owner's decision still open.
+labellers are to reach it in memberships mode (the owner's decision 1, 2026-11-07), which it does
+not run yet; how they get past Vercel Authentication is still to settle.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1415,7 +1417,8 @@ The same script writes the scores on the public page (`web/index.html`, between 
 comments): the Patient Inbox Router's `test` set, every arm, each figure k of n with its
 interval, and "not measured" for each arm with no result. It names no remote model, and writes
 no configuration that calls one, until that provider type's disclosure is stated; the check
-covers it too. Deploying `web/` stays the owner's.
+covers it too. Deploying `web/` waits only for gate G1-2's `patent-decision` (the owner,
+2026-11-07).
 
 A remote configuration (one that calls Jev, an LLM or Mendari's CQL engine) is run by hand,
 never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [--prices FILE]`
@@ -1473,7 +1476,8 @@ date set, then the price table, the disclosures and the declarations written, th
 replicates run (LP-17i), the hidden sets graded, every new result signed, and the scoreboard
 published. Results are signed only after the effective date, since setting it re-pins the
 method's hash and a signature made before stops verifying. The developer flow, where a pack's
-own author submits to a hidden set (LP-17l), waits for the pack store (LP-20).
+own author submits to a hidden set (LP-17l), waits for the registry's accounts and the pack
+store (LP-19 and LP-20).
 `tests/test_scoreboard_end_to_end.py` takes a result from `mendari scoreboard run` to a signed,
 verified result and a tampered one that fails, and a hidden set's answer from the grading route
 to the store, with `mendari audit verify --evalsets` after it, on SQLite and Postgres.
