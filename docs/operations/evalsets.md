@@ -166,8 +166,9 @@ first real set:
    credential a frozen set is graded with, so none should exist before the grading runner that
    uses it. How long it lives, and what to do before it expires:
    [Grading a hidden set](#grading-a-hidden-set).
-7. **Choose each set's rotation rule** when you freeze it ([Freezing a set](#freezing-a-set)),
-   and attest the launch gates when they are true ([The launch gates](#the-launch-gates)).
+7. **Give each set the owner's rotation rule**, at most 20 grading runs and 180 days (owner
+   decision 2), when you freeze it ([Freezing a set](#freezing-a-set)), and attest the launch
+   gates when they are true ([The launch gates](#the-launch-gates)).
 
 ## Making a set and adding its cases
 
@@ -303,7 +304,8 @@ settles only a case whose two first-pass labels differ), so the status stays as 
 [Verifying](#verifying) still finds it. An unresolved case keeps the set from being frozen
 ([Freezing a set](#freezing-a-set)) until it is removed (`mendari evalset remove-case`), which
 removes its assignments and labels with it. The owner decided that a clinical lead's call is to
-settle a three-way split instead; until that is built, the case is removed.
+settle a three-way split instead; until that is built, a three-way split keeps the set from
+being frozen unless the case is removed.
 
 **5. Measure agreement and coverage.**
 

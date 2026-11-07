@@ -4,10 +4,11 @@
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
 confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
-decided: labellers reach the hosted site in memberships mode, each set's rotation rule is at most
-20 grading runs and 180 days, a clinical lead's call settles a three-way split (not built yet),
-and adjudicators label blind, as built. Accepted once the one owner decision still open there,
-7 (how a hidden case is erased), is decided. Gate G2-3's prerequisite
+decided (1 in part): labellers reach the hosted site in memberships mode (how they get past
+Vercel Authentication is still open), each set's rotation rule is at most 20 grading runs and
+180 days, a clinical lead's call settles a three-way split (not built yet), and adjudicators
+label blind, as built. Accepted once what stays open there is decided: decision 1's Vercel
+Authentication and decision 7 (how a hidden case is erased). Gate G2-3's prerequisite
 `labelling-underway` and gate G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests
 that hold what was built; each still waits for the owner's attestation. What each step built,
 in the order they landed:

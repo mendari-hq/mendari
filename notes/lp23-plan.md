@@ -1234,9 +1234,11 @@ is signed, and the owner's actions below stay the owner's.
 **2026-11-07, the owner's answers as a clinician** (the owner is a physician, and the trial
 pack's recorded author, disclosed): conflict 39, through the brief
 `notes/clinician-review-medication-period.md` (B21.4): acceptable with changes, which are to be
-built: an `active` MedicationRequest or MedicationStatement with no end is current only if
-written or started in the last 12 months (an older one reads unknown and goes to review); intent
-`proposal`, `plan` and `option` and `doNotPerform` true are left out; `boundsDuration` is read.
+built: an `active` MedicationRequest with no end is current only if written or started in the
+last 12 months, and an `active` MedicationStatement with no end only if started in the last 12
+months (an older one reads unknown and goes to review); intent `proposal`, `plan` and `option`
+and `doNotPerform` true are left out; `boundsDuration` is read (the start plus the duration is
+the stop), the first dosage line only.
 Then the owner confirms the rule as built and its digest is recorded; gate `clinician-review`
 stays unattested until then. PR #282 Q2: a possible red flag under a site payer id shows a card at
 order signing, other `not_checked` orders stay quiet. PR #281 Q3 (beside decision 4): a referral

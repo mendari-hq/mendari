@@ -15,11 +15,11 @@ are numbered LP-; the A and B numbers in the community-packs plan below are that
 **Owner decisions (2026-10-06):** safety first, then public (the stage-2 safety items, then the
 pre-public files so the repository can go public; hidden sets and grading after; design partners
 optional). **2026-11-07 (owner):** no design partners, so gate G1-2's `nda-pilot-agreement` is
-waived (its attestation, "no design partners, waived", not filled in yet), and G2-3's
-`partners-3` now reads design partners as optional, waivable as the NDA line is (its attestation
-the owner's). Each step is one PR; Claude merges it when CI is green and the review found nothing
-medium or worse, and asks first for anything touching production, secrets or a pack's clinical
-behaviour.
+waived (its attestation, "no design partners, waived", recorded 2026-11-07 at the owner's
+instruction), and G2-3's `partners-3` now reads design partners as optional, waivable as the NDA
+line is (its attestation the owner's). Each step is one PR; Claude merges it when CI is green
+and the review found nothing medium or worse, and asks first for anything touching production,
+secrets or a pack's clinical behaviour.
 
 **Stage 2 safety** (in this order)
 - [x] **LP-02 Secret scan.** Run 2026-10-06 over a mirror clone (145 refs: 6 branches, 139
@@ -1504,9 +1504,10 @@ Connect) is not supported yet.
     an `active` MedicationStatement with no end, nothing else changed; Q8 acceptable with changes
     (Q2, Q5, Q6, Q7). Next: one build PR with those changes (spec 0.3 §2.7, `standards/fhir.py`,
     the trial pack's criteria, a MINOR bump, the rebuilt reference pack and the FHIR golden, and
-    the card saying who reviewed the rule, by role); then the owner sees and confirms the rule as
-    built, and its digest goes in gate `clinician-review`'s attestation, the owner's. Until then
-    the gate stays unattested and the rule is not clinically reviewed.
+    the card saying the rule's review was answered with changes and awaits the owner's
+    confirmation); then the owner sees and confirms the rule as built, its digest goes in gate
+    `clinician-review`'s attestation, the owner's, and only then does the card name the reviewer
+    by role. Until then the gate stays unattested and the rule is not clinically reviewed.
   - [x] Owner's rule for reviewers (2026-11-07): the owner's disclosed physician review counts for
     the five reference packs, the owner's own demonstrations ("Remember these packs would be the
     first few that I myself built to demonstrate how it is done. Other packs will be done by
@@ -2558,10 +2559,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 
 - [ ] **LP-17** The scoreboard and the grading service (ADR-0013, Accepted 2026-11-06). Built
   but for two steps (2026-11-06, the LP-17 lane): 17i, the owner's run of the remote arms, and
-  17l, the developer flow, blocked on LP-20 and owner decisions 4 and 10; gate G3-4's
-  `a9-scoreboard` names both as pending, and the owner's lines below are the runbook's steps
-  (`docs/operations/scoreboard.md`, "The owner's runbook"). Planned by a mapping
-  workflow (2026-10-17) as thirteen PRs, 17a to 17m: twelve build PRs and one data PR the owner
+  17l, the developer flow, blocked on LP-19 and LP-20 (owner decisions 4 and 10 decided
+  2026-11-07); gate G3-4's `a9-scoreboard` names both as pending, and the owner's lines below
+  are the runbook's steps (`docs/operations/scoreboard.md`, "The owner's runbook"). Planned by a
+  mapping workflow (2026-10-17) as thirteen PRs, 17a to 17m: twelve build PRs and one data PR the owner
   runs (17i). It adds a published grading method, a scoreboard computed from ledgers
   (`mendari.scoreboard/1`), and scoped grades and band ranking given only on frozen hidden sets.
   `mendari.eval/2`, `mendari.ledger/1`, `mendari.compare/1`, `Proportion.to_dict`,
@@ -2649,8 +2650,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_cli_errors.BROKEN` gains `scoreboard run` and `scoreboard add`. A PR that changes a
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
-    derived" rule could name `docs/grading/scoreboard.md` among the files to commit. The owner
-    said yes (2026-11-07); CLAUDE.md is not changed yet.
+    derived" rule could name `docs/grading/scoreboard.md` and `web/index.html` among the files
+    to commit. The owner said yes (2026-11-07); CLAUDE.md is not changed yet.
   - [x] **17g** (#279) Public template sets relabelled "public set: regression check, not a
     ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
     cards' comparison sections become stale). The card's Provider comparison opens with the
@@ -2744,7 +2745,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     declaration names a `local` configuration for (17h's `mendari.declared/1`), each with it
     (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
-    Blocked on LP-20 and owner decisions 4 and 10.
+    Blocked on LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07).
   - [x] **17m** (#279) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
     acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
     end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
@@ -2879,7 +2880,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] Owner (decision 2): remote providers on hidden sets (default: local only under the method
     1.0, so nothing is ranked on a hidden set until this changes): local only (owner,
     2026-11-07).
-  - [ ] Owner (decisions 4 and 10, for 17l): the submission budget per organization, lineage and
+  - [x] Owner (decisions 4 and 10, for 17l): the submission budget per organization, lineage and
     rotation, and who a submitting developer is and through which route (LP-19, LP-20).
     Decision 10 is confirmed (owner, 2026-11-07): 17l waits for LP-19 and LP-20. Decision 4 is
     decided (owner, 2026-11-07): 3 submissions per organization and lineage per rotation, the
@@ -3875,7 +3876,7 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
   `tests/test_shipped.py`. A pre-launch review (security policy, accessibility at 320 to 1440 px in
   both themes, every claim against the repository, the diff) found 31 issues; the build's are
   fixed, and the owner's are below.
-  - [ ] **Owner, before `cd web && vercel deploy --prod`:** gate G1-2 (`patent-decision`): the
+  - [x] **Owner, before `cd web && vercel deploy --prod`:** gate G1-2 (`patent-decision`): the
     provisional-patent decision with counsel comes before any public disclosure, and this page
     discloses more than the coming-soon page did. On 2026-11-07 the owner said, in chat, "the
     patent gate is clear and I approve everything on my part". Its record is gate G1-2's
@@ -3883,8 +3884,8 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
     signed-off PR before the page goes out: the decision, and the serial number if filed, with
     `by` and `date`. Not ticked until then. Later on 2026-11-07 the owner picked the decision,
     made with counsel: no provisional patent filed before public disclosure, and wrote "consider
-    patent as attested"; the attestation itself is not filled in yet. The page waits for this
-    attestation only, not the rest of G1-2 (owner, 2026-11-07).
+    patent as attested"; recorded in the attestation at the owner's instruction (2026-11-07).
+    The page waits for this attestation only, not the rest of G1-2 (owner, 2026-11-07).
   - [ ] **Owner:** the scoreboard names Jev (TypeSafe), Claude and gpt-oss results: confirm each
     provider's benchmark-publication terms, and state any commercial relationship (or none) next
     to it (the vision audit's LIC.benchmark-terms). Not ticked: the page as it stands names no

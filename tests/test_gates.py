@@ -56,7 +56,9 @@ def test_every_test_the_file_names_exists(capsys: pytest.CaptureFixture[str]) ->
 def test_no_build_session_attested_for_the_owner() -> None:
     """Every attestation in the file is the owner's to fill in; none was filled in by the build
     that wrote it (LP-03: "Do not mark an owner prerequisite met"). The owner's own commit that
-    fills one in changes this list."""
+    fills one in changes this list. Two were attested by the owner in chat on 2026-11-07 and
+    recorded at the owner's instruction: nda-pilot-agreement (no design partners, waived) and
+    patent-decision (no provisional, decided with counsel)."""
     attested = {
         p["id"]: probe["attested"]
         for gate in yaml.safe_load((ROOT / check.GATES).read_text())["gates"]
@@ -65,7 +67,10 @@ def test_no_build_session_attested_for_the_owner() -> None:
         if "attested" in probe
     }
     assert len(attested) == 17
-    assert {name: (a["by"], a["date"]) for name, a in attested.items() if a["by"]} == {}
+    assert {name: (a["by"], a["date"]) for name, a in attested.items() if a["by"]} == {
+        "nda-pilot-agreement": ("the owner (in chat)", "2026-11-07"),
+        "patent-decision": ("the owner (in chat)", "2026-11-07"),
+    }
 
 
 # The check, on a project of its own.

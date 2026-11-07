@@ -31,8 +31,9 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
 
 Two steps stay open. 17i is the owner's run: the remote arms' replicates on the public `test`
 sets, after the price table, the disclosures and the declarations are written. 17l, the
-developer flow (banded answers, a budget, a sealed confirmation split), waits on LP-20 and the
-owner's decisions on the rotation numbers and on who a submitting developer is. Gate G3-4's
+developer flow (banded answers, a budget, a sealed confirmation split), waits on LP-19 and LP-20
+(on 2026-11-07 the owner decided the rotation numbers and the submission budget, decision 4, and
+confirmed that 17l waits for LP-19 and LP-20, decision 10). Gate G3-4's
 `a9-scoreboard` names both as pending. The method stays a draft until the owner sets its
 effective date (gate `grading-method`). The defaults below hold unless the owner chooses
 otherwise: the owner's decisions still open are listed in `tasks/todo.md`.

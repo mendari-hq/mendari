@@ -75,7 +75,7 @@ Order of work, and what can be built in parallel:
 - 17g and 17h need 17f and can be built in parallel. Both touch `scripts/scoreboard_page.py`; the second rebases.
 - 17k needs 17f and 17j. It can be built in parallel with 17g and 17h.
 - 17i follows 17h. The owner runs it (owner decisions 6 and 7).
-- 17l follows 17k and LP-20 (owner decisions 4 and 10).
+- 17l follows 17k, LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07).
 - 17m follows 17g, 17h and 17k. It does not wait for 17i or 17l, and its gate probes name both as pending.
 
 The prompt's six tests, and where each lands:
@@ -602,7 +602,7 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
     - Each run is one chained read.
     - Only the operator's command mints a grading key, and production has no evaluation-set keys.
 
-- [ ] **17l** The developer flow. Blocked on LP-20 and owner decisions 4 and 10.
+- [ ] **17l** The developer flow. Blocked on LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07).
   - **What it builds:**
     - `src/mendari/evals/split.py`:
       - `SPLIT_VERSION = "split/v1"`.
@@ -761,8 +761,9 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
 **2026-11-07:** the owner wrote, in chat, "the patent gate is clear and I approve everything on my
 part". That confirms the default of decisions 1, 2, 3, 5 (the numbers and the 30 days' rule; the
 effective date itself is still the owner's to set), 6, 7, 9, 10 and 11, and of the conflicts
-above. Still open: 4, which has no house default, and 8, whose rule (no remote entry published
-until its type has a statement) is built while the statements are the owner's to write. Whether
+above. Still open: 4, which has no house default (answered below), and 8, whose rule (no remote
+entry published until its type has a statement) is built while the statements are the owner's to
+write. Whether
 11 waits for all of G1-2 or only its `patent-decision` was the owner's to say (no default),
 answered below. The owner's actions below stay the owner's.
 
