@@ -74,10 +74,12 @@ lists:
       MedicationRequest:
         # The drug from the Medication its reference names (read from the EHR when the record
         # does not hold it), else the request's own coded concept. When the drug is taken is the
-        # spec's stated rule (§2.7), not yet clinically reviewed: the start is the first dosage
-        # instruction's `timing.repeat.boundsPeriod.start`, else `authoredOn`; the stop is that
-        # `boundsPeriod.end`, else unknown, never inferred from the status; the dispensing window
-        # is not read; a request entered in error is left out.
+        # spec's stated rule (§2.7), with the changes the owner, a physician, chose on 2026-11-07:
+        # the start is the first dosage instruction's `timing.repeat.boundsPeriod.start`, else
+        # `authoredOn`; the stop is that `boundsPeriod.end`, else the start plus that timing's
+        # `boundsDuration`, else unknown, never inferred from the status; the dispensing window
+        # is not read; a request entered in error, a proposal, a plan, an option, and an order
+        # not to give the drug (`doNotPerform`) are left out.
         fields:
           code:
             follow: medicationReference

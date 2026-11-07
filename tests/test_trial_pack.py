@@ -159,7 +159,7 @@ def _record(notes: str = "Seen for diabetes follow-up.") -> list[dict[str, Any]]
         lab("o2", "4548-4", 12.5, "%", 300),  # older than 90 days: ignored
         lab("o3", "33914-3", 58, "mL/min/1.73m2", 100),
         lab("o4", "8480-6", 132, "mm[Hg]", 20),
-        medication("m1", "metformin 1000 mg tablet", "active", start=_ago(500)),
+        medication("m1", "metformin 1000 mg tablet", "active", start=_ago(200)),
         medication("m2", "insulin glargine", "completed", start=_ago(900), end=_ago(400)),
         _note(notes),
     ]
@@ -229,12 +229,13 @@ def _medication_request(
 
 def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Decision) -> None:
     """A MedicationRequest is a medication of the trial's record, by spec 0.3's stated rule
-    (`medication_period`, not yet clinically reviewed: notes/clinician-review-medication-period.md):
-    it starts at its first dosage instruction's `boundsPeriod.start`, else on `authoredOn`, and
-    stops at that `boundsPeriod.end`, else its stop is unknown, never inferred from the status;
+    (`medication_period`; notes/clinician-review-medication-period.md, the owner's changes in
+    `test_the_owners_medication_rules_hold_through_fhir`): it starts at its first dosage
+    instruction's `boundsPeriod.start`, else on `authoredOn`, and stops at that `boundsPeriod.end`
+    (here none has a `boundsDuration`), else its stop is unknown, never inferred from the status;
     the dispensing window is not read; one entered in error is left out. Its drug is the RxNorm
     coded Medication it names (in the record, or contained), else its own coded concept. So the
-    criteria read metformin started 500 days ago from the bounds although the order was written
+    criteria read metformin started 200 days ago from the bounds although the order was written
     30 days ago, insulin as current until a bounds end 400 days ago, a `completed` insulin with no
     bounds as not current (its stop unknown), and an insulin entered in error not at all."""
     metformin = {"coding": [{"system": RXNORM, "code": "6809"}], "text": "metformin 1000 mg"}
@@ -246,7 +247,7 @@ def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Deci
         _medication_request(
             "mr1",
             "active",
-            bounds={"start": _ago(500)},
+            bounds={"start": _ago(200)},
             authoredOn=_ago(30),
             medicationReference={"reference": "Medication/med1", "display": "metformin"},
             dispenseRequest=validity,
@@ -275,7 +276,7 @@ def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Deci
 
     result, medications = decided(*requests, medication)
     assert medications == [
-        {"code": "6809", "name": "metformin 1000 mg", "status": "active", "start": _ago(500)},
+        {"code": "6809", "name": "metformin 1000 mg", "status": "active", "start": _ago(200)},
         {
             "code": "274783",
             "name": "insulin glargine",
@@ -317,6 +318,91 @@ def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Deci
         "could not read medications.code: not_fetched",
         "could not read medications.name: not_fetched",
     }
+
+
+def test_the_owners_medication_rules_hold_through_fhir(trial: Decision) -> None:
+    """The changes the owner, a physician, chose on 2026-11-07 in answer to the clinician brief
+    (notes/clinician-review-medication-period.md), through FHIR. An active request or statement
+    with no end counts as current only when it started in the 365 days before screening (the
+    365th day included); older, it reads `unknown` and the chart needs review. A proposal, a plan,
+    an option and an order not to give the drug are left out. A `boundsDuration` gives the stop,
+    so a `completed` insulin written 60 days ago for 30 days reads as ended in the last 90 days."""
+    metformin = {"coding": [{"system": RXNORM, "code": "6809"}], "text": "metformin 1000 mg"}
+    insulin = {"coding": [{"system": RXNORM, "code": "274783"}], "text": "insulin glargine"}
+    record = [r for r in _record() if r["resourceType"] != "MedicationStatement"]
+    mapped = FhirAdapter.for_pack(trial.pack)
+
+    def decided(*resources: dict[str, Any]) -> tuple[str | None, dict[str, str], list[Any]]:
+        entries = [{"resource": r} for r in [*record, *resources]]
+        bundle: dict[str, Any] = {"resourceType": "Bundle", "type": "collection", "entry": entries}
+        result, _ = trial.decide_fhir(bundle)
+        assert result.outcome is Outcome.HUMAN_REVIEW
+        answers = {q: result.answers[q].label for q in ("stable_metformin", "no_insulin")}
+        return result.recommendation, answers, mapped.to_input(mapped.index(bundle))["medications"]
+
+    def ordered(days: int, **more: Any) -> dict[str, Any]:
+        more.setdefault("medicationCodeableConcept", metformin)
+        return _medication_request(
+            "mr1", more.pop("status", "active"), authoredOn=_ago(days), **more
+        )
+
+    def stated(days: int) -> dict[str, Any]:
+        return {
+            "resourceType": "MedicationStatement",
+            "id": "ms1",
+            "status": "active",
+            "medicationCodeableConcept": {"text": "metformin 1000 mg tablet"},
+            "effectivePeriod": {"start": _ago(days)},
+        }
+
+    current = {"stable_metformin": "yes", "no_insulin": "yes"}
+    stale = {"stable_metformin": "unknown", "no_insulin": "yes"}
+    for resource, want in (
+        (ordered(200), ("candidate", current)),
+        (ordered(365), ("candidate", current)),
+        (ordered(366), ("needs_review", stale)),
+        (stated(200), ("candidate", current)),
+        (stated(365), ("candidate", current)),
+        (stated(800), ("needs_review", stale)),
+    ):
+        assert decided(resource)[:2] == want, resource
+
+    absent = ("not_eligible", {"stable_metformin": "no", "no_insulin": "yes"})
+    for left_out in (
+        ordered(200, intent="proposal"),
+        ordered(200, intent="plan"),
+        ordered(200, intent="option"),
+        ordered(200, doNotPerform=True),
+    ):
+        assert decided(left_out) == (*absent, []), left_out
+    for kept in ("order", "original-order", "reflex-order", "filler-order", "instance-order"):
+        assert decided(ordered(200, intent=kept))[:2] == ("candidate", current), kept
+
+    def course(days: int, value: float, code: str) -> dict[str, Any]:
+        bounds = {
+            "boundsDuration": {"value": value, "code": code, "system": "http://unitsofmeasure.org"}
+        }
+        return _medication_request(
+            "mr2",
+            "completed",
+            authoredOn=_ago(days),
+            medicationCodeableConcept=insulin,
+            dosageInstruction=[{"timing": {"repeat": bounds}}],
+        )
+
+    base = ordered(200)
+    for resource, ended, no_insulin in (
+        (course(60, 30, "d"), _ago(30), "no"),  # stopped 30 days ago: in the 90-day window
+        (course(60, 4, "wk"), _ago(32), "no"),
+        (course(200, 3, "mo"), _ago(108), "yes"),  # 92 days from the start: 108 days ago
+        (course(500, 1, "a"), _ago(134), "yes"),  # 366 days from the start
+        (course(91, 24, "h"), _ago(90), "no"),
+        (course(60, 30, "min"), None, "yes"),  # minutes are not read: stop unknown, not taken
+    ):
+        recommendation, answers, items = decided(base, resource)
+        assert answers["no_insulin"] == no_insulin, resource
+        assert items[1].get("end") == ended, resource
+        assert recommendation == ("not_eligible" if no_insulin == "no" else "candidate")
 
 
 def _patient_view(record: list[dict[str, Any]]) -> dict[str, Any]:

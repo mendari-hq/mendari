@@ -5,7 +5,7 @@
 //
 // Each definition answers a question with one of its labels: 'yes', 'no' or 'unknown'. Missing,
 // stale or unrecognised data gives 'unknown', never a guess.
-library GlycemiaTwoCriteria version '0.2.0'
+library GlycemiaTwoCriteria version '0.4.0'
 
 using FHIR version '4.0.1'
 
@@ -45,6 +45,18 @@ define function "Latest"(codes List<String>, window Integer):
 
 define function "Named"(M FHIR.MedicationStatement, name String):
   PositionOf(Lower(name), Lower(Coalesce((M.medication as FHIR.CodeableConcept).text.value, ''))) >= 0
+
+// An active medication with no end date counts as current only when it started in the 365 days
+// before screening (criteria.yaml's `current_within_days: 365`): with no start date, or an
+// earlier one, it is not known to be current.
+define function "Not Known Current"(M FHIR.MedicationStatement):
+  M.status.value = 'active'
+    and (M.effective as FHIR.Period).end.value is null
+    and (
+      (M.effective as FHIR.Period).start.value is null
+        or days between (date from (M.effective as FHIR.Period).start.value)
+          and "Screening Date" > 365
+    )
 
 // -- age_18_75 -------------------------------------------------------------------------------
 
@@ -91,6 +103,7 @@ define "Metformin Start":
 define "Stable Metformin":
   if "Metformin" is null then 'no'
   else if "Metformin Start" is null then 'unknown'
+  else if "Not Known Current"("Metformin") then 'unknown'
   else if days between "Metformin Start" and "Screening Date" < 90 then 'no'
   else 'yes'
 
@@ -107,8 +120,9 @@ define "eGFR 30 Or More":
 
 // -- no_insulin: no insulin now or in the last 90 days ----------------------------------------
 
+// The first insulin that is active or ended in the last 90 days: it decides, as in criteria.yaml.
 define "Insulin In The Last 90 Days":
-  exists (
+  First(
     [MedicationStatement] M
       let ended: date from (M.effective as FHIR.Period).end.value
       where "Named"(M, 'insulin')
@@ -120,7 +134,9 @@ define "Insulin In The Last 90 Days":
   )
 
 define "No Insulin":
-  if "Insulin In The Last 90 Days" then 'no' else 'yes'
+  if "Insulin In The Last 90 Days" is null then 'yes'
+  else if "Not Known Current"("Insulin In The Last 90 Days") then 'unknown'
+  else 'no'
 
 // -- no_recent_cv_event: no MI or stroke in the last 180 days ---------------------------------
 

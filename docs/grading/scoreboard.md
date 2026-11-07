@@ -243,7 +243,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
 | Set | public, sha256 `2cd78886a680…`, 32 cases, 32 distinct inputs (norm/v1) | public, sha256 `2cd78886a680…`, 32 cases, 32 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -311,7 +311,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
 | Set | public, sha256 `1e68d07522b3…`, 24 cases, 24 distinct inputs (norm/v1) | public, sha256 `1e68d07522b3…`, 24 cases, 24 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |
@@ -379,7 +379,7 @@ Arms: Mendari only: measured; + specialised classifier: not measured; + general 
 
 | | Mendari only: `notes=rules,structured=cql` | Mendari only: `notes=rules,structured=criteria` |
 |---|---|---|
-| Marks | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale after 2026-12-02 |
+| Marks | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-20 | unsigned; method draft, not in effect; stale: pack changed; stale: set changed; stale after 2026-12-02 |
 | Pack | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` | 0.2.0, `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
 | Set | public, sha256 `12d2fb4b741a…`, 300 cases, 300 distinct inputs (norm/v1) | public, sha256 `12d2fb4b741a…`, 300 cases, 300 distinct inputs (norm/v1) |
 | Method | mendari.grading/1.0, sha256 `59d28c87024b…` | mendari.grading/1.0, sha256 `59d28c87024b…` |

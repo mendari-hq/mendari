@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/clinical-trial-prescreener` · version **0.3.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/clinical-trial-prescreener` · version **0.4.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:1d0e003753fc10fa7a8d128f7a3f3bf17c89ea8ac49e3366a1302145847d82dc` |
-| Last validation | 2026-11-06 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Pack digest | `sha256:eedd1425731c8e33af603c6b7064a248419f5bd8d5d51f9622cd0be33f6130d7` |
+| Last validation | 2026-11-07 on `test` (n=300, sha256 `fd328b4fe0d0…`) |
 
 ## Intended use
 
@@ -90,9 +90,9 @@ Code systems:
 
 | Label | Criteria |
 |---|---|
-| `yes` | Metformin is active and was started at least 90 days before screening. |
+| `yes` | Metformin is active and was started at least 90 days before screening (and, with no end date, at most 365 days before). |
 | `no` | Metformin is not listed, was stopped, or was started less than 90 days ago. |
-| `unknown` | Metformin is active but has no start date. |
+| `unknown` | Metformin is active but has no start date, or has no end date and was started more than 365 days before screening. |
 
 **`egfr_30_or_more`**: Was the most recent eGFR in the 365 days before screening at least 30 mL/min/1.73m2?
 
@@ -107,8 +107,8 @@ Code systems:
 | Label | Criteria |
 |---|---|
 | `yes` | No insulin is listed, or it ended more than 90 days before screening. |
-| `no` | Insulin is active, or ended in the last 90 days. |
-| `unknown` | Cannot tell from the medication list. |
+| `no` | Insulin is active (with an end date, or started in the 365 days before screening), or ended in the last 90 days. |
+| `unknown` | Insulin is active with no end date and has no start date or was started more than 365 days before screening. |
 
 **`no_recent_cv_event`**: Is the record free of a coded heart attack or stroke with onset in the 180 days before screening?
 
@@ -185,10 +185,10 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | Metric | Value |
 |---|---|
 | `eligibility` accuracy | 298 of 300 [97.6-99.9%] |
-| Macro-F1 | 0.992 |
+| Macro-F1 | 0.977 |
 | Expected calibration error | 0.083 |
 | Expected calibration error, equal-mass bins | 0.083 |
-| Brier score | 0.049 [0.036-0.066, bootstrap] |
+| Brier score | 0.048 [0.035-0.066, bootstrap] |
 | AUTO | 0 of 300 [0.0-1.2%] |
 | HUMAN_REVIEW | 300 of 300 [98.8-100.0%] |
 | ABSTAIN | 0 of 300 [0.0-1.2%] |
@@ -196,7 +196,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 300 [0.0-1.2%] |
 | Expected human override (of reviewed) | 2 of 300 [0.1-2.4%] |
-| Latency p50 / p95 | 0.41 / 0.46 ms |
+| Latency p50 / p95 | 0.45 / 1.19 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12 of 13 [64.0-99.8%] detected, 0 automated (insufficient evidence: under 100 positives) |
 | Critical `note_pancreatitis=yes` | 6 of 6 [54.1-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
@@ -209,9 +209,9 @@ Per-label performance:
 
 | Label | Precision | Recall | F1 |
 |---|---|---|---|
-| `candidate` | 55 of 56 [90.4-99.95%] | 55 of 56 [90.4-99.95%] | 0.982 |
-| `not_eligible` | 207 of 208 [97.4-99.99%] | 207 of 208 [97.4-99.99%] | 0.995 |
-| `needs_review` | 36 of 36 [90.3-100.0%] | 36 of 36 [90.3-100.0%] | 1.000 |
+| `candidate` | 8 of 8 [63.1-100.0%] | 8 of 9 [51.8-99.7%] | 0.941 |
+| `not_eligible` | 197 of 198 [97.2-99.99%] | 197 of 198 [97.2-99.99%] | 0.995 |
+| `needs_review` | 93 of 94 [94.2-99.97%] | 93 of 93 [96.1-100.0%] | 0.995 |
 
 Subgroups:
 
@@ -231,8 +231,8 @@ Calibration (reliability):
 
 | Confidence bin | Mean confidence | Correct |
 |---|---|---|
-| 0.7 to 0.8 | 0.733 | 91 of 92 [94.1-99.97%] |
-| 0.9 to 1.0 | 0.989 | 207 of 208 [97.4-99.99%] |
+| 0.7 to 0.8 | 0.760 | 101 of 102 [94.7-99.98%] |
+| 0.9 to 1.0 | 0.988 | 197 of 198 [97.2-99.99%] |
 
 Threshold sweep (if everything ≥ threshold were automated):
 
@@ -241,12 +241,12 @@ Threshold sweep (if everything ≥ threshold were automated):
 | 0.50 | 300 of 300 [98.8-100.0%] | 298 of 300 [97.6-99.9%] |
 | 0.60 | 300 of 300 [98.8-100.0%] | 298 of 300 [97.6-99.9%] |
 | 0.70 | 300 of 300 [98.8-100.0%] | 298 of 300 [97.6-99.9%] |
-| 0.80 | 208 of 300 [63.8-74.5%] | 207 of 208 [97.4-99.99%] |
-| 0.85 | 208 of 300 [63.8-74.5%] | 207 of 208 [97.4-99.99%] |
-| 0.90 | 208 of 300 [63.8-74.5%] | 207 of 208 [97.4-99.99%] |
-| 0.95 | 208 of 300 [63.8-74.5%] | 207 of 208 [97.4-99.99%] |
-| 0.97 | 194 of 300 [59.0-70.1%] | 194 of 194 [98.1-100.0%] |
-| 0.99 | 81 of 300 [22.1-32.4%] | 81 of 81 [95.5-100.0%] |
+| 0.80 | 198 of 300 [60.3-71.3%] | 197 of 198 [97.2-99.99%] |
+| 0.85 | 198 of 300 [60.3-71.3%] | 197 of 198 [97.2-99.99%] |
+| 0.90 | 198 of 300 [60.3-71.3%] | 197 of 198 [97.2-99.99%] |
+| 0.95 | 198 of 300 [60.3-71.3%] | 197 of 198 [97.2-99.99%] |
+| 0.97 | 183 of 300 [55.2-66.6%] | 183 of 183 [98.0-100.0%] |
+| 0.99 | 72 of 300 [19.3-29.2%] | 72 of 72 [95.0-100.0%] |
 
 ## Provider comparison
 
@@ -375,7 +375,7 @@ Other questions (accuracy / ECE):
 
 - Criteria are computed only from the codes, units and names listed in logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared conversion, or a condition under an unlisted code is `unknown` or not found. Conditions are listed in ICD-10-CM only (plus the local-site example's fictional codes). Through FHIR a Condition is read by its ICD-10-CM coding wherever it sits among its codings (then by a fictional code), a lab by its LOINC coding and a drug by its RxNorm coding, so a site's own coding beside the standard one is passed over; but until the site adds its codes, a diagnosis coded only in SNOMED CT or a site's own system is not found (type 2 diabetes is `unknown`, a heart attack or stroke is missed), and neither is a lab with no LOINC coding. A metformin brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible` (medications are matched by name, not by their RxNorm code). On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has both, plus Spanish notes, eligibility is answered wrong far more often than on the benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by subgroup). Add a site's codes, units and names before use, and validate locally.
 - An incomplete medication list reads as "not on metformin", which fails a criterion.
-- Through FHIR, medications come from MedicationStatement and MedicationRequest. When a MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7) that is not yet clinically reviewed (a pharmacist's or research coordinator's review is owed before real use). It starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the day it was written (`authoredOn`), and it stops at that `boundsPeriod.end`, else its stop is unknown. The stop is never inferred from the request's status (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not read, and a request entered in error is left out. So a renewed prescription with no bounds starts on the day it was renewed, which can read as metformin started less than 90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and `doNotPerform` are not read, so an active one reads as taken; and only the first dosage instruction's bounds count. The criteria count a medication as current only when its status is `active`, or when it ended within the window they look at, which takes a bounds end. So a `completed`, `stopped`, `on-hold`, `cancelled`, `draft` or `unknown` request with no bounds end, the usual shape of a request, reads as not taken. Insulin on a `completed` request written 20 days ago reads as off insulin (`no_insulin` "yes", where its stop is in fact unknown), and an `on-hold` metformin as not on metformin (`stable_metformin` "no", the prescreen `not_eligible`, which shows no card). Of several requests for one drug, the first in the record's order decides, which may be a renewal rather than the earliest. The clinician's review is to say whether any of this changes. A MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
+- Through FHIR, medications come from MedicationStatement and MedicationRequest. When a MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7). The owner, a physician, answered the clinician brief on it (notes/clinician-review-medication-period.md) on 2026-11-07 with "acceptable with changes"; this version builds those changes. A request starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the day it was written (`authoredOn`). It stops at that `boundsPeriod.end`; else, when its start is a full date, at the start plus that timing's `boundsDuration` (in hours, days, weeks, months or years: UCUM `h`, `d`, `wk`, `mo`, `a`, a month being 30.4375 days and a year 365.25, rounded up to a whole day); else its stop is unknown. The stop is never inferred from the request's status (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not read, and only the first dosage instruction counts. A request entered in error, one whose intent is a proposal, a plan or an option, and one saying not to give the drug (`doNotPerform`) are left out. The criteria count a medication, from a request or a statement, as current when its status is `active`, but one with no end date only when it started in the 365 days before screening (`current_within_days` in logic/criteria.yaml): an older one, or one with no start date, reads `unknown`, so the chart goes to review. So a patient on metformin for years whose record holds only an old active request or statement with no end date is `needs_review`, not `candidate`, and an active insulin started more than a year ago with no end date is `needs_review`, not `not_eligible`. An `active` medication with an end date counts as current whatever that date, so an active request written two years ago for 30 days (`boundsDuration`) reads as metformin taken for two years (`stable_metformin` "yes"). A medication that is not `active` and has no end date reads as not taken: insulin on a `completed` request written 20 days ago reads as off insulin (`no_insulin` "yes", where its stop is in fact unknown), and an `on-hold` metformin as not on metformin (`stable_metformin` "no", the prescreen `not_eligible`, which shows no card). Renewals are not joined: a renewed prescription with no bounds starts on the day it was renewed, which can read as metformin started less than 90 days ago (`not_eligible`), and of several requests for one drug the first in the record's order decides, which may be a renewal rather than the earliest. A MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
 - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do notes longer than 20,000 characters in all, which the input does not allow (`too_large`; the text is never cut), and more links than one decision reads (20, `cap`). A hook reads every clinical note of the patient, each linked note's Binary and each Medication a MedicationRequest names counting as one link, so a long record may reach either.
 - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives `unknown`, so the patient needs review rather than being guessed.
 - The default note rules are English keyword patterns with a fixed-window negation and family-member heuristic. On hand-written notes they found 15/15 exclusions in the set they were written on but 8/12 in the held-out set (all 4 pregnancies; 1 of 2 pancreatitis, 1 of 3 cancer treatments, 2 of 3 recent cardiovascular events). They miss most notes in other languages and misread Spanish negation ("Sin antecedentes de pancreatitis"), and cannot compare dates written in the text, so any mention of a heart attack or stroke without a recency cue is flagged for review. That flag also tips the overall result to `not_eligible` at about 50 % confidence, which keeps the patient-view card silent for a patient who may be a candidate (2 of 24 held-out patients). The rules are an offline fallback, not a deployment choice.
@@ -394,7 +394,59 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.3.0
+#### 0.4.0
+
+- **The medication rule, with the owner's changes** (B21). The owner, a physician, answered the
+  clinician brief `notes/clinician-review-medication-period.md` on 2026-11-07: the rule is
+  "acceptable with changes". This version builds those changes. A MINOR bump, by
+  CONTRIBUTING.md's rule (MINOR for a change in behaviour): labels are unchanged, and what the
+  pack decides changes for the medications below.
+  - **An active medication with no end date counts as current only when it started in the 365
+    days before screening** (the owner's answers 2 and 7). `stable_metformin` and `no_insulin`
+    carry `current_within_days: 365` in `logic/criteria.yaml` (a spec 0.3 key, §3): an active
+    medication, from a MedicationRequest or a MedicationStatement, with no end date and a start
+    more than 365 days before screening, or no start, reads `unknown`, so the chart goes to
+    review. The 365th day is inside. Metformin started 90 days to 12 months ago still reads
+    "yes". An insulin with no start that read "no" (on insulin) now reads `unknown`. The CQL
+    library (`logic/criteria.cql`, now version 0.4.0) states the same rule, and agrees with
+    `criteria` on every test and dataset case (584, and 178 on the local-site example, on HAPI
+    FHIR 8.12).
+  - **Through FHIR, a MedicationRequest that is not an order to give the drug is left out**
+    (answer 5): its `intent` is `proposal`, `plan` or `option`, or its `doNotPerform` is true.
+  - **A `boundsDuration` gives the stop** (answer 6): when the first dosage instruction has no
+    `boundsPeriod.end` and the start is a full date, the stop is the start's day plus the
+    duration in whole days, rounded up, in UCUM's `h`, `d`, `wk`, `mo` (30.4375 days) or `a`
+    (365.25 days). Any other unit leaves the stop unknown. So a `completed` insulin written 60
+    days ago for 30 days reads as ended 30 days ago (`no_insulin` "no"), where its stop was
+    unknown (`no_insulin` "yes").
+  - Unchanged, as the owner chose: the start (answer 1); a medication that is not `active` with
+    no end date reads as not taken (answer 3); renewals are separate items, the first matching
+    one in the record's order deciding (answer 4); a request entered in error is left out;
+    `dispenseRequest.validityPeriod` is not read; only the first dosage instruction is read.
+  - The card's known failure modes state the rule and the owner's answer. They also state one
+    thing the brief did not ask: an `active` medication with an end date counts as current
+    whatever that date, so an active request written two years ago for 30 days reads as
+    metformin taken for two years.
+- **The synthetic data's ground truth follows the rule**; no record changes. Of the benchmark's
+  300 patients, 192 have active metformin started more than 365 days before screening with no
+  end date, and 23 active insulin started 400 days before (the generator's one start for it):
+  those criteria now read `unknown` in the truth and in the pack. Eligibility is answered right
+  for 298 of 300, as before, but 47 of the 56 candidates and 10 of the 208 not eligible are now
+  `needs_review` (candidates 9, needs review 93, not eligible 198). Every critical label's
+  figure is as it was.
+- **The hand-written exclusion sets and the behaviour tests' base record** had metformin since
+  2025-03-01, 18 months before their screening date, which the rule reads `unknown`. Its start
+  is now 2026-03-01 (6 months), so each case's eligibility still turns on its notes, as the sets
+  were written for. No note or label changes. Six behaviour tests are new: metformin started 366
+  days and exactly 365 days ago, metformin with an end date still to come, and insulin started
+  in the last year, more than a year ago, and with no dates.
+- **The FHIR decisions golden**: 91 of the 150 local-site cases change an answer, their input
+  hashes unchanged (their medications are MedicationStatements, with no intent or duration). 22
+  change their result: 21 `candidate` and 1 `not_eligible` become `needs_review`.
+- The digest changes because the manifest, the criteria, the CQL library, the mapping, the data
+  and the tests do; the benchmark and its ledger are run again.
+
+### 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
   2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only). A MINOR bump, by CONTRIBUTING.md's

@@ -296,13 +296,13 @@ def _outside_trial(root: Path, header: str) -> Pack:
     manifest["id"] = "outsider/evil-trial"
     (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     library = pack / "logic" / "criteria.cql"
-    text = library.read_text().replace("library GlycemiaTwoCriteria version '0.2.0'", header)
+    text = library.read_text().replace("library GlycemiaTwoCriteria version '0.4.0'", header)
     library.write_text(text + "\n// EVIL\n")
     return load_pack(pack)
 
 
 @pytest.mark.parametrize("first", ["shipped", "outsider"])
-@pytest.mark.parametrize("version", ["0.2.0", "6.6.6"])
+@pytest.mark.parametrize("version", ["0.4.0", "6.6.6"])
 def test_a_pack_cannot_replace_or_shadow_another_packs_library_on_the_engine(
     trial: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str, version: str
 ) -> None:
@@ -327,7 +327,7 @@ def test_a_pack_cannot_replace_or_shadow_another_packs_library_on_the_engine(
     assert resource["name"].startswith("GlycemiaTwoCriteria_")
     assert resource["url"].endswith(f"/Library/{resource['name']}")
     evidence = shipped_cql.answer(record).answers["age_18_75"].evidence
-    assert evidence == ("CQL GlycemiaTwoCriteria 0.2.0: Age 18 To 75 = no",)  # as declared
+    assert evidence == ("CQL GlycemiaTwoCriteria 0.4.0: Age 18 To 75 = no",)  # as declared
 
 
 @pytest.mark.parametrize(
