@@ -436,7 +436,8 @@ The first release (not yet published).
   card: the engine leaves such a field out of the input and never cuts its text), and the
   prior-authorization pack its payer
   through the Coverage's reference to its Organization, else the payor's own identifier; a
-  site's own payer id reads as `other` (`not_checked`), which the owner's open question decides.
+  site's own payer id reads as `other` (`not_checked`), as the owner confirmed on 2026-11-07 (a
+  red flag under it is to show a card, #282 Q2, not built yet).
   The referral router finds a referral, and its checklist's documents, through code sets a
   site's code map (`MENDARI_SITE_CODES`) can translate the site's own codes into; a decision
   read through a translation, or about a referral found through one, is never automated. The
@@ -995,7 +996,7 @@ The first release (not yet published).
   vendor and model names, its "100 cases" and its pack versions are gone; a remote model, and a
   configuration that calls one, is named there only once its provider type's disclosure is
   stated. Deploying `web/` stays the owner's
-  (gate G1-2).
+  (after gate G1-2's `patent-decision`).
 - **Remote arms on public sets, built and off** (LP-17h; the grading method's sections 9, 10
   and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
   to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local
@@ -1089,9 +1090,9 @@ The first release (not yet published).
   LP-17 built: G3-4's `a9-scoreboard` names the acceptance tests of the statistics, the entries,
   signing, the results store and its page, the grades and band ranking, and the hidden-set
   scoreboard, with the no-leak tests, and stays pending on two lines: the owner's run of the
-  remote arms (LP-17i) and the developer flow (LP-17l, after LP-20 and the owner's decisions 4
-  and 10). `grading-method` probes the method's tests and the page's, beside the document; its
-  attestation stays the owner's. `tests/test_scoreboard_end_to_end.py` takes a local
+  remote arms (LP-17i) and the developer flow (LP-17l, after LP-19 and LP-20). `grading-method`
+  probes the method's tests and the page's, beside the document; its attestation stays the
+  owner's. `tests/test_scoreboard_end_to_end.py` takes a local
   configuration's result from `mendari scoreboard run` through `add`, `sign` (a key made for the
   test) and `verify`, with a changed figure failing both `verify` and the store's check, then a
   frozen hidden set graded over HTTP with the declared arm, its answer stored, signed and

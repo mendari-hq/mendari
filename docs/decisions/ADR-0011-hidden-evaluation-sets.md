@@ -2,11 +2,16 @@
 
 ## Status
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
-the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them; accepted
-once the seven owner decisions still open there (how labellers reach the hosted site among
-them) confirm or change those defaults. Gate G2-3's prerequisite `labelling-underway` and gate
-G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests that hold what was built; each
-still waits for the owner's attestation. What each step built, in the order they landed:
+the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
+confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
+decided (1 in part): labellers reach the hosted site in memberships mode (how they get past
+Vercel Authentication is still open), each set's rotation rule is at most 20 grading runs and
+180 days, a clinical lead's call settles a three-way split (not built yet), and adjudicators
+label blind, as built. Accepted once what stays open there is decided: decision 1's Vercel
+Authentication and decision 7 (how a hidden case is erased). Gate G2-3's prerequisite
+`labelling-underway` and gate G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests
+that hold what was built; each still waits for the owner's attestation. What each step built,
+in the order they landed:
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file;
 - 11b, rater agreement (percent agreement, Cohen's kappa per pair, Krippendorff's alpha, with
   seeded bootstrap intervals), pure;
@@ -53,7 +58,8 @@ still waits for the owner's attestation. What each step built, in the order they
   `rotate --check` recompute every set the chain froze against its commitment. Threat model T6.
 - 11j, a labeller's routes (`GET /api/labelling`, `GET /api/labelling/next`,
   `POST /api/labelling/{assignment_id}`), mounted only in memberships mode with both keys (the
-  hosted site, in claims mode without the keys, mounts none; owner decision 1 stays open): only
+  hosted site, in claims mode without the keys, mounts none; owner decision 1, memberships mode,
+  was decided on 2026-11-07): only
   a person holding `label` passes the guard (never a key, a token, an administrator or open
   mode), and whoever also manages the organization's sets is served nothing; the next case is
   its input and the set's questions only, its read chained before it is sent; a label answers
@@ -91,10 +97,11 @@ still waits for the owner's attestation. What each step built, in the order they
   (another's, an unknown and a malformed id are one `404`); before any case is read, the set's
   header is checked against the pack asked for (its id; a later version asking the same
   questions grades the set too) and every provider slot must run a local variant (conflict 52,
-  owner decision 4 open); the store's grading read then chains the run and hands the cases in
-  memory to a Decision with no store, whose `mendari.eval/2` result, computed from its in-memory
-  ledger, is projected onto the closed `mendari.hidden_result/1` (`evals/hidden.py`, built from a
-  site report's parts: aggregates only, calibration bins and Brier intervals over 10 cases or
+  owner decision 4, confirmed 2026-11-07); the store's grading read then chains the run and
+  hands the cases in memory to a Decision with no store, whose `mendari.eval/2` result,
+  computed from its in-memory ledger, is projected onto the closed `mendari.hidden_result/1`
+  (`evals/hidden.py`, built from a site report's parts: aggregates only, calibration bins and
+  Brier intervals over 10 cases or
   more, never a case, its id or hash, a missed or misclassified case, a subgroup or the dataset's
   identity); nothing is stored (no decision, report, ledger or usage); every refusal and failure
   is answered with a fixed reason (`GradingRefused`), a changed set with a `409` `set_changed`
@@ -204,10 +211,11 @@ states, times and keyed case hashes, and needs no key.
 **Aggregates only.** No route returns frozen or active content to anyone: grading runs in the
 server and answers aggregates only (no per-case field, no missed ids), with local providers only
 until LP-17 decides on remote ones. LP-17 note: under the grading method 1.0 a hidden set is
-graded with local providers only (LP-17's owner decision 2, still open; ADR-0013, decision 5). The
-same route grades the hidden-set scoreboard (LP-17k): a run that declares its arms decides every
-declared arm on the same cases in one grading read (one chained `evalset.graded`, one of the
-set's runs), refuses a declared arm that calls a remote provider before any case is read, and
+graded with local providers only (LP-17's owner decision 2, confirmed 2026-11-07; ADR-0013,
+decision 5). The same route grades the hidden-set scoreboard (LP-17k): a run that declares its
+arms decides every declared arm on the same cases in one grading read (one chained
+`evalset.graded`, one of the set's runs), refuses a declared arm that calls a remote provider
+before any case is read, and
 answers `mendari.hidden_scoreboard/1`, aggregates only: an arm that is not declared reads "not
 graded here" when its configurations are remote, or "not applicable".
 
@@ -218,8 +226,9 @@ graded here" when its configurations are remote, or "not applicable".
   Krippendorff's alpha across the pool, with seeded percentile bootstrap intervals) is computed
   by the command line and at freeze and stored sealed; routes serve only the stored aggregates.
 - The coverage report counts distinct positives; the evaluation report (`mendari.eval/2`) still
-  counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). Which one the
-  evidence rule should use is the owner's, for LP-17.
+  counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). The grading
+  method's evidence rule uses distinct positives (LP-17 decision 3, confirmed by the owner on
+  2026-11-07), and `mendari.eval/2` does not change.
 - An organization's administrators can link one case's events by its keyed hash, in the
   administrative list and its FHIR export, and see who read and labelled it (by user id) and
   that it went to adjudication, which shows that its first two labellers disagreed; never what
