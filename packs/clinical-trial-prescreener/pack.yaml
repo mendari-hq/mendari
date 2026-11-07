@@ -81,7 +81,8 @@ card:
       Through FHIR, medications come from MedicationStatement and MedicationRequest. When a
       MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7). The owner, a
       physician, answered the clinician brief on it (notes/clinician-review-medication-period.md)
-      on 2026-11-07 with "acceptable with changes"; this version builds those changes. A request
+      on 2026-11-07 with "acceptable with changes"; this version builds those changes, which the
+      owner is to confirm as built. A request
       starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the
       day it was written (`authoredOn`). It stops at that `boundsPeriod.end`; else, when its
       start is a full date, at the start plus that timing's `boundsDuration` (in hours, days,

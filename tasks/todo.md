@@ -1450,7 +1450,8 @@ Connect) is not supported yet.
   `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
   scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, confirmed 2026-11-06;
   (5) the go-ahead for 23k, given 2026-11-06, with a clinician's note on the MedicationRequest
-  rule (B21), still owed (answered 2026-11-07, acceptable with changes, not built yet); (6) an
+  rule (B21), still owed (answered 2026-11-07, acceptable with changes, built in the trial pack's
+  0.4.0 and awaiting the owner's check); (6) an
   unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
   from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
   addressed, clinical judgement); (9) attachments: plain text and HTML only, 20 reads of 1 MiB;
@@ -1502,7 +1503,11 @@ Connect) is not supported yet.
     `reflex-order`, `filler-order` and `instance-order` kept); Q6 `boundsDuration` read too
     (start plus duration is the stop), the first dosage line only; Q7 the same 12-month rule for
     an `active` MedicationStatement with no end, nothing else changed; Q8 acceptable with changes
-    (Q2, Q5, Q6, Q7). Next: one build PR with those changes (spec 0.3 §2.7, `standards/fhir.py`,
+    (Q2, Q5, Q6, Q7). **Built** on `claude/b21-medication-rule-5b433a` (the Clinical Trial
+    Prescreener 0.4.0, spec 0.3's new criteria key `current_within_days`), not merged until the
+    owner checks its worked examples; it also asks whether an `active` medication whose end has
+    already passed should still count as current, as it does now. The build PR has those
+    changes (spec 0.3 §2.7, `standards/fhir.py`,
     the trial pack's criteria, a MINOR bump, the rebuilt reference pack and the FHIR golden, and
     the card saying the rule's review was answered with changes and awaits the owner's
     confirmation); then the owner sees and confirms the rule as built, its digest goes in gate
