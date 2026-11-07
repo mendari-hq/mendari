@@ -1226,8 +1226,9 @@ part". That confirms the default of each decision below but 4 and 5, decided on 
 of decision 16, raised by the 23a scorecard (`MENDARI_FHIR_VALIDATION`: `warn`; `tasks/todo.md`).
 It confirms the conflicts' defaults above too, but conflict 39 (the MedicationRequest rule),
 left for the B21 clinician review, and conflict 41, recorded as built: the payer is read by
-`payor[0].reference`, then the Organization identifier, and no site-map step was built (a map
-translates codings only; #280, #282). Nothing a pilot needs is set in Production until a pilot
+`payor[0].reference`, then the Organization's identifier in the pack's payer system, else the
+payor's identifier as written, and no site-map step was built (a map translates codings only;
+#280, #282). Nothing a pilot needs is set in Production until a pilot
 is signed, and the owner's actions below stay the owner's.
 
 1. **CDS client registry storage.** Default: `MENDARI_CDS_CLIENTS`, checked at startup, for the

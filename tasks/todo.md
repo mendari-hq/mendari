@@ -1066,7 +1066,7 @@ Connect) is not supported yet.
     (`::test_a_linked_resource_is_read_through_the_organizations_site_code_map`). Conflict 41's
     site-map step for the payer is not built: a map translates codings only (spec 0.3 §2.5), and
     a payer's identifier is not one, so how a payer field reads a site's payer id is 23k's (the
-    owner's question in #280).
+    owner's question in #280), answered as built on 2026-11-07 (the owner's lines below).
   - [x] **23j** (#281) Pack cards: the inbox's card template, referral cards only when action
     is needed. **The owner confirmed the `show` list on 2026-11-06** ("Confirm the default": owner
     decision 4, `[return_for_info, urgent_review]`). `packs/patient-inbox-router` 0.4.3 gains a
@@ -1293,8 +1293,9 @@ Connect) is not supported yet.
     `terminology.yml` itself (never run from a build session; which issues tx.fhir.org raises,
     and so which expected warnings it needs, is known only after its first run, 23m's record).
     **The owner's question**, answered on 2026-11-07 (`fail`, as built): a scope the EHR does
-    not publish is `fail` (conflict 56), though SMART 2.2.0 says `scopes_supported` need not be
-    exhaustive; `warn` would match the spec, a one-word build PR.
+    not publish is `fail` (as 23l built; conflict 56: no published list is `unknown`), though
+    SMART 2.2.0 says `scopes_supported` need not be exhaustive; `warn` would match the spec, a
+    one-word build PR.
   - [x] **23m** (#280) Close-out. Gate G5-6's `a12-ehr-pilot`: its LP-23 pending probe
     replaced by the 18 tests 23m lists, each found under the name the plan gives it, in groups by
     step (23b and 23c; 23d and 23e; 23f, 23h and 23i; 23l with
@@ -1412,8 +1413,9 @@ Connect) is not supported yet.
     owed).
   - 23h (40, 41): Binary is read as FHIR JSON under the `fhirServer` base only, plain text and
     HTML only, at most 20 reads of 1 MiB per decision, never from `fhir/decide` or `$decide`; the
-    payer by `payor[0].reference`, then its Organization's identifier (the plan's last step, the
-    site map, is not built: a map translates codings only, #280 and #282; recorded as built).
+    payer by `payor[0].reference`, then its Organization's identifier in the pack's payer
+    system, else the payor's identifier as written (the plan's last step, the site map, is not
+    built: a map translates codings only, #280 and #282; recorded as built).
   - 23i (42 to 44): the site map translates in the adapter (logic files and digests untouched),
     per organization in the environment, its version and sha256 recorded; a `site_code` cap keeps
     those decisions at HUMAN_REVIEW until G5-6 `site-validation`; 23i rebuilds the reference packs
@@ -1503,7 +1505,8 @@ Connect) is not supported yet.
     does), and whether a scope the EHR does not publish is `fail` or `warn` (23l). Answered as
     built (owner, 2026-11-07): (1) no request-wide budget for now, the bound stays a decision's
     (residual D14); (2) the pack's payer system, else the payor's identifier as written (= #280
-    Q8b, #282 Q1; a code set reading identifiers would be engine work); (3) `fail` (conflict 56).
+    Q8b, #282 Q1; a code set reading identifiers would be engine work); (3) `fail` (as 23l
+    built; conflict 56: no published list is `unknown`).
     Still open, for the owner as a clinician (#282 Q2): whether a `not_checked` order shows its
     card, or the red-flag rule sets a recommendation that does.
   - [x] Owner (#280 Q2): the card's `mendari.decision_id` extension, which CRD 2.2.1's response
@@ -1521,9 +1524,10 @@ Connect) is not supported yet.
   - [x] Owner (#280 Q7): a later PR marks WC-4a, CE-3a and the `conformance.yml` and
     `terminology.yml` rows met once their runs on main are green (the regrade, a build item);
     until then a row waiting on a run reads `partial`, not met. Confirmed (owner, 2026-11-07).
-  - [x] Owner (#280 Q8c): a hook whose `fhirServer` is off the allow-list is a `422`, nothing
-    fetched or recorded (conflict 14, as built and tested). #280's body labels the recorded
-    ABSTAIN with `200` as the built behaviour; it is not. Confirmed (owner, 2026-11-07).
+  - [x] Owner (#280 Q8c): a hook whose `fhirServer` is off the allow-list is refused, nothing
+    fetched or recorded: `403` for a CDS client's own token (before anything is charged), else
+    `422` (conflict 14, as built and tested). #280's body labels the recorded ABSTAIN with `200`
+    as the built behaviour; it is not. Confirmed (owner, 2026-11-07).
   - [x] Owner (#280 Q8d): a rule's BLOCK reached through a site translation goes to
     HUMAN_REVIEW (policy only lowers automation). Confirmed (owner, 2026-11-07).
   - [x] Owner (#281 Q1): a card-only change is a PATCH (the inbox's 0.4.3, the referral router's
@@ -1598,16 +1602,17 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   sources are 61 Debian source packages and 13 other files, 345 MB (one 339 MB layer), collected
   in 12 s. Size (compressed, on disk): arm64 71.8 and 335 MB before, 72.0 and 338 MB after;
   amd64 69.6 and 303 MB before, 69.8 and 307 MB after (`/licenses` is 3.3 MB).
-  **Not done, for the owner:** attaching the sources to a GitHub release (no release is created
-  today, and it needs `contents: write` on a publishing job, which the workflow safety rules do
-  not allow; the `-sources` tag in the same GHCR repository is the source's place instead);
-  counsel to confirm the approach (equivalent access from the same place, no separate written
-  offer). Keep each `-sources` tag as long as its image, and make it public with the image's
-  package. **Confirmed by the owner on 2026-11-07** (in chat: "the patent gate is clear and I
-  approve everything on my part"): `SOURCE.md`'s fallback ("open an issue in the Mendari
-  repository and the maintainers will send it"), which commits the maintainers, with no other
-  contact named; and the sources' place, `<tag>-sources` in the same GHCR repository, kept as
-  long as its image, not a release attachment.
+  **Not done, by choice (confirmed below):** attaching the sources to a GitHub release (no
+  release is created today, and it needs `contents: write` on a publishing job, which the
+  workflow safety rules do not allow; the `-sources` tag in the same GHCR repository is the
+  source's place instead). **Not done, for the owner:** counsel to confirm the approach
+  (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
+  as long as its image, and make it public with the image's package. **Confirmed by the owner
+  on 2026-11-07** (in chat: "the patent gate is clear and I approve everything on my part"):
+  `SOURCE.md`'s fallback ("open an issue in the Mendari repository and the maintainers will send
+  it"), which commits the maintainers, with no other contact named; and the sources' place,
+  `<tag>-sources` in the same GHCR repository, kept as long as its image, not a release
+  attachment.
   **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
   for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
   the repository for Mendari) and every crate (crates.io), and Debian's section says where each
@@ -1721,7 +1726,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 
   Planned by a mapping workflow (2026-10-09) as fifteen PRs, each safe alone, the feature off
   without both keys; the full plan, its 57 conflicts with the default each PR follows, and the
-  risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
+  risks are in `notes/lp11-plan.md`. Each conflict's default was confirmed by the owner on
+  2026-11-07 (the owner's words under the owner decisions below), but what owner decisions 2
+  and 3 leave open: conflict 47's values (decision 2) and, in conflict 40, whether adjudicators
+  see both labels and what settles a three-way split (decision 3). ADR-0011 stays Proposed
+  (decisions 1, 2, 3 and 7). Guards come first: keys, permissions and a generated
   no-leak sweep land before any evaluation-set route exists.
   - [x] **11a** (#220, merged 2026-10-09) One canonical form of a case's input (`evals/canonical.py`: the strict
     form and `norm/v1`, pinned byte for byte) and the coverage report (`mendari.coverage/1`,
@@ -3911,12 +3920,13 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     would POST to https://mendari.co).
   - **Owner decisions.** Confirmed by the owner on 2026-11-07 (in chat: "the patent gate is
     clear and I approve everything on my part"), each its default: a weekly job may send
-    synthetic resources to tx.fhir.org (`terminology.yml`, on a schedule only, LP-23's conflict
-    54, merged; the offline `fhir-conformance` stays the required gate); the DTR payer service
-    stays a declared partial one, its gaps listed, not advertised. Still open: whether PAS
-    attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for `needs_attention`.
-    Real acceptance is the owner's alone: a payer's PAS sandbox with credentials, a payer's
-    written requirements, an EHR's DTR client (B38).
+    synthetic resources to tx.fhir.org (`terminology.yml`, weekly and by hand, never on a pull
+    request, LP-23's conflict 54, merged; the offline `fhir-conformance` stays the required
+    gate); the DTR payer service stays a declared partial one, its gaps listed, not advertised.
+    Still open: whether PAS attaches the completed QuestionnaireResponse
+    (`Claim.supportingInfo`) for `needs_attention`. Real acceptance is the owner's alone: a
+    payer's PAS sandbox with credentials, a payer's written requirements, an EHR's DTR client
+    (B38).
 
 ## Done: v0.6 Readiness for health organizations ([plan](../notes/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).

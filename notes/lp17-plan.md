@@ -762,7 +762,8 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
 part". That confirms the default of decisions 1, 2, 3, 5 (the numbers and the 30 days' rule; the
 effective date itself is still the owner's to set), 6, 7, 9, 10 and 11, and of the conflicts
 above. Still open: 4, which has no house default, and 8, whose rule (no remote entry published
-until its type has a statement) is built while the statements are the owner's to write. The
+until its type has a statement) is built while the statements are the owner's to write. Whether
+11 waits for all of G1-2 or only its `patent-decision` stays the owner's to say (no default). The
 owner's actions below stay the owner's.
 
 1. **Which parts are built in a private repository:** the runner, its provider budget, the signing key. Default: none. All the code is open; only the key (offline), hidden-set content (in the database) and the budgets (in the environment) stay out of it.

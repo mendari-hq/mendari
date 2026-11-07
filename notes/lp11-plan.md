@@ -626,6 +626,13 @@ Hidden data reaches the store only through the operator's command line, or throu
 
 ## Owner decisions still open
 
+**2026-11-07:** the owner wrote, in chat, "the patent gate is clear and I approve everything on my
+part". That confirms the default of decisions 4 (local providers only under method 1.0), 5
+(distinct positives) and 6 (an administrator does not also label), and of the conflicts above,
+but what decisions 2 and 3 leave open: conflict 47's values, and in conflict 40 whether
+adjudicators see both labels and what settles a three-way split. Decisions 1, 2, 3 and 7 have no
+default and stay open, so ADR-0011 stays Proposed. The owner's actions below stay the owner's.
+
 1. **How labellers reach the hosted site.** Either switch the site to memberships mode, or allow `labeller` in claims mode, which amends ADR-0008. Also: how labellers get past Vercel Authentication. This must be settled before contracting labellers. Nothing before 11j depends on it.
 2. **Rotation-rule numbers.** The maximum grading runs and maximum age for each set, or a house default. Freeze requires both.
 3. **Three-way adjudication splits.** A fourth label, removing the case (which biases the set), or a clinical lead's call. Also, whether adjudicators should see both labels. Until then, a split blocks freeze.

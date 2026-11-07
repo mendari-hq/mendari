@@ -47,10 +47,12 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
 
 What stays open. The clinician's note on the MedicationRequest rule 23k adopts (B21; the draft
 for the reviewer is `notes/clinician-review-medication-period.md`, and gate `clinician-review`'s
-attestation records the review), and how a payer field is to read a site's own payer identifier
-(the owner's question; 23k reads it as no payer the pack knows, so the order is `not_checked` and
-shows no card at `order-sign`, a possible red flag in its notes included, which reaches only the
-review queue). The Epic sandbox run, in which
+attestation records the review). How a payer field reads a site's own payer identifier was
+confirmed as built by the owner on 2026-11-07: 23k reads it as no payer the pack knows, so the
+order is `not_checked` and shows no card at `order-sign`, a possible red flag in its notes
+included, which reaches only the review queue. Whether a `not_checked` order shows its card, or
+the red-flag rule sets a recommendation that does, stays open, for the owner as a clinician
+(#282 Q2). The Epic sandbox run, in which
 every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3), and `mendari
 smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
 pending. `conformance.yml`'s new jobs

@@ -2,11 +2,13 @@
 
 ## Status
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
-the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them; accepted
-once the seven owner decisions still open there (how labellers reach the hosted site among
-them) confirm or change those defaults. Gate G2-3's prerequisite `labelling-underway` and gate
-G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests that hold what was built; each
-still waits for the owner's attestation. What each step built, in the order they landed:
+the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
+confirmed by the owner on 2026-11-07 but what decisions 2 and 3 leave open; decisions 4 to 6
+were confirmed then too. Accepted once the four owner decisions still open there (1, 2, 3 and 7:
+how labellers reach the hosted site among them) are decided. Gate G2-3's prerequisite
+`labelling-underway` and gate G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests
+that hold what was built; each still waits for the owner's attestation. What each step built,
+in the order they landed:
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file;
 - 11b, rater agreement (percent agreement, Cohen's kappa per pair, Krippendorff's alpha, with
   seeded bootstrap intervals), pure;
@@ -91,10 +93,11 @@ still waits for the owner's attestation. What each step built, in the order they
   (another's, an unknown and a malformed id are one `404`); before any case is read, the set's
   header is checked against the pack asked for (its id; a later version asking the same
   questions grades the set too) and every provider slot must run a local variant (conflict 52,
-  owner decision 4 open); the store's grading read then chains the run and hands the cases in
-  memory to a Decision with no store, whose `mendari.eval/2` result, computed from its in-memory
-  ledger, is projected onto the closed `mendari.hidden_result/1` (`evals/hidden.py`, built from a
-  site report's parts: aggregates only, calibration bins and Brier intervals over 10 cases or
+  owner decision 4, confirmed 2026-11-07); the store's grading read then chains the run and
+  hands the cases in memory to a Decision with no store, whose `mendari.eval/2` result,
+  computed from its in-memory ledger, is projected onto the closed `mendari.hidden_result/1`
+  (`evals/hidden.py`, built from a site report's parts: aggregates only, calibration bins and
+  Brier intervals over 10 cases or
   more, never a case, its id or hash, a missed or misclassified case, a subgroup or the dataset's
   identity); nothing is stored (no decision, report, ledger or usage); every refusal and failure
   is answered with a fixed reason (`GradingRefused`), a changed set with a `409` `set_changed`
@@ -204,10 +207,11 @@ states, times and keyed case hashes, and needs no key.
 **Aggregates only.** No route returns frozen or active content to anyone: grading runs in the
 server and answers aggregates only (no per-case field, no missed ids), with local providers only
 until LP-17 decides on remote ones. LP-17 note: under the grading method 1.0 a hidden set is
-graded with local providers only (LP-17's owner decision 2, still open; ADR-0013, decision 5). The
-same route grades the hidden-set scoreboard (LP-17k): a run that declares its arms decides every
-declared arm on the same cases in one grading read (one chained `evalset.graded`, one of the
-set's runs), refuses a declared arm that calls a remote provider before any case is read, and
+graded with local providers only (LP-17's owner decision 2, confirmed 2026-11-07; ADR-0013,
+decision 5). The same route grades the hidden-set scoreboard (LP-17k): a run that declares its
+arms decides every declared arm on the same cases in one grading read (one chained
+`evalset.graded`, one of the set's runs), refuses a declared arm that calls a remote provider
+before any case is read, and
 answers `mendari.hidden_scoreboard/1`, aggregates only: an arm that is not declared reads "not
 graded here" when its configurations are remote, or "not applicable".
 
@@ -218,8 +222,9 @@ graded here" when its configurations are remote, or "not applicable".
   Krippendorff's alpha across the pool, with seeded percentile bootstrap intervals) is computed
   by the command line and at freeze and stored sealed; routes serve only the stored aggregates.
 - The coverage report counts distinct positives; the evaluation report (`mendari.eval/2`) still
-  counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). Which one the
-  evidence rule should use is the owner's, for LP-17.
+  counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). The grading
+  method's evidence rule uses distinct positives (LP-17 decision 3, confirmed by the owner on
+  2026-11-07), and `mendari.eval/2` does not change.
 - An organization's administrators can link one case's events by its keyed hash, in the
   administrative list and its FHIR export, and see who read and labelled it (by user id) and
   that it went to adjudication, which shows that its first two labellers disagreed; never what

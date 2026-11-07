@@ -6,9 +6,10 @@ which confirms each default below). Proposed 2026-10-09. Built (LP-18, 18a to 18
 Decision Card's approval screen, 2026-10-09 to 2026-10-17), each default below as
 `tasks/todo.md` records it. Gate G3-4's prerequisite `a10-registry-hub` (`launch/gates.yaml`)
 names the tests that hold it; LP-19 (registry accounts, namespace claims, the registry and the
-Hub deployed) stays pending there. The owner chose on 2026-11-07 where the registry runs, under
-the engine app (LP-19's option A); its build is next, and its deploy, signing key and DNS stay
-the owner's. The steps, in the order they landed:
+Hub deployed) stays pending there. On 2026-11-07 the owner confirmed the default for where the
+registry runs: under the engine app (LP-19's option A, the build session's recommendation); its
+build is next, and its deploy, signing key and DNS stay the owner's. The steps, in the order
+they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
