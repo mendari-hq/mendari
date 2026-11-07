@@ -304,7 +304,7 @@ jobs:
         # LP-23e: another container seeds the vendor-shaped EHR profile, serves its JWK Set and
         # calls discovery and every standard hook with its own ES384 tokens, as an EHR does. Any
         # answer but a 200, a hook answer that is not CDS Hooks', or a card saying a read failed
-        # (anything unread but a linked note), fails the job.
+        # (anything unread but an RTF note, `notes: unsupported_type`), fails the job.
         run: docker compose --profile signin run --rm -T --use-aliases cds-client
       - if: failure()
         run: docker compose --profile signin logs --tail 200

@@ -435,9 +435,9 @@ CI's `sandbox-e2e` runs it on every change:
 docker compose --profile signin run --rm --use-aliases cds-client
 ```
 
-Every hook answers, but the packs read little of these shapes yet (linked notes, a site's
-coding first, MedicationRequest, the payer by reference): what each cannot read is pinned in
-`tests/test_ehr_profile.py`, and
+Every hook answers, and since LP-23k the packs read these shapes (linked notes, a site's coding
+first, MedicationRequest, the payer by reference) but for an RTF note and the site's own payer id:
+what each cannot read is pinned in `tests/test_ehr_profile.py`, and
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#try-it-with-the-sandboxs-client)
 says how to run the client against your own engine.
 
@@ -453,13 +453,16 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
 
-The Referral Router tells a referral from other ServiceRequests by the code its FHIR mapping
-lists (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its synthetic data,
-since no package carries SNOMED CT. List the code your EHR marks referrals with first (often a
-SNOMED CT code), or no referral is found. The same goes for the Clinical Trial Prescreener's
-condition codes beyond ICD-10-CM (`logic/criteria.yaml`). Its mapping reads a Condition's first
-coding only, so a Condition coded first in SNOMED CT is not found even when an ICD-10-CM coding
-follows.
+The Referral Router tells a referral from other ServiceRequests by its FHIR mapping's code set
+`referral_category` (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its
+synthetic data, since no package carries SNOMED CT, wherever it sits among the category's
+codings. Translate the code your EHR marks referrals with (often a SNOMED CT code) into it in
+your site code map (`MENDARI_SITE_CODES`; a referral found so is never automated), or rewrite
+`focus_where` to list it, or no referral is found. The same goes for the Clinical Trial
+Prescreener's condition codes beyond ICD-10-CM (`logic/criteria.yaml`). Since LP-23k its mapping
+reads a Condition's ICD-10-CM coding wherever it sits, so a Condition coded first in SNOMED CT
+is found when an ICD-10-CM coding follows; one coded only in SNOMED CT or the site's own system
+is not, until the site lists its codes.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
@@ -690,8 +693,9 @@ decision, each at most 1 MiB once decoded, each read once a request. A link to a
 outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
 (`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
 its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
-DocumentReference), one that reads is enough: the others are not read or counted. No shipped pack is
-on spec 0.3 yet, so none reads a link
+DocumentReference), one that reads is enough: the others are not read or counted. Since LP-23k the
+trial and prior-authorization packs are on spec 0.3 and read their notes, the Medication a
+MedicationRequest names and the payer's Organization so
 ([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#linked-data)).
 
 **A site's own codes (LP-23i).** An EHR often codes things its own way. `MENDARI_SITE_CODES`
@@ -706,8 +710,9 @@ none), and records the map's version and SHA-256 (`site_codes`, beside `data_cov
 is read with the same translations); `/api/health` shows the caller's. **A decision read
 through a translation never automates:** AUTO becomes HUMAN_REVIEW (`site code translated
 (<code set>): a person decides`), and so does a pack rule's BLOCK, and nothing lifts it,
-governance included, until the site validates its map. No shipped pack declares a code set
-yet. See
+governance included, until the site validates its map. Of the shipped packs, the Referral
+Router declares code sets (since LP-23k): its referral code and its checklist's document codes.
+See
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
 
 **Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
@@ -719,10 +724,11 @@ token through a hook over HTTP, its card and the clinician's feedback on it to `
 verify`, which passes, and fails once one event is changed, on SQLite and Postgres. The shipped
 packs' cards followed (LP-23j): the inbox has its own card template, and the referral router
 shows a card only when the person signing can act (a referral to send back with what is
-missing, or one to review today), deciding and auditing the others with no card. Left: the
-shipped packs' mappings for real EHR data on spec 0.3, waiting on the owner, and the run on
-Epic's own sandbox, which is the owner's. Launch gate G5-6's `a12-ehr-pilot` names both as
-pending. The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure
+missing, or one to review today), deciding and auditing the others with no card. The shipped
+packs' mappings for real EHR data on spec 0.3 followed (LP-23k, after the owner's go-ahead; the
+clinician's note on its MedicationRequest rule is still owed). Left: the run on Epic's own
+sandbox, which is the owner's, and which launch gate G5-6's `a12-ehr-pilot` names as pending.
+The scorecard's grade at the close-out is level 1 overall, as before LP-23: failure
 behaviour stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing
 that only a CI run not yet made would show is counted. The
 [threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)

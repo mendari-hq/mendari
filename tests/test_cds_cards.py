@@ -164,6 +164,7 @@ def trial_request() -> dict[str, Any]:
             "conditions": searchset("Condition"),
             "observations": searchset("Observation"),
             "medications": searchset("MedicationStatement"),
+            "medication_requests": searchset("MedicationRequest"),
             "notes": searchset("DocumentReference"),
         },
     }

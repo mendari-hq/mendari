@@ -299,7 +299,11 @@ def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
     mapping = yaml.safe_load(
         (ROOT / "packs" / "referral-router" / "fhir" / "mapping.yaml").read_text()
     )
-    assert mapping["focus_where"]["in"] == [REFERRAL["code"]] and REFERRAL["code"] in REFERRALS
+    # The referral router's FHIR focus is its code set `referral_category` (spec 0.3, LP-23k).
+    assert mapping["focus_where"]["code_set"] == "referral_category"
+    category = mapping["code_sets"]["referral_category"]
+    assert category == {"system": REFERRAL_SYSTEM, "codes": [REFERRAL["code"]]}
+    assert REFERRAL["code"] in REFERRALS
     published = {r["url"]: {c["code"] for c in r["concept"]} for r in sandbox_resources()}
     assert published[CONDITION_SYSTEM] == set(CONDITIONS)
     assert published[REFERRAL_SYSTEM] == set(REFERRALS)

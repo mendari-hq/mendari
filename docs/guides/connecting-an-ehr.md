@@ -254,7 +254,10 @@ makes the decision ABSTAIN with its field and one of these reasons:
 Notes are read as plain text and HTML. RTF, PDF and CDA are not read, and the decision abstains,
 unless another rendition of the same note was read: the `content` of one DocumentReference holds
 one document in several formats, so an RTF beside the HTML of a note is not needed, and is not
-read. No shipped pack is on spec 0.3 yet, so the shipped packs read no links.
+read. Since LP-23k the Clinical Trial Prescreener and the Prior Authorization Preflight read
+links: their notes (a Binary), the Medication a MedicationRequest names (the trial pack), and
+the Organization a Coverage's payor names (the prior-authorization pack). The token must allow
+`Binary`, `Medication` and `Organization` reads for them. The Referral Router reads no link.
 
 ## The cards
 
@@ -398,8 +401,8 @@ sandbox's worker, SMART launch and Bulk check never read it.
 
 It prints what each call answered, and exits 1 on any answer other than `200`, a hook answer
 that is not CDS Hooks' (a `cards` list, each with a summary, an indicator and a source), or a
-card saying part of the record could not be read for anything but a patient's linked note
-(`notes: not_fetched`, below). Every hook answers `200`, so a read of the FHIR server that
+card saying part of the record could not be read for anything but a patient's RTF note
+(`notes: unsupported_type`, below). Every hook answers `200`, so a read of the FHIR server that
 failed (`could not read conditions: http_status`, say) shows only there. To run
 it against your own engine, register the entry it prints, put its origin and the FHIR server's
 on `MENDARI_FHIR_ALLOWED_SERVERS`, and give the engine's `MENDARI_PUBLIC_URL` as `--audience`.
@@ -415,19 +418,20 @@ runs it on every change:
 docker compose --profile signin run --rm --use-aliases cds-client
 ```
 
-**What the packs cannot read in these shapes yet.** Every hook answers, but the packs read
-little of this data so far. A note that is only a link is not fetched, so the trial and
-prior-authorization packs abstain for each patient with a note (`could not read notes:
-not_fetched`, an `info` card). A Condition is read by its first coding, and the referral by its
-category's, so for the patients whose site coding comes first a diagnosis reads as the site's
-code, and no referral is found: no decision, no card. The trial pack reads MedicationStatement,
-not MedicationRequest. The prior-authorization pack reads the payer as an identifier, not a
-reference. `tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture,
-not a rate. The engine can read these shapes for a pack on spec 0.3 ([linked data](#linked-data),
-[site codes](#site-codes)); the shipped packs' mappings adopt them in a later LP-23 step (23k).
-The payer is still open: on spec 0.3 a linked read reaches the Organization's identifier, the
-site's own payer id, which no site code map translates (a map translates codings only), and how
-a payer field reads it is an owner's question for 23k.
+**What the packs cannot read in these shapes yet.** Since LP-23k the three packs are on spec
+0.3 and read most of this data. A note that is only a link is read from the FHIR server (its
+Binary, as text/plain or text/html); an RTF note is not, so the trial and prior-authorization
+packs abstain for the patient whose note is RTF (`could not read notes: unsupported_type`, an
+`info` card). A Condition is read by its ICD-10-CM coding and a referral by its FR101 coding
+wherever they sit, so every referral is found. The trial pack reads the MedicationRequests and
+the Medication each names (its RxNorm code, which the case's own record does not carry, is read
+in addition). The prior-authorization pack follows the payer's reference to its Organization,
+but the Organization holds only the site's own payer id, which the pack does not know and no
+site code map translates (a map translates codings only): the payer reads as `other`, and the order
+as `not_checked`, which shows no card at `order-sign`, a possible red flag in its notes included
+(that one reaches the review queue at urgent priority). How a payer field should read a site's payer
+id is still the owner's question. `tests/test_ehr_profile.py` pins each of these, with why: it is a
+regression fixture, not a rate.
 
 ## Site codes
 
@@ -505,8 +509,12 @@ What a decision does with it:
   lifting it then is the owner's decision.
 
 A map is configuration, not part of a pack: no pack file or digest changes. A site's own SNOMED
-CT codes may go in its map under its own licence; Mendari ships none. No shipped pack declares
-a code set yet.
+CT codes may go in its map under its own licence; Mendari ships none. The Referral Router
+declares three code sets (since LP-23k): `referral_category` (FR101, which `focus_where` reads:
+translate the code your EHR marks a referral with into it, and the router finds your referrals),
+`checklist_documents` and `checklist_reports` (the LOINC document and report codes its checklist
+looks for). The trial and prior-authorization packs read their codes by code system, through no
+code set, so a map does not reach them.
 
 ## Conformance runs
 
@@ -560,12 +568,14 @@ to a pilot:
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
 - **Notes the packs may not read.** The reference packs that read notes (the trial and
-  prior-authorization packs) abstain on a note that is only a link until their mappings move
-  to spec 0.3, and a pack on spec 0.3 reads a note as text only when it is text/plain or
-  text/html: an RTF, PDF or CDA note abstains (`unsupported_type`). On an EHR
-  that sends notes that way, the packs that read notes may abstain for most patients with one,
-  each decision going to a person with an `info` card. Read the decisions' data-coverage records
-  (the audit view's "What it read") in the first days.
+  prior-authorization packs) are on spec 0.3 since LP-23k, and read a note that is only a link
+  from the FHIR server, but as text only when it is text/plain or text/html: an RTF, PDF or CDA
+  note abstains (`unsupported_type`). So do notes longer than the pack's input allows in all (20,000
+  characters, `too_large`; the text is never cut) and more links than a decision reads (20, `cap`),
+  which a patient with many notes may reach. On an EHR that sends notes that way, or keeps many
+  notes for each patient, the packs that read notes may abstain for most patients with one, each
+  decision going to a person with an `info` card. Read the decisions' data-coverage records (the
+  audit view's "What it read") in the first days.
 - **The validation mode.** Under `MENDARI_FHIR_VALIDATION=warn`, the default, input that is R4
   JSON but breaks R4's other rules is decided with its issues recorded; `enforce` blocks it
   before any provider runs ([Settings at a glance](../deploying-with-phi.md#8-settings-at-a-glance)).

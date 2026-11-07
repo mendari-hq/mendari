@@ -53,7 +53,8 @@ PAYER_CODES = {
 
 def procedure_codings(code: str) -> list[dict[str, str]]:
     """A FHIR order's or procedure's codings for a fictional code: the code itself first (the
-    pack reads `coding[0]`), then its ICD-10-PCS code when it has one (`PAYER_CODES`)."""
+    pack reads it by its system, wherever it sits), then its ICD-10-PCS code when it has one
+    (`PAYER_CODES`)."""
     from mendari.standards.pas import ICD10_PCS
 
     codings = [{"system": PROCEDURE_SYSTEM, "code": code, "display": PROCEDURES[code]}]

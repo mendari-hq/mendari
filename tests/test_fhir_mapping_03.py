@@ -592,6 +592,184 @@ def test_a_code_set_selector_matches_only_its_declared_codes(tmp_path: Path) -> 
     ]
 
 
+def test_a_followed_field_falls_back_to_a_path_of_its_own_type(tmp_path: Path) -> None:
+    """After a `follow`, a path that starts with the field's own type is read where the field
+    is (LP-23k): a top-level field's `follow` type (`Coverage` for `Coverage.payor[0]`), a list
+    field's resource type. So the payer is the Organization's identifier when the reference
+    reaches one, else the payor's own identifier; and a MedicationRequest's drug is its
+    Medication's code, else its own `medicationCodeableConcept`'s. A link to a type the paths
+    read through the reference is still a link (it abstains, `unreadable_links`), whatever the
+    fallback reads; the field's own type is never one (`followed_types`)."""
+    from mendari.standards import data_coverage
+
+    payer = {
+        "follow": "Coverage.payor[0]",
+        "paths": [
+            f"Organization.identifier[system={PAYER}].value",
+            "Coverage.payor[0].identifier.value",
+        ],
+    }
+    code = {
+        "follow": "medicationReference",
+        "paths": [
+            f"Medication.code.coding[system={MED}].code",
+            f"MedicationRequest.medicationCodeableConcept.coding[system={MED}].code",
+        ],
+    }
+    source = {"fields": {"id": {"path": "id"}, "code": code}}
+    changes = {
+        "lists": {"medications": {"resources": {"MedicationRequest": source}}},
+        "fields": {"payer": payer},
+    }
+    mapped = adapter(tmp_path, changes)
+    payer_field = mapped.mapping.fields["payer"]
+    code_field = mapped.mapping.lists["medications"].sources()["MedicationRequest"].fields["code"]
+    assert fhir.own_type(payer_field, None) == "Coverage"
+    assert fhir.followed_types(payer_field, None) == {"Organization"}
+    assert fhir.own_type(code_field, "MedicationRequest") == "MedicationRequest"
+    assert fhir.followed_types(code_field, "MedicationRequest") == {"Medication"}
+    assert fhir.own_type(mapped.mapping.fields["patient.age"], None) is None  # no `follow`
+
+    def coverage(**payor: Any) -> dict[str, Any]:
+        return {"resourceType": "Coverage", "id": "cov", "status": "active", "payor": [payor]}
+
+    organization = {
+        "resourceType": "Organization",
+        "id": "o1",
+        "identifier": [{"system": PAYER, "value": "PAYER-A"}],
+    }
+    site_only = {
+        "resourceType": "Organization",
+        "id": "o2",
+        "identifier": [{"system": SITE, "value": "S-77"}],
+    }
+    cases: list[tuple[str, list[dict[str, Any]], str | None]] = [
+        (
+            "the reference reaches it",
+            [coverage(reference="Organization/o1"), organization],
+            "PAYER-A",
+        ),
+        ("an identifier only", [coverage(identifier={"value": "acme"})], "acme"),
+        (
+            "reached, but not by the system: the payor's own",
+            [coverage(reference="Organization/o2", identifier={"value": "acme"}), site_only],
+            "acme",
+        ),
+        ("reached, neither", [coverage(reference="Organization/o2"), site_only], None),
+        ("the patient pays: not a link", [coverage(reference="Patient/p1")], None),
+    ]
+    for name, record, want in cases:
+        assert read(mapped, *record).get("payer") == want, name
+        indexed = mapped.index(bundle(PATIENT, *record))
+        assert data_coverage.unreadable_links(mapped.mapping, indexed) == {}, name
+    linked = mapped.index(
+        bundle(PATIENT, coverage(reference="Organization/missing", identifier={"value": "acme"}))
+    )
+    assert mapped.to_input(linked)["payer"] == "acme"  # the fallback reads
+    assert data_coverage.unreadable_links(mapped.mapping, linked) == {"payer": {"not_fetched": 1}}
+
+    medication = {
+        "resourceType": "Medication",
+        "id": "m1",
+        "code": {"coding": [{"system": MED, "code": "M1"}]},
+    }
+
+    def ordered(id_: str, **drug: Any) -> dict[str, Any]:
+        return {"resourceType": "MedicationRequest", "id": id_, "status": "active", **drug}
+
+    concept = {"coding": [{"system": SITE, "code": "x"}, {"system": MED, "code": "M2"}]}
+    found = read(
+        mapped,
+        ordered("r1", medicationReference={"reference": "Medication/m1"}),
+        ordered("r2", medicationCodeableConcept=concept),
+        ordered("r3", medicationReference={"reference": "#gone"}),
+        medication,
+    )
+    assert found["medications"] == [
+        {"id": "r1", "code": "M1"},
+        {"id": "r2", "code": "M2"},
+        {"id": "r3"},
+    ]
+    looked = mapped.looked_for()["lists"]["medications"]["MedicationRequest"]["code"]
+    assert looked["follow"] == "MedicationRequest.medicationReference"
+    assert looked["paths"] == code["paths"]
+
+
+def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
+    tmp_path: Path,
+) -> None:
+    """`focus_where: {path, code_set}` (LP-23k): a resource of the focus type counts when the
+    codings at its path give one of the set's own codes, wherever the coding sits; another code
+    of the set's system, or the set's code in another system, does not. A site's translation
+    into the set makes its own code count too (`is_focus`, `focus_resources`, `index`), and a
+    record whose focus counted only through it says so (`read`'s `translated`), so its decision
+    is never AUTO; one with the pack's own code is read as without the map. Its data-coverage
+    record names the set's codes. `in` and `code_set` are one or the other, and an unknown code
+    set is refused at load."""
+    from mendari.standards import data_coverage
+
+    order_types = "https://site.example/fhir/CodeSystem/order-types"  # fictional
+    changes = {
+        "focus": "ServiceRequest",
+        "resources": {"ServiceRequest": {"required": True}},
+        "focus_where": {"path": "category.coding", "code_set": "referral"},
+        "code_sets": {"referral": {"system": SITE, "codes": ["R1"]}},
+    }
+    mapped = FhirAdapter.for_pack(
+        load_pack(mini(tmp_path, changes, spec="0.3", systems=(order_types,)))
+    )
+
+    def order(id_: str, *codings: tuple[str, str]) -> dict[str, Any]:
+        coding = [{"system": system, "code": code} for system, code in codings]
+        return {
+            "resourceType": "ServiceRequest",
+            "id": id_,
+            "status": "active",
+            "intent": "order",
+            "category": [{"text": "first"}, {"coding": coding}],
+        }
+
+    own = order("own", (order_types, "OT20"), (SITE, "R1"))
+    other = order("other", (SITE, "R2"))
+    elsewhere = order("elsewhere", (order_types, "R1"))
+    site = order("site", (order_types, "OT20"))
+    translations = {"referral": [{"system": order_types, "code": "OT20", "as": "R1"}]}
+    everything = [own, other, elsewhere, site]
+    assert [mapped.is_focus(r) for r in everything] == [True, False, False, False]
+    assert [mapped.is_focus(r, site_codes=translations) for r in everything] == [
+        True,
+        False,
+        False,
+        True,
+    ]
+    assert [r["id"] for r in mapped.focus_resources(everything)] == ["own"]
+    assert [r["id"] for r in mapped.focus_resources(everything, site_codes=translations)] == [
+        "own",
+        "site",
+    ]
+    with pytest.raises(fhir.FhirError, match="missing required FHIR resources: ServiceRequest"):
+        mapped.index(bundle(PATIENT, site))
+    indexed = mapped.index(bundle(PATIENT, site), site_codes=translations)
+    assert mapped.read(indexed, site_codes=translations).translated == ("referral",)
+    for_own = mapped.index(bundle(PATIENT, own), site_codes=translations)
+    assert mapped.read(for_own, site_codes=translations).translated == ()
+    assert mapped.read(mapped.index(bundle(PATIENT, own))).translated == ()
+    coverage = data_coverage.measure(mapped.mapping, for_own, unreadable={})
+    assert coverage["focus"]["codes"] == ["R1"]
+    assert coverage["focus"]["paths"] == ["ServiceRequest.category.coding"]
+    assert "focus_where.code_set" in fhir.newer_keys(mapped.mapping)
+
+    both = {
+        **changes,
+        "focus_where": {"path": "category.coding", "code_set": "referral", "in": ["R1"]},
+    }
+    with pytest.raises(PackValidationError, match="either `in` or `code_set`, not both"):
+        FhirAdapter.for_pack(load_pack(mini(tmp_path / "both", both, spec="0.3")))
+    unknown = {**changes, "focus_where": {"path": "category.coding", "code_set": "nothing"}}
+    with pytest.raises(PackValidationError, match="focus_where names 'nothing'"):
+        FhirAdapter.for_pack(load_pack(mini(tmp_path / "unknown", unknown, spec="0.3")))
+
+
 def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
     """A pack the deployment does not own tries at most 4 paths a field and has at most 200
     codes a code set, refused at load past either; an owned pack loads past them and `mendari
@@ -794,13 +972,19 @@ def in_0_3_keys(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike() -> None:
-    """Each reference pack's mapping, rewritten with `paths` and `resources` (a valid 0.3
+    """Each reference pack's 0.2 mapping, rewritten with `paths` and `resources` (a valid 0.3
     mapping, bounds included), reads every case of the 23a golden into the input the 0.2
-    mapping reads, byte for byte: the input hash the golden pins."""
+    mapping reads, byte for byte: the input hash the golden pins. Since LP-23k the trial,
+    prior-authorization and referral packs are on spec 0.3 themselves, and the golden pins what
+    their own 0.3 mappings read; the inbox's mapping is still 0.2."""
     pinned = json.loads(script.GOLDEN.read_text(encoding="utf-8"))["packs"]
+    rewritten_packs = []
     with script.on_the_day():
         for pack_id, (directory, dataset, build) in script.CASES.items():
             pack = load_pack(ROOT / "packs" / directory)
+            if pack.manifest.spec_version == "0.3":
+                continue  # its own mapping is 0.3: the golden pins it as it is
+            rewritten_packs.append(pack_id)
             raw = yaml.safe_load((pack.root / "fhir" / "mapping.yaml").read_text())
             mapping = FhirMapping.model_validate(in_0_3_keys(raw))
             manifest = pack.manifest.model_copy(update={"spec_version": "0.3"})
@@ -816,3 +1000,4 @@ def test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike() -> 
                 assert input_hash(got) == want[record["id"]], (pack_id, record["id"])
                 read += 1
             assert read >= 100, pack_id
+    assert rewritten_packs == ["mendari/patient-inbox-router"]

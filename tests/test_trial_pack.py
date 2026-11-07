@@ -17,10 +17,15 @@ from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_trial
 from mendari.standards import cds_hooks
+from mendari.standards.fhir import FhirAdapter
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "clinical-trial-prescreener"
 TODAY = date.today()
+ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+LOINC = "http://loinc.org"
+RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
+SITE = "https://site.example/fhir/CodeSystem/conditions"  # a fictional site's own codes
 
 
 @pytest.fixture(scope="module")
@@ -127,12 +132,13 @@ def _ago(days: int) -> str:
 
 
 def _record(notes: str = "Seen for diabetes follow-up.") -> list[dict[str, Any]]:
-    def coded(resource: str, id_: str, code: str, **extra: Any) -> dict[str, Any]:
-        return {"resourceType": resource, "id": id_, "code": {"coding": [{"code": code}]}, **extra}
+    def coded(resource: str, id_: str, system: str, code: str, **extra: Any) -> dict[str, Any]:
+        coding = [{"system": system, "code": code}]
+        return {"resourceType": resource, "id": id_, "code": {"coding": coding}, **extra}
 
     def lab(id_: str, code: str, value: float, unit: str, days: int) -> dict[str, Any]:
         quantity = {"valueQuantity": {"value": value, "unit": unit}}
-        return coded("Observation", id_, code, effectiveDateTime=_ago(days), **quantity)
+        return coded("Observation", id_, LOINC, code, effectiveDateTime=_ago(days), **quantity)
 
     def medication(id_: str, text: str, status: str, **period: str) -> dict[str, Any]:
         return {
@@ -146,9 +152,9 @@ def _record(notes: str = "Seen for diabetes follow-up.") -> list[dict[str, Any]]
     status = {"clinicalStatus": {"coding": [{"code": "active"}]}}
     return [
         {"resourceType": "Patient", "id": "p1", "birthDate": f"{TODAY.year - 58}-01-01"},
-        coded("Condition", "c1", "E11.9", **status),
-        coded("Condition", "c2", "I10", **status),
-        coded("Condition", "c3", "I21.4", onsetDateTime=_ago(900)),  # remote MI
+        coded("Condition", "c1", ICD, "E11.9", **status),
+        coded("Condition", "c2", ICD, "I10", **status),
+        coded("Condition", "c3", ICD, "I21.4", onsetDateTime=_ago(900)),  # remote MI
         lab("o1", "4548-4", 64, "mmol/mol", 20),  # 8.0 %
         lab("o2", "4548-4", 12.5, "%", 300),  # older than 90 days: ignored
         lab("o3", "33914-3", 58, "mL/min/1.73m2", 100),
@@ -172,30 +178,150 @@ def test_a_fhir_record_is_prescreened(trial: Decision) -> None:
     assert task["description"].startswith("GLYCEMIA-2 prescreen: candidate.")
 
 
-def test_through_fhir_a_condition_is_read_by_its_first_coding_only(trial: Decision) -> None:
-    """The FHIR mapping reads a Condition's first coding (`code.coding[0].code`). One whose first
-    coding the pack does not list (a SNOMED CT coding, say) is not found even when an ICD-10-CM
-    coding follows it: type 2 diabetes is `unknown` and a heart attack 40 days ago is missed. The
-    known failure modes say so; a site code map (LP-23) is to change it, and this test with it."""
-    site = "https://site.example/fhir/CodeSystem/conditions"
-    icd = "http://hl7.org/fhir/sid/icd-10-cm"
+def test_through_fhir_a_condition_is_read_by_its_icd10_coding_wherever_it_is(
+    trial: Decision,
+) -> None:
+    """The FHIR mapping (spec 0.3) reads a Condition by its ICD-10-CM coding wherever it sits
+    among its codings, so a site's own coding before it no longer hides it: type 2 diabetes is
+    found and a heart attack 40 days ago rules the patient out, in either order (the 0.2 mapping
+    read the first coding only, a miss the owner accepted LP-23's selector would fix, on
+    2026-10-08). With no ICD-10-CM or fictional coding at all, the first coding is read as the
+    EHR sends it, as before: a site's own code, which the criteria match only once the site
+    lists it (type 2 diabetes is `unknown`, the heart attack not found)."""
 
-    def decide(*, icd_first: bool) -> dict[str, str]:
+    def decide(order: str) -> tuple[dict[str, str], list[str]]:
         record = _record()
         for resource, local, code in ((record[1], "T2D", "E11.9"), (record[3], "MI", "I21.4")):
-            codings = [{"system": site, "code": local}, {"system": icd, "code": code}]
-            resource["code"] = {"coding": codings[::-1] if icd_first else codings}
+            site, icd = {"system": SITE, "code": local}, {"system": ICD, "code": code}
+            codings = {"site first": [site, icd], "icd first": [icd, site], "site only": [site]}
+            resource["code"] = {"coding": codings[order]}
         record[3]["onsetDateTime"] = _ago(40)
-        bundle = {"resourceType": "Bundle", "type": "collection"}
-        result, _ = trial.decide_fhir({**bundle, "entry": [{"resource": r} for r in record]})
+        entries = [{"resource": r} for r in record]
+        bundle: dict[str, Any] = {"resourceType": "Bundle", "type": "collection", "entry": entries}
+        result, _ = trial.decide_fhir(bundle)
         assert result.outcome is Outcome.HUMAN_REVIEW
-        return {q: result.answers[q].label for q in ("t2d_diagnosis", "no_recent_cv_event")}
+        answers = {q: result.answers[q].label for q in ("t2d_diagnosis", "no_recent_cv_event")}
+        mapped = FhirAdapter.for_pack(trial.pack)
+        read = mapped.to_input(mapped.index(bundle))
+        return answers, [condition["code"] for condition in read["conditions"]]
 
-    assert decide(icd_first=True) == {"t2d_diagnosis": "yes", "no_recent_cv_event": "no"}
-    assert decide(icd_first=False) == {"t2d_diagnosis": "unknown", "no_recent_cv_event": "yes"}
+    found = {"t2d_diagnosis": "yes", "no_recent_cv_event": "no"}
+    assert decide("site first") == decide("icd first") == (found, ["E11.9", "I10", "I21.4"])
+    missed = {"t2d_diagnosis": "unknown", "no_recent_cv_event": "yes"}
+    assert decide("site only") == (missed, ["T2D", "I10", "MI"])
 
 
-def test_patient_view_card(trial: Decision) -> None:
+def _medication_request(
+    id_: str, status: str, *, bounds: dict[str, str] | None = None, **more: Any
+) -> dict[str, Any]:
+    request: dict[str, Any] = {
+        "resourceType": "MedicationRequest",
+        "id": id_,
+        "status": status,
+        "intent": "order",
+        "subject": {"reference": "Patient/p1"},
+        **more,
+    }
+    if bounds is not None:
+        request["dosageInstruction"] = [{"timing": {"repeat": {"boundsPeriod": bounds}}}]
+    return request
+
+
+def test_a_medication_request_is_read_with_its_stated_start_and_stop(trial: Decision) -> None:
+    """A MedicationRequest is a medication of the trial's record, by spec 0.3's stated rule
+    (`medication_period`, not yet clinically reviewed: notes/clinician-review-medication-period.md):
+    it starts at its first dosage instruction's `boundsPeriod.start`, else on `authoredOn`, and
+    stops at that `boundsPeriod.end`, else its stop is unknown, never inferred from the status;
+    the dispensing window is not read; one entered in error is left out. Its drug is the RxNorm
+    coded Medication it names (in the record, or contained), else its own coded concept. So the
+    criteria read metformin started 500 days ago from the bounds although the order was written
+    30 days ago, insulin as current until a bounds end 400 days ago, a `completed` insulin with no
+    bounds as not current (its stop unknown), and an insulin entered in error not at all."""
+    metformin = {"coding": [{"system": RXNORM, "code": "6809"}], "text": "metformin 1000 mg"}
+    medication = {"resourceType": "Medication", "id": "med1", "code": metformin}
+    insulin = {"coding": [{"system": RXNORM, "code": "274783"}], "text": "insulin glargine"}
+    validity = {"validityPeriod": {"start": _ago(30), "end": _ago(-60)}}
+    record = [r for r in _record() if r["resourceType"] != "MedicationStatement"]
+    requests = [
+        _medication_request(
+            "mr1",
+            "active",
+            bounds={"start": _ago(500)},
+            authoredOn=_ago(30),
+            medicationReference={"reference": "Medication/med1", "display": "metformin"},
+            dispenseRequest=validity,
+        ),
+        _medication_request(
+            "mr2",
+            "stopped",
+            bounds={"start": _ago(900), "end": _ago(400)},
+            authoredOn=_ago(905),
+            medicationCodeableConcept=insulin,
+        ),
+        _medication_request(
+            "mr3", "completed", authoredOn=_ago(20), medicationCodeableConcept=insulin
+        ),
+        _medication_request(
+            "mr4", "entered-in-error", bounds={"start": _ago(10)}, medicationCodeableConcept=insulin
+        ),
+    ]
+    mapped = FhirAdapter.for_pack(trial.pack)
+
+    def decided(*resources: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+        entries = [{"resource": r} for r in [*record, *resources]]
+        bundle: dict[str, Any] = {"resourceType": "Bundle", "type": "collection", "entry": entries}
+        result, _ = trial.decide_fhir(bundle)
+        return result, mapped.to_input(mapped.index(bundle))["medications"]
+
+    result, medications = decided(*requests, medication)
+    assert medications == [
+        {"code": "6809", "name": "metformin 1000 mg", "status": "active", "start": _ago(500)},
+        {
+            "code": "274783",
+            "name": "insulin glargine",
+            "status": "stopped",
+            "start": _ago(900),
+            "end": _ago(400),
+        },
+        {"code": "274783", "name": "insulin glargine", "status": "completed", "start": _ago(20)},
+    ]
+    assert result.answers["stable_metformin"].label == "yes"  # from the bounds, not authoredOn
+    assert result.answers["no_insulin"].label == "yes"  # ended 400 days ago; the other not active
+    assert result.recommendation == "candidate" and result.outcome is Outcome.HUMAN_REVIEW
+
+    # With no bounds, the start is the day it was written: a renewal 30 days ago reads as metformin
+    # started 30 days ago (a known failure mode the card states).
+    renewed = _medication_request(
+        "mr1",
+        "active",
+        authoredOn=_ago(30),
+        medicationReference={"reference": "Medication/med1"},
+    )
+    result, medications = decided(renewed, medication)
+    assert medications == [
+        {"code": "6809", "name": "metformin 1000 mg", "status": "active", "start": _ago(30)}
+    ]
+    assert result.answers["stable_metformin"].label == "no"
+
+    # A drug named by a reference the record does not hold: not fetched here, so the decision
+    # abstains rather than read the patient as not on it.
+    linked = _medication_request(
+        "mr1",
+        "active",
+        bounds={"start": _ago(500)},
+        medicationReference={"reference": "Medication/x"},
+    )
+    result, _ = decided(linked)
+    assert result.outcome is Outcome.ABSTAIN
+    assert set(result.reasons) == {
+        "could not read medications.code: not_fetched",
+        "could not read medications.name: not_fetched",
+    }
+
+
+def _patient_view(record: list[dict[str, Any]]) -> dict[str, Any]:
+    """A patient-view request whose prefetch holds `record` (its Patient first)."""
+
     def searchset(resources: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "resourceType": "Bundle",
@@ -203,23 +329,62 @@ def test_patient_view_card(trial: Decision) -> None:
             "entry": [{"resource": r} for r in resources],
         }
 
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for resource in record[1:]:
+        by_type.setdefault(resource["resourceType"], []).append(resource)
+    return {
+        "hook": "patient-view",
+        "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
+        "context": {"patientId": "p1", "userId": "Practitioner/1"},
+        "prefetch": {
+            "patient": record[0],
+            "conditions": searchset(by_type["Condition"]),
+            "observations": searchset(by_type["Observation"]),
+            "medications": searchset(by_type["MedicationStatement"]),
+            "medication_requests": searchset([]),
+            "notes": searchset(by_type["DocumentReference"]),
+        },
+    }
+
+
+def test_notes_longer_than_the_input_allows_abstain_and_show_a_card(trial: Decision) -> None:
+    """A patient's notes, joined, may be longer than the input schema lets `notes` be (20,000
+    characters). The decision then abstains with `could not read notes: too_large` and the hook
+    shows its `info` card, where the schema would have refused the whole input (a BLOCK, which
+    shows no card) and the pregnancy in the first note gone unseen at the chart. The text is never
+    cut, and notes as long as the schema allows are read."""
+    filler = " Seen for diabetes follow-up; the glucose log was reviewed." * 200  # 11,800
+    record = _record("She is 12 weeks pregnant." + filler)
+    record.append({**_note(filler), "id": "n2"})
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [{"resource": r} for r in record],
+    }
+    result, _ = trial.decide_fhir(bundle)
+    assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
+    assert result.reasons == ("could not read notes: too_large",)
+    assert result.unreadable == (("notes", "too_large"),)
+    assert result.data_coverage is not None
+    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"too_large": 1}
+    assert result.data_coverage["unreadable"] == {"too_large": 1}
+    cards = cds_hooks.invoke(trial, _patient_view(record))["cards"]
+    assert [(c["summary"], c["indicator"]) for c in cards] == [
+        (cds_hooks.UNREADABLE_SUMMARY, "info")
+    ]
+    assert "- notes: too_large" in cards[0]["detail"]
+
+    head = "She is 12 weeks pregnant."
+    at_most = _record(head + "x" * (20_000 - len(head)))  # exactly the schema's maxLength
+    bundle["entry"] = [{"resource": r} for r in at_most]
+    result, _ = trial.decide_fhir(bundle)
+    assert result.outcome is Outcome.HUMAN_REVIEW and not result.unreadable
+    assert result.answers["note_pregnancy"].label == "yes"
+
+
+def test_patient_view_card(trial: Decision) -> None:
     def request(notes: str) -> dict[str, Any]:
-        record = _record(notes)
-        by_type: dict[str, list[dict[str, Any]]] = {}
-        for resource in record[1:]:
-            by_type.setdefault(resource["resourceType"], []).append(resource)
-        return {
-            "hook": "patient-view",
-            "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
-            "context": {"patientId": "p1", "userId": "Practitioner/1"},
-            "prefetch": {
-                "patient": record[0],
-                "conditions": searchset(by_type["Condition"]),
-                "observations": searchset(by_type["Observation"]),
-                "medications": searchset(by_type["MedicationStatement"]),
-                "notes": searchset(by_type["DocumentReference"]),
-            },
-        }
+        return _patient_view(_record(notes))
 
     cards = cds_hooks.invoke(trial, request("Seen for diabetes follow-up."))["cards"]
     assert [c["summary"] for c in cards] == ["Possible GLYCEMIA-2 candidate: confirm eligibility"]

@@ -40,7 +40,7 @@ ReadReason = Literal[
     "off_server",  # a request or link that left the server's base URL
     "operation_outcome",  # an OperationOutcome where the data belongs
     "timeout",  # the answer did not arrive in time
-    "too_large",  # the answer was over the size cap
+    "too_large",  # the answer was over the size cap, or notes' text over the input's (LP-23k)
     "unauthorized",  # the server refused the token (401 or 403)
     "undecodable",  # data present that does not decode (a note's base64 that is not text)
     "unsupported_type",  # a resource of another type than the one asked for

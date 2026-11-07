@@ -845,17 +845,25 @@ def test_no_note_text_reaches_the_coverage_record_reasons_or_the_chain(
 
 
 def test_a_0_1_or_0_2_pack_reads_no_link(tmp_path: Path) -> None:
-    """No shipped pack declares spec 0.3, so none can reach anything by a link: a hook with a
-    `fhirServer` makes no linker for any of them, and a 0.2 note that is only a link is
-    `not_fetched` as before (LP-23d)."""
+    """A pack before spec 0.3 cannot reach anything by a link: a hook with a `fhirServer` makes no
+    linker for a shipped one (the inbox's), and a 0.2 note that is only a link is `not_fetched` as
+    before (LP-23d). Of the reference packs LP-23k moved to spec 0.3, the trial and
+    prior-authorization packs read links (notes through `attachment_text`, a followed payer or
+    drug); the referral router follows none."""
     request = {"fhirServer": EHR}
+    linking = set()
     for root in sorted((ROOT / "packs").glob("*/pack.yaml")):
         found = load_pack(root.parent)
         if found.manifest.inputs.fhir is None or found.manifest.cds_hooks is None:
             continue
-        assert found.manifest.spec_version != "0.3", found.id
-        assert not reads_links(FhirAdapter.for_pack(found).mapping), found.id
+        reaches = reads_links(FhirAdapter.for_pack(found).mapping)
+        if found.manifest.spec_version == "0.3":
+            if reaches:
+                linking.add(found.id)
+            continue
+        assert not reaches, found.id
         assert cds_hooks.linker(Decision(found), request) is None, found.id
+    assert linking == {"mendari/clinical-trial-prescreener", "mendari/prior-auth-preflight"}
     as_before = Decision(load_pack(mini(tmp_path, {})))
     result = decide(as_before, note("n1", {"url": "Binary/b1"}), ehr=Ehr(binary("b1", "Seen.")))
     assert result.reasons == ("could not read notes: not_fetched",)

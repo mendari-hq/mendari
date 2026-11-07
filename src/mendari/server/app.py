@@ -3096,6 +3096,7 @@ def create_app(
         default_pack=default_pack,
         auth=auth,
         lifetime=session_lifetime,
+        site_codes=site_maps,
     )
 
     @app.get("/", include_in_schema=False)

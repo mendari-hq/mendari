@@ -1,6 +1,6 @@
-spec_version: "0.2"
+spec_version: "0.3"
 id: mendari/referral-router
-version: 0.2.1
+version: 0.3.0
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -56,14 +56,24 @@ card:
       synthetic and were not written or reviewed by a clinician; a site sets its own.
   known_failure_modes:
     - Through FHIR (CDS Hooks, the SMART launch, `$decide`), the pack decides only a
-      ServiceRequest whose first category is the fictional referral code of its synthetic
-      examples (fhir/mapping.yaml, `focus_where`). No real EHR referral carries it, so until a
-      site lists the code its EHR marks a referral with (often a SNOMED CT code), no real
-      referral is decided. Pack inputs sent directly are not affected.
-    - The checklist looks only for the document codes listed in logic/checklist.yaml. A visit
-      note filed under another code (e.g. a history and physical, LOINC 34117-2) reads as
-      missing, so a complete referral goes back to the referrer; the bundled local-site example
-      shows this. Add a site's codes before use.
+      ServiceRequest with a category coding of its code set `referral_category` (the fictional
+      referral code of its synthetic examples, wherever it sits; fhir/mapping.yaml,
+      `focus_where`). No real EHR referral carries it, so until a site translates the code its
+      EHR marks a referral with (often a SNOMED CT code) into it in its site code map
+      (`MENDARI_SITE_CODES`), no real referral is decided; a referral found through a
+      translation is never automated. Pack inputs sent directly are not affected.
+    - The checklist looks only for the document codes listed in logic/checklist.yaml, which
+      the FHIR mapping reads through its code sets `checklist_documents` and
+      `checklist_reports` (LOINC, wherever the coding sits). A visit note filed under another
+      code (e.g. a history and physical, LOINC 34117-2) reads as missing, so a complete
+      referral goes back to the referrer; the bundled local-site example shows this. So does a
+      visit note whose LOINC coding has no system, which the code sets do not read as LOINC.
+      Add a site's codes before use, in logic/checklist.yaml for pack inputs sent directly,
+      and through FHIR also in the mapping's code set (a code only logic/checklist.yaml lists is
+      not read through FHIR) or, without changing the pack, in the site's code map, where a
+      decision read through a translation is never automated. No medication is read, so spec
+      0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this
+      pack.
     - The keyword urgency screen misses phrasings it does not list. On hand-written
       referrals it caught 16/16 urgent ones in the set it was written on but 7/12 in the
       held-out set. So the policy allows AUTO only while the screen includes a model

@@ -18,9 +18,11 @@ describes ("Trusting CDS Clients") and an EHR such as Epic does.
 - It exits 1 on any answer other than 200, a hook answer that is not CDS Hooks' (a `cards`
   list, each card with a summary, an indicator and a source), or a card saying part of the
   record could not be read (LP-23d's ABSTAIN) for anything but what the profile leaves unread:
-  a patient's note, a link no pack fetches yet (`notes: not_fetched`, `expected_unread`). Any
-  other key or reason (`http_status`, `not_r4`, ...) is a read of the FHIR server that failed,
-  and a patient with no note has nothing to leave unread.
+  a patient's note whose Binary is RTF, which no pack reads as text (`notes: unsupported_type`,
+  `expected_unread`; since LP-23k the packs read a text/plain or text/html note's Binary). Any
+  other key or reason (`not_fetched`, `http_status`, `not_r4`, ...) is a read of the FHIR server
+  that failed or was not made, and a patient with no note, or a readable one, has nothing to
+  leave unread.
 
 A new key each run: an engine fetches a client's keys again at most once a minute, so a second
 run within the minute is refused (`cds_key`) until that minute has passed.
@@ -54,9 +56,11 @@ LIFETIME = 300  # seconds a token lives, as CDS Hooks 2.0 advises at most
 TITLE = "Mendari sandbox CDS client"
 INDICATORS = ("info", "warning", "critical")
 _JWKS_PATH = "/jwks.json"
-# What a hook may say it could not read on the profile: a note, which is a link to a Binary that
-# the hooks do not fetch (LP-23h reads text/plain and text/html, and RTF stays unreadable).
-LINKED_NOTE = ("notes", "not_fetched")
+# What a hook may say it could not read on the profile: a note whose linked Binary is RTF, which
+# no pack reads as text (the hooks read text/plain and text/html Binaries since LP-23h, and the
+# shipped packs read their notes so since LP-23k).
+RTF_NOTE = ("notes", "unsupported_type")
+UNREADABLE_NOTE_TYPES = ("text/rtf",)
 
 
 class Answer(Protocol):
@@ -214,9 +218,15 @@ def hook_request(hook: str, patient: ProfilePatient, fhir: str) -> dict[str, Any
 
 def expected_unread(patient: ProfilePatient) -> set[tuple[str, str]]:
     """The keys and reasons a hook may say it could not read for the patient (an unreadable
-    ABSTAIN's card): its linked note when it has one, and nothing when it has none."""
-    noted = any(r["resourceType"] == "DocumentReference" for r in patient.resources)
-    return {LINKED_NOTE} if noted else set()
+    ABSTAIN's card): its note, when the Binary it links to is RTF; nothing for a patient with no
+    note or a readable one."""
+    binaries = {f"Binary/{r['id']}": r for r in patient.resources if r["resourceType"] == "Binary"}
+    for document in (r for r in patient.resources if r["resourceType"] == "DocumentReference"):
+        for content in document.get("content", []):
+            binary = binaries.get(content.get("attachment", {}).get("url"), {})
+            if binary.get("contentType") in UNREADABLE_NOTE_TYPES:
+                return {RTF_NOTE}
+    return set()
 
 
 def unread_of(card: Mapping[str, Any]) -> set[tuple[str, str]] | None:
@@ -288,7 +298,7 @@ def _called(
             )
         for key, reason in sorted((unread or set()) - expected):
             problems.append(
-                f"{where}: could not read {key}: {reason} (only a linked note may be unread)"
+                f"{where}: could not read {key}: {reason} (only an RTF note may be unread)"
             )
     return called
 

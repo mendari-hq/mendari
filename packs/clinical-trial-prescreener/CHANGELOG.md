@@ -4,6 +4,54 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.3.0
+
+- **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
+  2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only). A MINOR bump, by CONTRIBUTING.md's
+  rule (MINOR for a change in behaviour): what the pack decides through FHIR changes where the 0.2
+  mapping misread the data, and nothing else does.
+  - A Condition is read by its ICD-10-CM coding wherever it sits among its codings, then by the
+    fictional condition code, and only when it has neither, by its first coding as before (a
+    site's own code, which `logic/criteria.yaml` matches once the site lists it). So a diagnosis
+    with a site's coding before its ICD-10-CM one is found: the first-coding miss the 0.2.0
+    entry describes, which the owner accepted this selector would fix (2026-10-08). A lab is
+    read by its LOINC coding, else its first; a MedicationStatement's drug by its RxNorm coding
+    only.
+  - Medications come from MedicationRequest too, with a new CDS Hooks prefetch key
+    (`medication_requests: MedicationRequest?patient={{context.patientId}}`). Its drug is the
+    Medication it names (contained, in the record, or read from the EHR on a CDS hook or the
+    SMART launch), else its own coded concept; its name the Medication's text, else the
+    concept's, else the reference's display. When it is taken is spec 0.3's stated rule (§2.7):
+    from the first dosage instruction's `timing.repeat.boundsPeriod.start`, else `authoredOn`,
+    to that `boundsPeriod.end`, else an unknown stop, never inferred from the status; the
+    dispensing window is not read, and a request entered in error is left out. **The rule is not
+    yet clinically reviewed** (a pharmacist's or research coordinator's review is owed, B21);
+    the card's known failure modes say so, and what follows from it (a renewal read as a recent
+    start, `intent` and `doNotPerform` not read; a request that is not `active` and has no
+    bounds end read as not taken, since the criteria count only `active` as current, so a
+    `completed` insulin written 20 days ago reads `no_insulin` "yes"; the first matching request
+    in the record's order deciding). A drug named by a reference that could not be read makes
+    the decision abstain (`could not read medications.code: <reason>`).
+  - Notes are read through `attachment_text`: text/plain and text/html, inline or in the
+    Binary the attachment's url names, read from the EHR on a CDS hook or the SMART launch. An
+    RTF, PDF or CDA note, or one that cannot be read, makes the decision abstain, and so do notes
+    longer than 20,000 characters in all, which the input schema does not allow (`could not read
+    notes: too_large`; a long inline note was refused before as invalid input, with no card), and
+    more links than a decision reads (20, `cap`: each linked note's Binary and each Medication a
+    MedicationRequest names). Two smaller changes: an inline note with no content type (R4's att-1
+    requires one with data) is now unreadable, where it was decoded as text; and an inline HTML note
+    is read as its text, its markup dropped.
+  - A CDS client that sends a prefetch without the new key and no `fhirServer` now gets the
+    `412` every left-out key gets: an EHR sends it (null for no data), as discovery lists it.
+- Every case of the FHIR decisions golden (the bundled local-site example through FHIR, 150
+  cases) is decided as before, input hash included: the synthetic records carry each code in
+  the pack's own system, their medications are MedicationStatements and their notes inline
+  text. On the vendor-shaped EHR profile (`tests/test_ehr_profile.py`) the patients with a
+  text/plain or text/html note are now decided on it, and only the one with an RTF note abstains.
+- Criteria, rules, providers, policy, models and data are unchanged; the benchmark and its
+  ledger differ only in the run, the version and the digest. The digest changes because the
+  manifest and the mapping do.
+
 ## 0.2.0
 
 - No SNOMED CT: the five SNOMED CT codes the pack's criteria, CQL library and criterion text

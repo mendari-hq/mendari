@@ -764,11 +764,12 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
-- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for one
-  step and the owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the
-  referral `show` list on 2026-11-06, in #281): 23k, which waits on the owner's
-  go-ahead, and the Epic sandbox run, which is the owner's. Gate G5-6's `a12-ehr-pilot` names
-  both as pending, and the owner's lines below are what is left. The scorecard's after grade,
+- [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for the
+  owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the referral `show` list
+  on 2026-11-06, in #281; 23k, once the owner gave the go-ahead on 2026-11-06, in #282): the
+  Epic sandbox run, which is the owner's, and the clinician's note on the MedicationRequest rule
+  that 23k adopts (B21). Gate G5-6's `a12-ehr-pilot` names the Epic run as pending, and the
+  owner's lines below are what is left. The scorecard's after grade,
   at the close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
   `MENDARI_FHIR_VALIDATION`), and 23j's CW-3e puts cards and workflow at level 3. Planned by a
   mapping workflow
@@ -778,9 +779,9 @@ Connect) is not supported yet.
   Mendari reads EHR-shaped data and decides, or records what it could not read, abstains and
   still answers. Off until the owner acts: with `MENDARI_CDS_CLIENTS` unset no JWT is accepted
   anywhere and sign-in behaves as today; with `MENDARI_SITE_CODES` unset no code is translated;
-  `MENDARI_CDS_SANDBOX` is set only by the compose sandbox engine and the test suite; no shipped
-  pack declares spec 0.3 until 23k; Production gets none of these settings until a pilot is
-  signed. No database table is added. LP-23 computes no statistic and ranks nothing: the
+  `MENDARI_CDS_SANDBOX` is set only by the compose sandbox engine and the test suite; the trial,
+  prior-authorization and referral packs are on spec 0.3 since 23k; Production gets none of these
+  settings until a pilot is signed. No database table is added. LP-23 computes no statistic and ranks nothing: the
   scorecard shows rubric levels with their scope, a data-coverage record counts per field for one
   decision, and Inferno results are each test's own outcome.
   - [x] **23a** (#256) The plan (`notes/lp23-plan.md`), ADR-0014 (Proposed, amending
@@ -1111,8 +1112,144 @@ Connect) is not supported yet.
     deliberately: `tests/test_fhir_lists.py::test_the_inbox_card_wording_is_unchanged` and
     `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged` (the
     inbox suggestion's label).
-  - [ ] **23k** Pack mappings for real EHR data, on spec 0.3. **Needs the owner's go-ahead:** it
-    changes FHIR-path decisions in three packs.
+  - [x] **23k** (#282) Pack mappings for real EHR data, on spec 0.3. **The owner gave the
+    go-ahead on 2026-11-06** ("go ahead do it, full consent": owner decision 5); the clinician's
+    note on the MedicationRequest rule is still owed (B21: the brief for the reviewer,
+    `notes/clinician-review-medication-period.md`, says on its first line that it is not
+    clinically reviewed, and gate `clinician-review` is unchanged). `clinical-trial-prescreener`,
+    `prior-auth-preflight` and `referral-router` 0.3.0 (MINOR bumps, CONTRIBUTING.md's rule: MINOR
+    for a change in behaviour, here what each decides through FHIR), `spec_version: "0.3"`, their
+    `fhir/mapping.yaml` rewritten, logic files unchanged. Trial: a Condition by ICD-10-CM, then the
+    fictional condition code, wherever the coding sits, and the first coding only when it has
+    neither (the trial input schema requires a condition's and a lab's `code`, and the logic
+    files invite a site to list its own codes, so a strict by-system read would have refused a
+    site-coded record as invalid input, a BLOCK); a lab by LOINC, else its first coding; a
+    MedicationStatement's drug by RxNorm; medications from MedicationRequest too (prefetch
+    `medication_requests: MedicationRequest?patient={{context.patientId}}`), its drug through
+    `medicationReference` to the Medication, else its own coded concept, its start and stop by
+    `medication_period` (spec 0.3 §2.7); notes through `attachment_text`. Prior authorization: the
+    order (and `focus_where`), diagnoses and procedures by their code system, else the first
+    coding; the payer through `follow: Coverage.payor[0]` to `Organization.identifier` in a new
+    fictional payer identifier system the pack declares, else the payor's own identifier as
+    written; notes through `attachment_text`. Referral: `focus_where` through code set
+    `referral_category` (FR101; a code set's name is lower case with underscores, so not the
+    plan's `referral-category`), and the checklist's document and report codes as code sets
+    `checklist_documents` and `checklist_reports`; labs as before. Each card's known failure modes
+    state the medication derivation (the trial card states the rule and that it is not yet
+    clinically reviewed; the other two say no medication is read), the by-system reading, and the
+    notes. **Engine additions the mappings needed** (spec 0.3 is a draft, in no release): `focus_where:
+    {path, code_set}` (`FocusFilter.code_set`; `FhirAdapter.is_focus`, `focus_resources` and
+    `index` take the organization's site codes, which `decide_fhir`, the order-sign hook and the
+    SMART focus list pass; a focus found only through a translation adds its set to
+    `MappedInput.translated`, so the `site_code` cap applies; the data-coverage record names the
+    set's codes), and after a `follow` a path of the field's own type (`fhir.own_type`, the list's
+    type or the `follow` path's) read where the field is, so a field falls back from what its
+    reference reaches to its own resource (`followed_types` keeps it out of what counts as a
+    link); both in spec 0.3 §2.3 and §2.5, `authoring-a-pack.md` and the threat model's Pack
+    content row. **Conflict 41's site-map step for the payer is not built:** a site map
+    translates codings only, and how a payer field reads a site's payer id is the owner's open
+    question (kept in the owner's lines below); the default built is that a site's own payer id
+    reads as `other` (`not_checked`). The FHIR decisions golden (`scripts/fhir_decisions_golden.py`):
+    every trial (150) and prior-authorization (300, 41 refused) case is as before, input hash
+    included; the 300 referral decisions are as before, and 162 change their input hash only,
+    each because a document coded LOINC 34117-2 (a history and physical, which the checklist
+    never counted) is no longer carried with its code; no decision is newly AUTO or BLOCK.
+    `./scripts/build-reference-pack.sh` rerun: data and models byte-identical; the three packs'
+    benchmarks and ledgers identical but for the run block, the version and the digest (critical
+    labels unchanged: trial `note_pregnancy=yes` 12 of 13, `note_pancreatitis=yes` 6 of 6,
+    `note_active_cancer_treatment=yes` 16 of 17, `note_recent_cv_event=yes` 13 of 13,
+    `egfr_30_or_more=no` 29 of 29, `no_recent_cv_event=no` 17 of 17; prior authorization
+    `red_flag=yes` 25 of 25; referral `urgency=urgent` 113 of 113, `next_step=urgent_review` 124
+    of 124; none automated), committed with the three cards and the scoreboard page; the inbox's
+    and AI Guard's differ only in the run block and are not. The scoreboard: the trial's 6 and the
+    prior-authorization pack's 3 stored results now read "stale: pack changed" (the referral
+    router's 3 already did since 23j); `scripts/scoreboard_page.py --check` and
+    `scripts/check_scoreboard.py` pass (21 results recomputed from their inputs, no stale ledger
+    re-run), and none is run again here. The 23e table (`tests/test_ehr_profile.py`) now pins an
+    RTF note (ehr-trial-3, ehr-pa-3 abstain, `unsupported_type`), the site's own payer id, and
+    the RxNorm code the EHR adds (read in addition, not missed); every referral patient is
+    decided. The sandbox CDS client (`sandbox/cds_client.py`, CI's `sandbox-e2e`) takes only an
+    RTF note as unread. Inferno: `conformance.yml`'s `crd-server` job run locally twice
+    (2026-11-06, the scripted compose under projects of this session's own, the engine image
+    built from this branch under its own tag, the existing `mendari-inferno-scripted:0.15.0`),
+    with the same 53 results both times, and `crd_server_v221_expected.json` refreshed from
+    them (36 pass, 5 fail, 12 skip; 34, 11 and 8 before): ehr-pa-1's linked note is now read, and
+    its order is decided `not_checked` (its payer the site's own payer id), which shows no card and
+    declares no coverage information, so 2.3.01, 4.2.3.01, 4.3.3.01 and 4.4.3.01 pass (no card
+    is left to carry the `mendari.decision_id` extension), 4.2.3.02 and 4.4.3.02 skip where they
+    passed and 4.2.3.03 and 4.4.3.03 skip where they failed (no coverage information to check),
+    and 3.4.3.06's reason is rewritten (four patients `not_checked`; only ehr-pa-3, whose note is
+    RTF, abstains with `indeterminate` coverage). `sandbox/inferno/README.md` says so. The
+    `dtr-payer` job was not run: its golden holds no payer, questionnaire or digest of the pack,
+    and its inputs (`scripts/davinci_sample.py`: the payer as the payor's own identifier, codings
+    in the pack's systems, a text/plain note) decide as before. Gate G5-6's `a12-ehr-pilot`: the
+    23k pending line replaced by its tests; the scorecard's DS-3a to DS-3d are met, graded again
+    after the close-out (data shapes at level 3; overall still level 1), DS-4a stays partial with
+    one gap of two left, and CW-4a's last column says what Inferno's CRD results are after 23k;
+    ADR-0014's status lists 23k. Tests:
+    `tests/test_trial_pack.py::test_through_fhir_a_condition_is_read_by_its_icd10_coding_wherever_it_is`
+    (in place of `::test_through_fhir_a_condition_is_read_by_its_first_coding_only`),
+    `tests/test_trial_pack.py::test_a_medication_request_is_read_with_its_stated_start_and_stop`,
+    `tests/test_prior_auth_pack.py::test_the_payer_is_read_by_coverage_reference`,
+    `tests/test_referral_pack.py::test_a_referral_under_a_site_code_is_decided_through_the_site_code_map`
+    (and `::test_a_referral_under_a_site_code_is_decided_once_the_site_lists_it`, kept),
+    `tests/test_ehr_profile.py::test_what_each_pack_cannot_read_yet_is_pinned` (its table),
+    `tests/test_ehr_profile.py::test_the_shipped_packs_read_the_profiles_linked_notes_through_the_allow_listed_client`,
+    `tests/test_fhir_mapping_03.py::test_a_followed_field_falls_back_to_a_path_of_its_own_type`,
+    `tests/test_fhir_mapping_03.py::test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus`.
+    Changed deliberately: fixtures whose codings had no system or whose inline note had no content
+    type (the trial, prior-authorization, referral, CDS card and unreadable-record tests), the
+    trial's patient-view prefetch (its new key), `tests/test_code_systems.py` (the referral focus's
+    code set), `tests/test_cds_client_sandbox.py` (an RTF note the only one left unread), `tests/test_spec_03.py` and
+    `tests/test_fhir_linked.py` (three reference packs are on 0.3 now),
+    `tests/test_fhir_mapping_03.py::test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike`
+    (the inbox's 0.2 mapping only), `tests/test_sandbox.py::test_referral_cases_round_trip_through_the_pack_mapping`
+    (an unlisted document code is not read back), `tests/test_data_coverage.py` (the referral
+    focus's path, and `base64_text` counted on the prescreen fixture) and
+    `tests/test_ehr_scorecard.py` (rows a step grades again are named together). Behaviour
+    changes to know: a CDS client that sends the trial's old prefetch without `medication_requests`
+    and no `fhirServer` gets the `412` any left-out key gets; an inline note with no content type
+    is unreadable (R4's att-1 requires one); a payor or `medicationReference` the record does not
+    hold abstains on `fhir/decide` and `$decide` (they never read a link). Review fixes: notes
+    whose joined text is longer than the pack's input schema lets the field be (20,000 characters
+    for the trial and prior-authorization packs; a hook reads every clinical note of the patient)
+    were refused as invalid input, a BLOCK with no card, so a pregnancy or a red flag in them went
+    unseen at the chart; the engine now leaves such a field out of the input, never cutting its
+    text, and the decision abstains (`could not read notes: too_large`, `fhir.overlong`, counted
+    in the data-coverage record, spec 0.3 §2.4), with its `info` card. The prior-authorization
+    mapping's order code lost its first-coding fallback, which `focus_where` made unreachable
+    (behaviour unchanged). The cards now state what the review found unstated: the trial's
+    criteria count only an `active` request as current, so a request that is not active and has
+    no bounds end reads as not taken (a `completed` insulin written 20 days ago reads
+    `no_insulin` "yes", an `on-hold` metformin `stable_metformin` "no"), and the first matching
+    request decides (the behaviour is the adopted rule's, left for the clinician's review:
+    question 3 of the brief now asks it); a `not_checked` prior-authorization order shows no card
+    at `order-sign`, a possible red flag in its notes included, which reaches the review queue at
+    urgent priority only (left for the owner's payer question below); an order is the
+    prior-authorization pack's only by its fictional code through FHIR; a referral checklist code
+    is read through FHIR only once the mapping's code set has it too, and a system-less LOINC
+    coding is not read as LOINC; and the 20-link cap and the length limit beside RTF in both
+    note-reading cards and the threat model's residual risk. The changelogs state the system-less
+    codings no longer read (an order's FX code, a referral's FR101, a drug's) and that an unread
+    payor reference abstains even beside an identifier. The brief no longer says the trial's
+    result is never automated (a governance override may automate one but `candidate`), and its
+    review table asks for no name (the gate keeps it outside the repository). Stale lines fixed
+    in README, CHANGELOG (the 23m entry's pending lines), ADR-0014, the scorecard's DS-4a, the
+    connecting guide, `ci.yml`'s `cds-client` comment and two sandbox docstrings;
+    `tests/test_cds_client_sandbox.py::test_only_an_rtf_note_may_be_left_unread` is the renamed
+    `::test_only_a_linked_note_may_be_left_unread`. `./scripts/build-reference-pack.sh` rerun:
+    data and models byte-identical, the three packs' benchmarks and ledgers differing only in the
+    run, the digest and the result's hash, their cards in the known failure modes, the
+    scoreboard page unchanged (its results already stale); the FHIR decisions golden unchanged,
+    every case; the CRD session not rerun (no decision on the profile's patients changes, nor any
+    card's words). Tests:
+    `tests/test_trial_pack.py::test_notes_longer_than_the_input_allows_abstain_and_show_a_card`,
+    `tests/test_prior_auth_pack.py::test_long_notes_with_a_red_flag_abstain_with_a_card_at_the_order`,
+    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card`
+    (the default, pinned),
+    `tests/test_prior_auth_pack.py::test_through_fhir_an_order_and_its_payer_reference_are_read_as_the_changelog_says`,
+    `tests/test_referral_pack.py::test_the_mappings_code_sets_hold_exactly_the_checklists_document_and_report_codes`,
+    `tests/test_referral_pack.py::test_a_system_less_loinc_document_code_is_not_read_through_fhir`.
   - [x] **23l** (#280) Conformance outside the unit tests: Inferno's CRD kit as the CDS client, the
     SMART App Launch and Bulk Data client suites, the HL7 validator with a terminology server on a
     schedule, and the vendor scope check. **Part 1 built** (Inferno's CRD server, SMART client and
@@ -1156,7 +1293,8 @@ Connect) is not supported yet.
     `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
     pending lines: 23j (after the owner confirms the referral `show` list; confirmed on
     2026-11-06, and the line replaced by 23j's tests in #281), 23k (after the owner's
-    go-ahead), and the owner's Epic sandbox run in the plan's words (the LP-21n pattern); no
+    go-ahead; given on 2026-11-06, and the line replaced by 23k's tests in #282), and the
+    owner's Epic sandbox run in the plan's words (the LP-21n pattern); no
     count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
     and nothing the owner's is marked met.
     `tests/test_ehr_pilot_e2e.py::test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end`
@@ -1271,7 +1409,8 @@ Connect) is not supported yet.
     and expects no diff, 23j and 23k commit their rebuilt artifacts.
   - 23j (45, 46): the inbox pack gets a template and stays off Inferno's list; the referral
     `show` list is `[return_for_info, urgent_review]` (confirmed by the owner on 2026-11-06).
-  - 23k (47): built, its merge held for the owner's go-ahead.
+  - 23k (47): built, its merge held for the owner's go-ahead (given on 2026-11-06; the
+    clinician's note on the MedicationRequest rule is still owed, B21).
   - 23l (48 to 56): Mendari's own Inferno Dockerfile and overlay, pinned by digest and commit; a
     separate report-only `conformance.yml`; test 1.01 (TLS) and CRD's standard prefetch forms
     are expected results with their reasons; Mendari writes the v2.2.1 session and its golden;
@@ -1289,7 +1428,8 @@ Connect) is not supported yet.
   code map in `MENDARI_SITE_CODES`, site-mapped decisions capped at HUMAN_REVIEW until G5-6
   `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
   scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, confirmed 2026-11-06;
-  (5) the go-ahead for 23k, with a clinician's note on the MedicationRequest rule (B21); (6) an
+  (5) the go-ahead for 23k, given 2026-11-06, with a clinician's note on the MedicationRequest
+  rule (B21), still owed; (6) an
   unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
   from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
   addressed, clinical judgement); (9) attachments: plain text and HTML only, 20 reads of 1 MiB;
@@ -1319,8 +1459,8 @@ Connect) is not supported yet.
     referral workflow carries it; and a referral to schedule, which `rules_and_jev` may automate,
     shows none, so no one signing it sees the suggested specialty (checking it against the
     referrer's is out of scope, future work). Say if either should show its card.
-  - [ ] Owner (decision 5): the go-ahead for 23k, with a clinician's note on the
-    MedicationRequest rule (B21).
+  - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #282.
+  - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
   - [ ] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard.
   - [ ] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`
@@ -1332,8 +1472,14 @@ Connect) is not supported yet.
     required (a ruleset change). Its three green `dtr-payer`-only runs on main so far
     (2026-10-20, 2026-10-27, 2026-11-03) do not count toward the four.
   - [ ] Owner: answer the lane's three questions: a request-wide read and byte budget for
-    linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k), and
-    whether a scope the EHR does not publish is `fail` or `warn` (23l).
+    linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k; 23k
+    built without it: the prior-authorization pack reads the payer's Organization by the pack's
+    own payer system or the payor's identifier as written, so a site's own payer id reads as
+    `other` and the order as `not_checked`, which shows no card at `order-sign`, so on a real
+    EHR's data a possible red flag in an order's notes reaches only the review queue, at urgent
+    priority, and not the clinician signing it; the card states this, and the answer may also
+    say whether `not_checked` should show a card, or the red-flag rule set a recommendation that
+    does), and whether a scope the EHR does not publish is `fail` or `warn` (23l).
 
 **Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
 owner received in October 2026, no image goes to GHCR until it carries what the licences of

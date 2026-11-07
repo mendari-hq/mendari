@@ -36,7 +36,8 @@ the case's do), then reshaped:
   the prior-authorization orders carry) and fictional systems named as such.
 
 What each pack cannot read in these shapes yet is pinned in tests/test_ehr_profile.py; LP-23k
-takes entries off it when the shipped packs move to spec 0.3.
+took entries off it when the shipped packs moved to spec 0.3 (an RTF note and the site's own
+payer id are left).
 """
 
 from __future__ import annotations

@@ -125,11 +125,28 @@ def test_every_seeded_resource_conforms_to_us_core() -> None:
 
 def test_referral_cases_round_trip_through_the_pack_mapping() -> None:
     """FHIR -> the referral pack's mapping gives back the dataset's input, moved to today: the
-    same patient, referral and record, with every date shifted by the same gap."""
+    same patient, referral and record, with every date shifted by the same gap. A document or
+    report code the checklist does not look for (the local site's history and physical, LOINC
+    34117-2) is the one thing not read back: the mapping reads codes through the code sets the
+    checklist's codes are declared in (spec 0.3, LP-23k), so such an item keeps its name and
+    date, not its code."""
     adapter = FhirAdapter.for_pack(resolve_pack(REFERRAL))
+    sets = adapter.mapping.code_sets
+    looked_for = {
+        "documents": set(sets["checklist_documents"].codes),
+        "reports": set(sets["checklist_reports"].codes),
+    }
+    dropped = 0
     for record in REFERRAL_CASES:
         got = adapter.to_input(adapter.index(referral_case(record)))
-        assert got == moved_input(record["input"]), record["id"]
+        want = moved_input(record["input"])
+        for key, codes in looked_for.items():
+            for item in want.get(key, []):
+                if item.get("code") not in codes:
+                    del item["code"]
+                    dropped += 1
+        assert got == want, record["id"]
+    assert dropped
 
 
 def test_referral_cases_decide_the_same_from_fhir(monkeypatch: pytest.MonkeyPatch) -> None:

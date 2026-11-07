@@ -148,7 +148,8 @@ def test_the_new_synthetic_fhir_decides_as_its_record_does(pack_id: str) -> None
             try:
                 result, _ = decision.decide_fhir(bundle(build(record, today=TODAY)))
             except FhirError as error:
-                assert focus is not None and record["input"]["order"]["code"] not in focus.values
+                assert focus is not None and focus.values is not None
+                assert record["input"]["order"]["code"] not in focus.values
                 assert str(error) == "missing required FHIR resources: ServiceRequest"
                 assert direct.answers["service"].label == "other", record["id"]
                 assert direct.outcome is Outcome.HUMAN_REVIEW, record["id"]

@@ -164,10 +164,10 @@ def test_a_card_for_a_read_that_failed_fails_the_run(
 ) -> None:
     """Every hook answers `200` (LP-23d), so a read of the FHIR server that failed shows only in
     a card that says part of the record could not be read. The client reads which key and why:
-    a linked note (`notes: not_fetched`) is what the profile leaves unread, and passes (the run
-    above); anything else fails the run, naming the patient, the key and the reason, and so does
-    such a card for a patient with no note. Here the engine's FHIR server answers every search
-    with a `400`, as HAPI could a prefetch."""
+    an RTF note (`notes: unsupported_type`) is what the profile leaves unread since LP-23k, and
+    passes (the run above); anything else fails the run, naming the patient, the key and the
+    reason, and so does such a card for a patient with no note. Here the engine's FHIR server
+    answers every search with a `400`, as HAPI could a prefetch."""
     held = profile_server(ehr_profile.resources(TODAY))
 
     def searches_fail(request: httpx.Request) -> httpx.Response:
@@ -184,7 +184,7 @@ def test_a_card_for_a_read_that_failed_fails_the_run(
     assert {c["status"] for c in result["calls"]} == {200}
     failed = result["problems"]
     assert failed and all(": could not read " in problem for problem in failed), failed
-    assert all("(only a linked note may be unread)" in problem for problem in failed)
+    assert all("(only an RTF note may be unread)" in problem for problem in failed)
     named = {problem.split(": ")[0].rsplit(" for ", 1)[1] for problem in failed}
     without_a_note = {"ehr-trial-4", "ehr-trial-5", "ehr-pa-4", "ehr-pa-5"}
     assert without_a_note <= named
@@ -192,16 +192,20 @@ def test_a_card_for_a_read_that_failed_fails_the_run(
     assert all(re.search(r"could not read \w+: http_status ", problem) for problem in failed)
 
 
-def test_only_a_linked_note_may_be_left_unread() -> None:
-    """What the client takes as unread, card by card: `notes: not_fetched` for a patient with a
-    note, nothing for one without; and what a card names (its detail's `- key: reason` lines),
-    or None for a card that is not an unreadable ABSTAIN's."""
+def test_only_an_rtf_note_may_be_left_unread() -> None:
+    """What the client takes as unread, card by card: `notes: unsupported_type` for a patient
+    whose linked note is RTF (since LP-23k the packs read a text/plain or text/html one, so
+    nothing for those), nothing for one without a note; and what a card names (its detail's
+    `- key: reason` lines), or None for a card that is not an unreadable ABSTAIN's."""
     by_id = {p.id: p for p in ehr_profile.patients(TODAY)}
-    assert cds_client.expected_unread(by_id["ehr-trial-1"]) == {("notes", "not_fetched")}
-    assert cds_client.expected_unread(by_id["ehr-pa-4"]) == set()
-    detail = f"*status* *notice*\n\n{cds_hooks.UNREADABLE_DETAIL}\n\n- notes: not_fetched\n"
+    assert cds_client.expected_unread(by_id["ehr-trial-3"]) == {("notes", "unsupported_type")}
+    assert cds_client.expected_unread(by_id["ehr-pa-3"]) == {("notes", "unsupported_type")}
+    assert cds_client.expected_unread(by_id["ehr-trial-1"]) == set()  # a text/plain note
+    assert cds_client.expected_unread(by_id["ehr-pa-2"]) == set()  # a text/html note
+    assert cds_client.expected_unread(by_id["ehr-pa-4"]) == set()  # no note
+    detail = f"*status* *notice*\n\n{cds_hooks.UNREADABLE_DETAIL}\n\n- notes: unsupported_type\n"
     card = {"summary": cds_hooks.UNREADABLE_SUMMARY, "detail": detail + "- conditions: not_r4"}
-    assert cds_client.unread_of(card) == {("notes", "not_fetched"), ("conditions", "not_r4")}
+    assert cds_client.unread_of(card) == {("notes", "unsupported_type"), ("conditions", "not_r4")}
     assert cds_client.unread_of({"summary": "Routed to cardiology", "detail": detail}) is None
     problems: list[str] = []
     answer = httpx.Response(
@@ -209,13 +213,30 @@ def test_only_a_linked_note_may_be_left_unread() -> None:
     )
     cds_client._called("svc", "order-sign", by_id["ehr-pa-4"], answer, problems)
     assert problems == [
-        "svc for ehr-pa-4: could not read conditions: not_r4 (only a linked note may be unread)",
-        "svc for ehr-pa-4: could not read notes: not_fetched (only a linked note may be unread)",
+        "svc for ehr-pa-4: could not read conditions: not_r4 (only an RTF note may be unread)",
+        "svc for ehr-pa-4: could not read notes: unsupported_type (only an RTF note may be unread)",
     ]
     problems.clear()
-    cds_client._called("svc", "order-sign", by_id["ehr-pa-1"], answer, problems)
+    cds_client._called("svc", "order-sign", by_id["ehr-pa-3"], answer, problems)
     assert problems == [
-        "svc for ehr-pa-1: could not read conditions: not_r4 (only a linked note may be unread)"
+        "svc for ehr-pa-3: could not read conditions: not_r4 (only an RTF note may be unread)"
+    ]
+    problems.clear()
+    linked = {
+        "summary": cds_hooks.UNREADABLE_SUMMARY,
+        "detail": f"{detail}".replace("unsupported_type", "not_fetched"),
+    }
+    cds_client._called(
+        "svc",
+        "order-sign",
+        by_id["ehr-pa-1"],
+        httpx.Response(
+            200, json={"cards": [{**linked, "indicator": "info", "source": {"label": "x"}}]}
+        ),
+        problems,
+    )
+    assert problems == [  # a readable note the hook did not read
+        "svc for ehr-pa-1: could not read notes: not_fetched (only an RTF note may be unread)"
     ]
     problems.clear()
     unnamed = {

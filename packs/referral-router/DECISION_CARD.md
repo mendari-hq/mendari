@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/referral-router` · version **0.2.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.3.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:110d716c9786cc9c19a60ab6cba67fbf7b6ca1e0231070ba91bce36c6e4d03c8` |
+| Pack digest | `sha256:539e0ff237c2b84e9a3baed670cb608ff95d730f35bbda555ffb2c8b4b47ddee` |
 | Last validation | 2026-11-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
@@ -184,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 1.83 / 1.90 ms |
+| Latency p50 / p95 | 2.10 / 2.31 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |
@@ -373,8 +373,8 @@ Other questions (accuracy / ECE):
 
 ## Known failure modes
 
-- Through FHIR (CDS Hooks, the SMART launch, `$decide`), the pack decides only a ServiceRequest whose first category is the fictional referral code of its synthetic examples (fhir/mapping.yaml, `focus_where`). No real EHR referral carries it, so until a site lists the code its EHR marks a referral with (often a SNOMED CT code), no real referral is decided. Pack inputs sent directly are not affected.
-- The checklist looks only for the document codes listed in logic/checklist.yaml. A visit note filed under another code (e.g. a history and physical, LOINC 34117-2) reads as missing, so a complete referral goes back to the referrer; the bundled local-site example shows this. Add a site's codes before use.
+- Through FHIR (CDS Hooks, the SMART launch, `$decide`), the pack decides only a ServiceRequest with a category coding of its code set `referral_category` (the fictional referral code of its synthetic examples, wherever it sits; fhir/mapping.yaml, `focus_where`). No real EHR referral carries it, so until a site translates the code its EHR marks a referral with (often a SNOMED CT code) into it in its site code map (`MENDARI_SITE_CODES`), no real referral is decided; a referral found through a translation is never automated. Pack inputs sent directly are not affected.
+- The checklist looks only for the document codes listed in logic/checklist.yaml, which the FHIR mapping reads through its code sets `checklist_documents` and `checklist_reports` (LOINC, wherever the coding sits). A visit note filed under another code (e.g. a history and physical, LOINC 34117-2) reads as missing, so a complete referral goes back to the referrer; the bundled local-site example shows this. So does a visit note whose LOINC coding has no system, which the code sets do not read as LOINC. Add a site's codes before use, in logic/checklist.yaml for pack inputs sent directly, and through FHIR also in the mapping's code set (a code only logic/checklist.yaml lists is not read through FHIR) or, without changing the pack, in the site's code map, where a decision read through a translation is never automated. No medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this pack.
 - The keyword urgency screen misses phrasings it does not list. On hand-written referrals it caught 16/16 urgent ones in the set it was written on but 7/12 in the held-out set. So the policy allows AUTO only while the screen includes a model (`automation_requires` with `triage_screen=rules_and_jev` or `rules_and_llm`, where either one flagging a referral as possibly urgent sends it to review). With the rules alone, every referral goes to a person.
 - The naive Bayes specialty reader was trained on synthetic referrals only. Shorthand and a site's own case mix lower its accuracy; with a less confident specialty, fewer referrals are automated.
 - Requirements depend on the suggested specialty. If the specialty is wrong, the wrong requirements are checked, but that referral's lower confidence usually keeps it out of automation.
@@ -392,7 +392,43 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.2.1
+#### 0.3.0
+
+- **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
+  2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only; `logic/` unchanged). A MINOR
+  bump, by CONTRIBUTING.md's rule (MINOR for a change in behaviour): what the pack decides through
+  FHIR changes where the 0.2 mapping misread the data.
+  - A referral is a ServiceRequest with a category coding of the new code set
+    `referral_category` (FR101, the fictional referral code), wherever it sits among the
+    categories' codings; the 0.2 mapping read only the first category's first coding, so a
+    referral whose EHR put its own order type first was not found. The coding must carry the
+    fictional referral system: a category coded `{code: FR101}` with no system, which the 0.2
+    mapping read as a referral, is no longer one (no decision, no card). A site's own referral code
+    finds its referrals through its site code map (`MENDARI_SITE_CODES`, translating it into
+    FR101), with no pack file changed; a decision about a referral found so is never automated
+    (the `site_code` cap: HUMAN_REVIEW, `site code translated (referral_category): a person
+    decides`). Without a map, a referral under a site's code alone is still not found.
+  - The document and report codes `logic/checklist.yaml` looks for are read through the code
+    sets `checklist_documents` (11506-3, 11488-4, 11524-6) and `checklist_reports` (11524-6,
+    18748-4, 18726-0), LOINC, wherever the coding sits, so a site's own codes for them may be
+    translated in its site code map (capped the same way). A document or report under another
+    code is still an item, its date and name kept, but its code is no longer carried into the
+    input (it never counted), and a coding with no system is no longer read as LOINC, so a visit
+    note so coded reads as missing (the referral goes back to the referrer, as the card says). A
+    code a site adds to `logic/checklist.yaml` is read through FHIR only once it is in the code
+    set too: `tests/test_referral_pack.py` keeps the shipped pack's two lists equal, and the card
+    says so. A lab's code is read as before, since any lab counts.
+- The 300 cases of the FHIR decisions golden (the bundled local-site example through FHIR) are
+  decided as before, each outcome, recommendation, priority and answer; 162 of them read another
+  input (their input hash changes), each for one reason: a visit note filed as a history and
+  physical (LOINC 34117-2), which the checklist does not look for, is no longer carried with its
+  code. On the vendor-shaped EHR profile (`tests/test_ehr_profile.py`) every referral patient is
+  now decided, ehr-ref-1, 3 and 5 among them, whose site coding comes first.
+- Criteria, rules, providers, policy, models and data are unchanged; the benchmark and its
+  ledger differ only in the run, the version and the digest. The digest changes because the
+  manifest and the mapping do.
+
+### 0.2.1
 
 - A CDS Hooks card only when the person signing the referral can act
   (`cds_hooks.card.show: [return_for_info, urgent_review]`, LP-23j; the owner confirmed the

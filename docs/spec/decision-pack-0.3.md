@@ -22,7 +22,7 @@ a note as plain text. 0.3 adds, each marked (0.3) below:
   runtime may first read what the record lacks: links, §2.3);
 - the `attachment_text` transform: plain-text and HTML notes, inline or in a Binary;
 - `code_sets` and the `code_set` selector: the pack's own codes, which a site's codes may be
-  translated into;
+  translated into, for a field and for `focus_where`;
 - list `resources`: several resource types into one list, each with its own fields, and the
   `medication_period` derivation for a MedicationRequest.
 
@@ -32,6 +32,7 @@ a note as plain text. 0.3 adds, each marked (0.3) below:
 fhir_version: R4
 focus: Patient                    # the resource type a decision is about
 focus_where: {path: ..., in: [...]}   # optional: which resources of that type count
+                                  # (0.3: or {path: ..., code_set: <name>}, §2.5)
 resources:                        # the types the record may hold; `required` ones must be there
   Patient: {required: true}
 code_sets:                        # (0.3) optional
@@ -78,8 +79,9 @@ declared with its terms.
 
 A top-level field's path starts with a resource type (`Patient.birthDate`). A list field's
 path is relative to its resource (`code.text`). After a `follow`, a path starts with the type the
-reference reaches (`Medication.code.text`). `focus_where.path` is relative to the focus. In a
-0.3 pack every path is checked when the mapping loads.
+reference reaches (`Medication.code.text`), or with the field's own type (§2.3).
+`focus_where.path` is relative to the focus. In a 0.3 pack every path is checked when the
+mapping loads.
 
 ### 2.2 Fields
 
@@ -110,13 +112,32 @@ reference is resolved inside the record only, and never fetched:
 Anything else resolves to nothing: an absolute URL no entry has, a reference by identifier
 only, or a resource of another type than the field's paths start with. The field's paths are
 then read in the resources the reference reached. A `follow` is one hop: what it reaches is
-not followed further. A field's reference is resolved once, whatever number of paths it tries,
+not followed further.
+
+A path that starts with the field's **own type** is read where the field is, as it would be
+without `follow`: a list field's resource type, or a top-level field's `follow` path's type
+(`Coverage` for `Coverage.payor[0]`). So a field may fall back, in its `paths`' order, from what
+the reference reaches to what its own resource says, for an element R4 lets be either a
+reference or a value (a MedicationRequest's `medicationReference` or `medicationCodeableConcept`)
+or a reference that may carry only an identifier:
+
+```yaml
+coverage.payer:
+  follow: Coverage.payor[0]
+  paths:
+    - "Organization.identifier[system=https://payers.example/id].value"   # what it reaches
+    - Coverage.payor[0].identifier.value                                  # its own resource
+```
+
+A field therefore never reads, through `follow`, a resource of its own type: a reference from a
+resource to another of its type is not followed for its paths. A field's reference is resolved once, whatever number of paths it tries,
 and a runtime SHOULD resolve it by a lookup rather than a search of the record, so that mapping
 a record takes time in proportion to its size. A runtime MAY add resources it read itself to the
 record before the mapping runs; the mapping still never fetches.
 
 A reference that reaches nothing is a **link** when it is `<Type>/<id>` (relative, or at the end
-of an absolute URL with no query) of a type the field's paths read. `#<id>`, `urn:...`, a
+of an absolute URL with no query) of a type the field's paths read through it (not the field's
+own type). `#<id>`, `urn:...`, a
 reference by identifier only, and a reference to another type (a Coverage's payor that is the
 patient, for a field that reads an Organization) are not links: they reach nothing, and are not
 unreadable. A runtime that records what it could not read counts a link the record does not
@@ -134,7 +155,7 @@ at most 1 MiB once decoded (`too_large`), and a link is read once a request what
 spelling. A resource its list leaves out (a MedicationRequest entered in error, §2.7) is not an
 item: nothing it links to is read, or counted. A read that fails gives its reason (`timeout`,
 `unauthorized`, `not_r4` and the others). A link that is not read makes the decision ABSTAIN with
-`could not read <field>: <reason>`. `fhir/decide` and `$decide` never read a link: there it is
+`could not read <field>: <reason>`, whatever a later path of the field reads in its own resource. `fhir/decide` and `$decide` never read a link: there it is
 `not_fetched`, and the decision abstains.
 
 ### 2.4 Attachment text (0.3)
@@ -168,6 +189,14 @@ reference runtime counts each in the decision's data-coverage record and, as for
 `could not read <field>: <reason>`. An attachment with neither `data` nor a `url` has nothing to
 read, and counts for nothing.
 
+**Longer than the input allows.** The texts of all of a record's notes, joined, can be longer
+than the `maxLength` the pack's input schema gives the field. The reference runtime never cuts
+the text (a cut could lose the very sentence a question reads) and does not let the schema
+refuse the whole input for it: it leaves the field out of the input and makes the decision
+ABSTAIN with `could not read <field>: too_large`, counted once in the data-coverage record.
+This applies to a top-level field (`fields`) whose schema property, found through `properties`,
+has a `maxLength`.
+
 **Renditions.** R4 makes the repetitions of a DocumentReference's `content` one document in
 different formats, and a DiagnosticReport's `presentedForm` semantically equivalent forms of one
 report. Where a path reads either, an attachment that cannot be read counts for nothing when
@@ -188,6 +217,12 @@ value is the first coding of the set's system whose code the set lists; another 
 system, or the same code in another system, gives nothing. A `map` may then turn the code into
 the pack's value.
 
+`focus_where` MAY name a code set (`{path, code_set}`) in place of `in`: a resource of the focus
+type counts when the codings at its path, read as a field's are, give one of the set's codes
+(`category.coding` for a referral's category, wherever the pack's coding sits among the
+categories' codings). The set's translations count as a field's do, so a site's own code for
+the focus finds it.
+
 A runtime MAY give the selector a site's translations into the set: `{system, code, as}`,
 where `as` is one of the set's codes. A translation counts only into a code the set lists, and
 only for its own set, and a coding of the set's own system wins over a translated one wherever
@@ -198,8 +233,8 @@ field its value is so read the same with translations as without. Translations a
 configuration, not part of the pack, so they change no digest. The reference runtime's server
 reads them from `MENDARI_SITE_CODES`, one map per organization, checked at startup against the
 code sets the packs declare (its command line reads none). A decision records the version and
-SHA-256 of the map it read with, and one whose input took a value through a translation is
-never AUTO, nor BLOCKed by a rule without a person
+SHA-256 of the map it read with, and one whose input took a value through a translation, or
+whose focus counted only through one, is never AUTO, nor BLOCKed by a rule without a person
 ([Connecting an EHR](../guides/connecting-an-ehr.md#site-codes)).
 
 ### 2.6 Lists
@@ -262,8 +297,10 @@ An engine that reads only 0.1 and 0.2 refuses a 0.3 pack, since its `spec_versio
 it knows. Publish a pack as 0.3 only for engines that read 0.3.
 
 Every 0.1 and 0.2 pack loads and maps as before. The reference packs' FHIR decisions are pinned
-case by case, input hash included (`tests/fixtures/fhir/decisions-golden.json`), and the same
-mappings written with `paths` and `resources` read every case alike.
+case by case, input hash included (`tests/fixtures/fhir/decisions-golden.json`), and a 0.2
+mapping written with `paths` and `resources` reads every case alike. Three reference packs are
+0.3 packs themselves (the Clinical Trial Prescreener, the Prior Authorization Preflight and the
+Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of this section.
 
 ## 4. Changes from 0.2 and migration
 
@@ -272,10 +309,10 @@ mappings written with `paths` and `resources` read every case alike.
 | `[system=<uri>]` in a path, for a uri `code_systems` declares | §2.1 |
 | A 0.3 pack's paths are checked at load | §2.1 |
 | `paths`, tried in order, the first that gives a value winning | §2.2 |
-| `follow`: one reference hop, inside the record, never fetched by the mapping | §2.3 |
+| `follow`: one reference hop, inside the record, never fetched by the mapping; a path of the field's own type read in place | §2.3 |
 | Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
-| The `attachment_text` transform, its three reasons, and renditions | §2.4 |
-| `code_sets` and the `code_set` selector, which a site's translations may feed | §2.5 |
+| The `attachment_text` transform, its three reasons, renditions, and notes longer than the input allows | §2.4 |
+| `code_sets` and the `code_set` selector, for a field and for `focus_where`, which a site's translations may feed | §2.5 |
 | List `resources`: several resource types into one list | §2.6 |
 | `medication_period` for a MedicationRequest | §2.7 |
 | Bounds for a pack the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |

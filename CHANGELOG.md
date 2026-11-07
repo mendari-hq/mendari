@@ -19,10 +19,11 @@ The first release (not yet published).
   pack needs codes of its own (procedures, a local site's conditions, the code that marks a
   referral) they are fictional, in code systems named as such, and a site maps its own codes.
   So until a site does, the Referral Router matches no real EHR referral through FHIR and the
-  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM (through FHIR, only from
-  a Condition's first coding). A check refuses SNOMED CT's url, OID and concept URIs in the
-  built wheel and sdist, and any number written as a SNOMED CT concept id in Mendari's own files
-  there (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm acknowledgement.
+  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM (through FHIR, since
+  LP-23k, by the ICD-10-CM coding wherever it sits among a Condition's codings). A check refuses
+  SNOMED CT's url, OID and concept URIs in the built wheel and sdist, and any number written as
+  a SNOMED CT concept id in Mendari's own files there (`scripts/check_snomed.py`); NOTICE carries
+  NLM's RxNorm acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
   `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
@@ -362,15 +363,15 @@ The first release (not yet published).
   data-coverage record, every standard-hook pack deciding on the vendor-shaped patients,
   `selectionBehavior`, card feedback, a linked note read through the allow-listed client, the
   site code map recorded on each decision, the reasons of every expected Inferno result and the
-  CRD golden. It stays pending on two lines: the shipped packs' mappings on spec 0.3 (LP-23k,
-  after the owner's go-ahead), and the owner's run on Epic's sandbox with `mendari smart check`
-  against Epic. A third, the inbox's and referral cards (LP-23j), is replaced by its tests: the
-  owner confirmed the referral `show` list. `tests/test_ehr_pilot_e2e.py` takes an EHR's signed
-  ES384 token (its keys from a pinned `jwks_uri`) through discovery and two `order-sign` hooks
-  over HTTP, each reading a vendor-shaped patient's record from the EHR's FHIR server, to one
-  card each and feedback on both, one accepted and one overridden, then `mendari audit verify`,
-  which passes, and fails at the event changed behind the store's back; on SQLite and Postgres,
-  in about a second each, with no connection off the machine. `notes/ehr-scorecard.md` is
+  CRD golden. It stays pending on one line: the owner's run on Epic's sandbox with `mendari
+  smart check` against Epic. Two others are replaced by their tests: the inbox's and referral
+  cards (LP-23j; the owner confirmed the referral `show` list), and the shipped packs' mappings
+  on spec 0.3 (LP-23k, after the owner's go-ahead). `tests/test_ehr_pilot_e2e.py` takes an
+  EHR's signed ES384 token (its keys from a pinned `jwks_uri`) through discovery and two
+  `order-sign` hooks over HTTP, each reading a vendor-shaped patient's record from the EHR's
+  FHIR server, to one card each and feedback on both, one accepted and one overridden, then `mendari
+  audit verify`, which passes, and fails at the event changed behind the store's back; on SQLite and
+  Postgres, in about a second each, with no connection off the machine. `notes/ehr-scorecard.md` is
   graded again at the
   close-out commit beside its grade before LP-23, each row only on evidence in the repository:
   client trust from level 2 to 3, who may call from where from 1 to 3, cards and workflow from 1
@@ -405,6 +406,46 @@ The first release (not yet published).
   makes them. Gate G5-6's `a12-ehr-pilot` probes 23j's tests in place of its pending line, and
   the scorecard's CW-3e is met (cards and workflow at level 3; overall still level 1). See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#the-cards).
+- **The reference packs read real EHR data** (LP-23k, after the owner's go-ahead on 2026-11-06;
+  FHIR-path decisions change where the 0.2 mappings misread the data, JSON-path decisions do
+  not). The Clinical Trial Prescreener, the Prior Authorization Preflight and the Referral Router
+  are on spec 0.3 (each 0.3.0, a MINOR bump by CONTRIBUTING.md's rule). A coding is read by its
+  code system wherever it sits: a condition's ICD-10-CM, a lab's LOINC, a drug's RxNorm, an
+  order's and a procedure's fictional procedure code, a referral's FR101. A condition's, a
+  lab's, a diagnosis's and a prior procedure's first coding is read when it has none of the
+  pack's systems, as before; an order, a drug, a referral and the referral checklist's documents
+  and reports are read by their system only, so a coding of theirs with no system is no longer
+  read (an order or a referral so coded gets no decision). The trial pack reads MedicationRequest
+  beside MedicationStatement (a `MedicationRequest?patient=` prefetch, the Medication it names
+  followed), by spec 0.3's stated rule for when the drug is taken, **not yet clinically
+  reviewed** (a clinician's note is owed, B21; the brief for the reviewer is
+  `notes/clinician-review-medication-period.md`), and its card says so. The trial and
+  prior-authorization packs read their notes as plain text or HTML, inline or in a linked Binary
+  a hook reads from the EHR (an RTF note abstains, and so do notes longer in all than the pack's
+  input allows, `could not read notes: too_large`, where the input was refused before with no
+  card: the engine leaves such a field out of the input and never cuts its text), and the
+  prior-authorization pack its payer
+  through the Coverage's reference to its Organization, else the payor's own identifier; a
+  site's own payer id reads as `other` (`not_checked`), which the owner's open question decides.
+  The referral router finds a referral, and its checklist's documents, through code sets a
+  site's code map (`MENDARI_SITE_CODES`) can translate the site's own codes into; a decision
+  read through a translation, or about a referral found through one, is never automated. The
+  engine gains two spec 0.3 keys for this: `focus_where` through a code set (`{path,
+  code_set}`), and, after a `follow`, a path of the field's own type read in place, so a field
+  falls back from what its reference reaches to its own resource (a MedicationRequest's coded
+  concept, a Coverage's own payor identifier). The FHIR decisions golden: every trial and
+  prior-authorization case as before, input hash included, and every referral decision as
+  before, 162 of them reading one document code fewer (a history and physical, LOINC 34117-2,
+  which the checklist never counted). The benchmarks run on the JSON datasets, which do not
+  change, so the critical-label figures are as they were. The vendor-shaped EHR profile's
+  patients are now read but for an RTF note and the site's own payer id, and Inferno's CRD
+  server suite, run against them, gives 36 passes, 5 failures and 12 skips (34, 11 and 8 before:
+  a patient whose note now reads is `not_checked`, with no card and no coverage information;
+  `sandbox/inferno/crd_server_v221_expected.json` has each reason). The scoreboard's stored
+  results for the three packs read "stale: pack changed". Gate G5-6's `a12-ehr-pilot` probes
+  23k's tests in place of its pending line, and the scorecard's DS-3a to DS-3d are met (data
+  shapes at level 3; overall still level 1). See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#reading-the-record).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and
