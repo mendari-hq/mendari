@@ -35,7 +35,7 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   card template, and referral cards only when the person signing can act (`show:
   [return_for_info, urgent_review]`, the default the owner confirmed on 2026-11-06). No
   decision changes;
-- 23k (#PR-23K), after the close-out and the owner's go-ahead (2026-11-06), the reference
+- 23k (#282), after the close-out and the owner's go-ahead (2026-11-06), the reference
   packs' mappings for real EHR data on spec 0.3: the trial pack reads a condition by its
   ICD-10-CM coding wherever it sits and its medications from MedicationRequest too (spec 0.3's
   stated start and stop rule), the prior-authorization pack its payer through the Coverage's

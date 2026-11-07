@@ -766,7 +766,7 @@ Connect) is not supported yet.
 
 - [ ] **LP-23** EHR pilot readiness (A12; ADR-0014, Accepted 2026-11-06). Built but for the
   owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the referral `show` list
-  on 2026-11-06, in #281; 23k, once the owner gave the go-ahead on 2026-11-06, in #PR-23K): the
+  on 2026-11-06, in #281; 23k, once the owner gave the go-ahead on 2026-11-06, in #282): the
   Epic sandbox run, which is the owner's, and the clinician's note on the MedicationRequest rule
   that 23k adopts (B21). Gate G5-6's `a12-ehr-pilot` names the Epic run as pending, and the
   owner's lines below are what is left. The scorecard's after grade,
@@ -1112,7 +1112,7 @@ Connect) is not supported yet.
     deliberately: `tests/test_fhir_lists.py::test_the_inbox_card_wording_is_unchanged` and
     `tests/test_cds_cards.py::test_card_summaries_use_display_names_and_task_text_is_unchanged` (the
     inbox suggestion's label).
-  - [x] **23k** (#PR-23K) Pack mappings for real EHR data, on spec 0.3. **The owner gave the
+  - [x] **23k** (#282) Pack mappings for real EHR data, on spec 0.3. **The owner gave the
     go-ahead on 2026-11-06** ("go ahead do it, full consent": owner decision 5); the clinician's
     note on the MedicationRequest rule is still owed (B21: the brief for the reviewer,
     `notes/clinician-review-medication-period.md`, says on its first line that it is not
@@ -1293,7 +1293,7 @@ Connect) is not supported yet.
     `file: sandbox/inferno/crd_server_v221_expected.json`; 23m's end-to-end test), and three
     pending lines: 23j (after the owner confirms the referral `show` list; confirmed on
     2026-11-06, and the line replaced by 23j's tests in #281), 23k (after the owner's
-    go-ahead; given on 2026-11-06, and the line replaced by 23k's tests in #PR-23K), and the
+    go-ahead; given on 2026-11-06, and the line replaced by 23k's tests in #282), and the
     owner's Epic sandbox run in the plan's words (the LP-21n pattern); no
     count in `tests/test_gates.py` changes (conflict 57). The gate stays not met,
     and nothing the owner's is marked met.
@@ -1459,7 +1459,7 @@ Connect) is not supported yet.
     referral workflow carries it; and a referral to schedule, which `rules_and_jev` may automate,
     shows none, so no one signing it sees the suggested specialty (checking it against the
     referrer's is out of scope, future work). Say if either should show its card.
-  - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #PR-23K.
+  - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #282.
   - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
   - [ ] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard.
