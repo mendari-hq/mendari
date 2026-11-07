@@ -161,6 +161,20 @@ def context_of(pack: Pack, answers: Mapping[str, str]) -> dict[str, str]:
     return {key: answers[key] for key in (dtr.context if dtr else []) if key in answers}
 
 
+def record_answers(record: Mapping[str, Any]) -> dict[str, str]:
+    """A stored decision's answers (`AuditStore.get`), each question's label."""
+    answers = record["record"].get("answers") or {}
+    return {key: str(answer.get("label")) for key, answer in answers.items()}
+
+
+def decision_questionnaire(pack: Pack, answers: Mapping[str, str]) -> str | None:
+    """The canonical (without version) of the DTR questionnaire for a decision with these
+    answers, which a QuestionnaireResponse attached to its PAS request answers; None when the
+    pack serves none, or the decision's context needs no documentation."""
+    form = questionnaire(pack, context_of(pack, answers))
+    return str(form["url"]) if form is not None else None
+
+
 def questionnaire(pack: Pack, context: Mapping[str, str]) -> dict[str, Any] | None:
     """A DTR standard Questionnaire of the documentation the payer asks for; None when the
     context needs none (e.g. a service that doesn't require authorization)."""

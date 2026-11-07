@@ -140,7 +140,7 @@ def test_the_orders_own_codes_are_used() -> None:
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"decision": {"id": "d-1", "recommendation": "needs_attention"}}, "only a complete"),
+        ({"decision": {"id": "d-1", "recommendation": "not_required"}}, "only a complete"),
         ({"patient": {"resourceType": "Patient", "gender": "female"}}, "the patient's name"),
         ({"coverage": COVERAGE | {"identifier": []}}, "member id"),
         ({"service_type": None}, "X12 service type"),
@@ -567,3 +567,313 @@ def test_an_outcome_reported_later_never_stands_in_for_the_reviewer(
     }
     refused = client.post(f"/api/packs/{PA}/pas", json=body)
     assert refused.status_code == 422 and "reviewer confirms" in refused.text
+
+
+# -- A request that needs attention carries the completed DTR QuestionnaireResponse -------------
+# The owner's decision of 2026-11-07. PAS 2.2.1's slice Claim.supportingInfo:AdditionalInformation
+# references it, and the request Bundle holds it as an entry of its own. Its report type (X12 755)
+# is a site's setting: `REPORT_TYPE` has an X12 code's shape only.
+QUESTIONNAIRE = (
+    "https://mendari.co/packs/mendari/prior-auth-preflight/Questionnaire/lumbar_mri-acme"
+)
+REPORT_TYPE = "R5"
+GAP = "Back pain for two weeks."  # conservative therapy undocumented: needs_attention
+COMPLETED_RESPONSE = {
+    "resourceType": "QuestionnaireResponse",
+    "id": "lumbar-mri-acme-response",
+    "meta": {"versionId": "3"},
+    "questionnaire": f"{QUESTIONNAIRE}|0.3.0",
+    "status": "completed",
+    "subject": {"reference": "Patient/p1"},
+    "authored": "2026-09-30T11:00:00+00:00",
+    "item": [
+        {
+            "linkId": "conservative_therapy",
+            "text": "Conservative therapy documented",
+            "answer": [{"valueCoding": {"system": "https://example.org/cs", "code": "yes"}}],
+        }
+    ],
+}
+
+
+def attention(**changes: Any) -> dict[str, Any]:
+    """A request that needs attention, with the completed response for its questionnaire."""
+    arguments: dict[str, Any] = {
+        "decision": {"id": "d-1", "recommendation": pas.ATTENTION},
+        "questionnaire_response": COMPLETED_RESPONSE,
+        "questionnaire": QUESTIONNAIRE,
+        "site_codes": SITE_CODES | {"report_type": REPORT_TYPE},
+    }
+    return build(**(arguments | changes))
+
+
+def attached(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """The resources Claim.supportingInfo references, each found in the Bundle."""
+    resources = {e["fullUrl"]: e["resource"] for e in bundle["entry"]}
+    claim = bundle["entry"][0]["resource"]
+    return [
+        resources[info["valueReference"]["reference"]] for info in claim.get("supportingInfo", [])
+    ]
+
+
+def test_a_request_that_needs_attention_carries_the_completed_questionnaire_response() -> None:
+    bundle = attention()
+    claim = bundle["entry"][0]["resource"]
+    [info] = claim["supportingInfo"]
+    assert info["sequence"] == 1
+    assert info["category"] == {
+        "coding": [{"system": pas.PAS_CODES, "code": "additionalInformation"}]
+    }
+    [document] = info["extension"]
+    assert document["url"] == pas.DOCUMENT_INFORMATION
+    assert document["extension"] == [
+        {
+            "url": "reportTypeCode",
+            "valueCodeableConcept": {"coding": [{"system": f"{pas.X12}/755", "code": REPORT_TYPE}]},
+        }
+    ]
+    [response] = attached(bundle)
+    # An entry of the Bundle (the last), never contained in the Claim; referenced by its fullUrl.
+    assert bundle["entry"][-1]["resource"] is response and "contained" not in claim
+    assert [e["resource"]["resourceType"] for e in bundle["entry"]] == [
+        "Claim", "Patient", "Coverage", "Organization", "Organization", "ServiceRequest",
+        "QuestionnaireResponse",
+    ]  # fmt: skip
+    # As the EHR gave it, but for its id and meta: profiled as DTR's, about the request's patient.
+    assert response["meta"] == {"profile": [pas.PROFILE["QuestionnaireResponse"]]}
+    assert "id" not in response and response["subject"] == claim["patient"]
+    for key in ("questionnaire", "status", "authored", "item"):
+        assert response[key] == COMPLETED_RESPONSE[key]
+    assert attention()["entry"][-1]["fullUrl"] == bundle["entry"][-1]["fullUrl"]  # stable ids
+
+
+def test_without_a_questionnaire_response_nothing_is_attached() -> None:
+    """A request that needs attention and gives no response is built as a complete one is: no
+    supportingInfo, no report type asked for."""
+    bundle = attention(questionnaire_response=None, site_codes=SITE_CODES)
+    assert "supportingInfo" not in bundle["entry"][0]["resource"]
+    assert attached(bundle) == []
+    complete = build(decision={"id": "d-1", "recommendation": pas.READY})
+    assert bundle == complete
+
+
+def test_a_complete_request_is_sent_as_it_was_with_a_response_or_without() -> None:
+    """Other outcomes are unchanged: a complete request attaches nothing, and the others are
+    refused as before, with a response or without."""
+    complete = {"id": "d-1", "recommendation": pas.READY}
+    assert attention(decision=complete) == build(decision=complete)
+    for other in ("not_required", "not_checked"):
+        for response in (COMPLETED_RESPONSE, None):
+            with pytest.raises(pas.PasError, match="only a complete request"):
+                attention(
+                    decision={"id": "d-1", "recommendation": other}, questionnaire_response=response
+                )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"questionnaire_response": {**COMPLETED_RESPONSE, "resourceType": "Questionnaire"}},
+            "must be a FHIR QuestionnaireResponse",
+        ),
+        (
+            {"questionnaire_response": {**COMPLETED_RESPONSE, "status": "in-progress"}},
+            "once a clinician has completed it",
+        ),
+        ({"questionnaire_response": {**COMPLETED_RESPONSE, "status": None}}, "completed it"),
+        ({"questionnaire_response": {**COMPLETED_RESPONSE, "status": ["completed"]}}, "completed"),
+        (
+            {"questionnaire_response": {**COMPLETED_RESPONSE, "questionnaire": [QUESTIONNAIRE]}},
+            "answers another questionnaire",
+        ),
+        (
+            {
+                "questionnaire_response": {
+                    **COMPLETED_RESPONSE,
+                    "questionnaire": f"{QUESTIONNAIRE.replace('acme', 'beacon')}|0.3.0",
+                }
+            },
+            f"answers another questionnaire: this decision's is {QUESTIONNAIRE}",
+        ),
+        (
+            {
+                "questionnaire_response": {
+                    k: v for k, v in COMPLETED_RESPONSE.items() if k != "questionnaire"
+                }
+            },
+            "answers another questionnaire",
+        ),
+        ({"questionnaire": None}, "no DTR questionnaire"),
+    ],
+)
+def test_only_a_completed_response_to_the_decisions_questionnaire_is_attached(
+    changes: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(pas.PasError, match=message):
+        attention(**changes)
+
+
+def test_the_report_type_comes_from_the_request_else_the_setting_and_is_never_filled_in() -> None:
+    def report_type(bundle: dict[str, Any]) -> str:
+        [info] = bundle["entry"][0]["resource"]["supportingInfo"]
+        return str(
+            info["extension"][0]["extension"][0]["valueCodeableConcept"]["coding"][0]["code"]
+        )
+
+    assert report_type(attention()) == REPORT_TYPE
+    assert report_type(attention(report_type="Q7")) == "Q7"
+    with pytest.raises(pas.PasError) as refused:
+        attention(site_codes=SITE_CODES)
+    message = str(refused.value)
+    assert "the X12 report type (755: from the request, or set MENDARI_PAS_REPORT_TYPE)" in message
+    assert "MENDARI_PAS_REQUEST_TYPE" not in message
+
+
+def test_the_report_type_is_a_site_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MENDARI_PAS_REPORT_TYPE", f" {REPORT_TYPE} ")
+    assert settings.pas_codes()["report_type"] == REPORT_TYPE
+    monkeypatch.setenv("MENDARI_PAS_REPORT_TYPE", "report")
+    with pytest.raises(pas.PasError, match="MENDARI_PAS_REPORT_TYPE must be an X12"):
+        settings.pas_codes()
+
+
+def completed_response(client: TestClient, order: dict[str, Any]) -> dict[str, Any]:
+    """The DTR package's pre-answered response for an order CRD updated, as a clinician completes
+    it: the gap documented, and `completed`."""
+    coverage = {"resourceType": "Coverage", "id": "c1", "beneficiary": {"reference": "Patient/p1"}}
+    package = client.post(
+        "/fhir/Questionnaire/$questionnaire-package",
+        json={
+            "resourceType": "Parameters",
+            "parameter": [
+                {"name": "coverage", "resource": coverage},
+                {"name": "order", "resource": order},
+            ],
+        },
+    ).json()
+    [bundle] = [p["resource"] for p in package["parameter"] if p["name"] == "packagebundle"]
+    response: dict[str, Any] = bundle["entry"][1]["resource"]
+    assert response["status"] == "in-progress"  # pre-answered: not yet completed
+    for item in response["item"]:
+        item["answer"][0]["valueCoding"]["code"] = "yes"
+    return response | {"status": "completed"}
+
+
+@pytest.mark.usefixtures("no_site_settings")
+def test_the_api_attaches_the_completed_response_and_sends_it_once_a_reviewer_confirms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MENDARI_PAS_PAYER_URL", "https://payer.example/fhir")
+    site_settings(monkeypatch, SITE_CODES | {"report_type": REPORT_TYPE})
+    submitted: list[dict[str, Any]] = []
+
+    def payer_endpoint(http_request: httpx.Request) -> httpx.Response:
+        body = json.loads(http_request.content)
+        submitted.append(body)
+        return httpx.Response(
+            200,
+            json=payer.respond(body, review_action=REVIEW_ACTION),
+            headers={"content-type": "application/fhir+json"},
+        )
+
+    transport = httpx.MockTransport(payer_endpoint)
+    monkeypatch.setattr(
+        app_module,
+        "GuardedHttp",
+        lambda **kw: GuardedHttp(transport=transport, allowed={"https://payer.example"}),
+    )
+    client = TestClient(create_app(db_path=tmp_path / "n.db"))
+    signed = client.post(
+        f"/cds-services/{PA.replace('/', '.')}", json=request("acme", GAP, _order("mri", "FX101"))
+    ).json()
+    order = signed["systemActions"][0]["resource"]
+    decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
+    assert client.get(f"/api/audit/{decision_id}").json()["recommendation"] == pas.ATTENTION
+    response = completed_response(client, order)
+    body = {
+        "decision_id": decision_id,
+        "patient": PATIENT,
+        "coverage": COVERAGE,
+        "insurer": INSURER,
+        "requester": REQUESTER,
+        "order": _order("mri", "FX101"),
+        "service_type": "62",
+        "place_of_service": "22",
+    }
+    path = f"/api/packs/{PA}/pas"
+
+    built = client.post(path, json=body | {"questionnaire_response": response})
+    assert built.status_code == 200, built.text
+    [sent] = attached(built.json()["bundle"])
+    assert sent["questionnaire"] == response["questionnaire"] and sent["item"] == response["item"]
+    # Without a response, nothing is attached.
+    bare = client.post(path, json=body).json()["bundle"]
+    assert attached(bare) == [] and "supportingInfo" not in bare["entry"][0]["resource"]
+    # Only a completed response, to this decision's questionnaire, with an X12 code's shape.
+    unfinished = client.post(
+        path, json=body | {"questionnaire_response": response | {"status": "in-progress"}}
+    )
+    assert unfinished.status_code == 422 and "completed it" in unfinished.text
+    other = response | {
+        "questionnaire": response["questionnaire"].replace("lumbar_mri", "knee_arthroscopy")
+    }
+    refused = client.post(path, json=body | {"questionnaire_response": other})
+    assert refused.status_code == 422 and "answers another questionnaire" in refused.text
+    malformed = body | {"questionnaire_response": response, "report_type": "report"}
+    assert client.post(path, json=malformed).status_code == 422
+
+    # Sent to the payer once a reviewer confirms the request (needs_attention is never automated).
+    attach = body | {"questionnaire_response": response, "submit": True}
+    unconfirmed = client.post(path, json=attach)
+    assert unconfirmed.status_code == 422 and "reviewer confirms" in unconfirmed.text
+    assert not submitted
+    review = {"final_label": "submit_ready", "reviewer": "pa-nurse"}
+    assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
+    answer = client.post(path, json=attach)
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["submitted"]["outcome"] == "complete"
+    [request_sent] = submitted
+    [sent] = attached(request_sent)
+    assert sent["resourceType"] == "QuestionnaireResponse" and sent["item"] == response["item"]
+
+
+@pytest.mark.usefixtures("no_site_settings")
+def test_pas_build_attaches_a_completed_response_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "c.db"
+    client = TestClient(create_app(db_path=db))
+    signed = client.post(
+        f"/cds-services/{PA.replace('/', '.')}", json=request("acme", GAP, _order("mri", "FX101"))
+    ).json()
+    decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
+    files = {}
+    for name, resource in {
+        "patient": PATIENT,
+        "coverage": COVERAGE,
+        "insurer": INSURER,
+        "requester": REQUESTER,
+        "order": _order("mri", "FX101"),
+        "questionnaire-response": completed_response(
+            client, signed["systemActions"][0]["resource"]
+        ),
+    }.items():
+        files[name] = tmp_path / f"{name}.json"
+        files[name].write_text(json.dumps(resource))
+    out = tmp_path / "pas.json"
+    command = [
+        *("pas", "build", "--db", str(db), "--decision", decision_id, "--out", str(out)),
+        *(part for name, path in files.items() for part in (f"--{name}", str(path))),
+        *("--place-of-service", "22", "--service-type", "62"),
+    ]
+    site_settings(monkeypatch)
+    capsys.readouterr()
+    assert main(command) == 1
+    assert "MENDARI_PAS_REPORT_TYPE" in capsys.readouterr().err and not out.exists()
+    assert main([*command, "--report-type", REPORT_TYPE]) == 0
+    [response] = attached(json.loads(out.read_text()))
+    assert response["status"] == "completed"
+    capsys.readouterr()
+    assert main([*command, "--report-type", "r5"]) == 1
+    assert "--report-type" in capsys.readouterr().err
