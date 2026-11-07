@@ -433,7 +433,7 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
     - `web/index.html`, lines 98 to 122:
       - The typed table is removed: bare percentages, `class="best"`, vendor names, "100 cases" and "pack 0.3–0.4".
       - In its place, a block between markers that `scoreboard_page.py` generates and `--check` checks: inbox `test`, every arm, measured entries as k of n with intervals and the banner, and every other arm "not measured".
-      - It names no remote model until 17i lands and a disclosure exists. Deploying it stays the owner's (gate G1-2).
+      - It names no remote model until 17i lands and a disclosure exists. Deploying it stays the owner's (after gate G1-2's `patent-decision`, owner decision 11).
     - The spec's §Leaderboards. The data (`rank`, `standing`) and the API do not change, and `tests/test_server.py:149` stays.
   - **Files:** `src/mendari/core/card.py`, `src/mendari/evals/leaderboard.py`, `src/mendari/dashboard/leaderboard.js`, `packs/*/DECISION_CARD.md`, `web/index.html`, `scripts/scoreboard_page.py`, `docs/spec/evaluation-reports.md`, `README.md`, `CHANGELOG.md`.
   - **Tests:**
@@ -731,7 +731,7 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
 25. **(17d, 17k) ECE.** Default: equal-mass, a description only, with no interval and no place in the order. Equal-width ECE is not shown. On hidden sets it is a single number, never bins: the spec keeps equal-mass bins out of hidden answers.
 26. **(17d) "False automation" means two things.** `result.py:161` divides wrong AUTO by labelled cases; lines 174 and 247 divide it by AUTO cases. Default: the first is "false automation" and the second is "AUTO error rate", with its n. The method defines both.
 27. **(17g) Template sets are ranked today**, with a Rank column (`card.py:255-268`, `leaderboard.py:207`, `leaderboard.js:38, 119, 145`). Default: the column goes from every surface, as a display bump. The data and the API keep `rank` and `standing`.
-28. **(17g) `web/index.html:98-122`** has typed percentages, a "best" row, vendor names and stale versions (todo, lines 2544 and 2545). Default: the block is generated from the store and checked. Deploying it stays the owner's (G1-2).
+28. **(17g) `web/index.html:98-122`** has typed percentages, a "best" row, vendor names and stale versions (todo, lines 2544 and 2545). Default: the block is generated from the store and checked. Deploying it stays the owner's (after G1-2's `patent-decision`, owner decision 11).
 29. **(17g) A dashboard scoreboard screen.**
     - The server cannot read a store at the repository root from an installed wheel.
     - A hosted view would serve unsigned files and ship vendor ids.
@@ -763,8 +763,16 @@ part". That confirms the default of decisions 1, 2, 3, 5 (the numbers and the 30
 effective date itself is still the owner's to set), 6, 7, 9, 10 and 11, and of the conflicts
 above. Still open: 4, which has no house default, and 8, whose rule (no remote entry published
 until its type has a statement) is built while the statements are the owner's to write. Whether
-11 waits for all of G1-2 or only its `patent-decision` stays the owner's to say (no default). The
-owner's actions below stay the owner's.
+11 waits for all of G1-2 or only its `patent-decision` was the owner's to say (no default),
+answered below. The owner's actions below stay the owner's.
+
+**2026-11-07, the owner's picks:** decision 4 takes the suggested numbers: at most 20 grading runs
+and 180 days per hidden set, 3 submissions per organization and pack lineage per rotation, the
+confirmation once per version (= LP-11 decision 2). Decision 11 waits for gate G1-2's
+`patent-decision` only, not all of G1-2, and the owner asked Claude to run the production deploy
+of `web/` once that attestation is in and main is green. For 17i (decision 7) the LLM
+arm's models are OpenAI's (the owner: "OpenAI"); the exact model ids, at most two, are still
+needed before any spend. Decision 8 stays open.
 
 1. **Which parts are built in a private repository:** the runner, its provider budget, the signing key. Default: none. All the code is open; only the key (offline), hidden-set content (in the database) and the budgets (in the environment) stay out of it.
 2. **Remote providers on hidden sets.** Default: local only for method 1.0. Revisit with a data agreement per provider, or a private runner. Until then, nothing is ranked on hidden sets.
@@ -791,7 +799,7 @@ owner's actions below stay the owner's.
    - never set it on a server or in CI;
    - it does not sign freeze commitments.
 10. **Who a submitting developer is, and through which route** (LP-19, LP-20). Default: 17l waits. Method 1.0 grades the reference packs by Mendari's own declaration.
-11. **Publishing the docs site, and deploying the corrected `web/index.html`.** Default: after gate G1-2, with the method and the early scoreboard together.
+11. **Publishing the docs site, and deploying the corrected `web/index.html`.** Default: after gate G1-2, with the method and the early scoreboard together. The owner's decision (2026-11-07): after gate G1-2's `patent-decision` only, not all of G1-2.
 
 Owner actions that are not decisions. Each gets an owner line in the todo, and each is shown pending where it applies:
 - Generate the signing key, publish its public key, and sign the committed results.

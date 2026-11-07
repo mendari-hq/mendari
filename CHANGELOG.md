@@ -985,7 +985,7 @@ The first release (not yet published).
   vendor and model names, its "100 cases" and its pack versions are gone; a remote model, and a
   configuration that calls one, is named there only once its provider type's disclosure is
   stated. Deploying `web/` stays the owner's
-  (gate G1-2).
+  (after gate G1-2's `patent-decision`).
 - **Remote arms on public sets, built and off** (LP-17h; the grading method's sections 9, 10
   and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
   to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local

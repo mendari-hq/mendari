@@ -47,14 +47,17 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
 
 What stays open. The clinician's note on the MedicationRequest rule 23k adopts (B21; the draft
 for the reviewer is `notes/clinician-review-medication-period.md`, and gate `clinician-review`'s
-attestation records the review). How a payer field reads a site's own payer identifier was
+attestation records the review): the owner, a physician, answered it on 2026-11-07, acceptable
+with changes; the rule is not clinically reviewed until those changes are built and the owner
+confirms them. How a payer field reads a site's own payer identifier was
 confirmed as built by the owner on 2026-11-07: 23k reads it as no payer the pack knows, so the
 order is `not_checked` and shows no card at `order-sign`, a possible red flag in its notes
-included, which reaches only the review queue. Whether a `not_checked` order shows its card, or
-the red-flag rule sets a recommendation that does, stays open, for the owner as a clinician
-(#282 Q2). The Epic sandbox run, in which
-every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3), and `mendari
-smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
+included, which reaches only the review queue. The owner's answers as a clinician that day are
+to be built: a possible red flag under a site's payer identifier shows a card at `order-sign`,
+other `not_checked` orders still show none (#282 Q2); and a referral refused as invalid input
+(BLOCK) shows a card, while a referral to schedule still shows none (#281 Q3). The Epic sandbox
+run, in which every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3),
+and `mendari smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
 pending. `conformance.yml`'s new jobs
 (`crd-server`, `smart-client`, `bulk-client`) have not run on GitHub yet (its `dtr-payer` job
 already runs weekly on main), and `terminology.yml` has not run at all: their first runs on main

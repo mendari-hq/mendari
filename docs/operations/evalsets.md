@@ -153,9 +153,9 @@ first real set:
    keys mount the grading route only (`POST /api/evalsets/{set_id}/runs`,
    [Grading a hidden set](#grading-a-hidden-set)). A labeller's routes, the curators' routes
    and the dashboard's Labelling and Hidden sets need memberships mode
-   ([accounts](accounts.md)). How labellers reach the hosted site, and get past Vercel
-   Authentication, is the owner's decision still open (decision 1): settle it before
-   contracting labellers.
+   ([accounts](accounts.md)). Labellers reach the hosted site in memberships mode (the owner's
+   decision 1), which it does not run yet; how they get past Vercel Authentication is still to
+   settle before contracting labellers.
 5. **For the commands**, keep the same two values in a file only you may read (`0600`), as for
    the PHI key's rotation, and read it into the shell you run `mendari evalset` from, with
    `DATABASE_URL` (or `--db`) naming the deployment's database. `mendari access grader-key`
@@ -302,8 +302,8 @@ without opening their labels, which neither command does, so an agreed case's st
 settles only a case whose two first-pass labels differ), so the status stays as edited and
 [Verifying](#verifying) still finds it. An unresolved case keeps the set from being frozen
 ([Freezing a set](#freezing-a-set)) until it is removed (`mendari evalset remove-case`), which
-removes its assignments and labels with it; what settles a three-way split instead is the
-owner's decision still open.
+removes its assignments and labels with it. The owner decided that a clinical lead's call is to
+settle a three-way split instead; until that is built, the case is removed.
 
 **5. Measure agreement and coverage.**
 
@@ -339,9 +339,10 @@ above. `mendari audit verify --evalsets` holds between every step.
 
 A labeller labels through three routes of the server (LP-11j). They are mounted only on a server
 in memberships mode ([accounts](accounts.md)) with both evaluation-set keys set: the hosted site
-runs claims mode without the keys, so it mounts none of them, and how labellers will reach it is
-the owner's decision still open. Only a person who signed in, acting for the set's organization
-with the `labeller` role, reaches them: never a key, a token, an EHR launch or an administrator
+runs claims mode without the keys, so it mounts none of them until it runs memberships mode, the
+way labellers are to reach it (the owner's decision 1). Only a person who signed in, acting for
+the set's organization with the `labeller` role, reaches them: never a key, a token, an EHR
+launch or an administrator
 (and the keys refuse a server without sign-in), and someone who also manages the organization's
 sets (an administrator, whatever other role they hold) is served nothing. Each acts for the
 labeller and the organization they act for, never one a body, a query or a path names.
@@ -439,10 +440,9 @@ the freeze's own transaction, chaining `evalset.case_removed` for each. The draw
 the weights their draws gave them, so the weights still stand for the cases left out.
 
 `--max-runs` and `--max-age-days` are the [rotation rule](#the-rotation-rule): both are
-required, and there is no default (the owner's decision, for each set). The 20 runs and 180
-days above are an example, not a house default: until the owner sets one (owner decision 2,
-still open), choose both for each set. Keep them with the set's records, beside its commitment;
-`evalset.frozen` chains them and `show` reads them back.
+required, and the command has no default. The 20 runs and 180 days above are the owner's numbers
+for every set (owner decision 2): give both at each freeze. Keep them with the set's records,
+beside its commitment; `evalset.frozen` chains them and `show` reads them back.
 
 Freezing takes each case's final labels (an agreed case's, a resolved case's majority on each
 question) and the labels the pack derives from them, and hashes the set's content

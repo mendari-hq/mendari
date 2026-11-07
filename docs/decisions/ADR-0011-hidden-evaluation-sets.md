@@ -3,9 +3,11 @@
 ## Status
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
-confirmed by the owner on 2026-11-07 but what decisions 2 and 3 leave open; decisions 4 to 6
-were confirmed then too. Accepted once the four owner decisions still open there (1, 2, 3 and 7:
-how labellers reach the hosted site among them) are decided. Gate G2-3's prerequisite
+confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
+decided: labellers reach the hosted site in memberships mode, each set's rotation rule is at most
+20 grading runs and 180 days, a clinical lead's call settles a three-way split (not built yet),
+and adjudicators label blind, as built. Accepted once the one owner decision still open there,
+7 (how a hidden case is erased), is decided. Gate G2-3's prerequisite
 `labelling-underway` and gate G3-4's `hidden-sets-frozen` (`launch/gates.yaml`) name the tests
 that hold what was built; each still waits for the owner's attestation. What each step built,
 in the order they landed:
@@ -55,7 +57,8 @@ in the order they landed:
   `rotate --check` recompute every set the chain froze against its commitment. Threat model T6.
 - 11j, a labeller's routes (`GET /api/labelling`, `GET /api/labelling/next`,
   `POST /api/labelling/{assignment_id}`), mounted only in memberships mode with both keys (the
-  hosted site, in claims mode without the keys, mounts none; owner decision 1 stays open): only
+  hosted site, in claims mode without the keys, mounts none; owner decision 1, memberships mode,
+  was decided on 2026-11-07): only
   a person holding `label` passes the guard (never a key, a token, an administrator or open
   mode), and whoever also manages the organization's sets is served nothing; the next case is
   its input and the set's questions only, its read chained before it is sent; a label answers

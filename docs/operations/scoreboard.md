@@ -66,7 +66,8 @@ published: disclosure pending" in place of its figures, and the arm's configurat
 measured are counted in one row rather than named. A result is published there by the page's
 rule, from the same board: its figures and models are shown only while the disclosures file
 still holds, word for word, the statement each type it calls had when it was stored, as the
-section on replicates below says. Deploying `web/` is the owner's, after gate G1-2.
+section on replicates below says. Deploying `web/` is the owner's, and waits only for gate G1-2's
+`patent-decision`.
 
 The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
 of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
@@ -431,8 +432,9 @@ not signed: step 8 supersedes them.
     Keep a copy where you keep your other private keys. It is never a server setting or a CI
     secret. Its public half is listed in `scoreboard/keys.json` at step 10, when it first signs.
 
-3. **Publish the method** (owner decision 11, after gate G1-2): the documentation site, which
-   holds the method and the early scoreboard, and the public page's scores. The site deploys by
+3. **Publish the method** (owner decision 11, after gate G1-2's `patent-decision`): the
+   documentation site, which holds the method and the early scoreboard, and the public page's
+   scores. The site deploys by
    hand only: Actions, then `docs`, then Run workflow, from `main` (it deploys once the
    repository is public). The public page is deployed from your own machine:
 

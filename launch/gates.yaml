@@ -202,10 +202,10 @@ gates:
               - tests/test_limits.py::test_each_principal_has_its_own_daily_cap_shared_by_every_instance
               - tests/test_auth.py::test_every_route_principal_role_and_scope_gets_what_it_should
       - id: partners-3
-        what: "Three or more design partners active, each under a signed NDA and pilot agreement"
+        what: "Design partners, optional: any active partner under a signed NDA and pilot agreement, or waived"
         owner: owner
         probes:
-          - attested: {what: "the number of partners with signed agreements (the documents stay outside the repository)", by: "", date: ""}
+          - attested: {what: "the number of partners with signed agreements (the documents stay outside the repository), or: none, waived", by: "", date: ""}
       - id: labelling-underway
         what: "Hidden-set labelling under way: clinician labellers working in A8's labelling workflow"
         owner: owner
@@ -462,7 +462,7 @@ gates:
               - tests/test_registry_chain.py::test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify
               - tests/test_registry_chain.py::test_a_registry_from_before_the_chain_records_what_it_held_once
               - tests/test_shipped.py::test_every_state_changing_route_is_in_the_inventory
-          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): waits on the owner's choice of where the registry runs"
+          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): the registry runs under the engine (ADR-0012, LP-19's option A); its build is next"
       - id: external-review
         what: "An external security review whose scope covers the registry, the Hub and the pack store (B29)"
         owner: owner

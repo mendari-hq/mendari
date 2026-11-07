@@ -14,7 +14,10 @@ LP-01 to LP-23 in Phase 4; full evidence in `notes/vision-audit-evidence.md`). L
 are numbered LP-; the A and B numbers in the community-packs plan below are that plan's own.
 **Owner decisions (2026-10-06):** safety first, then public (the stage-2 safety items, then the
 pre-public files so the repository can go public; hidden sets and grading after; design partners
-optional). Each step is one PR; Claude merges it when CI is green and the review found nothing
+optional). **2026-11-07 (owner):** no design partners, so gate G1-2's `nda-pilot-agreement` is
+waived (its attestation, "no design partners, waived", not filled in yet), and G2-3's
+`partners-3` now reads design partners as optional, waivable as the NDA line is (its attestation
+the owner's). Each step is one PR; Claude merges it when CI is green and the review found nothing
 medium or worse, and asks first for anything touching production, secrets or a pack's clinical
 behaviour.
 
@@ -34,7 +37,9 @@ behaviour.
   time where only a full scan looks, one only on a pull request's head and one only in a merge's
   resolution, and both must be found, in each of those runs and in
   `tests/test_secret_scan.py`. A full scan of this repository's refs, merges included: 283
-  commits, clean. Gate G1-2's `secret-scan` is now met. **Owner, once public:** GitHub turns a
+  commits, clean. Gate G1-2's `secret-scan` is now met; its `rotation` attestation is the
+  owner's, not given yet (owner, 2026-11-07, who asked for step-by-step instructions to do it).
+  **Owner, once public:** GitHub turns a
   schedule off after 60 days with no activity; check monthly that `secrets.yml` ran.
 - [x] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). The invariant for
   every maintained pack: `tests/test_safety_invariant.py` runs every configuration that needs no
@@ -774,8 +779,9 @@ Connect) is not supported yet.
   owner's run (2026-11-06, the LP-23 lane; 23j, once the owner confirmed the referral `show` list
   on 2026-11-06, in #281; 23k, once the owner gave the go-ahead on 2026-11-06, in #282): the
   Epic sandbox run, which is the owner's, and the clinician's note on the MedicationRequest rule
-  that 23k adopts (B21). Gate G5-6's `a12-ehr-pilot` names the Epic run as pending, and the
-  owner's lines below are what is left. The scorecard's after grade,
+  that 23k adopts (B21; answered by the owner, a physician, on 2026-11-07: acceptable with
+  changes, which a build PR makes next). Gate G5-6's `a12-ehr-pilot` names the Epic run as
+  pending, and the owner's lines below are what is left. The scorecard's after grade,
   at the close-out commit, is overall level 1, as before (failure behaviour, on the pilot's
   `MENDARI_FHIR_VALIDATION`), and 23j's CW-3e puts cards and workflow at level 3. Planned by a
   mapping workflow
@@ -1410,7 +1416,7 @@ Connect) is not supported yet.
     before, 0.3 keys refused in older packs and bounded at load for packs the deployment does not
     own; a MedicationRequest starts at `boundsPeriod.start`, else `authoredOn`, and stops at
     `boundsPeriod.end`, else unknown, never inferred from its status (B21 clinician review still
-    owed).
+    owed; answered by the owner on 2026-11-07, acceptable with changes: the owner's lines below).
   - 23h (40, 41): Binary is read as FHIR JSON under the `fhirServer` base only, plain text and
     HTML only, at most 20 reads of 1 MiB per decision, never from `fhir/decide` or `$decide`; the
     payer by `payor[0].reference`, then its Organization's identifier in the pack's payer
@@ -1423,7 +1429,8 @@ Connect) is not supported yet.
   - 23j (45, 46): the inbox pack gets a template and stays off Inferno's list; the referral
     `show` list is `[return_for_info, urgent_review]` (confirmed by the owner on 2026-11-06).
   - 23k (47): built, its merge held for the owner's go-ahead (given on 2026-11-06; the
-    clinician's note on the MedicationRequest rule is still owed, B21).
+    clinician's note on the MedicationRequest rule is still owed, B21, answered on 2026-11-07
+    with changes to build).
   - 23l (48 to 56): Mendari's own Inferno Dockerfile and overlay, pinned by digest and commit; a
     separate report-only `conformance.yml`; test 1.01 (TLS) and CRD's standard prefetch forms
     are expected results with their reasons; Mendari writes the v2.2.1 session and its golden;
@@ -1443,7 +1450,7 @@ Connect) is not supported yet.
   `site-validation`; (3) approve rubric v1 and its lowest-dimension rule, or supply the original
   scorecard; (4) the referral `show` list, `[return_for_info, urgent_review]`, confirmed 2026-11-06;
   (5) the go-ahead for 23k, given 2026-11-06, with a clinician's note on the MedicationRequest
-  rule (B21), still owed; (6) an
+  rule (B21), still owed (answered 2026-11-07, acceptable with changes, not built yet); (6) an
   unreadable ABSTAIN always shows an `info` card; (7) the feedback comment dropped, or kept apart
   from the chain, sealed and purged; (8) three neutral override reasons (not relevant, already
   addressed, clinical judgement); (9) attachments: plain text and HTML only, 20 reads of 1 MiB;
@@ -1465,7 +1472,8 @@ Connect) is not supported yet.
   questions listed below. It leaves open conflict 39 (the MedicationRequest rule, B21) and two
   clinical questions for the owner as a clinician: whether a `not_checked` order shows its card
   (#282 Q2) and whether a referral with no card should show one (#281 Q3, beside decision 4).
-  The owner's own actions below stay the owner's:
+  Later on 2026-11-07 the owner, a physician, answered all three by picking options (the lines
+  below); each change is a build PR next. The owner's own actions below stay the owner's:
   - [ ] Owner (decision 15): sign up for Epic's sandbox from `notes/epic-sandbox-checklist.md`,
     and note back its `iss`, `jku`, `aud` form, `sub` and `tenant`, feedback support, scopes and
     launch handling, and whether it can call an external CDS service at all.
@@ -1479,9 +1487,35 @@ Connect) is not supported yet.
     invalid input (BLOCK) shows none and is not in the review queue, so only the EHR's own
     referral workflow carries it; and a referral to schedule, which `rules_and_jev` may automate,
     shows none, so no one signing it sees the suggested specialty (checking it against the
-    referrer's is out of scope, future work). Say if either should show its card.
+    referrer's is out of scope, future work). Say if either should show its card. Answered by
+    the owner as a clinician on 2026-11-07 (#281 Q3): (a) a refused (BLOCK) referral shows a
+    card; (b) a referral to schedule stays without one. (a) is a card change to build next (the
+    rebuild, the card census and the CRD golden checked).
   - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #282.
   - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
+    **Answered by the owner, a physician (also the pack's recorded author, disclosed), on
+    2026-11-07** (the brief's table): Q1 the start as built; Q2 an `active` request with no end
+    is current only if written or started in the last 12 months, and an older one reads unknown
+    and goes to review; Q3 a request that is not `active` and has no end reads as not taken, as
+    built, no stop taken from its status; Q4 renewals kept separate, as built; Q5 intent
+    `proposal`, `plan` and `option` and `doNotPerform` true left out (`order`, `original-order`,
+    `reflex-order`, `filler-order` and `instance-order` kept); Q6 `boundsDuration` read too
+    (start plus duration is the stop), the first dosage line only; Q7 the same 12-month rule for
+    an `active` MedicationStatement with no end, nothing else changed; Q8 acceptable with changes
+    (Q2, Q5, Q6, Q7). Next: one build PR with those changes (spec 0.3 §2.7, `standards/fhir.py`,
+    the trial pack's criteria, a MINOR bump, the rebuilt reference pack and the FHIR golden, and
+    the card saying who reviewed the rule, by role); then the owner sees and confirms the rule as
+    built, and its digest goes in gate `clinician-review`'s attestation, the owner's. Until then
+    the gate stays unattested and the rule is not clinically reviewed.
+  - [x] Owner's rule for reviewers (2026-11-07): the owner's disclosed physician review counts for
+    the five reference packs, the owner's own demonstrations ("Remember these packs would be the
+    first few that I myself built to demonstrate how it is done. Other packs will be done by
+    developers"); a pack from anyone else keeps "a clinician other than the author". Recorded in
+    CONTRIBUTING.md and the authoring guide (GOVERNANCE.md and the pack PR template already
+    agree); gate `clinician-review` is unchanged.
+  - [ ] Next (the owner asked, 2026-11-07): review briefs like the medication brief, for the
+    trial pack's criteria as a whole, the inbox router, AI Guard's dose table, and the referral
+    router with the prior-authorization preflight.
   - [x] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard: approved (owner, 2026-11-07); `notes/ehr-scorecard.md` says so.
   - [x] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`
@@ -1494,7 +1528,7 @@ Connect) is not supported yet.
     required (a ruleset change). Its three green `dtr-payer`-only runs on main so far
     (2026-10-20, 2026-10-27, 2026-11-03) do not count toward the four. The rule is confirmed
     (owner, 2026-11-07): 0 of 4 so far, the earliest fourth on Tue 2026-12-01.
-  - [ ] Owner: answer the lane's three questions: a request-wide read and byte budget for
+  - [x] Owner: answer the lane's three questions: a request-wide read and byte budget for
     linked reads (23h), how a payer field reads a site's payer identifier (23i, for 23k; 23k
     built without it: the prior-authorization pack reads the payer's Organization by the pack's
     own payer system or the payor's identifier as written, so a site's own payer id reads as
@@ -1507,8 +1541,13 @@ Connect) is not supported yet.
     (residual D14); (2) the pack's payer system, else the payor's identifier as written (= #280
     Q8b, #282 Q1; a code set reading identifiers would be engine work); (3) `fail` (as 23l
     built; conflict 56: no published list is `unknown`).
-    Still open, for the owner as a clinician (#282 Q2): whether a `not_checked` order shows its
-    card, or the red-flag rule sets a recommendation that does.
+    For the owner as a clinician (#282 Q2): whether a `not_checked` order shows its card, or the
+    red-flag rule sets a recommendation that does. Answered on 2026-11-07: a possible red flag
+    under a site payer id shows a card at order signing; other `not_checked` orders stay quiet.
+    To build next (a card or rule change, with the rebuild, the benchmarks, the FHIR golden and
+    the CRD golden refreshed, and
+    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card`
+    changed with it).
   - [x] Owner (#280 Q2): the card's `mendari.decision_id` extension, which CRD 2.2.1's response
     model does not define, stays a recorded gap (3.4.3.01 and 4.1.3.01 expected failures);
     moving the id would change the card format. Confirmed (owner, 2026-11-07).
@@ -1729,9 +1768,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   risks are in `notes/lp11-plan.md`. Each conflict's default was confirmed by the owner on
   2026-11-07 (the owner's words under the owner decisions below), but what owner decisions 2
   and 3 leave open: conflict 47's values (decision 2) and, in conflict 40, whether adjudicators
-  see both labels and what settles a three-way split (decision 3). ADR-0011 stays Proposed
-  (decisions 1, 2, 3 and 7). Guards come first: keys, permissions and a generated
-  no-leak sweep land before any evaluation-set route exists.
+  see both labels and what settles a three-way split (decision 3); the owner decided those later
+  that day (below). ADR-0011 stays Proposed (decision 7). Guards come first: keys, permissions
+  and a generated no-leak sweep land before any evaluation-set route exists.
   - [x] **11a** (#220, merged 2026-10-09) One canonical form of a case's input (`evals/canonical.py`: the strict
     form and `norm/v1`, pinned byte for byte) and the coverage report (`mendari.coverage/1`,
     `mendari data coverage PACK --dataset X`, over a pack's dataset or any JSONL file: distinct
@@ -1992,7 +2031,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   default. Confirmed by the owner on 2026-11-07 (in chat: "the patent gate is clear and I
   approve everything on my part"), each its default: remote providers do not grade hidden sets
   (local only under method 1.0, LP-17 decision 2); distinct positives in the evidence rule
-  (LP-17 decision 3); an administrator does not also label. ADR-0011 stays Proposed.
+  (LP-17 decision 3); an administrator does not also label. Later that day the owner picked:
+  labellers reach the hosted site in memberships mode (decision 1; the switch is LP-12's, below,
+  and how labellers get past Vercel Authentication is not answered yet); each set's rotation
+  numbers, at most 20 grading runs and 180 days (decision 2, = LP-17 decision 4), given at each
+  freeze; a clinical lead's call settles a three-way split (decision 3, to build: until then a
+  split still blocks freeze until the case is removed); and adjudicators label blind, not seeing
+  the two labels, as built (conflict 40; the owner: "Label blinds"). How a hidden case is erased
+  (decision 7) stays open, so ADR-0011 stays Proposed.
 - [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
@@ -2263,7 +2309,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   not everyone who signs in. Still open, with no default: who the operator is; what the local
   datasets folder may hold in memberships mode; what becomes of an organization in use whose
   id no record can have (the preflight names it; until then, stay in claims mode). Switching
-  the hosted site to memberships mode, and when, is the owner's step. ADR-0008 stays Proposed.
+  the hosted site to memberships mode, and when, is the owner's step: the owner chose "Now, after
+  this PR" (2026-11-07). Claude runs the preflight (`mendari access bootstrap` and `mendari
+  access check`, in the order `docs/operations/accounts.md` gives) and sets
+  `MENDARI_ACCOUNTS=memberships` for Production, then the owner signs in once (everyone signs in
+  again). Decided, not done. ADR-0008 stays Proposed.
 
 - [x] **LP-18** A registry that shows only what it checked (ADR-0012, Accepted 2026-11-07;
   built with 18h, 2026-10-17; G3-4's a10-registry-hub still waits on LP-19). Planned
@@ -2599,7 +2649,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `test_cli_errors.BROKEN` gains `scoreboard run` and `scoreboard add`. A PR that changes a
     reference pack now regenerates the page (its results show "stale: pack changed"):
     `scripts/build-reference-pack.sh` writes it last. Owner: CLAUDE.md's "Pack artifacts are
-    derived" rule could name `docs/grading/scoreboard.md` among the files to commit.
+    derived" rule could name `docs/grading/scoreboard.md` among the files to commit. The owner
+    said yes (2026-11-07); CLAUDE.md is not changed yet.
   - [x] **17g** (#279) Public template sets relabelled "public set: regression check, not a
     ranking" on the card, the dashboard and `web/`, with no Rank column (a display bump; the five
     cards' comparison sections become stale). The card's Provider comparison opens with the
@@ -2653,7 +2704,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     reports two models, is stored as unknown cost, not refused after every call
     (`test_a_run_of_two_model_types_its_table_cannot_price_is_stored_as_unknown`).
   - [ ] **17i** (the owner's run, data only) Remote-arm ledgers on the public `test` sets
-    (31,500 decisions).
+    (31,500 decisions). The LLM arm's models are OpenAI's (the owner, 2026-11-07: "OpenAI"); the
+    exact model ids, at most two, are still needed before any spend.
   - [x] **17j** (#268) Grades (`evals/grade.py`: attestations, each met, not met or
     insufficient evidence, never a letter, score or composite; draft while the method is not in
     effect) and band ranking (`evals/bands.py`), pure. The attestations: no critical case
@@ -2765,9 +2817,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   bounds (6); the spend for 17i, 31,500 decisions once (7); the signing key made offline, its
   public key in `scoreboard/keys.json` (9); 17l waits for LP-19 and LP-20 (10); the docs site
   and the corrected `web/index.html` published after gate G1-2, with the method and the early
-  scoreboard (11). Still open: rotation numbers and the submission budget (4: no house default;
-  suggested 20 runs and 180 days per set, 3 submissions per organization and lineage per
-  rotation, the confirmation once per version); benchmark-publication terms and the
+  scoreboard (11). Later that day the owner picked: rotation numbers and the submission budget
+  (4), the suggested ones: at most 20 grading runs and 180 days per set, 3 submissions per
+  organization and lineage per rotation, the confirmation once per version; and (11) waits for
+  G1-2's `patent-decision` only, not all of G1-2. Still open: benchmark-publication terms and the
   commercial-relationship disclosures (8: the rule, nothing remote published without one, is
   built; the statements are the owner's to write).
   The owner's actions, one line each, in the order of the owner's runbook
@@ -2783,11 +2836,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] Owner (decision 9): make the grading key offline, a copy in `~/Documents/mendari-private`,
     never a server or CI setting (step 2); its public key is listed at signing (below). The
     procedure is confirmed (owner, 2026-11-07); making the key is still the owner's.
-  - [ ] Owner (decision 11, after gate G1-2): publish the docs site with the method and the early
-    scoreboard, and deploy `web/` (`cd web && vercel deploy --prod`); the day the method is at its
-    URL starts its 30 days' notice (step 3). The order is confirmed (owner, 2026-11-07); whether
-    it waits for all of G1-2 or only its `patent-decision` (the mendari.co entry's line) is
-    still the owner's to say, and the publication and the deploy are the owner's.
+  - [ ] Owner (decision 11, after gate G1-2's `patent-decision`): publish the docs site with the
+    method and the early scoreboard, and deploy `web/` (`cd web && vercel deploy --prod`); the day
+    the method is at its URL starts its 30 days' notice (step 3). The order is confirmed (owner,
+    2026-11-07), and it waits for `patent-decision` only, not all of G1-2 (owner, 2026-11-07; the
+    mendari.co entry's lines). The owner asked Claude to run the production deploy of `web/` once
+    `patent-decision` is attested and main is green; publishing the docs site stays the owner's.
   - [ ] Owner (decision 5): set the method's effective date, at least 30 days after the method is
     published: the date and status lines, `EFFECTIVE` and `METHOD_SHA256` in one PR, the page
     regenerated; publish the site again; then attest `grading-method` in `launch/gates.yaml`
@@ -2800,8 +2854,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`scoreboard/declared/<pack name>.json`, every arm's `remote` and the deterministic arm's
     `local` configuration, committed), then run 17i on or after the effective date: one declared
     configuration per remote arm, 3 replicates, `test` sets only, 31,500 decisions, outside CI
-    (steps 5 to 8). The spend is confirmed (owner, 2026-11-07); the files and the run are still
-    the owner's.
+    (steps 5 to 8). The spend is confirmed (owner, 2026-11-07), the LLM ids to be OpenAI's (17i
+    above), each id still to name; the files and the run are still the owner's.
   - [ ] Owner: once `cql` has a statement in `scoreboard/disclosures.json`, and on or after the
     effective date, run the prescreener's three `structured=cql` results again (`mendari
     scoreboard run mendari/clinical-trial-prescreener --config structured=cql --replicates 3
@@ -2811,8 +2865,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (`./scripts/build-scoreboard.sh`), and commit them with the page: stored pending, the CQL
     results stay "not published: disclosure pending" until then (step 8).
   - [ ] Owner: freeze the hidden sets (gate `hidden-sets-frozen`, their rotation numbers at freeze:
-    decision 4), mint a grading key, and on or after the effective date grade each pack's declared
-    `local` configuration through the route and `mendari scoreboard add` each answer (step 9).
+    decision 4, 20 runs and 180 days), mint a grading key, and on or after the effective date
+    grade each pack's declared `local` configuration through the route and `mendari scoreboard
+    add` each answer (step 9).
   - [ ] Owner: sign every result the branch adds (`mendari scoreboard sign`, by name), list the
     public key in `scoreboard/keys.json`, write the page again (`scripts/scoreboard_page.py`: it
     marks each unsigned result), verify, check and run the secret scan (a base64 public key may
@@ -2826,8 +2881,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     2026-11-07).
   - [ ] Owner (decisions 4 and 10, for 17l): the submission budget per organization, lineage and
     rotation, and who a submitting developer is and through which route (LP-19, LP-20).
-    Decision 10 is confirmed (owner, 2026-11-07): 17l waits for LP-19 and LP-20. Decision 4 has
-    no house default and stays open.
+    Decision 10 is confirmed (owner, 2026-11-07): 17l waits for LP-19 and LP-20. Decision 4 is
+    decided (owner, 2026-11-07): 3 submissions per organization and lineage per rotation, the
+    confirmation once per version; who submits stays with LP-19 and LP-20.
 
 - [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
   by 18h, 2026-10-17) until the owner chose where the registry runs: A, mounted under the
@@ -3825,15 +3881,23 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
     patent gate is clear and I approve everything on my part". Its record is gate G1-2's
     `patent-decision` attestation (`launch/gates.yaml`), which only the owner fills, in a
     signed-off PR before the page goes out: the decision, and the serial number if filed, with
-    `by` and `date`. Not ticked until then.
+    `by` and `date`. Not ticked until then. Later on 2026-11-07 the owner picked the decision,
+    made with counsel: no provisional patent filed before public disclosure, and wrote "consider
+    patent as attested"; the attestation itself is not filled in yet. The page waits for this
+    attestation only, not the rest of G1-2 (owner, 2026-11-07).
   - [ ] **Owner:** the scoreboard names Jev (TypeSafe), Claude and gpt-oss results: confirm each
     provider's benchmark-publication terms, and state any commercial relationship (or none) next
     to it (the vision audit's LIC.benchmark-terms). Not ticked: the page as it stands names no
     remote result (17g), so this does not apply to it now; it applies again once 17i's results
     are published (LP-17 decision 8).
-  - [ ] **Owner:** `web/.well-known/security.txt` (already in `web/`) names the private reporting
+  - [x] **Owner:** `web/.well-known/security.txt` (already in `web/`) names the private reporting
     form, which the public cannot reach while the repository is private: keep it, or leave
-    `.well-known` out of the deploy until the repository is public.
+    `.well-known` out of the deploy until the repository is public. Kept (owner, 2026-11-07): it
+    deploys as is, and its links work once the repository is public.
+  - [ ] Deploy `web/` to production (Vercel project `mendari-web`): the owner asked Claude, on
+    2026-11-07, to run it once `patent-decision` is attested and main is green. Inside `web/`:
+    link the project, then `vercel deploy --prod` (never `--cwd web`), then check the headers and
+    `/.well-known`.
   - [ ] Later: the page's figures are typed in, not read from `packs/*/evals/*.json`; a test that
     ties them together would catch drift when the evaluations change.
 - [ ] DNS for mendari.co pointed at Vercel (the owner's)
@@ -3923,8 +3987,8 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     synthetic resources to tx.fhir.org (`terminology.yml`, weekly and by hand, never on a pull
     request, LP-23's conflict 54, merged; the offline `fhir-conformance` stays the required
     gate); the DTR payer service stays a declared partial one, its gaps listed, not advertised.
-    Still open: whether PAS attaches the completed QuestionnaireResponse
-    (`Claim.supportingInfo`) for `needs_attention`. Real acceptance is the owner's alone: a
+    Whether PAS attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for
+    `needs_attention`: yes (owner, 2026-11-07), to build. Real acceptance is the owner's alone: a
     payer's PAS sandbox with credentials, a payer's written requirements, an EHR's DTR client
     (B38).
 
@@ -4013,7 +4077,9 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 
 ## Open items outside a milestone
 - [ ] Harder inbox benchmark: paraphrased messages and held-out splits for every critical label,
-  reviewed by a clinician (from v0.2; the generation tooling can be built without one)
+  reviewed by a clinician (from v0.2; the generation tooling can be built without one). The
+  owner asked on 2026-11-07 for the generation tooling to be built now, for the owner's review;
+  nothing claims a clinician's review until then.
 - [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
   only when asked)
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,
