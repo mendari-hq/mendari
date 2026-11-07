@@ -758,6 +758,13 @@ Acceptance: the method document (17a), the scoreboard for all five packs on publ
 
 ## Owner decisions still open
 
+**2026-11-07:** the owner wrote, in chat, "the patent gate is clear and I approve everything on my
+part". That confirms the default of decisions 1, 2, 3, 5 (the numbers and the 30 days' rule; the
+effective date itself is still the owner's to set), 6, 7, 9, 10 and 11, and of the conflicts
+above. Still open: 4, which has no house default, and 8, whose rule (no remote entry published
+until its type has a statement) is built while the statements are the owner's to write. The
+owner's actions below stay the owner's.
+
 1. **Which parts are built in a private repository:** the runner, its provider budget, the signing key. Default: none. All the code is open; only the key (offline), hidden-set content (in the database) and the budgets (in the environment) stay out of it.
 2. **Remote providers on hidden sets.** Default: local only for method 1.0. Revisit with a data agreement per provider, or a private runner. Until then, nothing is ranked on hidden sets.
 3. **Raw or distinct positives in the evidence rule.** Default: distinct, under norm/v1, with the conservative group rule. `mendari.eval/2` does not change.

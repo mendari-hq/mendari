@@ -1,10 +1,12 @@
 # ADR-0010: Operations for a public service
 
 ## Status
-Proposed (2026-10-08). Built: 21a to 21n, merged 2026-10-08 and 2026-10-09 (LP-21,
-`tasks/todo.md`); 21o, firewall enforcement, is the owner's alone. Accepted once the owner's
-decisions listed there confirm or change the defaults below. Each step added what it built
-here, in the order they landed:
+Accepted (2026-11-07, the owner: "the patent gate is clear and I approve everything on my part",
+which confirms each default below and 21n's merge). Proposed 2026-10-08. Built: 21a to 21n,
+merged 2026-10-08 and 2026-10-09 (LP-21, `tasks/todo.md`); 21o, firewall enforcement, is the
+owner's alone. The owner's actions stay open there: the status page provider, its checks and who
+is paged; the alert webhook, its secret and format; the checkpoint key; and 21o. Each step added
+what it built here, in the order they landed:
 - 21a, the readiness route;
 - 21c, the monitor comparing like with like;
 - 21e, alert delivery;
@@ -25,8 +27,8 @@ here, in the order they landed:
   `mendari usage` for the operator);
 - 21m, the incident runbook (`docs/operations/incident-runbook.md`) and the restore test;
 - 21n, the hosted schedule (`vercel.json` runs the purge, the monitor and the checkpoint daily),
-  merged 2026-10-09 and run daily since; the owner's go-ahead is not recorded in writing, and
-  `tasks/todo.md` asks the owner to confirm it;
+  merged 2026-10-09 and run daily since; the owner's go-ahead, not recorded in writing then, was
+  confirmed after the fact on 2026-11-07;
 - after 21n, two aids for the owner's steps: the checks printed for a status provider
   (`scripts/status_checks.py --export json`) and one signed test alert (`mendari alerts test`,
   refused in CI).
@@ -171,8 +173,8 @@ Anonymous `/api/health` stays three fields with no database work.
      (`eval_jev`, `eval_llm`; 21h), unset meaning no limit, never the decisions' quotas, so no
      live decision is lowered through its organization's quotas by an evaluation. Evaluations
      still spend the deployment's daily budgets, which live decisions share: the evaluation
-     quotas are to be set below them (a startup warning when one is not). Whether evaluations
-     get a deployment budget of their own is the owner's.
+     quotas are to be set below them (a startup warning when one is not). Evaluations get no
+     deployment budget of their own (the owner, 2026-11-07).
    - Admins see their own organization's usage on a usage screen. The operator sees the whole
      deployment from the command line.
 7. **Checkpoints (21j, 21k).**
