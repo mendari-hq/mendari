@@ -430,9 +430,10 @@ in addition). The prior-authorization pack follows the payer's reference to its 
 but the Organization holds only the site's own payer id, which the pack does not know and no
 site code map translates (a map translates codings only): the payer reads as `other`, and the order
 as `not_checked`, which shows no card at `order-sign`, a possible red flag in its notes included
-(that one reaches the review queue at urgent priority). How a payer field should read a site's payer
-id is still the owner's question. `tests/test_ehr_profile.py` pins each of these, with why: it is a
-regression fixture, not a rate.
+(that one reaches the review queue at urgent priority). The owner confirmed this reading on
+2026-11-07, and decided that a possible red flag under a site's payer id is to show a card at
+`order-sign`, while other `not_checked` orders stay quiet (not built yet).
+`tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture, not a rate.
 
 ## Site codes
 

@@ -359,5 +359,9 @@ into one page. Share it with your AI or clinical decision support committee. At 
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
+The five reference packs Mendari maintains in `packs/` are the owner's demonstrations of how a
+pack is built: their reviewer is the owner, a physician, and each review record discloses that
+the reviewer is also the author. Your pack needs a clinician other than its author.
+
 The full format is in the [Decision Pack specification](../spec/decision-pack-0.2.md), and the
 FHIR mapping of spec 0.3 in [its own document](../spec/decision-pack-0.3.md).

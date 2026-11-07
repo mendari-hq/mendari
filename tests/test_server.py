@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import gc
+import itertools
 import json
 import re
 import statistics
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +18,9 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari.core import db as db_module
+from mendari.core import patterns
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
 from mendari.core.registry import SearchPath
 from mendari.server.app import DASHBOARD_DIR, create_app
 from tests.conftest import LOCAL_DATASET
@@ -366,12 +370,77 @@ def exclusive_sessions(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     return opened
 
 
-def timed_health(client: TestClient) -> float:
+def searches_timed(monkeypatch: pytest.MonkeyPatch) -> list[tuple[float, float]]:
+    """When each step of a community pack's pattern searches started and ended from here on,
+    by `time.perf_counter`: RE2's own work, up to each match a search yields and up to its end
+    (or to `OutOfTime`)."""
+    steps: list[tuple[float, float]] = []
+    original = patterns._Re2Pattern.finditer
+
+    def finditer(self: patterns._Re2Pattern, text: str) -> Iterator[patterns.Match]:
+        found = original(self, text)
+        while True:
+            started = time.perf_counter()
+            try:
+                match = next(found, None)
+            finally:
+                steps.append((started, time.perf_counter()))
+            if match is None:
+                return
+            yield match
+
+    monkeypatch.setattr(patterns._Re2Pattern, "finditer", finditer)
+    return steps
+
+
+def health_span(client: TestClient) -> tuple[float, float]:
+    """When one health call started and ended, by `time.perf_counter`."""
     started = time.perf_counter()
     health = client.get("/api/health")
-    took = time.perf_counter() - started
+    ended = time.perf_counter()
     assert health.status_code == 200 and "providers" in health.json(), health.text
-    return took
+    return started, ended
+
+
+def timed_health(client: TestClient) -> float:
+    started, ended = health_span(client)
+    return ended - started
+
+
+@contextmanager
+def interpreter_ticks() -> Iterator[list[float]]:
+    """The process's CPU time (`time.process_time`) each time a thread that asks for the
+    interpreter lock every few milliseconds got it, while the block runs: between two ticks,
+    the process computed at least as long as anything computing held the lock (a pattern on
+    `re` computes all the while; a runner pausing the process, or a call waiting on the disk,
+    does not). A full collection holds the lock too, for as long as walking the session's heap
+    takes, so the collector runs before and is off in the block (as in conftest's `cpu_time`).
+    The first tick is taken before the block starts and the last after it ends, so a hold at
+    either end is measured too."""
+    ticks: list[float] = []
+    ticking = threading.Event()
+    stop = threading.Event()
+
+    def tick() -> None:
+        ticks.append(time.process_time())
+        ticking.set()
+        while not stop.wait(0.005):
+            ticks.append(time.process_time())
+        ticks.append(time.process_time())
+
+    gc.collect()
+    collecting = gc.isenabled()
+    gc.disable()
+    ticker = threading.Thread(target=tick)
+    ticker.start()
+    ticking.wait()
+    try:
+        yield ticks
+    finally:
+        stop.set()
+        ticker.join()
+        if collecting:
+            gc.enable()
 
 
 def test_health_builds_no_pack_in_the_request(
@@ -442,6 +511,7 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
     paths = [SearchPath(root.parent, "hub")]
     client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=paths))
     built = decisions_built(monkeypatch)
+    searches = searches_timed(monkeypatch)
     assert client.get("/api/health").json()["packs_by_origin"] == {"hub": 1}
     answer: dict[str, Any] = {}
 
@@ -451,17 +521,30 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
         )
 
     worker = threading.Thread(target=decide)
-    worker.start()
-    took = []
-    while worker.is_alive():
-        took.append(timed_health(client))
-    worker.join()
-    # Health keeps answering: many calls while the decision spends its budget, typically within
-    # the bound, and none waits out the whole budget (as it would behind a pattern holding the
-    # interpreter lock). A single call may stall on a busy runner; that is not health blocking.
-    assert len(took) >= 5, took
+    calls: list[tuple[float, float]] = []
+    with interpreter_ticks() as ticks:
+        worker.start()
+        while worker.is_alive():
+            calls.append(health_span(client))
+        worker.join()
+    # Health keeps answering while the patterns run: calls start and end inside a search, which
+    # none can behind a pattern holding the interpreter lock (no other thread runs Python until
+    # it returns) or behind a lock health takes too, and typically within the bound. Nor does
+    # anything hold the interpreter lock, computing, for the whole budget at any point (as a
+    # stretch of the decision on `re` would: health would wait that long). How long the slowest
+    # health call took is not bounded: that cannot tell a block from a stall of health's own
+    # work (its database, on a busy disk) or of the whole process.
+    inside = [
+        (started, ended)
+        for started, ended in calls
+        if any(begun <= started and ended <= done for begun, done in searches)
+    ]
+    steps = [round(done - begun, 3) for begun, done in searches]
+    assert len(inside) >= 5, f"{len(inside)} of {len(calls)} health calls inside searches {steps}"
+    took = [ended - started for started, ended in calls]
     assert statistics.median(took) < BUSY_HEALTH_BOUND_S, took
-    assert max(took) < COMMUNITY_TIME_BUDGET_S, took
+    held = max((later - earlier for earlier, later in itertools.pairwise(ticks)), default=0.0)
+    assert held < patterns.COMMUNITY_TIME_BUDGET_S, f"{held:.3f} s computed between two ticks"
     assert built == []
     decided = answer["decision"]
     assert decided.status_code == 200, decided.text
