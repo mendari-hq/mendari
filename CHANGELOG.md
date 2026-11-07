@@ -446,6 +446,21 @@ The first release (not yet published).
   23k's tests in place of its pending line, and the scorecard's DS-3a to DS-3d are met (data
   shapes at level 3; overall still level 1). See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#reading-the-record).
+- **The trial pack's medication rule, with the owner's changes** (B21; the Clinical Trial
+  Prescreener 0.4.0). The owner, a physician, answered the clinician brief
+  (`notes/clinician-review-medication-period.md`) on 2026-11-07: "acceptable with changes".
+  Spec 0.3 gains one `criteria` key, `current_within_days` on a medication check (§3): an
+  active medication with no end date counts as current only when it started within that many
+  days before screening, else (or with no start) the check answers `unknown`. Like every 0.3
+  key, a 0.1 or 0.2 pack that writes it is refused at load, wherever it comes from, and by
+  `mendari validate`. The pack sets 365 days for metformin and insulin, from a request or a
+  statement. `medication_period` (§2.7) now leaves out a MedicationRequest whose `intent` is
+  `proposal`, `plan` or `option`, or whose `doNotPerform` is true, and reads a
+  `boundsDuration` as the stop when there is no `boundsPeriod.end` (the start's day plus the
+  duration in whole days, rounded up; UCUM `h`, `d`, `wk`, `mo` and `a` only). On the trial
+  benchmark, eligibility is right for 298 of 300 as before, and 57 patients move to
+  `needs_review` (47 of the 56 candidates); the FHIR golden's trial cases change 22 results,
+  input hashes unchanged. The pack's changelog has each change.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

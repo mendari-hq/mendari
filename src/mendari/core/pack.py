@@ -263,8 +263,9 @@ def load_pack(
     bare placeholders (`manifest_template_problems`): a pack the deployment does not own is
     refused for any problem, and its FHIR mapping and Task text are checked too; an owned one
     loads, with the problems as its `warnings`, and a variant with one fails when it is built,
-    as before. A 0.1 or 0.2 pack whose FHIR mapping uses a spec 0.3 key is refused wherever it
-    comes from (`standards.fhir.version_problems`)."""
+    as before. A 0.1 or 0.2 pack whose FHIR mapping or criteria file uses a spec 0.3 key is
+    refused wherever it comes from (`standards.fhir.version_problems`,
+    `providers.criteria.version_problems`)."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -403,6 +404,11 @@ def load_pack(
 
         if newer := version_problems(pack):
             raise PackValidationError(manifest.id, newer)
+    # Spec 0.3's criteria keys in a 0.1 or 0.2 pack: refused for every pack, the same way.
+    from mendari.providers.criteria import version_problems as criteria_version_problems
+
+    if newer := criteria_version_problems(pack):
+        raise PackValidationError(manifest.id, newer)
     warnings = held + problems
     return replace(pack, warnings=tuple(warnings)) if warnings else pack
 

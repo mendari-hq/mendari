@@ -198,8 +198,17 @@ def test_one_list_reads_two_resource_types_by_their_own_fields(tmp_path: Path) -
 
 BOUNDS = "2026-03-01", "2026-06-30"
 WRITTEN = "2026-02-20"  # authoredOn
-# A MedicationRequest's derived (start, end) under the rule in the spec (LP-23 conflict 39):
-# None is a key left out (unknown); a request with no item at all is left out of the list.
+UCUM = "http://unitsofmeasure.org"
+
+
+def lasting(value: Any, code: str | None = None, **more: Any) -> dict[str, Any]:
+    """A `boundsDuration`: `value` in the UCUM unit `code`, unless `more` says otherwise."""
+    return {"value": value, **({"code": code, "system": UCUM} if code else {}), **more}
+
+
+# A MedicationRequest's derived (start, end) under the rule in the spec (LP-23 conflict 39, with
+# the changes the owner, a physician, chose on 2026-11-07): None is a key left out (unknown); a
+# request with no item at all is left out of the list.
 PERIODS: list[tuple[str, dict[str, Any], tuple[str | None, str | None] | None]] = [
     ("bounds give both", {"bounds": BOUNDS, "authoredOn": WRITTEN}, BOUNDS),
     ("no bounds: written, stop unknown", {"authoredOn": WRITTEN}, (WRITTEN, None)),
@@ -211,6 +220,80 @@ PERIODS: list[tuple[str, dict[str, Any], tuple[str | None, str | None] | None]] 
     ("first dosage only", {"second_bounds": BOUNDS, "authoredOn": WRITTEN}, (WRITTEN, None)),
     ("nothing dated", {}, (None, None)),
     ("entered in error is left out", {"status": "entered-in-error", "bounds": BOUNDS}, None),
+    # The stop from a `boundsDuration`: the start's day plus its days, rounded up.
+    ("72 hours", {"authoredOn": WRITTEN, "duration": lasting(72, "h")}, (WRITTEN, "2026-02-23")),
+    (
+        "36 hours: 2 days",
+        {"authoredOn": WRITTEN, "duration": lasting(36, "h")},
+        (WRITTEN, "2026-02-22"),
+    ),
+    ("10 days", {"authoredOn": WRITTEN, "duration": lasting(10, "d")}, (WRITTEN, "2026-03-02")),
+    (
+        "half a day: 1",
+        {"authoredOn": WRITTEN, "duration": lasting(0.5, "d")},
+        (WRITTEN, "2026-02-21"),
+    ),
+    ("no days", {"authoredOn": WRITTEN, "duration": lasting(0, "d")}, (WRITTEN, WRITTEN)),
+    ("2 weeks", {"authoredOn": WRITTEN, "duration": lasting(2, "wk")}, (WRITTEN, "2026-03-06")),
+    # 3 months are 91.3125 days (UCUM's `mo`, 30.4375 days), so 92; a year 365.25 days, so 366.
+    ("3 months", {"authoredOn": WRITTEN, "duration": lasting(3, "mo")}, (WRITTEN, "2026-05-23")),
+    ("1 year", {"authoredOn": WRITTEN, "duration": lasting(1, "a")}, (WRITTEN, "2027-02-21")),
+    (
+        "from the bounds' start",
+        {"bounds": (BOUNDS[0], None), "duration": lasting(10, "d")},
+        (BOUNDS[0], "2026-03-11"),
+    ),
+    ("the bounds' end first", {"bounds": BOUNDS, "duration": lasting(10, "d")}, BOUNDS),
+    (
+        "a dateTime start: its day",
+        {"authoredOn": "2026-02-20T22:30:00-05:00", "duration": lasting(10, "d")},
+        ("2026-02-20T22:30:00-05:00", "2026-03-02"),
+    ),
+    (
+        "UCUM's code, no system",
+        {"authoredOn": WRITTEN, "duration": {"value": 10, "code": "d"}},
+        (WRITTEN, "2026-03-02"),
+    ),
+    ("no start: no stop", {"duration": lasting(10, "d")}, (None, None)),
+    (
+        "a month alone: no stop",
+        {"authoredOn": "2026-02", "duration": lasting(10, "d")},
+        ("2026-02", None),
+    ),
+    ("another unit", {"authoredOn": WRITTEN, "duration": lasting(600, "min")}, (WRITTEN, None)),
+    (
+        "the unit's text only",
+        {"authoredOn": WRITTEN, "duration": lasting(10, unit="days")},
+        (WRITTEN, None),
+    ),
+    (
+        "another system",
+        {"authoredOn": WRITTEN, "duration": lasting(10, "d", system="https://site.example/units")},
+        (WRITTEN, None),
+    ),
+    ("less than nothing", {"authoredOn": WRITTEN, "duration": lasting(-5, "d")}, (WRITTEN, None)),
+    ("a number as text", {"authoredOn": WRITTEN, "duration": lasting("10", "d")}, (WRITTEN, None)),
+    (
+        "past the last date",
+        {"authoredOn": WRITTEN, "duration": lasting(10**7, "a")},
+        (WRITTEN, None),
+    ),
+    (
+        "first dosage's duration only",
+        {"authoredOn": WRITTEN, "second_duration": lasting(10, "d")},
+        (WRITTEN, None),
+    ),
+    # Which requests are listed: an order to give the drug, never an order not to.
+    *(
+        (f"intent {intent}", {"intent": intent, "bounds": BOUNDS}, BOUNDS)
+        for intent in ("order", "original-order", "reflex-order", "filler-order", "instance-order")
+    ),
+    *(
+        (f"intent {intent} is left out", {"intent": intent, "bounds": BOUNDS}, None)
+        for intent in ("proposal", "plan", "option")
+    ),
+    ("do not perform is left out", {"doNotPerform": True, "bounds": BOUNDS}, None),
+    ("perform", {"doNotPerform": False, "bounds": BOUNDS}, BOUNDS),
 ]
 
 
@@ -219,18 +302,26 @@ def request(id_: str, case: dict[str, Any]) -> dict[str, Any]:
         "resourceType": "MedicationRequest",
         "id": id_,
         "status": case.get("status", "active"),
-        "intent": "order",
+        "intent": case.get("intent", "order"),
     }
+    if "doNotPerform" in case:
+        resource["doNotPerform"] = case["doNotPerform"]
     if "authoredOn" in case:
         resource["authoredOn"] = case["authoredOn"]
-    dosages: list[dict[str, Any]] = [{"text": "as directed"}]
+    repeat: dict[str, Any] = {}
     if "bounds" in case:
         start, end = case["bounds"]
-        period = {key: value for key, value in (("start", start), ("end", end)) if value}
-        dosages = [{"timing": {"repeat": {"boundsPeriod": period}}}]
+        repeat["boundsPeriod"] = {k: v for k, v in (("start", start), ("end", end)) if v}
+    if "duration" in case:  # R4 allows one bounds[x]; a record may hold both, the period read first
+        repeat["boundsDuration"] = case["duration"]
+    dosages: list[dict[str, Any]] = [
+        {"timing": {"repeat": repeat}} if repeat else {"text": "as directed"}
+    ]
     if "second_bounds" in case:
         start, end = case["second_bounds"]
         dosages.append({"timing": {"repeat": {"boundsPeriod": {"start": start, "end": end}}}})
+    if "second_duration" in case:
+        dosages.append({"timing": {"repeat": {"boundsDuration": case["second_duration"]}}})
     resource["dosageInstruction"] = dosages
     if "validity" in case:
         start, end = case["validity"]
@@ -241,8 +332,11 @@ def request(id_: str, case: dict[str, Any]) -> dict[str, Any]:
 def test_a_medication_requests_start_and_stop_follow_the_stated_derivation(tmp_path: Path) -> None:
     """`medication_period`: the start is the first dosage instruction's
     `timing.repeat.boundsPeriod.start`, else `authoredOn`; the stop is that `boundsPeriod.end`,
-    else unknown, never inferred from the status; the dispensing window is not read; a request
-    entered in error is left out. Each case of the table, alone and all in one record."""
+    else the start's day plus that timing's `boundsDuration` in whole days, rounded up (h, d, wk,
+    mo, a; a start with its day, a UCUM code), else unknown, never inferred from the status; the
+    dispensing window is not read; a request entered in error, a proposal, a plan, an option and
+    an order not to give the drug are left out. Each case of the table, alone and all in one
+    record."""
     source = {"fields": {"id": {"path": "id"}}, "medication_period": {"start": "from", "end": "to"}}
     mapped = adapter(
         tmp_path, {"lists": {"medications": {"resources": {"MedicationRequest": source}}}}
@@ -261,6 +355,26 @@ def test_a_medication_requests_start_and_stop_follow_the_stated_derivation(tmp_p
         wanted.append(item)
     resources = [request(f"r{number}", case) for number, (_, case, _) in enumerate(PERIODS)]
     assert read(mapped, *resources)["medications"] == wanted
+
+
+def test_a_duration_is_whole_days_in_a_ucum_unit_of_time() -> None:
+    """`duration_days`: a finite number of at least 0 times its UCUM unit's days, rounded up,
+    with exact arithmetic (24 hours are 1 day, not 2); anything else gives none, and so does a
+    start that is not a real day (`stop_after`)."""
+    assert [fhir.duration_days(lasting(24 * n, "h")) for n in (1, 2, 3)] == [1, 2, 3]
+    assert fhir.duration_days(lasting(1, "mo")) == 31  # 30.4375 days
+    assert fhir.duration_days(lasting(4, "a")) == 1461  # 365.25 days a year, exactly
+    assert fhir.duration_days(lasting(0.1, "d")) == 1 and fhir.duration_days(lasting(2.4, "h")) == 1
+    assert fhir.duration_days(lasting(10**5000, "d")) == 10**5000  # no text conversion limit
+    assert fhir.stop_after("2026-02-20", lasting(10**5000, "d")) is None
+    for value in (float("nan"), float("inf"), True, None, [10]):
+        assert fhir.duration_days(lasting(value, "d")) is None, value
+    for duration in (None, "10 d", [lasting(10, "d")], {"value": 10, "code": ["d"]}):
+        assert fhir.duration_days(duration) is None, duration
+    assert fhir.stop_after("2026-02-30", lasting(1, "d")) is None
+    assert fhir.stop_after("9999-12-31", lasting(1, "d")) is None
+    assert fhir.stop_after(20260220, lasting(1, "d")) is None
+    assert fhir.stop_after("2024-02-28", lasting(1, "d")) == "2024-02-29"
 
 
 def test_a_reference_is_followed_inside_the_record_only(
@@ -901,6 +1015,7 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
         return {"follow": follow, "paths": paths, "systems": list(systems), "codes": list(codes)}
 
     bounds = "MedicationRequest.dosageInstruction[0].timing.repeat.boundsPeriod"
+    duration = "MedicationRequest.dosageInstruction[0].timing.repeat.boundsDuration"
     assert mapped.looked_for() == {
         "fields": {
             "patient.age": looked(["Patient.birthDate"]),
@@ -943,7 +1058,7 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
                         systems=(MED,),
                     ),
                     "start": looked([f"{bounds}.start", "MedicationRequest.authoredOn"]),
-                    "end": looked([f"{bounds}.end"]),
+                    "end": looked([f"{bounds}.end", duration]),  # a duration from the start
                 },
             },
         },

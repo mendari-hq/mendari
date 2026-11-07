@@ -38,8 +38,9 @@ reference that is a link to a type the field reads (`fhir.FieldRead.missing`) in
 `unreadable`. Of renditions of one document (a DocumentReference's `content`, a
 DiagnosticReport's `presentedForm`: `fhir.renditions`), one that cannot be read counts for
 nothing when another of the same resource was read (`fhir.unread_attachments`). A resource its
-list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its source derives
-its period) is not an item: nothing it links to is read, and nothing it could not read counts.
+list leaves out (`fhir.listed`: a MedicationRequest entered in error, not an order or an order
+not to give the drug, when its source derives its period) is not an item: nothing it links to is
+read, and nothing it could not read counts.
 
 With a site code map (LP-23i, `core/site_codes.py`), the record is read with the organization's
 translations, as the input is (`measure`'s `site_codes`), so a `code_set` field's paths, values
@@ -310,7 +311,7 @@ def _read(
     not hold (`links`). `declared` None counts no codings. A null is not a value: R4 JSON pads a
     primitive array with nulls to line it up with its `_x` sibling, so a null counts for nothing
     and is never an undecodable note, as LP-23d counted. With a list's `source`, what a resource
-    the list leaves out (`fhir.listed`: a MedicationRequest entered in error) could not read is
+    the list leaves out (`fhir.listed`, e.g. a MedicationRequest entered in error) could not read is
     not counted: the decision does not need it, so it neither reads its links nor abstains on
     them (LP-23h); its values still count, as what the record holds."""
     found = _Found()

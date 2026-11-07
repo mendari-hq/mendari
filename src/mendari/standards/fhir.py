@@ -31,10 +31,12 @@ from __future__ import annotations
 
 import base64
 import html
+import math
 import re
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
+from fractions import Fraction
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
@@ -91,13 +93,34 @@ SPEC_03 = "0.3"  # the spec version whose mapping keys this module adds
 MAX_PATHS = 4
 MAX_CODE_SET_CODES = 200
 
-# `medication_period` (spec 0.3, LP-23 conflict 39): when a MedicationRequest's drug is taken.
-# It starts at its first dosage instruction's bounds, else when it was written, and stops at
-# those bounds' end, else is unknown: never inferred from its status. The dispensing window
+# `medication_period` (spec 0.3 §2.7, LP-23 conflict 39, with the changes the owner, a
+# physician, chose on 2026-11-07 in answer to notes/clinician-review-medication-period.md):
+# when a MedicationRequest's drug is taken. It starts at its first dosage instruction's bounds,
+# else when it was written, and stops at those bounds' end, else at its start plus the bounds'
+# duration, else is unknown: never inferred from its status. The dispensing window
 # (`dispenseRequest.validityPeriod`) is not when the patient takes the drug, so it is not read.
 MEDICATION_START = ("dosageInstruction[0].timing.repeat.boundsPeriod.start", "authoredOn")
-MEDICATION_END = ("dosageInstruction[0].timing.repeat.boundsPeriod.end",)
-ENTERED_IN_ERROR = "entered-in-error"  # a MedicationRequest so marked is left out of its list
+# The stop's paths, in order: the bounds' end, then a duration added to the start (`stop_after`).
+MEDICATION_END = (
+    "dosageInstruction[0].timing.repeat.boundsPeriod.end",
+    "dosageInstruction[0].timing.repeat.boundsDuration",
+)
+# A MedicationRequest left out of its list (`listed`): entered in error, one that is not an order
+# to give the drug (its intent a proposal, a plan or an option), or one not to give it.
+ENTERED_IN_ERROR = "entered-in-error"
+NOT_ORDERS = frozenset({"proposal", "plan", "option"})
+UCUM = "http://unitsofmeasure.org"
+# The UCUM units a `boundsDuration` may be in, in days as UCUM defines them: an hour is 1/24 of a
+# day, a week 7 days, a month (`mo`, the mean Julian month) 30.4375 days and a year (`a`, the
+# Julian year) 365.25 days. A duration in any other unit leaves the stop unknown.
+DURATION_DAYS: Mapping[str, Fraction] = {
+    "h": Fraction(1, 24),
+    "d": Fraction(1),
+    "wk": Fraction(7),
+    "mo": Fraction(487, 16),
+    "a": Fraction(1461, 4),
+}
+_FULL_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T|$)")  # a date or dateTime with its day
 
 # Why an attachment's text was not read (`read_attachment`): reasons of the data-coverage
 # record's closed set (`READ_REASONS`, LP-23d).
@@ -1004,7 +1027,8 @@ def _system_code(coding: Mapping[str, Any]) -> tuple[str, str] | None:
 def medication_period(request: Mapping[str, Any]) -> tuple[Any, Any]:
     """A MedicationRequest's (start, stop) by spec 0.3's `medication_period`: the start is its
     first dosage instruction's `timing.repeat.boundsPeriod.start`, else `authoredOn`; the stop is
-    that `boundsPeriod.end`, else None (unknown), never inferred from its status."""
+    that `boundsPeriod.end`, else the start plus that timing's `boundsDuration` (`stop_after`),
+    else None (unknown), never inferred from its status."""
     scope = {"MedicationRequest": request}
 
     def first(paths: Sequence[str]) -> Any:
@@ -1014,7 +1038,47 @@ def medication_period(request: Mapping[str, Any]) -> tuple[Any, Any]:
                 return found[0]
         return None
 
-    return first(MEDICATION_START), first(MEDICATION_END)
+    start = first(MEDICATION_START)
+    end = first(MEDICATION_END[:1])
+    if end is None:
+        end = stop_after(start, first(MEDICATION_END[1:]))
+    return start, end
+
+
+def stop_after(start: Any, duration: Any) -> str | None:
+    """The day a drug taken from `start` for `duration` (an R4 Duration) stops, as a FHIR date:
+    the start's day plus the duration in whole days, rounded up (`duration_days`), so never
+    earlier than the duration says. None, the stop unknown, when the start is not a date or
+    dateTime with its day (a year or a month alone is not), or the duration has no days."""
+    match = _FULL_DATE.match(start) if isinstance(start, str) else None
+    days = duration_days(duration)
+    if match is None or days is None:
+        return None
+    try:
+        return (date(*map(int, match.groups())) + timedelta(days=days)).isoformat()
+    except (ValueError, OverflowError):  # no such day, or past the last date there is
+        return None
+
+
+def duration_days(duration: Any) -> int | None:
+    """An R4 Duration in whole days, rounded up: its `value`, a finite number of at least 0,
+    times the days of its `code`, one of `DURATION_DAYS`' UCUM units. None when it is not such
+    a Duration: no value or code, a code of another unit (its `unit`, the text for people, is not
+    read), or a `system` other than UCUM's, which R4 requires a Duration's system to be."""
+    if not isinstance(duration, Mapping):
+        return None
+    value, code, system = duration.get("value"), duration.get("code"), duration.get("system")
+    if system is not None and system != UCUM:
+        return None
+    if not isinstance(code, str) or code not in DURATION_DAYS:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if (isinstance(value, float) and not math.isfinite(value)) or value < 0:
+        return None
+    # Exact: an integer as it is, a decimal as written (its shortest repr), never its binary value.
+    amount = Fraction(value) if isinstance(value, int) else Fraction(repr(value))
+    return math.ceil(amount * DURATION_DAYS[code])
 
 
 def _absolute(kind: str | None, path: str) -> str:
@@ -1148,11 +1212,21 @@ def _value(
 
 
 def listed(source: ListSource, resource: Any) -> bool:
-    """Whether a resource of a list source's type can be an item of the list: all can but a
-    MedicationRequest entered in error, when its source derives its period (conflict 39). What
-    a resource left out so holds is not read: no linked read is made for it (LP-23h), and
-    nothing it could not read is counted."""
-    return source.medication_period is None or _object(resource).get("status") != ENTERED_IN_ERROR
+    """Whether a resource of a list source's type can be an item of the list: all can but, when
+    its source derives a MedicationRequest's period (spec 0.3 §2.7), a request entered in error,
+    one whose `intent` is `proposal`, `plan` or `option` (not an order to give the drug), and
+    one whose `doNotPerform` is true (an order not to give it). What a resource left out so
+    holds is not read: no linked read is made for it (LP-23h), and nothing it could not read is
+    counted."""
+    if source.medication_period is None:
+        return True
+    request = _object(resource)
+    intent = request.get("intent")
+    return (
+        request.get("status") != ENTERED_IN_ERROR
+        and not (isinstance(intent, str) and intent in NOT_ORDERS)
+        and request.get("doNotPerform") is not True
+    )
 
 
 def list_item(kind: str, source: ListSource, resource: Any, reading: Reading) -> dict[str, Any]:

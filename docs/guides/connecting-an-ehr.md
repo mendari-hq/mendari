@@ -233,8 +233,9 @@ reads them from the same `fhirServer`, with the same token:
 - each link once a request, however it is written (relative, or an absolute URL under the base),
   so the draft orders of one order hook share what was read;
 - never a link to another server, or outside the base;
-- nothing a MedicationRequest entered in error links to, when the pack leaves such requests out
-  of its list (`medication_period`).
+- nothing a MedicationRequest links to when the pack leaves it out of its list
+  (`medication_period`: one entered in error, a proposal, a plan or an option, and an order not
+  to give the drug).
 
 A `fhirServer` that is not on `MENDARI_FHIR_ALLOWED_SERVERS` is configuration, not the patient's
 data: for a pack that reads links, the hook is a `422` before anything is decided, with nothing

@@ -141,6 +141,48 @@ def test_0_3_mapping_keys_in_a_0_2_pack_are_refused_at_load(
         assert newer_keys(mapping) == where, origin
 
 
+@pytest.mark.parametrize("window", [365, None])
+def test_a_0_3_criteria_key_in_a_0_2_pack_is_refused_at_load(
+    tmp_path: Path, window: int | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`current_within_days` on a medication check is a 0.3 key (spec 0.3 §3): in a 0.2 pack's
+    criteria file, a plain variant's or a composite member's, it is refused by `load_pack`
+    wherever the pack comes from, naming the file and each key, and by `mendari validate`. A key
+    counts when it is written, whatever it holds (`null` too). As a 0.3 pack it loads."""
+    check = {"medication": {"names": ["metformin"], "current_within_days": window, "then": "yes"}}
+    where = "questions.t2d_diagnosis.checks[2].medication.current_within_days"
+
+    def written(spec: str, *, member: bool) -> Path:
+        root = mini(tmp_path / f"{spec}-{member}", {}, spec=spec)
+        criteria = yaml.safe_load((root / "logic" / "criteria.yaml").read_text())
+        criteria["questions"]["t2d_diagnosis"]["checks"].append(check)
+        (root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(criteria, sort_keys=False))
+        if member:  # the criteria variant only as both members of a composite
+            manifest = yaml.safe_load((root / "pack.yaml").read_text())
+            slot = manifest["providers"]["structured"]
+            plain = slot["variants"].pop("criteria")
+            escalate = dict.fromkeys(slot["answers"], "unknown")
+            members = {"a": plain, "b": dict(plain)}
+            slot["variants"]["both"] = {"type": "any_of", "escalate": escalate, "members": members}
+            slot["use"] = "both"
+            (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        return root
+
+    problem = f"logic/criteria.yaml: [{where!r}] use spec 0.3 criteria features"
+    origins: tuple[Origin, ...] = ("hub", "local")
+    for member in (False, True):
+        root = written("0.2", member=member)
+        for origin in origins:
+            with pytest.raises(PackValidationError) as refused:
+                load_pack(root, origin=origin)
+            assert any(problem in found for found in refused.value.problems), (member, origin)
+        assert main(["validate", str(root)]) != 0
+        assert problem in capsys.readouterr().err
+        adopted = written("0.3", member=member)
+        for origin in origins:
+            assert load_pack(adopted, origin=origin).warnings == ()
+
+
 def test_a_0_1_pack_with_a_0_3_key_is_refused_too(tmp_path: Path) -> None:
     """The inbox pack without its 0.2 features is a 0.1 pack: its mapping reads every golden case
     as the 0.2 pack does, byte for byte, and with a 0.3 key it is refused at load as a 0.2 pack
