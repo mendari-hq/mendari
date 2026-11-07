@@ -751,7 +751,7 @@ is filled from the family's split's values (the end of this sheet).
 1. Tengo una presión rara en medio del pecho que me sube a la mandíbula y no se me quita.
    - e.g. `hib-heldout-0357`: no quiero exagerar. tengo una presión rara en medio del pecho que me sube a la mandíbula y no se me quita
 2. A {hombre_es} le arde y le aprieta el pecho, está pálido y sudado.
-   - e.g. `hib-heldout-0358`: A mi suegro le arde y le aprieta el pecho, está pálido y sudado. Todavía no me llaman de la referencia.
+   - e.g. `hib-heldout-0358`: A mi suegro le arde y le aprieta el pecho, está pálido y sudado. Todavía no sé nada de mi referencia.
 
 ### `heldout.es.breathing`
 
@@ -776,9 +776,9 @@ is filled from the family's split's values (the end of this sheet).
 **nurse, urgent** (possible emergency; sign: thoughts of suicide or self-harm, or an intentional overdose). Everyone better off without me with pills saved, many pills taken on purpose.
 
 1. Siento que todos estarían mejor sin mí y estuve guardando mis pastillas para eso.
-   - e.g. `hib-heldout-0381`: todavía no me llaman de la referencia. a lo mejor no es nada. siento que todos estarían mejor sin mí y estuve guardando mis pasttillas pa eso
+   - e.g. `hib-heldout-0381`: todavía no sé nada de mi referencia. a lo mejor no es nada. siento que todos estarían mejor sin mí y estuve guafdando mis pastillas pa eso
 2. Me tomé muchas de mis pastillas a propósito hace un rato.
-   - e.g. `hib-heldout-0382`: Me tomé muchas de mis pasttillas a propósitto hace un rato.
+   - e.g. `hib-heldout-0382`: Me tomé muchas de mis pastillas a propósito hace un rato.
 
 ### `heldout.es.schedule`
 
@@ -889,7 +889,7 @@ is filled from the family's split's values (the end of this sheet).
 - `aside.en.train` (a second, administrative request (mixed topics)): (front_desk) Can I push my {visit_type} on {day} to later in the day?; (billing) Can someone look at my last statement? It looked off.; (medical_assistant) I'm almost out of my {med}, if someone can send that in.
 - `aside.en.heldout` (a second, administrative request (mixed topics)): (front_desk) Please note my new email for the portal.; (billing) I still owe {amount} and want to set up payments.; (medical_assistant) My {specialty} office still hasn't gotten the referral.
 - `aside.es.train` (a second, administrative request (mixed topics)): (front_desk) Quiero cambiar mi cita del {dia_es}.; (billing) Tengo una duda sobre mi factura.; (medical_assistant) Ocupo que me surtan el {med} pronto.
-- `aside.es.heldout` (a second, administrative request (mixed topics)): (front_desk) Cambié de número de teléfono, por favor actualícenlo.; (billing) Me llegó una cuenta que no entiendo.; (medical_assistant) Todavía no me llaman de la referencia.
+- `aside.es.heldout` (a second, administrative request (mixed topics)): (front_desk) Cambié de número de teléfono, por favor actualícenlo.; (billing) Me llegó una cuenta que no entiendo.; (medical_assistant) Todavía no sé nada de mi referencia.
 - `opener.en.train` (a portal greeting): Hi there,; Good afternoon,
 - `opener.en.heldout` (a portal greeting): Hey,; Hello team,
 - `opener.es.train` (a portal greeting): Hola, buenas tardes.; Buenas,

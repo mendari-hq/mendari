@@ -957,7 +957,7 @@ BANKS: tuple[Bank, ...] = (
     Bank("aside", "es", "heldout", "a second, administrative request (mixed topics)", (
         ("front_desk", "Cambié de número de teléfono, por favor actualícenlo."),
         ("billing", "Me llegó una cuenta que no entiendo."),
-        ("medical_assistant", "Todavía no me llaman de la referencia."),
+        ("medical_assistant", "Todavía no sé nada de mi referencia."),
     )),
     Bank("opener", "en", "train", "a portal greeting", ("Hi there,", "Good afternoon,")),
     Bank("opener", "en", "heldout", "a portal greeting", ("Hey,", "Hello team,")),

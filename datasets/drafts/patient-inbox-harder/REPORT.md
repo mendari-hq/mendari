@@ -12,8 +12,8 @@ output. Entirely synthetic: no PHI, no network, no model calls.
 | File | Cases | SHA-256 |
 |---|---|---|
 | `train.jsonl` | 436 | `88d12a4520e769294329a21394a2529a809b6d7607a484448f8c30993ab5046d` |
-| `heldout.jsonl` | 436 | `f7d28a5fe60013cae064564c25e5557c51e79d2dbee4e3e15cc9484d3488b9a6` |
-| `FAMILIES.md` |  | `c82596bae99b800ab191c4ca57b15a3ba1d67aa46e0cc9d5730138e9e2913f5f` |
+| `heldout.jsonl` | 436 | `1467e9b79abf1cb09866f03c415e3e8354cf42cec2e6b878731013bcd1e4a3f8` |
+| `FAMILIES.md` |  | `b7c2b26e670375dab830ef34e12a0308dac4cb0b352c84e977c290f8b3053f5b` |
 
 ## Counts
 
@@ -47,21 +47,21 @@ criterion lists, and by language:
 |---|---|---|---|
 | language | en | 356 | 356 |
 | language | es | 80 | 80 |
-| channel | portal | 309 | 311 |
-| channel | sms | 127 | 125 |
+| channel | portal | 309 | 312 |
+| channel | sms | 127 | 124 |
 | age_band | 0-17 | 39 | 40 |
-| age_band | 18-39 | 121 | 99 |
-| age_band | 40-64 | 149 | 148 |
+| age_band | 18-39 | 121 | 97 |
+| age_band | 40-64 | 149 | 150 |
 | age_band | 65+ | 127 | 149 |
 | family kind | look-alike | 68 | 68 |
 | family kind | possible emergency | 152 | 152 |
 | family kind | routine | 216 | 216 |
-| transform | aside_after | 63 | 39 |
-| transform | aside_before | 44 | 40 |
+| transform | aside_after | 63 | 38 |
+| transform | aside_before | 44 | 41 |
 | transform | hedge_after | 63 | 60 |
-| transform | hedge_before | 67 | 65 |
-| transform | texting | 127 | 125 |
-| transform | typo | 137 | 147 |
+| transform | hedge_before | 67 | 67 |
+| transform | texting | 127 | 124 |
+| transform | typo | 137 | 144 |
 
 Urgent cases are about a third of each split, far above a real inbox's share: the set
 is built to measure the critical label, so its precision and accuracy are not a
@@ -81,8 +81,8 @@ red-flag set is `red_flags_holdout.jsonl`.
 | families in both splits | 74 | 0 |
 | paraphrase sources in both splits | 101 | 0 |
 | cases filed under the other split | 872 | 0 |
-| held-out text found in the train split | 5725 | 0 |
-| held-out text found in the shipped pack's training and tuning data or templates | 5725 | 0 |
+| held-out text found in the train split | 5735 | 0 |
+| held-out text found in the shipped pack's training and tuning data or templates | 5735 | 0 |
 | train text found in the shipped pack's held-out red-flag set | 6077 | 0 |
 
 ## Coverage check
