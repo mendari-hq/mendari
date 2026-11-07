@@ -3896,6 +3896,13 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 ## Open items outside a milestone
 - [ ] Harder inbox benchmark: paraphrased messages and held-out splits for every critical label,
   reviewed by a clinician (from v0.2; the generation tooling can be built without one)
+  - [x] Generation tooling, asked for by the owner on 2026-11-07:
+    `mendari.sandbox.synthetic_inbox_harder` and `scripts/harder_inbox_draft.py` write the draft to
+    `datasets/drafts/patient-inbox-harder/` (436 cases a split, 152 urgent; leakage and coverage
+    checks pass; `tests/test_synthetic_inbox_harder.py`). Draft, not clinically reviewed; the
+    pack's data, model, benchmark and digest are unchanged.
+  - [ ] Owner: review the draft (`notes/clinician-review-harder-inbox-benchmark.md`: what to read,
+    seven quick-pick questions), then decide its adoption, which a separate PR carries out
 - [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
   only when asked)
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,

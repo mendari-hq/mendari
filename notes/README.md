@@ -17,5 +17,6 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`lp23-plan.md`](lp23-plan.md) | The build plan for LP-23, EHR pilot readiness (2026-10-17): thirteen pull requests, the conflicts written before building and the owner's decisions |
 | [`ehr-scorecard.md`](ehr-scorecard.md) | The EHR scorecard, rubric v1: seven dimensions graded by named criteria, each with the test that shows it; updated by each LP-23 step |
 | [`epic-sandbox-checklist.md`](epic-sandbox-checklist.md) | What the owner registers in Epic's sandbox for LP-23, and what to note back |
+| [`clinician-review-harder-inbox-benchmark.md`](clinician-review-harder-inbox-benchmark.md) | The owner's brief for reviewing the harder inbox benchmark's draft (2026-11-07): what to read, the quick-pick questions, and what adoption would do |
 
 Plan and status: [`tasks/todo.md`](../tasks/todo.md). Lessons: [`tasks/lessons.md`](../tasks/lessons.md).

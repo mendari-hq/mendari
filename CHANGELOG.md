@@ -24,6 +24,16 @@ The first release (not yet published).
   SNOMED CT's url, OID and concept URIs in the built wheel and sdist, and any number written as
   a SNOMED CT concept id in Mendari's own files there (`scripts/check_snomed.py`); NOTICE carries
   NLM's RxNorm acknowledgement.
+- **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
+  a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
+  the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:
+  paraphrased messages with hedges, typos, texting and mixed topics, every red-flag sign phrased
+  indirectly, and routine look-alikes that use red-flag words. Its train and held-out splits
+  share no family, no paraphrase source and no sentence or 6-word run, and the held-out split
+  shares none with the shipped pack's training and tuning data; a leakage check proves it and a
+  coverage check covers every label and sign (`scripts/harder_inbox_draft.py --check`). The
+  pack's data, model, benchmark and digest are as before: adopting the set is the owner's
+  decision after review (`notes/clinician-review-harder-inbox-benchmark.md`).
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
   `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
