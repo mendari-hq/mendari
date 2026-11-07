@@ -1491,8 +1491,9 @@ Connect) is not supported yet.
     shows none, so no one signing it sees the suggested specialty (checking it against the
     referrer's is out of scope, future work). Say if either should show its card. Answered by
     the owner as a clinician on 2026-11-07 (#281 Q3): (a) a refused (BLOCK) referral shows a
-    card; (b) a referral to schedule stays without one. (a) is a card change to build next (the
-    rebuild, the card census and the CRD golden checked).
+    card; (b) a referral to schedule stays without one. (a) is built: the Referral Router 0.3.1's
+    `refused` card (spec 0.3 §5), no decision changed (the rebuild, the card census and the CRD
+    golden checked).
   - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #282.
   - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
     **Answered by the owner, a physician (also the pack's recorded author, disclosed), on
@@ -1547,10 +1548,10 @@ Connect) is not supported yet.
     For the owner as a clinician (#282 Q2): whether a `not_checked` order shows its card, or the
     red-flag rule sets a recommendation that does. Answered on 2026-11-07: a possible red flag
     under a site payer id shows a card at order signing; other `not_checked` orders stay quiet.
-    To build next (a card or rule change, with the rebuild, the benchmarks, the FHIR golden and
-    the CRD golden refreshed, and
-    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card`
-    changed with it).
+    Built: the Prior Authorization Preflight 0.3.1's red-flag card (`cds_hooks.card.also_show`,
+    spec 0.3 §5), no decision changed (the rebuild, the benchmarks, the FHIR golden and the CRD
+    golden checked); the test is now
+    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_shows_a_card_at_signing`.
   - [x] Owner (#280 Q2): the card's `mendari.decision_id` extension, which CRD 2.2.1's response
     model does not define, stays a recorded gap (3.4.3.01 and 4.1.3.01 expected failures);
     moving the id would change the card format. Confirmed (owner, 2026-11-07).

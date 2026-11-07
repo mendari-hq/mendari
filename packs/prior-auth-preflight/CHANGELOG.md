@@ -4,6 +4,25 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.3.1
+
+- **A possible red flag shows a card at `order-sign` on an order the pack has no requirement set
+  for** (`not_checked`; the owner's choice of 2026-11-07, "Red flag shows a card"): the
+  `possible-red-flag` rule's own card (`cds_hooks.card.also_show`, spec 0.3 §5), `critical`,
+  "Possible red flag in the notes: consider urgent imaging and an expedited review; prior auth not
+  checked". Before, such an order showed no card, so a possible red flag in its notes reached only
+  the review queue and not the clinician signing it; on a real EHR's data, under a site's own payer
+  id, that is every order. Every other `not_checked` order still shows no card. The decision does
+  not change: HUMAN_REVIEW, `not_checked`, urgent priority, and no Da Vinci CRD coverage
+  information (a `not_checked` order asserts none). A red flag on an order whose payer the pack
+  knows shows on that order's own card as before, in its reasons and not its summary, which the
+  known failure modes now say. Of the 300 orders the FHIR decisions golden holds, 3 more show a
+  card: 208 of the 259 the pack decides, the other 51 `not_checked` orders quiet.
+- A PATCH bump, as the changelogs read CONTRIBUTING.md's rule (0.2.1 of the Referral Router
+  among them): what the cards show and say, with every decision identical. Criteria, rules,
+  providers, policy and data are unchanged; the benchmark's figures, its ledger and the FHIR
+  decisions golden are as they were. The digest changes because the manifest does.
+
 ## 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
