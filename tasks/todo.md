@@ -40,8 +40,7 @@ secrets or a pack's clinical behaviour.
   commits, clean. Gate G1-2's `secret-scan` is now met; its `rotation` attestation, the
   owner's, was given in chat on 2026-11-07: pointed to the private report's Outcome section, the
   owner picked "None found: attest", recorded at their instruction (`launch/gates.yaml`, by the
-  owner in chat, commit `b7b3d74c`). G1-2's remaining build prerequisite, `a4-safety-notices`,
-  is met in CI's report (with Postgres).
+  owner in chat, commit `b7b3d74c`).
   **Owner, once public:** GitHub turns a
   schedule off after 60 days with no activity; check monthly that `secrets.yml` ran.
 - [x] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). The invariant for
@@ -2027,13 +2026,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     assigning, adjudicating, measuring, freezing, `show`, Verifying, the check, the gates), the
     sample route's description, the README and the CHANGELOG.
 
-  **Owner decisions still open** (none blocked the build; the hosted site mounts no labelling
-  or curating route until the first is settled): how labellers reach the hosted site
-  (memberships mode, or `labeller` in claims mode, and past Vercel Authentication); each set's
-  rotation numbers (maximum grading runs and age, both required at freeze); what settles a
-  three-way adjudication split; how a hidden case is erased (before B20). None of these has a
-  default. Confirmed by the owner on 2026-11-07 (in chat: "the patent gate is clear and I
-  approve everything on my part"), each its default: remote providers do not grade hidden sets
+  **Owner decisions** (none blocked the build; the hosted site, in memberships mode since
+  2026-11-07, mounts no labelling or curating route until the evaluation-set keys are set).
+  Open when written: how labellers reach the hosted site (memberships mode, or `labeller` in
+  claims mode, and past Vercel Authentication); each set's rotation numbers (maximum grading
+  runs and age, both required at freeze); what settles a three-way adjudication split; how a
+  hidden case is erased (before B20). None of these has a default. Confirmed by the owner on
+  2026-11-07 (in chat: "the patent gate is clear and I approve everything on my part"), each its
+  default: remote providers do not grade hidden sets
   (local only under method 1.0, LP-17 decision 2); distinct positives in the evidence rule
   (LP-17 decision 3); an administrator does not also label. Later that day the owner picked:
   labellers reach the hosted site in memberships mode (decision 1; the switch is LP-12's, below,
@@ -3068,7 +3068,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - the status page provider, its checks and who is paged (B36). `python
     scripts/status_checks.py --export json --api <MENDARI_PUBLIC_URL>` prints the checks to set
     up. No outside check reaches the hosted site until Vercel Authentication is lifted; the
-    decide check waits for a status organization (memberships mode, LP-12), and the registry and
+    decide check waits for a status organization (the hosted site runs memberships mode since
+    2026-11-07; the `status` organization and its key are not made yet), and the registry and
     Hub checks for LP-19 (gate `status-page`'s pending line);
   - the alert format, secret and destination. Set `MENDARI_ALERT_WEBHOOK` (https),
     `MENDARI_ALERT_SECRET` (`openssl rand -hex 32`) and, for a Slack webhook,

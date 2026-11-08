@@ -6,9 +6,9 @@ owner chose "Now, after this PR"). Proposed 2026-10-07. Built (LP-12, 12a to 12k
 each default below as `tasks/todo.md` records it, each confirmed by the owner on 2026-11-07.
 The owner's decisions that had no default were settled that day: the operator is the owner, on
 the command line; the local datasets folder holds the shipped synthetic examples, shared by
-every organization; and no organization without a record was in use (the preflight,
-`mendari access check`, found only `default`, which the owner's bootstrap gave its record), so
-none whose id no record can have needed deciding. Gate G2-3's
+every organization; and no organization in use had an id no record can have (the preflight,
+`mendari access check`, found only `default`, recordable but without a record until the
+bootstrap gave it one), so what becomes of such an organization was moot. Gate G2-3's
 prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. Amended by
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
 `labeller` grants `label` on a membership (memberships mode only; claims mode knows no such

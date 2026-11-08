@@ -150,7 +150,7 @@ first real set:
    sign-in refuses them too. Once it is up, sign in and read `/api/health`: to someone who may
    read, it shows the keys' ids as `evalset_keys` (`current`, `read`, `index`), never a key.
 4. **What the hosted site then serves.** The hosted site runs memberships mode
-   ([accounts](accounts.md)) since 2026-11-07, the way labellers reach it (the owner's
+   ([accounts](accounts.md)) since 2026-11-07, the way labellers are to reach it (the owner's
    decision 1), so the keys mount the grading route (`POST /api/evalsets/{set_id}/runs`,
    [Grading a hidden set](#grading-a-hidden-set)), a labeller's routes, the curators' routes
    and the dashboard's Labelling and Hidden sets. In claims mode they would mount the grading
@@ -341,8 +341,8 @@ above. `mendari audit verify --evalsets` holds between every step.
 
 A labeller labels through three routes of the server (LP-11j). They are mounted only on a server
 in memberships mode ([accounts](accounts.md)) with both evaluation-set keys set: the hosted site
-runs memberships mode since 2026-11-07, the way labellers reach it (the owner's decision 1), but
-has no keys yet, so it mounts none of them until the owner sets them
+runs memberships mode since 2026-11-07, the way labellers are to reach it (the owner's
+decision 1), but has no keys yet, so it mounts none of them until the owner sets them
 ([The owner's steps](#the-owners-steps)). Only a person who signed in, acting for
 the set's organization with the `labeller` role, reaches them: never a key, a token, an EHR
 launch or an administrator

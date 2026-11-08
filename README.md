@@ -1124,7 +1124,7 @@ case). The runbook walks
 and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
 on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
 the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
-labellers reach it in memberships mode (the owner's decision 1), which it runs since
+labellers are to reach it in memberships mode (the owner's decision 1), which it runs since
 2026-11-07; how they get past Vercel Authentication is still to settle.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
