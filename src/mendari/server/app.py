@@ -3159,8 +3159,8 @@ def create_app(
 
     # A labeller's routes over hidden evaluation sets (LP-11j), and its organization's curators'
     # (LP-11k): memberships mode (so sign-in, which the keys need anyway) with both evaluation-set
-    # keys, as the invitation page is memberships mode's; the hosted site (claims mode, no keys)
-    # mounts none of them (owner decision 1 open). The grading route (LP-11l) is mounted with the
+    # keys, as the invitation page is memberships mode's; the hosted site (memberships mode since
+    # 2026-11-07, no keys yet) mounts none of them. The grading route (LP-11l) is mounted with the
     # keys in both account modes: only the organization's grading key reaches it.
     if evalsets is not None:
         hidden = EvalsetStore(store, evalsets)

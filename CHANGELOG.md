@@ -699,7 +699,7 @@ The first release (not yet published).
   nothing of the case but its input, nor anyone's label, reaches the page, and nothing is kept
   in the browser's storage. Runbook: `docs/operations/evalsets.md`, How a labeller labels.
 - **Hidden evaluation sets, labelled through a labeller's own routes** (LP-11, memberships mode
-  with both evaluation-set keys only: the hosted site, in claims mode without them, mounts none).
+  with both evaluation-set keys only: the hosted site, without them, mounts none).
   `GET /api/labelling` gives a labeller their own counts, set by set; `GET /api/labelling/next`
   their oldest open case, its input and the set's questions with their labels and nothing else,
   the read chained (`evalset.case_read`) before it is sent, or `204`; `POST /api/labelling/{id}`
@@ -985,8 +985,8 @@ The first release (not yet published).
   for the three arms with no result. The typed table's bare percentages, its best row, its
   vendor and model names, its "100 cases" and its pack versions are gone; a remote model, and a
   configuration that calls one, is named there only once its provider type's disclosure is
-  stated. Deploying `web/` stays the owner's
-  (after gate G1-2's `patent-decision`).
+  stated. `web/` is deployed by hand, after gate G1-2's
+  `patent-decision` (attested and deployed 2026-11-07).
 - **Remote arms on public sets, built and off** (LP-17h; the grading method's sections 9, 10
   and 12). `mendari scoreboard run` now takes a remote configuration, by hand only: it refuses
   to start when `CI` or `GITHUB_ACTIONS` is set, runs `--replicates 3` to `5` (a local

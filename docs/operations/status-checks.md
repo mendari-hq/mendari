@@ -147,6 +147,7 @@ checks are set up once Vercel Authentication is lifted, the last step of the lau
 [Before go-live](../deploying-with-phi.md#9-before-go-live). Do not give a provider the
 Protection Bypass for Automation secret to get past it: that secret passes every protection
 Vercel puts on the deployment, not one check. On that deployment the decide check also waits
-for a status organization (it has one organization until it runs in memberships mode), and the
+for a status organization (it runs in memberships mode since 2026-11-07, and has no status
+organization yet: it is made as above), and the
 registry and Hub checks wait until both are hosted.
 
