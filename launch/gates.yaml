@@ -555,7 +555,7 @@ gates:
               - tests/test_status_checks.py::test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_fail_in_an_outage
               - tests/test_status_checks.py::test_the_status_page_is_public_static_and_does_no_database_work
               - tests/browser/test_status.py::test_the_status_view_shows_a_database_outage
-          - pending: "LP-19 (the registry and Hub hosted) and a status organization (memberships mode, LP-12), for the registry, Hub and decide checks"
+          - pending: "LP-19 (the registry and Hub hosted) and a status organization (the hosted site runs memberships mode since 2026-11-07, LP-12), for the registry, Hub and decide checks"
           - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
       - id: hosted-monitoring
         what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"
