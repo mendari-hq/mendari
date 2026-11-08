@@ -47,7 +47,8 @@ gates:
         what: "Every secret the scan finds is rotated before a partner gets access (B08)"
         owner: owner
         probes:
-          - attested: {what: "the scan's report read; every live secret it found rotated, or none found", by: "", date: ""}
+          # The owner attested this in chat on 2026-11-07; recorded at the owner's instruction.
+          - attested: {what: "the scan's report read: none found", by: "the owner (in chat)", date: "2026-11-07"}
       - id: a4-safety-notices
         what: "A4: the inbox automation gate, one notice on every surface, an acknowledgement, plain-language results, axe checks"
         owner: build
