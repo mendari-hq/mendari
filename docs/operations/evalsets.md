@@ -149,13 +149,13 @@ first real set:
    Vercel's system environment variables exposed in the project's settings. A server without
    sign-in refuses them too. Once it is up, sign in and read `/api/health`: to someone who may
    read, it shows the keys' ids as `evalset_keys` (`current`, `read`, `index`), never a key.
-4. **What the hosted site then serves.** In claims mode, as the hosted site runs today, the
-   keys mount the grading route only (`POST /api/evalsets/{set_id}/runs`,
-   [Grading a hidden set](#grading-a-hidden-set)). A labeller's routes, the curators' routes
-   and the dashboard's Labelling and Hidden sets need memberships mode
-   ([accounts](accounts.md)). Labellers reach the hosted site in memberships mode (the owner's
-   decision 1), which it does not run yet; how they get past Vercel Authentication is still to
-   settle before contracting labellers.
+4. **What the hosted site then serves.** The hosted site runs memberships mode
+   ([accounts](accounts.md)) since 2026-11-07, the way labellers reach it (the owner's
+   decision 1), so the keys mount the grading route (`POST /api/evalsets/{set_id}/runs`,
+   [Grading a hidden set](#grading-a-hidden-set)), a labeller's routes, the curators' routes
+   and the dashboard's Labelling and Hidden sets. In claims mode they would mount the grading
+   route only. How labellers get past Vercel Authentication is still to settle before
+   contracting labellers.
 5. **For the commands**, keep the same two values in a file only you may read (`0600`), as for
    the PHI key's rotation, and read it into the shell you run `mendari evalset` from, with
    `DATABASE_URL` (or `--db`) naming the deployment's database. `mendari access grader-key`
@@ -341,8 +341,9 @@ above. `mendari audit verify --evalsets` holds between every step.
 
 A labeller labels through three routes of the server (LP-11j). They are mounted only on a server
 in memberships mode ([accounts](accounts.md)) with both evaluation-set keys set: the hosted site
-runs claims mode without the keys, so it mounts none of them until it runs memberships mode, the
-way labellers are to reach it (the owner's decision 1). Only a person who signed in, acting for
+runs memberships mode since 2026-11-07, the way labellers reach it (the owner's decision 1), but
+has no keys yet, so it mounts none of them until the owner sets them
+([The owner's steps](#the-owners-steps)). Only a person who signed in, acting for
 the set's organization with the `labeller` role, reaches them: never a key, a token, an EHR
 launch or an administrator
 (and the keys refuse a server without sign-in), and someone who also manages the organization's

@@ -433,7 +433,8 @@ Hidden data reaches the store only through the operator's command line, or throu
     - `test_limits.EXPECTED_CLASSES` and the `test_security_log` event list.
     - The sweep finds the routes by itself.
   - **Safe alone because:**
-    - Production runs claims mode without the keys, so the routes are absent there.
+    - Production runs claims mode without the keys, so the routes are absent there. (Since
+      2026-11-07 it runs memberships mode, still without the keys, so they are still absent.)
     - Keys, admins and open mode never hold `label`.
     - A labeller reaches only their own assignments.
 
@@ -634,7 +635,7 @@ adjudicators see both labels and what settles a three-way split. Decisions 1, 2,
 default and stay open, so ADR-0011 stays Proposed. The owner's actions below stay the owner's.
 
 **2026-11-07, the owner's picks:** decision 1, memberships mode (the hosted site's switch is
-LP-12's; how labellers get past Vercel Authentication is not answered yet); decision 2, at most 20
+LP-12's, done the same day; how labellers get past Vercel Authentication is not answered yet); decision 2, at most 20
 grading runs and 180 days per set, given at each freeze (= LP-17 decision 4); decision 3, a
 clinical lead's call settles a three-way split, to be built (until then a split blocks freeze);
 and in conflict 40, adjudicators label blind, without seeing the two labels, as built (the owner:

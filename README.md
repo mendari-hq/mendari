@@ -1124,8 +1124,8 @@ case). The runbook walks
 and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
 on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
 the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
-labellers are to reach it in memberships mode (the owner's decision 1, 2026-11-07), which it does
-not run yet; how they get past Vercel Authentication is still to settle.
+labellers reach it in memberships mode (the owner's decision 1), which it runs since
+2026-11-07; how they get past Vercel Authentication is still to settle.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1417,8 +1417,8 @@ The same script writes the scores on the public page (`web/index.html`, between 
 comments): the Patient Inbox Router's `test` set, every arm, each figure k of n with its
 interval, and "not measured" for each arm with no result. It names no remote model, and writes
 no configuration that calls one, until that provider type's disclosure is stated; the check
-covers it too. Deploying `web/` waits only for gate G1-2's `patent-decision` (the owner,
-2026-11-07).
+covers it too. Deploying `web/` waited only for gate G1-2's `patent-decision` (the owner,
+2026-11-07); it was attested, and the page deployed, that day.
 
 A remote configuration (one that calls Jev, an LLM or Mendari's CQL engine) is run by hand,
 never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [--prices FILE]`

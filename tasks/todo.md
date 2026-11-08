@@ -37,8 +37,11 @@ secrets or a pack's clinical behaviour.
   time where only a full scan looks, one only on a pull request's head and one only in a merge's
   resolution, and both must be found, in each of those runs and in
   `tests/test_secret_scan.py`. A full scan of this repository's refs, merges included: 283
-  commits, clean. Gate G1-2's `secret-scan` is now met; its `rotation` attestation is the
-  owner's, not given yet (owner, 2026-11-07, who asked for step-by-step instructions to do it).
+  commits, clean. Gate G1-2's `secret-scan` is now met; its `rotation` attestation, the
+  owner's, was given in chat on 2026-11-07: pointed to the private report's Outcome section, the
+  owner picked "None found: attest", recorded at their instruction (`launch/gates.yaml`, by the
+  owner in chat, commit `b7b3d74c`). G1-2's remaining build prerequisite, `a4-safety-notices`,
+  is met in CI's report (with Postgres).
   **Owner, once public:** GitHub turns a
   schedule off after 60 days with no activity; check monthly that `secrets.yml` ran.
 - [x] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). The invariant for
@@ -1857,7 +1860,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     name a label word, conflict 57 amended); threat model T6; the runbook's freezing, rotation
     rule, grading, retiring and second lifecycle.
   - [x] **11j** (#238, merged 2026-10-10) The labelling routes (`label`, memberships mode with both keys; the
-    hosted site, claims mode without the keys, mounts none): `GET /api/labelling` (the
+    hosted site, without the keys, and in claims mode until 2026-11-07, mounts none): `GET /api/labelling` (the
     labeller's own counts, set by set), `GET /api/labelling/next` (their oldest open case: the
     input and the set's questions only, the read chained first; `204` when nothing waits) and
     `POST /api/labelling/{assignment_id}` (`{labels}` answered with `{remaining}`); an unknown,
@@ -2034,13 +2037,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   (local only under method 1.0, LP-17 decision 2); distinct positives in the evidence rule
   (LP-17 decision 3); an administrator does not also label. Later that day the owner picked:
   labellers reach the hosted site in memberships mode (decision 1; the switch is LP-12's, below,
-  and how labellers get past Vercel Authentication is not answered yet); each set's rotation
+  done 2026-11-07, and how labellers get past Vercel Authentication is not answered yet; the
+  labelling routes mount only once the evaluation-set keys are set too); each set's rotation
   numbers, at most 20 grading runs and 180 days (decision 2, = LP-17 decision 4), given at each
   freeze; a clinical lead's call settles a three-way split (decision 3, to build: until then a
   split still blocks freeze until the case is removed); and adjudicators label blind, not seeing
   the two labels, as built (conflict 40; the owner: "Label blinds"). How a hidden case is erased
   (decision 7) stays open, so ADR-0011 stays Proposed.
-- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
+- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Accepted 2026-11-07; built 2026-10-08, G2-3's a6-accounts prerequisite met; the hosted site runs memberships mode since 2026-11-07). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
     principal of no organization (`tenancy.acting_for_nobody`), every read and write that
@@ -2307,14 +2311,37 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   organization's administrators still see the whole-chain verify, deployment records and some
   health fields); asking to join an unknown organization gets the same answer, naming no
   organization; only people a membership or a request concerns are recorded (as 12e-i does),
-  not everyone who signs in. Still open, with no default: who the operator is; what the local
-  datasets folder may hold in memberships mode; what becomes of an organization in use whose
-  id no record can have (the preflight names it; until then, stay in claims mode). Switching
-  the hosted site to memberships mode, and when, is the owner's step: the owner chose "Now, after
-  this PR" (2026-11-07). Claude runs the preflight (`mendari access bootstrap` and `mendari
-  access check`, in the order `docs/operations/accounts.md` gives) and sets
-  `MENDARI_ACCOUNTS=memberships` for Production, then the owner signs in once (everyone signs in
-  again). Decided, not done. ADR-0008 stays Proposed.
+  not everyone who signs in. The rest had no default; each was settled on 2026-11-07:
+  - [x] Switching the hosted site (Vercel project `openhealth-hub`, Production) to memberships
+    mode, and when, the owner's step: the owner chose "Now, after this PR" (2026-11-07), with
+    the bootstrap address the owner's Google address already in the role map, Claude running the
+    preflight and the bootstrap (`mendari access bootstrap` and `mendari access check`, in the
+    order `docs/operations/accounts.md` gives), and the switch, ADR-0008's acceptance and G1-2's
+    rotation attestation recorded in one PR. Done 2026-11-07 (below).
+  - [x] Who the operator is: the owner, on the command line.
+  - [x] What the local datasets folder may hold in memberships mode: the shipped synthetic
+    examples stay, shared by every organization.
+  - [x] What becomes of an organization in use whose id no record can have: moot, since the
+    preflight found only `default` (recordable).
+
+  **The switch, done 2026-11-07 (US Eastern).** The preflight, about 6:25 pm EST, from a checkout
+  of main `8dcf911b` (the commit Production served): `mendari audit verify` ok, 519 events;
+  `mendari access check` found only `default` (recordable, no record yet) and exited 1, as
+  expected before the bootstrap. The copy of the input-hash key used for the commands matched
+  production's only hash epoch (its key id checked, read-only). `mendari access bootstrap`
+  created `default`'s record and a pending admin membership for the owner; `access check` then
+  exited 0 (every organization in use has a record); `audit verify` ok, 521 events.
+  `MENDARI_ACCOUNTS=memberships` was added for Production only and Production redeployed (about
+  6:28 pm EST); the database was marked `org_bound` at the first cold start in memberships mode.
+  About 7:05 pm EST the owner signed in with Google once: the membership bound (`user.recorded`,
+  `membership.bound`), and the owner is admin of `default`; saving their role as admin,
+  unchanged, chained a no-op `membership.roles_changed` (admin to admin). `audit verify` ok, 525
+  events. `MENDARI_OIDC_ROLE_MAP` and `MENDARI_OIDC_ROLE_CLAIM` stay set: ignored in memberships
+  mode, kept for a rollback. Rollback, if ever needed: remove `MENDARI_ACCOUNTS` from Production
+  and redeploy (or Instant Rollback, then remove it); the records and the `org_bound` mark stay.
+  ADR-0008 is Accepted (2026-11-07). Still open: how labellers get past Vercel Authentication
+  (LP-11 decision 1's other half), and the hosted site's labelling routes, which mount only once
+  the evaluation-set keys are set (LP-11).
 
 - [x] **LP-18** A registry that shows only what it checked (ADR-0012, Accepted 2026-11-07;
   built with 18h, 2026-10-17; G3-4's a10-registry-hub still waits on LP-19). Planned
@@ -2842,7 +2869,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the method is at its URL starts its 30 days' notice (step 3). The order is confirmed (owner,
     2026-11-07), and it waits for `patent-decision` only, not all of G1-2 (owner, 2026-11-07; the
     mendari.co entry's lines). The owner asked Claude to run the production deploy of `web/` once
-    `patent-decision` is attested and main is green; publishing the docs site stays the owner's.
+    `patent-decision` is attested and main is green: done 2026-11-07, about 6:30 pm EST, from main
+    `8dcf911b` (the mendari.co entry). Publishing the docs site stays the owner's.
   - [ ] Owner (decision 5): set the method's effective date, at least 30 days after the method is
     published: the date and status lines, `EFFECTIVE` and `METHOD_SHA256` in one PR, the page
     regenerated; publish the site again; then attest `grading-method` in `launch/gates.yaml`
@@ -3867,7 +3895,7 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
 - [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
   mendari.ai and the www names redirect to it
 - [x] The mendari.co redesign (2026-10-11, this branch: `claude/mendari-co-redesign`), built,
-  not deployed: one identity ("cobalt on paper": the faceted decision-diamond mark, cobalt plus
+  deployed 2026-11-07 (below): one identity ("cobalt on paper": the faceted decision-diamond mark, cobalt plus
   the four outcome colours, Newsreader, Public Sans and IBM Plex Mono self-hosted in
   `web/fonts/` and listed in `NOTICE`; CSP gains `font-src 'self'` only). The page replaces the
   coming-soon page: the four outcomes, the Inbox Router provider scoreboard, the five reference
@@ -3895,10 +3923,12 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
     form, which the public cannot reach while the repository is private: keep it, or leave
     `.well-known` out of the deploy until the repository is public. Kept (owner, 2026-11-07): it
     deploys as is, and its links work once the repository is public.
-  - [ ] Deploy `web/` to production (Vercel project `mendari-web`): the owner asked Claude, on
+  - [x] Deploy `web/` to production (Vercel project `mendari-web`): the owner asked Claude, on
     2026-11-07, to run it once `patent-decision` is attested and main is green. Inside `web/`:
     link the project, then `vercel deploy --prod` (never `--cwd web`), then check the headers and
-    `/.well-known`.
+    `/.well-known`. Done 2026-11-07, about 6:30 pm EST, from main `8dcf911b`, after main's CI
+    passed and `patent-decision` was attested: the served `index.html` is byte-identical to
+    `web/index.html`, and `security.txt` was kept (the owner's choice, above).
   - [ ] Later: the page's figures are typed in, not read from `packs/*/evals/*.json`; a test that
     ties them together would catch drift when the evaluations change.
 - [ ] DNS for mendari.co pointed at Vercel (the owner's)

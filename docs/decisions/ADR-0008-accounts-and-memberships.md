@@ -1,11 +1,14 @@
 # ADR-0008: Accounts and memberships beside the claims a sign-in carries
 
 ## Status
-Proposed (2026-10-07). Built (LP-12, 12a to 12k, 2026-10-08), each default below as
-`tasks/todo.md` records it; accepted once the owner's decisions listed there (who the operator
-is, what the local datasets folder may hold in memberships mode, what becomes of an organization
-whose id no record can have; the hosted site's switch to memberships mode was decided on
-2026-11-07, not done yet) confirm or change those defaults. Gate G2-3's
+Accepted (2026-11-07: the hosted site runs memberships mode since that day, switched after the
+owner chose "Now, after this PR"). Proposed 2026-10-07. Built (LP-12, 12a to 12k, 2026-10-08),
+each default below as `tasks/todo.md` records it, each confirmed by the owner on 2026-11-07.
+The owner's decisions that had no default were settled that day: the operator is the owner, on
+the command line; the local datasets folder holds the shipped synthetic examples, shared by
+every organization; and no organization without a record was in use (the preflight,
+`mendari access check`, found only `default`, which the owner's bootstrap gave its record), so
+none whose id no record can have needed deciding. Gate G2-3's
 prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. Amended by
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
 `labeller` grants `label` on a membership (memberships mode only; claims mode knows no such
