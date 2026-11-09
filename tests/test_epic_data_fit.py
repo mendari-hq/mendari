@@ -418,10 +418,11 @@ DECLARED = {
         "not_offered": ["MedicationStatement"],
     }
 }
-LIMITATION = (
+LIMITED = (
     "medications may be incomplete: read without MedicationStatement, which this EHR does not "
-    f"offer (declared, {ATTESTED}): a person decides"
+    f"offer (declared, {ATTESTED})"
 )
+LIMITATION = f"{LIMITED}: a person decides"
 
 
 def declarations(entries: dict[str, Any] = DECLARED, *, signed_in: bool = False) -> EhrDeclarations:
@@ -759,6 +760,19 @@ def test_a_declaration_never_automates(tmp_path: Path) -> None:
     )
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert f"{LIMITATION} instead of its rule's BLOCK" in result.reasons
+
+
+def test_a_refused_input_under_a_declaration_still_names_the_limitation() -> None:
+    """Under `enforce`, an input refused for its US Core errors (the synthetic chart has several:
+    a patient with no name, orders with no `requester`) is a final BLOCK: the limitation is still
+    one of its reasons, without "a person decides", beside the declaration it records."""
+    strict = Decision.from_hub(TRIAL, fhir_validation="enforce")
+    declared = declaration()
+    result, _ = decide_for(strict, epic_chart().client(), "p1", "Patient/p1", declared=declared)
+    assert result.outcome is Outcome.BLOCK and result.answers == {}
+    assert result.reasons[0].startswith("input rejected: not US Core")
+    assert result.reasons[-1] == LIMITED and LIMITATION not in result.reasons
+    assert result.ehr_declaration == declared.stamp()
 
 
 def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declaration(

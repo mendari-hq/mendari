@@ -462,7 +462,8 @@ class Decision:
         names each list read without a source the site declared its EHR does not offer
         (`policy.limitation`), and `ehr_declaration` that declaration's stamp: then AUTO, and a
         rule's BLOCK, become HUMAN_REVIEW, the limitation a reason whatever the outcome (an
-        ABSTAIN over unread data says it too)."""
+        ABSTAIN over unread data says it too, and a refused input's BLOCK, without "a person
+        decides")."""
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -516,6 +517,8 @@ class Decision:
                     stopped = ProviderError("time_budget", f"its schema check stopped: {error}")
             problems = [*rejected, *schema_problems]
             if problems:
+                # A refusal is final, so no person decides; a list read without a source the EHR
+                # does not offer is still said to be incomplete.
                 policy = PolicyResult(
                     outcome=Outcome.BLOCK,
                     recommendation=None,
@@ -523,6 +526,7 @@ class Decision:
                     reasons=(
                         *(f"input rejected: {problem}" for problem in problems),
                         *unread_reasons,
+                        *dict.fromkeys(not_offered),
                     ),
                 )
             elif unread:

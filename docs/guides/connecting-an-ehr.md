@@ -571,7 +571,9 @@ organization at a time. Off until you set it. It is inline JSON, or the path of 
   organization's declarations.
 - **It never automates.** AUTO, and a pack rule's BLOCK, become `HUMAN_REVIEW`, with the reason
   `<list> may be incomplete: read without <Type>, which this EHR does not offer (declared,
-  <attested_by>): a person decides`, whatever the outcome.
+  <attested_by>): a person decides`, whatever the outcome (an input refused by the pack's input
+  schema, or under `enforce` by US Core, is a final BLOCK, and its reason ends at the closing
+  parenthesis).
 
 Declaring MedicationStatement says more than that Epic lacks the API: it says every medication
 the pack should see is in Epic's MedicationRequests, so "no insulin among the orders" may read as
