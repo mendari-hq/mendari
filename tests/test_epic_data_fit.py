@@ -17,24 +17,51 @@ unchanged."""
 
 from __future__ import annotations
 
+import functools
+import json
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+import yaml
+from fastapi.testclient import TestClient
 
-from mendari import Decision, load_pack
+from mendari import AuditStore, Decision, load_pack
+from mendari.core.decision import DecisionResult
+from mendari.core.spec import Outcome
+from mendari.core.tenancy import DEFAULT_ORG
+from mendari.errors import MendariError
 from mendari.providers import deadline as deadline_module
-from mendari.standards import linked
-from mendari.standards.fhir import format_label, unread_attachments, unread_notes
+from mendari.server.app import create_app
+from mendari.server.smart_routes import decide_for
+from mendari.standards import cds_hooks, linked
+from mendari.standards.ehr_declarations import (
+    ENV,
+    EhrDeclaration,
+    EhrDeclarations,
+    canonical,
+    check,
+    ehr_declarations,
+    excusable,
+    parse,
+)
+from mendari.standards.fhir import FhirAdapter, format_label, unread_attachments, unread_notes
+from mendari.standards.fhir_client import FhirClient
 from mendari.standards.linked import (
     MAX_FOLLOW_READS,
     MAX_NOTE_READS,
     MAX_REQUEST_READS,
     Linker,
 )
+from mendari.standards.smart import Registration
+from tests.conftest import ROOT
 from tests.test_fhir_linked import (
+    EHR,
+    ORIGIN,
+    TOKEN,
     Ehr,
     b64,
     binary,
@@ -47,6 +74,7 @@ from tests.test_fhir_linked import (
     note,
     request_for,
 )
+from tests.test_spec_03 import mini
 
 HTML = "text/html"
 RTF = "text/rtf"  # how an Epic note's second rendition is assumed to be typed (A1)
@@ -343,3 +371,697 @@ def test_linked_reads_stop_at_the_deadline_and_the_request_clock(
     assert result.reasons == ("could not read notes: timeout",)
     assert ehr.reads() == ["Binary/b0", "Binary/b1", "Binary/b2"]
     assert coverage_of(result)["links"]["read"] == {"follows": 0, "notes": 3}
+
+
+# -- what the EHR does not offer, declared ------------------------------------------------------
+
+TRIAL = "mendari/clinical-trial-prescreener"
+RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
+ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+LOINC = "http://loinc.org"
+ATTESTED = "A. Fictional, CMIO"  # who attested the declaration (fictional)
+DECLARED = {
+    EHR: {
+        "org": "default",
+        "version": "2026-11-08",
+        "attested_by": ATTESTED,
+        "reference": "CHG-0001 (fictional)",
+        "not_offered": ["MedicationStatement"],
+    }
+}
+LIMITATION = (
+    "medications may be incomplete: read without MedicationStatement, which this EHR does not "
+    f"offer (declared, {ATTESTED}): a person decides"
+)
+
+
+def declarations(entries: dict[str, Any] = DECLARED, *, signed_in: bool = False) -> EhrDeclarations:
+    return parse(json.dumps(entries), signed_in=signed_in)
+
+
+def declaration(entries: dict[str, Any] = DECLARED) -> EhrDeclaration:
+    found = declarations(entries).for_base(EHR, DEFAULT_ORG)
+    assert found is not None
+    return found
+
+
+def ago(days: int) -> str:
+    return (date.today() - timedelta(days=days)).isoformat()
+
+
+def order(id_: str, drug: str, name: str, days: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A MedicationRequest written `days` ago naming its drug as Epic is assumed to (A2), and the
+    Medication it names."""
+    request = request_for(id_, f"Medication/{drug}")
+    request["medicationReference"]["display"] = name
+    request["authoredOn"] = ago(days)
+    return request, {"resourceType": "Medication", "id": drug, "code": {"text": name}}
+
+
+def epic_chart(*, notes: int = 0, orders: int = 0, insulin: bool = False) -> Ehr:
+    """A synthetic adult with type 2 diabetes, an HbA1c and eGFR in range, on metformin for 500
+    days, as an EHR with no R4 MedicationStatement serves her: its MedicationStatement search
+    answers 403 (as Epic's did on 2026-11-08), her drugs are MedicationRequests (A2), her notes
+    HTML and RTF twins (A1). `orders` more drugs, and `insulin` an insulin order of 30 days ago."""
+    patient = {
+        "resourceType": "Patient",
+        "id": "p1",
+        "birthDate": ago(58 * 366),
+        "gender": "female",
+    }
+    condition = {
+        "resourceType": "Condition",
+        "id": "c1",
+        "subject": {"reference": "Patient/p1"},
+        "clinicalStatus": {"coding": [{"code": "active"}]},
+        "code": {"coding": [{"system": ICD, "code": "E11.9"}]},
+    }
+
+    def lab(id_: str, code: str, value: float, unit: str, days: int) -> dict[str, Any]:
+        return {
+            "resourceType": "Observation",
+            "id": id_,
+            "status": "final",
+            "subject": {"reference": "Patient/p1"},
+            "code": {"coding": [{"system": LOINC, "code": code}]},
+            "valueQuantity": {"value": value, "unit": unit},
+            "effectiveDateTime": ago(days),
+        }
+
+    drugs = [order("mr-met", "med-met", "metformin 500 mg tablet", 500)]
+    drugs += [order(f"mr{n}", f"med{n}", f"drug {n} 10 mg tablet", 200) for n in range(orders)]
+    if insulin:
+        drugs.append(order("mr-ins", "med-ins", "insulin glargine 100 unit/mL pen", 30))
+    pairs = [twin(n, "<p>Seen for diabetes follow-up.</p>") for n in range(notes)]
+    ehr = Ehr(
+        patient,
+        *(drug for _, drug in drugs),
+        *(html for _, html in pairs),
+        record=(
+            condition,
+            lab("o1", "4548-4", 64, "mmol/mol", 20),
+            lab("o2", "33914-3", 58, "mL/min/1.73m2", 100),
+            *(request for request, _ in drugs),
+            *(document for document, _ in pairs),
+        ),
+    )
+    ehr.faults["MedicationStatement"] = lambda r: fhir_json(
+        {"resourceType": "OperationOutcome", "issue": [{"severity": "error", "code": "forbidden"}]},
+        status=403,
+    )
+    return ehr
+
+
+def searched(ehr: Ehr) -> list[str]:
+    """The searches the EHR was sent, by resource type."""
+    paths = [r.url.path.removeprefix("/fhir/") for r in ehr.requests]
+    return [path for path in paths if "/" not in path]
+
+
+def hook(prefetch: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A patient-view request from the EHR, with its server and token; `prefetch` as sent (None:
+    none, so every key is fetched)."""
+    request: dict[str, Any] = {
+        "hook": "patient-view",
+        "hookInstance": "2b0c5d1e-7a4f-4b8e-9c3d-6f1a2e3b4c5d",
+        "fhirServer": EHR,
+        "fhirAuthorization": {
+            "access_token": TOKEN,
+            "token_type": "Bearer",
+            "scope": "patient/*.rs",
+        },
+        "context": {"userId": "Practitioner/1", "patientId": "p1"},
+    }
+    if prefetch is not None:
+        request["prefetch"] = prefetch
+    return request
+
+
+def invoked(
+    monkeypatch: pytest.MonkeyPatch,
+    decision: Decision,
+    ehr: Ehr,
+    request: dict[str, Any],
+    declared: EhrDeclaration | None,
+) -> DecisionResult:
+    """The one decision a hook request made, with `ehr` as the allow-listed server behind its
+    `fhirServer` (for the prefetch it fetches and the links it reads)."""
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
+    patched = functools.partial(FhirClient, transport=httpx.MockTransport(ehr))
+    monkeypatch.setattr(cds_hooks, "FhirClient", patched)
+    made: list[DecisionResult] = []
+    original = decision.decide_fhir
+
+    def kept(*args: Any, **kwargs: Any) -> tuple[DecisionResult, dict[str, Any]]:
+        found = original(*args, **kwargs)
+        made.append(found[0])
+        return found
+
+    monkeypatch.setattr(decision, "decide_fhir", kept)
+    cds_hooks.invoke(decision, request, declared=declared)
+    [result] = made
+    return result
+
+
+def sent_from(ehr: Ehr, **keys: Any) -> dict[str, Any]:
+    """The trial's whole prefetch from `ehr`'s record, as an EHR sends it, `keys` replacing
+    what it would send."""
+
+    def search(kind: str) -> dict[str, Any]:
+        found = [r for r in ehr.record if r["resourceType"] == kind]
+        return {
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "entry": [{"resource": r} for r in found],
+        }
+
+    prefetch = {
+        "patient": ehr.resources["Patient/p1"],
+        "conditions": search("Condition"),
+        "observations": search("Observation"),
+        "medications": search("MedicationStatement"),
+        "medication_requests": search("MedicationRequest"),
+        "notes": search("DocumentReference"),
+    }
+    return {**prefetch, **keys}
+
+
+def test_an_undeclared_medication_statement_refusal_never_reads_as_off_insulin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a declaration, the EHR refusing MedicationStatement makes the decision ABSTAIN
+    before any provider, through the SMART launch's decide and through a hook that fetches its
+    prefetch: no answer exists, so "no insulin listed" never becomes "off insulin"."""
+    trial = Decision.from_hub(TRIAL)
+    ehr = epic_chart()
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1")
+    assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
+    assert result.reasons == ("could not read medications: unauthorized",)
+    assert result.answers == {} and result.ehr_declaration is None
+    assert "MedicationStatement" in searched(ehr)
+
+    hooked = invoked(monkeypatch, Decision.from_hub(TRIAL), epic_chart(), hook(), None)
+    assert hooked.reasons == ("could not read medications: unauthorized",)
+    assert hooked.answers == {} and hooked.ehr_declaration is None
+
+
+def test_a_declared_not_offered_type_is_not_requested_and_the_decision_records_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the site's declaration for this base and organization, MedicationStatement is never
+    asked for: the list is read from the MedicationRequests, the source and the list are marked
+    not offered (its 0 is not "read and empty"), the decision records the declaration and goes to
+    a person with the limitation as a reason. There, and only there, "no insulin among the
+    orders" reads as "off insulin", on the site's word; an insulin order still reads."""
+    trial = Decision.from_hub(TRIAL)
+    declared = declaration()
+    ehr = epic_chart()
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1", declared=declared)
+    assert "MedicationStatement" not in searched(ehr) and "MedicationRequest" in searched(ehr)
+    assert result.unreadable == () and result.outcome is Outcome.HUMAN_REVIEW
+    assert LIMITATION in result.reasons
+    assert (
+        result.ehr_declaration
+        == declared.stamp()
+        == {
+            "version": "2026-11-08",
+            "sha256": declared.sha256,
+            "attested_by": ATTESTED,
+            "reference": "CHG-0001 (fictional)",
+        }
+    )
+    medications = coverage_of(result)["lists"]["medications"]
+    assert medications["not_offered"] == ["MedicationStatement"]
+    statements = medications["sources"]["MedicationStatement"]
+    assert (statements["not_offered"], statements["resources"], statements["items"]) == (True, 0, 0)
+    assert "not_offered" not in medications["sources"]["MedicationRequest"]
+    assert result.answers["no_insulin"].label == "yes"
+    assert result.answers["stable_metformin"].label == "yes"
+    assert result.to_record()["ehr_declaration"] == declared.stamp()
+
+    ehr = epic_chart(insulin=True)
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1", declared=declared)
+    assert result.answers["no_insulin"].label == "no"
+    assert LIMITATION in result.reasons
+
+    hooked = invoked(monkeypatch, Decision.from_hub(TRIAL), epic_chart(), hook(), declared)
+    assert hooked.unreadable == () and LIMITATION in hooked.reasons
+    assert hooked.ehr_declaration == declared.stamp()
+
+
+def test_a_declaration_never_applies_to_another_base_or_organization() -> None:
+    """A declaration is given for its own base (however it is spelled) and organization only: a
+    launch from another EHR, or for another organization, reads every source, and the refusal
+    abstains."""
+    found = declarations()
+    assert found.for_base(f"{EHR}/", DEFAULT_ORG) is not None  # normalized
+    assert found.for_base("HTTPS://EHR.example.org/fhir", DEFAULT_ORG) is not None
+    assert found.for_base("https://other.example.org/fhir", DEFAULT_ORG) is None
+    assert found.for_base(f"{EHR}/other", DEFAULT_ORG) is None
+    assert found.for_base(EHR, "acme") is None
+    assert (
+        found.for_base(None, DEFAULT_ORG) is None
+        and found.for_base("http://[", DEFAULT_ORG) is None
+    )
+    signed = declarations({EHR: {**DECLARED[EHR], "org": "acme"}}, signed_in=True)
+    assert signed.for_base(EHR, DEFAULT_ORG) is None and signed.for_base(EHR, "acme") is not None
+    ehr = epic_chart()
+    other = found.for_base("https://other.example.org/fhir", DEFAULT_ORG)
+    result, _ = decide_for(
+        Decision.from_hub(TRIAL), ehr.client(), "p1", "Patient/p1", declared=other
+    )
+    assert result.reasons == ("could not read medications: unauthorized",)
+
+
+TWO_SOURCES = {
+    "resources": {
+        "MedicationStatement": {"fields": {"name": {"path": "medicationCodeableConcept.text"}}},
+        "MedicationRequest": {"fields": {"name": {"path": "medicationCodeableConcept.text"}}},
+    }
+}
+
+
+def two_source_pack(
+    base: Path, *, changes: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None
+) -> Path:
+    """The prescreen fixture at spec 0.3 and risk level 1, automating at 0.80 (its criteria give
+    a candidate 0.83), its medications read from MedicationStatement and MedicationRequest, both
+    prefetched; `changes` to its mapping, `rules` its policy's."""
+    root = mini(
+        base / "packs", {"lists": {"medications": TWO_SOURCES}, **(changes or {})}, spec="0.3"
+    )
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["risk"]["level"] = 1
+    manifest["policy"]["thresholds"]["auto"] = 0.8
+    if rules is not None:
+        manifest["policy"]["rules"] = rules
+    manifest["cds_hooks"]["prefetch"].update(
+        {
+            "statements": "MedicationStatement?patient={{context.patientId}}",
+            "requests": "MedicationRequest?patient={{context.patientId}}",
+        }
+    )
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    schema_path = root / "schemas" / "input.schema.json"
+    schema = json.loads(schema_path.read_text())
+    schema["properties"]["medications"] = {"type": "array", "items": {"type": "object"}}
+    schema_path.write_text(json.dumps(schema))
+    return root
+
+
+def mini_chart(*, refused: bool) -> Ehr:
+    """The fixture's patient with type 2 diabetes and an HbA1c in range today; its EHR refuses
+    MedicationStatement (`refused`) or has none."""
+    condition = {
+        "resourceType": "Condition",
+        "id": "c1",
+        "subject": {"reference": "Patient/p1"},
+        "code": {"coding": [{"system": ICD, "code": "E11.9"}]},
+    }
+    hba1c = {
+        "resourceType": "Observation",
+        "id": "o1",
+        "status": "final",
+        "subject": {"reference": "Patient/p1"},
+        "code": {"coding": [{"system": LOINC, "code": "4548-4"}]},
+        "valueQuantity": {"value": 8.0, "unit": "%"},
+        "effectiveDateTime": date.today().isoformat(),
+    }
+    ehr = Ehr(record=(condition, hba1c))
+    if refused:
+        ehr.faults["MedicationStatement"] = lambda r: fhir_json({}, status=403)
+    return ehr
+
+
+def test_a_declaration_never_automates(tmp_path: Path) -> None:
+    """A pack that automates this chart when every source reads goes to a person when a declared
+    source was left out, the limitation a reason; its rule's BLOCK does too. Without the
+    declaration, the refused source abstains."""
+    pack = Decision(load_pack(two_source_pack(tmp_path / "auto")))
+    declared = declaration()
+    whole, _ = decide_for(pack, mini_chart(refused=False).client(), "p1", "Patient/p1")
+    assert whole.outcome is Outcome.AUTO and whole.ehr_declaration is None
+    result, _ = decide_for(
+        pack, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declared
+    )
+    assert result.outcome is Outcome.HUMAN_REVIEW
+    assert result.recommendation == whole.recommendation
+    assert LIMITATION in result.reasons
+    refused, _ = decide_for(pack, mini_chart(refused=True).client(), "p1", "Patient/p1")
+    assert refused.reasons == ("could not read statements: unauthorized",)
+
+    rule = {
+        "name": "fixture_block",
+        "when": {"question": "t2d_diagnosis", "labels": ["yes"]},
+        "outcome": "BLOCK",
+        "reason": "a fixture's blocking rule",
+    }
+    blocking = Decision(load_pack(two_source_pack(tmp_path / "block", rules=[rule])))
+    whole, _ = decide_for(blocking, mini_chart(refused=False).client(), "p1", "Patient/p1")
+    assert whole.outcome is Outcome.BLOCK
+    result, _ = decide_for(
+        blocking, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declared
+    )
+    assert result.outcome is Outcome.HUMAN_REVIEW
+    assert f"{LIMITATION} instead of its rule's BLOCK" in result.reasons
+
+
+def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declaration(
+    tmp_path: Path,
+) -> None:
+    """A declared type a pack also reads elsewhere (a single-source list, a top-level field), or
+    whose list's every source is declared, is read as without the declaration, and its refusal
+    abstains: a declaration can never leave a list or a field with no source."""
+    declared = declaration()
+    single = {
+        "lists": {
+            "medications": {
+                "resource": "MedicationStatement",
+                "fields": {"name": {"path": "medicationCodeableConcept.text"}},
+            }
+        }
+    }
+    field = {"fields": {"last_status": {"path": "MedicationStatement.status"}}}
+    for name, changes in (("single", single), ("field", field)):
+        root = two_source_pack(tmp_path / name, changes=changes)
+        if name == "field":
+            schema_path = root / "schemas" / "input.schema.json"
+            schema = json.loads(schema_path.read_text())
+            schema["properties"]["last_status"] = {"type": "string"}
+            schema_path.write_text(json.dumps(schema))
+        pack = Decision(load_pack(root))
+        mapping = FhirAdapter.for_pack(pack.pack).mapping
+        prefetch = pack.pack.manifest.cds_hooks.prefetch if pack.pack.manifest.cds_hooks else {}
+        assert excusable(mapping, prefetch, {"MedicationStatement"}) == frozenset(), name
+        result, _ = decide_for(
+            pack, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declared
+        )
+        assert result.reasons == ("could not read statements: unauthorized",), name
+
+    both = declaration(
+        {EHR: {**DECLARED[EHR], "not_offered": ["MedicationRequest", "MedicationStatement"]}}
+    )
+    trial = Decision.from_hub(TRIAL)
+    hooks = trial.pack.manifest.cds_hooks
+    assert hooks is not None
+    mapping = FhirAdapter.for_pack(trial.pack).mapping
+    assert excusable(mapping, hooks.prefetch, both.not_offered) == frozenset()
+    assert both.skipped(mapping, hooks.prefetch, hooks.prefetch) == {}
+    ehr = epic_chart()
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1", declared=both)
+    assert result.reasons == ("could not read medications: unauthorized",)
+    assert "MedicationStatement" in searched(ehr)
+    with pytest.raises(ValueError, match="needs the declaration"):
+        trial.decide_fhir(bundle(), not_offered={"medications": "MedicationStatement"})
+    with pytest.raises(ValueError, match="may not be left out"):
+        trial.decide_fhir(
+            bundle(), not_offered={"notes": "DocumentReference"}, declaration=declared
+        )
+
+
+def test_a_cds_client_may_still_send_a_declared_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under a declaration, what a client sends for a declared key is data when it holds entries,
+    used as sent, and an OperationOutcome is still `operation_outcome`; sent null, empty (`{}`)
+    or as a search with no entries, it says nothing more than the declaration does: the key is
+    not offered, recorded, never fetched, never automated (no `412` either)."""
+    declared = declaration()
+    ehr = epic_chart()
+    statement = {
+        "resourceType": "MedicationStatement",
+        "id": "ms1",
+        "status": "active",
+        "subject": {"reference": "Patient/p1"},
+        "medicationCodeableConcept": {"text": "insulin glargine 100 unit/mL pen"},
+        "effectivePeriod": {"start": ago(60)},
+    }
+    given = {"resourceType": "Bundle", "type": "searchset", "entry": [{"resource": statement}]}
+    result = invoked(
+        monkeypatch,
+        Decision.from_hub(TRIAL),
+        ehr,
+        hook(sent_from(ehr, medications=given)),
+        declared,
+    )
+    assert result.unreadable == () and result.ehr_declaration is None
+    assert result.answers["no_insulin"].label == "no"
+    assert LIMITATION not in result.reasons
+
+    outcome = {
+        "resourceType": "OperationOutcome",
+        "issue": [{"severity": "error", "code": "forbidden"}],
+    }
+    result = invoked(
+        monkeypatch,
+        Decision.from_hub(TRIAL),
+        ehr,
+        hook(sent_from(ehr, medications=outcome)),
+        declared,
+    )
+    assert result.reasons == ("could not read medications: operation_outcome",)
+
+    empty = {"resourceType": "Bundle", "type": "searchset"}
+    for name, value in (("null", None), ("empty", {}), ("no entries", empty)):
+        ehr = epic_chart()
+        result = invoked(
+            monkeypatch,
+            Decision.from_hub(TRIAL),
+            ehr,
+            hook(sent_from(ehr, medications=value)),
+            declared,
+        )
+        assert result.unreadable == (), name
+        assert result.ehr_declaration == declared.stamp(), name
+        assert LIMITATION in result.reasons, name
+        assert coverage_of(result)["lists"]["medications"]["not_offered"] == ["MedicationStatement"]
+        assert searched(ehr) == [], name  # nothing fetched: the rest was sent
+    # Without the declaration, null is "no data" and an empty search is read and empty, as before.
+    result = invoked(
+        monkeypatch, Decision.from_hub(TRIAL), ehr, hook(sent_from(ehr, medications=None)), None
+    )
+    assert result.ehr_declaration is None and LIMITATION not in result.reasons
+
+
+# -- the setting, checked at startup -------------------------------------------------------------
+
+REFERENCE_PACKS = ROOT / "packs"
+REGISTERED = {EHR: Registration(base=EHR, org=DEFAULT_ORG, level="decide")}
+
+
+def entry(**changes: Any) -> dict[str, Any]:
+    return {**DECLARED[EHR], **changes}
+
+
+def installed() -> list[Any]:
+    return [load_pack(path) for path in sorted(REFERENCE_PACKS.iterdir()) if path.is_dir()]
+
+
+def cds_listing(base: str, org: str) -> Any:
+    """A CDS client registry with one client listing `base`, for `org` (what `check` reads)."""
+    return SimpleNamespace(clients=[SimpleNamespace(fhir_servers=(base,), org=org)])
+
+
+SHAPES: dict[str, tuple[str, str]] = {
+    "not JSON": ("{", "is not JSON"),
+    "empty": ("{}", "must be a JSON object of 1 to 50 FHIR bases"),
+    "too many": (
+        json.dumps({f"https://ehr{n}.example.org/fhir": entry() for n in range(51)}),
+        "must be a JSON object of 1 to 50 FHIR bases",
+    ),
+    "a key twice": (f'{{"{EHR}": {json.dumps(entry())}, "{EHR}": {{}}}}', "gives a key twice"),
+    "a base that is not one": (json.dumps({"ftp://ehr.example.org": entry()}), "base 1 is not"),
+    "a base twice": (json.dumps({EHR: entry(), f"{EHR}/": entry()}), "is given twice"),
+    "a key missing": (
+        json.dumps({EHR: {k: v for k, v in entry().items() if k != "attested_by"}}),
+        "must be an object of org, version, attested_by, reference, not_offered",
+    ),
+    "a key more": (json.dumps({EHR: entry(extra=1)}), "must be an object of"),
+    "org": (json.dumps({EHR: entry(org="has space")}), "org must be 1 to 100"),
+    "org signed out": (json.dumps({EHR: entry(org="acme")}), "with sign-in off"),
+    "version": (json.dumps({EHR: entry(version="")}), "version must be 1 to 64"),
+    "attested_by": (json.dumps({EHR: entry(attested_by=" A. Fictional")}), "attested_by must be"),
+    "reference": (json.dumps({EHR: entry(reference="")}), "reference must be"),
+    "no types": (json.dumps({EHR: entry(not_offered=[])}), "not_offered must be a list"),
+    "not a type": (
+        json.dumps({EHR: entry(not_offered=["Medicine"])}),
+        "not_offered 1 is not an R4",
+    ),
+    "a type twice": (
+        json.dumps({EHR: entry(not_offered=["MedicationStatement", "MedicationStatement"])}),
+        "names a type twice",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(SHAPES))
+def test_the_declaration_setting_is_checked_at_startup(
+    case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each thing wrong in the setting's shape stops the server at startup, named by the setting
+    and the base (by position when it is not one), never by who attested it."""
+    raw, problem = SHAPES[case]
+    with pytest.raises(MendariError) as refused:
+        parse(raw, signed_in=False)
+    message = str(refused.value)
+    assert message.startswith(ENV) and problem in message, message
+    assert ATTESTED not in message
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{EHR}={DEFAULT_ORG}:decide")
+    monkeypatch.setenv(ENV, raw)
+    with pytest.raises(MendariError, match=ENV):
+        create_app(db_path=tmp_path / "a.db", packs_paths=[REFERENCE_PACKS])
+
+
+def test_each_declaration_is_checked_against_the_deployment(tmp_path: Path) -> None:
+    """A declared base must be on the allow-list and registered (for launches, or in a CDS
+    client's `fhir_servers`), for the organization those registrations name when sign-in is on;
+    each declared type must be one a pack found here may read a list without. The same entry
+    written in another order has the same digest; a changed one another."""
+    packs = installed()
+
+    def refusal(raw: dict[str, Any], **kwargs: Any) -> str:
+        arguments: dict[str, Any] = {
+            "signed_in": False,
+            "ehrs": REGISTERED,
+            "cds": None,
+            "allowed": {ORIGIN},
+            **kwargs,
+        }
+        found = parse(json.dumps(raw), signed_in=arguments["signed_in"])
+        with pytest.raises(MendariError) as refused:
+            check(found, packs, **arguments)
+        return str(refused.value)
+
+    assert "not on MENDARI_FHIR_ALLOWED_SERVERS" in refusal(DECLARED, allowed=set())
+    assert "registered neither" in refusal(DECLARED, ehrs={})
+    other = {EHR: Registration(base=EHR, org="other", level="decide")}
+    signed = {EHR: entry(org="acme")}
+    assert "MENDARI_SMART_EHRS registers it to" in refusal(signed, signed_in=True, ehrs=other)
+    assert "every CDS client" in refusal(
+        signed, signed_in=True, ehrs={}, cds=cds_listing(EHR, "other")
+    )
+    for kind in ("DocumentReference", "Patient", "Medication", "Condition"):
+        message = refusal({EHR: entry(not_offered=[kind])})
+        assert f"not_offered {kind}: no pack found here" in message, kind
+    both = {EHR: entry(not_offered=["MedicationRequest", "MedicationStatement"])}
+    assert "not_offered MedicationRequest: no pack found here" in refusal(both)
+
+    # Registered either way, for its organization: checked.
+    check(declarations(), packs, signed_in=False, ehrs=REGISTERED, cds=None, allowed={ORIGIN})
+    found = parse(json.dumps(signed), signed_in=True)
+    check(found, packs, signed_in=True, ehrs={}, cds=cds_listing(EHR, "acme"), allowed={ORIGIN})
+
+    same = declaration({EHR: dict(reversed(list(entry().items())))})
+    assert same.sha256 == declaration().sha256
+    changed = declaration({EHR: entry(version="2026-11-09")})
+    assert changed.sha256 != declaration().sha256
+    assert json.loads(canonical(declaration())) == {
+        "format": "mendari.ehr-declarations/1",
+        "base": EHR,
+        "org": DEFAULT_ORG,
+        "version": "2026-11-08",
+        "attested_by": ATTESTED,
+        "reference": "CHG-0001 (fictional)",
+        "not_offered": ["MedicationStatement"],
+    }
+
+
+def test_the_setting_is_inline_json_or_a_file_and_off_when_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unset, there is no declaration and every source is read. Inline JSON and a file give the
+    same declarations; a file that cannot be read, is too large or is not UTF-8 stops the
+    server."""
+    packs = installed()
+    kwargs: dict[str, Any] = {"signed_in": False, "ehrs": REGISTERED, "cds": None}
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
+    assert ehr_declarations(packs, **kwargs) is None
+    monkeypatch.setenv(ENV, json.dumps(DECLARED))
+    inline = ehr_declarations(packs, **kwargs)
+    path = tmp_path / "declared.json"
+    path.write_text(json.dumps(DECLARED))
+    monkeypatch.setenv(ENV, str(path))
+    assert ehr_declarations(packs, **kwargs) == inline is not None
+    for name, content, problem in (
+        ("missing.json", None, "neither inline JSON"),
+        ("large.json", b" " * (1024 * 1024 + 1), "larger than"),
+        ("latin.json", '{"é": 1}'.encode("latin-1"), "not UTF-8"),
+    ):
+        target = tmp_path / name
+        if content is not None:
+            target.write_bytes(content)
+        monkeypatch.setenv(ENV, str(target))
+        with pytest.raises(MendariError, match=problem):
+            ehr_declarations(packs, **kwargs)
+
+
+def test_health_shows_the_organizations_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/api/health` shows what the caller's organization's EHRs do not offer, by base: each
+    declaration's version, digest, who attested it, its reference and the types; null when
+    nothing is declared."""
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{EHR}={DEFAULT_ORG}:decide")
+    with TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=[REFERENCE_PACKS])) as app:
+        assert app.get("/api/health").json()["ehr_declarations"] is None
+    monkeypatch.setenv(ENV, json.dumps(DECLARED))
+    with TestClient(create_app(db_path=tmp_path / "b.db", packs_paths=[REFERENCE_PACKS])) as app:
+        shown = app.get("/api/health").json()["ehr_declarations"]
+    assert shown == {EHR: {**declaration().stamp(), "not_offered": ["MedicationStatement"]}}
+
+
+# -- records from before, and an Epic-shaped chart, end to end -----------------------------------
+
+
+def test_old_records_still_verify(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A record chained before the declarations has no `ehr_declaration`; one after has it (null
+    without a declaration left out, and on JSON input; the stamp with one). The chain verifies
+    across all of them, on both databases."""
+    store = AuditStore(db_target)
+    trial = Decision.from_hub(TRIAL, store=store)
+    inbox = Decision.from_hub("mendari/patient-inbox-router", store=store)
+    original = DecisionResult.to_record
+
+    def before(self: DecisionResult) -> dict[str, Any]:
+        record = original(self)
+        del record["ehr_declaration"]  # the shape from before
+        return record
+
+    monkeypatch.setattr(DecisionResult, "to_record", before)
+    old, _ = decide_for(trial, epic_chart().client(), "p1", "Patient/p1")
+    monkeypatch.setattr(DecisionResult, "to_record", original)
+    new, _ = decide_for(trial, epic_chart().client(), "p1", "Patient/p1")
+    declared, _ = decide_for(
+        trial, epic_chart().client(), "p1", "Patient/p1", declared=declaration()
+    )
+    plain = inbox.decide({"message": {"body": "Please call me about my bill."}})
+    shapes = {}
+    for result in (old, new, declared, plain):
+        item = store.get(result.id)
+        assert item is not None
+        shapes[result.id] = item["record"].get("ehr_declaration", "absent")
+    assert shapes[old.id] == "absent"
+    assert shapes[new.id] is None and shapes[plain.id] is None
+    assert shapes[declared.id] == declaration().stamp()
+    assert store.verify()["ok"] is True
+    store.close()
+
+
+def test_an_epic_shaped_chart_decides_with_the_declaration() -> None:
+    """The 2026-11-08 run's three gaps together, on a synthetic chart shaped as Epic is assumed to
+    send it (A1, A2): 22 notes as HTML and RTF twins, 26 orders of 26 drugs, no MedicationStatement
+    API. Without the declaration, the one reason left is MedicationStatement's refusal; with it,
+    the chart is decided, nothing unread, and a person reviews it (risk level 2)."""
+    trial = Decision.from_hub(TRIAL)
+    ehr = epic_chart(notes=22, orders=25)
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1")
+    assert result.reasons == ("could not read medications: unauthorized",)
+
+    ehr = epic_chart(notes=22, orders=25)
+    result, _ = decide_for(trial, ehr.client(), "p1", "Patient/p1", declared=declaration())
+    assert result.unreadable == () and result.outcome is Outcome.HUMAN_REVIEW
+    assert result.recommendation is not None and LIMITATION in result.reasons
+    coverage = coverage_of(result)
+    assert coverage["links"]["read"] == {"follows": 26, "notes": 22}
+    assert coverage["fields"]["notes"]["unreadable"] == {}
+    assert coverage["lists"]["medications"]["items"] == 26

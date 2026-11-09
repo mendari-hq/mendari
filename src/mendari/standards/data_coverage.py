@@ -174,6 +174,7 @@ def measure(
     site_codes: SiteCodes | None = None,
     too_long: Collection[str] = (),
     links: Mapping[str, Any] | None = None,
+    not_offered: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
@@ -185,7 +186,11 @@ def measure(
     a translation matched counts by its system, as any other (`other` for a site's own).
     `too_long` names the fields left out because their notes' text is longer than the input
     allows (`fhir.overlong`, LP-23k), each counted once as `too_large`. `links` is what the
-    decision's linked reads used (`linked.Linker.used`), its `links` section when given."""
+    decision's linked reads used (`linked.Linker.used`), its `links` section when given.
+    `not_offered` names the prefetch keys left out because the site declared its EHR does not
+    offer their type (`standards/ehr_declarations.py`), each with its type: that source of a list
+    is marked `not_offered: true` (its counts are 0: it was not read, not read and empty), and its
+    list names the types it was read without (`not_offered`)."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -198,6 +203,7 @@ def measure(
     reading = Reading.of(mapping, indexed, site_codes)
     looked = looked_for(mapping)
     total = Counter(unreadable.values())
+    absent = set((not_offered or {}).values())  # the types the EHR does not offer, declared
 
     where = mapping.focus_where
     focus = {
@@ -240,6 +246,11 @@ def measure(
                 "sources": records,
                 "unreadable": _merged(*(failed.get(kind) for kind in sorted(kinds)), notes),
             }
+            without = [kind for kind in spec.resources if kind in absent]
+            for kind in without:
+                records[kind]["not_offered"] = True
+            if without:
+                lists[name]["not_offered"] = without
     coverage: dict[str, Any] = {
         "format": FORMAT,
         "focus": focus,

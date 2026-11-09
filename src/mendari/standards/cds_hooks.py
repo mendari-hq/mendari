@@ -78,6 +78,7 @@ from mendari.errors import (
 )
 from mendari.standards import davinci, fhir_structure
 from mendari.standards.data_coverage import source_type
+from mendari.standards.ehr_declarations import EhrDeclaration
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient, check_allowed
 from mendari.standards.linked import Linker, reads_links
@@ -206,11 +207,19 @@ def invoke(
     most: int = MAX_ORDERS,
     charge: Callable[[int], None] | None = None,
     links: CardLinks = NO_LINKS,
+    declared: EhrDeclaration | None = None,
 ) -> dict[str, Any]:
     """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
     draft order the pack is about, at most `most` of them; `charge` is given the number of
     decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising. `links` says where the cards may link."""
+    refuses by raising. `links` says where the cards may link.
+
+    `declared` is what the request's `fhirServer` does not offer, as the site declared it for
+    the caller's organization (`standards/ehr_declarations.py`): a prefetch key of such a type,
+    for a pack that may read its list without it (`EhrDeclaration.skipped`), is never fetched,
+    and left out, sent empty, null or as a search with no entries, it is not offered (the
+    decision records so, and never automates). A value with entries is data, used as sent, and
+    an OperationOutcome is still `operation_outcome`."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
         raise FhirError(f"pack {decision.pack.id} is not a CDS service")
@@ -236,16 +245,32 @@ def invoke(
     # A key left out, or sent empty, is fetched, as before; a null value is "no data" (CDS
     # Hooks 2.0), never fetched.
     missing = [key for key in hooks.prefetch if _left_out(sent, key)]
+    # A key of a type the EHR does not offer, by the site's declaration: never fetched, and
+    # not offered unless the client sent it data (a null or an empty search says nothing the
+    # declaration does not).
+    skipped = (
+        {}
+        if declared is None
+        else declared.skipped(
+            FhirAdapter.for_pack(decision.pack).mapping, hooks.prefetch, hooks.prefetch
+        )
+    )
+    not_offered = {
+        key: kind
+        for key, kind in skipped.items()
+        if key in missing or _no_data(sent.get(key, None))
+    }
     found: dict[str, Any] = {}
     unreadable: dict[str, ReadReason] = {}
-    if missing:
-        found, unreadable = fetch(hooks.prefetch, missing, request)
+    wanted = [key for key in missing if key not in not_offered]
+    if wanted:
+        found, unreadable = fetch(hooks.prefetch, wanted, request)
     # Every value the client sent goes through the structural R4 check before any is set aside,
     # as before: a structure error is the request's fault (a `400`), whatever the value is.
     _require_r4(sent)
     prefetch: dict[str, Any] = {}
     for key, value in sent.items():
-        if value is None or key in missing:
+        if value is None or key in missing or key in not_offered:
             continue
         if key in hooks.prefetch and _outcome(value):
             unreadable[key] = "operation_outcome"  # the client's own read failed
@@ -263,14 +288,25 @@ def invoke(
         if hooks.hook in ORDER_HOOKS:
             decided = [
                 decision.decide_fhir(
-                    prefetch, focus=order, unreadable=unreadable, sources=templates, links=linking
+                    prefetch,
+                    focus=order,
+                    unreadable=unreadable,
+                    sources=templates,
+                    links=linking,
+                    not_offered=not_offered,
+                    declaration=declared if not_offered else None,
                 )
                 for order in orders
             ]
         else:
             decided = [
                 decision.decide_fhir(
-                    prefetch, unreadable=unreadable, sources=templates, links=linking
+                    prefetch,
+                    unreadable=unreadable,
+                    sources=templates,
+                    links=linking,
+                    not_offered=not_offered,
+                    declaration=declared if not_offered else None,
                 )
             ]
     template = hooks.card
@@ -424,6 +460,18 @@ def _left_out(sent: Mapping[str, Any], key: str) -> bool:
         return True
     value = sent[key]
     return value is not None and not value
+
+
+def _no_data(value: Any) -> bool:
+    """A value that holds no data: null (CDS Hooks 2.0's "no data"), or a Bundle with no
+    entries."""
+    if value is None:
+        return True
+    return (
+        isinstance(value, Mapping)
+        and value.get("resourceType") == "Bundle"
+        and not value.get("entry")
+    )
 
 
 def _require_r4(sent: Mapping[str, Any]) -> None:

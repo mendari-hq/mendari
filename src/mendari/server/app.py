@@ -150,6 +150,7 @@ from mendari.standards import (
     fhir_search,
     pas,
 )
+from mendari.standards.ehr_declarations import ehr_declarations
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import X12_CODE, PasError
 from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
@@ -965,6 +966,13 @@ def create_app(
     # in them, or a translation into a code no pack found here declares (served or not, so one
     # setting serves every per-pack image), fails here, at startup, naming the organization.
     site_maps = site_codes(installed.values(), signed_in=sign_in is not None)
+    # What each registered EHR does not offer, declared per FHIR base (MENDARI_EHR_DECLARATIONS):
+    # unset, every source is read and a refused one abstains. A base off the allow-list, not
+    # registered for its organization, or a type no pack found here may read its list without,
+    # fails here, at startup, naming the base.
+    declarations = ehr_declarations(
+        installed.values(), signed_in=sign_in is not None, ehrs=ehrs, cds=cds
+    )
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
@@ -1345,8 +1353,10 @@ def create_app(
         today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
         or null), the registered CDS clients of the caller's organization (`cds_clients`: their
         ids, or null when none is registered), the site code map of the caller's organization
-        (`site_codes`: its version and SHA-256, or null), and the id of the key that signs the
-        daily checkpoint (`checkpoint_key`, or null).
+        (`site_codes`: its version and SHA-256, or null), what its EHRs do not offer
+        (`ehr_declarations`: by FHIR base, each declaration's version, SHA-256, who attested it,
+        its reference and the types, or null when nothing is declared), and the id of the key
+        that signs the daily checkpoint (`checkpoint_key`, or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
         be built, the problems an owned pack loads with, `pack_warnings`) is
@@ -1407,6 +1417,12 @@ def create_app(
                 None
                 if site_maps is None or (found_map := site_maps.for_org(principal.org)) is None
                 else found_map.stamp()
+            ),
+            # What the caller's organization's EHRs do not offer (MENDARI_EHR_DECLARATIONS), by
+            # FHIR base: each declaration's version, SHA-256, who attested it and where, and the
+            # types; None: nothing is declared here.
+            "ehr_declarations": (
+                None if declarations is None else declarations.for_org(principal.org)
             ),
             "phi_mode": phi.mode,
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
@@ -2559,7 +2575,10 @@ def create_app(
         0.3 pack also reads, from that `fhirServer` only and under its base, what a link the
         record does not hold points to (a note's Binary, a followed reference): at most 50 notes
         and 50 followed references a decision and 100 reads a request, inside the decision's
-        deadline, each read once a request; a link it does not read abstains the same way."""
+        deadline, each read once a request; a link it does not read abstains the same way. A
+        prefetch key of a type the site declared that `fhirServer` does not offer
+        (`MENDARI_EHR_DECLARATIONS`) is not read for a pack that may read its list without it:
+        the decision records the declaration, and never automates."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
@@ -2593,8 +2612,19 @@ def create_app(
                     raise capped
 
         links = card_links(caller, request.get("fhirServer"))
+        # What the request's FHIR server does not offer, as the site declared it for the
+        # organization this call acts for (MENDARI_EHR_DECLARATIONS).
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        declared = (
+            None if declarations is None else declarations.for_base(request.get("fhirServer"), org)
+        )
         return cds_hooks.invoke(
-            decision_for(pack.id), request, most=most_orders, charge=charge, links=links
+            decision_for(pack.id),
+            request,
+            most=most_orders,
+            charge=charge,
+            links=links,
+            declared=declared,
         )
 
     def card_links(caller: Principal, fhir_server: object) -> cds_hooks.CardLinks:
@@ -3098,6 +3128,7 @@ def create_app(
         auth=auth,
         lifetime=session_lifetime,
         site_codes=site_maps,
+        declarations=declarations,
     )
 
     @app.get("/", include_in_schema=False)

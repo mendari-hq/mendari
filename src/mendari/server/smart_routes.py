@@ -71,6 +71,7 @@ from mendari.server import security_log, sessions
 from mendari.server.auth import Auth, chain_name, ehr_id
 from mendari.standards import smart
 from mendari.standards.cds_hooks import fill_template, read_each
+from mendari.standards.ehr_declarations import EhrDeclaration, EhrDeclarations
 from mendari.standards.fhir import FhirAdapter, SiteCodes
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.linked import Linker
@@ -100,6 +101,7 @@ def add_smart_routes(
     auth: Auth,
     lifetime: sessions.Lifetime | None = None,
     site_codes: SiteCodeMaps | None = None,
+    declarations: EhrDeclarations | None = None,
 ) -> None:
     lifetime = lifetime or sessions.Lifetime()
     ehrs = auth.ehrs or {}
@@ -380,8 +382,13 @@ def add_smart_routes(
         decision is the EHR's registered organization's."""
         session = session_of(request)
         decision = decision_for(body.pack_id)
+        # What the EHR does not offer, as the site declared it for this organization.
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        declared = None if declarations is None else declarations.for_base(session["iss"], org)
         with ehr(request, session) as fhir:
-            result, task = decide_for(decision, fhir, session["patient"], body.focus)
+            result, task = decide_for(
+                decision, fhir, session["patient"], body.focus, declared=declared
+            )
         return {"decision": result.to_dict(), "task": task, "notice": notices.notice()}
 
 
@@ -459,7 +466,12 @@ def focus_items(
 
 
 def decide_for(
-    decision: Decision, fhir: FhirClient, patient_id: str, focus_ref: str
+    decision: Decision,
+    fhir: FhirClient,
+    patient_id: str,
+    focus_ref: str,
+    *,
+    declared: EhrDeclaration | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Decide one of the patient's focus resources, with the record the pack's CDS prefetch
     templates describe, read with the session's token. Each prefetch read stands alone, as a
@@ -467,7 +479,10 @@ def decide_for(
     reason (LP-23d), but a `401` still ends the launch (`ehr`). A focus resource that cannot be
     read is an error, as before: there is nothing to decide about. What a spec 0.3 mapping
     reaches by a link the record does not hold is read with the same token, as a CDS hook's is
-    (`standards/linked.py`, LP-23h), and a `401` there ends the launch too."""
+    (`standards/linked.py`, LP-23h), and a `401` there ends the launch too. A key of a type the
+    EHR does not offer, as the site declared it (`declared`, `standards/ehr_declarations.py`), is
+    not read when the pack may read its list without it and another source of that list is read
+    here (`EhrDeclaration.skipped`): the decision records so, and never automates."""
     adapter = FhirAdapter.for_pack(decision.pack)
     kind, _, resource_id = focus_ref.partition("/")
     if kind != adapter.mapping.focus or not _ID.match(resource_id):
@@ -485,10 +500,19 @@ def decide_for(
             queries[key] = fill_template(template, context)
         except FhirError:
             continue  # a template for context this launch doesn't have
+    skipped = {} if declared is None else declared.skipped(adapter.mapping, templates, queries)
+    for key in skipped:
+        del queries[key]  # what the EHR does not offer is not asked for
     prefetch, unreadable = read_each(fhir, templates, queries, fatal=_ended)
     links = Linker.of(fhir, fatal=_ended)
     return decision.decide_fhir(
-        prefetch, focus=focus, unreadable=unreadable, sources=templates, links=links
+        prefetch,
+        focus=focus,
+        unreadable=unreadable,
+        sources=templates,
+        links=links,
+        not_offered=skipped,
+        declaration=declared if skipped else None,
     )
 
 
