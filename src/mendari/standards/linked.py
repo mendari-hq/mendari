@@ -263,50 +263,54 @@ class Linker:
         record = decision.record
         if target in record.linked or target in record.unread:
             return  # met before in this decision
-        found = self._resolve(target, types, decision, purpose)
+        found, fetched = self._resolve(target, types, decision, purpose)
         if isinstance(found, str):
             record.unread[target] = found
             decision.left += 1
             return
         record.link(target, found)
-        if all(found is not other for other in decision.resources):
+        # A resource the record held is linked only: it was not read for this decision.
+        if fetched and all(found is not other for other in decision.resources):
             decision.resources.append(found)
 
-    def _resolve(self, target: str, types: set[str], decision: _Decision, purpose: Purpose) -> Read:
+    def _resolve(
+        self, target: str, types: set[str], decision: _Decision, purpose: Purpose
+    ) -> tuple[Read, bool]:
         """What `target` reaches: a resource the record holds by another spelling, one read now
-        or earlier in the request, or why it was not read."""
+        or earlier in the request, or why it was not read; and whether it came from the server
+        (false for what the record holds)."""
         client = self._client_or_none()
         if client is None:
-            return self._refused or "off_server"
+            return self._refused or "off_server", True
         try:
             url = client.url_of(target)
         except FhirError as error:
-            return error.reason or "off_server"
+            return error.reason or "off_server", True
         named = _under(client, url)
         if named is None:
-            return "not_fetched"  # under the server, but no `Type/id`
+            return "not_fetched", True  # under the server, but no `Type/id`
         if named[0] not in types:
-            return "unsupported_type"
+            return "unsupported_type", True
         held = decision.record.ids.get(named)
         if held is not None:  # an absolute URL to a resource the record holds
-            return held
+            return held, False
         urls = decision.urls[purpose]
         if url not in urls and len(urls) >= budget(purpose):
-            return "cap"
+            return "cap", True
         found = self._read.get(url)
         if found is None:
             if self._sent >= MAX_REQUEST_READS:
-                return "cap"  # the request's reads are used up: nothing is sent
+                return "cap", True  # the request's reads are used up: nothing is sent
             wait = self._wait()
             if wait is None:
-                return "timeout"  # a clock has run out: nothing is sent
+                return "timeout", True  # a clock has run out: nothing is sent
             found, kept = self._fetch(client, url, named[0], wait)
             if kept:
                 self._read[url] = found
         urls.add(url)
         if isinstance(found, str) and url in self._statuses:
             decision.statuses[self._statuses[url]] += 1
-        return found
+        return found, True
 
     def _fetch(self, client: FhirClient, url: str, kind: str, wait: float) -> tuple[Read, bool]:
         """One resource of type `kind` at `url`, waiting at most `wait` (`_wait`), or why it was

@@ -562,7 +562,9 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
     finds an Organization the record holds without a read). A payor that is not of the type the
     field reads (the patient paying) is not read and is not unreadable; a later payor is not
     read; a failed read abstains with its reason, and a payor on another server, however its
-    scheme is spelled, is `off_server` (`not_fetched` with no server), never read."""
+    scheme is spelled, is `off_server` (`not_fetched` with no server), never read. An
+    Organization the record holds is not among the resources the linker read for the decision,
+    so it is not checked twice."""
     ehr = Ehr(organization("o1", "ACME-77"), organization("o2", "OTHER-1"))
     payer = organization("o1", "ACME-77")
     for record, reads in (
@@ -576,6 +578,9 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
         ehr.requests.clear()
         assert mapped(pack, ehr, *record)["patient"]["payer"] == "ACME-77", record
         assert ehr.reads() == reads, record
+        adapter = FhirAdapter.for_pack(pack.pack)
+        read = Linker.of(ehr.client()).read(adapter.mapping, adapter.index(bundle(*record)))
+        assert [f"{r['resourceType']}/{r['id']}" for r in read] == reads, record
 
     ehr.requests.clear()
     result = decide(pack, coverage("Patient/p1"), ehr=ehr)
