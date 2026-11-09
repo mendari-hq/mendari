@@ -678,11 +678,16 @@ TWO_SOURCES = {
 
 
 def two_source_pack(
-    base: Path, *, changes: dict[str, Any] | None = None, rules: list[dict[str, Any]] | None = None
+    base: Path,
+    *,
+    changes: dict[str, Any] | None = None,
+    rules: list[dict[str, Any]] | None = None,
+    statements: str = "MedicationStatement?patient={{context.patientId}}",
 ) -> Path:
     """The prescreen fixture at spec 0.3 and risk level 1, automating at 0.80 (its criteria give
     a candidate 0.83), its medications read from MedicationStatement and MedicationRequest, both
-    prefetched; `changes` to its mapping, `rules` its policy's."""
+    prefetched (MedicationStatement by `statements`); `changes` to its mapping, `rules` its
+    policy's."""
     root = mini(
         base / "packs", {"lists": {"medications": TWO_SOURCES}, **(changes or {})}, spec="0.3"
     )
@@ -693,7 +698,7 @@ def two_source_pack(
         manifest["policy"]["rules"] = rules
     manifest["cds_hooks"]["prefetch"].update(
         {
-            "statements": "MedicationStatement?patient={{context.patientId}}",
+            "statements": statements,
             "requests": "MedicationRequest?patient={{context.patientId}}",
         }
     )
@@ -760,6 +765,23 @@ def test_a_declaration_never_automates(tmp_path: Path) -> None:
     )
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert f"{LIMITATION} instead of its rule's BLOCK" in result.reasons
+
+
+def test_a_declared_key_a_launch_cannot_fill_is_not_offered(tmp_path: Path) -> None:
+    """A declared key whose template needs context the SMART launch does not have (an encounter)
+    is left out as not offered, never a `500`: nothing of its type is asked for, and the decision
+    records the declaration and goes to a person, the limitation a reason."""
+    template = "MedicationStatement?patient={{context.patientId}}&encounter={{context.encounterId}}"
+    pack = Decision(load_pack(two_source_pack(tmp_path, statements=template)))
+    declared = declaration()
+    ehr = mini_chart(refused=True)
+    result, _ = decide_for(pack, ehr.client(), "p1", "Patient/p1", declared=declared)
+    assert result.outcome is Outcome.HUMAN_REVIEW and LIMITATION in result.reasons
+    assert result.unreadable == () and result.ehr_declaration == declared.stamp()
+    assert "MedicationStatement" not in searched(ehr)
+    assert coverage_of(result)["prefetch"] == {
+        "statements": {"resource": "MedicationStatement", "not_offered": True}
+    }
 
 
 def test_a_refused_input_under_a_declaration_still_names_the_limitation() -> None:

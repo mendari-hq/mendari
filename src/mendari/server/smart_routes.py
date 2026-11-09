@@ -502,7 +502,9 @@ def decide_for(
             continue  # a template for context this launch doesn't have
     skipped = {} if declared is None else declared.skipped(adapter.mapping, templates, queries)
     for key in skipped:
-        del queries[key]  # what the EHR does not offer is not asked for
+        # What the EHR does not offer is not asked for. A key whose template this launch could
+        # not fill is not offered all the same: the decision records so, and never automates.
+        queries.pop(key, None)
     statuses: dict[str, int] = {}
     prefetch, unreadable = read_each(fhir, templates, queries, fatal=_ended, statuses=statuses)
     links = Linker.of(fhir, fatal=_ended)
