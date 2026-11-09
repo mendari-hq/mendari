@@ -1486,7 +1486,7 @@ Connect) is not supported yet.
     - 2026-11-08: first SMART launch on Epic's sandbox (owner): launch, authorize, callback,
       patient read worked; the trial pack abstained for Anna Cadence on three gaps
       (MedicationStatement not offered, the shared 20-link cap, RTF twins counted twice), built
-      on branch `claude/epic-data-fit` (the Epic data fit PR; not pushed yet); the owner's run
+      on branch `claude/epic-data-fit` (PR #290); the owner's run
       stays open; the trial card's "20 links" wording waits on #287. Run notes:
       `notes/epic-sandbox-checklist.md` section 7.
     - [ ] Owner (O1): set `MENDARI_EHR_DECLARATIONS` for Epic's base on the hosted site, a
@@ -1558,9 +1558,19 @@ Connect) is not supported yet.
     developers"); a pack from anyone else keeps "a clinician other than the author". Recorded in
     CONTRIBUTING.md and the authoring guide (GOVERNANCE.md and the pack PR template already
     agree); gate `clinician-review` is unchanged.
-  - [ ] Next (the owner asked, 2026-11-07): review briefs like the medication brief, for the
+  - [x] Next (the owner asked, 2026-11-07): review briefs like the medication brief, for the
     trial pack's criteria as a whole, the inbox router, AI Guard's dose table, and the referral
-    router with the prior-authorization preflight.
+    router with the prior-authorization preflight: built in #283 (`notes/clinician-review-*.md`,
+    indexed in `notes/README.md`).
+    - [ ] Follow-up, before the referral and prior-authorization review is recorded: refresh
+      `notes/clinician-review-referral-and-prior-auth.md`, which still describes both packs at
+      0.3.0, for both at 0.3.1 (#288, merged before #283; referral-router `sha256:b283d671…`,
+      prior-auth-preflight `sha256:e2b2503f…`): the version and digest, the quoted line numbers,
+      the referral router's `refused` card and prior authorization's `also_show` red-flag card on
+      `not_checked`.
+    - [ ] Owner: review each brief (the trial criteria, the inbox router, AI Guard's doses, the
+      referral router and prior authorization) and record each review in gate
+      `clinician-review`'s attestation; a build session never records one.
   - [x] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard: approved (owner, 2026-11-07); `notes/ehr-scorecard.md` says so.
   - [x] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`

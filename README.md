@@ -735,7 +735,9 @@ token through a hook over HTTP, its card and the clinician's feedback on it to `
 verify`, which passes, and fails once one event is changed, on SQLite and Postgres. The shipped
 packs' cards followed (LP-23j): the inbox has its own card template, and the referral router
 shows a card only when the person signing can act (a referral to send back with what is
-missing, or one to review today), deciding and auditing the others with no card. The shipped
+missing, or one to review today), deciding and auditing the others with no card; since its
+0.3.1, a referral refused as invalid input also shows a warning card that says why (spec 0.3 §5
+`refused`). The shipped
 packs' mappings for real EHR data on spec 0.3 followed (LP-23k, after the owner's go-ahead; the
 owner, a physician, answered the brief on its MedicationRequest rule on 2026-11-07, acceptable
 with changes not built yet, so the rule is not clinically reviewed). Left: the run on Epic's own
@@ -744,9 +746,9 @@ The scorecard's grade at the close-out is level 1 overall, as before LP-23: fail
 behaviour stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing
 that only a CI run not yet made would show is counted. The
 [threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)
-keeps five residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
-decision id the EHR keeps, a misconfigured site map, and frequent abstention on records whose
-notes Mendari cannot read.
+keeps six residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
+decision id the EHR keeps, a misconfigured site map, a wrong declaration of what the EHR does not
+offer, and frequent abstention on records whose notes Mendari cannot read.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.

@@ -223,10 +223,10 @@ there amends ADR-0006.
   notes, for one) the packs may abstain often, and the data-coverage counts show it.
 - The only thing stored is the `jti` claims, which expire. Rolling back past 23b turns an EHR's
   tokens back into refusals.
-- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps five
+- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps six
   residual risks of this design: trust in the EHR's key and its rotation, a compromised `jku`
-  host, the decision id disclosed to the EHR, a misconfigured site map, and frequent abstention
-  on RTF-heavy records.
+  host, the decision id disclosed to the EHR, a misconfigured site map, a wrong declaration of
+  what the EHR does not offer (T10), and frequent abstention on RTF-heavy records.
 
 ## Alternatives Considered
 - **An EHR's token as a Mendari key.** Rejected: a key is Mendari's secret, handed to the EHR;

@@ -803,7 +803,10 @@ way, its retry included, waits only for what remains. Either is recorded as `tim
 decision goes to a person; the local providers still answer, so a keyword safety screen still
 flags a possible emergency. Keep it below your platform's limit on a request, with room for the
 audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
-decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
+decisions (a CDS Hooks order hook's draft orders) gives each its own deadline. On a CDS hook or a
+SMART launch, a spec 0.3 pack's linked reads from the EHR (a note's Binary, a followed
+reference) use the same deadline first, and the remote calls get what they leave: set it with
+both in mind.
 
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
