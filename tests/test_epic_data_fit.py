@@ -10,6 +10,11 @@ trial pack abstaining for a test patient on three gaps of Mendari's, each pinned
   per request (`MAX_REQUEST_READS`, `LINK_SECONDS`) and run inside the decision's deadline, so a
   chart's notes no longer use up what its drugs need. An Epic MedicationRequest is assumed to
   name its drug by `medicationReference` with a `display` (assumption A2).
+- What an EHR does not offer may be declared (`MENDARI_EHR_DECLARATIONS`): Epic has no R4
+  MedicationStatement API and refused the search (403). Undeclared, the refusal abstains, so
+  absence is never read as an answer; declared, the list is read from its other sources, the
+  decision records the declaration and never automates. The data-coverage record says why part
+  of a record was not read: a prefetch read's HTTP status, the linked reads by budget.
 
 Every record is synthetic, every id and system fictional, and the shapes Epic is assumed to send
 are labelled as assumptions; nothing remote is called. The trial pack is read from `packs/`,
@@ -941,7 +946,7 @@ def test_the_declaration_setting_is_checked_at_startup(
         create_app(db_path=tmp_path / "a.db", packs_paths=[REFERENCE_PACKS])
 
 
-def test_each_declaration_is_checked_against_the_deployment(tmp_path: Path) -> None:
+def test_each_declaration_is_checked_against_the_deployment() -> None:
     """A declared base must be on the allow-list and registered (for launches, or in a CDS
     client's `fhir_servers`), for the organization those registrations name when sign-in is on;
     each declared type must be one a pack found here may read a list without. The same entry

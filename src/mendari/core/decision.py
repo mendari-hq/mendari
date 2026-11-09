@@ -48,6 +48,7 @@ from mendari.settings import FhirValidation, decision_deadline_s
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
     from mendari.standards.ehr_declarations import EhrDeclaration
+    from mendari.standards.fhir import FhirMapping
     from mendari.standards.linked import Linker
 
 MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
@@ -791,7 +792,7 @@ class Decision:
 
 
 def _check_not_offered(
-    mapping: Any,
+    mapping: FhirMapping,
     templates: Mapping[str, str],
     resources: Mapping[str, Any],
     not_offered: Mapping[str, str],
