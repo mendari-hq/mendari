@@ -2557,8 +2557,9 @@ def create_app(
         that is not R4), the hook still answers `200`: the decision is ABSTAIN with the key and a
         fixed reason, it is recorded with its `data_coverage` record, and its card says so. A spec
         0.3 pack also reads, from that `fhirServer` only and under its base, what a link the
-        record does not hold points to (a note's Binary, a followed reference): at most 20 links a
-        decision, each read once a request; a link it does not read abstains the same way."""
+        record does not hold points to (a note's Binary, a followed reference): at most 50 notes
+        and 50 followed references a decision and 100 reads a request, inside the decision's
+        deadline, each read once a request; a link it does not read abstains the same way."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")

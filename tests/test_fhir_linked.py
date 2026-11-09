@@ -36,7 +36,7 @@ from mendari.settings import FhirValidation
 from mendari.standards import cds_hooks, linked
 from mendari.standards.fhir import FhirAdapter, renditions, unread_attachments
 from mendari.standards.fhir_client import FhirClient
-from mendari.standards.linked import MAX_READS, Linker, reads_links
+from mendari.standards.linked import MAX_NOTE_READS, Linker, reads_links
 from tests.conftest import INPUT_HASH_KEY, ROOT
 from tests.test_spec_03 import mini
 
@@ -383,21 +383,22 @@ def test_a_fhir_server_off_the_allow_list_reads_no_link(
 def test_linked_reads_are_capped_per_decision_and_in_size(
     pack: Decision, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At most `MAX_READS` links a decision: past them, a link is `cap` and is not read. Each
-    read is at most `MAX_BYTES` once decoded (a Binary's content, measured exactly; another
-    resource's JSON as it arrives), else `too_large`; the decision abstains on either."""
-    many = 25
+    """At most `MAX_NOTE_READS` note links a decision: past them, a link is `cap` and is not
+    read (the budgets by purpose and per request: `tests/test_epic_data_fit.py`). Each read is
+    at most `MAX_BYTES` once decoded (a Binary's content, measured exactly; another resource's
+    JSON as it arrives), else `too_large`; the decision abstains on either."""
+    many = MAX_NOTE_READS + 5
     ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(many)))
     notes = [note(f"n{n}", linking(f"Binary/b{n}")) for n in range(many)]
     result = decide(pack, *notes, ehr=ehr)
-    assert MAX_READS == 20 and len(ehr.reads()) == MAX_READS
+    assert MAX_NOTE_READS == 50 and len(ehr.reads()) == MAX_NOTE_READS
     assert result.reasons == ("could not read notes: cap",)
     assert result.data_coverage is not None
-    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"cap": many - MAX_READS}
+    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"cap": many - MAX_NOTE_READS}
 
-    ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(MAX_READS)))
-    result = decide(pack, *notes[:MAX_READS], ehr=ehr)
-    assert result.unreadable == () and len(ehr.reads()) == MAX_READS  # the cap itself reads
+    ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(MAX_NOTE_READS)))
+    result = decide(pack, *notes[:MAX_NOTE_READS], ehr=ehr)
+    assert result.unreadable == () and len(ehr.reads()) == MAX_NOTE_READS  # the cap itself reads
 
     monkeypatch.setattr(linked, "MAX_BYTES", 200)
     ehr = Ehr(

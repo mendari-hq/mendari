@@ -5,7 +5,11 @@ A decision's remote providers (Jev, an LLM, the CQL engine) each have a timeout 
 and some retry, so a decision with several of them could hold its request past what the
 platform allows (Vercel stops a function at `maxDuration`, before the audit is written). The
 deployment sets one deadline per decision (`settings.decision_deadline_s`), which
-`Decision.decide` starts at its provider loop (`decision_deadline`):
+`Decision.decide` starts at its provider loop (`decision_deadline`). A FHIR decision that reads
+linked data (`standards/linked.py`, a CDS hook's or the SMART launch's) starts it before those
+reads instead, and its providers get what the reads left (`due`, `deadline_until`): one clock
+for the EHR's linked reads and the remote providers together, which the setting's bound keeps
+inside what the platform allows. The audit write is outside it.
 
 - a remote call that would start after it is not made, before any credential is fetched or any
   budget charged (`refuse_if_past`);
@@ -36,20 +40,33 @@ _DEADLINE: ContextVar[float | None] = ContextVar("decision_deadline", default=No
 PASSED = "the decision's deadline passed"
 
 
+def due(seconds: float | None) -> float | None:
+    """The instant (`time.monotonic`) `seconds` from now; None for no deadline."""
+    return None if seconds is None else time.monotonic() + seconds
+
+
 @contextmanager
-def decision_deadline(seconds: float | None) -> Iterator[None]:
-    """A deadline `seconds` from now for the remote calls made inside the block (None: none).
-    Inside another deadline, the earlier of the two holds."""
-    if seconds is None:
+def deadline_until(instant: float | None) -> Iterator[None]:
+    """A deadline at `instant` (`due`) for the remote calls made inside the block (None: none):
+    one deadline, opened around the blocks it covers in turn. Inside another deadline, the
+    earlier of the two holds."""
+    if instant is None:
         yield
         return
-    deadline = time.monotonic() + seconds
     outer = _DEADLINE.get()
-    token = _DEADLINE.set(deadline if outer is None else min(deadline, outer))
+    token = _DEADLINE.set(instant if outer is None else min(instant, outer))
     try:
         yield
     finally:
         _DEADLINE.reset(token)
+
+
+@contextmanager
+def decision_deadline(seconds: float | None) -> Iterator[None]:
+    """A deadline `seconds` from now for the remote calls made inside the block (None: none).
+    Inside another deadline, the earlier of the two holds."""
+    with deadline_until(due(seconds)):
+        yield
 
 
 def remaining() -> float | None:

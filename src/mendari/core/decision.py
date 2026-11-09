@@ -42,7 +42,7 @@ from mendari.errors import (
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
 from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
-from mendari.providers.deadline import decision_deadline
+from mendari.providers.deadline import deadline_until, decision_deadline, due
 from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
@@ -434,6 +434,7 @@ class Decision:
         data_coverage: Mapping[str, Any] | None = None,
         site_codes: Mapping[str, str] | None = None,
         translated: Sequence[str] = (),
+        due_at: float | None = None,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
         `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
@@ -446,7 +447,9 @@ class Decision:
         it looked for and found (`standards/data_coverage.py`), kept as given, and `site_codes`
         the version and digest of the site code map it read with (LP-23i). `translated` names the
         code sets a site's translation gave the input a value through: then AUTO, and a rule's
-        BLOCK, become HUMAN_REVIEW (`policy.apply_policy`'s `site_code` cap)."""
+        BLOCK, become HUMAN_REVIEW (`policy.apply_policy`'s `site_code` cap). `due_at` is when
+        the decision's deadline falls (`providers/deadline.due`), when it started before this
+        call (`decide_fhir`'s linked reads); else it starts at the provider loop."""
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -522,9 +525,15 @@ class Decision:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
                 metering = METER.set(meter)
                 try:
-                    # The deadline's clock starts here, for this decision's remote calls only:
-                    # past it they fail with `timeout`, and local providers still answer.
-                    with decision_deadline(self.deadline_s), batching(self.providers.values()):
+                    # The deadline's clock starts here, for this decision's remote calls, or
+                    # before its linked reads (`decide_fhir`), which then share it: past it they
+                    # fail with `timeout`, and local providers still answer.
+                    started_clock = (
+                        decision_deadline(self.deadline_s)
+                        if due_at is None
+                        else deadline_until(due_at)
+                    )
+                    with started_clock, batching(self.providers.values()):
                         for slot, provider in self.providers.items():
                             try:
                                 if stopped is not None:
@@ -636,7 +645,9 @@ class Decision:
 
         `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
         reaches by a link the record does not hold, a note's Binary or a followed reference,
-        from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`);
+        from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`),
+        inside the decision's deadline, which starts before those reads and its providers then
+        share (a note field stops reading once its text is longer than the input takes);
         what it reads is checked as the record is (its R4 and profile issues recorded, by type
         alone in the stored record, refused under `enforce`). A link it did not read, and
         without `links` every link the record does not hold (`not_fetched`), makes the decision
@@ -649,7 +660,7 @@ class Decision:
         one about a focus that the mapping's `focus_where` code set found only through a
         translation (LP-23k): which resources of the focus type count is read with the map too."""
         from mendari.standards import data_coverage, fhir_structure, us_core
-        from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong
+        from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
         adapter = FhirAdapter.for_pack(self.pack)
         failed = dict(unreadable or {})
@@ -676,8 +687,14 @@ class Decision:
         site = self.site_map()
         translations = None if site is None else site.sets
         indexed = adapter.index(resources, focus=focus, excused=excused, site_codes=translations)
+        due_at = None
         if links is not None:
-            read = links.read(adapter.mapping, indexed)
+            # The decision's deadline starts before its linked reads, which its providers share
+            # (`providers/deadline.py`); the audit write is outside it.
+            due_at = due(self.deadline_s)
+            limits = text_limits(adapter.mapping, self.pack.input_schema)
+            with deadline_until(due_at):
+                read = links.read(adapter.mapping, indexed, limits=limits)
             if read and self.fhir_validation != "off":
                 issues += fhir_structure.merge(fhir_structure.check(read), us_core.validate(read))
         rejected = []
@@ -710,6 +727,7 @@ class Decision:
             sources=templates,
             site_codes=translations,
             too_long=too_long,
+            links=None if links is None else links.used(indexed),
         )
         result = self.decide(
             mapped.value,
@@ -720,6 +738,7 @@ class Decision:
             data_coverage=coverage,
             site_codes=None if site is None else site.stamp(),
             translated=mapped.translated,
+            due_at=due_at,
         )
         return result, adapter.to_task(result, indexed)
 

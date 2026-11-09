@@ -21,9 +21,10 @@ for a technical reason when the order abstained over unreadable data and the Cov
 
 **Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
 not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
-read from the same `fhirServer`, under its base, with the same token, at most 20 links a
-decision (`standards/linked.py`); a link that is not read is its field's reason, and the
-decision abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
+read from the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
+and 50 followed references a decision and 100 reads a request, inside the decision's deadline
+(`standards/linked.py`); a link that is not read is its field's reason, and the decision
+abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
 `fhirServer` off the allow-list is refused before anything is decided, as for the prefetch.
 
 **Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
