@@ -164,9 +164,14 @@ its shorter token (ADR-0006).
   Built in the Epic data fit pull request (branch `claude/epic-data-fit`): budgets by purpose (50
   notes, 50 followed references) with a request bound and clocks, a note's renditions counted
   once, the coverage record's `prefetch`, `links` and `unread_formats`, and
-  `MENDARI_EHR_DECLARATIONS` (off by default). With the declaration set, a chart of up to 50
-  notes whose text fits in 20,000 characters, with at most 50 distinct drugs among its listed
-  MedicationRequests and a MedicationRequest search of at most 11 pages (and, once #287 lands, no
-  medication recorded with `intent` `plan`), is decided and goes to a person (risk level 2).
-  Without it, the trial pack abstains on MedicationStatement alone, by design. The run stays the
+  `MENDARI_EHR_DECLARATIONS` (off by default). With the declaration set, a chart is decided and
+  goes to a person (risk level 2) when it has: up to 50 notes whose text fits in 20,000
+  characters, each with an HTML or plain-text rendition (a note in RTF only abstains,
+  `unsupported_type`); at most 50 distinct drugs among its listed MedicationRequests, each
+  Medication read; every prefetch search (Condition, Observation and DocumentReference as well as
+  MedicationRequest) of at most 11 pages (`cap`); the linked reads done within 60 s and the
+  decision's deadline (`timeout`); and, once #287 lands, no medication recorded with `intent`
+  `plan`. On a CDS hook, a MedicationStatement prefetch the EHR sends as an OperationOutcome still
+  abstains (`operation_outcome`). Without the declaration, the trial pack abstains on
+  MedicationStatement alone, by design. The run stays the
   owner's acceptance; setting the declaration on the hosted site is the owner's too.
