@@ -286,6 +286,18 @@ Referral Router declares code sets (since LP-23k: the referral code its `focus_w
 the document and report codes of its checklist); set it for that pack, or a pack of your own
 that declares one ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
 
+**What your EHR does not offer (optional, off by default).** A pack may read one list from
+several resource types, and an EHR may not offer one of them at all (Epic has no R4
+MedicationStatement API). Unset, every source is read, and one the EHR refuses makes the decision
+abstain. `MENDARI_EHR_DECLARATIONS` says, per FHIR base and organization, which types your EHR
+does not offer, who attested it and where that is recorded; it is read and checked at startup
+against the allow-list, the EHR and CDS client registrations and the packs found. A decision
+that left a declared source out records the declaration by version and SHA-256, marks the
+source not offered, and never automates. Declaring a type is a clinical claim: that the list's
+other sources hold everything the pack should see. Check what
+[Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer) lists before you
+set it.
+
 **Upgrading from a release without key expiry (before Phase 4).** The first start of this
 release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
 Existing keys keep their role until then, even `reviewer`, `governance` or `admin`, but no key
@@ -1036,6 +1048,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
 | `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 pack's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the packs found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does a pack rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
+| `MENDARI_EHR_DECLARATIONS` | unset: every source is read, and a refused one abstains | What each registered EHR does not offer, per FHIR base: inline JSON or the path of a JSON file, `{"<FHIR base>": {"org", "version", "attested_by", "reference", "not_offered": ["<R4 type>"]}}` (`default` the one organization with sign-in off). Read at startup and checked: each base on `MENDARI_FHIR_ALLOWED_SERVERS` and registered (`MENDARI_SMART_EHRS`, or a CDS client's `fhir_servers`) to its organization, each type one a pack found here reads as one of several sources of a list beside a source not declared; anything wrong stops the server. A SMART launch's decide, or a CDS hook, from that base and organization does not read a declared type for such a pack, records the declaration by version and SHA-256 on the decision, and never automates it ([Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer)) | 2 |
 | `MENDARI_FHIR_VALIDATION` | `warn` | The US Core and base R4 checks on FHIR input: `warn` decides input that is R4 JSON but breaks R4's other rules, with its issues recorded on the decision; `enforce` blocks it before any provider runs; `off` skips the checks. Input that is not R4 JSON is refused in every mode. Choose it for an EHR pilot before go-live | 9 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch. `mendari smart check` compares each with the EHR's `scopes_supported` (`unknown` when it publishes none) | 2 |
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
@@ -1141,6 +1154,12 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       version and SHA-256 of your organization's map, the same as a FHIR decision's record
       shows; and a decision whose record was read through one of its translations is
       `HUMAN_REVIEW`, with the reason `site code translated (<code set>): a person decides`.
+- [ ] Only if you set `MENDARI_EHR_DECLARATIONS`: signed in, `/api/health` `ehr_declarations`
+      shows each of your organization's bases with the version, SHA-256, attester, reference
+      and types you meant; and a decision from that EHR shows the same `ehr_declaration`, the
+      source `not_offered` in "What it read", and the reason `<list> may be incomplete: read
+      without <Type>, which this EHR does not offer (declared, <attested_by>): a person
+      decides`.
 - [ ] Only if you turn on EHR launches: a reviewer, signed in as usual, opens the launched
       decision's id (the one the clinician's window shows, "Recorded in your organization's
       audit trail as …") in the audit trail and sees it; a HUMAN_REVIEW one is in their review

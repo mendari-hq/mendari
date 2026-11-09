@@ -688,8 +688,9 @@ caller is one `404`. In the dashboard, a FHIR decision's record shows what it re
 and what a reference points to (the payer behind `Coverage.payor`, the drug behind
 `medicationReference`). What the record holds is read from it. What it does not, a CDS hook with a
 `fhirServer` and the SMART launch's decide read from that server only, under its base, with the same
-token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 20 links a
-decision, each at most 1 MiB once decoded, each read once a request. A link to another server or
+token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 50 notes and 50
+followed references a decision and 100 reads a request, inside the decision's deadline, each at
+most 1 MiB once decoded, each read once a request. A link to another server or
 outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
 (`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
 its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
@@ -714,6 +715,16 @@ governance included, until the site validates its map. Of the shipped packs, the
 Router declares code sets (since LP-23k): its referral code and its checklist's document codes.
 See
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
+
+**What an EHR does not offer (2026-11-08).** Epic offers no R4 MedicationStatement API, so a pack
+that reads medications from MedicationStatement and MedicationRequest abstains when the first is
+refused. `MENDARI_EHR_DECLARATIONS` (unset: nothing changes) lets a site declare, per FHIR base
+and organization, with who attested it and where that is recorded, the types its EHR does not
+offer. It is checked at startup; a SMART launch's decide or a CDS hook from that base then reads
+the list from its other sources, for a pack that reads the type only as one of several sources of
+a list. The decision records the declaration's version and SHA-256 (`ehr_declaration`), marks the
+source `not_offered`, and **never automates**: AUTO, and a pack rule's BLOCK, become HUMAN_REVIEW
+([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#what-your-ehr-does-not-offer)).
 
 **Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
 own signed tokens, open mode confined to this machine, CORS for registered origins, a hook that

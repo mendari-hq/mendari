@@ -136,8 +136,8 @@ The first release (not yet published).
   `401` ends the launch). Each read is one `GET` of one resource by `Type/id`, of the type the
   field reads, no page followed; a Binary is read as FHIR JSON (`Accept: application/fhir+json`;
   one answered as raw bytes is `not_json`), and the answer must be R4 (`not_r4`) and of that type
-  (`unsupported_type`, `operation_outcome`). A decision reads at most 20 links (past them, `cap`),
-  each at most 1 MiB once decoded (a resource's answer as it arrives, a Binary's content:
+  (`unsupported_type`, `operation_outcome`). A decision reads at most 20 links (past them, `cap`;
+  since 2026-11-08, 50 notes and 50 followed references, below), each at most 1 MiB once decoded (a resource's answer as it arrives, a Binary's content:
   `too_large`), and a link is read once a request however it is written, so the draft orders of
   one order hook share what was read. A link to another server, another scheme (in any case) or
   outside the base is `off_server` and is never fetched; a hook whose `fhirServer` is off the
@@ -166,6 +166,35 @@ The first release (not yet published).
   - **Changed for spec 0.3 packs: a note's url to another type, or to an empty Binary, is
     `unsupported_type`.** It was `not_fetched`, which now means only that there was no server to
     read from, or that the url names no `Type/id`. The decision abstains as before.
+- **Epic data fit, from the first SMART launch on Epic's sandbox (2026-11-08).** The launch,
+  Epic's authorization, the callback (id_token verified, an `ehr` principal) and the patient read
+  worked; the trial pack abstained for Epic's test patient on three gaps, each closed or made
+  explicit here (`tests/test_epic_data_fit.py`).
+  - **Linked-read budgets by purpose, a request bound and clocks.** A decision reads at most 50
+    note Binaries and, apart from them, 50 followed references (one budget of 20 had let the
+    notes, read first, leave the drugs `cap`); a request sends at most 100 reads and spends at
+    most 60 s in them; the decision's deadline starts before its linked reads, and its providers
+    share what they leave. A read the clocks stopped is not kept for the request's later
+    decisions; a read not sent counts against nothing. A note field stops reading once its text
+    is longer than the pack's input takes (`too_large`, the rest not read).
+  - **A note's renditions count once.** A note none of whose renditions is read (an HTML and an
+    RTF Binary of one Epic note) counts once, by its text rendition's reason, not also as
+    `unsupported_type` for its RTF twin. A note with no text rendition still abstains.
+  - **What an EHR does not offer, declared (`MENDARI_EHR_DECLARATIONS`, off by default).** Epic
+    has no R4 MedicationStatement API; its refusal still abstains unless the site declares, per
+    FHIR base and organization, with who attested it, that its EHR does not offer the type. Then,
+    for a pack that reads it only as one of several sources of a list, it is not read, the
+    decision records the declaration (`ehr_declaration`: version, SHA-256, attester, reference)
+    and marks the source `not_offered`, and never automates (AUTO and a rule's BLOCK become
+    `HUMAN_REVIEW`, the limitation a reason). Checked at startup; threat-model row T10.
+  - **The data-coverage record says more, in numbers and Mendari's words:** `prefetch` (each key
+    that could not be read, with its type, reason and HTTP status, or that was not offered),
+    `links` (reads by budget, failed reads by status), `unread_formats` (the formats of notes read
+    as `unsupported_type`: `rtf`, `pdf`, `xml`, `image`, `none`, `other`), a list item key's own
+    `unreadable`, and the `not_offered` markers; each present only when it has something to say.
+    The audit view's "What it read" shows a multi-source list's sources (it showed `undefined`),
+    the item keys that could not read something, and these lines. Decisions now carry
+    `ehr_declaration` (null without one); records from before still verify.
 - **Cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (LP-23f; card wording
   changes).** A card's `uuid` is now its decision's id (it was a random one, stored nowhere), and
   its one suggestion's a UUID 5 of it. A card says `selectionBehavior: at-most-one` and offers

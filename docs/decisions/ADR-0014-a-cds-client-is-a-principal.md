@@ -22,7 +22,8 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
   against both engines;
 - 23h (#280), linked record data under the EHR's FHIR server: a note by its Binary link, the
-  payer and the medication by reference, at most 20 reads a decision;
+  payer and the medication by reference, at most 20 reads a decision (since 2026-11-08, 50
+  notes and 50 followed references a decision, 100 reads a request);
 - 23i (#280), a site code map per organization (`MENDARI_SITE_CODES`), versioned, its digest in
   each decision's record, and a decision that used it never automated;
 - 23l (#280), conformance outside the unit tests: Inferno's CRD server, SMART client and Bulk
