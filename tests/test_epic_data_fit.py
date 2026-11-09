@@ -261,6 +261,30 @@ def test_linked_reads_are_capped_per_purpose_per_decision_and_per_request(
     assert coverage_of(second)["links"]["read"] == {"follows": 0, "notes": 0}
 
 
+def test_a_linked_read_s_status_is_recorded_as_a_number(pack: Decision) -> None:
+    """A linked read that fails with an HTTP status counts its status, as a number, in the
+    decision's `links` section (each read once a request, counted for each decision it fails);
+    no other read adds one, and a decision with no linked read has no `links` section."""
+    documents, htmls = twins(3)
+    requests, medications = drugs(2)
+    ehr = Ehr(*htmls, *medications)
+    ehr.faults["Binary/h0"] = lambda r: fhir_json({}, status=403)
+    ehr.faults["Binary/h1"] = lambda r: fhir_json({}, status=404)
+    ehr.faults["Medication/m0"] = lambda r: fhir_json({}, status=403)
+    result = decide(pack, *documents, *requests, ehr=ehr)
+    assert result.reasons == (
+        "could not read medications.code: unauthorized",
+        "could not read notes: http_status",
+        "could not read notes: unauthorized",
+    )
+    links = coverage_of(result)["links"]
+    assert links["statuses"] == {"403": 2, "404": 1}
+    assert links["read"] == {"follows": 2, "notes": 3}
+    inline = note("n9", {"contentType": "text/plain", "data": b64("Seen.")})
+    assert "links" not in coverage_of(decide(pack, inline, ehr=Ehr()))
+    assert "links" not in coverage_of(decide(pack, inline))
+
+
 def test_one_drug_ordered_many_times_is_read_once(pack: Decision) -> None:
     """Forty orders of one drug (one Medication id, as Epic is assumed to reuse it: A4) read
     that Medication once, and count once against the decision's follow budget."""
@@ -559,10 +583,13 @@ def test_an_undeclared_medication_statement_refusal_never_reads_as_off_insulin(
     assert result.reasons == ("could not read medications: unauthorized",)
     assert result.answers == {} and result.ehr_declaration is None
     assert "MedicationStatement" in searched(ehr)
+    refused = {"resource": "MedicationStatement", "reason": "unauthorized", "status": 403}
+    assert coverage_of(result)["prefetch"] == {"medications": refused}
 
     hooked = invoked(monkeypatch, Decision.from_hub(TRIAL), epic_chart(), hook(), None)
     assert hooked.reasons == ("could not read medications: unauthorized",)
     assert hooked.answers == {} and hooked.ehr_declaration is None
+    assert coverage_of(hooked)["prefetch"] == {"medications": refused}
 
 
 def test_a_declared_not_offered_type_is_not_requested_and_the_decision_records_it(
@@ -590,6 +617,9 @@ def test_a_declared_not_offered_type_is_not_requested_and_the_decision_records_i
             "reference": "CHG-0001 (fictional)",
         }
     )
+    assert coverage_of(result)["prefetch"] == {
+        "medications": {"resource": "MedicationStatement", "not_offered": True}
+    }
     medications = coverage_of(result)["lists"]["medications"]
     assert medications["not_offered"] == ["MedicationStatement"]
     statements = medications["sources"]["MedicationStatement"]

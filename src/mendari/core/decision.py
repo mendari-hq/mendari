@@ -640,6 +640,7 @@ class Decision:
         links: Linker | None = None,
         not_offered: Mapping[str, str] | None = None,
         declaration: EhrDeclaration | None = None,
+        statuses: Mapping[str, int] | None = None,
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
@@ -688,7 +689,8 @@ class Decision:
         refused as missing, nothing abstains on it, the data-coverage record marks the source and
         its list `not_offered`, the result records the declaration (`ehr_declaration`), and the
         decision never automates: AUTO, and a rule's BLOCK, become HUMAN_REVIEW, the limitation
-        a reason whatever the outcome."""
+        a reason whatever the outcome. `statuses` is the HTTP status of each `unreadable` key
+        whose read failed with one, which the data-coverage record keeps (a number only)."""
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
@@ -763,6 +765,7 @@ class Decision:
             too_long=too_long,
             links=None if links is None else links.used(indexed),
             not_offered=left_out,
+            statuses=statuses,
         )
         limited: list[str] = []
         if left_out and declaration is not None:

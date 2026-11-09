@@ -503,7 +503,8 @@ def decide_for(
     skipped = {} if declared is None else declared.skipped(adapter.mapping, templates, queries)
     for key in skipped:
         del queries[key]  # what the EHR does not offer is not asked for
-    prefetch, unreadable = read_each(fhir, templates, queries, fatal=_ended)
+    statuses: dict[str, int] = {}
+    prefetch, unreadable = read_each(fhir, templates, queries, fatal=_ended, statuses=statuses)
     links = Linker.of(fhir, fatal=_ended)
     return decision.decide_fhir(
         prefetch,
@@ -513,6 +514,7 @@ def decide_for(
         links=links,
         not_offered=skipped,
         declaration=declared if skipped else None,
+        statuses=statuses,
     )
 
 

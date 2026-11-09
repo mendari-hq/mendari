@@ -28,8 +28,10 @@ from mendari.standards import data_coverage, fhir_structure
 from mendari.standards.data_coverage import FORMAT, OTHER
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
+from mendari.standards.linked import Linker
 from tests.conftest import INPUT_HASH_KEY, ROOT
 from tests.test_cds_unreadable import _bundle, prefetch_of
+from tests.test_fhir_linked import Ehr
 from tests.test_fhir_mapping_03 import MED, PAYER, adapter, b64, bundle
 from tests.test_prior_auth_pack import _order, _prefetch
 from tests.test_spec_03 import ICD as MINI_ICD
@@ -292,10 +294,26 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
         }
     ]
     decision = Decision.from_hub(TRIAL, store=store)
+    # A prefetch key the EHR refused (403) and a linked read it refused, its answer naming the
+    # patient: only the key, the reason and the status, a number, are kept (2026-11-08).
+    ehr = Ehr()
+    ehr.faults[f"Binary/{MRN}-note"] = lambda r: httpx.Response(
+        403, json={"error": f"no access to {MRN}"}, headers={"content-type": "application/json"}
+    )
+    refused, _ = decision.decide_fhir(
+        _bundle(*resources, linked),
+        unreadable={"medications": "unauthorized"},
+        statuses={"medications": 403},
+        links=Linker.of(ehr.client()),
+    )
+    assert refused.data_coverage is not None
+    assert refused.data_coverage["prefetch"]["medications"]["status"] == 403
+    assert refused.data_coverage["links"]["statuses"] == {"403": 1}
     results = [
         decision.decide_fhir(_bundle(*resources))[0],
         decision.decide_fhir(_bundle(*resources, linked))[0],
         decision.decide_fhir(_bundle(*resources, rtf))[0],
+        refused,
     ]
     assert results[1].reasons == ("could not read notes: not_fetched",)
     assert results[2].reasons == ("could not read notes: unsupported_type",)

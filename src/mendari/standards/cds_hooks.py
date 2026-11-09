@@ -262,9 +262,10 @@ def invoke(
     }
     found: dict[str, Any] = {}
     unreadable: dict[str, ReadReason] = {}
+    statuses: dict[str, int] = {}  # the HTTP status of each fetch that failed with one
     wanted = [key for key in missing if key not in not_offered]
     if wanted:
-        found, unreadable = fetch(hooks.prefetch, wanted, request)
+        found, unreadable = fetch(hooks.prefetch, wanted, request, statuses=statuses)
     # Every value the client sent goes through the structural R4 check before any is set aside,
     # as before: a structure error is the request's fault (a `400`), whatever the value is.
     _require_r4(sent)
@@ -295,6 +296,7 @@ def invoke(
                     links=linking,
                     not_offered=not_offered,
                     declaration=declared if not_offered else None,
+                    statuses=statuses,
                 )
                 for order in orders
             ]
@@ -307,6 +309,7 @@ def invoke(
                     links=linking,
                     not_offered=not_offered,
                     declaration=declared if not_offered else None,
+                    statuses=statuses,
                 )
             ]
     template = hooks.card
@@ -358,10 +361,15 @@ def coverage_info_wanted(request: Mapping[str, Any]) -> bool:
 
 
 def fetch(
-    templates: Mapping[str, str], keys: list[str], request: Mapping[str, Any]
+    templates: Mapping[str, str],
+    keys: list[str],
+    request: Mapping[str, Any],
+    *,
+    statuses: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, ReadReason]]:
     """The prefetch the EHR left out, read from its `fhirServer` (allow-listed servers only):
-    what was read, and each key that could not be read with its reason (`read_each`).
+    what was read, and each key that could not be read with its reason (`read_each`; the HTTP
+    status of each that failed with one into `statuses`, when given).
 
     A request fault raises, before anything is read: no `fhirServer` (`PrefetchRequired`, a
     `412`), a `fhirAuthorization` that is not a Bearer token, a context that cannot fill a
@@ -376,7 +384,7 @@ def fetch(
     context = _object(request, "context")
     queries = {key: fill_template(templates[key], context) for key in keys}
     with FhirClient(str(server), token=token) as client:
-        return read_each(client, templates, queries)
+        return read_each(client, templates, queries, statuses=statuses)
 
 
 def linker(decision: Decision, request: Mapping[str, Any]) -> Linker | None:
@@ -413,9 +421,12 @@ def read_each(
     queries: Mapping[str, str],
     *,
     fatal: Callable[[FhirError], bool] | None = None,
+    statuses: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, ReadReason]]:
     """Read each prefetch key's query on its own (`queries`, filled from `templates`): the keys
-    read, and the keys that could not be, each with its reason. A search is read whole (a page
+    read, and the keys that could not be, each with its reason; with `statuses`, the HTTP status
+    of each key whose read failed with one, a number only (the data-coverage record's
+    `prefetch`). A search is read whole (a page
     cap is `cap`). What comes back must be what was asked for: an OperationOutcome is
     `operation_outcome`, another resource type (or a resource for a search) `unsupported_type`,
     and a resource that fails the structural R4 check (`fhir_structure`), or a search page whose
@@ -430,6 +441,8 @@ def read_each(
             if fatal is not None and fatal(error):
                 raise
             unreadable[key] = error.reason or "network"
+            if statuses is not None and error.status is not None:
+                statuses[key] = error.status
             continue
         reason = _unread(templates[key], value)
         if reason is None:

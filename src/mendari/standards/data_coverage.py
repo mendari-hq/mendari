@@ -175,6 +175,7 @@ def measure(
     too_long: Collection[str] = (),
     links: Mapping[str, Any] | None = None,
     not_offered: Mapping[str, str] | None = None,
+    statuses: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
@@ -190,7 +191,10 @@ def measure(
     `not_offered` names the prefetch keys left out because the site declared its EHR does not
     offer their type (`standards/ehr_declarations.py`), each with its type: that source of a list
     is marked `not_offered: true` (its counts are 0: it was not read, not read and empty), and its
-    list names the types it was read without (`not_offered`)."""
+    list names the types it was read without (`not_offered`). `statuses` is the HTTP status of
+    each unreadable key whose read failed with one. The `prefetch` section, when there is any,
+    names each prefetch key that could not be read or was not offered: the resource type its
+    template reads, its reason, and for `unauthorized` and `http_status` the status number."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -260,7 +264,36 @@ def measure(
     }
     if links is not None:  # a linker read for it, and read a link or left one unread
         coverage["links"] = dict(links)
+    prefetch = _prefetch(unreadable, not_offered or {}, statuses or {}, sources or {})
+    if prefetch:
+        coverage["prefetch"] = prefetch
     return _canonical(coverage)
+
+
+_STATUS_REASONS = ("unauthorized", "http_status")  # the reasons a status number explains
+
+
+def _prefetch(
+    unreadable: Mapping[str, str],
+    not_offered: Mapping[str, str],
+    statuses: Mapping[str, int],
+    sources: Mapping[str, str],
+) -> dict[str, Any]:
+    """Each prefetch key that could not be read, or that the EHR does not offer by the site's
+    declaration: the type its template reads (when known), and its reason and status, or
+    `not_offered`. The pack's key names and Mendari's words only, and a status as a number."""
+    found: dict[str, Any] = {}
+    for key, reason in unreadable.items():
+        item: dict[str, Any] = {"reason": reason}
+        if key in sources:
+            item["resource"] = source_type(sources[key])
+        status = statuses.get(key)
+        if reason in _STATUS_REASONS and isinstance(status, int) and 100 <= status <= 599:
+            item["status"] = status
+        found[key] = item
+    for key, kind in not_offered.items():
+        found[key] = {"resource": kind, "not_offered": True}
+    return found
 
 
 def _focus_codes(mapping: FhirMapping) -> list[str]:

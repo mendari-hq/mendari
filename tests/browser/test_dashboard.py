@@ -222,6 +222,36 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     expect(axe_page.locator(".drawer section.coverage")).to_have_count(0)
 
 
+@pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
+def test_a_list_of_several_resource_types_shows_a_row_per_source(
+    axe_page: Page, live_server: str
+) -> None:
+    """A list read from several resource types (the trial pack's medications, from
+    MedicationStatement and MedicationRequest) shows a row for the list and one for each source,
+    with the resources each read, never `undefined`; the drawer passes axe in both themes
+    (2026-11-08)."""
+    from tests.browser.test_accessibility import violations  # it imports this module
+    from tests.test_trial_pack import _record
+
+    record = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [{"resource": r} for r in _record()],
+    }
+    made = httpx.post(f"{live_server}/api/packs/{TRIAL}/fhir/decide", json=record, timeout=30)
+    assert made.status_code == 200, made.text
+    axe_page.goto(f"/?pack={TRIAL}#audit/{made.json()['decision']['id']}")
+    table = axe_page.locator(".drawer section.coverage table")
+    expect(table).to_contain_text("medications ← MedicationStatement")
+    expect(table).to_contain_text("medications ← MedicationRequest")
+    assert "undefined" not in table.inner_text() and "n/a" not in table.inner_text()
+    assert axe_page.evaluate(BARE_PERCENT_IN, ".drawer section.coverage") == []
+    # The criteria table above the panel (`pack.js` `criteriaTable`, a derived primary's) is a
+    # scrollable region with nothing focusable in it, which axe reports for this drawer since
+    # before this panel's rows: left out here, and noted in tasks/todo.md to fix on its own.
+    assert violations(axe_page, exclude=(".drawer-body > .table-wrap",)) == []
+
+
 def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
     """The pack is in the address, so a link beats whatever pack the viewer chose last, a record
     link opens over that pack's list, and moving between views keeps it."""
