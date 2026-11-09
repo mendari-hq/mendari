@@ -1097,9 +1097,10 @@ def test_a_hook_reads_the_declaration_for_its_fhir_server_and_organization(
 ) -> None:
     """Through the CDS service route, sign-in on: a call from a client of organization `acme`
     whose `fhirServer` is declared for `acme` leaves MedicationStatement out, and its audited
-    record carries the declaration; the same client's call for another base it registered reads
-    every source, and the refusal abstains. A declaration for another organization than every
-    client listing its base stops the server at startup."""
+    record carries the declaration; its card, whose other reasons are behind the audit link
+    (`MENDARI_PUBLIC_URL`), still says the list may be incomplete. The same client's call for
+    another base it registered reads every source, and the refusal abstains. A declaration for
+    another organization than every client listing its base stops the server at startup."""
     sign_in_on(monkeypatch)
     client = client_entry("acme", org="acme", fhir_servers=[EHR, EHR2])
     register(monkeypatch, client, allowed=f"{ORIGIN},https://ehr2.example.org")
@@ -1112,8 +1113,8 @@ def test_a_hook_reads_the_declaration_for_its_fhir_server_and_organization(
     assert declared is not None
     db = tmp_path / "a.db"
 
-    def called(server: str) -> dict[str, Any]:
-        """The audited record of the one decision a call for `server` made."""
+    def called(server: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The audited record of the one decision a call for `server` made, and its card."""
         chart.requests.clear()
         with TestClient(create_app(db_path=db), base_url=PUBLIC_URL) as app:
             response = app.post(
@@ -1126,14 +1127,18 @@ def test_a_hook_reads_the_declaration_for_its_fhir_server_and_organization(
         with AuditStore(db) as store:
             found = store.get(card["uuid"])
         assert found is not None
-        return dict(found["record"])
+        return dict(found["record"]), card
 
-    record = called(EHR)
+    record, card = called(EHR)
     assert record["ehr_declaration"] == declared.stamp()
     assert record["outcome"] == "HUMAN_REVIEW" and LIMITATION in record["reasons"]
     assert record["data_coverage"]["prefetch"] == {"medications": NOT_OFFERED}
     assert "MedicationStatement" not in searched(chart)
-    record = called(EHR2)
+    assert card["summary"] == "Possible GLYCEMIA-2 candidate: confirm eligibility"
+    assert [line for line in card["detail"].splitlines() if line.startswith("- ")] == [
+        f"- {LIMITATION}"
+    ]
+    record, _ = called(EHR2)
     assert record["ehr_declaration"] is None
     assert record["reasons"] == ["could not read medications: unauthorized"]
     assert "MedicationStatement" in searched(chart)

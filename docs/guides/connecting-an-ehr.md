@@ -315,7 +315,7 @@ The links on a card need `MENDARI_PUBLIC_URL`:
 
 | Link | When | Where it goes |
 |---|---|---|
-| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link. |
+| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link, but for a list read without a source your EHR does not offer (`<list> may be incomplete: …`, below), which stays in the detail. |
 | The pack (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#card`, the pack's card. |
 | The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<pack>`. The EHR adds `iss` and `launch`. |
 
@@ -573,7 +573,8 @@ organization at a time. Off until you set it. It is inline JSON, or the path of 
   `<list> may be incomplete: read without <Type>, which this EHR does not offer (declared,
   <attested_by>): a person decides`, whatever the outcome (an input refused by the pack's input
   schema, or under `enforce` by US Core, is a final BLOCK, and its reason ends at the closing
-  parenthesis).
+  parenthesis). A card shows it in its detail even when its other reasons are behind the audit
+  link.
 
 Declaring MedicationStatement says more than that Epic lacks the API: it says every medication
 the pack should see is in Epic's MedicationRequests, so "no insulin among the orders" may read as

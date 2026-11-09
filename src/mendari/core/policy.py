@@ -197,6 +197,18 @@ def limitation(name: str, types: Sequence[str], attested_by: str) -> str:
     )
 
 
+_LIMITATION_REASON = re.compile(
+    r"\S+ may be incomplete: read without .+, which this EHR does not offer \(declared, "
+)
+
+
+def limitation_reason(reason: str) -> bool:
+    """Whether `reason` gives a `limitation` (step 5): a CDS Hooks card keeps it in its detail
+    even when the other reasons are behind the audit link (`standards/cds_hooks.py`), since the
+    card's suggestion may rest on a list that is incomplete."""
+    return _LIMITATION_REASON.match(reason) is not None
+
+
 def matches(condition: Condition, answer: Answer | None) -> bool:
     if answer is None or answer.confidence < condition.min_confidence:
         return False

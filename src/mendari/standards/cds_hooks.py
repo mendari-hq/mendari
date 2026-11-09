@@ -36,8 +36,9 @@ never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are 
 the decision in the audit view, `source.url` is the pack's card, and when the EHR may launch the
 pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
 a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
-confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A Da Vinci
-CRD service (a pack with `coverage_information`) declares the CRD version and its one
+confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A list read
+without a source the EHR does not offer (`policy.limitation_reason`) is in the detail either way.
+A Da Vinci CRD service (a pack with `coverage_information`) declares the CRD version and its one
 configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
 request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
 still decided.
@@ -66,7 +67,7 @@ from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
-from mendari.core.policy import threshold_reason
+from mendari.core.policy import limitation_reason, threshold_reason
 from mendari.core.spec import SUMMARY_CHARS, Outcome, Priority
 from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
 from mendari.errors import (
@@ -576,12 +577,13 @@ def card(
         )
     # The engine's reasons are behind the audit link when there is one, else in the detail, but
     # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
-    # says what it decided.
-    reasons = (
-        []
-        if links.public_url
-        else [f"- {reason}" for reason in result.reasons if not threshold_reason(reason)]
-    )
+    # says what it decided. A list read without a source the EHR does not offer (declared) stays
+    # in the detail either way: what the card suggests may rest on an incomplete list.
+    reasons = [
+        f"- {reason}"
+        for reason in result.reasons
+        if limitation_reason(reason) or not (links.public_url or threshold_reason(reason))
+    ]
     detail = "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
         + (["", *reasons] if reasons else [])
