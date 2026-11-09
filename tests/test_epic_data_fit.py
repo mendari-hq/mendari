@@ -63,6 +63,10 @@ from mendari.standards.linked import (
 )
 from mendari.standards.smart import Registration
 from tests.conftest import ROOT
+from tests.jwt_signers import PUBLIC_URL
+from tests.test_cds_auth import sign_in_on
+from tests.test_cds_clients import RSA_EHR, register, token
+from tests.test_cds_clients import entry as client_entry
 from tests.test_fhir_linked import (
     EHR,
     ORIGIN,
@@ -79,6 +83,7 @@ from tests.test_fhir_linked import (
     note,
     request_for,
 )
+from tests.test_smart import FakeEhr, full_launch, signed_site
 from tests.test_spec_03 import mini
 
 HTML = "text/html"
@@ -1079,6 +1084,109 @@ def test_health_shows_the_organizations_declarations(
     with TestClient(create_app(db_path=tmp_path / "b.db", packs_paths=[REFERENCE_PACKS])) as app:
         shown = app.get("/api/health").json()["ehr_declarations"]
     assert shown == {EHR: {**declaration().stamp(), "not_offered": ["MedicationStatement"]}}
+
+
+# -- through the app: a hook and a launch read the declaration for their base and organization ----
+
+EHR2 = "https://ehr2.example.org/fhir"  # another base the same CDS client registered, undeclared
+NOT_OFFERED = {"resource": "MedicationStatement", "not_offered": True}
+
+
+def test_a_hook_reads_the_declaration_for_its_fhir_server_and_organization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through the CDS service route, sign-in on: a call from a client of organization `acme`
+    whose `fhirServer` is declared for `acme` leaves MedicationStatement out, and its audited
+    record carries the declaration; the same client's call for another base it registered reads
+    every source, and the refusal abstains. A declaration for another organization than every
+    client listing its base stops the server at startup."""
+    sign_in_on(monkeypatch)
+    client = client_entry("acme", org="acme", fhir_servers=[EHR, EHR2])
+    register(monkeypatch, client, allowed=f"{ORIGIN},https://ehr2.example.org")
+    monkeypatch.setenv(ENV, json.dumps({EHR: entry(org="acme")}))
+    chart = epic_chart()
+    patched = functools.partial(FhirClient, transport=httpx.MockTransport(chart))
+    monkeypatch.setattr(cds_hooks, "FhirClient", patched)
+    path = f"/cds-services/{cds_hooks.service_id(Decision.from_hub(TRIAL).pack)}"
+    declared = declarations({EHR: entry(org="acme")}, signed_in=True).for_base(EHR, "acme")
+    assert declared is not None
+    db = tmp_path / "a.db"
+
+    def called(server: str) -> dict[str, Any]:
+        """The audited record of the one decision a call for `server` made."""
+        chart.requests.clear()
+        with TestClient(create_app(db_path=db), base_url=PUBLIC_URL) as app:
+            response = app.post(
+                path,
+                json={**hook(), "fhirServer": server},
+                headers={"authorization": f"Bearer {token(RSA_EHR, path)}"},
+            )
+        assert response.status_code == 200, response.text
+        [card] = response.json()["cards"]
+        with AuditStore(db) as store:
+            found = store.get(card["uuid"])
+        assert found is not None
+        return dict(found["record"])
+
+    record = called(EHR)
+    assert record["ehr_declaration"] == declared.stamp()
+    assert record["outcome"] == "HUMAN_REVIEW" and LIMITATION in record["reasons"]
+    assert record["data_coverage"]["prefetch"] == {"medications": NOT_OFFERED}
+    assert "MedicationStatement" not in searched(chart)
+    record = called(EHR2)
+    assert record["ehr_declaration"] is None
+    assert record["reasons"] == ["could not read medications: unauthorized"]
+    assert "MedicationStatement" in searched(chart)
+
+    for clients, org in (
+        ([client], "other"),
+        ([client, client_entry("other", org="other", iss="https://other.example.org")], "acme"),
+    ):
+        register(monkeypatch, *clients, allowed=f"{ORIGIN},https://ehr2.example.org")
+        monkeypatch.setenv(ENV, json.dumps({EHR: entry(org=org)}))
+        with pytest.raises(MendariError, match="every CDS client"):
+            create_app(db_path=tmp_path / "refused.db")
+
+
+class EpicLauncher(FakeEhr):
+    """The SMART tests' EHR (`test_smart.FakeEhr`, at `EHR`), launching for `p1`, its FHIR reads
+    answered by `chart` once the token is one it issued."""
+
+    def __init__(self, chart: Ehr) -> None:
+        super().__init__(iss=EHR, root=ORIGIN)
+        self.chart = chart
+        self.patient = "p1"
+
+    def fhir(self, request: httpx.Request) -> httpx.Response:
+        if request.headers.get("authorization", "").removeprefix("Bearer ") not in self.tokens:
+            return httpx.Response(401, json={"resourceType": "OperationOutcome"})
+        return self.chart(request)
+
+
+def test_a_launch_reads_the_declaration_for_its_issuer_and_organization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through a SMART launch, sign-in on, from a base registered to `clinic-a` and declared for
+    it: `/api/smart/decide` leaves MedicationStatement out and the decision carries the
+    declaration. A declaration for another organization than the launch's registration stops the
+    server at startup."""
+    chart = epic_chart()
+    launcher = EpicLauncher(chart)
+    monkeypatch.setenv(ENV, json.dumps({EHR: entry(org="clinic-a")}))
+    app = signed_site(tmp_path / "a.db", monkeypatch, f"{EHR}=clinic-a:decide", launcher)
+    assert full_launch(app, launcher).status_code == 302
+    decided = app.post("/api/smart/decide", json={"pack_id": TRIAL, "focus": "Patient/p1"})
+    assert decided.status_code == 200, decided.text
+    decision = decided.json()["decision"]
+    declared = declarations({EHR: entry(org="clinic-a")}, signed_in=True).for_base(EHR, "clinic-a")
+    assert declared is not None and decision["ehr_declaration"] == declared.stamp()
+    assert decision["outcome"] == "HUMAN_REVIEW" and LIMITATION in decision["reasons"]
+    assert decision["data_coverage"]["prefetch"] == {"medications": NOT_OFFERED}
+    assert "MedicationStatement" not in searched(chart)
+
+    monkeypatch.setenv(ENV, json.dumps({EHR: entry(org="clinic-b")}))
+    with pytest.raises(MendariError, match="MENDARI_SMART_EHRS registers it to"):
+        signed_site(tmp_path / "refused.db", monkeypatch, f"{EHR}=clinic-a:decide", launcher)
 
 
 # -- records from before, and an Epic-shaped chart, end to end -----------------------------------
