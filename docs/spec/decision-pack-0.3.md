@@ -358,7 +358,9 @@ names the key. The reference runtime's card for it does not use the `BLOCK` outc
 (that the action must not happen): its detail is the pack's status, the notice, fixed words that
 say the input was refused and nothing was checked, and each reason as the audit record keeps it
 (where in the input and which rule of the schema, a resource by its type and position: never a
-value or an id), whether or not the engine's reasons are behind a link.
+value or an id), whether or not the engine's reasons are behind a link. A reason that is not why
+the input was refused (a part of the record that could not be read, a list read without a source
+the EHR does not offer) follows apart, after `Also noted:`.
 
 ```yaml
 cds_hooks:

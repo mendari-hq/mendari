@@ -41,7 +41,9 @@ the decision in the audit view, `source.url` is the pack's card, and when the EH
 pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
 a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
 confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A list read
-without a source the EHR does not offer (`policy.limitation_reason`) is in the detail either way.
+without a source the EHR does not offer (`DecisionResult.limitations`) is in the detail either
+way, on every card: an unreadable ABSTAIN's and a refused input's say it apart from what was not
+read or why the input was refused (`ALSO_NOTED`), since it is neither.
 A Da Vinci CRD service (a pack with `coverage_information`) declares the CRD version and its one
 configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
 request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
@@ -68,10 +70,10 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from mendari import notices
 from mendari.core import clock
-from mendari.core.decision import Decision, DecisionResult
+from mendari.core.decision import REJECTED, Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
-from mendari.core.policy import limitation_reason, threshold_reason
+from mendari.core.policy import threshold_reason
 from mendari.core.spec import REFUSED, SUMMARY_CHARS, CdsCard, Outcome, Priority, RuleCard
 from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
 from mendari.errors import (
@@ -115,6 +117,10 @@ REFUSED_DETAIL = (
     "Refused: Mendari could not accept the data sent as this pack's input, so it checked "
     "nothing and made no recommendation. Why:"
 )
+# What follows that list on those two cards: the decision's other reasons, apart, since they are
+# neither what could not be read nor why the input was refused (a list read without a source the
+# EHR does not offer; on a refused input, a part that could not be read).
+ALSO_NOTED = "Also noted:"
 # A card's detail: the pack's status, the notice, and one plain sentence for its outcome.
 OUTCOME_SENTENCES = {
     Outcome.AUTO: "Automated: the recommendation may be acted on without a person reviewing it.",
@@ -628,7 +634,8 @@ def card(
     reasons = [
         f"- {reason}"
         for reason in result.reasons
-        if limitation_reason(reason) or not (links.public_url or threshold_reason(reason))
+        if reason.startswith(result.limitations)
+        or not (links.public_url or threshold_reason(reason))
     ]
     detail = "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
@@ -648,24 +655,37 @@ def _target(pack: Pack, result: DecisionResult) -> str:
 def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
     """An unreadable ABSTAIN's detail: the pack's status and the notice, the fixed words, and
     each key with its reason code (the pack's own names and a closed set: nothing from the
-    record, the request or a server)."""
+    record, the request or a server); then, apart, each list read without a source the EHR does
+    not offer (`DecisionResult.limitations`), whatever the links."""
+    limited = [reason for reason in result.reasons if reason.startswith(result.limitations)]
     return "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
         + [f"- {key}: {reason}" for key, reason in result.unreadable]
+        + _also_noted(limited)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
 
 
 def _refused_detail(pack: Pack, result: DecisionResult) -> str:
     """A refused input's detail (the `refused` key): the pack's status and the notice, the fixed
-    words, and each reason as the audit record keeps it (`DecisionResult.to_record`), whatever
-    the links: why it was refused is what the card is for."""
-    reasons = [reason.removeprefix("input rejected: ") for reason in result.to_record()["reasons"]]
+    words, and each reason it was refused as the audit record keeps it
+    (`DecisionResult.to_record`), whatever the links: why it was refused is what the card is
+    for. Its other reasons (a part that could not be read, a list read without a source the EHR
+    does not offer) follow apart, since they are not why."""
+    reasons = result.to_record()["reasons"]
+    why = [reason.removeprefix(REJECTED) for reason in reasons if reason.startswith(REJECTED)]
+    other = [reason for reason in reasons if not reason.startswith(REJECTED)]
     return "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", REFUSED_DETAIL, ""]
-        + [f"- {reason}" for reason in reasons]
+        + [f"- {reason}" for reason in why]
+        + _also_noted(other)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
+
+
+def _also_noted(reasons: list[str]) -> list[str]:
+    """The lines that give `reasons` after a card's own list, under `ALSO_NOTED`; none without."""
+    return ["", ALSO_NOTED, "", *(f"- {reason}" for reason in reasons)] if reasons else []
 
 
 def _card(

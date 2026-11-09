@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from mendari.standards.linked import Linker
 
 MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
+REJECTED = "input rejected: "  # how each reason that refused an input begins (`decide`)
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,10 @@ class DecisionResult:
     # its input is refused (`decide`). In memory only, like `rejected`; the reasons and the
     # data-coverage record say the same in the record.
     unreadable: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # Each list a FHIR decision read without a source the site declared its EHR does not offer,
+    # as its reasons begin (`policy.limitation`), whatever the list is called. In memory only,
+    # like `rejected`; the reasons and `ehr_declaration` say the same in the record.
+    limitations: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -524,7 +529,7 @@ class Decision:
                     recommendation=None,
                     priority=manifest.policy.default_priority,
                     reasons=(
-                        *(f"input rejected: {problem}" for problem in problems),
+                        *(f"{REJECTED}{problem}" for problem in problems),
                         *unread_reasons,
                         *dict.fromkeys(not_offered),
                     ),
@@ -630,6 +635,7 @@ class Decision:
             labels=dict(labels or {}),
             usage=meter.totals(),
             unreadable=unread,
+            limitations=tuple(dict.fromkeys(not_offered)),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

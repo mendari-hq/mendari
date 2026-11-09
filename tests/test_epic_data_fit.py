@@ -40,6 +40,7 @@ from mendari.core.spec import Outcome
 from mendari.core.tenancy import DEFAULT_ORG
 from mendari.errors import MendariError
 from mendari.providers import deadline as deadline_module
+from mendari.sandbox import cds_client
 from mendari.server.app import create_app
 from mendari.server.smart_routes import decide_for
 from mendari.standards import cds_hooks, linked
@@ -800,6 +801,75 @@ def test_a_refused_input_under_a_declaration_still_names_the_limitation() -> Non
     assert result.reasons[0].startswith("input rejected: not US Core")
     assert result.reasons[-1] == LIMITED and LIMITATION not in result.reasons
     assert result.ehr_declaration == declared.stamp()
+
+
+LINKED = cds_hooks.CardLinks(public_url=PUBLIC_URL)
+
+
+def bullets(text: str) -> list[str]:
+    """A card detail's (or a part of one's) `- ` lines."""
+    return [line for line in text.splitlines() if line.startswith("- ")]
+
+
+def test_a_card_keeps_the_limitation_whatever_the_list_is_called(tmp_path: Path) -> None:
+    """A list's name is the pack's own, spaces and all: under a declaration, the card still keeps
+    the line that says the list may be incomplete in its detail when the engine's other reasons
+    are behind the audit link, as it does for `medications`."""
+    name = "current meds"
+    root = two_source_pack(tmp_path, changes={"lists": {name: TWO_SOURCES}})
+    schema_path = root / "schemas" / "input.schema.json"
+    schema = json.loads(schema_path.read_text())
+    schema["properties"][name] = schema["properties"].pop("medications")
+    schema_path.write_text(json.dumps(schema))
+    pack = Decision(load_pack(root))
+    result, task = decide_for(
+        pack, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declaration()
+    )
+    limited = LIMITATION.replace("medications", name, 1)
+    assert result.outcome is Outcome.HUMAN_REVIEW and limited in result.reasons
+    assert bullets(cds_hooks.card(pack.pack, result, task, LINKED)["detail"]) == [f"- {limited}"]
+
+
+def test_a_refused_input_s_card_says_the_limitation_apart_from_why(tmp_path: Path) -> None:
+    """A card keyed `refused` (spec 0.3 §5) lists why the input was refused, whatever the links;
+    under a declaration its limitation is on the card too, but apart (`ALSO_NOTED`), since it is
+    not why: the refusal is the US Core errors."""
+    root = two_source_pack(tmp_path)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    card = manifest["cds_hooks"]["card"]
+    card["summaries"]["refused"] = "Prescreen not checked: its data was refused as invalid"
+    card["indicators"]["refused"] = "warning"
+    card["show"].append("refused")
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    strict = Decision(load_pack(root), fhir_validation="enforce")
+    result, task = decide_for(
+        strict, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declaration()
+    )
+    assert result.outcome is Outcome.BLOCK and result.rejected and result.reasons[-1] == LIMITED
+    for links in (cds_hooks.NO_LINKS, LINKED):
+        detail = cds_hooks.card(strict.pack, result, task, links)["detail"]
+        why, also = detail.split(f"\n{cds_hooks.ALSO_NOTED}\n")
+        assert cds_hooks.REFUSED_DETAIL in why
+        assert bullets(why) and all(line.startswith("- not US Core") for line in bullets(why))
+        assert bullets(also) == [f"- {LIMITED}"]
+
+
+def test_an_unreadable_abstain_s_card_says_the_limitation_apart() -> None:
+    """An ABSTAIN because part of the record could not be read always shows its card, which
+    lists what was not read; under a declaration it also says the list may be incomplete, apart
+    (`ALSO_NOTED`), whatever the links, and the sandbox client reads only the first list as what
+    was not read (`cds_client.unread_of`)."""
+    trial = Decision.from_hub(TRIAL)
+    ehr = epic_chart()
+    ehr.faults["Observation"] = lambda r: fhir_json({}, status=403)
+    result, task = decide_for(trial, ehr.client(), "p1", "Patient/p1", declared=declaration())
+    assert result.abstained_unreadable and LIMITATION in result.reasons
+    for links in (cds_hooks.NO_LINKS, LINKED):
+        card = cds_hooks.card(trial.pack, result, task, links)
+        unread, also = card["detail"].split(f"\n{cds_hooks.ALSO_NOTED}\n")
+        assert bullets(unread) == [f"- {key}: {reason}" for key, reason in result.unreadable]
+        assert bullets(also) == [f"- {LIMITATION}"]
+        assert cds_client.unread_of(card) == set(result.unreadable)
 
 
 def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declaration(

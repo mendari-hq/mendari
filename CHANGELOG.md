@@ -197,7 +197,9 @@ The first release (not yet published).
     decision records the declaration (`ehr_declaration`: version, SHA-256, attester, reference)
     and marks the source `not_offered`, and never automates (AUTO and a rule's BLOCK become
     `HUMAN_REVIEW`, the limitation a reason, kept in a card's detail even when the other reasons
-    are behind the audit link). Checked at startup; threat-model row T10.
+    are behind the audit link; an unreadable record's card and a refused input's give it under
+    `Also noted:`, apart from what was not read or why the input was refused). Checked at
+    startup; threat-model row T10.
   - **The data-coverage record says more, in numbers and Mendari's words:** `prefetch` (each key
     that could not be read, with its type, reason and HTTP status, or that was not offered),
     `links` (reads by budget, failed reads by status), `unread_formats` (the formats of notes read
