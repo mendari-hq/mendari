@@ -8,8 +8,11 @@ deployment sets one deadline per decision (`settings.decision_deadline_s`), whic
 `Decision.decide` starts at its provider loop (`decision_deadline`). A FHIR decision that reads
 linked data (`standards/linked.py`, a CDS hook's or the SMART launch's) starts it before those
 reads instead, and its providers get what the reads left (`due`, `deadline_until`): one clock
-for the EHR's linked reads and the remote providers together, which the setting's bound keeps
-inside what the platform allows. The audit write is outside it.
+for the EHR's linked reads and the remote providers together. It does not cover everything a
+request does: the audit write is outside it, and so are the prefetch reads before it (a CDS
+hook's fetch, the SMART launch's decide: threat-model D14, residual), each under the FHIR
+client's own timeouts; and a linked read's wait applies to each step (connecting, then the
+answer's headers), the clocks being checked only once its body arrives.
 
 - a remote call that would start after it is not made, before any credential is fetched or any
   budget charged (`refuse_if_past`);

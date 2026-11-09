@@ -32,8 +32,9 @@ never fetches. Each read:
   link past them is `cap`, not read), and `LINK_SECONDS` spent in them, added up read by read;
   and inside the decision's deadline (`providers/deadline.py`), which `Decision.decide_fhir`
   starts before these reads and its providers share. Each read waits at most what remains of
-  `TIMEOUT`, the request's seconds and the deadline, and an answer still arriving once one has
-  run out stops; past one, a link is `timeout` and nothing is sent. A read the clocks stopped is
+  `TIMEOUT`, the request's seconds and the deadline, each step (connecting, then the answer's
+  headers), and an answer still arriving once one has run out stops; past one, a link is
+  `timeout` and nothing is sent. A read the clocks stopped is
   not kept for the request's later decisions, which have their own deadline; a read that was
   not sent counts against nothing;
 - is made once a request: the draft orders of one order hook share what was read, and a link
