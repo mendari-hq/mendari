@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/referral-router` · version **0.3.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.3.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:539e0ff237c2b84e9a3baed670cb608ff95d730f35bbda555ffb2c8b4b47ddee` |
-| Last validation | 2026-11-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
+| Pack digest | `sha256:b283d671b524483095cecf95e8515482318eb0215b136eb0fd79f370820105f2` |
+| Last validation | 2026-11-07 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
 
@@ -36,7 +36,7 @@ Adults referred from primary care to one of eight outpatient specialties, with r
 
 - Emergencies. A referral is not the route for a patient who needs the emergency department today; the urgency screen only speeds up referrals that arrive anyway.
 - Deciding whether a referral is clinically appropriate, or triaging within a specialty.
-- Checking the specialty the referrer chose against the suggested one (future work). The EHR card shows the suggestion only on a referral to send back or to review today; a referral to schedule, which may be automated, or for a coordinator gets no card, so no one signing it sees the suggested specialty.
+- Checking the specialty the referrer chose against the suggested one (future work). The EHR card shows the suggestion only on a referral to send back or to review today; a referral to schedule, which may be automated, or for a coordinator gets no card, so no one signing it sees the suggested specialty. A referral refused as invalid input gets a card that says it was not checked and why, with no specialty.
 - Any real clinic's intake requirements. The required documents and urgency criteria are synthetic and were not written or reviewed by a clinician; a site sets its own.
 
 ## Inputs
@@ -184,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 2.10 / 2.31 ms |
+| Latency p50 / p95 | 1.98 / 2.82 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |
@@ -392,7 +392,25 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.3.0
+#### 0.3.1
+
+- **A referral refused as invalid input shows a card** (the owner's choice of 2026-11-07): a
+  BLOCK before any provider ran (a reason over 5,000 characters, for one) is the card key
+  `refused` (spec 0.3 §5), which `show` now names, `warning`: "Referral not checked: Mendari
+  refused its data as invalid, so no urgency or completeness check was made". Its detail says the
+  input was refused and nothing was checked, and lists why as the audit record keeps it
+  (`referral/reason: must have at most 5000 characters`: where in the input and which rule, never
+  the text), with or without the audit link, and it no longer carries the sentence that the
+  action must not happen. Its suggestion stays not recommended. Before, such a referral showed no
+  card and reached no one at signing. It is decided and audited as before, and is still not in the
+  review queue. A referral to schedule, for a coordinator or with no suggestion still shows no
+  card. The FHIR decisions golden holds no refused referral: its 300 still show 235 cards.
+- A PATCH bump, as for 0.2.1 (CONTRIBUTING.md's rule as the changelogs read it): what the cards
+  show and say, with every decision identical. Criteria, rules, providers, policy, models and
+  data are unchanged; the benchmark's figures, its ledger and the FHIR decisions golden are as
+  they were. The digest changes because the manifest does.
+
+### 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
   2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only; `logic/` unchanged). A MINOR

@@ -797,7 +797,7 @@ A pack declares this with `cds_hooks.coverage_information`.
 `POST /fhir/Questionnaire/$questionnaire-package` (with the Coverage and the order) returns it: the
 documentation the payer asks for, for that service and payer, pre-answered from the pack's
 decision, which is found by the CRD assertion id on the order. A clinician completes only what is
-missing. A questionnaire asked for by its canonical comes beside the orders' packages,
+missing, and the completed response goes with the PAS request (below). A questionnaire asked for by its canonical comes beside the orders' packages,
 unanswered, and each questionnaire version comes once (an order's package holds its own). A
 questionnaire that is not found here is a warning in `outcome`, beside any package; so is a
 version other than the pack's, the only one served. An order or a `context` that names no
@@ -818,7 +818,8 @@ with what the run cannot show: a payer's acceptance, an EHR's DTR client, X12 or
 DTR reference app is never run against Mendari: it would send its requests to https://mendari.co.
 A pack declares it with `cds_hooks.questionnaire`.
 
-**Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
+**Da Vinci PAS.** For a complete request (`submit_ready`) or one that needs attention (below),
+`POST /api/packs/{pack}/pas` (or
 `mendari pas build`) builds the PAS request Bundle. It holds a `preauthorization` Claim, the
 patient, Coverage, payer, requesting organization and order from the EHR, the place of service,
 and the X12 codes PAS asks for. Nothing is filled in: a missing element is an error that names it.
@@ -829,6 +830,15 @@ else the order (the service type), else the site's settings `MENDARI_PAS_REQUEST
 the error names the setting. The codes PAS makes optional are sent only when set:
 `MENDARI_PAS_SELF_RELATIONSHIP` (the Coverage's code for self), `MENDARI_PAS_PAYER_ENTITY` and
 `MENDARI_PAS_REQUESTER_ENTITY` (the organizations' entity codes).
+A request that needs attention (`needs_attention`, documentation missing) is built the same way,
+and carries the DTR QuestionnaireResponse a clinician completed for it (`questionnaire_response`;
+`--questionnaire-response FILE`). The Claim refers to it in `supportingInfo` (PAS 2.2.1's
+`AdditionalInformation` slice: category `additionalInformation`, with its report type), and the
+Bundle holds it as an entry of its own. It must be completed (`completed` or `amended`) and
+answer the decision's own DTR questionnaire, or the request is refused; without one, nothing is
+attached. Its report type (X12 755) comes from `report_type` (`--report-type`), else
+`MENDARI_PAS_REPORT_TYPE`, and is required once a response is attached. A complete request
+attaches nothing, as before.
 With `submit`, a decision that was automated, or that a reviewer resolved as `submit_ready`,
 goes to the payer's `Claim/$submit` (`MENDARI_PAS_PAYER_URL`, allow-listed),
 and the payer's decision is chained on the decision as codes: its outcome and review actions
@@ -837,7 +847,8 @@ answers with the review action code `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` gives,
 which PAS allows; the compose sandbox sets its own codes, all but the service type, which each
 request there gives (`service_type`).
 The request and the payer's answer validate against PAS 2.2.1 in CI, with every X12 code a site
-may set and with only those PAS requires.
+may set and with only those PAS requires, and so does a request that needs attention with its
+completed QuestionnaireResponse.
 
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:
@@ -1124,8 +1135,8 @@ case). The runbook walks
 and `tests/test_evalset_end_to_end.py` runs that walk through the command line and the routes
 on SQLite and Postgres. Hidden sets stay off on the hosted site until the owner makes and sets
 the two keys ([the owner's steps](https://github.com/mendari-hq/mendari/blob/main/docs/operations/evalsets.md#the-owners-steps));
-labellers are to reach it in memberships mode (the owner's decision 1, 2026-11-07), which it does
-not run yet; how they get past Vercel Authentication is still to settle.
+labellers are to reach it in memberships mode (the owner's decision 1), which it runs since
+2026-11-07; how they get past Vercel Authentication is still to settle.
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -1417,8 +1428,8 @@ The same script writes the scores on the public page (`web/index.html`, between 
 comments): the Patient Inbox Router's `test` set, every arm, each figure k of n with its
 interval, and "not measured" for each arm with no result. It names no remote model, and writes
 no configuration that calls one, until that provider type's disclosure is stated; the check
-covers it too. Deploying `web/` waits only for gate G1-2's `patent-decision` (the owner,
-2026-11-07).
+covers it too. Deploying `web/` waited only for gate G1-2's `patent-decision` (the owner,
+2026-11-07); it was attested, and the page deployed, that day.
 
 A remote configuration (one that calls Jev, an LLM or Mendari's CQL engine) is run by hand,
 never in CI: `mendari scoreboard run PACK --config slot=variant --replicates 3 [--prices FILE]`
@@ -1744,7 +1755,8 @@ src/mendari/
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
 packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
-datasets/        example "local site" dataset for validation
+datasets/        example "local site" dataset for validation; drafts/: the harder inbox
+                 benchmark, a draft not clinically reviewed
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
 scoreboard/      the results store: scoreboard results, their ledgers and run records, the packs'
                  declared configurations (declared/) and the public grading keys (keys.json)

@@ -14,8 +14,8 @@ Patient Inbox Router's public `test` set from the same board, every arm, a measu
 figures as k of n with their intervals, the insufficient-evidence banner, and every other arm
 "not measured" or "not applicable". A remote model, and a configuration that calls one (a
 variant's name, `rules_and_jev`, can name its provider), is written only once its provider
-type's disclosure is stated; until then an entry's figures are withheld too. Deploying web/
-stays the owner's (after gate G1-2's patent-decision).
+type's disclosure is stated; until then an entry's figures are withheld too. web/ is deployed
+by hand, after gate G1-2's patent-decision (attested and deployed 2026-11-07).
 
     uv run python scripts/scoreboard_page.py           # write the page and the site's scores
     uv run python scripts/scoreboard_page.py --check   # exit 1 when either is not the store's

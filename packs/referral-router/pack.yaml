@@ -1,6 +1,6 @@
 spec_version: "0.3"
 id: mendari/referral-router
-version: 0.3.0
+version: 0.3.1
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -51,7 +51,8 @@ card:
     - Checking the specialty the referrer chose against the suggested one (future work). The
       EHR card shows the suggestion only on a referral to send back or to review today; a
       referral to schedule, which may be automated, or for a coordinator gets no card, so no one
-      signing it sees the suggested specialty.
+      signing it sees the suggested specialty. A referral refused as invalid input gets a card
+      that says it was not checked and why, with no specialty.
     - Any real clinic's intake requirements. The required documents and urgency criteria are
       synthetic and were not written or reviewed by a clinician; a site sets its own.
   known_failure_modes:
@@ -338,16 +339,19 @@ cds_hooks:
       urgent_review: "Possibly urgent {specialty} referral: review today"
       coordinator_review: "Referral needs a coordinator: no listed specialty fits"
       none: "Referral: no suggestion; the referral office will review it"
+      refused: "Referral not checked: Mendari refused its data as invalid, so no urgency or completeness check was made"
     indicators:
       schedule: info
       return_for_info: warning
       urgent_review: critical
       coordinator_review: info
       none: info
+      refused: warning
     # A card only where the person signing the referral can act: send it back with what is
     # missing, or review it today. A referral to schedule, for a coordinator or with no
-    # suggestion is decided and audited for the referral office, with no card, and so is one
-    # refused as invalid input (a BLOCK, which has no suggestion either). An ABSTAIN because
-    # part of the record could not be read still gets its card.
-    show: [return_for_info, urgent_review]
+    # suggestion is decided and audited for the referral office, with no card. One refused as
+    # invalid input (a BLOCK, which is in no queue) shows a card that says it was not checked
+    # and why (the owner's choice, 2026-11-07). An ABSTAIN because part of the record could not
+    # be read still gets its card.
+    show: [return_for_info, urgent_review, refused]
     suggestion: Create a referral task

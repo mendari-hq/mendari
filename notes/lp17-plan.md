@@ -771,7 +771,7 @@ answered below. The owner's actions below stay the owner's.
 and 180 days per hidden set, 3 submissions per organization and pack lineage per rotation, the
 confirmation once per version (= LP-11 decision 2). Decision 11 waits for gate G1-2's
 `patent-decision` only, not all of G1-2, and the owner asked Claude to run the production deploy
-of `web/` once that attestation is in and main is green. For 17i (decision 7) the LLM
+of `web/` once that attestation is in and main is green (done 2026-11-07, from main `8dcf911b`). For 17i (decision 7) the LLM
 arm's models are OpenAI's (the owner: "OpenAI"); the exact model ids, at most two, are still
 needed before any spend. Decision 8 stays open.
 

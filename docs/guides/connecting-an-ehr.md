@@ -278,16 +278,22 @@ Each card is CDS Hooks 2.0's:
   confidence the card used to show as one is gone.
 - Every decision is recorded, but a pack may show a card for some recommendations only (its
   `cds_hooks.card.show`; a decision with no recommendation, an ABSTAIN or a BLOCK, is its
-  `none`). The referral router shows one only when the person signing can act: a referral to
-  send back with what is missing, or one to review today. A referral to schedule, for a
-  coordinator or with no suggestion gets no card, and the referral office works it from
-  Mendari. A referral Mendari refuses as invalid input (BLOCK, a reason over 5,000 characters
-  for one) gets no card either, and is in the audit trail only, not in the review queue: the
-  EHR's own referral workflow carries it. The trial pack is silent for a patient who is
-  clearly not eligible, and the prior authorization service for an order it has no requirement
-  set for. An ABSTAIN because part of the record could not be read always gets its `info` card,
-  whatever the pack shows otherwise; a decision whose input is also refused is a BLOCK, and
-  shows the card the pack shows for a BLOCK, if any.
+  `none`, and since spec 0.3 one that refused its input is its `refused` where the pack names
+  that key). A pack may also show a card for a recommendation it otherwise leaves out when a
+  policy rule of its own matched, in that rule's words (`cds_hooks.card.also_show`). The
+  referral router shows one only when the person signing can act: a referral to send back with
+  what is missing, or one to review today. A referral to schedule, for a coordinator or with no
+  suggestion gets no card, and the referral office works it from Mendari. A referral Mendari
+  refuses as invalid input (BLOCK, a reason over 5,000 characters for one) gets a `warning`
+  card saying it was not checked (no urgency or completeness check) and why, each reason naming
+  where in the input and which rule, never the text; it is in the audit trail, not in the
+  review queue, and the EHR's own referral workflow carries it. The trial pack is silent for a
+  patient who is clearly not eligible, and the prior authorization service for an order it has
+  no requirement set for (`not_checked`), unless the notes may document a red flag: then a
+  `critical` card says so, and says nothing of the payer's requirements. An ABSTAIN because
+  part of the record could not be read always gets its `info` card, whatever the pack shows
+  otherwise; a decision whose input is also refused is a BLOCK, and shows the card the pack
+  shows for refused input, if any.
 - The inbox's card (`mendari-message-received`, Mendari's own hook) names the team in its
   summary, says whether the message was routed or needs a person to confirm the team, and is
   `info` for the front desk, a medical assistant and billing, `warning` for a nurse and a
@@ -429,11 +435,12 @@ the Medication each names (its RxNorm code, which the case's own record does not
 in addition). The prior-authorization pack follows the payer's reference to its Organization,
 but the Organization holds only the site's own payer id, which the pack does not know and no
 site code map translates (a map translates codings only): the payer reads as `other`, and the order
-as `not_checked`, which shows no card at `order-sign`, a possible red flag in its notes included
-(that one reaches the review queue at urgent priority). The owner confirmed this reading on
-2026-11-07, and decided that a possible red flag under a site's payer id is to show a card at
-`order-sign`, while other `not_checked` orders stay quiet (not built yet).
-`tests/test_ehr_profile.py` pins each of these, with why: it is a regression fixture, not a rate.
+as `not_checked`. The owner confirmed this reading on 2026-11-07, and decided that a possible
+red flag under a site's payer id is to show a card at `order-sign`, while other `not_checked`
+orders stay quiet: built in the prior-authorization pack's 0.3.1, so such an order shows no card
+unless its notes may document a red flag (that order shows the red-flag card, and reaches the
+review queue at urgent priority). `tests/test_ehr_profile.py` pins each of these, with why: it is
+a regression fixture, not a rate.
 
 ## Site codes
 

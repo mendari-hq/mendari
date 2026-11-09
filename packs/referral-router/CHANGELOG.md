@@ -4,6 +4,24 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.3.1
+
+- **A referral refused as invalid input shows a card** (the owner's choice of 2026-11-07): a
+  BLOCK before any provider ran (a reason over 5,000 characters, for one) is the card key
+  `refused` (spec 0.3 §5), which `show` now names, `warning`: "Referral not checked: Mendari
+  refused its data as invalid, so no urgency or completeness check was made". Its detail says the
+  input was refused and nothing was checked, and lists why as the audit record keeps it
+  (`referral/reason: must have at most 5000 characters`: where in the input and which rule, never
+  the text), with or without the audit link, and it no longer carries the sentence that the
+  action must not happen. Its suggestion stays not recommended. Before, such a referral showed no
+  card and reached no one at signing. It is decided and audited as before, and is still not in the
+  review queue. A referral to schedule, for a coordinator or with no suggestion still shows no
+  card. The FHIR decisions golden holds no refused referral: its 300 still show 235 cards.
+- A PATCH bump, as for 0.2.1 (CONTRIBUTING.md's rule as the changelogs read it): what the cards
+  show and say, with every decision identical. Criteria, rules, providers, policy, models and
+  data are unchanged; the benchmark's figures, its ledger and the FHIR decisions golden are as
+  they were. The digest changes because the manifest does.
+
 ## 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on

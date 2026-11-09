@@ -14,12 +14,14 @@ from __future__ import annotations
 import copy
 import itertools
 import re
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
 
 import jsonschema
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_pack
@@ -43,7 +45,13 @@ from tests.conftest import INBOX_DIR, encrypt_mode
 from tests.test_davinci import COMPLETE, request
 from tests.test_fhir import COMMUNICATION, PATIENT
 from tests.test_limits import order_sign
-from tests.test_prior_auth_pack import _order
+from tests.test_prior_auth_pack import PACK_DIR as PRIOR_AUTH_DIR
+from tests.test_prior_auth_pack import _order, _site_payer
+from tests.test_prior_auth_pack import _order_sign as prior_auth_sign
+from tests.test_referral_pack import PACK_DIR as REFERRAL_DIR
+from tests.test_referral_pack import _order as referral_order
+from tests.test_referral_pack import _order_sign as referral_sign
+from tests.test_referral_pack import _record as referral_record
 from tests.test_templates import with_wording
 from tests.test_trial_pack import _record as trial_record
 
@@ -279,7 +287,7 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
         if card is None:
             continue
         choices = display_choices(pack.manifest)
-        for summary in card.summaries.values():
+        for summary in card.summary_templates().values():  # also_show's summaries too
             texts = [text for text, _ in expansions(summary, choices)]
             assert max(len(text) for text in texts) <= SUMMARY_CHARS, summary
             assert len(longest(summary, choices)) == max(len(text) for text in texts)
@@ -503,7 +511,14 @@ def test_every_card_matches_the_cds_hooks_2_0_card_shape(
     seen = 0
     unreadable = order_sign(1)
     unreadable["prefetch"]["labs"] = {"resourceType": "OperationOutcome", "issue": []}
-    for path, body in [*((p, make()) for p, make in HOOKS.items()), (REFERRAL, unreadable)]:
+    # A refused referral (`refused`) and a red flag on an order `show` leaves out (`also_show`).
+    refused = referral_sign(
+        [referral_order("sr-long", "Palpitations. " + "x" * 5_000)], referral_record()
+    )
+    note = "New saddle anesthesia and urinary retention."
+    red_flag = prior_auth_sign(_site_payer(note), _order("mri", "FX101"))
+    added = [(REFERRAL, unreadable), (REFERRAL, refused), (PRIOR_AUTH, red_flag)]
+    for path, body in [*((p, make()) for p, make in HOOKS.items()), *added]:
         if public is not None:
             body["fhirServer"] = EHR_A
         for card in cards_of(client, path, body):
@@ -512,5 +527,116 @@ def test_every_card_matches_the_cds_hooks_2_0_card_shape(
             assert ("topic" in card["source"]) is (path == PRIOR_AUTH)
             assert ("links" in card) is (public is not None)
             seen += 1
-    assert seen >= 7
+    assert seen >= 9
     assert cards_of(client, REFERRAL, unreadable)[0]["summary"] == cds_hooks.UNREADABLE_SUMMARY
+
+
+def _edited(tmp_path: Path, source: Path, edit: Any) -> Path:
+    """A copy of a reference pack whose manifest `edit` changed (in place, as a mapping)."""
+    root = tmp_path / source.name
+    shutil.copytree(source, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    edit(manifest)
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    return root
+
+
+def _card_of(manifest: dict[str, Any]) -> dict[str, Any]:
+    card: dict[str, Any] = manifest["cds_hooks"]["card"]
+    return card
+
+
+def test_the_spec_0_3_card_keys_are_checked_with_the_manifest(tmp_path: Path) -> None:
+    """`also_show` names policy rules, needs a `show` list and has summaries held to what
+    `summaries` are (bare, known placeholders, under 140 characters); `refused` is a card key
+    beside `none`, and may not also be a label of the primary question. Both are spec 0.3: a
+    0.1 or 0.2 pack that uses either is refused at load, wherever it comes from."""
+
+    def refused_by(source: Path, edit: Any, problem: str, name: str) -> None:
+        root = _edited(tmp_path / name, source, edit)
+        with pytest.raises(PackValidationError, match=re.escape(problem)):
+            load_pack(root)
+
+    def unknown_rule(m: dict[str, Any]) -> None:
+        _card_of(m)["also_show"] = {"no-such-rule": {"summary": "Something to see"}}
+
+    refused_by(
+        PRIOR_AUTH_DIR,
+        unknown_rule,
+        "cds_hooks.card.also_show names unknown policy rules ['no-such-rule']",
+        "rule",
+    )
+
+    def without_show(m: dict[str, Any]) -> None:
+        del _card_of(m)["show"]
+
+    refused_by(
+        PRIOR_AUTH_DIR,
+        without_show,
+        "cds_hooks.card.also_show needs a `show` list (every card shows)",
+        "show",
+    )
+
+    def placeholder(m: dict[str, Any]) -> None:
+        _card_of(m)["also_show"]["possible-red-flag"]["summary"] = "Red flag for {no_such}"
+
+    refused_by(
+        PRIOR_AUTH_DIR,
+        placeholder,
+        "cds_hooks.card.also_show.possible-red-flag.summary uses unknown placeholders",
+        "placeholder",
+    )
+
+    def older(m: dict[str, Any]) -> None:
+        m["spec_version"] = "0.2"
+
+    for source, named in (
+        (PRIOR_AUTH_DIR, "['cds_hooks.card.also_show']"),
+        (REFERRAL_DIR, "[\"cds_hooks.card key 'refused'\"]"),
+    ):
+        problem = f"{named} use spec 0.3 card features; set spec_version: '0.3'"
+        refused_by(source, older, problem, source.name)
+    # A summary that can read 140 characters or longer is a problem, as for `summaries`.
+    root = _edited(
+        tmp_path / "long",
+        PRIOR_AUTH_DIR,
+        lambda m: _card_of(m)["also_show"]["possible-red-flag"].update(summary="x" * 140),
+    )
+    owned = load_pack(root)
+    assert card_summary_problems(owned.manifest) == [
+        "cds_hooks.card.also_show.possible-red-flag.summary can read 140 characters with "
+        "display names; a card's summary is at most 139 (CDS Hooks: under 140)"
+    ]
+
+
+def test_a_template_that_does_not_name_refused_keys_refused_input_as_none(
+    tmp_path: Path,
+) -> None:
+    """`refused` is opt-in: a card template that names it in none of `summaries`, `indicators`
+    and `show` words a decision that refused its input as `none`, as before spec 0.3's card
+    keys, so packs that do not use it are unchanged (the inbox's `none` summary for its BLOCK,
+    `tests/test_inbox_pack.py`). The Referral Router without its `refused` entries is quiet for
+    a refused referral again, its `none` key not in `show`."""
+
+    def drop_refused(m: dict[str, Any]) -> None:
+        card = _card_of(m)
+        del card["summaries"]["refused"], card["indicators"]["refused"]
+        card["show"].remove("refused")
+
+    root = _edited(tmp_path, REFERRAL_DIR, drop_refused)
+    router = Decision.from_path(root)
+    body = referral_sign([referral_order("sr-long", "x" * 5_001)], referral_record())
+    assert cds_hooks.invoke(router, body) == {"cards": []}
+    template = router.pack.manifest.cds_hooks
+    assert template is not None and template.card is not None
+    assert not template.card.names_refused()
+    result, _ = router.decide_fhir(
+        body["prefetch"], focus=body["context"]["draftOrders"]["entry"][0]["resource"]
+    )
+    assert (result.outcome.value, result.rejected) == ("BLOCK", True)
+    assert cds_hooks.card_key(template.card, result) == "none"
+    assert not cds_hooks.shows_card(template.card, result)
+    shown = Decision.from_path(REFERRAL_DIR)
+    template = shown.pack.manifest.cds_hooks
+    assert template is not None and template.card is not None
+    assert cds_hooks.card_key(template.card, result) == "refused"

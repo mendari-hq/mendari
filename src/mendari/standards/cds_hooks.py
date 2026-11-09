@@ -15,9 +15,13 @@ The hook always answers (LP-23d). A key that could not be read (each read on its
 fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
 cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
 whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it,
-the card describes a routing decision. A pack that declares `coverage_information` also returns,
-for each decided order, a Da Vinci CRD system action (`standards/davinci.py`): `indeterminate`
-for a technical reason when the order abstained over unreadable data and the Coverage was read.
+the card describes a routing decision. Spec 0.3 adds two keys to it (§5): `refused`, for a decision
+that refused its input, whose card lists why whatever the links (a template that does not name it
+words such a decision as `none`, as before), and `also_show`, the policy rules whose match shows a
+card for a recommendation `show` leaves out, in the rule's own words. A pack that declares
+`coverage_information` also returns, for each decided order, a Da Vinci CRD system action
+(`standards/davinci.py`): `indeterminate` for a technical reason when the order abstained over
+unreadable data and the Coverage was read.
 
 **Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
 not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
@@ -66,7 +70,7 @@ from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.policy import threshold_reason
-from mendari.core.spec import SUMMARY_CHARS, Outcome, Priority
+from mendari.core.spec import REFUSED, SUMMARY_CHARS, CdsCard, Outcome, Priority, RuleCard
 from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
 from mendari.errors import (
     CdsHooksError,
@@ -100,6 +104,13 @@ UNREADABLE_SUMMARY = "No recommendation: part of the record could not be read"
 UNREADABLE_DETAIL = (
     "Mendari could not read part of this patient's record, so it made no recommendation and a "
     "person decides. Not read:"
+)
+# What a card keyed `refused` says (spec 0.3 §5): fixed words, then each reason the input was
+# refused, as the audit record keeps them (where in the input and which rule of the schema, a
+# resource by its type and position: never a value or an id).
+REFUSED_DETAIL = (
+    "Refused: Mendari could not accept the data sent as this pack's input, so it checked "
+    "nothing and made no recommendation. Why:"
 )
 # A card's detail: the pack's status, the notice, and one plain sentence for its outcome.
 OUTCOME_SENTENCES = {
@@ -278,9 +289,7 @@ def invoke(
     silenced = bool(hooks.coverage_information) and not coverage_info_wanted(request)
     cards = []
     for result, task in decided:
-        key = result.recommendation or "none"
-        hidden = template is not None and template.show is not None and key not in template.show
-        if silenced or (hidden and not result.abstained_unreadable):
+        if silenced or not shows_card(template, result):
             continue  # decided and audited, but nothing worth interrupting the user for
         cards.append(card(decision.pack, result, task, links))
     response: dict[str, Any] = {"cards": cards}
@@ -481,6 +490,36 @@ def source_label(pack: Pack) -> str:
     return f"{label} · {COMMUNITY_LABEL}" if pack.community else label
 
 
+def card_key(template: CdsCard | None, result: DecisionResult) -> str:
+    """Which of a card template's keys words a decision's card: its recommendation, `none`
+    without one, or `refused` for a decision that refused its input (a BLOCK before any
+    provider ran) when the template names `refused` (spec 0.3 §5); one that does not reads it
+    as `none`, as before."""
+    if result.recommendation is not None:
+        return result.recommendation
+    refused = result.outcome is Outcome.BLOCK and result.rejected
+    return REFUSED if refused and template is not None and template.names_refused() else "none"
+
+
+def rule_card(template: CdsCard | None, result: DecisionResult) -> RuleCard | None:
+    """The wording of the policy rule that decided, for a recommendation `show` leaves out
+    (`also_show`, spec 0.3 §5); None for one `show` names, or any other decision."""
+    if template is None or template.show is None or result.rule is None:
+        return None
+    if card_key(template, result) in template.show:
+        return None
+    return template.also_show.get(result.rule)
+
+
+def shows_card(template: CdsCard | None, result: DecisionResult) -> bool:
+    """Whether a decision shows a card: every decision without a `show` list; with one, a key
+    it names, a decision a rule in `also_show` matched, and an ABSTAIN because part of the
+    record could not be read, whatever `show` says."""
+    if template is None or template.show is None or result.abstained_unreadable:
+        return True
+    return card_key(template, result) in template.show or rule_card(template, result) is not None
+
+
 def card(
     pack: Pack,
     result: DecisionResult,
@@ -488,19 +527,24 @@ def card(
     links: CardLinks = NO_LINKS,
 ) -> dict[str, Any]:
     template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
-    key = result.recommendation or "none"
+    key = card_key(template, result)
     if result.abstained_unreadable:
         detail = _unreadable_detail(pack, result)
         return _card(pack, result, task, "info", UNREADABLE_SUMMARY, detail, links)
+    by_rule = rule_card(template, result)
     if result.priority is Priority.STAT:
         indicator = "critical"
+    elif by_rule is not None:
+        indicator = by_rule.indicator
     elif template is not None and key in template.indicators:
         indicator = template.indicators[key]
     elif result.outcome is Outcome.AUTO:
         indicator = "info"
     else:
         indicator = "warning"
-    if template is not None and key in template.summaries:
+    if by_rule is not None:
+        summary = fill_display(by_rule.summary, result, pack.manifest)
+    elif template is not None and key in template.summaries:
         summary = fill_display(template.summaries[key], result, pack.manifest)
     else:
         verb = {
@@ -512,6 +556,8 @@ def card(
         summary = f"{verb} to {_target(pack, result)}" + (
             f" ({result.priority.value})" if result.priority.value != "routine" else ""
         )
+    if key == REFUSED:
+        return _card(pack, result, task, indicator, summary, _refused_detail(pack, result), links)
     # The engine's reasons are behind the audit link when there is one, else in the detail, but
     # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
     # says what it decided.
@@ -542,6 +588,18 @@ def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
     return "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
         + [f"- {key}: {reason}" for key, reason in result.unreadable]
+        + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
+    )
+
+
+def _refused_detail(pack: Pack, result: DecisionResult) -> str:
+    """A refused input's detail (the `refused` key): the pack's status and the notice, the fixed
+    words, and each reason as the audit record keeps it (`DecisionResult.to_record`), whatever
+    the links: why it was refused is what the card is for."""
+    reasons = [reason.removeprefix("input rejected: ") for reason in result.to_record()["reasons"]]
+    return "\n".join(
+        [f"*{pack.status_label}* *{notices.NOTICE}*", "", REFUSED_DETAIL, ""]
+        + [f"- {reason}" for reason in reasons]
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
 

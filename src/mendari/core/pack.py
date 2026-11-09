@@ -426,8 +426,8 @@ def manifest_template_problems(manifest: PackManifest) -> list[str]:
     problems = prefetch_problems(hooks)
     if hooks is not None and hooks.card is not None:
         problems += [
-            f"cds_hooks.card.summaries.{key} {problem}"
-            for key, summary in hooks.card.summaries.items()
+            f"cds_hooks.card.{where} {problem}"
+            for where, summary in hooks.card.summary_templates().items()
             for problem in template_problems(summary, manifest.questions)
         ]
     return problems + card_summary_problems(manifest)

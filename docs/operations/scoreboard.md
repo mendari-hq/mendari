@@ -66,8 +66,8 @@ published: disclosure pending" in place of its figures, and the arm's configurat
 measured are counted in one row rather than named. A result is published there by the page's
 rule, from the same board: its figures and models are shown only while the disclosures file
 still holds, word for word, the statement each type it calls had when it was stored, as the
-section on replicates below says. Deploying `web/` is the owner's, and waits only for gate G1-2's
-`patent-decision`.
+section on replicates below says. Deploying `web/` is the owner's, and waited only for gate
+G1-2's `patent-decision`, attested on 2026-11-07, when the page was deployed.
 
 The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
 of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
@@ -443,8 +443,9 @@ not signed: step 8 supersedes them.
     cd web && vercel deploy --prod
     ```
 
-    On 2026-11-07 the owner asked Claude to run this deploy once `patent-decision` is attested
-    and main is green (`tasks/todo.md`). The day the method is at its URL starts its 30 days'
+    The public page was deployed this way on 2026-11-07, once `patent-decision` was attested and
+    main was green (`tasks/todo.md`); the documentation site is still to publish. The day the
+    method is at its URL starts its 30 days'
     notice (B30). Note the URL and the day.
 
 4. **Set the effective date**, at least 30 days after step 3's day, in one pull request:
