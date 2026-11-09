@@ -24,6 +24,16 @@ The first release (not yet published).
   SNOMED CT's url, OID and concept URIs in the built wheel and sdist, and any number written as
   a SNOMED CT concept id in Mendari's own files there (`scripts/check_snomed.py`); NOTICE carries
   NLM's RxNorm acknowledgement.
+- **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
+  a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
+  the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:
+  paraphrased messages with hedges, typos, texting and mixed topics, every red-flag sign phrased
+  indirectly, and routine look-alikes that use red-flag words. Its train and held-out splits
+  share no family, no paraphrase source and no sentence or 6-word run, and the held-out split
+  shares none with the shipped pack's training and tuning data; a leakage check proves it and a
+  coverage check covers every label and sign (`scripts/harder_inbox_draft.py --check`). The
+  pack's data, model, benchmark and digest are as before: adopting the set is the owner's
+  decision after review (`notes/clinician-review-harder-inbox-benchmark.md`).
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **EHR pilot readiness, the baseline** (LP-23a; nothing changes how a pack decides).
   `notes/ehr-scorecard.md` grades readiness for a pilot with one EHR on rubric v1: seven
@@ -457,7 +467,7 @@ The first release (not yet published).
   prior-authorization pack its payer
   through the Coverage's reference to its Organization, else the payor's own identifier; a
   site's own payer id reads as `other` (`not_checked`), as the owner confirmed on 2026-11-07 (a
-  red flag under it is to show a card, #282 Q2, not built yet).
+  red flag under it shows a card since the pack's 0.3.1, #282 Q2: the entry below).
   The referral router finds a referral, and its checklist's documents, through code sets a
   site's code map (`MENDARI_SITE_CODES`) can translate the site's own codes into; a decision
   read through a translation, or about a referral found through one, is never automated. The
@@ -477,6 +487,41 @@ The first release (not yet published).
   23k's tests in place of its pending line, and the scorecard's DS-3a to DS-3d are met (data
   shapes at level 3; overall still level 1). See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#reading-the-record).
+- **Da Vinci PAS: a request that needs attention carries its completed DTR QuestionnaireResponse**
+  (the owner's decision of 2026-11-07). `POST /api/packs/{pack}/pas` and `mendari pas build` now
+  build a request for a `needs_attention` decision too, and attach the QuestionnaireResponse a
+  clinician completed for it (`questionnaire_response`, `--questionnaire-response`): the Claim
+  refers to it in `supportingInfo` (PAS 2.2.1's `AdditionalInformation` slice, category
+  `additionalInformation`) and the Bundle holds it as an entry. It must be `completed` or
+  `amended` and answer the decision's own DTR questionnaire, or the request is refused (`422`,
+  or exit 1); without one, nothing is attached. Its report type (X12 755) is the request's
+  (`report_type`, `--report-type`), else the new setting `MENDARI_PAS_REPORT_TYPE`, required
+  only once a response is attached. A complete request (`submit_ready`) is what it was, with a
+  response or without, and other outcomes are still refused. Submitting is unchanged: a
+  `needs_attention` decision is never automated, so it goes to the payer once a reviewer
+  confirms it as `submit_ready`. The new sample `pas-request-attention.json` validates against
+  PAS 2.2.1 and DTR 2.2.0 in CI.
+- **The two cards the owner chose as a clinician** (2026-11-07; which cards show and what they
+  say change, no decision does). Spec 0.3 gains two card keys (§5): `refused`, the key of a
+  decision that refused its input, whose card lists why (where in the input and which rule,
+  never a value) whatever the links, and `cds_hooks.card.also_show`, a card in a policy rule's
+  own words for a recommendation `show` leaves out; a pack that names neither is unchanged, and
+  a 0.1 or 0.2 pack that names either is refused. The Prior Authorization Preflight (0.3.1)
+  shows a `critical` card at `order-sign` when the notes of an order it has no requirement set
+  for (`not_checked`, as under a site's own payer id) may document a red flag: "Possible red flag
+  in the notes: consider urgent imaging and an expedited review; prior auth not checked". Other
+  `not_checked` orders still show none, and the order is still in the review queue at urgent
+  priority, with no coverage information. The Referral Router (0.3.1) shows a `warning` card for
+  a referral refused as invalid input, which said nothing at signing before: "Referral not
+  checked: Mendari refused its data as invalid, so no urgency or completeness check was made", and
+  why; a referral to schedule or for a coordinator still shows none. Of the FHIR decisions
+  golden's cases, 3 more prior-authorization orders show a card (208 of 259; 51 `not_checked`
+  stay quiet), and the referral router's 235 of 300 are as before (none is refused). The golden,
+  both benchmarks' figures and their ledgers' cases are unchanged; the benchmarks and ledgers
+  differ in the run, the version and the digest. Inferno's CRD server suite, run locally on
+  this change, gives its expected 36 passes, 5 failures and 12 skips, as before: no profile
+  patient's note documents a red flag, so none gains a card. See
+  [Connecting an EHR](docs/guides/connecting-an-ehr.md#the-cards).
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

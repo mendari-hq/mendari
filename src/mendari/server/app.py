@@ -277,7 +277,9 @@ class PriorAuthorizationRequest(BaseModel):
     """A PAS request for a decided order: the EHR's resources, and the X12 codes the payer needs.
     Mendari ships no X12 code value: a code this request does not give comes from the site's
     settings (`MENDARI_PAS_REQUEST_TYPE` and the others; the service type first from the order),
-    else the request is refused naming the setting. `submit` sends it to $MENDARI_PAS_PAYER_URL."""
+    else the request is refused naming the setting. `submit` sends it to $MENDARI_PAS_PAYER_URL.
+    For a decision that needs attention, `questionnaire_response` is the DTR
+    QuestionnaireResponse a clinician completed, attached in `Claim.supportingInfo`."""
 
     decision_id: str = Field(min_length=1, max_length=100)
     patient: dict[str, Any]
@@ -302,6 +304,19 @@ class PriorAuthorizationRequest(BaseModel):
     )
     place_of_service: str | None = Field(default=None, max_length=5, description="CMS POS code")
     diagnoses: list[str] = Field(default=[], max_length=12, description="ICD-10-CM codes")
+    questionnaire_response: dict[str, Any] | None = Field(
+        default=None,
+        description="for a decision that needs attention (needs_attention): the DTR "
+        "QuestionnaireResponse a clinician completed (status completed or amended) for the "
+        "decision's questionnaire, from `$questionnaire-package`; attached in "
+        "Claim.supportingInfo. A complete request (submit_ready) is sent without it",
+    )
+    report_type: str | None = Field(
+        default=None,
+        pattern=rf"^{X12_CODE.pattern}$",
+        description="X12 755, the attached QuestionnaireResponse's report type; else "
+        "MENDARI_PAS_REPORT_TYPE",
+    )
     submit: bool = False
 
 
@@ -1551,9 +1566,10 @@ def create_app(
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
         """A pack's manifest, input and output JSON Schemas, active providers, benchmark,
-        leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation for which a
-        decision of this pack can be built into a Da Vinci PAS request (`POST …/pas`), or null
-        when its main question has none."""
+        leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation of a complete
+        request, for which the dashboard builds a decision of this pack into a Da Vinci PAS
+        request (`POST …/pas`, which also builds one that needs attention), or null when its
+        main question has none."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
         decision = decision_for(pack_id)
@@ -2679,18 +2695,26 @@ def create_app(
     def prior_authorization(
         namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
     ) -> dict[str, Any]:
-        """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
-        `submit` (a decision that was automated, or that a reviewer resolved as `submit_ready`),
-        the payer's answer, which is chained on the decision (`pas.submitted`): its
-        outcome and review actions; the authorization number and disposition are kept as a
-        note (PHI mode `hash` keeps neither). The X12 codes come from the request, else the
-        order, else the site's settings (`MENDARI_PAS_REQUEST_TYPE`,
-        `MENDARI_PAS_CERTIFICATION_TYPE`, `MENDARI_PAS_SERVICE_TYPE`; optional ones too):
-        Mendari ships none, and a required one nothing gives is a `422` naming its setting."""
+        """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`) or one that
+        needs attention (`needs_attention`), and with `submit` (a decision that was automated,
+        or that a reviewer resolved as `submit_ready`), the payer's answer, which is chained on
+        the decision (`pas.submitted`): its outcome and review actions; the authorization number
+        and disposition are kept as a note (PHI mode `hash` keeps neither). A request that needs
+        attention carries the DTR QuestionnaireResponse a clinician completed
+        (`questionnaire_response`, for the decision's own questionnaire) in
+        `Claim.supportingInfo`; without one, nothing is attached. The X12 codes come from the
+        request, else the order, else the site's settings (`MENDARI_PAS_REQUEST_TYPE`,
+        `MENDARI_PAS_CERTIFICATION_TYPE`, `MENDARI_PAS_SERVICE_TYPE`, and
+        `MENDARI_PAS_REPORT_TYPE` for an attached response; optional ones too): Mendari ships
+        none, and a required one nothing gives is a `422` naming its setting."""
         pack = pack_or_404(f"{namespace}/{name}")
         record = store.get(body.decision_id)
         if record is None or record["pack_id"] != pack.id:
             raise PackNotFoundError(f"no decision {body.decision_id} of {pack.id}")
+        questionnaire = None
+        if body.questionnaire_response is not None:
+            answers = davinci.record_answers(record)
+            questionnaire = davinci.decision_questionnaire(pack, answers)
         bundle = pas.request_bundle(
             decision={"id": record["id"], "recommendation": record["recommendation"]},
             order=body.order,
@@ -2704,6 +2728,9 @@ def create_app(
             request_type=body.request_type,
             certification_type=body.certification_type,
             site_codes=settings.pas_codes(),
+            questionnaire_response=body.questionnaire_response,
+            questionnaire=questionnaire,
+            report_type=body.report_type,
         )
         submitted = None
         if body.submit:
@@ -2749,8 +2776,7 @@ def create_app(
             pack = packs.get(record["pack_id"]) if record is not None else None
             if record is None or pack is None:
                 return None
-            answers = record["record"].get("answers") or {}
-            return pack, {key: str(answer.get("label")) for key, answer in answers.items()}
+            return pack, davinci.record_answers(record)
 
         authored = datetime.now(UTC).isoformat(timespec="seconds")
         result = davinci.questionnaire_package(payload, lookup, packs, authored)

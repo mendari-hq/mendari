@@ -1507,15 +1507,16 @@ Connect) is not supported yet.
       instead. Not built: today it reads "yes", recorded with the limitation and never
       automated.
     - [ ] Owner (O6): under a declaration, whether the trial card shows for every decision
-      (its `show` hides `not_eligible`, which an incomplete list can give); after #288's
-      `shows_card`, it could treat a declared limitation as it treats an unreadable record. The
-      review queue holds every such decision today.
+      (its `show` hides `not_eligible`, which an incomplete list can give); `shows_card` (#288,
+      merged) could treat a declared limitation as it treats an unreadable record. The review
+      queue holds every such decision today.
     - [ ] For #287 (O4, in that PR, which bumps the trial pack anyway): the trial card's "more
       links than one decision reads (20, `cap`)" wording (now 50 notes and 50 followed
       references), a date window or `_count` on the notes prefetch, and whether to add
       `_include=MedicationRequest:medication` (unverified on Epic).
-    - [ ] For #288 (it bumps prior-auth anyway): the prior-auth pack's "20, `cap`" wording in
-      `pack.yaml`, `DECISION_CARD.md` and its CHANGELOG (now 50 and 50).
+    - [ ] At prior-auth's next version (#288 merged without it): the pack's "20, `cap`" wording
+      in `pack.yaml`, `DECISION_CARD.md` and its CHANGELOG (now 50 notes and 50 followed
+      references).
     - [ ] Dashboard: the criteria table in a derived primary's audit drawer (`pack.js`
       `criteriaTable`) is a scrollable region with nothing focusable in it (axe
       `scrollable-region-focusable`, seen on a trial record's drawer, 2026-11-08); fix on its
@@ -1531,8 +1532,9 @@ Connect) is not supported yet.
     shows none, so no one signing it sees the suggested specialty (checking it against the
     referrer's is out of scope, future work). Say if either should show its card. Answered by
     the owner as a clinician on 2026-11-07 (#281 Q3): (a) a refused (BLOCK) referral shows a
-    card; (b) a referral to schedule stays without one. (a) is a card change to build next (the
-    rebuild, the card census and the CRD golden checked).
+    card; (b) a referral to schedule stays without one. (a) is built: the Referral Router 0.3.1's
+    `refused` card (spec 0.3 §5), no decision changed (the rebuild, the card census and the CRD
+    golden checked).
   - [x] Owner (decision 5): the go-ahead for 23k: given 2026-11-06 ("go ahead do it, full consent"), built in #282.
   - [ ] Owner (B21): a clinician's note on the MedicationRequest rule; the draft for the reviewer is notes/clinician-review-medication-period.md, and gate clinician-review's attestation records the review. Its question 3 includes what the 23k review found: a listed insulin or metformin that is not `active` and has no bounds end reads as not taken (a `completed` insulin written 20 days ago reads `no_insulin` "yes", not "unknown"); the card states it, and the behaviour waits on the answer.
     **Answered by the owner, a physician (also the pack's recorded author, disclosed), on
@@ -1587,10 +1589,10 @@ Connect) is not supported yet.
     For the owner as a clinician (#282 Q2): whether a `not_checked` order shows its card, or the
     red-flag rule sets a recommendation that does. Answered on 2026-11-07: a possible red flag
     under a site payer id shows a card at order signing; other `not_checked` orders stay quiet.
-    To build next (a card or rule change, with the rebuild, the benchmarks, the FHIR golden and
-    the CRD golden refreshed, and
-    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card`
-    changed with it).
+    Built: the Prior Authorization Preflight 0.3.1's red-flag card (`cds_hooks.card.also_show`,
+    spec 0.3 §5), no decision changed (the rebuild, the benchmarks, the FHIR golden and the CRD
+    golden checked); the test is now
+    `tests/test_prior_auth_pack.py::test_a_red_flag_under_a_site_payer_id_shows_a_card_at_signing`.
   - [x] Owner (#280 Q2): the card's `mendari.decision_id` extension, which CRD 2.2.1's response
     model does not define, stays a recorded gap (3.4.3.01 and 4.1.3.01 expected failures);
     moving the id would change the card format. Confirmed (owner, 2026-11-07).
@@ -4060,7 +4062,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     request, LP-23's conflict 54, merged; the offline `fhir-conformance` stays the required
     gate); the DTR payer service stays a declared partial one, its gaps listed, not advertised.
     Whether PAS attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for
-    `needs_attention`: yes (owner, 2026-11-07), to build. Real acceptance is the owner's alone: a
+    `needs_attention`: yes (owner, 2026-11-07), built (#286). Real acceptance is the owner's alone: a
     payer's PAS sandbox with credentials, a payer's written requirements, an EHR's DTR client
     (B38).
 
@@ -4152,6 +4154,13 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   reviewed by a clinician (from v0.2; the generation tooling can be built without one). The
   owner asked on 2026-11-07 for the generation tooling to be built now, for the owner's review;
   nothing claims a clinician's review until then.
+  - [x] Generation tooling built (#285): `mendari.sandbox.synthetic_inbox_harder` and
+    `scripts/harder_inbox_draft.py` write the draft to `datasets/drafts/patient-inbox-harder/`
+    (436 cases a split, 152 urgent; leakage and coverage checks pass;
+    `tests/test_synthetic_inbox_harder.py`). Draft, not clinically reviewed; the pack's data,
+    model, benchmark and digest are unchanged.
+  - [ ] Owner: review the draft (`notes/clinician-review-harder-inbox-benchmark.md`: what to read,
+    seven quick-pick questions), then decide its adoption, which a separate PR carries out
 - [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
   only when asked)
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,

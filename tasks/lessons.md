@@ -786,3 +786,22 @@ gone is success.
 `gh run list --workflow neon-preview-cleanup.yml --limit 5` is green, and a dry run
 (`gh workflow run neon-preview-cleanup.yml -f dry_run=true`) lists nothing to delete while
 Neon holds only `main` and the branches of open pull requests.
+
+## 2026-11-07 - testing
+
+### What happened
+The harder inbox benchmark's full suite passed (6,571 tests) while its new files were not yet
+added to git. After the commit, `tests/test_shipped.py` failed: a Spanish frame's "llaman"
+matched the model-name pattern (`llama`). The full run had not seen the new module at all.
+
+### Root cause
+Six test files list what they scan with `git ls-files` (`test_shipped`, `test_spdx`,
+`test_public_tree`, `test_no_hidden_data_shipped`, `test_code_systems`, `test_x12_values`), so
+they skip untracked files: a run before `git add` proves nothing about a new file.
+
+### Rule
+`git add` new files before the full run (staging is enough; the index is what `ls-files` reads).
+If the full run went first, run those six files again once the new files are staged.
+
+### Verification
+`git status --short | grep '^??'` lists nothing of the change before the full run starts.

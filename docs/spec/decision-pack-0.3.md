@@ -1,16 +1,19 @@
 # Decision Pack Specification, version 0.3
 
-Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping only. Every other
-part of a pack is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with `spec_version: "0.3"`.
+Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping and two card keys
+(§5) only. Every other part of a pack is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with
+`spec_version: "0.3"`.
 Every valid 0.1 and 0.2 pack is still valid, with unchanged behaviour (§3). The key words MUST,
 SHOULD and MAY are used as in RFC 2119. The reference implementation of the mapping is
 `mendari.standards.fhir`.
 
 ## 1. What changes
 
-Only the mapping part of 0.2 §9 ("FHIR and CDS Hooks"): how `fhir/mapping.yaml` turns FHIR R4
+The mapping part of 0.2 §9 ("FHIR and CDS Hooks"): how `fhir/mapping.yaml` turns FHIR R4
 resources into a pack's input. §2 below states the whole mapping, its 0.2 keys and the new
-ones. CDS Hooks, card and Task templates, the Task a decision becomes and the guard (§9.1)
+ones. Card templates gain two keys (§5): `refused`, for a decision that refused its input, and
+`also_show`, a card in a policy rule's words for a recommendation `show` leaves out. CDS Hooks,
+the rest of the card template, Task templates, the Task a decision becomes and the guard (§9.1)
 stay as 0.2 says.
 
 Real EHR data rarely puts a pack's code first, writes one resource type for one idea, or keeps
@@ -329,6 +332,8 @@ Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of
 | List `resources`: several resource types into one list | §2.6 |
 | `medication_period` for a MedicationRequest | §2.7 |
 | Bounds for a pack the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |
+| The card key `refused`, for a decision that refused its input | §5 |
+| `cds_hooks.card.also_show`: a card in a policy rule's words for a recommendation `show` leaves out | §5 |
 
 To migrate a pack:
 
@@ -338,3 +343,51 @@ To migrate a pack:
 4. Re-run the evaluation. A mapping change changes the pack's digest (0.2 §11), so a
    governance approval of the old digest no longer applies, and it may change what the pack
    decides through FHIR.
+
+## 5. Cards (0.3)
+
+0.2 §9 keys a card template (`cds_hooks.card`) by the primary question's labels, and `none` for
+a decision with no recommendation. 0.3 adds two keys, each marked (0.3) as §3 says.
+
+**`refused` (0.3).** The key of a decision that refused its input: a `BLOCK` made before any
+provider ran, because the input failed the pack's input schema or a standards check under
+`enforce`. A template MAY name it in `summaries`, `indicators` and `show` as it names a label.
+One that names it in none of them keys such a decision `none`, as 0.2 does, so a pack that does
+not use it is unchanged. A primary question MUST NOT have a label `refused` where the template
+names the key. The reference runtime's card for it does not use the `BLOCK` outcome's sentence
+(that the action must not happen): its detail is the pack's status, the notice, fixed words that
+say the input was refused and nothing was checked, and each reason as the audit record keeps it
+(where in the input and which rule of the schema, a resource by its type and position: never a
+value or an id), whether or not the engine's reasons are behind a link.
+
+```yaml
+cds_hooks:
+  card:
+    summaries:
+      refused: "Referral not checked: Mendari refused its data as invalid, so no urgency or completeness check was made"
+    indicators: {refused: warning}
+    show: [return_for_info, urgent_review, refused]
+```
+
+**`also_show` (0.3).** A mapping from a policy rule's name to a card: its `summary` (a template
+held to what `summaries` are: bare placeholders the manifest knows, under 140 characters however
+filled) and its `indicator` (`info`, `warning` or `critical`; `warning` when left out). A
+decision the rule matched (the policy's first matching rule, `rule` in its record) whose key
+`show` leaves out still shows a card, with that summary and indicator. A key `show` names keeps
+its own card, rule or no rule. It needs a `show` list, and every name MUST be one of the
+policy's rules. An empty `also_show` is what a template holds without it, so it counts as left
+out (§3). Nothing about the decision changes: its outcome, recommendation, priority,
+review queue, Task and Da Vinci CRD coverage information are what they would be without it.
+
+```yaml
+cds_hooks:
+  card:
+    show: [submit_ready, needs_attention, not_required]
+    also_show:
+      possible-red-flag:
+        summary: "Possible red flag in the notes: consider urgent imaging and an expedited review; prior auth not checked"
+        indicator: critical
+```
+
+The Prior Authorization Preflight (0.3.1) uses `also_show` for its red-flag rule on an order it
+has no requirement set for (`not_checked`), and the Referral Router (0.3.1) uses `refused`.

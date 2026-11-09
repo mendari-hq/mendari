@@ -823,7 +823,7 @@ By default, nothing. Each of these is off until you configure it:
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
-| Da Vinci PAS submissions (`submit` on `POST /api/packs/{pack}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes |
+| Da Vinci PAS submissions (`submit` on `POST /api/packs/{pack}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes; for a request that needs attention, also the completed DTR QuestionnaireResponse it gives (the clinician's answers) |
 
 **Da Vinci PAS codes.** A PAS request carries X12 codes, and Mendari ships none of their values
 (X12's code lists are under X12's terms; the owner's decision of 2026-10-07). Set your own, from
@@ -836,6 +836,7 @@ setting:
 | `MENDARI_PAS_REQUEST_TYPE` | 1525, each item's request type | Required: without it (or `request_type`), building the request is refused (`422`) naming the setting |
 | `MENDARI_PAS_CERTIFICATION_TYPE` | 1322, each item's certification type | Required, as above (`certification_type`) |
 | `MENDARI_PAS_SERVICE_TYPE` | 1365, the service type, when neither the request nor the order's category gives one | Required, as above (`service_type`) |
+| `MENDARI_PAS_REPORT_TYPE` | 755, the report type of the completed DTR QuestionnaireResponse a request that needs attention attaches | Required once a response is attached, as above (`report_type`); not asked for otherwise |
 | `MENDARI_PAS_SELF_RELATIONSHIP` | 1069, the Coverage's code for self, beside FHIR's `self` | Optional: unset, it is left out, and the Coverage names the patient as its subscriber (PAS's rule `self-beneficiary`) |
 | `MENDARI_PAS_PAYER_ENTITY`, `MENDARI_PAS_REQUESTER_ENTITY` | 98, the payer's and the requesting organization's entity codes | Optional: unset, the organizations go untyped |
 
@@ -843,7 +844,9 @@ Each is 1 to 3 capital letters or digits; anything else is refused naming the se
 sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
 with no review action code when it is unset or empty. The compose sandbox sets all of these for
 its synthetic requests except the service type: its synthetic orders carry none, and they are not
-all one kind of service, so each request there gives its own (`service_type`).
+all one kind of service, so each request there gives its own (`service_type`). Nor does it set
+the report type: a request there that attaches a QuestionnaireResponse gives its own
+(`report_type`).
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
