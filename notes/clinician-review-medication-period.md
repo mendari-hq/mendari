@@ -1,11 +1,14 @@
 Drafted by a build session for a clinician to review. Not clinically reviewed.
+The owner answered it in chat on 2026-11-07 ([The review](#the-review)): acceptable with
+changes, not built yet.
 
 # When a MedicationRequest's drug is taken: a brief for the clinician reviewer
 
 _Written 2026-11-06 (US Eastern) for LP-23k, the step that adopts the rule in a shipped pack.
 For a pharmacist or a clinical research coordinator (launch prerequisite B21.4; launch gate
-`clinician-review`). Nothing here has been reviewed by a clinician. The review is recorded by the
-owner in the gate `clinician-review`'s attestation, never by a build session._
+`clinician-review`). Nothing here had been reviewed by a clinician when it was written. The
+review is recorded by the owner in the gate `clinician-review`'s attestation, never by a build
+session._
 
 ## Why this needs a clinician
 
@@ -154,15 +157,17 @@ These follow from the rule as built. Each is a reason the review matters; none i
 
 ## The review
 
-To be filled in by the reviewer, and recorded by the owner in gate `clinician-review`'s
-attestation. A build session leaves it blank. The reviewer's name is not written here: the gate
-keeps it in a note outside the repository.
+Filled in by a build session from the answers the owner, the reviewer, gave in chat on
+2026-11-07 by picking options. It is recorded by the owner in gate `clinician-review`'s
+attestation once the changes are built and the owner confirms them; until then the gate stays
+unattested. The reviewer's name is not written here: the gate keeps it in a note outside the
+repository.
 
 | Field | Value |
 |---|---|
-| Reviewer's role (pharmacist, research coordinator, other) | |
-| Date | |
-| Pack and version reviewed | |
-| Pack digest reviewed (`mendari validate packs/clinical-trial-prescreener`) | |
-| Answers to the questions above | |
-| Verdict (acceptable, acceptable with changes, not acceptable) | |
+| Reviewer's role (pharmacist, research coordinator, other) | physician (the owner; also the pack's recorded author, disclosed) |
+| Date | 2026-11-07 |
+| Pack and version reviewed | mendari/clinical-trial-prescreener 0.3.0 (the rule as built in #282) |
+| Pack digest reviewed (`mendari validate packs/clinical-trial-prescreener`) | recorded after the changes below merge (they change the digest) |
+| Answers to the questions above | Q1: fair as built (the first dosage line's `boundsPeriod.start`, else `authoredOn`).<br>Q2: an `active` request with no end is current only if written or started in the last 12 months; an older one reads unknown and goes to review (the owner: "Current if ≤ 12 months , older reads old than 12 months need review").<br>Q3: not taken, as built; no stop is inferred from the status.<br>Q4: renewals stay separate, as built.<br>Q5: leave out both: intent `proposal`, `plan` and `option`, and `doNotPerform` true (`order`, `original-order`, `reflex-order`, `filler-order` and `instance-order` stay).<br>Q6: also read `boundsDuration` (the start plus the duration is the stop, when there is a start); still the first dosage line only.<br>Q7: the same 12-month rule for an `active` MedicationStatement with no end, started more than 12 months ago (unknown, review); nothing else changes.<br>Q8: acceptable with changes (below). |
+| Verdict (acceptable, acceptable with changes, not acceptable) | acceptable with changes: Q2's and Q7's 12-month rule, Q5 and Q6, once built and seen by the owner |

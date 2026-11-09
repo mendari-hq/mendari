@@ -166,6 +166,13 @@ EXPECTED_WARNINGS = (
         "from loaded packages",
     ),
     Expected(
+        r"^The questionnaire 'https://mendari\.co/packs/[^']+' could not be resolved",
+        r"^Bundle\.entry\[\d+\]\.resource/\*QuestionnaireResponse/",
+        "a PAS request that needs attention carries the completed DTR QuestionnaireResponse; its "
+        "Questionnaire is the one the DTR package carries, and the validator resolves canonicals "
+        "only from loaded packages",
+    ),
+    Expected(
         r"^URN reference is not locally contained within the bundle urn:uuid:",
         r"/\*ClaimResponse/[^*]*\*/\.request$",
         "the PAS response refers to the Claim in the request Bundle",

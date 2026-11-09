@@ -35,7 +35,8 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 - **Pack artifacts are derived.** Editing templates in `synthetic_*.py`, `pack.yaml`, rules,
   or policy changes the pack digest and possibly the data and model. Rerun
   `scripts/build-reference-pack.sh` and commit the regenerated `data/`, `models/`,
-  `evals/benchmark.json` and `DECISION_CARD.md` together. CI checks data and model are
+  `evals/benchmark.json` and `DECISION_CARD.md` together, with the pages the script names
+  (`docs/grading/scoreboard.md`, `web/index.html`). CI checks data and model are
   byte-reproducible.
 - **Launch gates are a checked file** (`launch/gates.yaml`, `scripts/check_gates.py`,
   LP-03). A prompt that lands replaces its `pending` probe with the tests its acceptance created.

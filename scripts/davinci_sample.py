@@ -16,6 +16,9 @@
   every X12 code a site may set, and the sandbox payer's answer to it with a review action code;
   `pas-request-required.json`, `pas-response-no-review-code.json`: the same request with only the
   X12 codes PAS requires, and an answer with no review action code.
+- `pas-request-attention.json`: the PAS request Bundle for the order with documentation missing,
+  carrying the DTR QuestionnaireResponse a clinician completed (`dtr-package.json`'s, with the
+  gap documented) in `Claim.supportingInfo`.
 
     uv run python scripts/davinci_sample.py var/fhir-samples/davinci
 """
@@ -123,6 +126,49 @@ def prefetch(payer: str, note: str | None) -> dict[str, Any]:
     }
 
 
+def completed(form: dict[str, Any], response: dict[str, Any], authored: str) -> dict[str, Any]:
+    """The pre-answered QuestionnaireResponse as a clinician completes it in a DTR client: each
+    answer that is not `yes` becomes `yes`, marked as the clinician's (`override`, or `manual`
+    where nothing was filled in, with its author: DTR's dtrx-1), and the response is
+    `completed`."""
+    origin = f"{davinci.DTR}/StructureDefinition/information-origin"
+    clinician = {
+        "url": "author",
+        "extension": [
+            {"url": "practitioner", "valueReference": {"reference": "Practitioner/pa-pr1"}}
+        ],
+    }
+    given = {item["linkId"]: item for item in response.get("item", [])}
+    items = []
+    for question in form["item"]:
+        [yes] = [
+            o["valueCoding"] for o in question["answerOption"] if o["valueCoding"]["code"] == "yes"
+        ]
+        item = given.get(question["linkId"])
+        if item is not None and item["answer"][0]["valueCoding"]["code"] == "yes":
+            items.append(item)
+            continue
+        source = "override" if item is not None else "manual"
+        items.append(
+            {
+                "linkId": question["linkId"],
+                "text": question["text"],
+                "answer": [
+                    {
+                        "valueCoding": yes,
+                        "extension": [
+                            {
+                                "url": origin,
+                                "extension": [{"url": "source", "valueCode": source}, clinician],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    return {**response, "status": "completed", "authored": authored, "item": items}
+
+
 def main(out: Path) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         store = AuditStore(Path(scratch) / "audit.db")
@@ -202,6 +248,7 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
             ["packagebundle", "outcome"],
         ),
     }
+    packages: dict[str, dict[str, Any]] = {}
     for name, (extra, expected) in asks.items():
         request = {
             "resourceType": "Parameters",
@@ -210,6 +257,7 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
         answer = davinci.questionnaire_package(request, lookup, {pack.id: pack}, authored)
         if [p["name"] for p in answer["parameter"]] != expected:
             sys.exit(f"{name}: expected {', '.join(expected)}")
+        packages[name] = answer
         (out / f"{name}.json").write_text(json.dumps(answer, indent=2) + "\n", encoding="utf-8")
     print(f"{len(asks)} DTR packages written to {out}")
 
@@ -263,11 +311,33 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
     request = build(site_codes=required | optional)
     answer = sandbox_payer.respond(request, review_action="A1")
     bare = build(site_codes=required)
+    # A request that needs attention carries the DTR QuestionnaireResponse a clinician completed
+    # (the owner's decision of 2026-11-07). Its report type (X12 755) has an X12 code's shape
+    # only: the repository carries no X12 value it did not carry before LP-14's open question.
+    attention = updated["crd-needs-attention"]
+    gap = store.get(davinci.assertion_id(attention) or "")
+    if gap is None:
+        sys.exit("pas: the decision with documentation missing is not in the store")
+    [package] = [
+        p["resource"] for p in packages["dtr-package"]["parameter"] if p["name"] == "packagebundle"
+    ]
+    form, response = (e["resource"] for e in package["entry"])
+    attached = build(
+        decision={"id": gap["id"], "recommendation": gap["recommendation"]},
+        order=attention,
+        site_codes=required,
+        questionnaire_response=completed(form, response, authored),
+        questionnaire=davinci.decision_questionnaire(pack, davinci.record_answers(gap)),
+        report_type="R5",
+    )
+    if "supportingInfo" not in attached["entry"][0]["resource"]:
+        sys.exit("pas: the request that needs attention carries no QuestionnaireResponse")
     samples = {
         "pas-request": request,
         "pas-response": answer,
         "pas-request-required": bare,
         "pas-response-no-review-code": sandbox_payer.respond(bare),
+        "pas-request-attention": attached,
     }
     for name, resource in samples.items():
         (out / f"{name}.json").write_text(json.dumps(resource, indent=2) + "\n", encoding="utf-8")

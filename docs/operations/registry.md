@@ -144,8 +144,10 @@ on a schedule, and compare a later head with it. A signed head is for later.
 ## Not yet
 
 - **Accounts and claims (LP-19).** One shared administrator token; publisher tokens have no
-  owner, expiry or revocation; a first publish to a new namespace is listed at once. Where the
-  registry runs is the owner's choice, and LP-19 waits on it.
+  owner, expiry or revocation; a first publish to a new namespace is listed at once. The
+  registry is to run under the engine app (LP-19's option A, the default the owner confirmed on
+  2026-11-07, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
+  LP-19's build is next; its deploy, the registry's signing key and DNS are the owner's.
 - **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
   shows none.
 - **The registry's signing key** has no rotation path; clients pin it at first contact.

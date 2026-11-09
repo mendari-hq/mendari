@@ -433,7 +433,8 @@ Hidden data reaches the store only through the operator's command line, or throu
     - `test_limits.EXPECTED_CLASSES` and the `test_security_log` event list.
     - The sweep finds the routes by itself.
   - **Safe alone because:**
-    - Production runs claims mode without the keys, so the routes are absent there.
+    - Production runs claims mode without the keys, so the routes are absent there. (Since
+      2026-11-07 it runs memberships mode, still without the keys, so they are still absent.)
     - Keys, admins and open mode never hold `label`.
     - A labeller reaches only their own assignments.
 
@@ -625,6 +626,20 @@ Hidden data reaches the store only through the operator's command line, or throu
     - **Amendment (11l).** A grading run's answer (`mendari.hidden_result/1`) counts and rates by question and label (per-label metrics, the confusion matrix, each critical label's counts), so it names the pack's label words, beside no case. The sweep's label-word allowance extends to that answer, to a grading key of the set's organization (`aggregates_of` for the grading route in `tests/test_evalset_leaks.py`), and nowhere else: the route's refusals, to anyone, stay without one (`wordless`), and no mark of any kind is allowed in its answer (conflict 35).
 
 ## Owner decisions still open
+
+**2026-11-07:** the owner wrote, in chat, "the patent gate is clear and I approve everything on my
+part". That confirms the default of decisions 4 (local providers only under method 1.0), 5
+(distinct positives) and 6 (an administrator does not also label), and of the conflicts above,
+but what decisions 2 and 3 leave open: conflict 47's values, and in conflict 40 whether
+adjudicators see both labels and what settles a three-way split. Decisions 1, 2, 3 and 7 have no
+default and stay open, so ADR-0011 stays Proposed. The owner's actions below stay the owner's.
+
+**2026-11-07, the owner's picks:** decision 1, memberships mode (the hosted site's switch is
+LP-12's, done the same day; how labellers get past Vercel Authentication is not answered yet); decision 2, at most 20
+grading runs and 180 days per set, given at each freeze (= LP-17 decision 4); decision 3, a
+clinical lead's call settles a three-way split, to be built (until then a split blocks freeze);
+and in conflict 40, adjudicators label blind, without seeing the two labels, as built (the owner:
+"Label blinds"). Decision 7 stays open, so ADR-0011 stays Proposed.
 
 1. **How labellers reach the hosted site.** Either switch the site to memberships mode, or allow `labeller` in claims mode, which amends ADR-0008. Also: how labellers get past Vercel Authentication. This must be settled before contracting labellers. Nothing before 11j depends on it.
 2. **Rotation-rule numbers.** The maximum grading runs and maximum age for each set, or a house default. Freeze requires both.
