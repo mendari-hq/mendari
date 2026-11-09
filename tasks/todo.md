@@ -4112,6 +4112,13 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   reviewed by a clinician (from v0.2; the generation tooling can be built without one). The
   owner asked on 2026-11-07 for the generation tooling to be built now, for the owner's review;
   nothing claims a clinician's review until then.
+  - [x] Generation tooling built (#285): `mendari.sandbox.synthetic_inbox_harder` and
+    `scripts/harder_inbox_draft.py` write the draft to `datasets/drafts/patient-inbox-harder/`
+    (436 cases a split, 152 urgent; leakage and coverage checks pass;
+    `tests/test_synthetic_inbox_harder.py`). Draft, not clinically reviewed; the pack's data,
+    model, benchmark and digest are unchanged.
+  - [ ] Owner: review the draft (`notes/clinician-review-harder-inbox-benchmark.md`: what to read,
+    seven quick-pick questions), then decide its adoption, which a separate PR carries out
 - [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
   only when asked)
 - [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,

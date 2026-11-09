@@ -1744,7 +1744,8 @@ src/mendari/
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
 packs/           reference Decision Packs (maintained by Mendari)
 community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
-datasets/        example "local site" dataset for validation
+datasets/        example "local site" dataset for validation; drafts/: the harder inbox
+                 benchmark, a draft not clinically reviewed
 sandbox/inferno/ Inferno test kits against the engine (weekly CI job `conformance`)
 scoreboard/      the results store: scoreboard results, their ledgers and run records, the packs'
                  declared configurations (declared/) and the public grading keys (keys.json)
