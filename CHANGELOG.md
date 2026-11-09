@@ -457,6 +457,20 @@ The first release (not yet published).
   23k's tests in place of its pending line, and the scorecard's DS-3a to DS-3d are met (data
   shapes at level 3; overall still level 1). See
   [Connecting an EHR](docs/guides/connecting-an-ehr.md#reading-the-record).
+- **Da Vinci PAS: a request that needs attention carries its completed DTR QuestionnaireResponse**
+  (the owner's decision of 2026-11-07). `POST /api/packs/{pack}/pas` and `mendari pas build` now
+  build a request for a `needs_attention` decision too, and attach the QuestionnaireResponse a
+  clinician completed for it (`questionnaire_response`, `--questionnaire-response`): the Claim
+  refers to it in `supportingInfo` (PAS 2.2.1's `AdditionalInformation` slice, category
+  `additionalInformation`) and the Bundle holds it as an entry. It must be `completed` or
+  `amended` and answer the decision's own DTR questionnaire, or the request is refused (`422`,
+  or exit 1); without one, nothing is attached. Its report type (X12 755) is the request's
+  (`report_type`, `--report-type`), else the new setting `MENDARI_PAS_REPORT_TYPE`, required
+  only once a response is attached. A complete request (`submit_ready`) is what it was, with a
+  response or without, and other outcomes are still refused. Submitting is unchanged: a
+  `needs_attention` decision is never automated, so it goes to the payer once a reviewer
+  confirms it as `submit_ready`. The new sample `pas-request-attention.json` validates against
+  PAS 2.2.1 and DTR 2.2.0 in CI.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
   longer fills in its request type and certification type, nor the Coverage's code for self and

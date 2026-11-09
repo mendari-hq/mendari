@@ -1672,6 +1672,13 @@ def cmd_pas_build(args: argparse.Namespace) -> int:
             raise MendariError(f"{path} is not a FHIR resource")
         return loaded
 
+    response, questionnaire = None, None
+    if args.questionnaire_response:
+        from mendari.standards import davinci
+
+        response = resource(args.questionnaire_response)
+        pack = resolve_pack(record["pack_id"])
+        questionnaire = davinci.decision_questionnaire(pack, davinci.record_answers(record))
     bundle = pas.request_bundle(
         decision={"id": record["id"], "recommendation": record["recommendation"]},
         order=resource(args.order),
@@ -1685,6 +1692,9 @@ def cmd_pas_build(args: argparse.Namespace) -> int:
         request_type=args.request_type,
         certification_type=args.certification_type,
         site_codes=site_codes,
+        questionnaire_response=response,
+        questionnaire=questionnaire,
+        report_type=args.report_type,
     )
     Path(args.out).write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
     print(f"PAS request for decision {record['id']} written to {args.out}")
@@ -3241,9 +3251,14 @@ def build_parser() -> argparse.ArgumentParser:
     pas_cmd = sub.add_parser(
         "pas", help="Da Vinci PAS prior-authorization requests"
     ).add_subparsers(dest="pas_command", required=True)
-    pas_build = pas_cmd.add_parser("build", help="the PAS request Bundle for a complete request")
+    pas_build = pas_cmd.add_parser(
+        "build",
+        help="the PAS request Bundle for a complete request, or one that needs attention",
+    )
     pas_build.add_argument("--db", default="var/mendari.db", help="the audit database")
-    pas_build.add_argument("--decision", required=True, help="a submit_ready decision id")
+    pas_build.add_argument(
+        "--decision", required=True, help="a submit_ready or needs_attention decision id"
+    )
     for name in ("patient", "coverage", "insurer", "requester", "order"):
         pas_build.add_argument(f"--{name}", required=True, help=f"the {name} (FHIR JSON file)")
     # X12 codes: the site's own (Mendari ships no X12 code value), else its settings.
@@ -3263,6 +3278,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pas_build.add_argument("--place-of-service", help="CMS place of service, e.g. 22")
     pas_build.add_argument("--diagnosis", action="append", default=[], help="ICD-10-CM (repeat)")
+    pas_build.add_argument(
+        "--questionnaire-response",
+        help="for a needs_attention decision: the DTR QuestionnaireResponse a clinician "
+        "completed (FHIR JSON file), attached in Claim.supportingInfo",
+    )
+    pas_build.add_argument(
+        "--report-type",
+        type=_x12_code,
+        help="X12 report type (755) of the attached response; else $MENDARI_PAS_REPORT_TYPE",
+    )
     pas_build.add_argument("--out", required=True, help="where to write the Bundle")
     pas_build.set_defaults(handler=cmd_pas_build)
 

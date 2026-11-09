@@ -4020,7 +4020,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
     request, LP-23's conflict 54, merged; the offline `fhir-conformance` stays the required
     gate); the DTR payer service stays a declared partial one, its gaps listed, not advertised.
     Whether PAS attaches the completed QuestionnaireResponse (`Claim.supportingInfo`) for
-    `needs_attention`: yes (owner, 2026-11-07), to build. Real acceptance is the owner's alone: a
+    `needs_attention`: yes (owner, 2026-11-07), built (#286). Real acceptance is the owner's alone: a
     payer's PAS sandbox with credentials, a payer's written requirements, an EHR's DTR client
     (B38).
 

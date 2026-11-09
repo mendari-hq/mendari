@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Da Vinci PAS (Prior Authorization Support, STU 2.2): a complete request, submitted.
+"""Da Vinci PAS (Prior Authorization Support, STU 2.2): a prior-authorization request, submitted.
 
 When the Prior Authorization Preflight finds a request complete (`submit_ready`), the practice
 can send it to the payer as a PAS request Bundle: a Claim with `use = preauthorization`, followed
@@ -7,11 +7,18 @@ by what it references (the patient, the Coverage, the payer, the requesting orga
 order). The resources come from the EHR. Nothing is filled in: a missing element is an error that
 names it.
 
+A request that needs attention (`needs_attention`: documentation the payer asks for is missing)
+is built the same way, and carries the DTR QuestionnaireResponse a clinician completed for it, when
+the request gives one, in `Claim.supportingInfo` (the owner's decision of 2026-11-07). It must be
+completed and answer the decision's own DTR questionnaire. A complete request is sent as before:
+nothing is attached to it.
+
 X12's code lists are X12's work, under X12's terms: Mendari carries the code systems' names (the
 urls in HL7's guide) and none of their code values (LP-14, the owner's decision of 2026-10-07).
 The X12 codes a request carries come from the request or the order, else from the site's settings
 (`X12_SETTINGS`). PAS requires three: the request type, the certification type and the service
-type; one that nothing gives is an error naming its setting. The others (the Coverage's
+type, and a fourth for an attached QuestionnaireResponse, its report type; one that nothing gives
+is an error naming its setting. The others (the Coverage's
 relationship code, the organizations' entity codes) are optional in PAS, sent only when set.
 
 `submit` posts the Bundle to the payer's `Claim/$submit` through the outbound guard (the payer
@@ -57,7 +64,16 @@ PROFILE = {
     "Coverage": f"{PAS}/StructureDefinition/profile-coverage",
     "insurer": f"{PAS}/StructureDefinition/profile-insurer",
     "requestor": f"{PAS}/StructureDefinition/profile-requestor",
+    # What the DTR route serves and a DTR client completes (`standards/davinci.py`).
+    "QuestionnaireResponse": (
+        "http://hl7.org/fhir/us/davinci-dtr/StructureDefinition/dtr-questionnaireresponse"
+    ),
 }
+# PAS 2.2.1's own codes (CodeSystem PASTempCodes), and the extension describing an attachment.
+PAS_CODES = f"{PAS}/CodeSystem/PASTempCodes"
+DOCUMENT_INFORMATION = f"{PAS}/StructureDefinition/extension-documentInformation"
+# The statuses of a QuestionnaireResponse a clinician has completed (R4's value set).
+COMPLETED = frozenset({"completed", "amended"})
 # The longest payer text kept: an authorization number, and a disposition (free text).
 AUTHORIZATION_MAX = 100
 DISPOSITION_MAX = 1000
@@ -66,14 +82,18 @@ X12_CODE = re.compile(r"[A-Z0-9]{1,3}")
 # The codes the chain keeps: R4's ClaimResponse.outcome, and a review action shaped as X12's.
 OUTCOMES = frozenset({"queued", "complete", "error", "partial"})
 REVIEW_ACTION = X12_CODE
-# The recommendation that makes a decision a complete request, the only one PAS sends.
+# The recommendations PAS sends: a complete request, and one that needs attention, which carries
+# the completed DTR QuestionnaireResponse when the request gives one.
 READY = "submit_ready"
+ATTENTION = "needs_attention"
 # The X12 codes a site sends, by name, and the setting that supplies each (`settings.pas_codes`).
 X12_SETTINGS = {
     # Required by PAS: given with the request, else the setting.
     "request_type": "MENDARI_PAS_REQUEST_TYPE",  # 1525, each item's request type
     "certification_type": "MENDARI_PAS_CERTIFICATION_TYPE",  # 1322, each item's
     "service_type": "MENDARI_PAS_SERVICE_TYPE",  # 1365, when neither request nor order gives one
+    # Required by PAS when a QuestionnaireResponse is attached.
+    "report_type": "MENDARI_PAS_REPORT_TYPE",  # 755, the attachment's report type
     # Optional in PAS: sent only when set.
     "self_relationship": "MENDARI_PAS_SELF_RELATIONSHIP",  # 1069, the patient's own coverage
     "payer_entity": "MENDARI_PAS_PAYER_ENTITY",  # 98, the payer
@@ -99,6 +119,9 @@ def request_bundle(
     request_type: str | None = None,
     certification_type: str | None = None,
     site_codes: Mapping[str, str] | None = None,
+    questionnaire_response: Mapping[str, Any] | None = None,
+    questionnaire: str | None = None,
+    report_type: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """The PAS request Bundle for a decided order. `decision` is the pack's decision record (its
@@ -106,11 +129,27 @@ def request_bundle(
     `place_of_service` the CMS place-of-service code, unless the order carries them.
     `request_type` (X12 1525) and `certification_type` (1322) are the request's own.
     `site_codes` are the site's X12 codes by name (`X12_SETTINGS`, from `settings.pas_codes`):
-    what the request and the order do not give."""
+    what the request and the order do not give.
+
+    `questionnaire_response`, for a decision that needs attention, is the DTR
+    QuestionnaireResponse a clinician completed; it must answer `questionnaire`, the canonical
+    (without version) of the decision's own DTR questionnaire (`davinci.decision_questionnaire`),
+    and is attached with `report_type` (X12 755) as its report type. A complete request is sent
+    without it."""
     now = now or datetime.now(UTC)
-    if decision.get("recommendation") != READY:
-        raise PasError(f"only a complete request ({READY}) is sent for prior authorization")
+    recommendation = decision.get("recommendation")
+    if recommendation not in (READY, ATTENTION):
+        raise PasError(
+            f"only a complete request ({READY}) or one that needs attention ({ATTENTION}) is "
+            "sent for prior authorization"
+        )
     site = site_codes or {}
+    # The owner's decision of 2026-11-07: the completed DTR QuestionnaireResponse goes with a
+    # request that needs attention, and only with one; a complete request is what it was.
+    attached = questionnaire_response if recommendation == ATTENTION else None
+    if attached is not None:
+        _check_completed(attached, questionnaire)
+        report_type = report_type or site.get("report_type")
     request_type = request_type or site.get("request_type")
     certification_type = certification_type or site.get("certification_type")
     service_type = (
@@ -133,6 +172,7 @@ def request_bundle(
             ("service_type", 1365, "the order or the request", service_type),
             ("request_type", 1525, "the request", request_type),
             ("certification_type", 1322, "the request", certification_type),
+            *((("report_type", 755, "the request", report_type),) if attached else ()),
         )
         if not value
     ]
@@ -142,7 +182,7 @@ def request_bundle(
     request_id = str(decision["id"])
     refs = {
         kind: f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, f'{request_id}/{kind}')}"
-        for kind in ("patient", "coverage", "insurer", "requester", "order", "claim")
+        for kind in ("patient", "coverage", "insurer", "requester", "order", "claim", "response")
     }
     day = now.date().isoformat()
     claim: dict[str, Any] = {
@@ -206,6 +246,34 @@ def request_bundle(
             }
             for n, code in enumerate(diagnoses, start=1)
         ]
+    if attached is not None:
+        # PAS 2.2.1, profile-claim (http://hl7.org/fhir/us/davinci-pas/StructureDefinition/
+        # profile-claim), slice Claim.supportingInfo:AdditionalInformation: category
+        # PASTempCodes#additionalInformation, extension-documentInformation with its required
+        # reportTypeCode (X12 755, the site's), and value[x] a Reference only, whose targets
+        # include a QuestionnaireResponse. The response is not contained in the Claim: it is an
+        # entry of the request Bundle, referenced by its fullUrl, as PAS's referral example
+        # (Bundle-ReferralAuthorizationBundleExample) carries its DocumentReference.
+        claim["supportingInfo"] = [
+            {
+                "extension": [
+                    {
+                        "url": DOCUMENT_INFORMATION,
+                        "extension": [
+                            {
+                                "url": "reportTypeCode",
+                                "valueCodeableConcept": {
+                                    "coding": [{"system": f"{X12}/755", "code": report_type}]
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "sequence": 1,
+                "category": {"coding": [{"system": PAS_CODES, "code": "additionalInformation"}]},
+                "valueReference": {"reference": refs["response"]},
+            }
+        ]
     resources = [
         (refs["claim"], claim),
         (refs["patient"], _profiled(patient, PROFILE["Patient"])),
@@ -217,6 +285,8 @@ def request_bundle(
         ),
         (refs["order"], _order(order, refs["patient"])),
     ]
+    if attached is not None:
+        resources.append((refs["response"], _response(attached, refs["patient"])))
     return {
         "resourceType": "Bundle",
         "meta": {"profile": [PROFILE["Bundle"]]},
@@ -379,3 +449,32 @@ def _organization(
 def _order(order: Mapping[str, Any], patient: str) -> dict[str, Any]:
     copied = {k: v for k, v in order.items() if k not in ("meta", "id", "text", "extension")}
     return {"resourceType": "ServiceRequest", **copied, "subject": {"reference": patient}}
+
+
+def _check_completed(response: Mapping[str, Any], questionnaire: str | None) -> None:
+    """A QuestionnaireResponse is attached once a clinician has completed it, and only when it
+    answers the decision's own DTR questionnaire. The errors name Mendari's canonical, never what
+    the request sent."""
+    if response.get("resourceType") != "QuestionnaireResponse":
+        raise PasError("questionnaire_response must be a FHIR QuestionnaireResponse")
+    status = response.get("status")
+    if not isinstance(status, str) or status not in COMPLETED:
+        raise PasError(
+            "the QuestionnaireResponse is attached once a clinician has completed it (status "
+            "completed or amended)"
+        )
+    if questionnaire is None:
+        raise PasError("this decision has no DTR questionnaire for a QuestionnaireResponse")
+    answered = response.get("questionnaire")
+    if not isinstance(answered, str) or answered.partition("|")[0] != questionnaire:
+        raise PasError(
+            f"the QuestionnaireResponse answers another questionnaire: this decision's is "
+            f"{questionnaire}"
+        )
+
+
+def _response(response: Mapping[str, Any], patient: str) -> dict[str, Any]:
+    """The completed QuestionnaireResponse as the EHR gave it, its subject the request's patient."""
+    copied = _profiled(response, PROFILE["QuestionnaireResponse"])
+    copied["subject"] = {"reference": patient}
+    return copied
