@@ -777,13 +777,28 @@ def renditions(path: str) -> bool:
 def unread_attachments(
     path: str, pairs: Sequence[tuple[Any, Any]], record: Mapping[str, Any]
 ) -> list[str]:
-    """The reason (`read_attachment`) of each attachment at `path` that could not be read, in
-    order; `pairs` are the path's values, each with the resource holding it. An attachment with
-    neither data nor a url has nothing to read and counts for nothing. Where the path reads
-    renditions (`renditions`), one that cannot be read counts for nothing when another of the
-    same resource was read as text: it is the same document in another format (an RTF beside
-    the HTML of one note). Any other attachment that cannot be read counts."""
-    results: list[tuple[int, str | None, str | None]] = []
+    """The reason (`read_attachment`) of each note at `path` that could not be read, in order
+    (`unread_notes`, without the formats)."""
+    return [reason for reason, _ in unread_notes(path, pairs, record)]
+
+
+def unread_notes(
+    path: str, pairs: Sequence[tuple[Any, Any]], record: Mapping[str, Any]
+) -> list[tuple[str, str | None]]:
+    """Each note at `path` that could not be read, in order, as its reason (`read_attachment`)
+    and, for `UNSUPPORTED_TYPE`, the label of its format (`format_label`), else None; `pairs`
+    are the path's values, each with the resource holding it. An attachment with neither data
+    nor a url has nothing to read and counts for nothing.
+
+    Where the path reads renditions (`renditions`), the attachments of one resource are one
+    document in other formats (the HTML and the RTF of one note), so they count as one: nothing
+    when one of them was read as text, else once, by the reason of its first text/plain or
+    text/html rendition that has one (`cap`, a failed read, `unsupported_type` when its Binary
+    holds another type), else by its first reason (`unsupported_type`: a note with no text
+    rendition, RTF, PDF or CDA only). A text rendition read and empty beside an RTF one is no
+    text read: the note counts, by the RTF's reason. Elsewhere (a Communication's payloads) each
+    attachment that cannot be read counts."""
+    results: list[tuple[Any, Any, str | None, str | None]] = []
     for container, attachment in pairs:
         if (
             isinstance(attachment, Mapping)
@@ -792,9 +807,63 @@ def unread_attachments(
         ):
             continue  # nothing there to read
         text, reason = read_attachment(attachment, container=container, record=record)
-        results.append((id(container), text, reason))
-    read = {held for held, text, _ in results if text} if renditions(path) else set()
-    return [reason for held, _, reason in results if reason is not None and held not in read]
+        results.append((container, attachment, text, reason))
+    if not renditions(path):
+        return [
+            (reason, _unread_format(reason, attachment, container, record))
+            for container, attachment, _, reason in results
+            if reason is not None
+        ]
+    groups: dict[int, list[tuple[Any, Any, str | None, str | None]]] = {}
+    for item in results:
+        groups.setdefault(id(item[0]), []).append(item)
+    found: list[tuple[str, str | None]] = []
+    for items in groups.values():
+        if any(text for _, _, text, _ in items):
+            continue  # one rendition reads: the others are the same document
+        unread = [(c, a, reason) for c, a, _, reason in items if reason is not None]
+        if not unread:
+            continue  # every rendition read, and empty
+        texts = [u for u in unread if _media_type(_object(u[1]).get("contentType")) in TEXT_TYPES]
+        container, attachment, reason = (texts or unread)[0]
+        found.append((reason, _unread_format(reason, attachment, container, record)))
+    return found
+
+
+def format_label(media_type: str | None) -> str:
+    """A content type a note could not be read in, as one label of a closed set, never the
+    type as written (its parameters can carry a file name): `rtf`, `pdf`, `xml` (CDA and other
+    XML), `image`, `none` (no content type) or `other`."""
+    kind = _media_type(media_type)
+    if kind is None:
+        return "none"
+    if kind in ("application/rtf", "text/rtf", "text/richtext"):
+        return "rtf"
+    if kind == "application/pdf":
+        return "pdf"
+    if kind.endswith(("/xml", "+xml")):
+        return "xml"
+    if kind.startswith("image/"):
+        return "image"
+    return "other"
+
+
+def _unread_format(
+    reason: str, attachment: Any, container: Any, record: Mapping[str, Any]
+) -> str | None:
+    """The format label of a note that could not be read as `UNSUPPORTED_TYPE`, else None: the
+    Binary's own type when the record holds the Binary its url names (as `read_attachment` reads
+    it), else the attachment's."""
+    if reason != UNSUPPORTED_TYPE:
+        return None
+    given = _object(attachment)
+    url = given.get("url")
+    if given.get("data") is None and isinstance(url, str):
+        binary = resolve({"reference": url}, container, record)
+        held = _object(binary)
+        if held.get("resourceType") == "Binary" and held.get("contentType") is not None:
+            return format_label(held.get("contentType"))
+    return format_label(given.get("contentType"))
 
 
 def read_attachment(
@@ -853,16 +922,7 @@ def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[
     abstains instead (`could not read <field>: too_large`), for a person, as for a note it could
     not read. The text is never cut: a cut could lose the very sentence a criterion reads."""
     found = []
-    for target, mapped in mapping.fields.items():
-        if mapped.transform != "attachment_text":
-            continue
-        node: Any = schema
-        for part in target.split("."):
-            properties = node.get("properties") if isinstance(node, Mapping) else None
-            node = properties.get(part) if isinstance(properties, Mapping) else None
-        most = node.get("maxLength") if isinstance(node, Mapping) else None
-        if not isinstance(most, int) or isinstance(most, bool):
-            continue
+    for target, most in text_limits(mapping, schema).items():
         *parents, leaf = target.split(".")
         holder: Any = value
         for part in parents:
@@ -872,6 +932,25 @@ def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[
             del holder[leaf]
             found.append(target)
     return tuple(sorted(found))
+
+
+def text_limits(mapping: FhirMapping, schema: Any) -> dict[str, int]:
+    """The `maxLength` the pack's input `schema` gives each `attachment_text` field of the
+    mapping's `fields` (found by `properties`, one part of its dotted target at a time), for the
+    fields it gives one: what `overlong` measures the joined text against, and past which a
+    linked read stops reading the field's notes (`standards/linked.py`)."""
+    limits = {}
+    for target, mapped in mapping.fields.items():
+        if mapped.transform != "attachment_text":
+            continue
+        node: Any = schema
+        for part in target.split("."):
+            properties = node.get("properties") if isinstance(node, Mapping) else None
+            node = properties.get(part) if isinstance(properties, Mapping) else None
+        most = node.get("maxLength") if isinstance(node, Mapping) else None
+        if isinstance(most, int) and not isinstance(most, bool):
+            limits[target] = most
+    return limits
 
 
 def _media_type(value: Any) -> str | None:

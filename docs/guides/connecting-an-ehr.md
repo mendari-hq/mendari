@@ -228,8 +228,15 @@ reads them from the same `fhirServer`, with the same token:
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
   `Accept: application/fhir+json`. The server must answer a Binary as FHIR JSON (its content in
   `data`), not as its raw bytes;
-- at most 20 links a decision, each at most 1 MiB once decoded. Each draft order of an order
-  hook is a decision, so a hook of 50 orders can read up to 1,000 links;
+- at most 50 note Binaries and, apart from them, 50 followed references a decision, so a chart's
+  notes never use up what its drugs need; each at most 1 MiB once decoded. A note field stops
+  reading its notes once their text is longer than the pack's input takes: the decision abstains
+  (`too_large`) whatever the rest hold;
+- at most 100 reads a request, its decisions together (each draft order of an order hook is a
+  decision), and 60 seconds spent in them. The decision's deadline (`MENDARI_DECISION_DEADLINE_S`)
+  starts before its linked reads and its remote providers share what is left, so an EHR that
+  answers slowly leaves the providers less time (they fail with `timeout`, and a person
+  decides);
 - each link once a request, however it is written (relative, or an absolute URL under the base),
   so the draft orders of one order hook share what was read;
 - never a link to another server, or outside the base;
@@ -245,16 +252,21 @@ makes the decision ABSTAIN with its field and one of these reasons:
 | Reason | What it means |
 |---|---|
 | `off_server` | The link names another server, another scheme, or a path outside the base URL. Nothing was sent. |
-| `cap` | The decision had already read 20 links. |
+| `cap` | The decision had already read 50 notes, or 50 followed references; or the request had sent 100 reads. Nothing was sent. |
+| `timeout` | The read did not answer in time, or the decision's deadline or the request's 60 seconds of reads had run out (then nothing was sent). |
 | `too_large` | A resource's answer, or a Binary's content once decoded, is over 1 MiB. |
 | `not_fetched` | There was no server to read from (no `fhirServer`, `fhir/decide`, `$decide`), or the link names no `Type/id`. |
 | `unsupported_type` | The link names another type than the pack reads (a note's url anything but a Binary, relative or absolute; nothing is sent), the Binary holds no content, or the note is of a type Mendari does not read. |
-| `timeout`, `network`, `unauthorized`, `http_status`, `not_json`, `operation_outcome`, `not_r4` | The read failed. `not_json` is a Binary answered as raw bytes. |
+| `network`, `unauthorized`, `http_status`, `not_json`, `operation_outcome`, `not_r4` | The read failed. `not_json` is a Binary answered as raw bytes. |
 
 Notes are read as plain text and HTML. RTF, PDF and CDA are not read, and the decision abstains,
 unless another rendition of the same note was read: the `content` of one DocumentReference holds
 one document in several formats, so an RTF beside the HTML of a note is not needed, and is not
-read. Since LP-23k the Clinical Trial Prescreener and the Prior Authorization Preflight read
+read. A note none of whose renditions is read counts once, by the reason of its HTML or plain
+text rendition (`cap`, a failed read), else `unsupported_type`, and the field's data-coverage
+record counts the formats of the notes it read as `unsupported_type` (`unread_formats`: `rtf`,
+`pdf`, `xml`, `image`, `none`, `other`). The record's `links` section says how many links the
+decision read for each budget, and how many reads failed with each HTTP status. Since LP-23k the Clinical Trial Prescreener and the Prior Authorization Preflight read
 links: their notes (a Binary), the Medication a MedicationRequest names (the trial pack), and
 the Organization a Coverage's payor names (the prior-authorization pack). The token must allow
 `Binary`, `Medication` and `Organization` reads for them. The Referral Router reads no link.
@@ -309,7 +321,7 @@ The links on a card need `MENDARI_PUBLIC_URL`:
 
 | Link | When | Where it goes |
 |---|---|---|
-| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link. |
+| The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link, but for a list read without a source your EHR does not offer (`<list> may be incomplete: …`, below), which stays in the detail, and for an input refused as invalid (a pack's `refused` card), whose reasons stay in its detail. |
 | The pack (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?pack=<pack>#card`, the pack's card. |
 | The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<pack>`. The EHR adds `iss` and `launch`. |
 
@@ -524,6 +536,71 @@ translate the code your EHR marks a referral with into it, and the router finds 
 looks for). The trial and prior-authorization packs read their codes by code system, through no
 code set, so a map does not reach them.
 
+## What your EHR does not offer
+
+A pack may read one list from several resource types: the trial pack reads its medications from
+MedicationStatement and MedicationRequest. Some EHRs do not offer one of them at all. Epic offers
+no R4 MedicationStatement API (only DSTU2 and STU3), so its read is refused (`unauthorized`), and,
+as for any part of the record that cannot be read, the decision abstains: `could not read
+medications: unauthorized`. That is the safe default. A drug the EHR never gave is not evidence
+that the patient does not take it.
+
+`MENDARI_EHR_DECLARATIONS` lets the site say what its EHR does not offer, one FHIR base and
+organization at a time. Off until you set it. It is inline JSON, or the path of a JSON file:
+
+```json
+{
+  "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4": {
+    "org": "default",
+    "version": "2026-11-08",
+    "attested_by": "<who checked it>",
+    "reference": "<where that check is recorded>",
+    "not_offered": ["MedicationStatement"]
+  }
+}
+```
+
+- **Checked at startup.** The base must be on `MENDARI_FHIR_ALLOWED_SERVERS` and registered for
+  launches (`MENDARI_SMART_EHRS`) or in a CDS client's `fhir_servers`, for the same organization
+  (`default` with sign-in off). Each declared type must be one that a pack found here reads as
+  one of several sources of a list, beside a source not declared. Declaring `DocumentReference`,
+  `Patient`, or every source of a list, stops the server. So does anything else wrong; the
+  refusal names the setting, the base and the field.
+- **What it changes.** For a SMART launch from that base, or a CDS hook whose `fhirServer` is
+  that base, acting for that organization, a prefetch key of a declared type is not read for a
+  pack that may read its list without it, when another source of that list is read. A CDS client
+  that sends the key with entries has them used; sent null, empty or as a search with no
+  entries, the key is not offered. Nothing changes for `fhir/decide`, `$decide`, the command
+  line, another base, another organization, or a pack that reads the type anywhere else.
+- **What the decision records.** Its `ehr_declaration` (version, SHA-256, who attested it, its
+  reference); in its data-coverage record the source and the list marked `not_offered` (its 0 is
+  "not read", never "read and empty") and the key under `prefetch`. `/api/health` shows your
+  organization's declarations.
+- **It never automates.** AUTO, and a pack rule's BLOCK, become `HUMAN_REVIEW`, with the reason
+  `<list> may be incomplete: read without <Type>, which this EHR does not offer (declared,
+  <attested_by>): a person decides`, whatever the outcome (an input refused by the pack's input
+  schema, or under `enforce` by US Core, is a final BLOCK, and its reason ends at the closing
+  parenthesis). A card the pack shows keeps it in its detail even when its other reasons are
+  behind the audit link (on an unreadable ABSTAIN's card and a refused input's, apart from what
+  was not read or why it was refused). The trial pack shows none for `not_eligible`, which an
+  incomplete list can give: such a decision reaches only the review queue (owner question O6).
+
+Declaring MedicationStatement says more than that Epic lacks the API: it says every medication
+the pack should see is in Epic's MedicationRequests, so "no insulin among the orders" may read as
+"off insulin". Check, on your Epic, before you set it:
+
+- whether patient-reported or historical home medications are returned as MedicationRequest,
+  and with which `intent`. A trial pack that leaves out requests whose `intent` is `proposal`,
+  `plan` or `option` (in review as PR #287) would not see home medications recorded so;
+- whether the default MedicationRequest search (no `status`, no `category`) returns stopped,
+  completed and inpatient orders: `no_insulin` looks back 90 days at recently stopped insulin;
+- whether `Medication.code.text` (or the request's `display`) carries the generic name. The
+  trial criteria match medications by name, so a brand-only name reads as no insulin, or no
+  metformin.
+
+Setting it on a hosted deployment is a clinical claim as well as a configuration change: the
+person who attests it is named on every decision it applies to.
+
 ## Conformance runs
 
 Mendari's own repository runs Inferno's Da Vinci CRD test kit (v0.15.0, suite
@@ -579,15 +656,23 @@ to a pilot:
   prior-authorization packs) are on spec 0.3 since LP-23k, and read a note that is only a link
   from the FHIR server, but as text only when it is text/plain or text/html: an RTF, PDF or CDA
   note abstains (`unsupported_type`). So do notes longer than the pack's input allows in all (20,000
-  characters, `too_large`; the text is never cut) and more links than a decision reads (20, `cap`),
-  which a patient with many notes may reach. On an EHR that sends notes that way, or keeps many
-  notes for each patient, the packs that read notes may abstain for most patients with one, each
-  decision going to a person with an `info` card. Read the decisions' data-coverage records (the
-  audit view's "What it read") in the first days.
+  characters, `too_large`; the text is never cut) and more notes than a decision reads (50,
+  `cap`), which a patient with many notes may reach. On an EHR that sends notes that way, or keeps
+  many notes for each patient, the packs that read notes may abstain for most patients with one,
+  each decision going to a person with an `info` card. Read the decisions' data-coverage records
+  (the audit view's "What it read") in the first days.
+- **After the first run.** The first SMART launch on Epic's sandbox (2026-11-08) launched,
+  authorized and read the patient; the trial pack abstained on MedicationStatement's refusal, on
+  one link budget its notes had used, and on RTF twins counted twice. Each decision's "What it
+  read" now says which prefetch reads failed and with which HTTP status, how many links it read
+  for each budget, and the formats of the notes it could not read: read those lines after the
+  first run, and before declaring what your EHR does not offer
+  ([above](#what-your-ehr-does-not-offer)).
 - **The validation mode.** Under `MENDARI_FHIR_VALIDATION=warn`, the default, input that is R4
   JSON but breaks R4's other rules is decided with its issues recorded; `enforce` blocks it
   before any provider runs ([Settings at a glance](../deploying-with-phi.md#8-settings-at-a-glance)).
 - **What stays a risk** with all of this in place: trust in the EHR's key and its rotation, a
-  compromised `jku` host, the decision id the EHR keeps, a misconfigured site map, and frequent
+  compromised `jku` host, the decision id the EHR keeps, a misconfigured site map, a wrong
+  declaration of what the EHR does not offer, and frequent
   abstention on records whose notes Mendari cannot read
   ([threat model](../security/threat-model.md#residual-risks-and-assumptions)).

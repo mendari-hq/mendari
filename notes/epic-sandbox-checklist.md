@@ -45,7 +45,7 @@ starts reading the others is named.
 | Observation | trial, referral | labs (HbA1c and eGFR; the referral's labs) |
 | MedicationRequest | trial | medications, since 23k (its start and stop by spec 0.3's stated rule, not yet clinically reviewed) |
 | Medication | trial | a MedicationRequest's `medicationReference`, read since 23k |
-| MedicationStatement | trial | medications |
+| MedicationStatement | trial | medications. Epic offers no R4 MedicationStatement API (DSTU2 and STU3 only), and refused the search with a 403 on 2026-11-08: declare it (`MENDARI_EHR_DECLARATIONS`, after the checks in `docs/guides/connecting-an-ehr.md#what-your-ehr-does-not-offer`), or the trial pack abstains |
 | DocumentReference | trial, prior auth, referral | clinic notes and visit notes |
 | Binary | trial, prior auth | a note's content when the DocumentReference links it, read since 23k |
 | Coverage | prior auth | the payer |
@@ -100,6 +100,27 @@ The services' prefetch templates, which Epic either fills or leaves to Mendari t
   all. If it cannot, the Epic path is proven with test keys and Inferno only until a pilot site's
   own environment exists (owner decision 15), and the scorecard says so.
 - [ ] **`mendari smart check`:** its output against Epic's FHIR base, with sign-in on.
+- [ ] **The 2026-11-08 decision's counts** (counts only, from its data-coverage record; reading
+  the hosted database is a production read, so the owner's): `fields.notes.unreadable` (`cap`
+  and `unsupported_type`: equal counts mean each `unsupported_type` was an RTF twin; 20 plus the
+  `cap` count is the patient's note count, which says whether 50 is enough),
+  `lists.medications.sources.MedicationStatement.unreadable` (expected `unauthorized: 1`), and
+  the MedicationRequest source's `unreadable` (`cap`: the orders whose drug was not read). From
+  the next run on, the record also gives `prefetch` (the status of each failed prefetch read),
+  `links` (reads by budget, failed reads by status) and `unread_formats` (how many notes were
+  RTF, PDF or XML only).
+- [ ] **Medications on Epic:** whether patient-reported and historical home medications come back
+  as MedicationRequest, and with which `intent` (PR #287 leaves out `proposal`, `plan` and
+  `option`); whether the default MedicationRequest search returns stopped, completed and
+  inpatient orders; whether `Medication.code.text` or the request's `display` carries the generic
+  name; whether one drug ordered twice names one Medication id. All four before declaring
+  MedicationStatement.
+- [ ] **Notes on Epic:** whether each Clinical Notes DocumentReference gives the same note as
+  `text/html` and `text/rtf` Binaries (assumed, unconfirmed), and how many are RTF only.
+- [ ] **Epic's CDS prefetch for MedicationStatement:** whether it sends nothing, null, an empty
+  search or an OperationOutcome for the key it cannot fill.
+- [ ] **`_include=MedicationRequest:medication`:** whether Epic's MedicationRequest search
+  supports it (a pack change could then read the drugs in the paged search).
 
 What is public (the `iss`, the JWK Set URL, the `aud` form, the hook list, the scopes) can go in
 the pull request that uses it. Nothing secret can.
@@ -124,3 +145,33 @@ its shorter token (ADR-0006).
   request then removes the gate's pending line (23m).
 - The notes back fill in Epic's `MENDARI_CDS_CLIENTS` entry (23b) and the scorecard's vendor fit
   rows (`notes/ehr-scorecard.md`).
+
+## 7. Runs
+
+- **2026-11-08, SMART launch on Epic's public sandbox (the owner).** Epic's app (public client,
+  SMART v2, R4) was granted the R4 APIs for Patient, Condition, Observation (labs),
+  MedicationRequest, Medication, DocumentReference and Binary (clinical notes), Coverage,
+  Organization, ServiceRequest, Procedure and DiagnosticReport; there is no R4 MedicationStatement
+  API and no Communication API for patient messages. The launch, Epic's authorization, the
+  callback (id_token verified, an `ehr` principal) and the patient read worked. Deciding the
+  trial pack for Epic's test patient abstained, with five reasons and three causes:
+  - `medications: unauthorized`: the MedicationStatement search, which Epic refused (403);
+  - `medications.code: cap`, `medications.name: cap`, `notes: cap`: one budget of 20 links a
+    decision, which the notes, read first, used up;
+  - `notes: unsupported_type`: the RTF twin of each capped HTML note, counted again (assumed:
+    each Epic note an HTML and an RTF Binary).
+
+  Built in the Epic data fit pull request (branch `claude/epic-data-fit`): budgets by purpose (50
+  notes, 50 followed references) with a request bound and clocks, a note's renditions counted
+  once, the coverage record's `prefetch`, `links` and `unread_formats`, and
+  `MENDARI_EHR_DECLARATIONS` (off by default). With the declaration set, a chart is decided and
+  goes to a person (risk level 2) when it has: up to 50 notes whose text fits in 20,000
+  characters, each with an HTML or plain-text rendition (a note in RTF only abstains,
+  `unsupported_type`); at most 50 distinct drugs among its listed MedicationRequests, each
+  Medication read; every prefetch search (Condition, Observation and DocumentReference as well as
+  MedicationRequest) of at most 11 pages (`cap`); the linked reads done within 60 s and the
+  decision's deadline (`timeout`); and, once #287 lands, no medication recorded with `intent`
+  `plan`. On a CDS hook, a MedicationStatement prefetch the EHR sends as an OperationOutcome still
+  abstains (`operation_outcome`). Without the declaration, the trial pack abstains on
+  MedicationStatement alone, by design. The run stays the
+  owner's acceptance; setting the declaration on the hosted site is the owner's too.

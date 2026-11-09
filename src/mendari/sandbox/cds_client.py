@@ -48,7 +48,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from mendari.sandbox.ehr_profile import PACKS, PRESCRIBER_ID, ProfilePatient, patients
-from mendari.standards.cds_hooks import ORDER_HOOKS, UNREADABLE_SUMMARY
+from mendari.standards.cds_hooks import ALSO_NOTED, ORDER_HOOKS, UNREADABLE_SUMMARY
 
 STANDARD_HOOKS = ("patient-view", "order-sign")
 ALGORITHM = "ES384"
@@ -231,13 +231,15 @@ def expected_unread(patient: ProfilePatient) -> set[tuple[str, str]]:
 
 def unread_of(card: Mapping[str, Any]) -> set[tuple[str, str]] | None:
     """What an unreadable ABSTAIN's card says could not be read: each `- <key>: <reason>` line of
-    its detail (the pack's key names and a closed set of reasons, nothing of the record). None
-    for any other card."""
+    its detail (the pack's key names and a closed set of reasons, nothing of the record), up to
+    what it also notes (`ALSO_NOTED`). None for any other card."""
     if card.get("summary") != UNREADABLE_SUMMARY:
         return None
     detail = card.get("detail")
     unread = set()
     for line in detail.splitlines() if isinstance(detail, str) else ():
+        if line == ALSO_NOTED:
+            break  # a list read without a source the EHR does not offer: not what was unread
         key, colon, reason = line.removeprefix("- ").partition(": ")
         if line.startswith("- ") and colon:
             unread.add((key.strip(), reason.strip()))

@@ -35,9 +35,14 @@ what it reached. A link the record still does not hold counts by why it was not 
 (`Indexed.unread`: `off_server`, `cap`, `too_large`, a failed read's reason), else `not_fetched`
 (no server, `fhir/decide`, `$decide`): a note's url by `fhir.read_attachment`, and a followed
 reference that is a link to a type the field reads (`fhir.FieldRead.missing`) in the field's
-`unreadable`. Of renditions of one document (a DocumentReference's `content`, a
-DiagnosticReport's `presentedForm`: `fhir.renditions`), one that cannot be read counts for
-nothing when another of the same resource was read (`fhir.unread_attachments`). A resource its
+`unreadable`. Renditions of one document (a DocumentReference's `content`, a DiagnosticReport's
+`presentedForm`: `fhir.renditions`) are one note: it counts for nothing when one of them was
+read, and a note none of whose renditions is read counts once, by the reason of its first
+text/plain or text/html rendition, else `unsupported_type` (`fhir.unread_notes`). Of the notes
+counted `unsupported_type`, a field says how many were in each format (`unread_formats`: `rtf`,
+`pdf`, `xml`, `image`, `none`, `other`; `fhir.format_label`, never the content type as
+written), when there are any; and a list's item key that could not read something says what, by
+reason, in its own record (`unreadable`), when it could not. A resource its
 list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its source derives
 its period) is not an item: nothing it links to is read, and nothing it could not read counts.
 
@@ -79,7 +84,7 @@ from mendari.standards.fhir import (
     read_field,
     select,
     split_path,
-    unread_attachments,
+    unread_notes,
 )
 
 FORMAT = "mendari.data-coverage/1"
@@ -111,6 +116,8 @@ class _Found:
     values: int = 0
     codings: Counter[str] = field(default_factory=Counter)
     notes: Counter[str] = field(default_factory=Counter)  # unreadable attachments, by reason
+    # Of the notes counted `unsupported_type`, how many were in each format (`fhir.format_label`)
+    formats: Counter[str] = field(default_factory=Counter)
     references: int = 0
     reached: int = 0
     links: Counter[str] = field(default_factory=Counter)  # followed links not read, by reason
@@ -166,6 +173,9 @@ def measure(
     sources: Mapping[str, str] | None = None,
     site_codes: SiteCodes | None = None,
     too_long: Collection[str] = (),
+    links: Mapping[str, Any] | None = None,
+    not_offered: Mapping[str, str] | None = None,
+    statuses: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
@@ -176,7 +186,15 @@ def measure(
     and items the input read, as the input read them. The record holds no translation: a coding
     a translation matched counts by its system, as any other (`other` for a site's own).
     `too_long` names the fields left out because their notes' text is longer than the input
-    allows (`fhir.overlong`, LP-23k), each counted once as `too_large`."""
+    allows (`fhir.overlong`, LP-23k), each counted once as `too_large`. `links` is what the
+    decision's linked reads used (`linked.Linker.used`), its `links` section when given.
+    `not_offered` names the prefetch keys left out because the site declared its EHR does not
+    offer their type (`standards/ehr_declarations.py`), each with its type: that source of a list
+    is marked `not_offered: true` (its counts are 0: it was not read, not read and empty), and its
+    list names the types it was read without (`not_offered`). `statuses` is the HTTP status of
+    each unreadable key whose read failed with one. The `prefetch` section, when there is any,
+    names each prefetch key that could not be read or was not offered: the resource type its
+    template reads, its reason, and for `unauthorized` and `http_status` the status number."""
     unknown = sorted(set(unreadable.values()) - READ_REASONS)
     if unknown:
         raise ValueError(f"not a read reason: {unknown}")
@@ -189,6 +207,7 @@ def measure(
     reading = Reading.of(mapping, indexed, site_codes)
     looked = looked_for(mapping)
     total = Counter(unreadable.values())
+    absent = set((not_offered or {}).values())  # the types the EHR does not offer, declared
 
     where = mapping.focus_where
     focus = {
@@ -231,15 +250,50 @@ def measure(
                 "sources": records,
                 "unreadable": _merged(*(failed.get(kind) for kind in sorted(kinds)), notes),
             }
-    return _canonical(
-        {
-            "format": FORMAT,
-            "focus": focus,
-            "fields": fields,
-            "lists": lists,
-            "unreadable": dict(total),
-        }
-    )
+            without = [kind for kind in spec.resources if kind in absent]
+            for kind in without:
+                records[kind]["not_offered"] = True
+            if without:
+                lists[name]["not_offered"] = without
+    coverage: dict[str, Any] = {
+        "format": FORMAT,
+        "focus": focus,
+        "fields": fields,
+        "lists": lists,
+        "unreadable": dict(total),
+    }
+    if links is not None:  # a linker read for it, and read a link or left one unread
+        coverage["links"] = dict(links)
+    prefetch = _prefetch(unreadable, not_offered or {}, statuses or {}, sources or {})
+    if prefetch:
+        coverage["prefetch"] = prefetch
+    return _canonical(coverage)
+
+
+_STATUS_REASONS = ("unauthorized", "http_status")  # the reasons a status number explains
+
+
+def _prefetch(
+    unreadable: Mapping[str, str],
+    not_offered: Mapping[str, str],
+    statuses: Mapping[str, int],
+    sources: Mapping[str, str],
+) -> dict[str, Any]:
+    """Each prefetch key that could not be read, or that the EHR does not offer by the site's
+    declaration: the type its template reads (when known), and its reason and status, or
+    `not_offered`. The pack's key names and Mendari's words only, and a status as a number."""
+    found: dict[str, Any] = {}
+    for key, reason in unreadable.items():
+        item: dict[str, Any] = {"reason": reason}
+        if key in sources:
+            item["resource"] = source_type(sources[key])
+        status = statuses.get(key)
+        if reason in _STATUS_REASONS and isinstance(status, int) and 100 <= status <= 599:
+            item["status"] = status
+        found[key] = item
+    for key, kind in not_offered.items():
+        found[key] = {"resource": kind, "not_offered": True}
+    return found
 
 
 def _focus_codes(mapping: FhirMapping) -> list[str]:
@@ -273,6 +327,8 @@ def _source(
     for key, mapped in _item_keys(source):
         found = _read(mapped, kind, scopes, reading, declared, source)
         fields[key] = _field(mapped, kind, looked[key], found, declared)
+        if found.notes or found.links:  # what this key could not read, when anything
+            fields[key]["unreadable"] = dict(found.notes + found.links)
         kinds.update(_types(mapped, kind))
         notes.update(found.notes + found.links)
     record = {
@@ -337,7 +393,10 @@ def _read(
                     found.codings[counted_as] += 1
                 counted.update(id(coding) for coding in codings if isinstance(coding, Mapping))
             if needed:
-                found.notes.update(_notes(mapped, path, where, pairs, reading))
+                for reason, label in _notes(mapped, path, where, pairs, reading):
+                    found.notes[reason] += 1
+                    if label is not None:
+                        found.formats[label] += 1
     return found
 
 
@@ -363,6 +422,8 @@ def _field(
             "references": found.references,
             "reached": found.reached,
         }
+    if found.formats:  # the formats of the notes it could not read as `unsupported_type`
+        record["unread_formats"] = dict(found.formats)
     return record
 
 
@@ -414,16 +475,16 @@ def _notes(
     where: Mapping[str, Any],
     pairs: list[tuple[Any, Any]],
     reading: Reading,
-) -> Counter[str]:
-    """The attachments a note field's path read that could not be read, by reason. `pairs` are
-    the path's values with their resources, nulls dropped (`_read`)."""
-    counts: Counter[str] = Counter()
+) -> list[tuple[str, str | None]]:
+    """The notes a note field's path read that could not be read, each as its reason and, for
+    an `attachment_text` note counted `unsupported_type`, its format's label
+    (`fhir.unread_notes`), else None. `pairs` are the path's values with their resources, nulls
+    dropped (`_read`)."""
+    found: list[tuple[str, str | None]] = []
     if mapped.transform == "attachment_text":
-        counts.update(unread_attachments(path, pairs, reading.record))
+        found += unread_notes(path, pairs, reading.record)
     elif mapped.transform == "base64_text":
-        for _, value in pairs:
-            if not decodes(value):
-                counts["undecodable"] += 1
+        found += [("undecodable", None) for _, value in pairs if not decodes(value)]
         *head, last = split_path(path)
         if last == _ATTACHMENT_DATA and head:
             for attachment in select(where, ".".join(head)):
@@ -432,8 +493,8 @@ def _notes(
                     and attachment.get(_ATTACHMENT_DATA) is None
                     and attachment.get("url") is not None
                 ):
-                    counts["not_fetched"] += 1
-    return counts
+                    found.append(("not_fetched", None))
+    return found
 
 
 def _merged(*parts: Mapping[str, int] | None) -> dict[str, int]:

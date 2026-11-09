@@ -28,7 +28,7 @@ from mendari.core.origin import (
 )
 from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
-from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
+from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy, limitation
 from mendari.core.registry import origin_of, resolve_pack
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
 from mendari.core.spec import Outcome, Priority
@@ -42,14 +42,17 @@ from mendari.errors import (
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
 from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
-from mendari.providers.deadline import decision_deadline
+from mendari.providers.deadline import deadline_until, decision_deadline, due
 from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
+    from mendari.standards.ehr_declarations import EhrDeclaration
+    from mendari.standards.fhir import FhirMapping
     from mendari.standards.linked import Linker
 
 MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
+REJECTED = "input rejected: "  # how each reason that refused an input begins (`decide`)
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,10 @@ class DecisionResult:
     # The site code map a FHIR decision read its record with (`core/site_codes.py`, LP-23i): the
     # version and SHA-256 of its organization's map. None without one, and on JSON input.
     site_codes: dict[str, str] | None = None
+    # The declaration of what its EHR does not offer, when a FHIR decision read a list without
+    # a source so declared (`standards/ehr_declarations.py`): its version, SHA-256, who attested
+    # it and where. None otherwise, and on JSON input.
+    ehr_declaration: dict[str, str] | None = None
     # Why the input was refused before any provider ran (`$decide` reports these as failure).
     # In memory only: not in `to_dict`, so the audit record keeps its shape.
     rejected: bool = field(default=False, compare=False)
@@ -100,6 +107,10 @@ class DecisionResult:
     # its input is refused (`decide`). In memory only, like `rejected`; the reasons and the
     # data-coverage record say the same in the record.
     unreadable: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    # Each list a FHIR decision read without a source the site declared its EHR does not offer,
+    # as its reasons begin (`policy.limitation`), whatever the list is called. In memory only,
+    # like `rejected`; the reasons and `ehr_declaration` say the same in the record.
+    limitations: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -139,6 +150,7 @@ class DecisionResult:
             "input_issues": list(self.input_issues),
             "data_coverage": self.data_coverage,
             "site_codes": self.site_codes,
+            "ehr_declaration": self.ehr_declaration,
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -434,6 +446,9 @@ class Decision:
         data_coverage: Mapping[str, Any] | None = None,
         site_codes: Mapping[str, str] | None = None,
         translated: Sequence[str] = (),
+        due_at: float | None = None,
+        not_offered: Sequence[str] = (),
+        ehr_declaration: Mapping[str, str] | None = None,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
         `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
@@ -446,7 +461,14 @@ class Decision:
         it looked for and found (`standards/data_coverage.py`), kept as given, and `site_codes`
         the version and digest of the site code map it read with (LP-23i). `translated` names the
         code sets a site's translation gave the input a value through: then AUTO, and a rule's
-        BLOCK, become HUMAN_REVIEW (`policy.apply_policy`'s `site_code` cap)."""
+        BLOCK, become HUMAN_REVIEW (`policy.apply_policy`'s `site_code` cap). `due_at` is when
+        the decision's deadline falls (`providers/deadline.due`), when it started before this
+        call (`decide_fhir`'s linked reads); else it starts at the provider loop. `not_offered`
+        names each list read without a source the site declared its EHR does not offer
+        (`policy.limitation`), and `ehr_declaration` that declaration's stamp: then AUTO, and a
+        rule's BLOCK, become HUMAN_REVIEW, the limitation a reason whatever the outcome (an
+        ABSTAIN over unread data says it too, and a refused input's BLOCK, without "a person
+        decides")."""
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
@@ -500,13 +522,16 @@ class Decision:
                     stopped = ProviderError("time_budget", f"its schema check stopped: {error}")
             problems = [*rejected, *schema_problems]
             if problems:
+                # A refusal is final, so no person decides; a list read without a source the EHR
+                # does not offer is still said to be incomplete.
                 policy = PolicyResult(
                     outcome=Outcome.BLOCK,
                     recommendation=None,
                     priority=manifest.policy.default_priority,
                     reasons=(
-                        *(f"input rejected: {problem}" for problem in problems),
+                        *(f"{REJECTED}{problem}" for problem in problems),
                         *unread_reasons,
+                        *dict.fromkeys(not_offered),
                     ),
                 )
             elif unread:
@@ -516,15 +541,24 @@ class Decision:
                     outcome=Outcome.ABSTAIN,
                     recommendation=None,
                     priority=manifest.policy.default_priority,
-                    reasons=unread_reasons,
+                    reasons=(
+                        *unread_reasons,
+                        *(f"{limit}: a person decides" for limit in dict.fromkeys(not_offered)),
+                    ),
                 )
             else:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
                 metering = METER.set(meter)
                 try:
-                    # The deadline's clock starts here, for this decision's remote calls only:
-                    # past it they fail with `timeout`, and local providers still answer.
-                    with decision_deadline(self.deadline_s), batching(self.providers.values()):
+                    # The deadline's clock starts here, for this decision's remote calls, or
+                    # before its linked reads (`decide_fhir`), which then share it: past it they
+                    # fail with `timeout`, and local providers still answer.
+                    started_clock = (
+                        decision_deadline(self.deadline_s)
+                        if due_at is None
+                        else deadline_until(due_at)
+                    )
+                    with started_clock, batching(self.providers.values()):
                         for slot, provider in self.providers.items():
                             try:
                                 if stopped is not None:
@@ -563,6 +597,7 @@ class Decision:
                     hold=hold,
                     blocks_to_person="; ".join(origin_holds) or None,
                     site_code=translated,
+                    not_offered=not_offered,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:
@@ -594,11 +629,13 @@ class Decision:
             input_issues=tuple(dict(issue) for issue in input_issues),
             data_coverage=None if data_coverage is None else dict(data_coverage),
             site_codes=None if site_codes is None else dict(site_codes),
+            ehr_declaration=None if ehr_declaration is None else dict(ehr_declaration),
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
             labels=dict(labels or {}),
             usage=meter.totals(),
             unreadable=unread,
+            limitations=tuple(dict.fromkeys(not_offered)),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -612,6 +649,9 @@ class Decision:
         unreadable: Mapping[str, str] | None = None,
         sources: Mapping[str, str] | None = None,
         links: Linker | None = None,
+        not_offered: Mapping[str, str] | None = None,
+        declaration: EhrDeclaration | None = None,
+        statuses: Mapping[str, int] | None = None,
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
@@ -636,7 +676,9 @@ class Decision:
 
         `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
         reaches by a link the record does not hold, a note's Binary or a followed reference,
-        from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`);
+        from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`),
+        inside the decision's deadline, which starts before those reads and its providers then
+        share (a note field stops reading once its text is longer than the input takes);
         what it reads is checked as the record is (its R4 and profile issues recorded, by type
         alone in the stored record, refused under `enforce`). A link it did not read, and
         without `links` every link the record does not hold (`not_fetched`), makes the decision
@@ -647,9 +689,21 @@ class Decision:
         records the map's version and digest (`site_codes`); a decision whose input took a value
         through a translation never automates, and its rule's BLOCK goes to a person. So does
         one about a focus that the mapping's `focus_where` code set found only through a
-        translation (LP-23k): which resources of the focus type count is read with the map too."""
+        translation (LP-23k): which resources of the focus type count is read with the map too.
+
+        `not_offered` names the prefetch keys left out because the site declared that its EHR
+        does not offer their type (`declaration`, `standards/ehr_declarations.py`; a SMART
+        launch's or a hook's, by its FHIR base and organization), each with that type. Each must
+        be a key of `sources` holding nothing, of a type the declaration names and the pack may
+        read its list without (`ehr_declarations.excusable`): anything else is the caller's
+        error (`ValueError`), never the request's. A required resource of that type is not
+        refused as missing, nothing abstains on it, the data-coverage record marks the source and
+        its list `not_offered`, the result records the declaration (`ehr_declaration`), and the
+        decision never automates: AUTO, and a rule's BLOCK, become HUMAN_REVIEW, the limitation
+        a reason whatever the outcome. `statuses` is the HTTP status of each `unreadable` key
+        whose read failed with one, which the data-coverage record keeps (a number only)."""
         from mendari.standards import data_coverage, fhir_structure, us_core
-        from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong
+        from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
         adapter = FhirAdapter.for_pack(self.pack)
         failed = dict(unreadable or {})
@@ -660,6 +714,10 @@ class Decision:
             for key in failed
             if key in templates and resources.get(key) is None
         }
+        left_out = dict(not_offered or {})
+        if left_out:
+            _check_not_offered(adapter.mapping, templates, resources, left_out, declaration)
+            excused |= set(left_out.values())
         given = resources if focus is None else [resources, focus]
         base = fhir_structure.check(given)
         malformed = fhir_structure.blocking(base)
@@ -676,8 +734,14 @@ class Decision:
         site = self.site_map()
         translations = None if site is None else site.sets
         indexed = adapter.index(resources, focus=focus, excused=excused, site_codes=translations)
+        due_at = None
         if links is not None:
-            read = links.read(adapter.mapping, indexed)
+            # The decision's deadline starts before its linked reads, which its providers share
+            # (`providers/deadline.py`); the audit write is outside it.
+            due_at = due(self.deadline_s)
+            limits = text_limits(adapter.mapping, self.pack.input_schema)
+            with deadline_until(due_at):
+                read = links.read(adapter.mapping, indexed, limits=limits)
             if read and self.fhir_validation != "off":
                 issues += fhir_structure.merge(fhir_structure.check(read), us_core.validate(read))
         rejected = []
@@ -710,7 +774,17 @@ class Decision:
             sources=templates,
             site_codes=translations,
             too_long=too_long,
+            links=None if links is None else links.used(indexed),
+            not_offered=left_out,
+            statuses=statuses,
         )
+        limited: list[str] = []
+        if left_out and declaration is not None:
+            types = set(left_out.values())
+            for name, spec in adapter.mapping.lists.items():
+                without = [kind for kind in spec.resources or {} if kind in types]
+                if without:
+                    limited.append(limitation(name, without, declaration.attested_by))
         result = self.decide(
             mapped.value,
             input_issues=[issue.to_dict() for issue in issues],
@@ -720,8 +794,37 @@ class Decision:
             data_coverage=coverage,
             site_codes=None if site is None else site.stamp(),
             translated=mapped.translated,
+            due_at=due_at,
+            not_offered=limited,
+            ehr_declaration=None if not limited or declaration is None else declaration.stamp(),
         )
         return result, adapter.to_task(result, indexed)
+
+
+def _check_not_offered(
+    mapping: FhirMapping,
+    templates: Mapping[str, str],
+    resources: Mapping[str, Any],
+    not_offered: Mapping[str, str],
+    declaration: EhrDeclaration | None,
+) -> None:
+    """`decide_fhir`'s `not_offered`, as its callers must give it (a `ValueError` otherwise: the
+    caller's error, never a request's): with its declaration, each a key of the templates that
+    holds nothing, of the type its template reads, which the declaration names and the pack may
+    read its list without."""
+    from mendari.standards.data_coverage import source_type
+    from mendari.standards.ehr_declarations import excusable
+
+    if declaration is None:
+        raise ValueError("not_offered needs the declaration that says so")
+    allowed = excusable(mapping, templates, declaration.not_offered)
+    for key, kind in not_offered.items():
+        if key not in templates or source_type(templates[key]) != kind:
+            raise ValueError(f"not_offered {key!r} is not a prefetch key of type {kind}")
+        if resources.get(key) is not None:
+            raise ValueError(f"not_offered {key!r} holds a value")
+        if kind not in allowed:
+            raise ValueError(f"not_offered {key!r}: {kind} may not be left out for this pack")
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)

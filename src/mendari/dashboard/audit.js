@@ -187,7 +187,7 @@ async function openRecord(id) {
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
-      ${r.data_coverage ? coveragePanel(id, r.data_coverage) : ""}
+      ${r.data_coverage ? coveragePanel(id, r.data_coverage, r.ehr_declaration) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
@@ -200,7 +200,11 @@ async function openRecord(id) {
 
 // What a FHIR decision looked for in the record and found (its data-coverage record, LP-23d):
 // per mapped field and list, the resources read and the values found, as counts, and what could
-// not be read, by reason. Counts and the pack's own names only, never a value; never a share.
+// not be read, by reason. A list of several resource types has a row per source, and a list
+// item's key that could not read something a row of its own. Under the table: the prefetch keys
+// that could not be read (with the HTTP status, a number) or that the EHR does not offer, the
+// linked reads, and the declaration of what the EHR does not offer, when one was read under.
+// Counts and the pack's own names only, never a value; never a share.
 const readReasons = (counts) => {
   const parts = Object.entries(counts ?? {}).filter(([, n]) => n > 0).map(([reason, n]) => `${esc(reason)} ${num(n, 0)}`);
   return parts.length ? parts.join(", ") : `<span class="muted">none</span>`;
@@ -212,14 +216,60 @@ const codings = (found) => {
   if (!inDeclared && !other) return `<span class="muted">–</span>`;
   return `${num(inDeclared, 0)} in declared systems, ${num(other, 0)} other`;
 };
+// What a field could not read, and the formats of the notes it could not read, when it says.
+const notRead = (record) => {
+  const formats = Object.entries(record.unread_formats ?? {}).map(([label, n]) => `${esc(label)} ${num(n, 0)}`);
+  return `${readReasons(record.unreadable)}${formats.length ? ` <span class="muted">(formats: ${formats.join(", ")})</span>` : ""}`;
+};
+const NOT_OFFERED = `<span class="muted">not offered (declared)</span>`;
 
-function coveragePanel(id, coverage) {
+function listRows(name, list) {
+  if (!list.sources) {
+    return [{ name: `<span class="mono">${esc(name)}</span> (list)`, from: readFrom({ [list.resource]: list.resources }), found: list.items, codings: null, unreadable: notRead(list) }];
+  }
+  const rows = [{ name: `<span class="mono">${esc(name)}</span> (list)`, from: null, found: list.items, codings: null, unreadable: notRead(list) }];
+  for (const [kind, source] of Object.entries(list.sources)) {
+    const from = `<span class="mono">${esc(name)}</span> ← ${esc(kind)}`;
+    rows.push({ name: from, from: source.not_offered ? NOT_OFFERED : readFrom({ [kind]: source.resources }), found: source.items, codings: null, unreadable: notRead(source) });
+    for (const [key, field] of Object.entries(source.fields ?? {})) {
+      if (!field.unreadable) continue;
+      rows.push({ name: `<span class="mono">${esc(name)}.${esc(key)}</span> ← ${esc(kind)}`, from: null, found: field.values, codings: field.codings, unreadable: notRead(field) });
+    }
+  }
+  return rows;
+}
+
+function prefetchLine(prefetch) {
+  const entries = Object.entries(prefetch ?? {});
+  const failed = entries.filter(([, p]) => !p.not_offered).map(([key, p]) => `<span class="mono">${esc(key)}</span>${p.resource ? ` (${esc(p.resource)})` : ""}: ${esc(p.reason)}${p.status ? `, HTTP ${esc(String(p.status))}` : ""}`);
+  const offered = entries.filter(([, p]) => p.not_offered).map(([key, p]) => `<span class="mono">${esc(key)}</span> (${esc(p.resource)})`);
+  return [
+    failed.length ? `<p class="muted mt-2">Prefetch reads that failed: ${failed.join("; ")}.</p>` : "",
+    offered.length ? `<p class="muted mt-2">Not offered by this EHR, as the site declared, so not asked for: ${offered.join("; ")}.</p>` : "",
+  ].join("");
+}
+
+function linksLine(links) {
+  if (!links) return "";
+  const read = links.read ?? {};
+  const budget = links.budget ?? {};
+  const statuses = Object.entries(links.statuses ?? {}).map(([status, n], at) => `${num(n, 0)} ${at ? "" : "failed "}with HTTP ${esc(status)}`);
+  return `<p class="muted mt-2">Linked reads: notes ${num(read.notes ?? 0, 0)}, followed references ${num(read.follows ?? 0, 0)}; a decision reads at most ${num(budget.notes ?? 0, 0)} notes and ${num(budget.follows ?? 0, 0)} references${statuses.length ? `. Of the reads, ${statuses.join(", ")}` : ""}.</p>`;
+}
+
+function declarationLine(declared) {
+  if (!declared) return "";
+  return `<p class="muted mt-2">Read under the site's declaration of what this EHR does not offer: version <span class="mono">${esc(declared.version)}</span>, attested by ${esc(declared.attested_by)} (${esc(declared.reference)}), SHA-256 <span class="mono break-anywhere">${esc(declared.sha256)}</span>. A person decides.</p>`;
+}
+
+function coveragePanel(id, coverage, declared) {
   const rows = [
-    { name: `Focus: ${esc(coverage.focus.resource)}`, from: readFrom({ [coverage.focus.resource]: coverage.focus.resources }), found: null, codings: null, unreadable: coverage.focus.unreadable },
-    ...Object.entries(coverage.fields ?? {}).map(([name, f]) => ({ name: `<span class="mono">${esc(name)}</span>`, from: readFrom(f.resources ?? {}), found: f.values, codings: f.codings, unreadable: f.unreadable })),
-    ...Object.entries(coverage.lists ?? {}).map(([name, l]) => ({ name: `<span class="mono">${esc(name)}</span> (list)`, from: readFrom({ [l.resource]: l.resources }), found: l.items, codings: null, unreadable: l.unreadable })),
+    { name: `Focus: ${esc(coverage.focus.resource)}`, from: readFrom({ [coverage.focus.resource]: coverage.focus.resources }), found: null, codings: null, unreadable: readReasons(coverage.focus.unreadable) },
+    ...Object.entries(coverage.fields ?? {}).map(([name, f]) => ({ name: `<span class="mono">${esc(name)}</span>`, from: readFrom(f.resources ?? {}), found: f.values, codings: f.codings, unreadable: notRead(f) })),
+    ...Object.entries(coverage.lists ?? {}).flatMap(([name, l]) => listRows(name, l)),
   ];
   const total = readReasons(coverage.unreadable);
+  const dash = `<span class="muted">–</span>`;
   return `<section class="coverage" aria-labelledby="coverage-${esc(id)}">
     <h3 id="coverage-${esc(id)}">What it read</h3>
     <p class="muted">From the FHIR record, for each field and list the pack maps: counts only, never a value. Could not read, in all: ${total}.</p>
@@ -229,12 +279,13 @@ function coveragePanel(id, coverage) {
       rows,
       columns: [
         { key: "name", label: "Field", cell: (row) => row.name },
-        { key: "from", label: "Resources read", cell: (row) => row.from },
-        { key: "found", label: "Values found", numeric: true, cell: (row) => (row.found === null ? `<span class="muted">–</span>` : num(row.found, 0)) },
-        { key: "codings", label: "Codings", cell: (row) => (row.codings === null ? `<span class="muted">–</span>` : codings(row.codings)) },
-        { key: "unreadable", label: "Could not read", cell: (row) => readReasons(row.unreadable) },
+        { key: "from", label: "Resources read", cell: (row) => (row.from === null ? dash : row.from) },
+        { key: "found", label: "Values found", numeric: true, cell: (row) => (row.found === null || row.found === undefined ? dash : num(row.found, 0)) },
+        { key: "codings", label: "Codings", cell: (row) => (row.codings === null ? dash : codings(row.codings)) },
+        { key: "unreadable", label: "Could not read", cell: (row) => row.unreadable },
       ],
     })}
+    ${prefetchLine(coverage.prefetch)}${linksLine(coverage.links)}${declarationLine(declared)}
   </section>`;
 }
 

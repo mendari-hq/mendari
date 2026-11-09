@@ -14,6 +14,10 @@ Order of evaluation:
    (a block is final at once). Nothing lifts it, governance included: a site's configuration
    never makes AUTO, or a final BLOCK, that the pack alone could not. A decision already going
    to a person (HUMAN_REVIEW, ABSTAIN) keeps its outcome and gets the same reason.
+5. The `not_offered` cap, alike: a list read without a source the site declared its EHR does
+   not offer (`standards/ehr_declarations.py`) may be incomplete, so the decision never
+   automates and its rule's BLOCK goes to a person, the limitation a reason whatever the
+   outcome. Without the declaration the pack alone abstains, so nothing lifts this one either.
 """
 
 from __future__ import annotations
@@ -75,6 +79,7 @@ def apply_policy(
     hold: str | None = None,
     blocks_to_person: str | None = None,
     site_code: Sequence[str] = (),
+    not_offered: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
@@ -84,8 +89,10 @@ def apply_policy(
     not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well. `site_code` names the
     code sets a site's translation gave the input a value through (LP-23i): with any, AUTO and
     a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
-    nothing else changes."""
+    nothing else changes. `not_offered` names each limitation of a list read without a source the
+    site declared its EHR does not offer (`limitation`): the same cap, its own reason."""
     translated = tuple(sorted(set(site_code)))
+    limits = tuple(dict.fromkeys(not_offered))
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -151,6 +158,10 @@ def apply_policy(
             "rule's BLOCK"
         )
         outcome = Outcome.HUMAN_REVIEW
+    if limits and rule_name is not None and outcome is Outcome.BLOCK:
+        # A rule's BLOCK on a list the EHR could not give whole: a person decides, as above.
+        reasons.extend(f"{limit}: a person decides instead of its rule's BLOCK" for limit in limits)
+        outcome = Outcome.HUMAN_REVIEW
     if outcome is Outcome.AUTO:
         outcome = _cap(
             manifest,
@@ -162,15 +173,28 @@ def apply_policy(
             community,
             hold,
             translated,
+            limits,
         )
     site_reason = f"site code translated ({', '.join(translated)}): a person decides"
     if translated and not any(reason.startswith(site_reason) for reason in reasons):
         # Already HUMAN_REVIEW or ABSTAIN: the reason only says a translation was read, for the
         # person who decides; it changes no outcome.
         reasons.append(site_reason)
+    for limit in limits:
+        if not any(reason.startswith(f"{limit}: a person decides") for reason in reasons):
+            reasons.append(f"{limit}: a person decides")  # likewise: no outcome changes
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
+
+
+def limitation(name: str, types: Sequence[str], attested_by: str) -> str:
+    """How a reason says list `name` was read without `types`, which the site declared its EHR
+    does not offer (`standards/ehr_declarations.py`), and who attested that."""
+    return (
+        f"{name} may be incomplete: read without {', '.join(types)}, which this EHR does not "
+        f"offer (declared, {attested_by})"
+    )
 
 
 def matches(condition: Condition, answer: Answer | None) -> bool:
@@ -202,12 +226,16 @@ def _cap(
     community: bool,
     hold: str | None = None,
     site_code: Sequence[str] = (),
+    not_offered: Sequence[str] = (),
 ) -> Outcome:
-    """AUTO, or HUMAN_REVIEW with why. The site code cap and a hold keep the reason the other
-    caps would give too."""
+    """AUTO, or HUMAN_REVIEW with why. The site code and not-offered caps and a hold keep the
+    reason the other caps would give too."""
     outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
     if site_code:
         reasons.append(f"site code translated ({', '.join(site_code)}): a person decides")
+        outcome = Outcome.HUMAN_REVIEW
+    for limit in not_offered:
+        reasons.append(f"{limit}: a person decides")
         outcome = Outcome.HUMAN_REVIEW
     if hold is not None:
         reasons.append(f"automation is on hold: {hold}")

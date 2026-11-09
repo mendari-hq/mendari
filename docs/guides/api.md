@@ -78,8 +78,8 @@ as `could not read labs: timeout`, it is recorded, and its card is an `info` car
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
 malformed field, a required resource you sent something else for) is still a `4xx`. A pack on
 spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
-MedicationRequest's drug) from your `fhirServer`, at most 20 links a decision; a link it does not
-read is a reason too, and `fhir/decide` and `$decide` never read one
+MedicationRequest's drug) from your `fhirServer`, at most 50 notes and 50 followed references a
+decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and `$decide` never read one
 ([linked data](connecting-an-ehr.md#linked-data)). Such a pack reads a note as text only when it
 is text/plain or text/html: an RTF, PDF or CDA note abstains with `could not read <field>:
 unsupported_type`.

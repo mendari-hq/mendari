@@ -28,8 +28,10 @@ from mendari.standards import data_coverage, fhir_structure
 from mendari.standards.data_coverage import FORMAT, OTHER
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
+from mendari.standards.linked import Linker
 from tests.conftest import INPUT_HASH_KEY, ROOT
 from tests.test_cds_unreadable import _bundle, prefetch_of
+from tests.test_fhir_linked import Ehr
 from tests.test_fhir_mapping_03 import MED, PAYER, adapter, b64, bundle
 from tests.test_prior_auth_pack import _order, _prefetch
 from tests.test_spec_03 import ICD as MINI_ICD
@@ -47,6 +49,7 @@ SITE_SYSTEM = "urn:oid:1.2.840.114350.1.13.90210.7.2.696580"
 SITE_CODE = "SITE-CODE-77123"
 MRN = "MRN6627153"
 NOTE_MARK = "NOTEMARK-silver-heron"
+FILE_MARK = "LNK8842"  # a file name in a note's content type
 PATIENT_ICD = "E11.65"
 
 
@@ -278,13 +281,54 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
     linked = copy.deepcopy(next(r for r in resources if r["resourceType"] == "DocumentReference"))
     linked["id"] = "linked-note"
     linked["content"] = [{"attachment": {"contentType": "text/plain", "url": f"Binary/{MRN}-note"}}]
+    # An RTF note whose content type names a file (its parameters are never kept: the format is
+    # counted by a closed label, 2026-11-08).
+    rtf = copy.deepcopy(linked)
+    rtf["id"] = "rtf-note"
+    rtf["content"] = [
+        {
+            "attachment": {
+                "contentType": f"text/rtf; name={FILE_MARK}.rtf",
+                "data": b64("{\\rtf1 x}"),
+            }
+        }
+    ]
     decision = Decision.from_hub(TRIAL, store=store)
+    # A prefetch key the EHR refused (403) and a linked read it refused, its answer naming the
+    # patient: only the key, the reason and the status, a number, are kept (2026-11-08).
+    ehr = Ehr()
+    ehr.faults[f"Binary/{MRN}-note"] = lambda r: httpx.Response(
+        403, json={"error": f"no access to {MRN}"}, headers={"content-type": "application/json"}
+    )
+    refused, _ = decision.decide_fhir(
+        _bundle(*resources, linked),
+        unreadable={"medications": "unauthorized"},
+        statuses={"medications": 403},
+        links=Linker.of(ehr.client()),
+    )
+    assert refused.data_coverage is not None
+    assert refused.data_coverage["prefetch"]["medications"]["status"] == 403
+    assert refused.data_coverage["links"]["statuses"] == {"403": 1}
     results = [
         decision.decide_fhir(_bundle(*resources))[0],
         decision.decide_fhir(_bundle(*resources, linked))[0],
+        decision.decide_fhir(_bundle(*resources, rtf))[0],
+        refused,
     ]
     assert results[1].reasons == ("could not read notes: not_fetched",)
-    marks = (MRN, NOTE_MARK, PATIENT_ICD, SITE_CODE, SITE_SYSTEM, "114350", "linked-note")
+    assert results[2].reasons == ("could not read notes: unsupported_type",)
+    assert results[2].data_coverage is not None
+    assert results[2].data_coverage["fields"]["notes"]["unread_formats"] == {"rtf": 1}
+    marks = (
+        MRN,
+        NOTE_MARK,
+        PATIENT_ICD,
+        SITE_CODE,
+        SITE_SYSTEM,
+        "114350",
+        "linked-note",
+        FILE_MARK,
+    )
     for result in results:
         assert result.data_coverage is not None
         shown = json.dumps(result.data_coverage) + json.dumps(result.reasons)
@@ -598,6 +642,9 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
         "paths": [f"Medication.code.coding[system={MED}].code", "Medication.code.text"],
         "systems": [MED],
         "values": 2,
+        # The reference that reached nothing, by the field that follows it (the failed
+        # Medication read is the source's, by its type, above).
+        "unreadable": {"not_fetched": 1},
     }
     bounds = "dosageInstruction[0].timing.repeat.boundsPeriod"
     assert requests["fields"]["start"]["paths"] == [f"{bounds}.start", "authoredOn"]

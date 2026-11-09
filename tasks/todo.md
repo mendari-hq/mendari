@@ -1483,6 +1483,47 @@ Connect) is not supported yet.
   - [ ] Owner: run `mendari smart check` against Epic's FHIR base (the scorecard's CE-5a).
   - [ ] Owner: do the Epic sandbox run (every pack with a standard hook decides on Epic's
     sandbox patients, A12.acc-3), which lets a build PR remove the gate's pending line.
+    - 2026-11-08: first SMART launch on Epic's sandbox (owner): launch, authorize, callback,
+      patient read worked; the trial pack abstained for Anna Cadence on three gaps
+      (MedicationStatement not offered, the shared 20-link cap, RTF twins counted twice), built
+      on branch `claude/epic-data-fit` (PR #290); the owner's run
+      stays open; the trial card's "20 links" wording waits on #287. Run notes:
+      `notes/epic-sandbox-checklist.md` section 7.
+    - [ ] Owner (O1): set `MENDARI_EHR_DECLARATIONS` for Epic's base on the hosted site, a
+      production setting and a clinical claim, only after the checks in
+      `docs/guides/connecting-an-ehr.md#what-your-ehr-does-not-offer` (where Epic keeps reported
+      medications and with which `intent`, given #287's `listed`; whether its default search
+      returns stopped and inpatient orders; whether drug names carry the generic name). The code
+      ships it off.
+    - [ ] Owner (O2): RTF-only notes, A (today: abstain, now with the format counted), B (decide
+      on the readable notes, at most HUMAN_REVIEW, the unread notes stated; a spec 0.3 change
+      and a pack opt-in) or C (a bounded RTF-to-text reader with its own tests). No
+      recommendation; `unread_formats` from the next run says how often Epic notes are RTF only.
+    - [ ] Owner (O3): name-first's safe form (a follow read only when no earlier path of the
+      field gives a value; one sentence in spec 0.3 §2.3), only with a pack change that orders a
+      MedicationRequest's own paths first.
+    - [ ] Owner (O5): under a declaration, whether a list-based answer that came from its
+      criteria's `default` (`no_insulin` "yes" when no insulin is listed) reads `unknown`
+      instead. Not built: today it reads "yes", recorded with the limitation and never
+      automated.
+    - [ ] Owner (O6): under a declaration, whether the trial card shows for every decision
+      (its `show` hides `not_eligible`, which an incomplete list can give); `shows_card` (#288,
+      merged) could treat a declared limitation as it treats an unreadable record. The review
+      queue holds every such decision today.
+    - [ ] For #287 (O4, in that PR, which bumps the trial pack anyway): the trial card's "more
+      links than one decision reads (20, `cap`)" wording (now 50 notes and 50 followed
+      references), a date window or `_count` on the notes prefetch, and whether to add
+      `_include=MedicationRequest:medication` (unverified on Epic).
+    - [ ] At prior-auth's next version (#288 merged without it): the pack's "20, `cap`" wording
+      in `pack.yaml`, `DECISION_CARD.md` and its CHANGELOG (now 50 notes and 50 followed
+      references).
+    - [ ] Dashboard: the criteria table in a derived primary's audit drawer (`pack.js`
+      `criteriaTable`) is a scrollable region with nothing focusable in it (axe
+      `scrollable-region-focusable`, seen on a trial record's drawer, 2026-11-08); fix on its
+      own.
+    - [ ] Follow-up: an HTML+RTF twin patient in `sandbox/ehr_profile.py` (changes
+      `test_what_each_pack_cannot_read_yet_is_pinned` and the CI validator's sample); and the
+      prefetch reads under a clock (threat model D14's residual).
   - [x] Owner (decision 4): confirm the referral `show` list, so 23j merges: confirmed
     2026-11-06 ("Confirm the default": `[return_for_info, urgent_review]`), built in #281.
     What the list leaves without a card, for the owner to see: a referral Mendari refuses as
@@ -1517,9 +1558,19 @@ Connect) is not supported yet.
     developers"); a pack from anyone else keeps "a clinician other than the author". Recorded in
     CONTRIBUTING.md and the authoring guide (GOVERNANCE.md and the pack PR template already
     agree); gate `clinician-review` is unchanged.
-  - [ ] Next (the owner asked, 2026-11-07): review briefs like the medication brief, for the
+  - [x] Next (the owner asked, 2026-11-07): review briefs like the medication brief, for the
     trial pack's criteria as a whole, the inbox router, AI Guard's dose table, and the referral
-    router with the prior-authorization preflight.
+    router with the prior-authorization preflight: built in #283 (`notes/clinician-review-*.md`,
+    indexed in `notes/README.md`).
+    - [ ] Follow-up, before the referral and prior-authorization review is recorded: refresh
+      `notes/clinician-review-referral-and-prior-auth.md`, which still describes both packs at
+      0.3.0, for both at 0.3.1 (#288, merged before #283; referral-router `sha256:b283d671…`,
+      prior-auth-preflight `sha256:e2b2503f…`): the version and digest, the quoted line numbers,
+      the referral router's `refused` card and prior authorization's `also_show` red-flag card on
+      `not_checked`.
+    - [ ] Owner: review each brief (the trial criteria, the inbox router, AI Guard's doses, the
+      referral router and prior authorization) and record each review in gate
+      `clinician-review`'s attestation; a build session never records one.
   - [x] Owner (decision 3): approve rubric v1 and its lowest-dimension rule, or supply the
     original scorecard: approved (owner, 2026-11-07); `notes/ehr-scorecard.md` says so.
   - [x] Owner (decision 16): choose the pilot's `MENDARI_FHIR_VALIDATION`, `warn` or `enforce`

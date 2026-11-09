@@ -25,9 +25,10 @@ unreadable data and the Coverage was read.
 
 **Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
 not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
-read from the same `fhirServer`, under its base, with the same token, at most 20 links a
-decision (`standards/linked.py`); a link that is not read is its field's reason, and the
-decision abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
+read from the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
+and 50 followed references a decision and 100 reads a request, inside the decision's deadline
+(`standards/linked.py`); a link that is not read is its field's reason, and the decision
+abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
 `fhirServer` off the allow-list is refused before anything is decided, as for the prefetch.
 
 **Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
@@ -39,8 +40,11 @@ never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are 
 the decision in the audit view, `source.url` is the pack's card, and when the EHR may launch the
 pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
 a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
-confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A Da Vinci
-CRD service (a pack with `coverage_information`) declares the CRD version and its one
+confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A list read
+without a source the EHR does not offer (`DecisionResult.limitations`) is in the detail either
+way, on every card: an unreadable ABSTAIN's and a refused input's say it apart from what was not
+read or why the input was refused (`ALSO_NOTED`), since it is neither.
+A Da Vinci CRD service (a pack with `coverage_information`) declares the CRD version and its one
 configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
 request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
 still decided.
@@ -66,7 +70,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from mendari import notices
 from mendari.core import clock
-from mendari.core.decision import Decision, DecisionResult
+from mendari.core.decision import REJECTED, Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.policy import threshold_reason
@@ -81,6 +85,7 @@ from mendari.errors import (
 )
 from mendari.standards import davinci, fhir_structure
 from mendari.standards.data_coverage import source_type
+from mendari.standards.ehr_declarations import EhrDeclaration
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient, check_allowed
 from mendari.standards.linked import Linker, reads_links
@@ -112,6 +117,10 @@ REFUSED_DETAIL = (
     "Refused: Mendari could not accept the data sent as this pack's input, so it checked "
     "nothing and made no recommendation. Why:"
 )
+# What follows that list on those two cards: the decision's other reasons, apart, since they are
+# neither what could not be read nor why the input was refused (a list read without a source the
+# EHR does not offer; on a refused input, a part that could not be read).
+ALSO_NOTED = "Also noted:"
 # A card's detail: the pack's status, the notice, and one plain sentence for its outcome.
 OUTCOME_SENTENCES = {
     Outcome.AUTO: "Automated: the recommendation may be acted on without a person reviewing it.",
@@ -216,11 +225,19 @@ def invoke(
     most: int = MAX_ORDERS,
     charge: Callable[[int], None] | None = None,
     links: CardLinks = NO_LINKS,
+    declared: EhrDeclaration | None = None,
 ) -> dict[str, Any]:
     """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
     draft order the pack is about, at most `most` of them; `charge` is given the number of
     decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising. `links` says where the cards may link."""
+    refuses by raising. `links` says where the cards may link.
+
+    `declared` is what the request's `fhirServer` does not offer, as the site declared it for
+    the caller's organization (`standards/ehr_declarations.py`): a prefetch key of such a type,
+    for a pack that may read its list without it (`EhrDeclaration.skipped`), is never fetched,
+    and left out, sent empty, null or as a search with no entries, it is not offered (the
+    decision records so, and never automates). A value with entries is data, used as sent, and
+    an OperationOutcome is still `operation_outcome`."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
         raise FhirError(f"pack {decision.pack.id} is not a CDS service")
@@ -246,16 +263,33 @@ def invoke(
     # A key left out, or sent empty, is fetched, as before; a null value is "no data" (CDS
     # Hooks 2.0), never fetched.
     missing = [key for key in hooks.prefetch if _left_out(sent, key)]
+    # A key of a type the EHR does not offer, by the site's declaration: never fetched, and
+    # not offered unless the client sent it data (a null or an empty search says nothing the
+    # declaration does not).
+    skipped = (
+        {}
+        if declared is None
+        else declared.skipped(
+            FhirAdapter.for_pack(decision.pack).mapping, hooks.prefetch, hooks.prefetch
+        )
+    )
+    not_offered = {
+        key: kind
+        for key, kind in skipped.items()
+        if key in missing or _no_data(sent.get(key, None))
+    }
     found: dict[str, Any] = {}
     unreadable: dict[str, ReadReason] = {}
-    if missing:
-        found, unreadable = fetch(hooks.prefetch, missing, request)
+    statuses: dict[str, int] = {}  # the HTTP status of each fetch that failed with one
+    wanted = [key for key in missing if key not in not_offered]
+    if wanted:
+        found, unreadable = fetch(hooks.prefetch, wanted, request, statuses=statuses)
     # Every value the client sent goes through the structural R4 check before any is set aside,
     # as before: a structure error is the request's fault (a `400`), whatever the value is.
     _require_r4(sent)
     prefetch: dict[str, Any] = {}
     for key, value in sent.items():
-        if value is None or key in missing:
+        if value is None or key in missing or key in not_offered:
             continue
         if key in hooks.prefetch and _outcome(value):
             unreadable[key] = "operation_outcome"  # the client's own read failed
@@ -273,14 +307,27 @@ def invoke(
         if hooks.hook in ORDER_HOOKS:
             decided = [
                 decision.decide_fhir(
-                    prefetch, focus=order, unreadable=unreadable, sources=templates, links=linking
+                    prefetch,
+                    focus=order,
+                    unreadable=unreadable,
+                    sources=templates,
+                    links=linking,
+                    not_offered=not_offered,
+                    declaration=declared if not_offered else None,
+                    statuses=statuses,
                 )
                 for order in orders
             ]
         else:
             decided = [
                 decision.decide_fhir(
-                    prefetch, unreadable=unreadable, sources=templates, links=linking
+                    prefetch,
+                    unreadable=unreadable,
+                    sources=templates,
+                    links=linking,
+                    not_offered=not_offered,
+                    declaration=declared if not_offered else None,
+                    statuses=statuses,
                 )
             ]
     template = hooks.card
@@ -330,10 +377,15 @@ def coverage_info_wanted(request: Mapping[str, Any]) -> bool:
 
 
 def fetch(
-    templates: Mapping[str, str], keys: list[str], request: Mapping[str, Any]
+    templates: Mapping[str, str],
+    keys: list[str],
+    request: Mapping[str, Any],
+    *,
+    statuses: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, ReadReason]]:
     """The prefetch the EHR left out, read from its `fhirServer` (allow-listed servers only):
-    what was read, and each key that could not be read with its reason (`read_each`).
+    what was read, and each key that could not be read with its reason (`read_each`; the HTTP
+    status of each that failed with one into `statuses`, when given).
 
     A request fault raises, before anything is read: no `fhirServer` (`PrefetchRequired`, a
     `412`), a `fhirAuthorization` that is not a Bearer token, a context that cannot fill a
@@ -348,7 +400,7 @@ def fetch(
     context = _object(request, "context")
     queries = {key: fill_template(templates[key], context) for key in keys}
     with FhirClient(str(server), token=token) as client:
-        return read_each(client, templates, queries)
+        return read_each(client, templates, queries, statuses=statuses)
 
 
 def linker(decision: Decision, request: Mapping[str, Any]) -> Linker | None:
@@ -385,9 +437,12 @@ def read_each(
     queries: Mapping[str, str],
     *,
     fatal: Callable[[FhirError], bool] | None = None,
+    statuses: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, ReadReason]]:
     """Read each prefetch key's query on its own (`queries`, filled from `templates`): the keys
-    read, and the keys that could not be, each with its reason. A search is read whole (a page
+    read, and the keys that could not be, each with its reason; with `statuses`, the HTTP status
+    of each key whose read failed with one, a number only (the data-coverage record's
+    `prefetch`). A search is read whole (a page
     cap is `cap`). What comes back must be what was asked for: an OperationOutcome is
     `operation_outcome`, another resource type (or a resource for a search) `unsupported_type`,
     and a resource that fails the structural R4 check (`fhir_structure`), or a search page whose
@@ -402,6 +457,8 @@ def read_each(
             if fatal is not None and fatal(error):
                 raise
             unreadable[key] = error.reason or "network"
+            if statuses is not None and error.status is not None:
+                statuses[key] = error.status
             continue
         reason = _unread(templates[key], value)
         if reason is None:
@@ -432,6 +489,18 @@ def _left_out(sent: Mapping[str, Any], key: str) -> bool:
         return True
     value = sent[key]
     return value is not None and not value
+
+
+def _no_data(value: Any) -> bool:
+    """A value that holds no data: null (CDS Hooks 2.0's "no data"), or a Bundle with no
+    entries."""
+    if value is None:
+        return True
+    return (
+        isinstance(value, Mapping)
+        and value.get("resourceType") == "Bundle"
+        and not value.get("entry")
+    )
 
 
 def _require_r4(sent: Mapping[str, Any]) -> None:
@@ -560,12 +629,14 @@ def card(
         return _card(pack, result, task, indicator, summary, _refused_detail(pack, result), links)
     # The engine's reasons are behind the audit link when there is one, else in the detail, but
     # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
-    # says what it decided.
-    reasons = (
-        []
-        if links.public_url
-        else [f"- {reason}" for reason in result.reasons if not threshold_reason(reason)]
-    )
+    # says what it decided. A list read without a source the EHR does not offer (declared) stays
+    # in the detail either way: what the card suggests may rest on an incomplete list.
+    reasons = [
+        f"- {reason}"
+        for reason in result.reasons
+        if reason.startswith(result.limitations)
+        or not (links.public_url or threshold_reason(reason))
+    ]
     detail = "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
         + (["", *reasons] if reasons else [])
@@ -584,24 +655,37 @@ def _target(pack: Pack, result: DecisionResult) -> str:
 def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
     """An unreadable ABSTAIN's detail: the pack's status and the notice, the fixed words, and
     each key with its reason code (the pack's own names and a closed set: nothing from the
-    record, the request or a server)."""
+    record, the request or a server); then, apart, each list read without a source the EHR does
+    not offer (`DecisionResult.limitations`), whatever the links."""
+    limited = [reason for reason in result.reasons if reason.startswith(result.limitations)]
     return "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
         + [f"- {key}: {reason}" for key, reason in result.unreadable]
+        + _also_noted(limited)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
 
 
 def _refused_detail(pack: Pack, result: DecisionResult) -> str:
     """A refused input's detail (the `refused` key): the pack's status and the notice, the fixed
-    words, and each reason as the audit record keeps it (`DecisionResult.to_record`), whatever
-    the links: why it was refused is what the card is for."""
-    reasons = [reason.removeprefix("input rejected: ") for reason in result.to_record()["reasons"]]
+    words, and each reason it was refused as the audit record keeps it
+    (`DecisionResult.to_record`), whatever the links: why it was refused is what the card is
+    for. Its other reasons (a part that could not be read, a list read without a source the EHR
+    does not offer) follow apart, since they are not why."""
+    reasons = result.to_record()["reasons"]
+    why = [reason.removeprefix(REJECTED) for reason in reasons if reason.startswith(REJECTED)]
+    other = [reason for reason in reasons if not reason.startswith(REJECTED)]
     return "\n".join(
         [f"*{pack.status_label}* *{notices.NOTICE}*", "", REFUSED_DETAIL, ""]
-        + [f"- {reason}" for reason in reasons]
+        + [f"- {reason}" for reason in why]
+        + _also_noted(other)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
+
+
+def _also_noted(reasons: list[str]) -> list[str]:
+    """The lines that give `reasons` after a card's own list, under `ALSO_NOTED`; none without."""
+    return ["", ALSO_NOTED, "", *(f"- {reason}" for reason in reasons)] if reasons else []
 
 
 def _card(
