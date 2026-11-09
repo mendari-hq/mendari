@@ -194,7 +194,8 @@ Since LP-23k the prior-authorization pack reads the profile's linked notes (a te
 text/html Binary, read from the Mock EHR), and follows the Coverage's payor to its Organization.
 That Organization holds the site's own payer id, which the pack does not know and no site code
 map translates (how a payer field reads one is the owner's open question), so every patient whose
-record reads is decided `not_checked`, which shows no card and declares no coverage information:
+record reads is decided `not_checked`, which shows no card (none of their notes documents a red
+flag, which would show the red-flag card) and declares no coverage information:
 2.3.01, 4.2.3.01, 4.3.3.01 and 4.4.3.01 pass, since no card is left to carry the extension, and
 the group 4 coverage-information tests skip with nothing to check. Only ehr-pa-3, whose note is
 RTF, abstains, with `indeterminate` coverage for a `technical` reason, and so does the Technical

@@ -1,6 +1,6 @@
 spec_version: "0.3"
 id: mendari/prior-auth-preflight
-version: 0.3.0
+version: 0.3.1
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -72,16 +72,19 @@ card:
       as written. A site's own payer identifier (an EHR's payer id on the Organization) is
       neither, and no site code map translates an identifier yet, so the payer reads as `other`
       and the result is `not_checked` (how a site's payer id is to be read is the owner's open
-      question). A `not_checked` order shows no card at `order-sign`, so a possible red flag in
-      its notes goes to the review queue at urgent priority but is not shown to the clinician
-      signing the order. On a real EHR's data, until its payer ids are read, that is every
-      order. The order, diagnoses and prior procedures are read by their code system wherever
-      the coding sits (the fictional procedure codes, ICD-10-CM). An order is the pack's only
-      when one of its codings is a fictional procedure code it has a requirement set for. A
-      site's own order code listed in logic/structured.yaml counts on JSON input, but through
-      FHIR the order gets no decision until the EHR sends the fictional code beside it. No
-      medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken
-      (§2.7) plays no part in this pack.
+      question). On a real EHR's data, until its payer ids are read, that is every order. A
+      `not_checked` order shows no card at `order-sign` unless its notes may document a red
+      flag, when the clinician signing it sees a card that says so and says nothing of what
+      the payer asks for, and the order is in the review queue at urgent priority. On a payer
+      the pack knows, the order's own card (ready to submit, documentation missing, not
+      required) does not name a possible red flag in its summary; its reasons do, in the
+      detail or behind the audit link. The order, diagnoses and prior procedures are read by
+      their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM).
+      An order is the pack's only when one of its codings is a fictional procedure code it has
+      a requirement set for. A site's own order code listed in logic/structured.yaml counts on
+      JSON input, but through FHIR the order gets no decision until the EHR sends the
+      fictional code beside it. No medication is read, so spec 0.3's rule for when a
+      MedicationRequest's drug is taken (§2.7) plays no part in this pack.
     - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url
       names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or
       one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do
@@ -363,6 +366,15 @@ cds_hooks:
       not_checked: info
       none: info
     show: [submit_ready, needs_attention, not_required]
+    # A possible red flag shows a card even on an order the pack has no requirement set for
+    # (`not_checked`, e.g. one under a site's own payer id), in the rule's words (the owner's
+    # choice, 2026-11-07). Other `not_checked` orders stay without a card, as before.
+    also_show:
+      possible-red-flag:
+        summary: >-
+          Possible red flag in the notes: consider urgent imaging and an expedited review; prior
+          auth not checked
+        indicator: critical
     suggestion: Create a prior-authorization task
   # Da Vinci CRD: each decided order also comes back with its coverage information (a system
   # action updating the order), so the EHR can show whether prior authorization and more

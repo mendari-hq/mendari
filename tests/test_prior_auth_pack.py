@@ -258,25 +258,70 @@ def test_through_fhir_an_order_and_its_payer_reference_are_read_as_the_changelog
     assert result.reasons == ("could not read coverage.payer: not_fetched",)
 
 
-def test_a_red_flag_under_a_site_payer_id_goes_to_review_with_no_card(
-    preflight: Decision,
-) -> None:
-    """The default built while the owner's payer question is open, stated on the card: a site's
-    own payer id reads as `other`, so the order is `not_checked`, which the card template does
-    not show. A possible red flag in its notes sends it to the review queue at urgent priority,
-    but the clinician signing the order sees no card for it; with a payer the pack knows, the
-    same note shows the order's card."""
-    note = "New saddle anesthesia and urinary retention."
+# The red-flag rule's card (`cds_hooks.card.also_show`), for an order `show` leaves out.
+RED_FLAG_SUMMARY = (
+    "Possible red flag in the notes: consider urgent imaging and an expedited review; prior auth "
+    "not checked"
+)
+
+
+def _site_payer(note: str) -> dict[str, Any]:
+    """An order-sign prefetch whose payer is a site's own payer id, which reads as `other`."""
     site = _prefetch("", note, reference="Organization/o2")
     site["payers"] = _bundle(_payer("o2", SITE_PAYERS, "SP100"))
+    return site
+
+
+def test_a_red_flag_under_a_site_payer_id_shows_a_card_at_signing(preflight: Decision) -> None:
+    """The owner's choice (2026-11-07, "Red flag shows a card"): a site's own payer id reads as
+    `other`, so the order is `not_checked`, which `show` leaves out, but a possible red flag in
+    its notes shows the clinician signing it a card in the red-flag rule's words
+    (`cds_hooks.card.also_show`), `critical`, and the order is still in the review queue at
+    urgent priority. The card says nothing of the payer's requirements and the order carries no
+    CRD coverage information, as for any `not_checked` order. With a payer the pack knows, the
+    same note shows the order's own card, worded as before."""
+    note = "New saddle anesthesia and urinary retention."
     order = _order("mri", "FX101")
-    result, _ = preflight.decide_fhir(site, focus=order)
+    result, _ = preflight.decide_fhir(_site_payer(note), focus=order)
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "not_checked")
-    assert result.priority.value == "urgent"
+    assert (result.priority.value, result.rule) == ("urgent", "possible-red-flag")
     assert result.answers["red_flag"].label == "yes"
-    assert cds_hooks.invoke(preflight, _order_sign(site, order))["cards"] == []
-    known = cds_hooks.invoke(preflight, _order_sign(_prefetch("acme", note), order))["cards"]
-    assert len(known) == 1
+    answer = cds_hooks.invoke(preflight, _order_sign(_site_payer(note), order))
+    assert [(c["summary"], c["indicator"]) for c in answer["cards"]] == [
+        (RED_FLAG_SUMMARY, "critical")
+    ]
+    assert "systemActions" not in answer
+    (card,) = answer["cards"]
+    assert cds_hooks.OUTCOME_SENTENCES[Outcome.HUMAN_REVIEW] in card["detail"]
+    assert any("possible-red-flag" in line for line in card["detail"].splitlines())
+    assert note not in card["detail"]
+    known = cds_hooks.invoke(preflight, _order_sign(_prefetch("acme", note), order))
+    assert [(c["summary"], c["indicator"]) for c in known["cards"]] == [
+        ("Prior auth for Lumbar MRI (Acme): ready to submit", "info")
+    ]
+    assert len(known["systemActions"]) == 1
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Completed 8 weeks of physical therapy.",
+        "No red flags. Denies fever, weight loss and saddle numbness.",
+        "Mother had breast cancer.",
+    ],
+)
+def test_a_not_checked_order_with_no_red_flag_still_shows_no_card(
+    preflight: Decision, note: str
+) -> None:
+    """Every other `not_checked` order stays as before (the owner's choice keeps them quiet):
+    decided and in the review queue at routine priority, with no card and no coverage
+    information at signing. Red flags documented as absent, or in a family member, are not red
+    flags (the criteria), so they stay quiet too."""
+    order = _order("mri", "FX101")
+    result, _ = preflight.decide_fhir(_site_payer(note), focus=order)
+    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "not_checked")
+    assert (result.priority.value, result.rule) == ("routine", None)
+    assert cds_hooks.invoke(preflight, _order_sign(_site_payer(note), order)) == {"cards": []}
 
 
 def test_beacon_sleep_study_needs_no_prior_auth(preflight: Decision) -> None:

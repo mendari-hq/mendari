@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/prior-auth-preflight` · version **0.3.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/prior-auth-preflight` · version **0.3.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:678f401a4ab0e388deb6387e9dd9680f6d5fafd85434b367538d333d1dd8160c` |
-| Last validation | 2026-11-06 on `test` (n=600, sha256 `e74e45ea35d5…`) |
+| Pack digest | `sha256:e2b2503fb11ea54a4196804bb4d04e6be3612908d7253c9ed4e295e2e77a7e77` |
+| Last validation | 2026-11-07 on `test` (n=600, sha256 `e74e45ea35d5…`) |
 
 ## Intended use
 
@@ -188,7 +188,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 0 of 600 [0.0-0.6%] |
-| Latency p50 / p95 | 3.51 / 14.85 ms |
+| Latency p50 / p95 | 3.72 / 6.02 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25 of 25 [86.3-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
@@ -366,7 +366,7 @@ Other questions (accuracy / ECE):
 ## Known failure modes
 
 - Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under another code (for example FX112, four or more views) reads as missing imaging. On the bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has such X-rays and shorthand notes, prior imaging and the next step are answered wrong more often than on the benchmark, the next step most often on shorthand notes (`mendari eval mendari/prior-auth-preflight --dataset datasets/prior-auth-local-site-example.jsonl` compares the next step with the benchmark, by label and by subgroup, and its report, with `--json`, holds prior imaging). Add a site's codes before use.
-- Through FHIR, the payer is read from the Organization the Coverage's first payor names, by its identifier in the synthetic payers' system, else from the payor's own identifier as written. A site's own payer identifier (an EHR's payer id on the Organization) is neither, and no site code map translates an identifier yet, so the payer reads as `other` and the result is `not_checked` (how a site's payer id is to be read is the owner's open question). A `not_checked` order shows no card at `order-sign`, so a possible red flag in its notes goes to the review queue at urgent priority but is not shown to the clinician signing the order. On a real EHR's data, until its payer ids are read, that is every order. The order, diagnoses and prior procedures are read by their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM). An order is the pack's only when one of its codings is a fictional procedure code it has a requirement set for. A site's own order code listed in logic/structured.yaml counts on JSON input, but through FHIR the order gets no decision until the EHR sends the fictional code beside it. No medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this pack.
+- Through FHIR, the payer is read from the Organization the Coverage's first payor names, by its identifier in the synthetic payers' system, else from the payor's own identifier as written. A site's own payer identifier (an EHR's payer id on the Organization) is neither, and no site code map translates an identifier yet, so the payer reads as `other` and the result is `not_checked` (how a site's payer id is to be read is the owner's open question). On a real EHR's data, until its payer ids are read, that is every order. A `not_checked` order shows no card at `order-sign` unless its notes may document a red flag, when the clinician signing it sees a card that says so and says nothing of what the payer asks for, and the order is in the review queue at urgent priority. On a payer the pack knows, the order's own card (ready to submit, documentation missing, not required) does not name a possible red flag in its summary; its reasons do, in the detail or behind the audit link. The order, diagnoses and prior procedures are read by their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM). An order is the pack's only when one of its codings is a fictional procedure code it has a requirement set for. A site's own order code listed in logic/structured.yaml counts on JSON input, but through FHIR the order gets no decision until the EHR sends the fictional code beside it. No medication is read, so spec 0.3's rule for when a MedicationRequest's drug is taken (§2.7) plays no part in this pack.
 - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do notes longer than 20,000 characters in all, which the input does not allow (`too_large`; the text is never cut), and more links than one decision reads (20, `cap`). A hook reads every clinical note of the patient, each linked note's Binary counting as one link, so a long record may reach either.
 - Durations are read as written in the notes ("8 weeks of physical therapy"). A note like "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
 - The keyword rules read English notes only and miss phrasings they do not list, including red flags. On hand-written notes they found 7/7 red flags in the set they were written on but 3/6 held out ("breast cancer treated 3 years ago", "numbness around the anus" and "lost 10 pounds without trying" were missed), and 9/11 at the local site. The policy therefore allows AUTO only while the notes are also read by a model (`automation_requires`), and a possible red flag always goes to a person.
@@ -384,7 +384,26 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.3.0
+#### 0.3.1
+
+- **A possible red flag shows a card at `order-sign` on an order the pack has no requirement set
+  for** (`not_checked`; the owner's choice of 2026-11-07, "Red flag shows a card"): the
+  `possible-red-flag` rule's own card (`cds_hooks.card.also_show`, spec 0.3 §5), `critical`,
+  "Possible red flag in the notes: consider urgent imaging and an expedited review; prior auth not
+  checked". Before, such an order showed no card, so a possible red flag in its notes reached only
+  the review queue and not the clinician signing it; on a real EHR's data, under a site's own payer
+  id, that is every order. Every other `not_checked` order still shows no card. The decision does
+  not change: HUMAN_REVIEW, `not_checked`, urgent priority, and no Da Vinci CRD coverage
+  information (a `not_checked` order asserts none). A red flag on an order whose payer the pack
+  knows shows on that order's own card as before, in its reasons and not its summary, which the
+  known failure modes now say. Of the 300 orders the FHIR decisions golden holds, 3 more show a
+  card: 208 of the 259 the pack decides, the other 51 `not_checked` orders quiet.
+- A PATCH bump, as the changelogs read CONTRIBUTING.md's rule (0.2.1 of the Referral Router
+  among them): what the cards show and say, with every decision identical. Criteria, rules,
+  providers, policy and data are unchanged; the benchmark's figures, its ledger and the FHIR
+  decisions golden are as they were. The digest changes because the manifest does.
+
+### 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on
   2026-11-06; `spec_version: "0.3"`, `fhir/mapping.yaml` only). A MINOR bump, by CONTRIBUTING.md's

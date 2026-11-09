@@ -5,8 +5,9 @@ A pack declares *questions* (a fixed set of labels, each with human-readable cri
 Providers answer questions with probability distributions; the policy turns answers into
 one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *derived*
 questions computed from other answers by a decision table. See docs/spec/decision-pack-0.2.md.
-Spec 0.3 changes only the FHIR mapping (docs/spec/decision-pack-0.3.md), which
-`standards/fhir.py` reads and checks; its manifest is a 0.2 manifest.
+Spec 0.3 changes the FHIR mapping (docs/spec/decision-pack-0.3.md), which
+`standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
+`cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest.
 """
 
 from __future__ import annotations
@@ -579,16 +580,43 @@ class AuditConfig(_Strict):
 SUMMARY_CHARS = 139
 
 
+# The card key of a decision that refused its input (a BLOCK before any provider ran), for a card
+# template that names it (spec 0.3); one that does not reads such a decision as `none`, as before.
+REFUSED = "refused"
+
+
+class RuleCard(_Strict):
+    """A card for a decision a policy rule matched whose recommendation `show` leaves out (spec
+    0.3): its own summary (a template, as `summaries` are) and indicator."""
+
+    summary: str = Field(min_length=1)
+    indicator: Literal["info", "warning", "critical"] = "warning"
+
+
 class CdsCard(_Strict):
-    """Card wording for one pack. Keys are the primary question's labels, or `none` when the
-    decision has no recommendation; `{recommendation}` and `{priority}` are filled in."""
+    """Card wording for one pack. Keys are the primary question's labels, `none` when the
+    decision has no recommendation, or `refused` (spec 0.3) when it refused its input;
+    `{recommendation}` and `{priority}` are filled in."""
 
     summaries: dict[str, str] = Field(min_length=1)
     indicators: dict[str, Literal["info", "warning", "critical"]] = {}
     # Recommendations that produce a card at all; e.g. a patient-view service stays silent for
     # patients who are clearly not eligible. None: every decision produces a card.
     show: list[str] | None = None
+    # Policy rules (by name) whose match still shows a card for a recommendation `show` leaves
+    # out, in the rule's own words (spec 0.3); a recommendation `show` names keeps its own card.
+    also_show: dict[str, RuleCard] = {}
     suggestion: str = "Create a task"
+
+    def names_refused(self) -> bool:
+        """Whether the template words refused input apart from `none`."""
+        return REFUSED in {*self.summaries, *self.indicators, *(self.show or [])}
+
+    def summary_templates(self) -> dict[str, str]:
+        """Every summary a card can take, by where the manifest writes it."""
+        return {f"summaries.{key}": text for key, text in self.summaries.items()} | {
+            f"also_show.{rule}.summary": card.summary for rule, card in self.also_show.items()
+        }
 
 
 class GuardConfig(_Strict):
@@ -863,17 +891,32 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
 
     card = m.cds_hooks.card if m.cds_hooks is not None else None
     if card is not None:
-        allowed = set(primary_labels) | {"none"}
+        allowed = set(primary_labels) | {"none", REFUSED}
         named = set(card.summaries) | set(card.indicators) | set(card.show or [])
         unknown_keys = sorted(named - allowed)
         if unknown_keys:
             problems.append(f"cds_hooks.card names unknown recommendations {unknown_keys}")
-        for key, summary in card.summaries.items():
+        if REFUSED in primary_labels and card.names_refused():
+            problems.append(
+                f"cds_hooks.card: {REFUSED!r} is a label of {policy.primary!r} and the key of "
+                "refused input"
+            )
+        rules = {rule.name for rule in policy.rules}
+        unknown_rules = sorted(set(card.also_show) - rules)
+        if unknown_rules:
+            problems.append(f"cds_hooks.card.also_show names unknown policy rules {unknown_rules}")
+        if card.also_show and card.show is None:
+            problems.append("cds_hooks.card.also_show needs a `show` list (every card shows)")
+        for where, summary in card.summary_templates().items():
             placeholders = unknown_placeholders(summary, m.questions)
             if placeholders:
-                problems.append(
-                    f"cds_hooks.card.summaries.{key} uses unknown placeholders {placeholders}"
-                )
+                problems.append(f"cds_hooks.card.{where} uses unknown placeholders {placeholders}")
+        # An empty `also_show` is the default a dumped manifest carries: it counts as left out.
+        newer = (["cds_hooks.card.also_show"] if card.also_show else []) + (
+            [f"cds_hooks.card key {REFUSED!r}"] if card.names_refused() else []
+        )
+        if newer and m.spec_version in ("0.1", "0.2"):
+            problems.append(f"{newer} use spec 0.3 card features; set spec_version: '0.3'")
 
     for critical in m.evaluation.critical:
         critical_question = m.questions.get(critical.question)
@@ -897,13 +940,13 @@ def card_summary_problems(m: PackManifest) -> list[str]:
         return []
     choices = display_choices(m)
     problems = []
-    for key, summary in card.summaries.items():
+    for where, summary in card.summary_templates().items():
         if template_problems(summary, m.questions):
             continue
         most = len(longest(summary, choices))
         if most > SUMMARY_CHARS:
             problems.append(
-                f"cds_hooks.card.summaries.{key} can read {most} characters with display names; "
+                f"cds_hooks.card.{where} can read {most} characters with display names; "
                 f"a card's summary is at most {SUMMARY_CHARS} (CDS Hooks: under 140)"
             )
     return problems

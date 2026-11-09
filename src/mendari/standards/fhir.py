@@ -849,9 +849,9 @@ def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[
     field (found by `properties`, one part of its dotted target at a time), sorted, each taken
     out of `value` (spec 0.3 §2.4). The texts of all of a patient's notes, joined, can be longer
     than the schema allows one field, which would refuse the whole input (a BLOCK, which shows no
-    card); without the field, the decision abstains instead (`could not read <field>:
-    too_large`), for a person, as for a note it could not read. The text is never cut: a cut
-    could lose the very sentence a criterion reads."""
+    card unless the pack's card template names `refused`); without the field, the decision
+    abstains instead (`could not read <field>: too_large`), for a person, as for a note it could
+    not read. The text is never cut: a cut could lose the very sentence a criterion reads."""
     found = []
     for target, mapped in mapping.fields.items():
         if mapped.transform != "attachment_text":
