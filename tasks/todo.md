@@ -2997,7 +2997,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `tests/test_registry_tokens.py`; threat rows S22 and R6 (first halves).
   - [x] **19h** The client refuses a registry that is not https, except on this machine
     (`core/https_only.py`; tests in `tests/test_hub_client.py`).
-  - [ ] **19c** Namespace claims, reserved names, a first publish invisible until approved.
+  - [x] **19c** Namespace claims, reserved names, a first publish invisible until approved
+    (store and operator commands): `hub_claims`, `RegistryStore.claim|decide_claim|claims`, one
+    `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
+    `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
   - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
     people's routes for claims and tokens. **19i** the counter-signature, in parallel.
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
@@ -3028,6 +3031,67 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   recalls and counter-signatures; DNS for the registry and the Hub; the Hub's `REGISTRY_URL`.
   LP-22 (the site evaluation network) needs LP-19's organizations in the registry, so it waits
   too.
+
+- [ ] **LP-20** The pack store (A7; gate G3-4's `a7-pack-store`). **Planned 2026-11-10:
+  `notes/lp20-plan.md`, eleven PRs (20a to 20k), and ADR-0016 (Proposed).** Each organization
+  gets a store of pack versions in the database, keyed by content digest: authors
+  (`pack_author`) upload a signed archive or copy a built-in pack, edit, validate and test a
+  draft; evaluations are stored jobs with a ledger, a draft compared with the current version
+  on the same cases; promotion is its own chained, digest-bound record at every risk level,
+  signed off by someone other than the author. Off unless `MENDARI_PACK_STORE=on`, memberships
+  mode only; no reference pack is rebuilt and no valid pack decides differently. Conflicts
+  between the build prompt and the code, written before building as the prompt asks (the plan
+  gives each one's default): the registry never ran the validator, so "one validation function"
+  makes it refuse what it takes today; "too few to estimate" means the dataset command fails
+  only on schema and label problems; a name list would trip on synthetic names, so a name
+  counts only beside another identifier; archives larger than the 4 MiB body limit are uploaded
+  in parts and kept in the database (32 MiB at most), with no object storage; a copy runs on
+  the bounded engine, so the trial and referral packs cannot be copied until 16c-2 rewrites
+  their lookaheads; a store pack's namespace is its organization's id (or a namespace it holds
+  by an LP-19c claim), and a copy is renamed; an upload is signed by an author key the
+  organization registered; drafts never change, so an edit is a new draft, text files only,
+  and hosted training is not built; with no hidden-case index key the hidden-set check is "not
+  applicable"; a stored job advances in slices a caller asks for, since there is no worker; a
+  promoted version is built on first use in a process, not at start-up (LP-16d's rule is for
+  packs on disk); proposed tests from reviewers' corrections stay beside the draft, sealed,
+  never in a pack's files, because they are patients' inputs; promotion is the rule for store
+  versions only, and packs on disk are served as today. Fifteen owner decisions are open in the
+  plan, each with a default the PRs follow until told otherwise. Threat-model rows reserved:
+  S24, S25, T12, T13, R7, I21, I22, I23, D16, D17, E18, E19.
+  - [x] **20a** The plan and ADR-0016 (Proposed).
+  - [ ] **20b** One validation function, called by the command line, the community check and
+    the registry (after 19c). **20c** dataset checks and `mendari data check`. **20d** the PHI
+    detector. The three in parallel.
+  - [ ] **20e** The store as a library: tables, versions that never change, the origin `store`
+    on the bounded engine, the prerequisites test, the operator's commands. No route.
+  - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and
+    hidden-set checks (`MENDARI_PACK_STORE`, off by default). Adversarial security review.
+    LP-17l can start once this is merged.
+  - [ ] **20g** Evaluation jobs with a ledger, dataset upload, and draft against current.
+    **20i** the improvement dataset and proposed tests, in parallel.
+  - [ ] **20h** Promotion, and serving the promoted version to its organization only.
+    Adversarial security review; it changes which pack answers a request, so it needs the
+    owner's yes before it merges.
+  - [ ] **20j** The dashboard: upload, results, comparison, promotion; the browser test in a
+    second organization.
+  - [ ] **20k** Close-out: gate `a7-pack-store`, the threat model, ADR-0016 Accepted on the
+    owner's word.
+  Owner decisions open, each with its default (`notes/lp20-plan.md`, "Owner decisions still
+  open"): (1) the registry refuses a publish the validator refuses: yes; (2) the store needs
+  memberships mode: yes; (3) the name list's source: common given names and surnames from
+  United States government publications, in the licence inventory; (4) who may author: only
+  holders of `pack_author`; (5) who may promote: `governance` and `admin`, never the author;
+  (6) archives: 32 MiB, in the database, in parts; (7) 16c-2 is not part of LP-20; (8) author
+  keys are registered by an administrator; (9) jobs advance in slices, no cron route;
+  (10) promotion is not required of packs on disk; (11) a one-person organization cannot
+  promote, with no way round; (12) 3 held uploads in 30 days stop an organization's uploads, 20
+  uploads a day; (13) remote providers on drafts only with the organization's evaluation quota
+  set, 200 cases a job; (14) 256 MiB of files an organization; (15) every store pack is bounded.
+  **Owner steps then:** confirm the name list's licence before 20d merges; set
+  `MENDARI_PACK_STORE=on` after 20f to 20h are merged and reviewed; give `pack_author` and make
+  sure each organization has a second person who may promote; register author keys; run
+  `mendari store recheck` once hidden-set keys are set; read `mendari store held` when a
+  version is held; give the external reviewers the store's scope (gate `external-review`).
 
 - [ ] **LP-21** Operations for a public service (ADR-0010, Accepted 2026-11-07). Planned by a
   mapping workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack

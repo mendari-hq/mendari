@@ -158,6 +158,13 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     ),
     "registry tokens": (["--db", "{missing_db}"], {}),
     "registry revoke-token": (["0" * 16, "--reason", "x", "--db", "{not_db}"], {}),
+    "registry claim": (
+        ["--namespace", "a", "--org", "a", "--reason", "x", "--db", "{missing_db}"],
+        {},
+    ),
+    "registry approve": (["--namespace", "a", "--reason", "x", "--db", "{missing_db}"], {}),
+    "registry refuse": (["--namespace", "a", "--reason", "x", "--db", "{not_db}"], {}),
+    "registry claims": (["--db", "{missing_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),
     "monitor": (["--db", "{missing_db}"], {}),
     # No webhook (the tests clear MENDARI_ALERT_WEBHOOK); in CI, refused before that.
