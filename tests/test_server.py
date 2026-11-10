@@ -181,7 +181,7 @@ def test_a_stored_report_figures_cannot_be_read_from_is_served_with_none(
 def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
     trial = "/api/packs/mendari/clinical-trial-prescreener"
     examples = client.get(f"{trial}/examples").json()
-    assert len(examples) == 22
+    assert len(examples) == 28
     pregnancy = next(e for e in examples if e["name"].startswith("a pregnancy in the notes"))
     assert pregnancy["expect"]["recommendation"] == "not_eligible"
     # YAML anchors are resolved: every example is a complete input that decides as tested.

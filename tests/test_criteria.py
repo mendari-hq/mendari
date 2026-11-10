@@ -370,3 +370,161 @@ def test_choice_labels_and_field_gates(pack: Pack) -> None:
     answer = provider.answer({"order": {"code": "FX101"}}).answers["service"]
     assert answer.probabilities["lumbar_mri"] == pytest.approx(0.98)
     assert answer.probabilities["other"] == pytest.approx(0.01)
+
+
+# `current_within_days` (spec 0.3 §3): the rule the owner, a physician, chose for the trial pack
+# on 2026-11-07 (notes/clinician-review-medication-period.md).
+WINDOWED = {
+    "questions": {
+        **CONFIG["questions"],
+        "stable_metformin": {
+            "checks": [
+                {
+                    "medication": {
+                        "names": ["metformin"],
+                        "min_days": 90,
+                        "current_within_days": 365,
+                        "then": "yes",
+                    }
+                }
+            ],
+            "default": "no",
+        },
+        "no_insulin": {
+            "checks": [
+                {
+                    "medication": {
+                        "names": ["insulin"],
+                        "within_days": 90,
+                        "current_within_days": 365,
+                        "then": "no",
+                    }
+                }
+            ],
+            "default": "yes",
+        },
+    }
+}
+
+
+@pytest.fixture
+def windowed(tmp_path: Path) -> Pack:
+    """The fixture at spec 0.3 with `WINDOWED` as its criteria."""
+    root = tmp_path / "windowed"
+    shutil.copytree(FIXTURE, root)
+    manifest = root / "pack.yaml"
+    manifest.write_text(manifest.read_text().replace('spec_version: "0.2"', 'spec_version: "0.3"'))
+    (root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(WINDOWED))
+    return load_pack(root)
+
+
+def metformin(**item: str) -> list[dict[str, str]]:
+    return [{"name": "metformin 1000 mg", "status": "active", **item}]
+
+
+def insulin(**item: str) -> list[dict[str, str]]:
+    return [{"name": "insulin glargine", "status": "active", **item}]
+
+
+@pytest.mark.parametrize(
+    ("medications", "question", "label"),
+    [
+        # Active with no end: current only when started at most 365 days before screening.
+        (metformin(start=day(365)), "stable_metformin", "yes"),  # the 365th day is inside
+        (metformin(start=day(366)), "stable_metformin", "unknown"),
+        (metformin(start=day(2000)), "stable_metformin", "unknown"),
+        (metformin(start=day(200)), "stable_metformin", "yes"),
+        (metformin(start=day(89)), "stable_metformin", "no"),  # current, but not 90 days yet
+        (metformin(), "stable_metformin", "unknown"),  # no start
+        (metformin(start=day(-10)), "stable_metformin", "no"),  # starts after screening
+        (insulin(start=day(365)), "no_insulin", "no"),
+        (insulin(start=day(366)), "no_insulin", "unknown"),
+        (insulin(start=day(30)), "no_insulin", "no"),
+        (insulin(), "no_insulin", "unknown"),
+        (insulin(start=day(-10)), "no_insulin", "no"),
+        # An end date leaves the window out: the medication is read as before, its status
+        # deciding whatever the end (the card states it: an end already past counts too).
+        (metformin(start=day(2000), end=day(-30)), "stable_metformin", "yes"),
+        (insulin(start=day(2000), end=day(-30)), "no_insulin", "no"),
+        (metformin(start=day(730), end=day(700)), "stable_metformin", "yes"),
+        # Not active with no end: not taken, as before (the owner kept it, 2026-11-07).
+        (
+            [{"name": "metformin", "status": "stopped", "start": day(900)}],
+            "stable_metformin",
+            "no",
+        ),
+        ([{"name": "insulin", "status": "completed", "start": day(20)}], "no_insulin", "yes"),
+        # Ended in the window: `within_days` decides, whatever the start.
+        ([{"name": "insulin", "status": "completed", "end": day(30)}], "no_insulin", "no"),
+        ([{"name": "insulin", "status": "completed", "end": day(91)}], "no_insulin", "yes"),
+    ],
+)
+def test_an_active_medication_with_no_end_is_current_only_within_the_window(
+    windowed: Pack, medications: list[dict[str, str]], question: str, label: str
+) -> None:
+    """`current_within_days: 365`: an active medication with no end date counts as current
+    only when it started at most 365 days before screening, the 365th day included; started
+    earlier, or with no start, the check answers `unknown`, whatever else it would have. A start
+    after screening is not earlier than the window, so it is read as without the key, and so is a
+    medication with an end date. A medication from a MedicationStatement or a MedicationRequest
+    is the same item here."""
+    assert ask(windowed, medications=medications)[question][0] == label
+
+
+def test_the_window_says_why_and_the_first_matching_item_decides(windowed: Pack) -> None:
+    """The evidence names the start, its age and the window. As every check does, the first
+    medication that applies decides: an old active one before a recent one is `unknown`, the
+    recent one first is `yes` (renewals are not joined, as the owner kept, 2026-11-07)."""
+    old, recent = metformin(start=day(500)), metformin(start=day(200))
+    assert ask(windowed, medications=old)["stable_metformin"] == (
+        "unknown",
+        f"medication metformin 1000 mg (active) started {day(500)}, 500 d ago, and has no end "
+        "date: current only if started within 365 d",
+    )
+    assert ask(windowed, medications=metformin())["stable_metformin"] == (
+        "unknown",
+        "medication metformin 1000 mg (active) has no start or end date",
+    )
+    assert ask(windowed, medications=old + recent)["stable_metformin"][0] == "unknown"
+    assert ask(windowed, medications=recent + old)["stable_metformin"][0] == "yes"
+
+
+def test_without_the_window_a_check_reads_as_before(pack: Pack) -> None:
+    """The fixture's criteria have no `current_within_days`: an active medication with no end
+    started years ago is current, and one with no start is current for `no_insulin`."""
+    assert ask(pack, medications=metformin(start=day(2000)))["stable_metformin"][0] == "yes"
+    assert ask(pack, medications=insulin())["no_insulin"][0] == "no"
+
+
+def test_the_window_needs_an_unknown_label(windowed: Pack) -> None:
+    """With the window, a check can answer `unknown`, so a question without that label is
+    refused, as a `min_days` check's is."""
+    config = {
+        "questions": {
+            key: (
+                {
+                    "checks": [
+                        {"medication": {"names": ["x"], "current_within_days": 30, "then": "yes"}}
+                    ]
+                }
+                if key == "no_insulin"
+                else spec
+            )
+            for key, spec in CONFIG["questions"].items()
+        }
+    }
+    windowed = with_config(windowed, config)
+    questions = {
+        key: Question.model_validate(
+            {
+                "instructions": key,
+                "criteria": YNU if key != "no_insulin" else {"yes": "y", "no": "n"},
+            }
+        )
+        for key in CONFIG["questions"]
+    }
+    info = ProviderInfo(slot="structured", variant="criteria", type="criteria")
+    with pytest.raises(PackValidationError, match=r"no_insulin answers \['unknown'\]"):
+        CriteriaProvider(
+            windowed, info, questions, {"type": "criteria", "config": "logic/criteria.yaml"}
+        )

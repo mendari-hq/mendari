@@ -50,8 +50,9 @@ identifier only are not, and are left as they are. Notes are read as their rendi
 DocumentReference's `content` and a DiagnosticReport's `presentedForm` are one document in
 other formats (`fhir.renditions`), so once one rendition of a resource reads, the others are not
 read. A note's url that names another type than a Binary is `unsupported_type`, never read. A
-resource its list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its
-source derives its period) is not an item, so nothing it links to is read. Without a linker
+resource its list leaves out (`fhir.listed`: a MedicationRequest entered in error, not an order
+or an order not to give the drug, when its source derives its period) is not an item, so nothing
+it links to is read. Without a linker
 (`fhir/decide`, `$decide`, `mendari decide --fhir`) nothing is fetched, and a link the record
 does not hold is `not_fetched`. A 0.1 or 0.2 mapping has no link: nothing is read for it.
 
@@ -396,7 +397,7 @@ def _fields(
     """Each field of a mapping, in its order, with its target (a top-level field's; None for a
     list's), its list's resource type (None for a top-level field) and where it is read: the
     record for a top-level field; for a list's, each resource of its type the list can hold
-    (`fhir.listed`), as {its type: it}. A resource the list leaves out (a MedicationRequest
+    (`fhir.listed`), as {its type: it}. A resource the list leaves out (e.g. a MedicationRequest
     entered in error) is not an item, so nothing it links to is read."""
     for target, mapped in mapping.fields.items():
         yield target, None, mapped, [record]

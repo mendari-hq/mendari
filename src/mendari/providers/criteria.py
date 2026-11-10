@@ -51,6 +51,16 @@ on the service ordered:
             when: {field: order.code, in: ["FX101", "FX102", "FX103"]}
         default: "no"
 
+A medication check counts a medication as current by its status (`statuses`, default `active`).
+With `current_within_days` (spec 0.3), one of those statuses with no end counts only when it
+started at most that many days before screening; with no start, or an earlier one, the check
+answers `unknown` (a medication list rarely says when a drug was stopped):
+
+      no_insulin:
+        checks:
+          - medication: {names: ["insulin"], within_days: 90, current_within_days: 365, then: "no"}
+        default: "yes"
+
 A code ending in `*` matches by prefix (ICD-10 families). This is a deliberately small stepping
 stone; CQL (spec work in v0.4) is the standard way to express such logic.
 """
@@ -60,6 +70,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import date
+from functools import partial
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -80,6 +91,7 @@ from mendari.providers.base import (
 
 Label = str  # a label of the question; checked when the pack loads
 DECIDED = 0.98  # probability given to a determined answer; the rest is shared evenly
+SPEC_03 = "0.3"  # the spec version that adds a medication check's `current_within_days`
 
 
 class _Model(BaseModel):
@@ -123,6 +135,10 @@ class MedicationCheck(_Model):
     statuses: list[str] = ["active"]
     min_days: int | None = Field(default=None, ge=0)  # started at least this long ago
     within_days: int | None = Field(default=None, ge=0)  # taken (or ended) within the window
+    # (Spec 0.3) A medication of one of `statuses` with no end counts as current only when it
+    # started at most this many days before screening: with no start, or an earlier one, the
+    # check answers `unknown`, and the chart needs review.
+    current_within_days: int | None = Field(default=None, ge=0)
     then: Label
     too_recent: Label = "no"  # present, but started less than `min_days` ago
 
@@ -235,6 +251,7 @@ class CriteriaProvider(Provider):
             return None, [f"{relative}: {error}"]
         if set(criteria.questions) != set(questions):
             problems.append(f"{relative}: must define exactly the slot's questions")
+        problems += older_spec_problems(relative, criteria, pack)
         for key, spec in criteria.questions.items():
             question = questions.get(key)
             if question is None:
@@ -262,6 +279,60 @@ class CriteriaProvider(Provider):
         return ProviderOutput(answers=answers)
 
 
+def newer_keys(criteria: CriteriaConfig) -> list[str]:
+    """Where a criteria file uses a spec 0.3 key, e.g.
+    `questions.no_insulin.checks[0].medication.current_within_days`, in the file's order. A key
+    counts when it is written, whatever its value (`null` too)."""
+    return [
+        f"questions.{key}.checks[{number}].medication.current_within_days"
+        for key, spec in criteria.questions.items()
+        for number, check in enumerate(spec.checks)
+        if check.medication is not None
+        and "current_within_days" in check.medication.model_fields_set
+    ]
+
+
+def older_spec_problems(relative: str, criteria: CriteriaConfig, pack: Pack) -> list[str]:
+    """A 0.1 or 0.2 pack's criteria file uses no spec 0.3 key: the problem names each one it
+    does (`newer_keys`), as `standards.fhir.older_spec_problems` names a mapping's."""
+    newer = [] if pack.manifest.spec_version == SPEC_03 else newer_keys(criteria)
+    problem = f"{relative}: {newer} use spec 0.3 criteria features; set spec_version: '0.3'"
+    return [problem] if newer else []
+
+
+def version_problems(pack: Pack) -> list[str]:
+    """`older_spec_problems` for each criteria file a pack's variants name (a composite's members
+    too), for `load_pack` to refuse a pack the deployment owns as it does one it does not (whose
+    variants `providers.config_problems` checks at load). A file that does not read, or is not
+    of the criteria shape, gives none here: it is refused where it is read, as before."""
+    if pack.manifest.spec_version == SPEC_03:
+        return []
+    files: list[str] = []
+    for slot in pack.manifest.providers.values():
+        for variant in slot.variants.values():
+            configs: list[Mapping[str, Any]] = [
+                {"type": variant.type, **(variant.model_extra or {})}
+            ]
+            members = configs[0].get("members")
+            if isinstance(members, Mapping):
+                configs += [member for member in members.values() if isinstance(member, Mapping)]
+            for config in configs:
+                relative = config.get("config")
+                names = config.get("type") == "criteria" and isinstance(relative, str)
+                if names and relative not in files:
+                    files.append(str(relative))
+    problems: list[str] = []
+    for relative in files:
+        data, unread = read_problems(partial(pack.read_yaml, relative))
+        try:
+            criteria = None if unread else CriteriaConfig.model_validate(data)
+        except ValidationError:
+            criteria = None
+        if criteria is not None:
+            problems += older_spec_problems(relative, criteria, pack)
+    return problems
+
+
 def _labels(check: Check) -> set[str]:
     """Every label a check can answer (for validation against the question's labels)."""
     if check.number:
@@ -272,8 +343,14 @@ def _labels(check: Check) -> set[str]:
         dated = check.condition.within_days is not None
         return {check.condition.then, *(["unknown"] if dated else [])}
     if check.medication:
-        timed = check.medication.min_days is not None
-        return {check.medication.then, *([check.medication.too_recent, "unknown"] if timed else [])}
+        medication = check.medication
+        timed = medication.min_days is not None
+        windowed = medication.current_within_days is not None
+        return {
+            medication.then,
+            *([medication.too_recent] if timed else []),
+            *(["unknown"] if timed or windowed else []),
+        }
     if check.exists:
         windowed = check.exists.within_days is not None
         return {check.exists.then, *([check.exists.undated] if windowed else [])}
@@ -389,9 +466,18 @@ def _medication(
         if status not in check.statuses and not recent:
             continue
         shown = f"{name or item.get('code')} ({status})"
+        start = _date(item.get("start"))
+        window = check.current_within_days
+        if window is not None and status in check.statuses and end is None:
+            if start is None:
+                return "unknown", f"medication {shown} has no start or end date"
+            if (age := (as_of - start).days) > window:
+                return "unknown", (
+                    f"medication {shown} started {start}, {age} d ago, and has no end date: "
+                    f"current only if started within {window} d"
+                )
         if check.min_days is None:
             return check.then, f"medication {shown}"
-        start = _date(item.get("start"))
         if start is None:
             return "unknown", f"medication {shown} has no start date"
         days = (as_of - start).days

@@ -2,7 +2,8 @@
 # pack's default providers. They document, in reviewable form, what the pack must always do.
 #
 # Every case is screened on 2026-09-01. The base record meets every structured criterion:
-# age 54, type 2 diabetes, HbA1c 8.1 % 31 days ago, eGFR 74, metformin for 18 months.
+# age 54, type 2 diabetes, HbA1c 8.1 % 31 days ago, eGFR 74, metformin for 6 months (an active
+# medication with no end date counts as current only if it started in the last 365 days).
 #
 # expect keys: outcome, outcome_in, not_outcome, recommendation, priority, answers.<question>
 
@@ -16,7 +17,7 @@
       - {code: 4548-4, name: HbA1c, value: 8.1, unit: "%", date: "2026-08-01"}
       - {code: 33914-3, name: eGFR, value: 74, unit: mL/min/1.73m2, date: "2026-06-01"}
     medications:
-      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-03-01"}
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2026-03-01"}
     notes: Seen for diabetes follow-up. Feels well. Walking daily.
   expect:
     outcome: HUMAN_REVIEW
@@ -77,9 +78,56 @@
   input:
     <<: *base
     medications:
-      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-03-01"}
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2026-03-01"}
       - {name: insulin glargine, status: completed, start: "2025-01-01", end: "2026-07-20"}
   expect: {recommendation: not_eligible, answers: {no_insulin: "no"}}
+
+# An active medication with no end date counts as current only if it started in the 365 days
+# before screening; an older one, or one with no start, cannot be read as taken or not.
+- name: active metformin started more than 12 months ago with no end needs review
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-08-31"}
+  expect: {recommendation: needs_review, answers: {stable_metformin: unknown}}
+
+- name: active metformin started exactly 12 months (365 days) ago is current and stable
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-09-01"}
+  expect: {recommendation: candidate, answers: {stable_metformin: "yes"}}
+
+- name: active metformin started long ago with an end date still to come is stable
+  input:
+    <<: *base
+    medications:
+      - {name: metformin 1000 mg tablet, status: active, start: "2023-01-10", end: "2026-12-31"}
+  expect: {recommendation: candidate, answers: {stable_metformin: "yes"}}
+
+- name: active insulin started in the last 12 months with no end fails the criterion
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2026-03-01"}
+      - {name: insulin glargine, status: active, start: "2026-01-15"}
+  expect: {recommendation: not_eligible, answers: {no_insulin: "no"}}
+
+- name: active insulin started more than 12 months ago with no end needs review
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2026-03-01"}
+      - {name: insulin glargine, status: active, start: "2024-05-01"}
+  expect: {recommendation: needs_review, answers: {no_insulin: unknown}}
+
+- name: active insulin with no start or end date needs review
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2026-03-01"}
+      - {name: insulin glargine, status: active}
+  expect: {recommendation: needs_review, answers: {no_insulin: unknown}}
 
 - name: a coded heart attack 60 days ago fails the criterion
   input:

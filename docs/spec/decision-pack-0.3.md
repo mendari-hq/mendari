@@ -1,9 +1,9 @@
 # Decision Pack Specification, version 0.3
 
-Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping and two card keys
-(§5) only. Every other part of a pack is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with
-`spec_version: "0.3"`.
-Every valid 0.1 and 0.2 pack is still valid, with unchanged behaviour (§3). The key words MUST,
+Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping, one key of the
+`criteria` provider's medication check (§3) and two card keys (§5) only. Every other part of a
+pack is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with `spec_version: "0.3"`. Every
+valid 0.1 and 0.2 pack is still valid, with unchanged behaviour (§4). The key words MUST,
 SHOULD and MAY are used as in RFC 2119. The reference implementation of the mapping is
 `mendari.standards.fhir`.
 
@@ -14,7 +14,8 @@ resources into a pack's input. §2 below states the whole mapping, its 0.2 keys 
 ones. Card templates gain two keys (§5): `refused`, for a decision that refused its input, and
 `also_show`, a card in a policy rule's words for a recommendation `show` leaves out. CDS Hooks,
 the rest of the card template, Task templates, the Task a decision becomes and the guard (§9.1)
-stay as 0.2 says.
+stay as 0.2 says. And one key of the `criteria` provider (0.2 §5), `current_within_days` on a
+medication check (§3).
 
 Real EHR data rarely puts a pack's code first, writes one resource type for one idea, or keeps
 a note as plain text. 0.3 adds, each marked (0.3) below:
@@ -27,7 +28,9 @@ a note as plain text. 0.3 adds, each marked (0.3) below:
 - `code_sets` and the `code_set` selector: the pack's own codes, which a site's codes may be
   translated into, for a field and for `focus_where`;
 - list `resources`: several resource types into one list, each with its own fields, and the
-  `medication_period` derivation for a MedicationRequest.
+  `medication_period` derivation for a MedicationRequest;
+- `current_within_days` on a `criteria` medication check: an active medication with no end
+  date is current only when it started within that window (§3).
 
 ## 2. The FHIR mapping
 
@@ -269,18 +272,40 @@ EHR](../guides/connecting-an-ehr.md#what-your-ehr-does-not-offer).)
 ### 2.7 A MedicationRequest's period (0.3)
 
 `medication_period: {start: <key>, end: <key>}`, under `resources.MedicationRequest` only,
-writes when the drug is taken into two item keys, which the source's `fields` do not also map:
+writes when the drug is taken into two item keys, which the source's `fields` do not also map.
+Only the first dosage instruction (`dosageInstruction[0]`) is read, and of its timing only
+`repeat.boundsPeriod` and `repeat.boundsDuration`:
 
-- the start is the first dosage instruction's `timing.repeat.boundsPeriod.start`, else
-  `authoredOn`;
-- the end is that `boundsPeriod.end`, else unknown (the key is left out). It is never inferred
-  from the request's status, whether `completed` or `stopped`;
-- a request whose status is `entered-in-error` is left out of the list.
+- the start is that `boundsPeriod.start`, else `authoredOn`, as written;
+- the end is that `boundsPeriod.end`, as written. Else, when the start is a date or a dateTime
+  with its day (a year or a month alone is not) and `boundsDuration` gives a number of days,
+  the end is the start's day plus that many days, as a date (`YYYY-MM-DD`). Else the end is
+  unknown (the key is left out). It is never inferred from the request's status, whether
+  `completed` or `stopped`;
+- a `boundsDuration` gives a number of days when its `value` is a number of at least 0, its
+  `code` is one of the UCUM units below and its `system`, if any, is UCUM's
+  (`http://unitsofmeasure.org`). The days are `value` times the unit's days, rounded up to a
+  whole day, so the end is never earlier than the duration says. A duration in another unit, or
+  given only as text (`unit`), gives none;
+
+  | `code` | Unit | Days |
+  |---|---|---|
+  | `h` | hour | 1/24 |
+  | `d` | day | 1 |
+  | `wk` | week | 7 |
+  | `mo` | month (UCUM's mean Julian month) | 30.4375 |
+  | `a` | year (UCUM's Julian year) | 365.25 |
+
+- a request is left out of the list when its `status` is `entered-in-error`, when its
+  `intent` is `proposal`, `plan` or `option` (not an order to give the drug), or when its
+  `doNotPerform` is `true` (an order not to give it). Every other request is listed, whatever
+  its status, as its own item: requests for one drug, a renewal and the order it renews, are
+  not joined.
 
 `dispenseRequest.validityPeriod` is the window in which the drug may be dispensed, not when
-the patient takes it, so it is not read. This rule is a clinical judgement: a pack that adopts
-it SHOULD say so in its card's known failure modes, and a clinician should review it before
-real use.
+the patient takes it, so it is not read. `boundsRange` is not read either. This rule is a
+clinical judgement: a pack that adopts it SHOULD say so in its card's known failure modes, and a
+clinician should review it before real use.
 
 ### 2.8 Packs the deployment does not own
 
@@ -302,12 +327,36 @@ each link it could not reach by its reason (§2.3). A resource a linked read add
 what a reference reached, never among the record's resources of its type. A list of several
 types has a record for each type (`sources`), a `medication_period`'s two keys among its fields.
 
-## 3. Versions
+## 3. A current medication (0.3)
+
+A `criteria` provider's medication check (0.2 §5) counts a medication as current when its
+status is one of the check's `statuses` (by default `active`). A medication list rarely says when
+a drug was stopped, so with `current_within_days: <days>` (an integer of at least 0), a
+medication of one of those statuses that has no `end` counts as current only when its `start` is
+at most that many days before the screening date:
+
+```yaml
+stable_metformin:
+  checks:
+    - medication: {names: ["metformin"], min_days: 90, current_within_days: 365, then: "yes"}
+  default: "no"
+```
+
+When such a medication has no `start`, or one earlier than the window, the check answers
+`unknown`, whatever else it would answer, so `unknown` MUST be one of the question's labels.
+A start on the window's first day (exactly `<days>` days before) is within it; a start after the
+screening date is not earlier than the window, so it is read as without the key. The rule reads
+every item of the list alike, whatever resource it came from (a MedicationStatement's
+`effectivePeriod`, a MedicationRequest's `medication_period`, §2.7). Without the key a check reads
+as in 0.2. As in 0.2, the first item that applies decides: a medication not known to be
+current answers `unknown`, even when a later item would have decided.
+
+## 4. Versions
 
 A pack that uses any key marked (0.3) MUST declare `spec_version: "0.3"`. A 0.1 or 0.2 pack with
-one is invalid, whatever the key holds (`code_sets: {}` too), and the problem names each key and
-says to set `spec_version: '0.3'`. It is refused at load, wherever it comes from (an owned pack
-too), and so by `mendari validate`.
+one is invalid, whatever the key holds (`code_sets: {}` and `current_within_days: null` too), and
+the problem names each key and says to set `spec_version: '0.3'`. It is refused at load,
+wherever it comes from (an owned pack too), and so by `mendari validate`.
 
 An engine that reads only 0.1 and 0.2 refuses a 0.3 pack, since its `spec_version` is not one
 it knows. Publish a pack as 0.3 only for engines that read 0.3.
@@ -318,36 +367,10 @@ mapping written with `paths` and `resources` reads every case alike. Three refer
 0.3 packs themselves (the Clinical Trial Prescreener, the Prior Authorization Preflight and the
 Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of this section.
 
-## 4. Changes from 0.2 and migration
-
-| Change | Section |
-|---|---|
-| `[system=<uri>]` in a path, for a uri `code_systems` declares | §2.1 |
-| A 0.3 pack's paths are checked at load | §2.1 |
-| `paths`, tried in order, the first that gives a value winning | §2.2 |
-| `follow`: one reference hop, inside the record, never fetched by the mapping; a path of the field's own type read in place | §2.3 |
-| Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
-| The `attachment_text` transform, its three reasons, renditions, and notes longer than the input allows | §2.4 |
-| `code_sets` and the `code_set` selector, for a field and for `focus_where`, which a site's translations may feed | §2.5 |
-| List `resources`: several resource types into one list | §2.6 |
-| `medication_period` for a MedicationRequest | §2.7 |
-| Bounds for a pack the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |
-| The card key `refused`, for a decision that refused its input | §5 |
-| `cds_hooks.card.also_show`: a card in a policy rule's words for a recommendation `show` leaves out | §5 |
-
-To migrate a pack:
-
-1. Set `spec_version: "0.3"`.
-2. Declare in `code_systems` every system a `[system=...]` or a code set names.
-3. Change the paths that need it. A `path` that reads well stays as it is.
-4. Re-run the evaluation. A mapping change changes the pack's digest (0.2 §11), so a
-   governance approval of the old digest no longer applies, and it may change what the pack
-   decides through FHIR.
-
 ## 5. Cards (0.3)
 
 0.2 §9 keys a card template (`cds_hooks.card`) by the primary question's labels, and `none` for
-a decision with no recommendation. 0.3 adds two keys, each marked (0.3) as §3 says.
+a decision with no recommendation. 0.3 adds two keys, each marked (0.3) as §4 says.
 
 **`refused` (0.3).** The key of a decision that refused its input: a `BLOCK` made before any
 provider ran, because the input failed the pack's input schema or a standards check under
@@ -378,7 +401,7 @@ decision the rule matched (the policy's first matching rule, `rule` in its recor
 `show` leaves out still shows a card, with that summary and indicator. A key `show` names keeps
 its own card, rule or no rule. It needs a `show` list, and every name MUST be one of the
 policy's rules. An empty `also_show` is what a template holds without it, so it counts as left
-out (§3). Nothing about the decision changes: its outcome, recommendation, priority,
+out (§4). Nothing about the decision changes: its outcome, recommendation, priority,
 review queue, Task and Da Vinci CRD coverage information are what they would be without it.
 
 ```yaml
@@ -393,3 +416,30 @@ cds_hooks:
 
 The Prior Authorization Preflight (0.3.1) uses `also_show` for its red-flag rule on an order it
 has no requirement set for (`not_checked`), and the Referral Router (0.3.1) uses `refused`.
+
+## 6. Changes from 0.2 and migration
+
+| Change | Section |
+|---|---|
+| `[system=<uri>]` in a path, for a uri `code_systems` declares | §2.1 |
+| A 0.3 pack's paths are checked at load | §2.1 |
+| `paths`, tried in order, the first that gives a value winning | §2.2 |
+| `follow`: one reference hop, inside the record, never fetched by the mapping; a path of the field's own type read in place | §2.3 |
+| Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
+| The `attachment_text` transform, its three reasons, renditions, and notes longer than the input allows | §2.4 |
+| `code_sets` and the `code_set` selector, for a field and for `focus_where`, which a site's translations may feed | §2.5 |
+| List `resources`: several resource types into one list | §2.6 |
+| `medication_period` for a MedicationRequest | §2.7 |
+| `current_within_days` on a `criteria` medication check | §3 |
+| Bounds for a pack the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |
+| The card key `refused`, for a decision that refused its input | §5 |
+| `cds_hooks.card.also_show`: a card in a policy rule's words for a recommendation `show` leaves out | §5 |
+
+To migrate a pack:
+
+1. Set `spec_version: "0.3"`.
+2. Declare in `code_systems` every system a `[system=...]` or a code set names.
+3. Change the paths that need it. A `path` that reads well stays as it is.
+4. Re-run the evaluation. A mapping change changes the pack's digest (0.2 §11), so a
+   governance approval of the old digest no longer applies, and it may change what the pack
+   decides through FHIR.

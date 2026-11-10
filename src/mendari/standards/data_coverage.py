@@ -43,8 +43,9 @@ counted `unsupported_type`, a field says how many were in each format (`unread_f
 `pdf`, `xml`, `image`, `none`, `other`; `fhir.format_label`, never the content type as
 written), when there are any; and a list's item key that could not read something says what, by
 reason, in its own record (`unreadable`), when it could not. A resource its
-list leaves out (`fhir.listed`: a MedicationRequest entered in error, when its source derives
-its period) is not an item: nothing it links to is read, and nothing it could not read counts.
+list leaves out (`fhir.listed`: a MedicationRequest entered in error, not an order or an order
+not to give the drug, when its source derives its period) is not an item: nothing it links to is
+read, and nothing it could not read counts.
 
 With a site code map (LP-23i, `core/site_codes.py`), the record is read with the organization's
 translations, as the input is (`measure`'s `site_codes`), so a `code_set` field's paths, values
@@ -366,7 +367,7 @@ def _read(
     not hold (`links`). `declared` None counts no codings. A null is not a value: R4 JSON pads a
     primitive array with nulls to line it up with its `_x` sibling, so a null counts for nothing
     and is never an undecodable note, as LP-23d counted. With a list's `source`, what a resource
-    the list leaves out (`fhir.listed`: a MedicationRequest entered in error) could not read is
+    the list leaves out (`fhir.listed`, e.g. a MedicationRequest entered in error) could not read is
     not counted: the decision does not need it, so it neither reads its links nor abstains on
     them (LP-23h); its values still count, as what the record holds."""
     found = _Found()

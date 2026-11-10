@@ -1,6 +1,6 @@
 spec_version: "0.3"
 id: mendari/clinical-trial-prescreener
-version: 0.3.0
+version: 0.4.0
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -77,28 +77,40 @@ card:
       datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by
       subgroup). Add a site's codes, units and names before use, and validate locally.
     - An incomplete medication list reads as "not on metformin", which fails a criterion.
-    - Through FHIR, medications come from MedicationStatement and MedicationRequest. When a
-      MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7) that is not
-      yet clinically reviewed (a pharmacist's or research coordinator's review is owed before
-      real use). It starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`,
-      else on the day it was written (`authoredOn`), and it stops at that `boundsPeriod.end`,
-      else its stop is unknown. The stop is never inferred from the request's status
-      (`completed`, `stopped`), the dispensing window (`dispenseRequest.validityPeriod`) is not
-      read, and a request entered in error is left out. So a renewed prescription with no
-      bounds starts on the day it was renewed, which can read as metformin started less than
-      90 days ago (`not_eligible`); a request's intent (a plan or a proposal) and
-      `doNotPerform` are not read, so an active one reads as taken; and only the first dosage
-      instruction's bounds count. The criteria count a medication as current only when its
-      status is `active`, or when it ended within the window they look at, which takes a bounds
-      end. So a `completed`, `stopped`, `on-hold`, `cancelled`, `draft` or `unknown` request
-      with no bounds end, the usual shape of a request, reads as not taken. Insulin on a
-      `completed` request written 20 days ago reads as off insulin (`no_insulin` "yes", where
-      its stop is in fact unknown), and an `on-hold` metformin as not on metformin
-      (`stable_metformin` "no", the prescreen `not_eligible`, which shows no card). Of several
-      requests for one drug, the first in the record's order decides, which may be a renewal
-      rather than the earliest. The clinician's review is to say whether any of this changes. A
-      MedicationRequest naming its drug by reference needs the Medication, which a CDS hook or
-      the SMART launch reads from the EHR; where it cannot be read, the pack abstains.
+    - >-
+      Through FHIR, medications come from MedicationStatement and MedicationRequest. When a
+      MedicationRequest's drug is taken is a rule Mendari states (spec 0.3 §2.7). The owner, a
+      physician, answered the clinician brief on it (notes/clinician-review-medication-period.md)
+      on 2026-11-07 with "acceptable with changes"; this version builds those changes, which the
+      owner is to confirm as built. A request
+      starts at the first dosage instruction's `timing.repeat.boundsPeriod.start`, else on the
+      day it was written (`authoredOn`). It stops at that `boundsPeriod.end`; else, when its
+      start is a full date, at the start plus that timing's `boundsDuration` (in hours, days,
+      weeks, months or years: UCUM `h`, `d`, `wk`, `mo`, `a`, a month being 30.4375 days and a
+      year 365.25, rounded up to a whole day); else its stop is unknown. The stop is never
+      inferred from the request's status (`completed`, `stopped`), the dispensing window
+      (`dispenseRequest.validityPeriod`) is not read, and only the first dosage instruction
+      counts. A request entered in error, one whose intent is a proposal, a plan or an option,
+      and one saying not to give the drug (`doNotPerform`) are left out. The criteria count a
+      medication, from a request or a statement, as current when its status is `active`, but
+      one with no end date only when it started in the 365 days before screening
+      (`current_within_days` in logic/criteria.yaml): an older one, or one with no start date,
+      reads `unknown`, so the chart goes to review. So a patient on metformin for years whose
+      record holds only an old active request or statement with no end date is `needs_review`,
+      not `candidate`, and an active insulin started more than a year ago with no end date is
+      `needs_review`, not `not_eligible`. An `active` medication with an end date counts as
+      current whatever that date, so an active request written two years ago for 30 days
+      (`boundsDuration`) reads as metformin taken for two years (`stable_metformin` "yes"). A
+      medication that is not `active` and has no end date
+      reads as not taken: insulin on a `completed` request written 20 days ago reads as off
+      insulin (`no_insulin` "yes", where its stop is in fact unknown), and an `on-hold`
+      metformin as not on metformin (`stable_metformin` "no", the prescreen `not_eligible`,
+      which shows no card). Renewals are not joined: a renewed prescription with no bounds
+      starts on the day it was renewed, which can read as metformin started less than 90 days
+      ago (`not_eligible`), and of several requests for one drug the first in the record's
+      order decides, which may be a renewal rather than the earliest. A MedicationRequest naming
+      its drug by reference needs the Medication, which a CDS hook or the SMART launch reads
+      from the EHR; where it cannot be read, the pack abstains.
     - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url
       names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or
       one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do
@@ -172,9 +184,13 @@ questions:
     display: "Metformin for at least 90 days"
     instructions: Has the patient been taking metformin for at least 90 days before screening?
     criteria:
-      "yes": Metformin is active and was started at least 90 days before screening.
+      "yes": >-
+        Metformin is active and was started at least 90 days before screening (and, with no
+        end date, at most 365 days before).
       "no": Metformin is not listed, was stopped, or was started less than 90 days ago.
-      unknown: Metformin is active but has no start date.
+      unknown: >-
+        Metformin is active but has no start date, or has no end date and was started more than
+        365 days before screening.
   egfr_30_or_more:
     display: "eGFR 30 or more"
     instructions: >-
@@ -188,8 +204,12 @@ questions:
     instructions: Has the patient been off insulin for the 90 days before screening?
     criteria:
       "yes": No insulin is listed, or it ended more than 90 days before screening.
-      "no": Insulin is active, or ended in the last 90 days.
-      unknown: Cannot tell from the medication list.
+      "no": >-
+        Insulin is active (with an end date, or started in the 365 days before screening), or
+        ended in the last 90 days.
+      unknown: >-
+        Insulin is active with no end date and has no start date or was started more than 365
+        days before screening.
   no_recent_cv_event:
     display: "No heart attack or stroke in 180 days"
     instructions: >-

@@ -4,6 +4,58 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.4.0
+
+- **The medication rule, with the owner's changes** (B21). The owner, a physician, answered the
+  clinician brief `notes/clinician-review-medication-period.md` on 2026-11-07: the rule is
+  "acceptable with changes". This version builds those changes. A MINOR bump, by
+  CONTRIBUTING.md's rule (MINOR for a change in behaviour): labels are unchanged, and what the
+  pack decides changes for the medications below.
+  - **An active medication with no end date counts as current only when it started in the 365
+    days before screening** (the owner's answers 2 and 7). `stable_metformin` and `no_insulin`
+    carry `current_within_days: 365` in `logic/criteria.yaml` (a spec 0.3 key, §3): an active
+    medication, from a MedicationRequest or a MedicationStatement, with no end date and a start
+    more than 365 days before screening, or no start, reads `unknown`, so the chart goes to
+    review. The 365th day is inside. Metformin started 90 days to 12 months ago still reads
+    "yes". An insulin with no start that read "no" (on insulin) now reads `unknown`. The CQL
+    library (`logic/criteria.cql`, now version 0.4.0) states the same rule, and agrees with
+    `criteria` on every test and dataset case (584, and 178 on the local-site example, on HAPI
+    FHIR 8.12).
+  - **Through FHIR, a MedicationRequest that is not an order to give the drug is left out**
+    (answer 5): its `intent` is `proposal`, `plan` or `option`, or its `doNotPerform` is true.
+  - **A `boundsDuration` gives the stop** (answer 6): when the first dosage instruction has no
+    `boundsPeriod.end` and the start is a full date, the stop is the start's day plus the
+    duration in whole days, rounded up, in UCUM's `h`, `d`, `wk`, `mo` (30.4375 days) or `a`
+    (365.25 days). Any other unit leaves the stop unknown. So a `completed` insulin written 60
+    days ago for 30 days reads as ended 30 days ago (`no_insulin` "no"), where its stop was
+    unknown (`no_insulin` "yes").
+  - Unchanged, as the owner chose: the start (answer 1); a medication that is not `active` with
+    no end date reads as not taken (answer 3); renewals are separate items, the first matching
+    one in the record's order deciding (answer 4); a request entered in error is left out;
+    `dispenseRequest.validityPeriod` is not read; only the first dosage instruction is read.
+  - The card's known failure modes state the rule and the owner's answer. They also state one
+    thing the brief did not ask: an `active` medication with an end date counts as current
+    whatever that date, so an active request written two years ago for 30 days reads as
+    metformin taken for two years.
+- **The synthetic data's ground truth follows the rule**; no record changes. Of the benchmark's
+  300 patients, 192 have active metformin started more than 365 days before screening with no
+  end date, and 23 active insulin started 400 days before (the generator's one start for it):
+  those criteria now read `unknown` in the truth and in the pack. Eligibility is answered right
+  for 298 of 300, as before, but 47 of the 56 candidates and 10 of the 208 not eligible are now
+  `needs_review` (candidates 9, needs review 93, not eligible 198). Every critical label's
+  figure is as it was.
+- **The hand-written exclusion sets and the behaviour tests' base record** had metformin since
+  2025-03-01, 18 months before their screening date, which the rule reads `unknown`. Its start
+  is now 2026-03-01 (6 months), so each case's eligibility still turns on its notes, as the sets
+  were written for. No note or label changes. Six behaviour tests are new: metformin started 366
+  days and exactly 365 days ago, metformin with an end date still to come, and insulin started
+  in the last year, more than a year ago, and with no dates.
+- **The FHIR decisions golden**: 91 of the 150 local-site cases change an answer, their input
+  hashes unchanged (their medications are MedicationStatements, with no intent or duration). 22
+  change their result: 21 `candidate` and 1 `not_eligible` become `needs_review`.
+- The digest changes because the manifest, the criteria, the CQL library, the mapping, the data
+  and the tests do; the benchmark and its ledger are run again.
+
 ## 0.3.0
 
 - **Through FHIR, the pack reads EHR data on spec 0.3** (LP-23k, after the owner's go-ahead on

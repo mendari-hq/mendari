@@ -30,11 +30,16 @@ questions:
           convert:
             "mmol/mol": {multiply: 0.0915, add: 2.15}  # IFCC -> NGSP (the NGSP master equation)
 
+  # Medications: a medication counts as current when its status is `active`. One with no end
+  # date counts only when it started in the 365 days before screening (`current_within_days`):
+  # an older one, or one with no start date, answers `unknown`, so the chart needs review. The
+  # owner, a physician, chose this rule on 2026-11-07 (notes/clinician-review-medication-period.md).
   stable_metformin:
     checks:
       - medication:
           names: ["metformin"]
           min_days: 90
+          current_within_days: 365
           then: "yes"
     default: "no"
 
@@ -51,6 +56,7 @@ questions:
       - medication:
           names: ["insulin"]
           within_days: 90
+          current_within_days: 365
           then: "no"
     default: "yes"
 

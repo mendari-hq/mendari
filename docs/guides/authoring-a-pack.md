@@ -299,7 +299,8 @@ characters, as CDS Hooks says. `mendari validate` refuses anything else and a re
 it; your own server lists such a prefetch or card summary under `pack_warnings`.
 
 Real EHR data rarely puts your code first. A pack whose FHIR mapping reads it can use spec 0.3
-([Decision Pack spec 0.3](../spec/decision-pack-0.3.md)), which changes only the mapping:
+([Decision Pack spec 0.3](../spec/decision-pack-0.3.md)), which changes the mapping and one
+key of the `criteria` provider:
 
 - pick a coding by its code system, wherever it is
   (`code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code`);
@@ -312,7 +313,9 @@ Real EHR data rarely puts your code first. A pack whose FHIR mapping reads it ca
   (`{path: category.coding, code_set: referral_category}`), so a site's code map can translate
   its codes into yours;
 - read several resource types into one list (`resources`), with a MedicationRequest's start and
-  stop by a stated rule (`medication_period`).
+  stop by a stated rule (`medication_period`);
+- count an active medication with no end date as current only when it started within a window
+  (`current_within_days` on a `criteria` medication check; older or undated, it is `unknown`).
 
 Set `spec_version: "0.3"` to use any of them, and declare in `code_systems` every system the
 mapping selects on. A 0.2 pack that uses one is refused. A pack you publish to a registry or

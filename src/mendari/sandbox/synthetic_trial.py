@@ -183,6 +183,12 @@ def _pick(rng: random.Random, weights: dict[str, float]) -> str:
 
 # -- ground truth (what a careful reviewer concludes from the record) ---------------------------
 
+# An active medication with no end date is known to be current only when it started in the 365
+# days before screening: the rule the owner, a physician, chose on 2026-11-07 for the pack
+# (notes/clinician-review-medication-period.md). One started earlier is not known to be taken.
+CURRENT_WITHIN_DAYS = 365
+INSULIN_DAYS = 400  # an insulin record starts this long before it ended (an active one: today)
+
 
 def labels(f: Facts) -> dict[str, str]:
     truth = {
@@ -196,11 +202,15 @@ def labels(f: Facts) -> dict[str, str]:
     }
     if f.hba1c is not None and f.hba1c[1] <= 90:
         truth["hba1c_in_range"] = "yes" if 7.0 <= f.hba1c[0] <= 10.5 else "no"
-    if f.metformin is not None and f.metformin[0] == "active":
-        truth["stable_metformin"] = "yes" if f.metformin[1] >= 90 else "no"
+    if f.metformin is not None and f.metformin[0] == "active":  # an active one has no end
+        started = f.metformin[1]
+        stale = started > CURRENT_WITHIN_DAYS
+        truth["stable_metformin"] = "unknown" if stale else ("yes" if started >= 90 else "no")
     if f.egfr is not None and f.egfr[1] <= 365:
         truth["egfr_30_or_more"] = "yes" if f.egfr[0] >= 30 else "no"
-    if f.insulin is not None and (f.insulin[0] == "active" or f.insulin[1] <= 90):
+    if f.insulin is not None and f.insulin[0] == "active":  # no end, started INSULIN_DAYS ago
+        truth["no_insulin"] = "unknown" if INSULIN_DAYS > CURRENT_WITHIN_DAYS else "no"
+    elif f.insulin is not None and f.insulin[1] <= 90:
         truth["no_insulin"] = "no"
     if f.coded_cv is not None:
         days = f.coded_cv[1]
@@ -274,7 +284,7 @@ def _record(f: Facts, rng: random.Random, record_id: str) -> dict[str, Any]:
         item = {
             "name": "insulin glargine 100 units/mL",
             "status": status,
-            "start": _ago(ended + 400),
+            "start": _ago(ended + INSULIN_DAYS),
         }
         if status != "active":
             item["end"] = _ago(ended)

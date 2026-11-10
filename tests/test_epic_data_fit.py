@@ -455,8 +455,9 @@ def order(id_: str, drug: str, name: str, days: int) -> tuple[dict[str, Any], di
 
 
 def epic_chart(*, notes: int = 0, orders: int = 0, insulin: bool = False) -> Ehr:
-    """A synthetic adult with type 2 diabetes, an HbA1c and eGFR in range, on metformin for 500
-    days, as an EHR with no R4 MedicationStatement serves her: its MedicationStatement search
+    """A synthetic adult with type 2 diabetes, an HbA1c and eGFR in range, on metformin for 200
+    days (an active order with no end is current only when written in the last 12 months, B21), as
+    an EHR with no R4 MedicationStatement serves her: its MedicationStatement search
     answers 403 (as Epic's did on 2026-11-08), her drugs are MedicationRequests (A2), her notes
     HTML and RTF twins (A1). `orders` more drugs, and `insulin` an insulin order of 30 days ago."""
     patient = {
@@ -484,7 +485,7 @@ def epic_chart(*, notes: int = 0, orders: int = 0, insulin: bool = False) -> Ehr
             "effectiveDateTime": ago(days),
         }
 
-    drugs = [order("mr-met", "med-met", "metformin 500 mg tablet", 500)]
+    drugs = [order("mr-met", "med-met", "metformin 500 mg tablet", 200)]
     drugs += [order(f"mr{n}", f"med{n}", f"drug {n} 10 mg tablet", 200) for n in range(orders)]
     if insulin:
         drugs.append(order("mr-ins", "med-ins", "insulin glargine 100 unit/mL pen", 30))
