@@ -1789,6 +1789,64 @@ def cmd_registry_verify(args: argparse.Namespace) -> int:
     return 1
 
 
+def _existing_registry(db: str) -> str:
+    """A registry's database that is already there: an operator's command never makes one (a
+    token needs its namespace, which only a running registry creates)."""
+    if "://" not in db and not Path(db).is_file():
+        raise MendariError(
+            f"no registry database at {db}: run `mendari registry serve --db {db}` once first"
+        )
+    return db
+
+
+def cmd_registry_token(args: argparse.Namespace) -> int:
+    """A publisher token minted by the operator, on the registry's database (LP-19b): for a
+    registry nobody signs in to (a self-hosted `mendari registry serve`, CI, a seed script).
+    Its owner is recorded as `operator`, with who ran this and why, chained (`token.issued`); the
+    token is printed once, here, and kept nowhere."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        minted = store.mint_token(
+            args.namespace,
+            org=args.org,
+            owner="operator",
+            name=args.name,
+            days=args.days,
+            by=_command_line_actor(),
+            reason=args.reason,
+        )
+    _print_json(minted)
+    print(
+        f"made in {args.db}: the token is shown once, above; give it only to its publisher",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_registry_tokens(args: argparse.Namespace) -> int:
+    """The owned publisher tokens in a registry's database, read-only: whose each is, when it
+    ends, when it was revoked and by whom, the last day it was used. Never a secret."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(args.db, read_only=True) as store:
+        _print_json(store.tokens(org=args.org, namespace=args.namespace))
+    return 0
+
+
+def cmd_registry_revoke_token(args: argparse.Namespace) -> int:
+    """Revoke an owned publisher token on the registry's database, at once: the operator may
+    revoke any organization's. Chained (`token.revoked`) with who ran this and why."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        revoked = store.revoke_token(
+            args.id, org=None, by=_command_line_actor(), reason=args.reason
+        )
+    _print_json(revoked)
+    return 0
+
+
 def _registry_client(args: argparse.Namespace) -> Any:
     from mendari.hub.client import RegistryClient, default_registry
 
@@ -3424,6 +3482,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
     )
     verify_registry.set_defaults(handler=cmd_registry_verify)
+    registry_db = "SQLite path or postgresql:// URL"
+    mint_token = registry_cmd.add_parser(
+        "token", help="mint a publisher token as the operator (shown once; chained with why)"
+    )
+    mint_token.add_argument("--db", default="var/registry.db", help=registry_db)
+    mint_token.add_argument("--namespace", required=True, help="the namespace it publishes to")
+    mint_token.add_argument("--org", required=True, help="the organization it belongs to")
+    mint_token.add_argument("--name", default="operator", help="what it is for (a label)")
+    mint_token.add_argument(
+        "--days", type=int, default=90, help="how long it lives (1 to 365; default 90)"
+    )
+    mint_token.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    mint_token.set_defaults(handler=cmd_registry_token)
+    list_tokens = registry_cmd.add_parser(
+        "tokens", help="list the owned publisher tokens, read-only (never a secret)"
+    )
+    list_tokens.add_argument("--db", default="var/registry.db", help=registry_db)
+    list_tokens.add_argument("--org", help="only this organization's")
+    list_tokens.add_argument("--namespace", help="only this namespace's")
+    list_tokens.set_defaults(handler=cmd_registry_tokens)
+    revoke_token = registry_cmd.add_parser(
+        "revoke-token", help="revoke an owned publisher token, at once (chained with why)"
+    )
+    revoke_token.add_argument("id", help="the token's id (mendari registry tokens)")
+    revoke_token.add_argument("--db", default="var/registry.db", help=registry_db)
+    revoke_token.add_argument(
+        "--reason", required=True, help="why (chained; at most 200 characters)"
+    )
+    revoke_token.set_defaults(handler=cmd_registry_revoke_token)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
     monitor_cmd.add_argument(

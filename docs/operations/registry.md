@@ -138,9 +138,35 @@ a regression, never rank. A pack whose default providers call a model is not mea
 (`needs_remote`). At most two checks run at once; a publish past that is told to try again
 (`503`).
 
+## Publisher tokens that belong to someone
+
+A publisher token made with `mendari registry token` belongs to an organization, ends, and can
+be revoked. It is for a registry nobody signs in to: one you host yourself, CI, a seed script.
+The commands write to the registry's database, so they work while the registry runs, and the
+running registry refuses a revoked or expired token at its next request. The database must
+already be there (`mendari registry serve` makes it), and the namespace must exist.
+
+```bash
+mendari registry token --db var/registry.db --namespace acme --org acme \
+  --reason "the release runner" --days 90          # prints the token once, with its id
+mendari registry tokens --db var/registry.db       # read-only; never a secret
+mendari registry revoke-token --db var/registry.db ID --reason "the runner was retired"
+```
+
+- A token lives 1 to 365 days (90 unless `--days` says otherwise) and publishes only to its
+  namespace. The registry keeps its SHA-256, never the token: a lost token is revoked and
+  replaced, not recovered.
+- Its owner is recorded as `operator`, with who ran the command and why, in the chain
+  (`token.issued`); revoking is chained too (`token.revoked`).
+- `tokens` shows each token's organization, owner, name, expiry, when and by whom it was
+  revoked, and the last day it was used (in the deployment's time zone). That day is kept
+  outside the chain; revoke a token nobody uses.
+- A token an administrator issued over HTTP (`POST /v1/namespaces/{namespace}/tokens`) has no
+  owner or expiry and cannot be revoked. Those keep working for now; LP-19g ends them.
+
 ## The chain
 
-Every write (a namespace, its publisher type, a token, a key, a publish, a site report, a
+Every write (a namespace, its publisher type, a token made or revoked, a key, a publish, a site report, a
 review, a recall, a deletion) appends a hash-chained event, naming who acted: `admin`, or a
 token by its id (`token:<id>`), never the token. `mendari registry verify --db` opens the
 database read-only and checks every event's hash and order, that every row is exactly the one
@@ -152,8 +178,9 @@ on a schedule, and compare a later head with it. A signed head is for later.
 
 ## Not yet
 
-- **Accounts and claims (LP-19).** One shared administrator token; publisher tokens have no
-  owner, expiry or revocation; a first publish to a new namespace is listed at once. The
+- **Accounts and claims (LP-19).** One shared administrator token; people cannot yet sign in
+  to make their own publisher tokens (the operator's command does, above); a first publish to
+  a new namespace is listed at once. The
   registry is to run under the engine app (LP-19's option A, the default the owner confirmed on
   2026-11-07, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   LP-19's build is next; its deploy, the registry's signing key and DNS are the owner's.

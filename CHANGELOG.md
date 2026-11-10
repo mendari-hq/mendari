@@ -1276,6 +1276,14 @@ The first release (not yet published).
   in the pack cache, while a report given with `--baseline` is still compared. Every other pack
   is monitored and compared as before. The runbook for running a registry is
   [`docs/operations/registry.md`](docs/operations/registry.md).
+- **Publisher tokens that belong to someone** (LP-19b; nothing existing changes). The
+  registry's store holds owned publisher tokens: each names its organization and owner, lives
+  1 to 365 days, publishes only to its namespace, and can be revoked, which the running
+  registry honours at its next request. Minting and revoking are chained (`token.issued`,
+  `token.revoked`); the last day a token was used is kept outside the chain. The operator
+  mints, lists and revokes them on the registry's database (`mendari registry token`, `tokens`,
+  `revoke-token`), for a registry nobody signs in to. Tokens from before and the administrator
+  token keep working until LP-19g; a database from before opens and verifies as it did.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

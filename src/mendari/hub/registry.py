@@ -61,7 +61,7 @@ import tempfile
 import unicodedata
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
@@ -73,6 +73,7 @@ from pydantic_core import from_json, to_json
 from starlette.concurrency import run_in_threadpool
 
 from mendari import __version__
+from mendari.core import clock
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Session, connect
 from mendari.core.https_only import is_local_host
@@ -191,6 +192,22 @@ CREATE TABLE IF NOT EXISTS hub_meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS hub_publisher_tokens (
+    id            TEXT PRIMARY KEY,
+    token_sha256  TEXT NOT NULL UNIQUE,
+    namespace     TEXT NOT NULL,
+    org           TEXT NOT NULL,
+    owner         TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL,
+    revoked_at    TEXT,
+    revoked_by    TEXT
+);
+CREATE TABLE IF NOT EXISTS hub_token_use (
+    token_id       TEXT PRIMARY KEY,
+    last_used_day  TEXT NOT NULL
+);
 """
     + RATE_SCHEMA
 )
@@ -209,11 +226,31 @@ def token_id(token: str) -> str:
     return _sha(token)[:16]
 
 
+# An owned publisher token (LP-19b): how long one may live, and how long its labels may be.
+MAX_TOKEN_DAYS = 365
+_TOKEN_ID = re.compile(r"^[0-9a-f]{16}$")
+_TOKEN_FIELDS = (
+    "id, namespace, org, owner, name, created_at, expires_at, revoked_at, revoked_by"  # no hash
+)
+
+
+def _label(value: str, what: str, most: int) -> str:
+    """One printable line of at most `most` characters (a token's name, owner or organization,
+    and why an operator acted), or a `HubError` naming `what`."""
+    if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp", "Co", "Cs") for c in value):
+        raise HubError(f"{what} is one printable line")
+    value = " ".join(value.split())
+    if not value or len(value) > most:
+        raise HubError(f"{what} is 1 to {most} characters")
+    return value
+
+
 # The rows the chain covers, by kind: the table, and how a row is named in the chain.
 ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     "namespaces": ("hub_namespaces", lambda row: str(row["name"])),
     "keys": ("hub_keys", lambda row: str(row["key_id"])),
     "tokens": ("hub_tokens", lambda row: str(row["token_sha256"])[:16]),
+    "publisher_tokens": ("hub_publisher_tokens", lambda row: str(row["id"])),
     "versions": (
         "hub_versions",
         lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
@@ -394,9 +431,164 @@ class RegistryStore(RateBuckets):
         return token
 
     def token_namespace(self, token: str) -> str | None:
+        """The namespace of a token from before owned tokens (`issue_token`): no owner, no
+        expiry, never revoked."""
         with self._db.session(exclusive=False) as db:
             row = db.one("SELECT namespace FROM hub_tokens WHERE token_sha256 = ?", (_sha(token),))
         return None if row is None else str(row["namespace"])
+
+    def mint_token(
+        self,
+        namespace: str,
+        *,
+        org: str,
+        owner: str,
+        name: str,
+        days: int,
+        by: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """A publisher token for `namespace` that belongs to `owner` in `org`, lives `days`
+        (1 to `MAX_TOKEN_DAYS`) and can be revoked (LP-19b). The answer holds the token, the one
+        time it is shown: the store keeps its SHA-256. Chained `token.issued` with the
+        organization, the owner and the expiry (and why, when an operator minted it)."""
+        self.namespace(namespace)
+        if isinstance(days, bool) or not 1 <= days <= MAX_TOKEN_DAYS:
+            raise HubError(f"a token lives 1 to {MAX_TOKEN_DAYS} days")
+        org, owner = _label(org, "the organization", 200), _label(owner, "the owner", 200)
+        name = _label(name, "the token's name", 80)
+        payload: dict[str, Any] = {}
+        if reason is not None:
+            payload["reason"] = _label(reason, "the reason", 200)
+        token = "ohr_" + secrets.token_urlsafe(32)
+        created = _now()
+        expires = (datetime.fromisoformat(created) + timedelta(days=days)).isoformat(
+            timespec="seconds"
+        )
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO hub_publisher_tokens (id, token_sha256, namespace, org, owner, "
+                "name, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (token_id(token), _sha(token), namespace, org, owner, name, created, expires),
+            )
+            record_event(
+                db,
+                "token.issued",
+                f"namespace:{namespace}",
+                {
+                    "namespace": namespace,
+                    "token_id": token_id(token),
+                    "org": org,
+                    "owner": owner,
+                    "expires_at": expires,
+                    "by": by,
+                    **payload,
+                },
+                row=("publisher_tokens", "id = ?", (token_id(token),)),
+            )
+        (minted,) = self.tokens(ids=(token_id(token),))
+        return {**minted, "token": token}
+
+    def tokens(
+        self,
+        *,
+        org: str | None = None,
+        namespace: str | None = None,
+        ids: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        """The owned tokens, oldest first: of one organization, of one namespace, or all (the
+        operator's view). Each with the last day it was used, never its secret or its hash."""
+        clauses, params = [], []
+        for column, value in (("org", org), ("namespace", namespace)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        if ids is not None:
+            clauses.append(f"id IN ({', '.join('?' * len(ids))})" if ids else "1 = 0")
+            params.extend(ids)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_publisher_tokens"):  # read-only, from before owned tokens
+                return []
+            rows = db.all(
+                f"SELECT {_TOKEN_FIELDS} FROM hub_publisher_tokens{where} ORDER BY created_at, id",
+                tuple(params),
+            )
+            used = {
+                str(r["token_id"]): str(r["last_used_day"])
+                for r in db.all("SELECT token_id, last_used_day FROM hub_token_use")
+            }
+        return [{**row, "last_used_day": used.get(str(row["id"]))} for row in rows]
+
+    def revoke_token(
+        self, id: str, *, org: str | None, by: str, reason: str | None = None
+    ) -> dict[str, Any]:
+        """Revoke an owned token, at once and for good. `org` is the organization acting: a
+        token of another one answers as one that does not exist (None: the operator, any
+        organization). Chained `token.revoked` with the row as it now stands; revoking a
+        revoked token changes nothing and chains nothing."""
+        payload: dict[str, Any] = {}
+        if reason is not None:
+            payload["reason"] = _label(reason, "the reason", 200)
+        with self._db.session(exclusive=True) as db:
+            row = (
+                db.one("SELECT * FROM hub_publisher_tokens WHERE id = ?", (id,))
+                if _TOKEN_ID.fullmatch(id)
+                else None
+            )
+            if row is None or (org is not None and row["org"] != org):
+                raise HubError("no such token", 404)
+            if row["revoked_at"] is None:
+                db.all(
+                    "UPDATE hub_publisher_tokens SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                    (_now(), by, id),
+                )
+                record_event(
+                    db,
+                    "token.revoked",
+                    f"namespace:{row['namespace']}",
+                    {
+                        "namespace": row["namespace"],
+                        "token_id": id,
+                        "org": row["org"],
+                        "by": by,
+                        **payload,
+                    },
+                    row=("publisher_tokens", "id = ?", (id,)),
+                )
+        (revoked,) = self.tokens(ids=(id,))
+        return revoked
+
+    def publisher(self, token: str) -> dict[str, str] | None:
+        """Whose an owned token is (`id`, `namespace`, `org`, `owner`), in one read; None for a
+        token that is revoked, expired, or not an owned token at all."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT id, namespace, org, owner, expires_at, revoked_at "
+                "FROM hub_publisher_tokens WHERE token_sha256 = ?",
+                (_sha(token),),
+            )
+        if row is None or row["revoked_at"] is not None:
+            return None
+        if datetime.fromisoformat(row["expires_at"]) <= datetime.fromisoformat(_now()):
+            return None
+        return {key: str(row[key]) for key in ("id", "namespace", "org", "owner")}
+
+    def token_used(self, id: str) -> None:
+        """Note that an owned token was used today (the deployment's day, `core/clock.py`).
+        Outside the chain, as the rate buckets are, and a write only on a token's first use of
+        a day."""
+        day = clock.today().isoformat()
+        with self._db.session(exclusive=False) as db:
+            row = db.one("SELECT last_used_day FROM hub_token_use WHERE token_id = ?", (id,))
+            if row is not None and str(row["last_used_day"]) >= day:
+                return
+            db.all(
+                "INSERT INTO hub_token_use (token_id, last_used_day) VALUES (?, ?) "
+                "ON CONFLICT (token_id) DO UPDATE SET last_used_day = excluded.last_used_day "
+                "WHERE hub_token_use.last_used_day < excluded.last_used_day",
+                (id, day),
+            )
 
     # -- packs ----------------------------------------------------------------------------------
 
@@ -831,7 +1023,10 @@ class RegistryStore(RateBuckets):
                 problem = "no chain yet: run `mendari registry serve` on this database once"
                 return _broken(None, problem, [], None)
             events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            rows = {kind: db.all(f"SELECT * FROM {table}") for kind, (table, _) in ROWS.items()}
+            rows = {  # a database from before a kind, read as it is, has no table for it
+                kind: db.all(f"SELECT * FROM {table}") if db.columns(table) else []
+                for kind, (table, _) in ROWS.items()
+            }
             archives = {
                 str(r["archive_sha256"]): hashlib.sha256(bytes(r["data"])).hexdigest()
                 for r in db.all("SELECT archive_sha256, data FROM hub_archives")
@@ -1373,11 +1568,30 @@ def create_registry_app(
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan)
     limiter = Limiter(store, registry_limit_settings())
 
+    def publisher_namespace(token: str, *, used: bool = False) -> str | None:
+        """The namespace a token publishes to: an owned token that is neither revoked nor
+        expired, or a token from before owned tokens. `used` notes the day an owned token was
+        used, for a request it was let through on."""
+        owned = store.publisher(token)
+        if owned is None:
+            return store.token_namespace(token)
+        if used:
+            store.token_used(owned["id"])
+        return owned["namespace"]
+
+    def publishes_to(token: str, namespace: str) -> bool:
+        owned = store.publisher(token)
+        if owned is None:
+            return store.token_namespace(token) == namespace
+        if owned["namespace"] == namespace:
+            store.token_used(owned["id"])
+        return owned["namespace"] == namespace
+
     def known(token: str) -> bool:
         """A token the registry issued, or the admin's."""
         if admin and hmac.compare_digest(token, admin):
             return True
-        return store.token_namespace(token) is not None
+        return publisher_namespace(token) is not None
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, error: Exception) -> JSONResponse:
@@ -1432,7 +1646,7 @@ def create_registry_app(
         token = bearer(request)
         if admin and token and hmac.compare_digest(token, admin):
             return
-        if not token or store.token_namespace(token) != namespace:
+        if not token or not publishes_to(token, namespace):
             raise HTTPException(403, f"a token for namespace {namespace!r} is required")
 
     def actor(request: Request) -> str:
@@ -1678,7 +1892,7 @@ def create_registry_app(
         body is read only up to `MAX_REPORT_BYTES`."""
         token = bearer(request)
         submitter = "admin" if admin and token and hmac.compare_digest(token, admin) else None
-        submitter = submitter or (store.token_namespace(token) if token else None)
+        submitter = submitter or (publisher_namespace(token, used=True) if token else None)
         if submitter is None:
             raise HTTPException(401, "a registry token is required to share a report")
         body = bytearray()
