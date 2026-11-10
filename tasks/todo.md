@@ -1735,7 +1735,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   archive, and snapshot.debian.org as pinned versions leave the pool; no scheduled job, the
   default (confirmed, owner, 2026-11-07).
 
-- [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
+- [x] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
     (#153). `mendari.evals.stats`, pure Python: Clopper-Pearson from the beta quantile (a
     Stirling-form incomplete beta, Halley inversion), exact McNemar, a seeded percentile

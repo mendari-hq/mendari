@@ -41,7 +41,7 @@ cffi = "2.1.1"               # libffi 3.4.6, linked statically
 cryptography = "50.0.1"      # OpenSSL 4.0.2 and Rust crates (its SBOMs), statically; Rust 1.98.0's std
 google-re2 = "1.1.20251105"  # RE2 2025-11-05, Abseil 20250512.1, pybind11 2.13.6, statically
 psycopg-binary = "3.3.6"     # the libraries in psycopg_binary.libs, below, per architecture
-pydantic-core = "2.46.5"     # Rust crates (its SBOM), statically; Rust 1.98.0's std
+pydantic-core = "2.50.2"     # Rust crates (its SBOM), statically; Rust 1.99.1's std
 pyyaml = "6.0.3"             # libyaml 0.2.5, statically
 rpds-py = "2026.6.3"         # Rust crates (its SBOM), statically; Rust 1.96.0's std
 
@@ -382,13 +382,28 @@ texts = [
 ]
 
 [[component]]
+id = "rust-std-1.99.1"
+name = "The Rust standard library"
+version = "1.99.1"
+licence = "MIT OR Apache-2.0"
+in = [{ dist = "pydantic-core", version = "2.50.2" }]
+purl = "pkg:generic/rust-std@1.99.1"
+how = "linked statically into pydantic-core's extension (rustc 1.99.1, its .comment section)"
+source = "https://static.rust-lang.org/dist/rustc-1.99.1-src.tar.xz"
+texts = [
+  { file = "COPYRIGHT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.99.1/COPYRIGHT" },
+  { file = "LICENSE-MIT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.99.1/LICENSE-MIT" },
+  { file = "LICENSE-APACHE", url = "https://raw.githubusercontent.com/rust-lang/rust/1.99.1/LICENSE-APACHE" },
+]
+
+[[component]]
 id = "rust-std-1.98.0"
 name = "The Rust standard library"
 version = "1.98.0"
 licence = "MIT OR Apache-2.0"
-in = [{ dist = "cryptography", version = "50.0.1" }, { dist = "pydantic-core", version = "2.46.5" }]
+in = [{ dist = "cryptography", version = "50.0.1" }]
 purl = "pkg:generic/rust-std@1.98.0"
-how = "linked statically into each package's Rust extension (rustc 1.98.0, its .comment section)"
+how = "linked statically into cryptography's Rust extension (rustc 1.98.0, its .comment section)"
 source = "https://static.rust-lang.org/dist/rustc-1.98.0-src.tar.xz"
 texts = [
   { file = "COPYRIGHT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.98.0/COPYRIGHT" },

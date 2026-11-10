@@ -35,9 +35,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run ruff check src tests scripts
@@ -82,9 +82,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
@@ -109,9 +109,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0  # the base commit, for the results store's check
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: The scoreboard's page is the results store's (LP-17f)
@@ -143,9 +143,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -173,11 +173,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6.1.0
         with:
           distribution: temurin
           java-version: "21"
@@ -246,7 +246,7 @@ jobs:
       - name: Sign in to Docker Hub (this repository's own runs; a fork's pulls anonymously)
         # Dependabot's pull requests get no repository secrets: they pull anonymously too.
         if: (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
         # Signing in only raises the pull limit: if Docker Hub fails it, pull anonymously.
         continue-on-error: true
         with:
@@ -319,9 +319,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start a registry and publish the five packs, and one whose text tries to run a script
@@ -332,7 +332,7 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --hostile-example
           .venv/bin/mendari registry verify --db /tmp/registry.db
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -377,9 +377,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start a registry and publish the five packs
@@ -422,7 +422,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       cql:
-        image: hapiproject/hapi:v8.12.0-1@sha256:d7f38d3676900b07e8a7d3500426eaf8d90ea9ced9a6726416f080f68e230fb0
+        image: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
         # Docker Hub limits anonymous pulls; this repository's own runs pull signed in. A fork's
         # pull request gets empty credentials and pulls anonymously, as before.
         credentials:
@@ -439,9 +439,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Wait for the CQL engine
@@ -467,16 +467,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Python dependencies have no known vulnerabilities (pip-audit, itself locked)
         run: |
           uv export --frozen --all-extras --all-groups --no-emit-project --format requirements-txt -o /tmp/requirements.txt
           uv run --frozen pip-audit --disable-pip --no-deps -r /tmp/requirements.txt
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "24"
       - name: The Hub website's runtime dependencies have no high or critical advisories (npm audit)
@@ -569,9 +569,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
@@ -590,9 +590,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
           enable-cache: false
       - run: python3 scripts/run_quickstart.py
@@ -629,9 +629,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start the engine (sign-in on, PHI mode encrypt, keyed input hashes)
@@ -654,7 +654,7 @@ jobs:
       - name: Sign in to Docker Hub (this repository's own runs; a fork's pulls anonymously)
         # Dependabot's pull requests get no repository secrets: they pull anonymously too.
         if: (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
         # Signing in only raises the pull limit: if Docker Hub fails it, pull anonymously.
         continue-on-error: true
         with:
@@ -702,7 +702,7 @@ jobs:
       - name: Sign in to Docker Hub (this repository's own runs; a fork's pulls anonymously)
         # Dependabot's pull requests get no repository secrets: they pull anonymously too.
         if: (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
         # Signing in only raises the pull limit: if Docker Hub fails it, pull anonymously.
         continue-on-error: true
         with:

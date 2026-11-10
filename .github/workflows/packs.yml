@@ -26,9 +26,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Find the changed packs
@@ -89,7 +89,7 @@ jobs:
           --head-repo "$HEAD_REPO" --repo "$REPO" --base-ref "$BASE_REF"
           --default-branch "$DEFAULT_BRANCH" --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: decision-cards
           path: /tmp/packs/*-DECISION_CARD.md

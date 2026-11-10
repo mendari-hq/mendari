@@ -54,9 +54,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0  # the tags, to check this run's tag names this commit
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
       - name: The run is on a release tag naming this commit; the version, wherever written, is the tag's and has its changelog section
         env:
@@ -78,7 +78,7 @@ jobs:
           /tmp/clean/bin/mendari test mendari/patient-inbox-router
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router
           /tmp/clean/bin/mendari test /tmp/refill-router
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: dist
           path: dist/
@@ -141,7 +141,7 @@ jobs:
               --sbom-out "/tmp/sbom/${NAME}-${arch}.spdx.json" \
               --sources-out "/tmp/sbom/${NAME}-${arch}.sources.json"
           done
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: image-${{ matrix.name }}
           path: /tmp/${{ matrix.name }}.tar
@@ -149,7 +149,7 @@ jobs:
       # Each image's SBOM with every package's source location (both architectures) and what its
       # corresponding source is, for the image-sources job: it publishes the SBOMs in the
       # `<tag>-sources` image (BuildKit's attestation in the image's index has no locations).
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sbom-${{ matrix.name }}
           path: /tmp/sbom/
@@ -171,7 +171,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
         with:
           driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           pattern: sbom-*
           path: /tmp/sbom
@@ -181,7 +181,7 @@ jobs:
           python3 scripts/image_sources.py --out /tmp/sources --sboms /tmp/sbom /tmp/sbom/*.sources.json
           docker buildx build --platform linux/amd64,linux/arm64 -f licenses/image/sources.Dockerfile \
             --output "type=oci,dest=/tmp/image-sources.tar" /tmp/sources
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: image-sources
           path: /tmp/image-sources.tar
@@ -205,11 +205,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/check_release.py environment pypi
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
 
   publish-images:
     # Each image is a deployment the reviewer approves in the run; with a release to PyPI only,
@@ -241,15 +241,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/check_release.py environment ghcr
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: image-${{ matrix.name }}
           path: /tmp/image
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: image-sources
           path: /tmp/sources
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -284,11 +284,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/check_release.py environment testpypi
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -303,12 +303,12 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.12.22"
+          version: "0.13.6"
           python-version: "3.12"
           enable-cache: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/

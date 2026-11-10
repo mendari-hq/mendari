@@ -147,7 +147,7 @@ services:
     # passes the kick-off and the status requests on to it, and serves its files under its own
     # URL. The root sandbox's HAPI, by the same digest, seeded with synthetic patients only.
     profiles: [bulk]
-    image: hapiproject/hapi:v8.12.0-1@sha256:d7f38d3676900b07e8a7d3500426eaf8d90ea9ced9a6726416f080f68e230fb0
+    image: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
     environment:
       hapi.fhir.fhir_version: R4
       hapi.fhir.default_encoding: json
