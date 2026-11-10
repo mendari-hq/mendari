@@ -102,10 +102,18 @@ class GuardedHttp:
         headers: Mapping[str, str] | None = None,
         *,
         max_bytes: int | None = None,
+        timeout: float | None = None,
+        stop: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """A JSON answer to a GET. `max_bytes` caps this answer below `MAX_BYTES` (a linked read's,
-        LP-23h): past it, the answer stops arriving and is a `FhirError` (`too_large`)."""
-        extra = {} if max_bytes is None else {"max_bytes": max_bytes}
+        LP-23h): past it, the answer stops arriving and is a `FhirError` (`too_large`). `timeout`
+        and `stop` are `send_json`'s: what remains of a decision's clocks, and a check that ends
+        an answer still arriving once they have run out (`FhirError`, `timeout`)."""
+        extra: dict[str, Any] = {} if max_bytes is None else {"max_bytes": max_bytes}
+        if timeout is not None:
+            extra["timeout"] = timeout
+        if stop is not None:
+            extra["stop"] = stop
         return self._send("GET", url, headers=headers, **extra)
 
     def post_form(
@@ -282,11 +290,21 @@ class FhirClient:
                 raise FhirError(f"the search has more than {MAX_PAGES + 1} pages", reason="cap")
         return {"resourceType": "Bundle", "type": "searchset", "entry": entries}
 
-    def read_resource(self, relative: str, *, max_bytes: int | None = None) -> dict[str, Any]:
+    def read_resource(
+        self,
+        relative: str,
+        *,
+        max_bytes: int | None = None,
+        timeout: float | None = None,
+        stop: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         """GET one resource (`Type/id`, or an absolute URL under the base URL): one request, no
-        page followed, its answer at most `max_bytes` (`MAX_BYTES` unless set lower). What a
-        linked read uses (LP-23h, `standards/linked.py`)."""
-        return self._http.get_json(self.url_of(relative), self._headers, max_bytes=max_bytes)
+        page followed, its answer at most `max_bytes` (`MAX_BYTES` unless set lower), waiting at
+        most `timeout` (each step; `TIMEOUT` unless set) and stopped once `stop` says so
+        (`GuardedHttp.get_json`). What a linked read uses (LP-23h, `standards/linked.py`)."""
+        return self._http.get_json(
+            self.url_of(relative), self._headers, max_bytes=max_bytes, timeout=timeout, stop=stop
+        )
 
     def url_of(self, relative: str) -> str:
         """`relative` (a path, or an absolute URL) as an absolute URL under the base URL, or a

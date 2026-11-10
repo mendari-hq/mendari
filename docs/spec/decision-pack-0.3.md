@@ -156,9 +156,12 @@ record does not hold, a note's Binary included (§2.4), and adds what it read to
 before the mapping runs. Each is one read of one resource, of the type the field reads, from that
 server only, under its base URL and through its allow-list (a link anywhere else is
 `off_server`, never read; a request whose server is off the allow-list is refused before anything
-is decided, as its prefetch read is). A decision reads at most 20 links (past them, `cap`), each
-at most 1 MiB once decoded (`too_large`), and a link is read once a request whatever its
-spelling. A resource its list leaves out (a MedicationRequest entered in error, §2.7) is not an
+is decided, as its prefetch read is). A decision reads at most 50 note Binaries (§2.4) and,
+apart from them, 50 followed references (past either, `cap`), each at most 1 MiB once decoded
+(`too_large`); a request at most 100 reads, its decisions together, and 60 seconds spent in them
+(past them, `cap` or `timeout`, nothing sent); and a link is read once a request whatever its
+spelling. The reads run inside the decision's deadline, which starts before them, and the
+decision's providers share what they leave. A resource its list leaves out (a MedicationRequest entered in error, §2.7) is not an
 item: nothing it links to is read, or counted. A read that fails gives its reason (`timeout`,
 `unauthorized`, `not_r4` and the others). A link that is not read makes the decision ABSTAIN with
 `could not read <field>: <reason>`, whatever a later path of the field reads in its own resource. `fhir/decide` and `$decide` never read a link: there it is
@@ -201,7 +204,8 @@ the text (a cut could lose the very sentence a question reads) and does not let 
 refuse the whole input for it: it leaves the field out of the input and makes the decision
 ABSTAIN with `could not read <field>: too_large`, counted once in the data-coverage record.
 This applies to a top-level field (`fields`) whose schema property, found through `properties`,
-has a `maxLength`.
+has a `maxLength`. A runtime that reads links (§2.3) reads no more of such a field's notes once
+the text it has is longer: the rest are `too_large`, not read.
 
 **Renditions.** R4 makes the repetitions of a DocumentReference's `content` one document in
 different formats, and a DiagnosticReport's `presentedForm` semantically equivalent forms of one
@@ -210,7 +214,8 @@ another attachment of the same resource was read as text: an RTF beside the HTML
 does not make the decision abstain, and a runtime that reads links reads no other rendition
 once one reads. A note whose only renditions cannot be read still counts, and abstains, and so
 does any other attachment that cannot be read (two payloads of a Communication are two
-contents).
+contents). A resource none of whose renditions is read counts once: by the reason of its first
+text/plain or text/html rendition that has one, else `unsupported_type`.
 
 ### 2.5 Code sets (0.3)
 
@@ -255,6 +260,14 @@ resources:
 
 Items come in the order the types are given, then the record's order. A resource whose fields
 all give nothing is left out.
+
+A runtime MAY leave out a source the deployment declares its EHR does not offer: it reads the
+list from its other sources, records so, and never automates on it. Without such a declaration
+a source that cannot be read makes the decision ABSTAIN. (The reference runtime's server reads
+the declaration from `MENDARI_EHR_DECLARATIONS`, per FHIR base and organization, and applies it
+only to a type that is one of several sources of a list, whose other, undeclared source is read,
+and that the pack reads nowhere else: [Connecting an
+EHR](../guides/connecting-an-ehr.md#what-your-ehr-does-not-offer).)
 
 ### 2.7 A MedicationRequest's period (0.3)
 
@@ -368,7 +381,9 @@ names the key. The reference runtime's card for it does not use the `BLOCK` outc
 (that the action must not happen): its detail is the pack's status, the notice, fixed words that
 say the input was refused and nothing was checked, and each reason as the audit record keeps it
 (where in the input and which rule of the schema, a resource by its type and position: never a
-value or an id), whether or not the engine's reasons are behind a link.
+value or an id), whether or not the engine's reasons are behind a link. A reason that is not why
+the input was refused (a part of the record that could not be read, a list read without a source
+the EHR does not offer) follows apart, after `Also noted:`.
 
 ```yaml
 cds_hooks:

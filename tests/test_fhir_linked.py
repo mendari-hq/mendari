@@ -36,7 +36,7 @@ from mendari.settings import FhirValidation
 from mendari.standards import cds_hooks, linked
 from mendari.standards.fhir import FhirAdapter, renditions, unread_attachments
 from mendari.standards.fhir_client import FhirClient
-from mendari.standards.linked import MAX_READS, Linker, reads_links
+from mendari.standards.linked import MAX_NOTE_READS, Linker, reads_links
 from tests.conftest import INPUT_HASH_KEY, ROOT
 from tests.test_spec_03 import mini
 
@@ -383,21 +383,22 @@ def test_a_fhir_server_off_the_allow_list_reads_no_link(
 def test_linked_reads_are_capped_per_decision_and_in_size(
     pack: Decision, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At most `MAX_READS` links a decision: past them, a link is `cap` and is not read. Each
-    read is at most `MAX_BYTES` once decoded (a Binary's content, measured exactly; another
-    resource's JSON as it arrives), else `too_large`; the decision abstains on either."""
-    many = 25
+    """At most `MAX_NOTE_READS` note links a decision: past them, a link is `cap` and is not
+    read (the budgets by purpose and per request: `tests/test_epic_data_fit.py`). Each read is
+    at most `MAX_BYTES` once decoded (a Binary's content, measured exactly; another resource's
+    JSON as it arrives), else `too_large`; the decision abstains on either."""
+    many = MAX_NOTE_READS + 5
     ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(many)))
     notes = [note(f"n{n}", linking(f"Binary/b{n}")) for n in range(many)]
     result = decide(pack, *notes, ehr=ehr)
-    assert MAX_READS == 20 and len(ehr.reads()) == MAX_READS
+    assert MAX_NOTE_READS == 50 and len(ehr.reads()) == MAX_NOTE_READS
     assert result.reasons == ("could not read notes: cap",)
     assert result.data_coverage is not None
-    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"cap": many - MAX_READS}
+    assert result.data_coverage["fields"]["notes"]["unreadable"] == {"cap": many - MAX_NOTE_READS}
 
-    ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(MAX_READS)))
-    result = decide(pack, *notes[:MAX_READS], ehr=ehr)
-    assert result.unreadable == () and len(ehr.reads()) == MAX_READS  # the cap itself reads
+    ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(MAX_NOTE_READS)))
+    result = decide(pack, *notes[:MAX_NOTE_READS], ehr=ehr)
+    assert result.unreadable == () and len(ehr.reads()) == MAX_NOTE_READS  # the cap itself reads
 
     monkeypatch.setattr(linked, "MAX_BYTES", 200)
     ehr = Ehr(
@@ -561,7 +562,9 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
     finds an Organization the record holds without a read). A payor that is not of the type the
     field reads (the patient paying) is not read and is not unreadable; a later payor is not
     read; a failed read abstains with its reason, and a payor on another server, however its
-    scheme is spelled, is `off_server` (`not_fetched` with no server), never read."""
+    scheme is spelled, is `off_server` (`not_fetched` with no server), never read. An
+    Organization the record holds is not among the resources the linker read for the decision,
+    so it is not checked twice."""
     ehr = Ehr(organization("o1", "ACME-77"), organization("o2", "OTHER-1"))
     payer = organization("o1", "ACME-77")
     for record, reads in (
@@ -575,6 +578,9 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
         ehr.requests.clear()
         assert mapped(pack, ehr, *record)["patient"]["payer"] == "ACME-77", record
         assert ehr.reads() == reads, record
+        adapter = FhirAdapter.for_pack(pack.pack)
+        read = Linker.of(ehr.client()).read(adapter.mapping, adapter.index(bundle(*record)))
+        assert [f"{r['resourceType']}/{r['id']}" for r in read] == reads, record
 
     ehr.requests.clear()
     result = decide(pack, coverage("Patient/p1"), ehr=ehr)

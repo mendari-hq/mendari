@@ -688,8 +688,9 @@ caller is one `404`. In the dashboard, a FHIR decision's record shows what it re
 and what a reference points to (the payer behind `Coverage.payor`, the drug behind
 `medicationReference`). What the record holds is read from it. What it does not, a CDS hook with a
 `fhirServer` and the SMART launch's decide read from that server only, under its base, with the same
-token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 20 links a
-decision, each at most 1 MiB once decoded, each read once a request. A link to another server or
+token: one resource by its `Type/id` for each link, a Binary as FHIR JSON, at most 50 notes and 50
+followed references a decision and 100 reads a request, inside the decision's deadline, each at
+most 1 MiB once decoded, each read once a request. A link to another server or
 outside the base is never read (`off_server`), and `fhir/decide` and `$decide` never read one
 (`not_fetched`). A link that is not read makes the decision ABSTAIN with its field and reason, and
 its data-coverage record counts it. Of a note's renditions (an HTML and an RTF of one
@@ -715,6 +716,16 @@ Router declares code sets (since LP-23k): its referral code and its checklist's 
 See
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#site-codes).
 
+**What an EHR does not offer (2026-11-08).** Epic offers no R4 MedicationStatement API, so a pack
+that reads medications from MedicationStatement and MedicationRequest abstains when the first is
+refused. `MENDARI_EHR_DECLARATIONS` (unset: nothing changes) lets a site declare, per FHIR base
+and organization, with who attested it and where that is recorded, the types its EHR does not
+offer. It is checked at startup; a SMART launch's decide or a CDS hook from that base then reads
+the list from its other sources, for a pack that reads the type only as one of several sources of
+a list. The decision records the declaration's version and SHA-256 (`ehr_declaration`), marks the
+source `not_offered`, and **never automates**: AUTO, and a pack rule's BLOCK, become HUMAN_REVIEW
+([Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md#what-your-ehr-does-not-offer)).
+
 **Where EHR pilot readiness stands (LP-23m).** Built, on synthetic data and test keys: an EHR's
 own signed tokens, open mode confined to this machine, CORS for registered origins, a hook that
 always answers, data coverage, cards and card feedback, mapping syntax 0.3 with linked reads and
@@ -724,7 +735,9 @@ token through a hook over HTTP, its card and the clinician's feedback on it to `
 verify`, which passes, and fails once one event is changed, on SQLite and Postgres. The shipped
 packs' cards followed (LP-23j): the inbox has its own card template, and the referral router
 shows a card only when the person signing can act (a referral to send back with what is
-missing, or one to review today), deciding and auditing the others with no card. The shipped
+missing, or one to review today), deciding and auditing the others with no card; since its
+0.3.1, a referral refused as invalid input also shows a warning card that says why (spec 0.3 §5
+`refused`). The shipped
 packs' mappings for real EHR data on spec 0.3 followed (LP-23k, after the owner's go-ahead; the
 owner, a physician, answered the brief on its MedicationRequest rule on 2026-11-07, acceptable
 with changes not built yet, so the rule is not clinically reviewed). Left: the run on Epic's own
@@ -733,9 +746,9 @@ The scorecard's grade at the close-out is level 1 overall, as before LP-23: fail
 behaviour stays at level 1 until a pilot chooses `MENDARI_FHIR_VALIDATION=enforce`, and nothing
 that only a CI run not yet made would show is counted. The
 [threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md#residual-risks-and-assumptions)
-keeps five residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
-decision id the EHR keeps, a misconfigured site map, and frequent abstention on records whose
-notes Mendari cannot read.
+keeps six residual risks: trust in the EHR's key and its rotation, a compromised `jku` host, the
+decision id the EHR keeps, a misconfigured site map, a wrong declaration of what the EHR does not
+offer, and frequent abstention on records whose notes Mendari cannot read.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.

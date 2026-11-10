@@ -22,7 +22,8 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
   against both engines;
 - 23h (#280), linked record data under the EHR's FHIR server: a note by its Binary link, the
-  payer and the medication by reference, at most 20 reads a decision;
+  payer and the medication by reference, at most 20 reads a decision (since 2026-11-08, 50
+  notes and 50 followed references a decision, 100 reads a request);
 - 23i (#280), a site code map per organization (`MENDARI_SITE_CODES`), versioned, its digest in
   each decision's record, and a decision that used it never automated;
 - 23l (#280), conformance outside the unit tests: Inferno's CRD server, SMART client and Bulk
@@ -222,10 +223,10 @@ there amends ADR-0006.
   notes, for one) the packs may abstain often, and the data-coverage counts show it.
 - The only thing stored is the `jti` claims, which expire. Rolling back past 23b turns an EHR's
   tokens back into refusals.
-- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps five
+- The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps six
   residual risks of this design: trust in the EHR's key and its rotation, a compromised `jku`
-  host, the decision id disclosed to the EHR, a misconfigured site map, and frequent abstention
-  on RTF-heavy records.
+  host, the decision id disclosed to the EHR, a misconfigured site map, a wrong declaration of
+  what the EHR does not offer (T10), and frequent abstention on RTF-heavy records.
 
 ## Alternatives Considered
 - **An EHR's token as a Mendari key.** Rejected: a key is Mendari's secret, handed to the EHR;
