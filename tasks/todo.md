@@ -2979,8 +2979,28 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   database) or deploy it as a separate project. If it is not recorded in tasks/todo.md, stop and
   ask."). It was not recorded, and it decides how a publisher token belongs to a signed-in user
   and organization (requirement 1), where namespace claims and their approvals live (2, 3), and
-  what the deployment configuration is (4), so no part was built on a guess. Next: its plan,
-  then build PRs against a local registry; no deploy. The options were:
+  what the deployment configuration is (4), so no part was built on a guess. **Planned
+  2026-11-09: `notes/lp19-plan.md`, eleven PRs (19a to 19k), and ADR-0015 (Proposed).** Build
+  PRs run against a local registry; no deploy. Conflicts between the build prompt and the code,
+  written before building as the prompt asks (the plan gives each one's default): a registry
+  with no sign-in still needs tokens (the operator's commands mint them, with a reason); one
+  approval, at the first publish, not two; "last used" is a day kept outside the chain, since
+  the chain refuses a row that changes without an event; a reviewer role must count in one
+  named organization only, or every organization could approve itself; under the mount an
+  archive is limited to the engine's request body limit (larger ones are LP-20's); the
+  function timeout is already 300 s; the shipped registry key file holds keys only and ships
+  empty until the owner makes the key; the admin token goes entirely, last. Ten owner
+  decisions are open in the plan, each with a default the PRs follow until told otherwise.
+  - [x] **19a** The plan and ADR-0015 (Proposed).
+  - [ ] **19b** Owned publisher tokens (store and operator commands). **19h** https in the
+    client, in parallel.
+  - [ ] **19c** Namespace claims, reserved names, a first publish invisible until approved.
+  - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
+    people's routes for claims and tokens. **19i** the counter-signature, in parallel.
+  - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
+  - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
+  - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
+  The options were:
   - **A, mount the registry under the engine (the build session's recommendation).** The
     registry's routes under the engine app (`/registry/v1/...`, or its own host on the same
     project): one origin, the engine's sign-in and memberships (LP-12) for people, one Postgres
