@@ -19,6 +19,7 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`lp20-plan.md`](lp20-plan.md) | The build plan for LP-20, the pack store (2026-11-10): eleven pull requests, the conflicts written before building and the owner's decisions |
 | [`ehr-scorecard.md`](ehr-scorecard.md) | The EHR scorecard, rubric v1: seven dimensions graded by named criteria, each with the test that shows it; updated by each LP-23 step |
 | [`epic-sandbox-checklist.md`](epic-sandbox-checklist.md) | What the owner registers in Epic's sandbox for LP-23, and what to note back |
+| [`lp22-plan.md`](lp22-plan.md) | The build plan for LP-22, the site evaluation network (2026-11-10): ten pull requests, the conflicts written before building and the owner's decisions |
 | [`clinician-review-harder-inbox-benchmark.md`](clinician-review-harder-inbox-benchmark.md) | The owner's brief for reviewing the harder inbox benchmark's draft (2026-11-07): what to read, the quick-pick questions, and what adoption would do |
 | `clinician-review-*.md` | Briefs for the clinician review of the reference packs (launch gate `clinician-review`, B21.1-B21.5), each naming the pack version and digest it describes: [medication period](clinician-review-medication-period.md), [trial criteria](clinician-review-trial-criteria.md), [inbox router](clinician-review-inbox-router.md), [AI Guard doses](clinician-review-ai-guard-doses.md), [referral and prior authorization](clinician-review-referral-and-prior-auth.md) |
 
