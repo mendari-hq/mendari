@@ -152,6 +152,12 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "pack verify": (["{missing}", "--public-key", "{missing}"], {}),
     "registry serve": (["--db", "{not_db}"], {}),
     "registry verify": (["--db", "{missing_db}"], {}),
+    "registry token": (
+        ["--namespace", "a", "--org", "a", "--reason", "x", "--db", "{missing_db}"],
+        {},
+    ),
+    "registry tokens": (["--db", "{missing_db}"], {}),
+    "registry revoke-token": (["0" * 16, "--reason", "x", "--db", "{not_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),
     "monitor": (["--db", "{missing_db}"], {}),
     # No webhook (the tests clear MENDARI_ALERT_WEBHOOK); in CI, refused before that.
