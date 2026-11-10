@@ -3160,6 +3160,55 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - the checkpoint key (`MENDARI_CHECKPOINT_KEY`) and where its public key is published;
   - firewall enforcement (21o).
 
+- [ ] **LP-22** The site evaluation network (A11): sites share signed counts of how a pack did
+  on their own chart-reviewed data. **Planned 2026-11-10: `notes/lp22-plan.md`, ten PRs (22a to
+  22j), and ADR-0017 (Proposed; 0016 is left for LP-20's plan).** Building waits on LP-19: 22b
+  (the statistics) and 22c (the counts-only payload) can start now; 22d waits for 19c, 22f for
+  19g, 22h for 19i, 22i for 19d to 19g. No step needs an LP-20 step as LP-20 is described
+  today. Build PRs run against a local registry with synthetic sites; nothing is deployed, and
+  no PR drafts or attests a site agreement. Conflicts between the build prompt, the notes and
+  the code, written before building as the prompt asks (the plan gives each one's default):
+  the signing code to reuse is `hub/archive.py`'s key helpers and a recall's record shape, not
+  the archive's own signature; `mendari.site-report/1` holds rates, so a counts-only `/2`
+  replaces it, and ECE, Brier, latency and cost stay with the site; subgroups stay out until
+  packs declare their values; a site signs, so publisher tokens stop sharing reports and
+  `--share` stops taking a free name; a registry with no sign-in registers and verifies sites
+  with the operator's commands; the scoreboard page reads no registry, so the Hub shows site
+  evidence and the scoreboard only links to it; the statistics are pure Python checked against
+  scipy in tests; the exact test where the tables are few, a seeded permutation test
+  otherwise; the random-effects method (unnamed in the prompt) is DerSimonian-Laird on the
+  logit scale from 3 sites; a correction supersedes in the open rather than replacing; a
+  ticket's expiry is worked out on read, since the chain refuses a row that changes without an
+  event; the digest is checked, not only the id and version; consent is asked whenever a
+  configuration uses a provider type outside the local set; LP-22 does not make the engine ask
+  for a site report before automation (B42 stays the owner's attestation); unsigned reports
+  from before are kept and no longer served. Twelve owner decisions are open in the plan, each
+  with a default the PRs follow until told otherwise: site names in public; the publisher's
+  own site; the suppression numbers (1 to 9, and no sharing under 100 cases); the
+  random-effects method; a ticket's 30 days; who registers and who verifies; remote-arm
+  evidence; which figures are pooled; a compromised key; whether automation should need a site
+  report; how many figures the homogeneity test covers; whether the commitment is ever shown.
+  - [x] **22a** The plan and ADR-0017 (Proposed).
+  - [ ] **22b** The statistics of pooling: fixed effect from summed counts, random effects, the
+    range, and the homogeneity test (pure Python, checked against scipy and statsmodels).
+    **22c** in parallel: `mendari.site-report/2` (counts only) and one suppression function.
+  - [ ] **22d** Sites and site keys in the registry's store, and the operator's commands (after
+    19c).
+  - [ ] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and
+    consent for a remote arm.
+  - [ ] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
+    offline path (after 19g; one adversarial security review).
+  - [ ] **22g** Aggregation served per digest and configuration. **22h** the Hub's forest plot,
+    apart from every rank (after 19i).
+  - [ ] **22i** People register sites in the dashboard and reviewers verify them (after 19d to
+    19g; beside 22e to 22h).
+  - [ ] **22j** Close-out: gates `a11-site-network` and `site-validation`'s pending line, the
+    threat model (rows S26, S27, T14, T15, R9, I24, I25, I26, D18, E20), ADR-0017 Accepted on
+    the owner's word.
+  **Owner steps** (no PR does them): the agreements with each site (gate `site-agreements`);
+  checking who each site is before verifying it; telling each site where its key and
+  commitment secret are kept; attesting `site-validation` per site with the signed report's id.
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).

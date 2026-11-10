@@ -98,5 +98,6 @@ nav:
       - "ADR-0013: A scoreboard and scoped grades": decisions/ADR-0013-scoreboard-and-scoped-grades.md
       - "ADR-0014: A CDS client is a principal": decisions/ADR-0014-a-cds-client-is-a-principal.md
       - "ADR-0015: Registry accounts, under the engine": decisions/ADR-0015-registry-accounts-under-the-engine.md
+      - "ADR-0017: A site network of signed counts": decisions/ADR-0017-a-site-network-of-signed-counts.md
   - Project:
       - Roadmap: roadmap.md
