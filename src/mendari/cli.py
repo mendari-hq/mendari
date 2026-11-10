@@ -1847,6 +1847,53 @@ def cmd_registry_revoke_token(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_claim(args: argparse.Namespace) -> int:
+    """Claim a namespace for an organization as the operator, on the registry's database
+    (LP-19c): the only way to claim a reserved name (`mendari`, `openhealth`, and names that
+    start with either and a dash). The claim is pending, and nothing of the namespace is served
+    to anyone but its own token until it is approved. Chained with who ran this and why."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        claimed = store.claim(
+            args.namespace,
+            org=args.org,
+            by=_command_line_actor(),
+            display_name=args.display_name,
+            reserved=True,
+            reason=args.reason,
+        )
+    _print_json(claimed)
+    return 0
+
+
+def cmd_registry_decide(args: argparse.Namespace) -> int:
+    """Approve or refuse a pending claim as the operator, once (LP-19c). Approval needs a
+    published version; from then the namespace is listed. A refused namespace stays taken and
+    is never listed. Chained (`namespace.approved`, `namespace.refused`) with who and why."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        decided = store.decide_claim(
+            args.namespace,
+            approve=args.registry_command == "approve",
+            by=_command_line_actor(),
+            note=args.reason,
+        )
+    _print_json(decided)
+    return 0
+
+
+def cmd_registry_claims(args: argparse.Namespace) -> int:
+    """The namespace claims in a registry's database, read-only: each one's organization, who
+    claimed it, its status, and who decided it, when and why."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(args.db, read_only=True) as store:
+        _print_json(store.claims(org=args.org, status=args.status))
+    return 0
+
+
 def _registry_client(args: argparse.Namespace) -> Any:
     from mendari.hub.client import RegistryClient, default_registry
 
@@ -3511,6 +3558,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--reason", required=True, help="why (chained; at most 200 characters)"
     )
     revoke_token.set_defaults(handler=cmd_registry_revoke_token)
+    claim = registry_cmd.add_parser(
+        "claim", help="claim a namespace for an organization as the operator (pending; chained)"
+    )
+    claim.add_argument("--db", default="var/registry.db", help=registry_db)
+    claim.add_argument("--namespace", required=True, help="the name (a reserved one too)")
+    claim.add_argument("--org", required=True, help="the organization it is linked to")
+    claim.add_argument("--display-name", default="", help="how it is shown (default: its name)")
+    claim.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    claim.set_defaults(handler=cmd_registry_claim)
+    for decision, what in (
+        ("approve", "approve a pending claim: the namespace is listed (needs a published version)"),
+        ("refuse", "refuse a pending claim: the namespace stays taken and is never listed"),
+    ):
+        decide = registry_cmd.add_parser(decision, help=what)
+        decide.add_argument("--db", default="var/registry.db", help=registry_db)
+        decide.add_argument("--namespace", required=True, help="the claimed namespace")
+        decide.add_argument(
+            "--reason", required=True, help="why (chained and kept; at most 300 characters)"
+        )
+        decide.set_defaults(handler=cmd_registry_decide)
+    list_claims = registry_cmd.add_parser("claims", help="list the namespace claims, read-only")
+    list_claims.add_argument("--db", default="var/registry.db", help=registry_db)
+    list_claims.add_argument("--org", help="only this organization's")
+    list_claims.add_argument(
+        "--status", choices=("pending", "approved", "refused"), help="only in this status"
+    )
+    list_claims.set_defaults(handler=cmd_registry_claims)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
     monitor_cmd.add_argument(

@@ -1284,6 +1284,20 @@ The first release (not yet published).
   mints, lists and revokes them on the registry's database (`mendari registry token`, `tokens`,
   `revoke-token`), for a registry nobody signs in to. Tokens from before and the administrator
   token keep working until LP-19g; a database from before opens and verifies as it did.
+- **Namespace claims, and a first publish nobody sees until it is approved** (LP-19c; a
+  namespace with no claim reads as before). The registry's store links a namespace to an
+  organization with a claim (`hub_claims`): `mendari`, `openhealth` and names that start with
+  either and a dash are reserved, a name is claimed once, and an organization holds three
+  pending claims at most. Until a claim is approved, which needs a published version, the
+  publisher works as usual and every read answers anyone but its own token and a reviewer as
+  if the namespace did not exist (the same `404`): search, a pack and its versions, the
+  archive, the namespace, site reports, the recall list and health's pack count. A refused
+  namespace stays taken and is never listed. Claims and decisions are chained with the
+  organization (`namespace.claimed`, `namespace.approved`, `namespace.refused`), and
+  `pack.published` gains `org` and `listed`. Namespace and version answers gain `listed`
+  (and the namespace `claim`, for its own token and a reviewer). The operator claims, decides
+  and lists on the registry's database (`mendari registry claim`, `approve`, `refuse`,
+  `claims`). A database from before opens and verifies as it did.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a
