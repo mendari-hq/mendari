@@ -1,0 +1,181 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy notice (draft) · Mendari</title>
+  <meta name="description" content="Draft privacy notice for Mendari's website and hosted services, pending legal review. Not yet in effect.">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e131a" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://mendari.co/privacy">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/public-sans.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <p class="notice">Research preview. Not a medical device. Not for emergencies: patients should call 911.</p>
+
+  <header class="top wrap">
+    <a class="brand" href="/" aria-label="Mendari, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 7.25 20 11.25 16 15.25 12 11.25Z"/><path class="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z"/><path class="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z"/><path class="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z"/></svg>
+      <span>Mendari</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="/#how">How it works</a>
+      <a href="/#scores">Scores</a>
+      <a href="/#packs">Packs</a>
+      <a class="button" href="/#start">Get started</a>
+    </nav>
+  </header>
+
+  <main id="main" class="legal">
+    <p class="eyebrow">Legal</p>
+    <h1>Privacy notice</h1>
+    <p class="draft">Draft, pending legal review. Not yet in effect. This text is a working draft for the project’s owner and counsel; it is not legal advice and makes no binding promise. Words in brackets are facts still to be supplied.</p>
+    <p class="muted small">Last updated <time datetime="2026-11-10">10 November 2026</time>.</p>
+
+    <ul class="contents" aria-label="On this page">
+      <li><a href="#who">1. Who we are, and what this covers</a></li>
+      <li><a href="#no-patient-data">2. No patient data</a></li>
+      <li><a href="#website">3. This website</a></li>
+      <li><a href="#engine">4. The hosted engine</a></li>
+      <li><a href="#registry">5. The registry and the Hub</a></li>
+      <li><a href="#project">6. The open-source project</a></li>
+      <li><a href="#why">7. Why we use it</a></li>
+      <li><a href="#others">8. Who else receives it</a></li>
+      <li><a href="#keeping">9. How long we keep it</a></li>
+      <li><a href="#protecting">10. How we protect it</a></li>
+      <li><a href="#choices">11. Your choices and rights</a></li>
+      <li><a href="#changes">12. Changes, and how to reach us</a></li>
+    </ul>
+
+    <h2 id="who">1. Who we are, and what this covers</h2>
+    <p>Mendari’s services are run by <span class="placeholder">[legal entity name]</span>, <span class="placeholder">[legal entity address]</span> (“we”). This notice says what personal information those services collect, why, how long it is kept and how it is protected. The services are the ones the <a href="/terms">terms of use</a> cover: this website, the hosted engine, and the registry and Hub once they are open.</p>
+    <p>It does not cover a copy of Mendari that someone else runs. A hospital or company that runs Mendari on its own servers decides what that copy collects, under its own notices and agreements.</p>
+
+    <h2 id="no-patient-data">2. No patient data</h2>
+    <p>The hosted services are for synthetic data only: made-up cases that describe no real person. Do not enter a real patient’s name, record, message or details. The dashboard asks every signed-in person to acknowledge this before they first enter data.</p>
+    <p>So the personal information we expect to hold is about the people who use the services: who signed in, and what they did. If real patient data is entered by mistake, tell us through the contact in <a href="#changes">section 12</a> so it can be erased.</p>
+
+    <h2 id="website">3. This website</h2>
+    <p><code>mendari.co</code> is plain pages. It runs no scripts, sets no cookies, has no analytics or advertising, and loads nothing from any other company’s servers; its fonts are served from the site itself.</p>
+    <p>Like any website, the company that hosts it (see <a href="#others">section 8</a>) receives your internet address and the page you asked for when you visit, and may keep them in its request logs.</p>
+
+    <h2 id="engine">4. The hosted engine</h2>
+    <h3>When you sign in</h3>
+    <p>You sign in through Google. We ask Google for your e-mail address and receive, and keep, your name, your verified e-mail address, and the identifier Google gives your account. We never see or keep your Google password.</p>
+    <p>We keep your membership of each organization, the roles you hold in it, and invitations made out to your address.</p>
+    <h3>Cookies</h3>
+    <p>The hosted engine sets only the cookies that signing in needs:</p>
+    <ul>
+      <li>a session cookie (<code>__Host-mendari_session</code>) that keeps you signed in. Your session ends after 30 minutes without activity, 8 hours after you signed in, or when you close your browser, whichever comes first;</li>
+      <li>a ten-minute cookie (<code>__Host-mendari_signin</code>) that ties a sign-in to the browser that started it;</li>
+      <li>when the dashboard is opened from inside a health record system, the same two kinds of cookie for that launch (<code>__Host-mendari_smart</code>, <code>__Host-mendari_launch</code>).</li>
+    </ul>
+    <p>They are not readable by scripts, are sent only over https and only to the engine’s own address, and are not used to follow you anywhere else. The engine’s pages load nothing from another company’s servers.</p>
+    <h3>What you do</h3>
+    <ul>
+      <li><strong>Decisions.</strong> Each decision is recorded: the pack and its version, the outcome, when, and who asked. The case you entered (which must be synthetic) is stored encrypted, apart from that record, and so are review notes.</li>
+      <li><strong>The audit trail.</strong> Decisions, reviews, approvals, changes to memberships and keys, your acknowledgement of the notice, and each time someone reads a stored case, are added to an append-only, hash-chained audit trail. Whether it names a person by an identifier and a keyed digest of their e-mail address, or by the address itself, depends on how the engine is set up: <span class="placeholder">[how the audit trail names people on the hosted engine]</span>.</li>
+      <li><strong>Keys.</strong> API keys and tokens are stored as hashes; we cannot show one again after it is made. We record who made each.</li>
+      <li><strong>Security logs.</strong> For each request the engine logs the kind of route, the result, how long it took, an opaque identifier for the caller, their organization and their internet address, and it logs sign-ins and refusals. A log line never holds a name, an e-mail address, a credential, the content of a request or the text of a case. Rate limits keep short-lived counters by internet address. Our hosting provider’s own request logs keep the paths requested.</li>
+    </ul>
+    <h3>What we do not do</h3>
+    <p>The engine sends no e-mail, shows no advertising and runs no analytics that follow you. We do not sell or rent personal information.</p>
+
+    <h2 id="registry">5. The registry and the Hub</h2>
+    <p>This section applies once the registry and the Hub are open.</p>
+    <ul>
+      <li><strong>Public.</strong> What a publisher publishes is public, to anyone and for good: the pack and its files, its namespace, name and versions, the publisher’s display name and type, their signing keys’ public halves, and any recall with its reason and who signed it. Put no personal information in a pack.</li>
+      <li><strong>Kept by us.</strong> For each publisher token: the person and organization it belongs to, its namespace, when it was made, when it expires, whether and by whom it was revoked, and the last day it was used. The token itself is stored only as a hash.</li>
+      <li><strong>The record.</strong> Every write to the registry is added to an append-only record naming who acted, by an identifier rather than by the token.</li>
+      <li><strong>Reading.</strong> Searching and reading the Hub needs no account. Requests are counted by internet address for rate limits.</li>
+    </ul>
+
+    <h2 id="project">6. The open-source project</h2>
+    <p>The project’s code, issues and pull requests live on GitHub, under GitHub’s own privacy terms. A contribution is public and permanent: each commit carries the name and e-mail address of its author and its sign-off line. GitHub’s <code>users.noreply.github.com</code> address works if you prefer not to publish your own. Security reports go through GitHub’s private reporting form and are seen only by you and the maintainers until an advisory is published.</p>
+
+    <h2 id="why">7. Why we use it</h2>
+    <ul>
+      <li>to sign you in and show you only what your organization and roles allow;</li>
+      <li>to run the decisions, reviews and evaluations you ask for;</li>
+      <li>to keep an audit trail that shows who did what and that it has not been altered, which is the point of the product;</li>
+      <li>to keep the services secure and within their limits, and to investigate misuse;</li>
+      <li>to meet legal duties.</li>
+    </ul>
+    <p>Whether anything you enter is used to train or improve models, by us or by a model provider: <span class="placeholder">[use of entered data for model training]</span>.</p>
+    <p><span class="placeholder">[privacy rights and legal bases]</span></p>
+
+    <h2 id="others">8. Who else receives it</h2>
+    <p>We share personal information only with the companies that help run the services, and only as far as that needs:</p>
+    <ul>
+      <li><strong>Vercel</strong> hosts this website and the hosted engine, and keeps their request and runtime logs.</li>
+      <li><strong>Neon</strong> hosts the engine’s database.</li>
+      <li><strong>Google</strong> signs you in.</li>
+      <li><strong>GitHub</strong> hosts the project and its security reports.</li>
+      <li><strong>Model providers.</strong> When a pack uses a model run by someone else, the fields of the case that the pack selects are sent to that provider over https: the Jev service, or a language model reached through Vercel’s AI Gateway. Cases must be synthetic, so this should include no personal information. <span class="placeholder">[model providers used by the hosted services]</span></li>
+    </ul>
+    <p>The full list, with what each receives and where it is: <span class="placeholder">[list of subprocessors]</span>. Where the data is stored: <span class="placeholder">[where data is stored]</span>.</p>
+    <p>We may also disclose information when the law requires it, or to protect the services and the people who use them.</p>
+
+    <h2 id="keeping">9. How long we keep it</h2>
+    <ul>
+      <li><strong>Cases and notes.</strong> A daily job deletes stored cases and erases review notes older than <span class="placeholder">[retention period for stored cases and notes]</span>. An administrator can erase one sooner.</li>
+      <li><strong>The audit trail.</strong> The trail itself is kept and is not edited: removing an entry would break the chain that proves it is intact. This is why it holds identifiers and digests, not case text.</li>
+      <li><strong>Your account.</strong> Your sign-in record and memberships are kept while you have access. <span class="placeholder">[retention period for account records]</span></li>
+      <li><strong>Sessions.</strong> A session ends as section 4 describes.</li>
+      <li><strong>Logs.</strong> Security logs are kept for <span class="placeholder">[log retention period]</span>.</li>
+      <li><strong>The registry.</strong> Published versions and the registry’s record are kept for good. A deleted version’s files are removed; the fact that it existed, and why it was deleted, stays.</li>
+    </ul>
+    <p>Erasure is not instant everywhere: database backups and the database’s own history keep a deleted row until they expire.</p>
+
+    <h2 id="protecting">10. How we protect it</h2>
+    <ul>
+      <li>Connections use https, and browsers are told to use nothing else.</li>
+      <li>Stored cases and review notes are encrypted (AES-256-GCM) with a key kept apart from the database. Only signed-in reviewers and administrators of the organization can read them, and each read is recorded.</li>
+      <li>Every route needs a role; access is refused unless it is granted. Organizations are kept apart.</li>
+      <li>API keys and tokens are stored as hashes.</li>
+      <li>The pages load no outside scripts, and rate limits and daily budgets bound what any caller can do.</li>
+      <li>The audit trail is hash-chained, so a change to a past record can be detected.</li>
+    </ul>
+    <p>No service is perfectly secure. The project’s security policy and threat model are published with its source. If we learn of a breach that affects you, we will tell the administrators of the organizations affected. <span class="placeholder">[breach notification commitments]</span></p>
+
+    <h2 id="choices">11. Your choices and rights</h2>
+    <ul>
+      <li>You can stop using the services at any time, and ask your organization’s administrators to remove your membership.</li>
+      <li>You can ask us for a copy of the personal information we hold about you, or to correct or delete it. We will do so where we can; entries in the audit trail and the registry’s record cannot be removed, for the reasons in section 9.</li>
+      <li>The services are not for children: you must be at least <span class="placeholder">[minimum age]</span> to use them.</li>
+    </ul>
+    <p>Send requests to <span class="placeholder">[contact address for privacy requests]</span>.</p>
+
+    <h2 id="changes">12. Changes, and how to reach us</h2>
+    <p>We may change this notice. When we do, we will change the “last updated” date on this page, and give notice of a change that matters as the <a href="/terms#changes">terms of use</a> describe.</p>
+    <p>Questions about privacy: <span class="placeholder">[contact address for privacy requests]</span>. To report a security problem, use the private form described in the <a href="/acceptable-use#security">acceptable use policy</a>.</p>
+  </main>
+
+  <footer class="foot wrap">
+    <div class="foot-brand">
+      <p class="brand brand-sm">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 7.25 20 11.25 16 15.25 12 11.25Z"/><path class="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z"/><path class="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z"/><path class="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z"/></svg>
+        <span>Mendari</span>
+      </p>
+      <p>Research preview on synthetic data. Not a medical device. Not for emergencies: patients should call 911.</p>
+    </div>
+    <div class="foot-meta">
+      <nav class="foot-links" aria-label="Legal">
+        <a href="/terms">Terms of use</a>
+        <a href="/privacy">Privacy notice</a>
+        <a href="/acceptable-use">Acceptable use</a>
+      </nav>
+      <p>Apache-2.0 · Research preview</p>
+      <p>© 2026 The Mendari authors</p>
+    </div>
+  </footer>
+</body>
+</html>

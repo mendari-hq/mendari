@@ -19,6 +19,7 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`ehr-scorecard.md`](ehr-scorecard.md) | The EHR scorecard, rubric v1: seven dimensions graded by named criteria, each with the test that shows it; updated by each LP-23 step |
 | [`epic-sandbox-checklist.md`](epic-sandbox-checklist.md) | What the owner registers in Epic's sandbox for LP-23, and what to note back |
 | [`clinician-review-harder-inbox-benchmark.md`](clinician-review-harder-inbox-benchmark.md) | The owner's brief for reviewing the harder inbox benchmark's draft (2026-11-07): what to read, the quick-pick questions, and what adoption would do |
+| [`legal-pages-open-questions.md`](legal-pages-open-questions.md) | The placeholders in the draft terms, privacy notice and acceptable-use policy (`web/`, 2026-11-10), and the questions for the owner and counsel before they take effect (launch gate `legal-pages-live`, B16) |
 | `clinician-review-*.md` | Briefs for the clinician review of the reference packs (launch gate `clinician-review`, B21.1-B21.5), each naming the pack version and digest it describes: [medication period](clinician-review-medication-period.md), [trial criteria](clinician-review-trial-criteria.md), [inbox router](clinician-review-inbox-router.md), [AI Guard doses](clinician-review-ai-guard-doses.md), [referral and prior authorization](clinician-review-referral-and-prior-auth.md) |
 
 Plan and status: [`tasks/todo.md`](../tasks/todo.md). Lessons: [`tasks/lessons.md`](../tasks/lessons.md).

@@ -536,7 +536,10 @@ secrets or a pack's clinical behaviour.
     `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
     LP-10); the registry's writes (every one chained since LP-18b, #229: `NOT_CHAINED_YET` is
     empty; LP-19's claims and their approval are chained as they are built).
-  - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
+  - The terms, privacy notice and acceptable-use pages (gate G2-3) are drafted on the public page
+    (`web/terms.html`, `privacy.html`, `acceptable-use.html`, each marked a draft pending legal
+    review; the owner's and counsel's questions in `notes/legal-pages-open-questions.md`).
+    Linking them from the hosted site and recording acceptance have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
   - Collecting the tests imported `mendari.server.vercel`, which builds the app on whatever
