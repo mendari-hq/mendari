@@ -6,7 +6,7 @@ from __future__ import annotations
 import base64
 import json
 from collections import Counter
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ import pytest
 
 from mendari import Decision
 from mendari.cli import main
+from mendari.core import clock
 from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_trial
 from mendari.standards import cds_hooks
@@ -21,7 +22,7 @@ from mendari.standards.fhir import FhirAdapter
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "clinical-trial-prescreener"
-TODAY = date.today()
+TODAY = clock.today()  # the engine's day (the display time zone), not the system's
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
 LOINC = "http://loinc.org"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
