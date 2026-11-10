@@ -59,6 +59,7 @@ from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
 from mendari.core.evalsets import NO_SET, EvalsetStore, GradingRead, pack_problem
+from mendari.core.https_only import is_local_host
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy, require_protection
@@ -136,7 +137,7 @@ from mendari.server.backend_services import (
 from mendari.server.cds_clients import CdsOpenMode, cds_clients, cds_sandbox, fhir_server_allowed
 from mendari.server.cors import Cors
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
-from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
+from mendari.server.origin import OriginCheck, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
 from mendari.server.recalls import RecallWatch
 from mendari.server.smart_routes import add_smart_routes, error_page

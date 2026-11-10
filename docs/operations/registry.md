@@ -91,6 +91,15 @@ A recall a server cannot verify is still honoured: it only lowers automation. A 
 instance starts unread and holds its pulled packs until its first read. `mendari decide` and
 `Decision.from_hub` know only the recall the last pull recorded.
 
+## Reaching a registry
+
+The client (`mendari login`, `pull`, `push`, `search`, `yank`, `Decision.from_hub`) reaches a
+registry over https only, and refuses any other address before it sends anything, so a
+publisher token never crosses a network in clear. Plain http is allowed to this machine alone:
+`localhost`, a `.localhost` name or a loopback address, which is what a local registry and the
+docker sandbox use. An address with a user or a password in it is refused. Put a registry that
+other machines use behind TLS.
+
 ## Serving pulled packs
 
 A pack pulled from a registry never automates until your organization approves its exact

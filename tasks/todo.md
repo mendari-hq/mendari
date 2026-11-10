@@ -2992,8 +2992,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   empty until the owner makes the key; the admin token goes entirely, last. Ten owner
   decisions are open in the plan, each with a default the PRs follow until told otherwise.
   - [x] **19a** The plan and ADR-0015 (Proposed).
-  - [ ] **19b** Owned publisher tokens (store and operator commands). **19h** https in the
-    client, in parallel.
+  - [ ] **19b** Owned publisher tokens (store and operator commands).
+  - [x] **19h** The client refuses a registry that is not https, except on this machine
+    (`core/https_only.py`; tests in `tests/test_hub_client.py`).
   - [ ] **19c** Namespace claims, reserved names, a first publish invisible until approved.
   - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
     people's routes for claims and tokens. **19i** the counter-signature, in parallel.

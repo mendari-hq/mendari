@@ -44,6 +44,7 @@ from typing import Any
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.https_only import is_https_or_local
 from mendari.core.origin import MARKER, ORIGIN_FORMAT, pulled_record
 from mendari.core.pack import Pack, load_pack
 from mendari.core.spec import is_pack_id, is_version
@@ -110,6 +111,14 @@ class RegistryClient:
         self, url: str, token: str | None = None, transport: httpx.BaseTransport | None = None
     ):
         self.url = url.rstrip("/")
+        if not is_https_or_local(self.url):
+            # Before any request: a token is never sent in clear, nor to an address that
+            # carries credentials of its own.
+            raise HubError(
+                "a registry is reached over https (http only on this machine, and no user or "
+                "password in the address): `mendari login --registry https://...` or "
+                "MENDARI_REGISTRY_URL"
+            )
         headers = {"authorization": f"Bearer {token}"} if token else {}
         self._http = httpx.Client(
             base_url=self.url,

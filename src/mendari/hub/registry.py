@@ -75,6 +75,7 @@ from starlette.concurrency import run_in_threadpool
 from mendari import __version__
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Session, connect
+from mendari.core.https_only import is_local_host
 from mendari.core.pack import Pack
 from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
 from mendari.core.rate_buckets import RateBuckets
@@ -92,7 +93,6 @@ from mendari.evals.share import (
 from mendari.hub import archive, regression, yank
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
-from mendari.server.origin import is_local_host
 
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")

@@ -28,10 +28,10 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
+from mendari.core.https_only import is_https_or_local
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
 
@@ -68,9 +68,7 @@ log = logging.getLogger("mendari.recalls")
 def fetch_yanks(registry: str, *, deadline_s: float = DEADLINE_S) -> list[dict[str, Any]]:
     """A registry's recalled versions (`GET /v1/yanks`), https only (http to this machine): the
     whole read within `deadline_s` and at most `MAX_YANKS_BYTES`, however the registry sends it."""
-    parts = urlsplit(registry)
-    local = (parts.hostname or "") in ("localhost", "127.0.0.1", "::1")
-    if parts.scheme != "https" and not (parts.scheme == "http" and local):
+    if not is_https_or_local(registry):
         raise MendariError("a registry is read over https")
     started = time.monotonic()
     body = bytearray()

@@ -1276,6 +1276,13 @@ The first release (not yet published).
   in the pack cache, while a report given with `--baseline` is still compared. Every other pack
   is monitored and compared as before. The runbook for running a registry is
   [`docs/operations/registry.md`](docs/operations/registry.md).
+- **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
+  registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
+  `Decision.from_hub` refuse a registry address that is not https, before any request, so a
+  publisher token is never sent in clear. Plain http still reaches this machine (`localhost`,
+  a `.localhost` name, a loopback address), as a local registry and the docker sandbox need. An
+  address that carries a user or a password is refused too. A server's reads of a registry's
+  recalls follow the same rule (before, `localhost`, `127.0.0.1` and `::1` only).
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

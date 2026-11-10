@@ -493,3 +493,77 @@ def test_eval_share_sends_the_metrics(
     with httpx.Client() as http:
         sites = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()["sites"]
     assert [(s["site"], s["n"]) for s in sites] == [("Site B", 20)]
+
+
+def _never_called(request: httpx.Request) -> httpx.Response:
+    raise AssertionError(f"a request left for {request.url}")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://registry.example",
+        "http://10.0.0.7:8100",
+        "http://192.168.1.20",
+        "http://localhost.example.org",
+        "ftp://registry.example",
+        "registry.example",
+        "https://user:secret@registry.example",
+        "http://user:secret@127.0.0.1:8100",
+        "https://",
+    ],
+)
+def test_a_registry_is_reached_over_https_only(url: str) -> None:
+    with pytest.raises(HubError, match="reached over https"):
+        RegistryClient(url, "ohr_token", transport=httpx.MockTransport(_never_called))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://registry.example",
+        "https://registry.example/registry/",
+        "http://localhost:8100",
+        "http://dev.localhost:8100",
+        "http://127.0.0.1:8100",
+        "http://[::1]:8100",
+    ],
+)
+def test_https_and_this_machine_are_reached(url: str) -> None:
+    def healthy(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "ok"})
+
+    with RegistryClient(url, transport=httpx.MockTransport(healthy)) as registry:
+        assert registry.health() == {"status": "ok"}
+
+
+def test_no_token_is_sent_to_a_refused_address(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal comes before any connection: with every send failing the test, logging in to
+    a plain-http registry, and pulling from one named in the environment, send nothing."""
+
+    def no_send(self: httpx.Client, *args: object, **kwargs: object) -> httpx.Response:
+        raise AssertionError("a request was sent")
+
+    monkeypatch.setattr(httpx.Client, "send", no_send)
+    assert main(["login", "--registry", "http://registry.example", "--token", "ohr_token"]) == 1
+    assert "reached over https" in capsys.readouterr().err
+    assert not (client.config_dir() / "credentials.json").exists()  # and nothing is remembered
+
+    monkeypatch.setenv("MENDARI_REGISTRY_URL", "http://registry.example")
+    monkeypatch.setenv("MENDARI_REGISTRY_TOKEN", "ohr_token")
+    with pytest.raises(HubError, match="reached over https"):
+        Decision.from_hub("site-a/inbox")
+
+
+def test_a_saved_http_registry_is_refused_with_what_to_do(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A registry saved before this rule (plain http, not this machine) is refused when it is
+    next used, and the message says how to replace it."""
+    saved = {"default": "http://registry.example", "registries": {"http://registry.example": {}}}
+    client._write_private(client.config_dir() / "credentials.json", saved)
+    assert main(["search", "inbox"]) == 1
+    error = capsys.readouterr().err
+    assert "reached over https" in error and "mendari login --registry https://" in error

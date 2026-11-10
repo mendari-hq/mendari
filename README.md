@@ -950,7 +950,8 @@ can pull and verify them:
 
 Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0.1.0 is on
 PyPI) can pull from a registry they name with `mendari login --registry URL` or
-`MENDARI_REGISTRY_URL`. There is no public registry yet; the docker sandbox runs one.
+`MENDARI_REGISTRY_URL`, over https (plain http only to a registry on this machine). There is no
+public registry yet; the docker sandbox runs one.
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash

@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from mendari import Pack
 from mendari.core.audit import AuditStore
+from mendari.core.https_only import is_local_host
 from mendari.core.phi import PhiPolicy
 from mendari.errors import AuthError, MendariError
 from mendari.server import app as app_module
@@ -34,7 +35,6 @@ from mendari.server.origin import (
     REACHABLE,
     REFUSED,
     OriginCheck,
-    is_local_host,
     origin_of,
     trusted_origins,
 )

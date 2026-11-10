@@ -77,6 +77,7 @@ import jwt
 from starlette.requests import Request
 
 from mendari.core.audit import AuditStore
+from mendari.core.https_only import is_local_host
 from mendari.errors import ClientError, FhirError, MendariError
 from mendari.server import security_log
 from mendari.server.auth import DEFAULT_ORG, CdsRefused
@@ -84,7 +85,6 @@ from mendari.server.backend_services import ALGORITHMS, MAX_ASSERTION_BYTES, MAX
 from mendari.server.limits import client_ip
 from mendari.server.origin import (
     checked_public_url,
-    is_local_host,
     is_this_site,
     plain_http_host,
     trusted_origins,
@@ -549,7 +549,7 @@ def on_this_machine(request: Request) -> bool:
     """Whether a request comes from this machine, sent to it by a name of this machine. All three
     must hold: the caller's address (`limits.client_ip`) is a loopback address; no proxy says it
     forwarded the request (`FORWARDING`: a proxy on this machine connects from loopback too);
-    and the one `Host` header names this machine (`origin.is_local_host`), since a page that
+    and the one `Host` header names this machine (`https_only.is_local_host`), since a page that
     points another name at 127.0.0.1 (DNS rebinding) sends that name. A `Host` alone is what the
     caller says, and an address alone could be such a page's or a proxy's. A proxy on this
     machine that adds no forwarding header (nginx's default `proxy_pass` to 127.0.0.1) passes
