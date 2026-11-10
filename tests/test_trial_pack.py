@@ -23,6 +23,15 @@ from mendari.standards.fhir import FhirAdapter
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "clinical-trial-prescreener"
 TODAY = clock.today()  # the engine's day (the display time zone), not the system's
+
+
+@pytest.fixture(autouse=True)
+def _one_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The engine decides on the day these records were dated from, even when the run crosses
+    midnight: the 365-day and 90-day boundaries below are exact to the day."""
+    monkeypatch.setattr(clock, "today", lambda: TODAY)
+
+
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
 LOINC = "http://loinc.org"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
