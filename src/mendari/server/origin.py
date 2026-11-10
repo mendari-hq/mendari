@@ -175,18 +175,6 @@ def trusted_origins() -> frozenset[str]:
     return frozenset(trusted)
 
 
-def is_local_host(host: str | None) -> bool:
-    """This machine: `localhost`, a `.localhost` name or a loopback address. Such a host gets
-    no HSTS, which would bind every other local server on it to https."""
-    name = (host or "").strip("[]").lower()
-    if name == "localhost" or name.endswith(".localhost"):
-        return True
-    try:
-        return ip_address(name).is_loopback
-    except ValueError:
-        return False
-
-
 PUBLIC_URL_RULE = (
     "MENDARI_PUBLIC_URL must be an https URL without a query or fragment (plain http only for a "
     "loopback or single-label host)"
