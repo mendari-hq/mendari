@@ -2997,7 +2997,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `tests/test_registry_tokens.py`; threat rows S22 and R6 (first halves).
   - [x] **19h** The client refuses a registry that is not https, except on this machine
     (`core/https_only.py`; tests in `tests/test_hub_client.py`).
-  - [ ] **19c** Namespace claims, reserved names, a first publish invisible until approved.
+  - [x] **19c** Namespace claims, reserved names, a first publish invisible until approved
+    (store and operator commands): `hub_claims`, `RegistryStore.claim|decide_claim|claims`, one
+    `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
+    `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
   - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
     people's routes for claims and tokens. **19i** the counter-signature, in parallel.
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.

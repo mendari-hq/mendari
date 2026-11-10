@@ -8,8 +8,9 @@ uploads, and answers what it verified (`checked`) apart from what the publisher 
 (`claimed`). This page is for whoever runs a registry, and for a deployment that serves packs
 pulled from one.
 
-There is no public registry yet. Until LP-19 a registry has one administrator token, no
-accounts and no namespace claims (`tasks/todo.md`). The docker sandbox runs one on port 8100.
+There is no public registry yet. Until LP-19 is finished a registry has one administrator
+token and no accounts (`tasks/todo.md`); namespace claims are made and decided with the
+operator's commands ([Namespace claims](#namespace-claims)). The docker sandbox runs one on port 8100.
 
 ## Starting a registry
 
@@ -164,10 +165,47 @@ mendari registry revoke-token --db var/registry.db ID --reason "the runner was r
 - A token an administrator issued over HTTP (`POST /v1/namespaces/{namespace}/tokens`) has no
   owner or expiry and cannot be revoked. Those keep working for now; LP-19g ends them.
 
+## Namespace claims
+
+A claim links a namespace to an organization. It is `pending` until it is approved or refused,
+once, and until it is approved nothing of the namespace is served to anyone but its own token
+and a reviewer: to everyone else it answers as a namespace that does not exist (the same `404`),
+in every read, search, the recall list and health's pack count. A namespace with no claim, such
+as one an administrator made over HTTP or one from before claims, is listed as before.
+
+```bash
+mendari registry claim --db var/registry.db --namespace acme --org acme \
+  --display-name "Acme Health" --reason "asked by its administrator"
+mendari registry token --db var/registry.db --namespace acme --org acme --reason "first publish"
+# the publisher registers a key and publishes (mendari keys register, mendari push), then:
+mendari registry approve --db var/registry.db --namespace acme --reason "checked the publisher"
+mendari registry refuse  --db var/registry.db --namespace acme --reason "a lookalike"
+mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   # read-only
+```
+
+- **Reserved names.** `mendari`, `openhealth` and any name that starts with either and a dash
+  are claimed with this command only. Any other lookalike is yours to refuse.
+- **A name is claimed once.** A name that exists is refused (`409`), whatever its claim's
+  state; a refused namespace stays taken. Releasing a name is not built.
+- **Three pending claims** per organization at most. A decided claim no longer counts.
+- **Approval needs a published version** that is not deleted (`409` without one): the claim is
+  decided on its first publish. With a pending claim the publisher registers keys and
+  publishes as usual, the regression check runs, and its own token reads what it published
+  (`listed: false` on the namespace and on each version), so `mendari push` confirms.
+- **Approved**, the namespace's later versions and new pack names are listed at once. A
+  decision is final: an approved claim is not refused later (recall or delete a version
+  instead), and a refused one is never approved.
+- **Refused**, nothing is removed: its versions and archives stay in the database, served only
+  to its own token and a reviewer, and its token reads the note.
+- Each step is chained with the organization, who ran the command and why (`namespace.created`
+  and `namespace.claimed`, then `namespace.approved` or `namespace.refused`), and every
+  `pack.published` records the organization and whether the version was listed then.
+- Until reviewers sign in (LP-19e) the administrator token reads everything, as a reviewer.
+
 ## The chain
 
-Every write (a namespace, its publisher type, a token made or revoked, a key, a publish, a site report, a
-review, a recall, a deletion) appends a hash-chained event, naming who acted: `admin`, or a
+Every write (a namespace, its claim and its decision, its publisher type, a token made or revoked, a
+key, a publish, a site report, a review, a recall, a deletion) appends a hash-chained event, naming who acted: `admin`, or a
 token by its id (`token:<id>`), never the token. `mendari registry verify --db` opens the
 database read-only and checks every event's hash and order, that every row is exactly the one
 its newest event hashed, every archive's hash and every key's id. It prints the head.
@@ -178,9 +216,10 @@ on a schedule, and compare a later head with it. A signed head is for later.
 
 ## Not yet
 
-- **Accounts and claims (LP-19).** One shared administrator token; people cannot yet sign in
-  to make their own publisher tokens (the operator's command does, above); a first publish to
-  a new namespace is listed at once. The
+- **Accounts (LP-19).** One shared administrator token; people cannot yet sign in to claim a
+  namespace, make their own publisher tokens or review a claim (the operator's commands do,
+  above). A namespace the administrator token makes over HTTP has no claim and is listed at
+  once, until LP-19g ends that token. The
   registry is to run under the engine app (LP-19's option A, the default the owner confirmed on
   2026-11-07, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   LP-19's build is next; its deploy, the registry's signing key and DNS are the owner's.

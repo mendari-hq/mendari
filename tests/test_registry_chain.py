@@ -76,6 +76,8 @@ def test_every_write_is_chained_and_the_chain_verifies(registry: Registry, db_ta
         "archive_sha256": registry.client.get(VERSION_PATH).json()["archive_sha256"],
         "key_id": json.loads(events[2]["payload"])["key_id"],
         "by": f"token:{token_id(registry.token)}",  # the token's id, never the token
+        "org": None,  # a namespace with no claim (LP-19c): linked to no organization, listed
+        "listed": True,
     }
     assert registry.token not in json.dumps(events)
     assert _verify(db_target) == {
@@ -126,7 +128,10 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the namespaces have no chained event",
         ),
         (
-            ("UPDATE hub_namespaces SET publisher_type = ?", ("institutional",)),
+            (
+                "UPDATE hub_namespaces SET publisher_type = ? WHERE name = ?",
+                ("institutional", "mendari"),
+            ),
             "1 of the namespaces changed since their chained event",
         ),
         (
@@ -151,6 +156,19 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "an archive is not the bytes its name hashes",
         ),
         (("DELETE FROM hub_archives", ()), "a version's archive is missing"),
+        (
+            (
+                "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("mendari", "planted", "user:planted", PLANTED, "approved"),
+            ),
+            "1 of the claims have no chained event",
+        ),
+        (
+            ("UPDATE hub_claims SET status = ?, decided_by = ?", ("approved", "user:planted")),
+            "1 of the claims changed since their chained event",
+        ),
+        (("DELETE FROM hub_claims", ()), "1 of the claims were removed"),
     ],
     ids=[
         "event-deleted",
@@ -164,6 +182,9 @@ PLANTED = "2026-01-01T00:00:00+00:00"
         "key-removed",
         "archive-bytes-replaced",
         "archive-removed",
+        "claim-planted",
+        "claim-approved-past-the-api",
+        "claim-removed",
     ],
 )
 def test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify(
@@ -174,6 +195,8 @@ def test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify(
     database (a planted, changed, moved or removed row, an archive's bytes) is found."""
     assert registry.publish().status_code == 201
     _share(registry)
+    with RegistryStore(db_target) as store:  # a pending claim (LP-19c): its row is covered too
+        store.claim("acme", org="acme", by="user:3f9a")
     assert _verify(db_target)["ok"]
     _write(db_target, *tamper)
     result = _verify(db_target)
