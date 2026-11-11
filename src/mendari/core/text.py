@@ -15,19 +15,33 @@ and `naive_bayes` through `providers.base.text_from`, and `criteria` a medicatio
 text that differs only in such typography decides the same. The plain form is the same words in
 a keyboard's characters:
 
-1. invisible format characters are left out (Unicode category Cf: zero-width spaces and joiners,
-   the byte order mark, the soft hyphen, direction marks);
+1. a zero-width space becomes a space, as it separates words, and the other invisible format
+   characters are left out (Unicode category Cf: zero-width joiners, the byte order mark, the
+   soft hyphen, direction marks), as they sit inside words;
 2. a letter and its accent written as two characters become the one character (Unicode NFC),
    unless composing would make the text longer (a few characters of Hebrew, Indic scripts and
    musical notation compose to more), where the text stays as it is;
 3. apostrophes and quotation marks become `'` and `"`, dashes and the minus sign `-`, and the
-   ellipsis character a full stop: a sentence ends there as at three full stops;
-4. every line end becomes a newline, and every other run of white space one space.
+   ellipsis character a full stop, where a sentence ends as at three full stops; between two
+   digits it becomes a hyphen instead, where a full stop would read as a decimal point;
+4. a carriage return before a newline is left out, and every run of white space that holds no
+   newline becomes one space.
 
 A newline stays a newline: a pack's patterns stop at one, as at the end of a sentence, so text
-wrapped mid-phrase is still read as two lines. Nothing else changes: no case folding (patterns
+wrapped mid-phrase is still read as two lines. Every other character that ends a line somewhere
+(a lone carriage return, a vertical tab, a form feed, the line and paragraph separators) is
+white space, as a pattern has always read it. Nothing else changes: no case folding (patterns
 ignore case themselves), no compatibility folding (the "fi" ligature, full-width letters and the
 micro sign stay as they are), no spelling (`rules` may tolerate typos, a pack's choice).
+
+Three things a pattern matched in the text as received and does not match in its plain form,
+each as the same words typed on a keyboard already decide:
+
+- a format character other than the zero-width space as the only thing between two words: the
+  words join, as they are shown;
+- a negation cue that many spaces kept outside a rule's `negation_window`: the run is one space
+  now, so the cue is as near as it reads;
+- a pattern or a negation reaching across an ellipsis character: it ends there, as at "...".
 
 The plain form is never longer than the text, so the length a pack on the community engine's
 patterns run on (`core/origin.py`) holds for it too, and it is its own plain form. A decision's
@@ -53,27 +67,31 @@ _DASHES = (
     "\N{HYPHEN}\N{NON-BREAKING HYPHEN}\N{FIGURE DASH}\N{EN DASH}\N{EM DASH}"
     "\N{HORIZONTAL BAR}\N{MINUS SIGN}"
 )
-# A carriage return (alone, or before a newline), a vertical tab, a form feed, the next-line
-# control, and the line and paragraph separators.
-_LINE_ENDS = "\r\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}"
+_ZERO_WIDTH_SPACE = "\N{ZERO WIDTH SPACE}"
+_ELLIPSIS = "\N{HORIZONTAL ELLIPSIS}"
 _KEYBOARD = str.maketrans(
     {
         **dict.fromkeys(_APOSTROPHES, "'"),
         **dict.fromkeys(_QUOTATION_MARKS, '"'),
         **dict.fromkeys(_DASHES, "-"),
-        **dict.fromkeys(_LINE_ENDS, "\n"),
-        "\N{HORIZONTAL ELLIPSIS}": ".",
+        _ELLIPSIS: ".",
     }
 )
+_BETWEEN_DIGITS = re.compile(rf"(?<=\d){_ELLIPSIS}(?=\d)")  # as in a range of doses
 _SPACES = re.compile(r"[^\S\n]+")  # a run of white space that holds no newline
 
 
 def plain(text: str) -> str:
     """`text` in its plain form (the module's docstring): never longer than `text`, and its own
     plain form."""
-    if not text.isascii():  # ASCII holds no format character and nothing to compose
-        text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    if not text.isascii():  # ASCII holds no format character, ellipsis or accent to compose
+        text = "".join(
+            " " if ch == _ZERO_WIDTH_SPACE else ch
+            for ch in text
+            if ch == _ZERO_WIDTH_SPACE or unicodedata.category(ch) != "Cf"
+        )
         composed = unicodedata.normalize("NFC", text)
         if len(composed) <= len(text):
             text = composed
+        text = _BETWEEN_DIGITS.sub("-", text)
     return _SPACES.sub(" ", text.replace("\r\n", "\n").translate(_KEYBOARD))

@@ -13,12 +13,20 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
-from mendari.core import tenancy
+from mendari.core import audit, tenancy
 from mendari.evals import load_dataset
 from mendari.evals.feedback import reviewed_dataset
 from mendari.evals.harness import evaluate, record_problems
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, LOCAL_DATASET, encrypted_store, message
+from tests.conftest import (
+    INBOX_DIR,
+    LOCAL_DATASET,
+    encrypt_mode,
+    encrypted_store,
+    message,
+    signed_in,
+)
+from tests.test_hosted_data import sign_in_env
 
 REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
 CALL_BACK = "Can someone call me back?"
@@ -150,7 +158,53 @@ def test_a_sealed_input_is_exported_only_to_a_reader_and_the_read_is_chained(
         assert store.verify()["ok"] is True
 
 
+def test_many_decisions_are_opened_a_part_at_a_time(
+    inbox_pack: Pack, db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database binds only so many values in one statement, so inputs are opened in parts:
+    every one is exported, and each read is chained once."""
+    monkeypatch.setattr(audit, "_REVEALED_AT_ONCE", 2)
+    with encrypted_store(db_target) as store:
+        decision = Decision(inbox_pack, store=store)
+        made = [decision(message(f"{CALL_BACK} It is my request number {n}.")) for n in range(5)]
+        for result in made:
+            store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
+        records, skipped = reviewed_dataset(store, pack_id=inbox_pack.id, reader="rn-1")
+        assert skipped == 0
+        assert {r["attributes"]["decision_id"] for r in records} == {r.id for r in made}
+        for result in made:
+            events = [e["event"] for e in store.get(result.id)["events"]]  # type: ignore[index]
+            assert events.count("input.read") == 1
+        assert store.verify()["ok"] is True
+
+
 # -- the command and the route -------------------------------------------------------------------
+
+
+def test_the_command_exports_one_organizations_decisions_when_asked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What a pack learns from is one site's: without --org the command line reads every
+    organization's decisions, as every other command does."""
+    db = tmp_path / "audit.db"
+    made = {}
+    with AuditStore(db) as store:
+        decision = Decision.from_path(INBOX_DIR, store=store)
+        for org in ("north", "south"):
+            with tenancy.acting_for(org):
+                made[org] = decision(message(CALL_BACK))
+                store.resolve_review(made[org].id, final_label="nurse", reviewer="rn-1")
+    out = tmp_path / "reviewed.jsonl"
+    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv += ["--source", "reviews"]
+
+    assert main([*argv, "--org", "north"]) == 0
+    assert "1 reviewed decision ->" in capsys.readouterr().out
+    (line,) = out.read_text().splitlines()
+    assert json.loads(line)["attributes"]["decision_id"] == made["north"].id
+
+    assert main(argv) == 0
+    assert "2 reviewed decisions ->" in capsys.readouterr().out
 
 
 def test_the_command_exports_reviewed_decisions(
@@ -236,6 +290,43 @@ def test_a_rating_filter_with_reviews_is_refused(
     argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", "reviews", "--rating", "up"]) == 1
     assert "--rating" in capsys.readouterr().err and not out.exists()
+
+
+def test_only_an_administrator_exports_and_only_their_organizations_cases(
+    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With sign-in on (so PHI mode `encrypt`): the route is an administrator's, as the ratings
+    export is, and answers with its own organization's cases, each read logged and chained."""
+    db = tmp_path / "a.db"
+    made = {}
+    with encrypted_store(db) as store:
+        decision = Decision(inbox_pack, store=store)
+        for org in ("default", "elsewhere"):
+            with tenancy.acting_for(org):
+                made[org] = decision(message(CALL_BACK))
+                store.resolve_review(made[org].id, final_label="nurse", reviewer="rn-1")
+        encrypt_mode(monkeypatch)
+        sign_in_env(monkeypatch)
+        client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
+        url = f"/api/packs/{inbox_pack.id}/feedback/export"
+        for role in ("viewer", "reviewer", "governance"):
+            refused = client.get(
+                url, params={"source": "reviews"}, headers=signed_in(store, role=role)
+            )
+            assert refused.status_code == 403, role
+
+        export = client.get(
+            url, params={"source": "reviews"}, headers=signed_in(store, role="admin")
+        )
+        assert export.status_code == 200
+        (line,) = export.text.splitlines()
+        assert json.loads(line)["attributes"]["decision_id"] == made["default"].id
+        assert json.loads(line)["input"] == message(CALL_BACK)
+        read = [e for e in store.get(made["default"].id)["events"] if e["event"] == "input.read"]  # type: ignore[index]
+        assert [event["payload"]["reader"] for event in read] == ["admin@default.example.org"]
+        with tenancy.acting_for("elsewhere"):
+            theirs = store.get(made["elsewhere"].id)["events"]  # type: ignore[index]
+        assert "input.read" not in [event["event"] for event in theirs]
 
 
 def test_the_route_exports_reviewed_decisions(db_target: str) -> None:

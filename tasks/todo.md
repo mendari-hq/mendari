@@ -3292,10 +3292,11 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
 ### What the examination measured (2026-11-10, default offline providers, the packs' own data)
 - **Typography hides text from every pack's patterns.** A phone's curly apostrophe: P(urgent) of
   "it won't stop bleeding" falls from 0.98 to 0.12 (3 of the 55 emergencies the inbox rules
-  flag). 15% of spaces no-break: the referral screen stops detecting 22 of 136 urgent referrals.
-  An en dash in "every 4 to 6 hours": the AI Guard's dose check calls 6,000 mg of acetaminophen
-  a day within the limit, at 0.98. No case was automated by it (the default configurations
-  automate nothing without a model beside the rules).
+  flag). Every third space no-break and every third doubled: the inbox screen keeps 32 of its
+  55, the referral screen 108 of its 136, the prior-authorization screen 13 of its 35. An en
+  dash in "every 4 to 6 hours": the AI Guard's dose check calls 6,000 mg of acetaminophen a day
+  within the limit, at 0.98. No case was automated by it (the default configurations automate
+  nothing without a model beside the rules).
 - **The engine never learns from its reviewers.** A resolved review stores the label a person
   chose (`decisions.final_label`), and nothing exports it: `mendari feedback export` reads
   thumbs only.
@@ -3315,21 +3316,23 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
 ### Plan
 - [x] **Step 1: text is read in its plain form** (ADR-0018). `core/text.py` `plain`; `rules`,
   `dosing` and `naive_bayes` read through it (`providers.base.text_from`), `criteria` a
-  medication's name. Typography only, never longer than the text, its own plain form. 102 tests
+  medication's name. Typography only, never longer than the text, its own plain form. Tests
   (`tests/test_text.py`): each mapping, the two properties (hypothesis), every true critical
-  case of every reference pack retyped four ways deciding as shipped, no text of any pack's
-  datasets changed by it (so data, models, benchmarks and digests are byte-identical), the
-  spec's list of characters equal to the code's. Passes on Python 3.11, 3.12 and 3.13.
+  case of every reference pack retyped six ways deciding as shipped, what the same retypings
+  hide when text is matched as received (15 figures), no text of any pack's datasets changed by
+  it (so data, models, benchmarks and digests are byte-identical), the spec's list of
+  characters equal to the code's. Passes on Python 3.11, 3.12 and 3.13.
 - [x] **Step 2: reviewed decisions as labelled cases.** `AuditStore.labelled` (a pack's
   decisions with a reviewer's label or a recorded outcome, in the caller's organization) and
-  `evals/feedback.py` `reviewed_dataset`; `mendari feedback export --source reviews [--limit N]`
-  and the same route with `?source=reviews` (the existing admin route, so its permission, rate
-  limit and log lines are the ratings export's). The label is `truth_label`'s: the outcome when
-  one was recorded, else the reviewer's. No person is named, no note is carried, a hashed or
-  sealed input is counted and left out, and a sealed one opened for a reader is chained. 15
-  tests (`tests/test_reviewed_cases.py`), SQLite and Postgres. Not built: a dashboard button
-  for it, and `review` / `outcome` among the blocks a hidden set refuses (the `system` block
-  every exported record carries already refuses it).
+  `evals/feedback.py` `reviewed_dataset`; `mendari feedback export --source reviews [--limit N]
+  [--org ORG]` and the same route with `?source=reviews` (the existing admin route, so its
+  permission, rate limit and log lines are the ratings export's). The label is `truth_label`'s:
+  the outcome when one was recorded, else the reviewer's. No person is named, no note is
+  carried, a hashed or sealed input is counted and left out, and a sealed one opened for a
+  reader is chained. Tests (`tests/test_reviewed_cases.py`), SQLite and Postgres, the route
+  with sign-in on too. Not built: a dashboard button for it, and `review` / `outcome` among the
+  blocks a hidden set refuses (the `system` block every exported record carries already
+  refuses it).
 - [x] **Step 3: character features for the built-in learner**, off unless a model file says
   so. `providers/naive_bayes.py`: `tokenize(text, character_ngrams)`, a model's
   `character_ngrams` and its own format (`mendari.naive_bayes/2`), checked at load both ways (a
@@ -3337,29 +3340,64 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   none`; with neither, each model is rebuilt as its file says (`evals/training.py`
   `built_with`), so the reference models rebuild byte for byte. The pack format and the
   provider's config are unchanged: the option lives in the model file, which already records
-  how it was trained. 24 tests (`tests/test_character_features.py`), one pinning the measured
+  how it was trained. Tests (`tests/test_character_features.py`), one pinning the measured
   gain (322 and 353 of 436). Considered and not done: a `character_ngrams` key on the variant
   in `pack.yaml`, which would be a spec 0.3 key with its own gating and is the owner's call.
 - [x] **Step 4: `mendari improve`** (ADR-0019). `evals/improve.py`: the cases a run can use
-  (labelled for the question, accepted by the schema, not in the pack's data, one label an
-  input), split by a hash of each input (30% held out, 15% calibration); two candidates (the
-  model's features, and the other set); each judged against the model in the pack on every
-  declared dataset but the two it trains on and on the held-out cases, with the eval gate, a
-  paired test on every dataset (exact McNemar: a loss beyond chance is a regression, a held-out
-  gain beyond chance is "better"), the share of confident answers that are wrong, and the
-  behaviour tests. `apply` (`--write`) writes the model and appends the learned and calibration
-  cases to the pack's own datasets. 18 tests (`tests/test_improve.py`): the measured gain pinned
-  (90 to 124 of 133 held out; 322 to 369 of the draft's other split), nothing written unless
-  asked, the report holds no case, a pack it wrote to is rebuilt byte for byte by `mendari
-  train`, a second run learns nothing new, wrong labels and the pack's own data are not learned.
-  `apply` stages its three files beside the pack and moves them into place together, keeps a
-  run once (the pack's digest on disk must still be the one judged), and refuses a pack in
-  the registry's cache or among the bundled packs.
+  (labelled for the question, accepted by the schema, not in the pack's data, one label a
+  case), a case being what the classifier reads of it; split by a hash of that (30% held out,
+  15% calibration); two candidates (the model's features, and the other set); each judged
+  against the model in the pack on every declared dataset but the two it trains on and on the
+  held-out cases, with the eval gate, a paired test on every dataset (exact McNemar: a loss
+  beyond chance is a regression, a held-out gain beyond chance is "better"), the share and the
+  count of confident answers that are wrong, and the behaviour tests. `apply` (`--write`)
+  writes the model and adds the learned and calibration cases to the pack's own datasets, all
+  three files or none, once, and only into a pack of one's own. Tests
+  (`tests/test_improve.py`): the measured gain pinned (102 to 138 of 145 held out; 322 to 354
+  of the draft's other split), nothing written unless asked, the report holds no case, a pack
+  it wrote to is rebuilt byte for byte by `mendari train`, a second run learns nothing new,
+  wrong labels and the pack's own data are not learned.
   **Found while building it:** the 3% the eval gate tolerates let a file of wrong labels
-  through (7 of 600 test cases lost), which is why the paired test is there; and the local-site
+  through (6 of 600 test cases lost), which is why the paired test is there; and the local-site
   example's own candidate was confidently wrong on 4 emergency messages, which is why the
   confident-and-wrong check is.
-- [ ] **Step 5: the whole gate**, the reference packs rebuilt byte-identical, the docs site.
+- [x] **Step 5: review and the whole gate.** One independent review of the branch: 1 high, 6
+  medium, 10 low; all fixed but two lows left as documented behaviour (accents composed for a
+  whole field or not at all; what a run measures on a deployment with a model screen).
+  - **High.** A case was its whole input, so the same message with another time stamp was
+    another case, fell on both sides of the split and was judged after it was learned (given
+    three times each, every held-out case came out right), and a message of the pack's own test
+    was learned from once its record differed in one field. A case is now what the classifier
+    reads of it.
+  - **Medium.** The plain form lost detections the raw text had (a vertical tab, a form feed or
+    a line separator read as a newline; a zero-width space joining the two words it separated;
+    an ellipsis between two doses read as a decimal point): fixed, and the three cases that
+    remain are in ADR-0018. `apply` was not all or nothing, and wrote through a path spelt
+    another way into a bundled or pulled pack (`origin_of` now tells a directory by the file it
+    is: before, a pulled pack reached through another spelling of its path was taken for a local
+    one, which this branch did not introduce). A report-only run wrote to a model file named by
+    an absolute path. The command-line export had no organization scope. `mendari train` failed
+    on a pack with two classifiers after a run was kept.
+  - **And a mistake of the session's own:** a test applied a run to
+    `packs/patient-inbox-router` itself (restored at once; `tasks/lessons.md`). `apply` now
+    refuses the bundled packs, and the suite fails a run that leaves a pack of the repository
+    changed (`tests/conftest.py`).
+  - Verified: lint, format and types; the full suite on SQLite and Postgres; the reference
+    packs rebuilt from source byte-identical (data, models, ledgers; all five benchmarks
+    reproduce); the new test files on Python 3.11, 3.12 and 3.13; the docs site (strict); the
+    README's command tour and the API examples.
+
+### Left for the owner
+- **Merging.** Step 1 changes what a pack decides on text that holds such characters.
+- **Whether a pack that holds a site's cases may be pushed.** Nothing stops `mendari push` yet;
+  a guard there would refuse a pack whose datasets hold records `mendari improve` added.
+- **Whether the reference packs adopt any of it**: character features for their models, or the
+  harder draft as training data, each a new pack version with its own review.
+- **An automatic hold when monitoring alerts.** It only lowers automation, and ADR-0010 chose
+  that nothing holds automation by itself.
+- **The regulatory reading.** A pack is the same pack until a person promotes a new version, so
+  each version is fixed; whether learning from a site's reviewers changes anything for the
+  FDA CDS opinion (gate `fda-cds-opinion`) is counsel's to say.
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from

@@ -4901,7 +4901,12 @@ class AuditStore(RateBuckets):
                 "ORDER BY d.created_at DESC, d.id LIMIT ?",
                 (*scoped, pack_id, limit),
             )
-        return self.reveal_inputs([_row(row) for row in rows], reader)
+        items = [_row(row) for row in rows]
+        # A database binds only so many values in one statement: inputs are opened a part at a
+        # time (each part's reads chained together).
+        for start in range(0, len(items), _REVEALED_AT_ONCE):
+            self.reveal_inputs(items[start : start + _REVEALED_AT_ONCE], reader)
+        return items
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         scope, scoped = _scope()
@@ -5895,6 +5900,9 @@ def _page(db: _Session, sql: str, params: Sequence[Any], limit: int) -> list[dic
 def _total(db: _Session, sql: str, params: Sequence[Any]) -> int:
     row = db.one(sql, params)
     return int(row["n"]) if row else 0
+
+
+_REVEALED_AT_ONCE = 500  # the decisions `labelled` opens the inputs of in one statement
 
 
 def truth_label(row: Mapping[str, Any]) -> str | None:

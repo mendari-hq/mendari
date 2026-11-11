@@ -85,6 +85,14 @@ def test_character_features_are_the_runs_inside_each_word() -> None:
     ]
 
 
+def test_a_word_too_long_to_be_one_has_no_runs_counted() -> None:
+    """A link or an encoded attachment is one word: each of its characters would give up to
+    seven runs."""
+    word = "x" * 64  # between its edges, 66 characters: 64 runs of 3, 63 of 4, 62 of 5
+    assert sum(token.startswith("#") for token in tokenize(word, (3, 5))) == 64 + 63 + 62
+    assert tokenize(word + "x", (3, 5)) == [word + "x"]
+
+
 def test_a_model_trained_without_them_is_the_format_it_was() -> None:
     model = toy()
     assert model["format"] == FORMAT == "mendari.naive_bayes/1"
@@ -177,6 +185,40 @@ def test_training_rebuilds_a_model_the_way_its_file_says_it_was_built(
 
     assert main(["train", str(root), "--character-ngrams", "none"]) == 0
     assert (root / MODEL).read_bytes() == shipped
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda model: {**model, "character_ngrams": [5, 3]},
+        lambda model: {key: value for key, value in model.items() if key != "character_ngrams"},
+        lambda model: "not a model",
+    ],
+    ids=["a range that is not one", "no range", "not a model"],
+)
+def test_a_model_that_does_not_say_how_it_was_built_is_not_rebuilt_as_words_alone(
+    inbox: Path, damage: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Training it again as its file says cannot be done, and guessing would quietly take its
+    character features away: the command asks."""
+    assert main(["train", str(inbox), "--character-ngrams", "3-5"]) == 0
+    (inbox / MODEL).write_text(json.dumps(damage(trained(inbox))))
+    damaged = (inbox / MODEL).read_bytes()
+    capsys.readouterr()
+
+    assert main(["train", str(inbox)]) == 1
+    assert "cannot tell how this model was built" in capsys.readouterr().err
+    assert (inbox / MODEL).read_bytes() == damaged
+
+    assert main(["train", str(inbox), "--character-ngrams", "3-5"]) == 0  # said: rebuilt
+    assert trained(inbox)["character_ngrams"] == [3, 5]
+
+
+def test_a_first_training_is_words_alone(inbox: Path) -> None:
+    shipped = (inbox / MODEL).read_bytes()
+    (inbox / MODEL).unlink()
+    assert main(["train", str(inbox)]) == 0
+    assert (inbox / MODEL).read_bytes() == shipped
 
 
 @pytest.mark.parametrize("given", ["3", "5-3", "1-3", "3-9", "a-b", "3-5-7"])

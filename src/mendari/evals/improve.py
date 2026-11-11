@@ -6,11 +6,15 @@ The cases are a dataset file: what reviewers decided (`mendari feedback export -
 reviews`), rated decisions someone labelled, or cases a site labelled itself. A run:
 
 1. **Takes the cases it can use**: labelled for the classifier's question with one of its
-   labels, with an input the pack accepts, and not already among the pack's own data. The same
-   input given twice counts once; given with two labels, it is left out.
-2. **Sets some aside before it looks at any.** Each case falls by a hash of its own input, so it
-   falls the same way in every run: 30% are held out, 15% calibrate, the rest are learned from.
-   A held-out case is never learned from, in this run or a later one.
+   labels, with an input the pack accepts, and not already among the pack's own data. A case
+   is what the classifier reads of it: its words, in order, in the fields the classifier reads
+   (`providers/naive_bayes.py` `tokenize`). So the same message received twice, or with another
+   time stamp, another channel or other capitals, is one case; given with two labels, it is
+   left out; and a message the pack's own data already holds is known whatever else its record
+   says.
+2. **Sets some aside before it looks at any.** Each case falls by a hash of what the classifier
+   reads of it, so it falls the same way in every run: 30% are held out, 15% calibrate, the rest
+   are learned from. A held-out case is never learned from, in this run or a later one.
 3. **Builds candidates**: the pack's model retrained on its own training data and the cases to
    learn from, once with the features the model has and once with the other set
    (`providers/naive_bayes.py`: words alone, or words and runs of characters).
@@ -21,13 +25,16 @@ reviews`), rated decisions someone labelled, or cases a site labelled itself. A 
    critical label still detected and none newly automated), it gets fewer cases right than the
    model in the pack by more than chance (the cases only one of the two gets right, exact
    McNemar, p < 0.05), or it is confidently wrong more often (answers at or above the pack's
-   automation threshold that are wrong, as a share, by more than the tolerance); or when a
-   behaviour test that passes stops passing. It is better when it has not regressed and gets
+   automation threshold that are wrong: as a share of such answers, above the model in the
+   pack's by more than the tolerance even at the lower end of its exact 95% interval, or on
+   more cases than the model in the pack by more than chance); or when a behaviour test that
+   passes stops passing. It is better when it has not regressed and gets
    more of the held-out cases right than the model in the pack does, by more than chance.
 5. **Keeps nothing by itself.** The report says which candidate is better, if any. Only
-   `apply` (`--write`) writes: the model, and the cases it learned from and calibrated on at the
-   end of the pack's own training and calibration datasets, so the pack's data still gives the
-   model it holds and `mendari train` rebuilds it byte for byte.
+   `apply` (`--write`) writes, and only into a pack of the caller's own (`not_writable`): the
+   model, and the cases it learned from and calibrated on at the end of the pack's own training
+   and calibration datasets, so the pack's data still gives the model it holds and `mendari
+   train` rebuilds it byte for byte. All three files change, or none does.
 
 A pack it wrote to is a changed pack: a new digest, to be given a new version, tested, and
 approved wherever a digest is approved, as any change is. Nothing here serves it or approves it.
@@ -56,7 +63,6 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision
-from mendari.core.origin import NOT_OWNED
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import origin_of
 from mendari.errors import MendariError
@@ -67,8 +73,10 @@ from mendari.evals.harness import Dataset, Evaluation, evaluation, load_dataset,
 from mendari.evals.ledger import Ledger
 from mendari.evals.pack_tests import run_pack_tests
 from mendari.evals.result import CONFIDENCE, PREDICTED, TRUTH
-from mendari.evals.training import built_with, fit, model_files, written
-from mendari.providers.naive_bayes import CharacterNgrams
+from mendari.evals.training import built_with, fit, model_files, text_fields, written
+from mendari.hub.archive import pack_files
+from mendari.providers.base import text_from
+from mendari.providers.naive_bayes import CharacterNgrams, tokenize
 
 FORMAT = "mendari.improvement/1"
 HELD_OUT = "held out"  # the new cases a run never learns from, as its report names them
@@ -81,15 +89,23 @@ MIN_HELD_OUT = 30
 ALPHA = 0.05
 CHARACTER_NGRAMS: CharacterNgrams = (3, 5)  # the runs a candidate with character features counts
 BETTER, NOT_BETTER, REGRESSED, TOO_FEW = "better", "not_better", "regressed", "too_few_cases"
-LEFT_OUT = ("not_labelled", "refused", "already_in_pack", "conflicting", "repeated")
-_SOURCE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+LEFT_OUT = (
+    "not_labelled",
+    "refused",
+    "nothing_to_read",
+    "already_in_pack",
+    "conflicting",
+    "repeated",
+)
+_NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")  # a source, or a decision's id: never free text
 
 
 @dataclass(frozen=True)
 class Improvement:
     """A run's report, and what `apply` would write: the chosen candidate's model, and the
-    cases it learned from and calibrated on, for the datasets named. `held_out_ids` are the
-    given ids of the cases held out, for the caller alone: the report names no case."""
+    cases it learned from and calibrated on, for the datasets named. `held_out_ids` are the ids
+    of the given records held out (every record of a case), for the caller alone: the report
+    names no case."""
 
     report: dict[str, Any]
     held_out_ids: tuple[str, ...] = ()
@@ -134,11 +150,17 @@ def improve(
     """Judge what the pack's classifier (of `slot`, when several slots have one) would gain from
     the cases `given` (the module's docstring). Nothing is written. A pack with no classifier,
     or one that cannot be judged on this machine, is a `MendariError`."""
+    if train == calibration:
+        raise MendariError(
+            f"{pack.id}: a model is calibrated on cases it did not learn from: the training and "
+            "calibration datasets are two"
+        )
     slot, variant, config = _target(pack, slot)
-    model_file = str(config["model_file"])
+    # As the pack holds it: a path that leaves the pack is refused here, before anything runs.
+    model_file = pack.path(str(config["model_file"])).relative_to(pack.root).as_posix()
     (question,) = pack.manifest.providers[slot].answers
     current = _decision(pack, slot, variant)
-    cases = _new_cases(pack, current, question, given)
+    cases = _new_cases(pack, current, question, text_fields(config), given)
     report: dict[str, Any] = {
         "format": FORMAT,
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
@@ -215,33 +237,41 @@ def improve(
     )
 
 
+def not_writable(pack: Pack) -> str | None:
+    """Why a run is never kept in this pack, or None: `apply` writes only into a pack of the
+    caller's own. A pack among those this release bundles (its data comes from its generator),
+    in the repository's community packs (what it learned from would be published with it) or
+    in the registry's cache (a verified copy) is not changed in place, by where it is on disk
+    (`core.registry.origin_of`), whatever it was loaded as."""
+    where = {pack.origin, origin_of(pack.root)} - {"local"}
+    if not where:
+        return None
+    what = {
+        "maintained": "a reference pack of this release",
+        "community": "a community pack of this repository",
+        "hub": "a pack pulled from a registry",
+    }[sorted(where)[0]]
+    return f"{what} is not changed in place: copy it, and improve the copy"
+
+
 def apply(pack: Pack, found: Improvement) -> list[Path]:
-    """Keep what a run found better: append the cases it learned from and calibrated on to the
-    pack's own training and calibration datasets, and write the model. The pack's data then gives
-    the model it holds (`mendari train` rebuilds it byte for byte). Returns what it wrote. A run
-    that found nothing better, or was made on another state of the pack, is a `MendariError`,
-    and so is a pack in the registry's cache or among the packs this release bundles, which
-    are never changed in place: nothing is written."""
+    """Keep what a run found better: add the cases it learned from and calibrated on to the end
+    of the pack's own training and calibration datasets, and write the model. The pack's data
+    then gives the model it holds (`mendari train` rebuilds it byte for byte). Returns what it
+    wrote. All of it is written, or nothing: each file is written whole beside the pack first,
+    then moved into place with its own permissions, and if one cannot be moved the ones already
+    moved are put back. A run that found nothing better, a pack that is not the caller's own
+    (`not_writable`), and a pack that is no longer the one the run judged (so a run is kept
+    once) are each a `MendariError`, and nothing is written."""
     if found.model is None:
         raise MendariError(f"nothing to keep: no candidate was better ({found.verdict})")
-    # Where the pack is, whatever it was loaded as: a pack is never changed in the registry's
-    # cache or among the packs this release bundles.
-    where = origin_of(pack.root)
-    if pack.origin in NOT_OWNED or where in NOT_OWNED:
-        raise MendariError(
-            "nothing to keep: a pack pulled from a registry is not this deployment's to change. "
-            "Improve a copy of it under an id of your own"
-        )
-    if where == "maintained":
-        raise MendariError(
-            "nothing to keep: a reference pack of this release is not changed in place (its "
-            "data comes from its generator). Copy it, and improve the copy"
-        )
-    # The pack as it is on disk now, not as it was when loaded: a run is kept once.
+    if (problem := not_writable(pack)) is not None:
+        raise MendariError(f"nothing to keep: {problem}")
+    # The pack as it is on disk now, not as it was when loaded.
     if pack_digest(pack.root) != found.report["pack"]["digest"]:
         raise MendariError("nothing to keep: the pack has changed since this run judged it")
     declared = pack.manifest.evaluation.datasets
-    contents: list[tuple[Path, bytes]] = []
+    contents: list[tuple[Path, bytes, bytes]] = []  # the file, what it holds, what it will
     for name, records in (
         (found.train_dataset, found.learned),
         (found.calibration_dataset, found.calibration),
@@ -255,20 +285,29 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
             target = pack.path(declared[name])
             held = target.read_bytes()
             ends = b"" if held.endswith(b"\n") or not held else b"\n"
-            contents.append((target, held + ends + _lines(records)))
+            contents.append((target, held, held + ends + _lines(records)))
     model = pack.path(str(found.report["model_file"]))
-    contents.append((model, written(found.model).encode()))
-    # Each file is written whole beside the pack first, then all are moved into place: a disk
-    # that fills, or a file that cannot be written, leaves the pack as it was.
+    contents.append((model, model.read_bytes(), written(found.model).encode()))
+    moved: list[tuple[Path, bytes]] = []
     with tempfile.TemporaryDirectory(dir=pack.root.parent, prefix=".mendari-improve-") as beside:
         staged = []
-        for number, (target, content) in enumerate(contents):
+        for number, (target, _, content) in enumerate(contents):
             ready = Path(beside) / str(number)
             ready.write_bytes(content)
-            staged.append((ready, target))
-        for ready, target in staged:
-            os.replace(ready, target)
-    return [target for target, _ in contents]
+            shutil.copymode(target, ready)
+            staged.append(ready)
+        try:
+            for ready, (target, held, _) in zip(staged, contents, strict=True):
+                os.replace(ready, target)
+                moved.append((target, held))
+        except OSError as error:
+            for target, held in moved:  # as they were: the pack is whole, or untouched
+                target.write_bytes(held)
+            raise MendariError(
+                f"nothing was kept: {contents[len(moved)][0].name} could not be written "
+                f"({type(error).__name__}), and the pack is as it was"
+            ) from None
+    return [target for target, _, _ in contents]
 
 
 def text(report: Mapping[str, Any]) -> str:
@@ -332,17 +371,27 @@ def _decision(pack: Pack, slot: str, variant: str) -> Decision:
     return decision
 
 
-def _new_cases(pack: Pack, decision: Decision, question: str, given: Sequence[Dataset]) -> _Cases:
+def _read(inputs: Mapping[str, Any], fields: list[str]) -> str:
+    """What the classifier reads of an input: its words and pairs of words, in order, from the
+    fields it reads, in their plain form (`tokenize`). Two inputs it reads alike are one case,
+    whatever else their records hold; one with no word to read is none."""
+    return "\x1f".join(tokenize(text_from(inputs, fields)))
+
+
+def _new_cases(
+    pack: Pack, decision: Decision, question: str, fields: list[str], given: Sequence[Dataset]
+) -> _Cases:
     """The cases of `given` a run can use, each as the pack's datasets hold a case, split by a
-    hash of its input; and how many it left out, by why (`LEFT_OUT`)."""
+    hash of what the classifier reads of it (`_read`); and how many it left out, by why
+    (`LEFT_OUT`)."""
     labels = set(pack.manifest.labels(question))
     in_pack = {
-        canonical_input(record["input"])
+        _read(record["input"], fields)
         for name in pack.manifest.evaluation.datasets
         for record in resolve_dataset(pack, name).records
     }
     left_out = dict.fromkeys(LEFT_OUT, 0)
-    by_input: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    by_reading: dict[str, dict[str, list[dict[str, Any]]]] = {}
     total = 0
     for dataset in given:
         for record in dataset.records:
@@ -353,29 +402,37 @@ def _new_cases(pack: Pack, decision: Decision, question: str, given: Sequence[Da
                 left_out["not_labelled"] += 1
             elif decision.validate(record["input"]):
                 left_out["refused"] += 1
-            elif (key := canonical_input(record["input"])) in in_pack:
+            elif not (read := _read(record["input"], fields)):
+                left_out["nothing_to_read"] += 1
+            elif read in in_pack:
                 left_out["already_in_pack"] += 1
             else:
-                by_input.setdefault(key, {}).setdefault(label, []).append(record)
+                by_reading.setdefault(read, {}).setdefault(label, []).append(record)
     cases = _Cases([], [], [], [], total, left_out)
-    for digest, key in sorted((hashlib.sha256(key.encode()).hexdigest(), key) for key in by_input):
-        labelled = by_input[key]
+    hashed = sorted((hashlib.sha256(read.encode()).hexdigest(), read) for read in by_reading)
+    for digest, read in hashed:
+        labelled = by_reading[read]
         records = [record for same in labelled.values() for record in same]
-        if len(labelled) > 1:  # the same input, two labels: neither is learned
+        if len(labelled) > 1:  # read alike, labelled two ways: neither is learned
             left_out["conflicting"] += len(records)
             continue
         left_out["repeated"] += len(records) - 1
         (label,) = labelled
+        # Of records read alike, the one kept does not depend on the order they were given in.
+        kept = min(records, key=lambda record: canonical_input(record["input"]))
+        attributes = {"source": _name(kept, "source") or "given"}
+        if (decision_id := _name(kept, "decision_id")) is not None:
+            attributes["decision_id"] = decision_id  # to find the case again (an erasure)
         case = {
             "id": f"learned-{digest[:16]}",
-            "input": records[0]["input"],
+            "input": kept["input"],
             "labels": {question: label},
-            "attributes": {"source": _source(records[0])},
+            "attributes": attributes,
         }
         share = int(digest[:8], 16) / 2**32
         if share < HELD_OUT_SHARE:
             cases.held_out.append(case)
-            cases.held_out_ids.append(str(records[0]["id"]))
+            cases.held_out_ids.extend(str(record["id"]) for record in records)
         elif share < HELD_OUT_SHARE + CALIBRATION_SHARE:
             cases.calibration.append(case)
         else:
@@ -383,12 +440,12 @@ def _new_cases(pack: Pack, decision: Decision, question: str, given: Sequence[Da
     return cases
 
 
-def _source(record: Mapping[str, Any]) -> str:
-    """Where a case came from, as its file says (`attributes.source`: `review`, `outcome`,
-    `feedback`), when that is a short name; else `given`."""
+def _name(record: Mapping[str, Any], key: str) -> str | None:
+    """A record's `attributes.<key>` (where a case came from: `review`, `outcome`, `feedback`;
+    the decision it was), when it is a short name and so never free text; else None."""
     attributes = record.get("attributes")
-    source = attributes.get("source") if isinstance(attributes, Mapping) else None
-    return source if isinstance(source, str) and _SOURCE.fullmatch(source) else "given"
+    value = attributes.get(key) if isinstance(attributes, Mapping) else None
+    return value if isinstance(value, str) and _NAME.fullmatch(value) else None
 
 
 def _lines(records: Sequence[Mapping[str, Any]]) -> bytes:
@@ -415,11 +472,10 @@ def _judged(
     tolerance = pack.manifest.evaluation.degradation_tolerance
     at = _threshold(pack, question)
     with tempfile.TemporaryDirectory() as scratch:
-        root = Path(scratch) / pack.root.name
-        shutil.copytree(pack.root, root, ignore=_no_ledgers)
-        (root / model_file).write_text(written(model), encoding="utf-8")
         candidate = Decision(
-            load_pack(root, origin=pack.origin), providers=dict(providers), origin_cap=False
+            _copy_with(pack, model_file, model, Path(scratch) / pack.root.name),
+            providers=dict(providers),
+            origin_cap=False,
         )
         compared: list[dict[str, Any]] = []
         regressions: list[str] = []
@@ -433,13 +489,17 @@ def _judged(
                     f"got fewer right: {paired['lost']} lost, {paired['gained']} gained "
                     f"(p = {paired['p']:.3g})"
                 )
-            confident = {
-                "current": _confident(current.ledger, question, at),
-                "candidate": _confident(judged.ledger, question, at),
-            }
-            if _share(confident["candidate"]) - _share(confident["current"]) > tolerance:
+            confident = _confident(current.ledger, judged.ledger, question, at)
+            was, sure = confident["current"], confident["candidate"]
+            if _at_least(sure) > _share(was) + tolerance:
                 failures.append(
-                    f"confident and wrong rose by more than {tolerance:.0%} of confident answers"
+                    f"confident and wrong more often: {sure['wrong']} of {sure['n']} confident "
+                    f"answers (the model in the pack: {was['wrong']} of {was['n']})"
+                )
+            if confident["newly_wrong"] > confident["no_longer_wrong"] and confident["p"] < ALPHA:
+                failures.append(
+                    f"confident and wrong on more cases: {confident['newly_wrong']} newly, "
+                    f"{confident['no_longer_wrong']} no longer (p = {confident['p']:.3g})"
                 )
             regressions += [f"{dataset.name}: {failure}" for failure in failures]
             compared.append(
@@ -482,9 +542,19 @@ def _judged(
         }
 
 
-def _no_ledgers(directory: str, names: list[str]) -> list[str]:
-    """A pack's evaluation ledgers are not copied: a candidate decides without them."""
-    return ["ledgers"] if Path(directory).name == "evals" and "ledgers" in names else []
+def _copy_with(pack: Pack, model_file: str, model: Mapping[str, Any], root: Path) -> Pack:
+    """The pack as it would be with `model` at `model_file`, copied to `root`: the files that
+    make up a pack (`hub.archive.pack_files`: nothing hidden, no cache), each by its content
+    alone, without its evaluation ledgers, which a candidate decides without."""
+    for source in pack_files(pack.root):
+        relative = source.relative_to(pack.root)
+        if relative.parts[:2] == ("evals", "ledgers"):
+            continue
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    (root / model_file).write_text(written(model), encoding="utf-8")
+    return load_pack(root, origin=pack.origin)
 
 
 def _threshold(pack: Pack, question: str) -> Callable[[str], float]:
@@ -494,31 +564,56 @@ def _threshold(pack: Pack, question: str) -> Callable[[str], float]:
 
     def at(label: str) -> float:
         own = policy.labels.get(label) if question == policy.primary else None
-        return (
-            policy.thresholds.auto
-            if own is None or own.auto_threshold is None
-            else float(own.auto_threshold)
-        )
+        if own is None or own.auto_threshold is None:
+            return policy.thresholds.auto
+        return float(own.auto_threshold)
 
     return at
 
 
-def _confident(ledger: Ledger, question: str, at: Callable[[str], float]) -> dict[str, int]:
-    """Of a run's labelled answers to `question`, how many were at or above the confidence the
-    pack would automate at, and how many of those were wrong."""
-    confident = wrong = 0
-    for case in ledger.cases:
-        entry = case["q"].get(question)
+def _confident(
+    current: Ledger, candidate: Ledger, question: str, at: Callable[[str], float]
+) -> dict[str, Any]:
+    """The two models' labelled answers to `question` at or above the confidence the pack would
+    automate at: how many each gave and how many of those were wrong, and the cases only one of
+    them was confidently wrong on (`newly_wrong` for the candidate, `no_longer_wrong`), with
+    their exact McNemar p-value."""
+
+    def wrong(entry: Sequence[Any] | None) -> bool | None:
+        """Confidently wrong, confidently right (False), or not confident or not labelled."""
         if entry is None or None in (entry[TRUTH], entry[PREDICTED], entry[CONFIDENCE]):
-            continue
-        if entry[CONFIDENCE] >= at(entry[PREDICTED]):
-            confident += 1
-            wrong += entry[PREDICTED] != entry[TRUTH]
-    return {"n": confident, "wrong": wrong}
+            return None
+        if entry[CONFIDENCE] < at(entry[PREDICTED]):
+            return None
+        return bool(entry[PREDICTED] != entry[TRUTH])
+
+    counts = {"current": {"n": 0, "wrong": 0}, "candidate": {"n": 0, "wrong": 0}}
+    newly = no_longer = 0
+    for before, after in zip(current.cases, candidate.cases, strict=True):
+        was, is_now = wrong(before["q"].get(question)), wrong(after["q"].get(question))
+        for side, found in (("current", was), ("candidate", is_now)):
+            counts[side]["n"] += found is not None
+            counts[side]["wrong"] += bool(found)
+        newly += bool(is_now) and not was
+        no_longer += bool(was) and not is_now
+    return {
+        **counts,
+        "newly_wrong": newly,
+        "no_longer_wrong": no_longer,
+        "p": stats.mcnemar_exact(no_longer, newly),
+    }
 
 
 def _share(confident: Mapping[str, int]) -> float:
     return confident["wrong"] / confident["n"] if confident["n"] else 0.0
+
+
+def _at_least(confident: Mapping[str, int]) -> float:
+    """The least the share of confident answers that are wrong can be, given how few there may
+    be: the lower end of its exact 95% interval. One wrong answer of fourteen is not a share."""
+    if not confident["n"]:
+        return 0.0
+    return stats.clopper_pearson(confident["wrong"], confident["n"])[0]
 
 
 def _paired(current: Ledger, candidate: Ledger, question: str) -> dict[str, Any]:

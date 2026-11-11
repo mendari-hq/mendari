@@ -34,7 +34,7 @@ from mendari.settings import (
 )
 
 EXIT_DEGRADED = 2
-EXIT_NOT_KEPT = 2  # `mendari improve`: no candidate was better and no less safe
+EXIT_NOT_KEPT = 3  # `mendari improve`: no candidate was better and no less safe
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
@@ -311,9 +311,11 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 def cmd_improve(args: argparse.Namespace) -> int:
     from mendari.evals.harness import load_dataset
-    from mendari.evals.improve import BETTER, apply, improve, text
+    from mendari.evals.improve import BETTER, apply, improve, not_writable, text
 
     pack = resolve_pack(args.pack)
+    if args.write and (problem := not_writable(pack)) is not None:
+        raise MendariError(f"--write: {problem}")  # before the run, not after it
     given = []
     for path in args.cases:
         if not Path(path).is_file():
@@ -1395,8 +1397,11 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     if not 1 <= args.limit <= MAX_EXPORTED:
         raise MendariError(f"--limit is 1 to {MAX_EXPORTED:,}")
     pack = resolve_pack(args.pack)
-    with _read_store(args.db) as store:
+    # With --org, one organization's decisions: what a pack learns from is one site's.
+    with _read_store(args.db) as store, contextlib.ExitStack() as acting:
         store.require_current("feedback export")
+        if args.org is not None:
+            acting.enter_context(tenancy.acting_for(args.org))
         if reviews:
             records, skipped = reviewed_dataset(store, pack_id=pack.id, limit=args.limit)
         else:
@@ -3363,6 +3368,9 @@ def build_parser() -> argparse.ArgumentParser:
         "resolved or an outcome was recorded for, each with the label a person chose",
     )
     export.add_argument("--rating", choices=["down", "up"], help="with ratings (default: down)")
+    export.add_argument(
+        "--org", help="only this organization's decisions (default: every organization's)"
+    )
     export.add_argument(
         "--limit", type=int, default=1000, help="the newest N decisions (default 1000)"
     )

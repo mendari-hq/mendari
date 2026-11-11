@@ -82,13 +82,32 @@ def origin_of(path: str | Path) -> Origin:
     from mendari.hub.client import packs_cache
 
     resolved = Path(path).resolve()
-    if any(resolved.is_relative_to(bundled.resolve()) for bundled in _BUNDLED_DIRS):
+    if any(_inside(resolved, bundled) for bundled in _BUNDLED_DIRS):
         return "maintained"
-    if resolved.is_relative_to(_COMMUNITY_DIR.resolve()):
+    if _inside(resolved, _COMMUNITY_DIR):
         return "community"
-    if resolved.is_relative_to(packs_cache().resolve()):
+    if _inside(resolved, packs_cache()):
         return "hub"
     return "local"
+
+
+def _inside(path: Path, directory: Path) -> bool:
+    """Whether `path` (resolved) is `directory` or in it: by how it is spelt or, since one
+    directory can be spelt two ways (on a volume that ignores case, or under a second name for
+    the same volume), by the file it is. So a pack is never taken for a local one by the
+    spelling of its path."""
+    resolved = directory.resolve()
+    if path.is_relative_to(resolved):
+        return True
+    if not resolved.is_dir():
+        return False
+    for parent in (path, *path.parents):
+        try:
+            if parent.samefile(resolved):
+                return True
+        except OSError:  # not there (a pack about to be written), or it cannot be read
+            continue
+    return False
 
 
 def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:

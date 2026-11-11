@@ -50,6 +50,9 @@ FORMAT_CHARACTERS = "mendari.naive_bayes/2"  # a model with `character_ngrams`
 # The shortest and longest run of characters a model may count.
 MIN_NGRAM = 2
 MAX_NGRAM = 8
+# A longer "word" (a link, an encoded attachment) is counted as a word and has no runs counted:
+# each character of a word gives up to seven of them.
+MAX_NGRAM_WORD = 64
 CharacterNgrams = tuple[int, int]  # the shortest and the longest run, both counted
 _TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?")
 
@@ -67,13 +70,16 @@ class NaiveBayesConfig(BaseModel):
 
 def tokenize(text: str, character_ngrams: CharacterNgrams | None = None) -> list[str]:
     """A text's features: its words, each pair of neighbouring words and, with
-    `character_ngrams`, every run of that many characters inside each word, the word held
-    between its edges (`<` and `>`) and each run marked `#`, which no word holds."""
+    `character_ngrams`, every run of that many characters inside each word of at most
+    `MAX_NGRAM_WORD` characters, the word held between its edges (`<` and `>`) and each run
+    marked `#`, which no word holds."""
     words = _TOKEN.findall(text.lower())
     tokens = words + [f"{a} {b}" for a, b in itertools.pairwise(words)]
     if character_ngrams is not None:
         shortest, longest = character_ngrams
         for word in words:
+            if len(word) > MAX_NGRAM_WORD:
+                continue
             edged = f"<{word}>"
             tokens += [
                 f"#{edged[start : start + size]}"

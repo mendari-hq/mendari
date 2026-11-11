@@ -359,20 +359,27 @@ The built-in types that read free text on the machine read it in its **plain for
 is the same words in the characters a keyboard types, so that text which differs only in
 typography decides the same:
 
-1. invisible format characters are left out (Unicode category Cf: zero-width spaces and joiners,
-   the byte order mark, the soft hyphen, direction marks);
+1. a zero-width space (U+200B) becomes a space, since it separates words, and the other
+   invisible format characters are left out (Unicode category Cf: zero-width joiners, the byte
+   order mark, the soft hyphen, direction marks), since they sit inside words;
 2. a letter and an accent written as two characters become the one character (Unicode NFC),
    unless composing would make the text longer, where the text stays as it is;
 3. apostrophes and single quotation marks (U+2018 to U+201B, the prime U+2032, U+02BC, and the
    acute and grave accents U+00B4 and U+0060) become `'`; double quotation marks (U+201C to
    U+201F, the double prime U+2033) become `"`; hyphens, dashes and the minus sign (U+2010 to
-   U+2015, U+2212) become `-`; the ellipsis character (U+2026) becomes `.`;
-4. every line end (a carriage return with or without a newline, a vertical tab, a form feed,
-   U+0085, U+2028, U+2029) becomes a newline, and every other run of white space one space.
+   U+2015, U+2212) become `-`; the ellipsis character (U+2026) becomes `.`, or `-` between two
+   digits, where a full stop would read as a decimal point;
+4. a carriage return before a newline is left out, and every run of white space that holds no
+   newline becomes one space: a no-break space, a tab, a lone carriage return, a vertical tab,
+   a form feed, and the line and paragraph separators are all white space.
 
 A newline stays a newline, and nothing else changes: case is kept (rules patterns ignore it
 themselves), and so are compatibility characters (a ligature, a full-width letter, the micro
-sign). The plain form is never longer than the text. A pack's patterns, a medication check's
+sign). The plain form is never longer than the text. A pattern that matched the text as received
+matches its plain form too, but for three cases, each of which decides as the same words typed
+on a keyboard do: words joined by a format character other than the zero-width space, a
+negation cue that a long run of spaces had kept outside a rule's `negation_window`, and a
+pattern or a negation that reached across an ellipsis character. A pack's patterns, a medication check's
 `names` and a trained model's tokens are matched against it, so they MUST be written in it: a
 character the plain form never holds, such as a curly apostrophe or a no-break space, matches
 nothing. The decision's record, its input hash, the input schema's checks and what a remote

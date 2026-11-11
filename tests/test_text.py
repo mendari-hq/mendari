@@ -24,7 +24,7 @@ from mendari.core.decision import DecisionResult
 from mendari.core.text import _KEYBOARD as KEYBOARD_TABLE
 from mendari.core.text import plain
 from mendari.evals.harness import resolve_dataset
-from mendari.providers import build_provider
+from mendari.providers import base, build_provider, criteria
 from mendari.providers.base import text_from
 from mendari.providers.naive_bayes import tokenize
 from tests.conftest import ROOT, message
@@ -40,6 +40,7 @@ SOFT_HYPHEN = "\N{SOFT HYPHEN}"
 ACUTE = "\N{COMBINING ACUTE ACCENT}"
 EN_DASH = "\N{EN DASH}"  # a range, as a word processor or a language model writes one
 ELLIPSIS = "\N{HORIZONTAL ELLIPSIS}"  # a phone's three full stops
+LINE_SEPARATOR = "\N{LINE SEPARATOR}"
 
 
 @pytest.mark.parametrize(
@@ -95,7 +96,6 @@ def test_every_run_of_spaces_is_one_space(space: str) -> None:
 @pytest.mark.parametrize(
     "invisible",
     [
-        ZERO_WIDTH,
         "\N{ZERO WIDTH NON-JOINER}",
         "\N{ZERO WIDTH JOINER}",
         BYTE_ORDER_MARK,
@@ -107,6 +107,12 @@ def test_every_run_of_spaces_is_one_space(space: str) -> None:
 )
 def test_invisible_format_characters_are_left_out(invisible: str) -> None:
     assert plain(f"che{invisible}st pain") == "chest pain"
+
+
+def test_a_zero_width_space_is_a_space() -> None:
+    # It separates words, so a pattern that matched across one still does.
+    assert plain(f"asthma{ZERO_WIDTH}attack") == "asthma attack"
+    assert plain(f"asthma {ZERO_WIDTH} attack") == "asthma attack"
 
 
 def test_a_decomposed_accent_is_composed() -> None:
@@ -122,14 +128,18 @@ def test_a_character_with_one_canonical_form_takes_it() -> None:
     assert plain("\N{OHM SIGN}") == "\N{GREEK CAPITAL LETTER OMEGA}"
 
 
+def test_a_carriage_return_before_a_newline_is_left_out() -> None:
+    assert plain("No fever\r\nChest pain now") == "No fever\nChest pain now"
+
+
 @pytest.mark.parametrize(
     "end",
-    ["\r\n", "\r", "\N{LINE SEPARATOR}", "\N{PARAGRAPH SEPARATOR}", "\x85", "\x0b", "\x0c"],
-    ids=["CR LF", "CR", "line separator", "paragraph separator", "next line", "vertical tab",
-         "form feed"],
-)  # fmt: skip
-def test_every_line_end_is_a_newline(end: str) -> None:
-    assert plain(f"No fever{end}Chest pain now") == "No fever\nChest pain now"
+    ["\r", LINE_SEPARATOR, "\N{PARAGRAPH SEPARATOR}", "\x85", "\x0b", "\x0c"],
+    ids=["CR", "line separator", "paragraph separator", "next line", "vertical tab", "form feed"],
+)
+def test_every_other_character_that_ends_a_line_is_white_space(end: str) -> None:
+    # A pattern has always matched across these, and only a newline ends its reach.
+    assert plain(f"coughing up{end}blood") == "coughing up blood"
 
 
 def test_a_newline_stays_a_newline() -> None:
@@ -157,6 +167,11 @@ def test_a_dash_is_a_hyphen(dash: str) -> None:
 def test_an_ellipsis_is_a_full_stop() -> None:
     # A phone writes three full stops as one character: a sentence ends there all the same.
     assert plain(f"no fever{ELLIPSIS} chest pain") == "no fever. chest pain"
+
+
+def test_an_ellipsis_between_two_digits_is_a_hyphen() -> None:
+    # A full stop there would read as a decimal point: 500.1 mg, not 500 to 1000.
+    assert plain(f"500{ELLIPSIS}1000 mg") == "500-1000 mg"
 
 
 @pytest.mark.parametrize(
@@ -187,13 +202,13 @@ def test_text_that_composing_would_lengthen_stays_as_it_is() -> None:
 
 def test_the_spec_lists_every_character_the_plain_form_writes_another_way() -> None:
     """Spec §5 names each by its code point (a pack author writes patterns by that list): the
-    list is the table's, but the ASCII line ends it names in words."""
+    table's, and the zero-width space, which becomes a space."""
     spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text(encoding="utf-8")
     section = spec[spec.index("read it in its **plain form**") : spec.index("A newline stays a")]
     listed: set[int] = set()
     for first, last in re.findall(r"U\+([0-9A-F]{4})(?:\s+to\s+U\+([0-9A-F]{4}))?", section):
         listed |= set(range(int(first, 16), int(last or first, 16) + 1))
-    assert listed == {code for code in KEYBOARD_TABLE if code not in map(ord, "\r\x0b\x0c")}
+    assert listed == {*KEYBOARD_TABLE, ord(ZERO_WIDTH)}
 
 
 @given(st.text())
@@ -219,7 +234,7 @@ def test_each_field_is_read_in_its_plain_form() -> None:
     inputs = {
         "message": {
             "subject": f"Can{CURLY}t{NO_BREAK}breathe",
-            "body": f"che{ZERO_WIDTH}st  pain\r\nnow",
+            "body": f"che{SOFT_HYPHEN}st  pain\r\nnow",
         }
     }
     assert text_from(inputs, ["message.subject", "message.body"]) == (
@@ -244,7 +259,11 @@ TYPED = {
     "curly apostrophe: stroke": f"My dad suddenly can{CURLY}t walk straight and is very confused",
     "no-break space": f"I have chest{NO_BREAK}pain and I{CURLY}m sweating",
     "two spaces": "I have chest  pain and I am sweating",
-    "zero-width space": f"I have che{ZERO_WIDTH}st pain and I am sweating",
+    "soft hyphen": f"I have che{SOFT_HYPHEN}st pain and I am sweating",
+    "zero-width space between words": f"I think this is an asthma{ZERO_WIDTH}attack",
+    "vertical tab": "I keep coughing up\x0bblood",
+    "line separator": f"He hit his head{LINE_SEPARATOR}and keeps throwing up",
+    "carriage return": "I have severe abdominal\rpain",
     "no-break space, Spanish": f"No{NO_BREAK}puedo respirar",
     "decomposed accent": f"Tengo vo{ACUTE}mito con sangre desde anoche",
 }
@@ -280,8 +299,16 @@ def test_the_classifier_reads_typographic_variants_as_the_same_words(inbox_pack:
         "Take acetaminophen 500 mg, 2 tablets every 4-6 hours.",
         f"Take acetaminophen 500 mg, 2 tablets every 4{EN_DASH}6 hours.",
         f"Take acetaminophen 500{NO_BREAK}mg, 2{NO_BREAK}tablets every 4{EN_DASH}6{NARROW}hours.",
+        f"Take acetaminophen 500 mg, 2 tablets{LINE_SEPARATOR}every 4 hours.",
+        f"Take acetaminophen 500{ELLIPSIS}1000 mg every 4 hours.",
     ],
-    ids=["as a keyboard types it", "an en dash", "an en dash and no-break spaces"],
+    ids=[
+        "as a keyboard types it",
+        "an en dash",
+        "an en dash and no-break spaces",
+        "a line separator before the frequency",
+        "an ellipsis between two doses",
+    ],
 )
 def test_a_dose_is_read_however_its_range_and_spaces_are_typed(draft: str) -> None:
     dosing = Decision.from_path(ROOT / "packs" / "ai-guard").providers["dosing"]
@@ -339,20 +366,38 @@ def _spaced(text: str) -> str:
     )
 
 
+def _separated(text: str) -> str:
+    """Every third space a zero-width space, every third a line separator."""
+    parts = text.split(" ")
+    spaces = [" ", ZERO_WIDTH, LINE_SEPARATOR]
+    return "".join(
+        part + (spaces[index % 3] if index < len(parts) - 1 else "")
+        for index, part in enumerate(parts)
+    )
+
+
 def _pasted(text: str) -> str:
-    """A zero-width space inside every fourth word, and a byte order mark first."""
+    """A soft hyphen inside every fourth word, and a byte order mark first."""
     words = text.split(" ")
     return BYTE_ORDER_MARK + " ".join(
-        word[: len(word) // 2] + ZERO_WIDTH + word[len(word) // 2 :] if index % 4 == 0 else word
+        word[: len(word) // 2] + SOFT_HYPHEN + word[len(word) // 2 :] if index % 4 == 0 else word
         for index, word in enumerate(words)
     )
+
+
+def _typeset(text: str) -> str:
+    """Hyphens as en dashes and straight quotation marks as curly ones."""
+    left, right = "\N{LEFT DOUBLE QUOTATION MARK}", "\N{RIGHT DOUBLE QUOTATION MARK}"
+    return text.replace("-", EN_DASH).replace(' "', f" {left}").replace('"', right)
 
 
 RETYPED: dict[str, Callable[[str], str]] = {
     "curly apostrophes": lambda text: text.replace("'", CURLY),
     "no-break and double spaces": _spaced,
-    "zero-width spaces": _pasted,
+    "zero-width spaces and line separators": _separated,
+    "soft hyphens": _pasted,
     "decomposed accents": lambda text: unicodedata.normalize("NFD", text),
+    "en dashes and curly quotation marks": _typeset,
 }
 
 
@@ -377,6 +422,59 @@ def test_a_critical_case_decides_the_same_however_it_is_typed(path: Path, how: s
             assert _decided(retyped) == _decided(shipped), (name, record["id"])
             checked += 1
     assert checked
+
+
+# What the retypings above hide when the text is matched as received: of the true critical cases
+# a pack detects as shipped, how many it still detects. In plain form, every one (the test
+# above). (pack, question, label, retyping): (detected as shipped, detected as received).
+SPACES, SEPARATORS, HYPHENS = (
+    "no-break and double spaces",
+    "zero-width spaces and line separators",
+    "soft hyphens",
+)
+AS_RECEIVED = {
+    ("patient-inbox-router", "urgency", "urgent", "curly apostrophes"): (55, 52),
+    ("patient-inbox-router", "urgency", "urgent", SPACES): (55, 32),
+    ("patient-inbox-router", "urgency", "urgent", SEPARATORS): (55, 31),
+    ("patient-inbox-router", "urgency", "urgent", HYPHENS): (55, 21),
+    ("referral-router", "urgency", "urgent", SPACES): (136, 108),
+    ("referral-router", "urgency", "urgent", SEPARATORS): (136, 109),
+    ("referral-router", "urgency", "urgent", HYPHENS): (136, 51),
+    ("prior-auth-preflight", "red_flag", "yes", SPACES): (35, 13),
+    ("prior-auth-preflight", "red_flag", "yes", SEPARATORS): (35, 13),
+    ("prior-auth-preflight", "red_flag", "yes", HYPHENS): (35, 12),
+    ("ai-guard", "verdict", "block", SPACES): (179, 113),
+    ("ai-guard", "verdict", "block", SEPARATORS): (179, 59),
+    ("ai-guard", "verdict", "block", HYPHENS): (179, 60),
+    ("ai-guard", "dose_exceeds_limit", "yes", HYPHENS): (67, 18),
+    ("clinical-trial-prescreener", "note_recent_cv_event", "yes", HYPHENS): (18, 2),
+}
+
+
+@pytest.mark.parametrize("hidden", AS_RECEIVED, ids=lambda hidden: f"{hidden[0]}: {hidden[3]}")
+def test_matched_as_received_the_same_retyping_hides_critical_cases(
+    hidden: tuple[str, str, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the plain form switched off, as the engine read text before it: the figures the
+    decision record gives (ADR-0018), and proof that the test above checks something."""
+    name, question, label, how = hidden
+    monkeypatch.setattr(base, "plain", lambda text: text)
+    monkeypatch.setattr(criteria, "plain", lambda text: text)
+    decision = Decision.from_path(ROOT / "packs" / name)
+
+    def detects(inputs: Any) -> bool:
+        answer = decision.decide(inputs).answers.get(question)
+        return answer is not None and answer.label == label
+
+    shipped = [
+        record["input"]
+        for dataset in decision.pack.manifest.evaluation.datasets
+        if dataset not in ("train", "calibration")
+        for record in resolve_dataset(decision.pack, dataset).records
+        if record.get("labels", {}).get(question) == label and detects(record["input"])
+    ]
+    received = sum(detects(_retyped(copy.deepcopy(inputs), RETYPED[how])) for inputs in shipped)
+    assert (len(shipped), received) == AS_RECEIVED[hidden]
 
 
 def _decided(result: DecisionResult) -> tuple[Any, ...]:

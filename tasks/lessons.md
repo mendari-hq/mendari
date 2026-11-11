@@ -870,3 +870,26 @@ progress, nothing else that can write runs in the same tree.
 ### Verification
 `git status --short packs datasets` is empty after every test run, and
 `tests/test_improve.py` holds the fixture.
+
+## 2026-11-10 - testing
+
+### What happened
+`mendari improve` held 30% of the new cases out and judged a retrained model on them. It told
+cases apart by their whole input, so the same message with another time stamp, channel or
+capitals was another case. A review gave it each message three times: copies fell on both sides
+of the split and every held-out case came out right. It also learned from messages of the pack's
+own test once their records differed in one field. The tests gave each message once.
+
+### Root cause
+"The same case" was decided by the record, while the model reads only part of it. Any field the
+model does not read made two cases of one.
+
+### Rule
+When data is split to judge a model, identify a case by what the model reads of it (its
+features), and use that one identity everywhere: for duplicates, for conflicting labels, for
+what the pack already holds, and for the split itself. Test the split with every case given
+again as another record of the same text.
+
+### Verification
+`tests/test_improve.py::test_a_message_received_again_is_one_case` gives each message three
+times and expects the run on each message once.

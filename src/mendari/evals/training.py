@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from mendari.core.pack import Pack
-from mendari.errors import PackValidationError
+from mendari.errors import MendariError, PackValidationError
 from mendari.evals.harness import resolve_dataset
 from mendari.providers import naive_bayes
 from mendari.providers.naive_bayes import CharacterNgrams
 
 # Train a model with the features its file says it was built with (`built_with`).
 AS_BUILT: Final = "as built"
+DEFAULT_TEXT_FIELDS = ("message.subject", "message.body")
 Features = CharacterNgrams | None | Literal["as built"]
 
 
@@ -56,18 +57,33 @@ def model_files(pack: Pack, slot: str | None = None) -> list[tuple[str, str, dic
     return found
 
 
+def text_fields(config: Mapping[str, Any]) -> list[str]:
+    """The input fields a `naive_bayes` variant reads: its own, or the default ones."""
+    return list(config.get("text_fields", DEFAULT_TEXT_FIELDS))
+
+
 def built_with(pack: Pack, model_file: str) -> CharacterNgrams | None:
     """The character features the model at `model_file` says it was built with
-    (`character_ngrams`), or None: a model of words alone, or no model to read there yet (one
-    trained for the first time)."""
+    (`character_ngrams`), or None: a model of words alone, or no model there yet (one trained
+    for the first time). A file that is there and does not say (it is not a model, or its
+    `character_ngrams` are not a range) is a `MendariError`: rebuilding it as words alone would
+    quietly take its features away."""
+    if not pack.path(model_file).is_file():
+        return None
     try:
         model = pack.read_json(model_file)
     except PackValidationError:
-        return None
-    features = model.get("character_ngrams") if isinstance(model, dict) else None
-    if not isinstance(features, list) or naive_bayes.ngrams_problem(features):
-        return None
-    return (features[0], features[1])
+        model = None
+    if isinstance(model, dict):
+        features = model.get("character_ngrams")
+        if features is None and model.get("format") != naive_bayes.FORMAT_CHARACTERS:
+            return None
+        if isinstance(features, list) and not naive_bayes.ngrams_problem(features):
+            return (features[0], features[1])
+    raise MendariError(
+        f"{model_file}: cannot tell how this model was built, so cannot rebuild it the same "
+        "way: say --character-ngrams LOW-HIGH, or `none` for words alone"
+    )
 
 
 def fit(
@@ -79,14 +95,20 @@ def fit(
     character_ngrams: CharacterNgrams | None,
 ) -> dict[str, Any]:
     """The model of one `naive_bayes` variant of `slot`, fitted on `records` and calibrated on
-    `calibration`, for the slot's question, its labels and the variant's text fields."""
+    `calibration`, for the slot's question, its labels and the variant's text fields. A record
+    labels any subset of a pack's questions: one that does not label this question is not one
+    of its examples (a pack with two classifiers may hold cases only one of them learned from)."""
     (question,) = pack.manifest.providers[slot].answers
+
+    def labelled(cases: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        return [case for case in cases if question in case.get("labels", {})]
+
     return naive_bayes.train(
-        records,
-        calibration=calibration,
+        labelled(records),
+        calibration=labelled(calibration),
         question=question,
         labels=pack.manifest.labels(question),
-        text_fields=config.get("text_fields", ["message.subject", "message.body"]),
+        text_fields=text_fields(config),
         character_ngrams=character_ngrams,
     )
 
