@@ -592,7 +592,7 @@ the pack should see is in Epic's MedicationRequests, so "no insulin among the or
 
 - whether patient-reported or historical home medications are returned as MedicationRequest,
   and with which `intent`. A trial pack that leaves out requests whose `intent` is `proposal`,
-  `plan` or `option` (in review as PR #287) would not see home medications recorded so;
+  `plan` or `option` (the trial pack since 0.4.0, #287) would not see home medications recorded so;
 - whether the default MedicationRequest search (no `status`, no `category`) returns stopped,
   completed and inpatient orders: `no_insulin` looks back 90 days at recently stopped insulin;
 - whether `Medication.code.text` (or the request's `display`) carries the generic name. The
