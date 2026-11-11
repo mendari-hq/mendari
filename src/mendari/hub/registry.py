@@ -400,13 +400,14 @@ _NOT_THE_CHECKPOINTS = (
 )
 
 
-def _signing_key() -> Ed25519PrivateKey | None:
+def _signing_key(to: str = "counter-sign") -> Ed25519PrivateKey | None:
     """The registry's signing key, or None when unset. One that is set and is not a key is the
-    operator's to fix: a `503` that says what the setting must be, never the value."""
+    operator's to fix: a `503` that says what the registry cannot do (`to`) and what the setting
+    must be, never the value."""
     try:
         return yank.registry_key()
     except MendariError as error:
-        raise HubError(f"the registry cannot counter-sign: {error}", 503) from None
+        raise HubError(f"the registry cannot {to}: {error}", 503) from None
 
 
 def _not_genuine(db: Session, version: Mapping[str, Any]) -> str | None:
@@ -488,12 +489,9 @@ def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
     """The head a registry checkpoint names (`hub/checkpoint.py`), once its signature holds with
     `public` (None: this registry's own key). A `HubError` says why it is not one."""
     if public is None:
-        own = _signing_key()
+        own = _signing_key("check a checkpoint")
         if own is None:
-            raise HubError(
-                f"a checkpoint is checked with the registry's key: set {yank.KEY_ENV}, or give "
-                "its public key"
-            )
+            raise HubError(f"a checkpoint is checked with the registry's key: set {yank.KEY_ENV}")
         public = own.public_key()
     why = chain_checkpoint.problem(statement, public)
     if why is not None:
@@ -1049,7 +1047,7 @@ class RegistryStore(RateBuckets):
         where the registry cannot write (`hub/checkpoint.py`). Read-only: nothing is stored or
         chained. It vouches for the chain, so it refuses one that does not verify, and, given
         the `previous` statement, one that no longer holds that statement's head."""
-        own = _signing_key()
+        own = _signing_key("sign a checkpoint")
         if own is None:
             raise HubError(
                 f"this registry has no signing key: set {yank.KEY_ENV} (32 random bytes in "
@@ -1069,7 +1067,7 @@ class RegistryStore(RateBuckets):
 
     def countersign(
         self, *, by: str, checkpoint: Mapping[str, Any] | None = None
-    ) -> dict[str, list[str]]:
+    ) -> dict[str, Any]:
         """Counter-sign every listed version that has no record (LP-19i): those from before
         the registry counter-signed, or published while it had no signing key. Never a deleted
         version, nor one of a pending or refused namespace. Run again it signs nothing.
@@ -1082,7 +1080,9 @@ class RegistryStore(RateBuckets):
 
         The chain is unkeyed, so one rewritten whole verifies. Given a `checkpoint` (a statement
         `checkpoint` signed earlier, kept outside the database), the chain must also still hold
-        the head it names, or nothing is signed."""
+        the head it names, or nothing is signed. `events_since_checkpoint` is then how many
+        events the chain held after that head when it was checked, which the checkpoint says
+        nothing about (None: no checkpoint was given)."""
         own = _signing_key()
         if own is None:
             raise HubError(
@@ -1113,7 +1113,11 @@ class RegistryStore(RateBuckets):
                     signed.append(_pack_subject(*_key(version)))
                 else:
                     skipped.append(f"{_pack_subject(*_key(version))}: {why}")
-        return {"signed": signed, "skipped": skipped}
+        return {
+            "signed": signed,
+            "skipped": skipped,
+            "events_since_checkpoint": chain.get("after_checkpoint"),
+        }
 
     def _accepted(
         self, db: Session, where: str, params: tuple[str, ...]

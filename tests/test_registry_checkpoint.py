@@ -96,7 +96,7 @@ def test_a_checkpoint_states_the_head_and_the_chain_holds_it(
     # Someone without the private key checks with the public one, as the registry publishes it.
     _keyed(monkeypatch, None)
     code, _, err = _run(capsys, *command)
-    assert code != 0 and yank.KEY_ENV in err
+    assert code != 0 and yank.KEY_ENV in err and "or give its public key with --public-key" in err
     public = yank.registry_public(_key())["public_key"]
     assert _run(capsys, *command, "--public-key", public)[0] == 0
     code, _, err = _run(capsys, "registry", "verify", "--db", db_target, "--public-key", public)
@@ -149,6 +149,7 @@ def test_a_rewritten_chain_verifies_alone_and_fails_against_an_earlier_checkpoin
     assert json.loads(out) == {
         "signed": [SUBJECT],
         "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+        "events_since_checkpoint": None,
         "checkpoint": None,
     }
     assert code != 0 and "ran without a checkpoint" in err
@@ -280,9 +281,28 @@ def test_countersign_takes_a_checkpoint_and_says_which(
         capsys, "registry", "countersign", "--db", db_target, "--checkpoint", str(kept)
     )
     assert code == 0, err
-    assert json.loads(out) == {"signed": [SUBJECT], "skipped": [], "checkpoint": statement["date"]}
-    assert "without a checkpoint" not in err
+    assert json.loads(out) == {
+        "signed": [SUBJECT],
+        "skipped": [],
+        "events_since_checkpoint": 0,
+        "checkpoint": statement["date"],
+    }
+    assert "without a checkpoint" not in err and "behind the chain" not in err
     assert _record(registry) is not None
+    # The same statement later is behind the chain: the run says by how much, so a backfill
+    # against an old checkpoint never reads as covered by it.
+    code, out, err = _run(
+        capsys, "registry", "countersign", "--db", db_target, "--checkpoint", str(kept)
+    )
+    assert code == 0, err
+    assert json.loads(out) == {
+        "signed": [],
+        "skipped": [],
+        "events_since_checkpoint": 1,
+        "checkpoint": statement["date"],
+    }
+    assert f"the checkpoint of {statement['date']} is 1 events behind the chain" in err
+    assert "it says nothing about those events" in err
     with RegistryStore(db_target, read_only=True) as store:
         assert store.verify(head=statement["head"])["after_checkpoint"] == 1  # `pack.accepted`
 
@@ -300,10 +320,25 @@ def test_a_checkpoint_needs_the_key_a_chain_that_verifies_and_a_database_that_is
     before, verified = _events(db_target), _verify(db_target)
     code, out, err = _run(capsys, *command)
     assert code != 0 and out == "" and "has no signing key" in err and yank.KEY_ENV in err
+    # Each command's error is its own: no flag it does not have, no step it is not taking.
+    earlier = tmp_path / "earlier.json"
+    head = _events(db_target)[-1]["hash"]
+    earlier.write_text(json.dumps(registry_checkpoint.sign(head, date(2026, 11, 9), _key())))
+    with_previous = (*command, "--previous", str(earlier))
+    with_checkpoint = ("registry", "verify", "--db", db_target, "--checkpoint", str(earlier))
+    code, out, err = _run(capsys, *with_previous)
+    assert code != 0 and out == "" and yank.KEY_ENV in err and "public key" not in err
     secret = "not-a-key-" + base64.b64encode(b"never shown").decode()
     monkeypatch.setenv(yank.KEY_ENV, secret)
-    code, out, err = _run(capsys, *command)
-    assert code != 0 and out == "" and yank.KEY_ENV in err and secret not in err
+    for broken in (command, with_previous, with_checkpoint):
+        code, out, err = _run(capsys, *broken)
+        assert code != 0 and out == "" and yank.KEY_ENV in err and secret not in err, broken
+        assert "counter-sign" not in err, broken
+    assert "the registry cannot check a checkpoint" in err
+    with RegistryStore(db_target, read_only=True) as store:
+        with pytest.raises(HubError, match="the registry cannot sign a checkpoint") as unsigned:
+            store.checkpoint()
+        assert unsigned.value.status == 503 and secret not in str(unsigned.value)
     _keyed(monkeypatch)
     # A database that is not there is never made, by any of the three.
     missing = tmp_path / "missing.db"

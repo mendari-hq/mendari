@@ -1774,14 +1774,23 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _registry_checkpoint(path: str, flag: str, public_key: str | None = None) -> dict[str, Any]:
+def _registry_checkpoint(
+    path: str, flag: str, public_key: str | None = None, *, takes_public_key: bool = False
+) -> dict[str, Any]:
     """A registry checkpoint read from the file `flag` names, its signature checked with the
     registry's key ($MENDARI_REGISTRY_SIGNING_KEY) or the public key given: refused, with why,
-    before any database is opened."""
+    before any database is opened. `takes_public_key`: the command has --public-key, so with
+    neither key it is named as the other way."""
     from mendari.core.checkpoint import load_public
     from mendari.hub.registry import stated_head
+    from mendari.hub.yank import KEY_ENV
 
     statement: dict[str, Any] = _read_json(path, flag, shape=dict)
+    if takes_public_key and public_key is None and not os.environ.get(KEY_ENV, "").strip():
+        raise MendariError(
+            f"{flag}: a checkpoint is checked with the registry's key: set {KEY_ENV}, or give "
+            "its public key with --public-key (as GET /v1/registry-key shows it)"
+        )
     try:
         stated_head(statement, None if public_key is None else load_public(public_key))
     except MendariError as error:
@@ -1801,7 +1810,9 @@ def cmd_registry_verify(args: argparse.Namespace) -> int:
     stated = (
         None
         if args.checkpoint is None
-        else _registry_checkpoint(args.checkpoint, "--checkpoint", args.public_key)
+        else _registry_checkpoint(
+            args.checkpoint, "--checkpoint", args.public_key, takes_public_key=True
+        )
     )
     with RegistryStore(args.db, read_only=True) as store:
         result = store.verify(head=None if stated is None else stated["head"])
@@ -1954,7 +1965,8 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     verify, and skips, with why, a version whose stored archive is not one a key of its
     namespace signed (exit 1 when any is skipped). With --checkpoint (a statement `mendari
     registry checkpoint` signed earlier, kept outside the database) the chain must also still
-    hold the head it names; without one it says so."""
+    hold the head it names; without one it says so, and with one it says how many events the
+    chain held after that head (`events_since_checkpoint`), which the checkpoint does not cover."""
     from mendari.hub.registry import RegistryStore
 
     stated = (
@@ -1963,6 +1975,14 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     with RegistryStore(_existing_registry(args.db)) as store:
         done = store.countersign(by=_command_line_actor(), checkpoint=stated)
     _print_json({**done, "checkpoint": None if stated is None else stated["date"]})
+    since = done["events_since_checkpoint"]
+    if stated is not None and since:
+        print(
+            f"the checkpoint of {stated['date']} is {since} events behind the "
+            "chain as it was checked: it says nothing about those events. Read them before you "
+            "rely on this run, and take checkpoints on a schedule",
+            file=sys.stderr,
+        )
     if stated is None:
         print(
             "ran without a checkpoint: the chain verified, but a chain rewritten whole verifies "

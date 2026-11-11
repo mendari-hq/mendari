@@ -313,7 +313,11 @@ signature on a version it never accepted. It therefore:
   the head the statement names, or when the statement is not one this registry's key signed.
   The chain is unkeyed, so only that copy shows a chain rewritten whole. Run without one, it
   says so (`"checkpoint": null` in what it prints, and a line on standard error): the chain
-  verified, and a chain rewritten whole would have too;
+  verified, and a chain rewritten whole would have too. Run with one, it prints
+  `"events_since_checkpoint"`: how many events the chain held after the checkpoint's head.
+  The checkpoint says nothing about those, so when the number is not 0 the command says so on
+  standard error too. A backfill against an old checkpoint is only as checked as the events
+  since are read: take a fresh checkpoint (with `--previous`) just before, or read them;
 - checks each version again from what is stored before it signs: its archive is there and
   hashes to its name, is signed by a key of its namespace, and its signed manifest names this
   pack, version and digest. One that fails is skipped and printed with why, and the command
@@ -406,9 +410,18 @@ bucket with versioning, a repository, a mailbox. Keep the dated copies too if yo
 since when.
 
 `mendari registry verify --checkpoint FILE` checks the statement's signature with the
-registry's key (`MENDARI_REGISTRY_SIGNING_KEY`, or `--public-key` with the public key `GET
-/v1/registry-key` shows, for someone who does not hold the private one), then the chain, then
-that the head the statement names is an event of the chain. A chain rewritten or cut short from
+registry's key, then the chain, then that the head the statement names is an event of the
+chain. It does not need the private key: on a host that does not hold
+`MENDARI_REGISTRY_SIGNING_KEY` (an auditor's machine, a monitoring job), give the public key
+instead, as `GET /v1/registry-key` shows it:
+
+```bash
+mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json \
+  --public-key "$(curl -s https://registry.example/v1/registry-key | jq -r .public_key)"
+```
+
+Better still, keep the public key with the statements, so the check does not trust the
+registry for its own key. `checkpoint` and `countersign` sign, so they need the private key. A chain rewritten or cut short from
 before the checkpoint fails (exit 1), where `verify` alone passes. It prints how many events
 were appended since the checkpoint.
 

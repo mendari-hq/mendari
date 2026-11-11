@@ -1364,8 +1364,10 @@ The first release (not yet published).
   the private key), so a chain rewritten from before the checkpoint fails where `verify` alone
   passes, and it prints how many events came after. `mendari registry countersign` takes
   `--checkpoint FILE` and signs nothing when that check fails. **Changes to what the commands
-  print:** `countersign` adds `"checkpoint"` to its JSON (the statement's day, or `null`) and
-  says on standard error when it ran without one; `verify` without `--checkpoint` prints a
+  print:** `countersign` adds `"checkpoint"` (the statement's day, or `null`) and
+  `"events_since_checkpoint"` (how many events the chain held after that head, or `null`) to
+  its JSON, and says on standard error when it ran without one or against a checkpoint the
+  chain has moved past; `verify` without `--checkpoint` prints a
   second line saying so. A statement signed by another key, changed after signing, or of
   another format (a recall, a counter-signature, the engine's `mendari.checkpoint/1`) is
   refused. A checkpoint says nothing about events appended after it.

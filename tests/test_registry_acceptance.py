@@ -49,6 +49,7 @@ SUBJECT = f"{REFERRAL.id}@{REFERRAL.version}"
 URL = "https://registry.example"
 SEED = os.urandom(32)  # the registry's key in these tests: made here, never kept
 OTHER_SEED = os.urandom(32)
+NOTHING_SIGNED: dict[str, Any] = {"signed": [], "skipped": [], "events_since_checkpoint": None}
 
 
 def _key(seed: bytes = SEED) -> Ed25519PrivateKey:
@@ -291,7 +292,7 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
     assert registry.client.get(path, headers=own).json()["checked"]["accepted"] is None
     assert "pack.accepted" not in [e["event"] for e in _events(db_target)]
     with RegistryStore(db_target) as store:  # the backfill signs listed versions only
-        assert store.countersign(by="operator") == {"signed": [], "skipped": []}
+        assert store.countersign(by="operator") == NOTHING_SIGNED
         store.decide_claim("acme", approve=True, by="user:77aa")
     events = _events(db_target)[-3:]
     assert [(e["event"], e["subject"]) for e in events] == [
@@ -314,7 +315,7 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
     assert zeta.publish()["checked"]["accepted"] is None
     with RegistryStore(db_target) as store:
         store.decide_claim("zeta", approve=False, by="user:77aa")
-        assert store.countersign(by="operator") == {"signed": [], "skipped": []}
+        assert store.countersign(by="operator") == NOTHING_SIGNED
         assert store.version("zeta", "inbox", SHIPPED, REVIEWER)["checked"]["accepted"] is None
     assert [e["subject"] for e in _events(db_target) if e["event"] == "pack.accepted"] == [
         f"acme/inbox@{SHIPPED}",
@@ -492,6 +493,7 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     assert done == {
         "signed": [f"mendari/inbox@{SHIPPED}", SUBJECT],
         "skipped": [],
+        "events_since_checkpoint": None,
         "checkpoint": None,
     }
     signed = _events(db_target)
@@ -509,6 +511,7 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     assert json.loads(capsys.readouterr().out) == {
         "signed": [],
         "skipped": [],
+        "events_since_checkpoint": None,
         "checkpoint": None,
     }
     assert _events(db_target) == signed and _record(registry) == record
@@ -569,6 +572,7 @@ def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
     assert json.loads(printed.out) == {
         "signed": [SUBJECT],
         "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+        "events_since_checkpoint": None,
         "checkpoint": None,
     }
     assert "1 not counter-signed" in printed.err and "ran without a checkpoint" in printed.err
