@@ -168,6 +168,7 @@ def test_the_command_exports_reviewed_decisions(
     printed = capsys.readouterr().out
     assert f"1 reviewed decision -> {out}" in printed
     assert "the label a person chose" in printed and "mendari eval --dataset" in printed
+    assert "mendari improve --with" in printed
     (line,) = out.read_text().splitlines()
     assert json.loads(line)["labels"] == {"destination": "nurse"}
 

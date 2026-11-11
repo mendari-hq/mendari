@@ -3340,8 +3340,22 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   how it was trained. 24 tests (`tests/test_character_features.py`), one pinning the measured
   gain (322 and 353 of 436). Considered and not done: a `character_ngrams` key on the variant
   in `pack.yaml`, which would be a spec 0.3 key with its own gating and is the owner's call.
-- [ ] **Step 4: `mendari improve`**: retrain on new cases, judge the candidate against the
-  model in the pack, keep it only when it is better and no less safe.
+- [x] **Step 4: `mendari improve`** (ADR-0019). `evals/improve.py`: the cases a run can use
+  (labelled for the question, accepted by the schema, not in the pack's data, one label an
+  input), split by a hash of each input (30% held out, 15% calibration); two candidates (the
+  model's features, and the other set); each judged against the model in the pack on every
+  declared dataset but the two it trains on and on the held-out cases, with the eval gate, a
+  paired test on every dataset (exact McNemar: a loss beyond chance is a regression, a held-out
+  gain beyond chance is "better"), the share of confident answers that are wrong, and the
+  behaviour tests. `apply` (`--write`) writes the model and appends the learned and calibration
+  cases to the pack's own datasets. 18 tests (`tests/test_improve.py`): the measured gain pinned
+  (90 to 124 of 133 held out; 322 to 369 of the draft's other split), nothing written unless
+  asked, the report holds no case, a pack it wrote to is rebuilt byte for byte by `mendari
+  train`, a second run learns nothing new, wrong labels and the pack's own data are not learned.
+  **Found while building it:** the 3% the eval gate tolerates let a file of wrong labels
+  through (7 of 600 test cases lost), which is why the paired test is there; and the local-site
+  example's own candidate was confidently wrong on 4 emergency messages, which is why the
+  confident-and-wrong check is.
 - [ ] **Step 5: the whole gate**, the reference packs rebuilt byte-identical, the docs site.
 
 ## Plan: community packs through pull requests (2026-10-04)

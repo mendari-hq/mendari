@@ -1519,8 +1519,9 @@ audit trail keeps both (people are told apart by reporter name; unnamed ratings 
 count as one person). The **Feedback** view lists the thumbs-down cases, and a thumbs-down on an
 AUTO decision counts as "confidently wrong".
 
-The system never retrains or rewrites itself from ratings. Instead, the thumbs-down cases are
-downloaded as a dataset:
+Nothing retrains or rewrites a pack by itself. What people said is downloaded as a dataset, a
+person runs what learns from it, and a pack that changed is a new version to review. The
+thumbs-down cases:
 
 <!-- check: run server-db -->
 ```bash
@@ -1547,6 +1548,67 @@ are the decisions it sent to a person, labelled by someone who saw its suggestio
 cases to learn from and to compare two versions of a pack on, not a measure of its accuracy on
 every message. The route is `GET /api/packs/{namespace}/{name}/feedback/export?source=reviews`
 (an admin's, as the ratings export is: it carries case inputs in bulk).
+
+**Learning from them.** `mendari improve` retrains a pack's classifier with new labelled cases
+and says whether the result is better. It writes nothing unless asked. Try it with the harder
+inbox draft's train split standing in for a site's reviewed cases (436 synthetic messages; a
+draft, not clinically reviewed):
+
+<!-- check: run cli -->
+```bash
+uv run mendari improve mendari/patient-inbox-router --with datasets/drafts/patient-inbox-harder/train.jsonl
+```
+
+A run takes the cases it can use (labelled for the classifier's question, accepted by the pack's
+input schema, not already in the pack's own data, and without two labels for one input) and
+sets some aside before it looks at any: each case falls by a hash of its own input, 30% held
+out, 15% to calibrate on, the rest to learn from, the same way in every run. It builds the
+pack's model again with the cases to learn from, once with the features the model has and once
+with the other set (words alone, or words and runs of characters, which read misspelt and
+unseen words by their parts). Then it judges each candidate against the model in the pack, on
+this machine and with the pack's own policy, on every dataset the pack declares but the two it
+trains on, and on the held-out cases. A candidate has regressed when, on any of them:
+
+- the eval gate fails (the primary question's accuracy or the false automation rate outside
+  the pack's tolerance, a critical label detected less often, a critical case newly automated);
+- it gets fewer cases right than the model in the pack by more than chance (the cases only one
+  of the two gets right, exact McNemar, p < 0.05);
+- it is confidently wrong more often (answers at or above the pack's automation threshold that
+  are wrong, as a share of such answers, by more than the tolerance);
+
+or when a behaviour test that passes stops passing. It is better when it has not regressed and
+gets more of the held-out cases right, by more than chance. The report (`--out`, `--json`:
+`mendari.improvement/1`) holds counts, never a case's text or id. Exit 0 says a candidate is
+better, 2 that none is.
+
+What that run reports: 227 cases learned, 133 held out. The model in the pack gets 90 of the
+133 right, the candidate 124 (37 gained, 3 lost), and is confidently wrong on 3 where the model
+in the pack is on 13. Kept with `--write`, the pack goes from 322 right to 369 on the draft's
+other split, 436 messages that share no family, paraphrase or sentence with anything it
+learned. On the pack's own test it is the same within one case.
+
+Two runs that keep nothing show what the judging is for. The bundled local-site example
+(`datasets/local-site-example.jsonl`), with its true labels: one candidate gets all 105
+held-out cases right where the model in the pack gets 98, and is refused, because on the
+pack's hand-written emergency messages it would be confident about 23 where the model in the
+pack is about 7, and wrong on 4 of them; the other candidate's gain (7 cases gained, 2 lost) is
+no more than chance. The same file with every label set to `billing`: each candidate loses 7 or
+more of the pack's 600 test cases and gains none, which is inside the 3% the eval gate
+tolerates and more than chance.
+
+`--write` keeps a better candidate: it writes the model, and adds the cases it learned from and
+calibrated on to the end of the pack's own training and calibration datasets, so the pack's
+data still gives the model it holds and `mendari train` rebuilds it byte for byte. A second run
+with the same cases learns nothing new. What it wrote is a changed pack, with a new digest:
+bump its version, run `mendari test` and `mendari eval`, and have it approved wherever a digest
+is approved (an automation approval names one digest, so it does not carry over). Nothing
+serves the new model or approves it for you.
+
+Three limits to keep in mind. The pack now holds the cases it learned from: keep it where those
+cases may be, and do not publish a pack that holds a site's cases. The held-out cases come from
+the same file as the ones learned from, so they measure messages like those, not every message
+a site will see. And a run is judged with the providers that decide on this machine: a pack
+whose other slots call a model by default is refused.
 
 ## Jev
 

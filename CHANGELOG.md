@@ -59,6 +59,22 @@ The first release (not yet published).
   router, trained on the pack's own data and read on the harder draft's held-out messages: 322
   of 436 right with words alone, 353 with runs of 3 to 5 characters (a test pins both). On the
   pack's own test the two agree within one case, and the model with them is a little less sure.
+- **`mendari improve`: a pack's classifier learns from new cases, and a person promotes**
+  (ADR-0019; nothing changes how a pack decides until someone runs it with `--write` on a pack
+  of their own and serves the result). Given labelled cases (what reviewers decided, or a
+  site's own), it holds 30% out by a hash of each case's input, retrains the pack's
+  `naive_bayes` model on the rest with the pack's own data, once with the model's features and
+  once with the other set, and judges each candidate against the model in the pack on every
+  dataset the pack declares and on the held-out cases. A candidate that fails the eval gate,
+  gets fewer cases right by more than chance, is confidently wrong more often or breaks a
+  behaviour test has regressed; one that has not, and gets more of the held-out cases right by
+  more than chance, is better. The report (`mendari.improvement/1`) holds counts, never a case.
+  `--write` writes the model and adds the cases it learned from to the pack's training and
+  calibration datasets, so `mendari train` rebuilds the model byte for byte, and a second run
+  with the same cases learns nothing new. With the harder draft's train split standing in for
+  reviewed cases, the inbox router gets 124 of 133 held-out messages right where it got 90,
+  and 369 of the draft's other 436 where it got 322; the local-site example is refused, for
+  being confidently wrong on emergency messages, and so is a file of wrong labels.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:

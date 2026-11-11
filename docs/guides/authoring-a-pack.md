@@ -333,6 +333,31 @@ contribute as a community pack has at most 4 paths a field and 200 codes a code 
 prior-authorization and referral packs use 0.3 (their `fhir/mapping.yaml` files are worked
 examples), and the inbox still uses 0.2.
 
+### Learn from what reviewers decide
+
+A pack with a trained classifier (a `naive_bayes` variant) can learn from the cases people
+label once it is in use. Every decision a reviewer resolves keeps the label they chose:
+
+```bash
+mendari feedback export refill-router --source reviews --db var/mendari.db --out reviewed.jsonl
+mendari improve refill-router --with reviewed.jsonl            # a report: nothing is written
+mendari improve refill-router --with reviewed.jsonl --write    # keep a better model
+```
+
+`mendari improve` holds some of the cases out, retrains the model on the rest with the pack's
+own data, and keeps the result only if it gets more of the held-out cases right than the model
+you have, by more than chance, and is no worse on everything the pack already measures: its
+datasets, its critical labels, its behaviour tests and how often it is confidently wrong
+([the README](https://github.com/mendari-hq/mendari/blob/main/README.md#feedback-loop) says
+exactly how it judges). `--write` puts the model and the cases it learned from in the pack, so
+`mendari train` still rebuilds the model from the pack's own data.
+
+What it writes is a change to your pack like any other: bump the version, run the tests and the
+evaluation again, and have it reviewed. The pack then holds the cases it learned from, so keep
+it where those cases may be kept. Reviewed cases are the ones the pack sent to a person,
+labelled by someone who saw its suggestion: good to learn from and to compare two models on,
+not a measure of the pack's accuracy on everything.
+
 ## 9. Publish the card
 
 ```bash
