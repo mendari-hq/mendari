@@ -24,7 +24,10 @@ a person can quote it and the line be found.
 
 **Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
 `/smart` request, refused ones included, but not `/api/health` and `/api/health/ready`
-(probes) or static files.
+(probes) or static files. Where the pack registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
+one per `/registry/` request too, with the registry's own route template under the mount
+(`/registry/v1/packs/{namespace}/{name}`) and `anonymous` as its actor: the engine reads no
+credential there, and a publisher token is never a field.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships
 mode adds the reason `no_organization_record`; a CDS client's token refused, `cds_<reason>`,
@@ -50,6 +53,9 @@ like, server/smart_routes.py), `ratelimit.hit` (once per bucket until it has roo
 daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
+`admin.registry_namespace.claimed`, `admin.registry_key.added` and
+`admin.registry_token.created|revoked` (an organization's administrators in the pack registry
+under the engine, LP-19d: the namespace, the key's id or the token's id, never a token),
 `admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`,
 `registry_pack.approved|revoked`, `eval.run`,
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
@@ -86,7 +92,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TextIO
 
 from starlette.requests import Request
-from starlette.routing import BaseRoute, Match
+from starlette.routing import BaseRoute, Match, Mount
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 LOGGER = "mendari.security"
@@ -244,9 +250,15 @@ def route_template(routes: Iterable[BaseRoute], scope: Scope) -> str | None:
     the first route with the path but another method (a 405)."""
     partial = None
     for route in routes:
-        match, _ = route.matches(scope)
+        match, child = route.matches(scope)
         path = getattr(route, "path", None)
         if match is Match.FULL:
+            inner = getattr(getattr(route, "app", None), "routes", None)
+            if isinstance(route, Mount) and isinstance(path, str) and inner is not None:
+                # An app mounted here (the registry, LP-19d): its own route's template, under
+                # the mount's path, never the raw path.
+                within = route_template(inner, {**scope, **child})
+                return None if within is None else path + within
             return path if isinstance(path, str) else None
         if match is Match.PARTIAL and partial is None and isinstance(path, str):
             partial = path
@@ -286,8 +298,11 @@ class RequestLog:
         open_mode: bool,
         phi_mode: str,
         on_vercel: bool,
+        also_logged: tuple[str, ...] = (),
     ) -> None:
         self.app = app
+        # Prefixes logged besides `LOGGED_PREFIXES`: what is mounted only on some deployments.
+        self.logged_prefixes = LOGGED_PREFIXES + also_logged
         self.routes = routes
         self.ip_of = ip_of
         self.open_mode = open_mode
@@ -304,7 +319,7 @@ class RequestLog:
         # handler that answers a 500 outside this middleware (`_unexpected`).
         scope.setdefault("state", {})["request_id"] = rid
         path: str = scope["path"]
-        logged = path.startswith(LOGGED_PREFIXES) and path not in NOT_LOGGED
+        logged = path.startswith(self.logged_prefixes) and path not in NOT_LOGGED
         context = {
             "request_id": rid,
             "method": scope["method"],

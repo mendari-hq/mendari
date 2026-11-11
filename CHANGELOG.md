@@ -1298,6 +1298,27 @@ The first release (not yet published).
   (and the namespace `claim`, for its own token and a reviewer). The operator claims, decides
   and lists on the registry's database (`mendari registry claim`, `approve`, `refuse`,
   `claims`). A database from before opens and verifies as it did.
+- **The registry under the engine, and people who claim and mint** (LP-19d; off unless
+  `MENDARI_REGISTRY=on`, and without it the engine mounts nothing, makes no registry table and
+  answers as before). With the switch on, the engine serves the registry on its own database at
+  `/registry/v1/...`: reads need no sign-in and carry the registry's headers, an archive is
+  sent as an attachment, and publishing is by publisher token only. The engine's guard reads no
+  credential there and the registry reads no session cookie, so no page makes a signed-in
+  browser publish; an engine key is refused by the registry and a publisher token by the
+  engine; the administrator token is not read under the engine. With sign-in on, an
+  organization's administrators (people only) claim namespaces, register publisher keys and
+  mint, list and revoke publisher tokens at `/api/registry/namespaces` and
+  `/api/registry/tokens`, for their own organization only and behind the origin check; each
+  write is chained in the registry's chain with the person's id, never an address. A request
+  body there is the engine's limit at most (4 MiB by default; a `413` says so). A signed-in
+  reader's `/api/health` says `registry: true`; the API reference describes the mounted routes;
+  requests under `/registry/` are in the security log by route template. The archive answer of
+  every registry gains `Content-Disposition: attachment`. A change for every registry: the
+  write and site-report limits are now per namespace, not per token (a namespace's tokens
+  share one budget), and a name or version with a trailing newline is refused. Through the
+  people's routes a namespace has 20 working tokens and 20 keys at most, and an organization
+  mints 50 tokens a day at most. Turning the switch on anywhere is the
+  owner's step.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

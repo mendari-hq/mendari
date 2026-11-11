@@ -951,7 +951,10 @@ can pull and verify them:
 Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0.1.0 is on
 PyPI) can pull from a registry they name with `mendari login --registry URL` or
 `MENDARI_REGISTRY_URL`, over https (plain http only to a registry on this machine). There is no
-public registry yet; the docker sandbox runs one.
+public registry yet; the docker sandbox runs one. A registry runs on its own
+(`mendari registry serve`) or under the engine (`MENDARI_REGISTRY=on`, off by default), where
+an organization's administrators sign in to claim a namespace and make publisher tokens:
+[Running a pack registry](docs/operations/registry.md#under-the-engine).
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash
@@ -1025,7 +1028,7 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   earlier version (the pack gate); it shows the result as "publisher's own test set:
   regression check, not a ranking" and never refuses a version for it
   (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
-- **Limits and headers.** The registry limits reads per address and writes per token
+- **Limits and headers.** The registry limits reads per address and writes per namespace
   (`MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then overrides such as
   `registry_write=240/h:40`), and both it and the Hub send a strict CSP, refuse framing and send
   HSTS.

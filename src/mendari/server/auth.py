@@ -236,6 +236,12 @@ _MEMBERSHIPS_ONLY = re.compile(
     rf"^(?!{GRADING_PATH.removeprefix('^')})"
     r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets)(/|$)"
 )
+# The registry's paths (LP-19d): where it is mounted, and its people's routes. Without
+# `MENDARI_REGISTRY=on` nothing is mounted at either and their rules are skipped, so both read
+# as they did before there was a registry (`Auth.permission`).
+REGISTRY_MOUNT = r"^/registry/"
+REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens)(/|$)"
+_REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE})
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
@@ -307,6 +313,14 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
         ("GET", r"^/api/packs/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
+        # The pack registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
+        # otherwise: `_REGISTRY_ONLY`). The mounted registry is public to the guard, which reads
+        # no credential there: the registry checks its own publisher token (`ohr_`), and a
+        # session cookie is never a publish credential.
+        ("*", REGISTRY_MOUNT, "public"),
+        # An organization's namespace claims and publisher tokens, managed by its
+        # administrators (people only), before the reads below.
+        ("*", REGISTRY_PEOPLE, "keys"),
         # Memberships mode: an organization's people, managed by its administrators (people
         # only). Before the reads below: these lists hold e-mail addresses.
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
@@ -681,11 +695,14 @@ async def read_body(request: Request, limit: int) -> bytes | None:
     return bytes(body)
 
 
-def permission_for(method: str, path: str) -> str:
+def permission_for(method: str, path: str, *, registry: bool = True) -> str:
     """The permission a route needs. HEAD needs what GET needs: the static files (and any route
-    that serves both) answer it as GET, and the rules name GET."""
+    that serves both) answer it as GET, and the rules name GET. `registry=False` (the registry
+    is not mounted here): without the registry's rules."""
     method = "GET" if method == "HEAD" else method
     for rule_method, pattern, permission in _RULES:
+        if not registry and pattern.pattern in _REGISTRY_ONLY:
+            continue
         if rule_method in ("*", method) and pattern.match(path):
             return permission
     return "admin"
@@ -848,8 +865,10 @@ class Auth:
         ehrs: Mapping[str, Registration] | None = None,
         cds: CdsRegistry | None = None,
         cds_open: CdsOpenMode | None = None,
+        registry: bool = False,
     ):
         self.settings = settings
+        self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
         # The registered CDS clients (`MENDARI_CDS_CLIENTS`, LP-23b); None: no JWT is accepted.
         self.cds = cds
         # Where open mode answers `/cds-services` (LP-23c): this machine, or anywhere under
@@ -876,7 +895,7 @@ class Auth:
         organization's people, `keys`, a labeller's, `label`, and its curators', `curate`: none
         mounted there) read as any route no rule lists, `admin`. The guard, the notice check and
         the rate limits all ask this, so they never disagree about a request."""
-        permission = permission_for(method, path)
+        permission = permission_for(method, path, registry=self.registry)
         if not self.memberships and (permission == PERSON or _MEMBERSHIPS_ONLY.match(path)):
             return "admin"
         return permission

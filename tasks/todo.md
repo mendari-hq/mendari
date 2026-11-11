@@ -3004,8 +3004,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (store and operator commands): `hub_claims`, `RegistryStore.claim|decide_claim|claims`, one
     `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
     `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
-  - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
-    people's routes for claims and tokens. **19i** the counter-signature, in parallel.
+  - [x] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
+    people's routes for claims and tokens (`server/registry_routes.py`, `/api/registry/...`,
+    the `keys` permission, people only); the mounted registry reads no cookie and no
+    administrator token; tests in `tests/test_registry_mount.py`; threat rows S22 (second
+    half), I19 and D15. Turning it on anywhere is the owner's step.
+  - [ ] **19i** The counter-signature (built in parallel with 19d).
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
