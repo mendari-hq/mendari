@@ -1774,19 +1774,70 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registry_checkpoint(path: str, flag: str, public_key: str | None = None) -> dict[str, Any]:
+    """A registry checkpoint read from the file `flag` names, its signature checked with the
+    registry's key ($MENDARI_REGISTRY_SIGNING_KEY) or the public key given: refused, with why,
+    before any database is opened."""
+    from mendari.core.checkpoint import load_public
+    from mendari.hub.registry import stated_head
+
+    statement: dict[str, Any] = _read_json(path, flag, shape=dict)
+    try:
+        stated_head(statement, None if public_key is None else load_public(public_key))
+    except MendariError as error:
+        raise MendariError(f"{flag}: {error}") from None
+    return statement
+
+
 def cmd_registry_verify(args: argparse.Namespace) -> int:
     """Check the registry's chain, read-only: every event's hash and order, and every row it
-    covers named by its event (exit 1 if not)."""
+    covers named by its event (exit 1 if not). With --checkpoint, a statement `mendari registry
+    checkpoint` signed earlier and kept outside the database, the chain must also still hold
+    the head it names: one rewritten from before it verifies alone and fails here."""
     from mendari.hub.registry import RegistryStore
 
+    if args.public_key is not None and args.checkpoint is None:
+        raise MendariError("--public-key goes with --checkpoint: the key that signed it")
+    stated = (
+        None
+        if args.checkpoint is None
+        else _registry_checkpoint(args.checkpoint, "--checkpoint", args.public_key)
+    )
     with RegistryStore(args.db, read_only=True) as store:
-        result = store.verify()
+        result = store.verify(head=None if stated is None else stated["head"])
     if result["ok"]:
         print(f"registry chain verified: {result['events']} events, head {result['head']}")
+        if stated is None:
+            print(
+                "checked without a checkpoint: a chain rewritten whole verifies too "
+                "(--checkpoint FILE, from `mendari registry checkpoint`)"
+            )
+        else:
+            print(
+                f"it holds the checkpoint of {stated['date']}; {result['after_checkpoint']} "
+                "events since, which the checkpoint says nothing about"
+            )
         return 0
     where = f" at event {result['seq']}" if result["seq"] is not None else ""
     print(f"registry chain broken{where}: {result['problem']}", file=sys.stderr)
     return 1
+
+
+def cmd_registry_checkpoint(args: argparse.Namespace) -> int:
+    """Print the signed statement of the registry chain's head today (UTC), with the registry's
+    own key ($MENDARI_REGISTRY_SIGNING_KEY): keep it where the registry cannot write, and give
+    it to `registry verify --checkpoint` or `registry countersign --checkpoint` later. The
+    database is opened read-only and nothing is stored or chained. It refuses a chain that does
+    not verify and, with --previous (the last statement kept), one that no longer holds that
+    statement's head."""
+    from mendari.hub.registry import RegistryStore
+    from mendari.hub.yank import registry_key
+
+    registry_key()  # a malformed key fails before anything is opened
+    previous = None if args.previous is None else _registry_checkpoint(args.previous, "--previous")
+    with RegistryStore(args.db, read_only=True) as store:
+        _print_json(store.checkpoint(previous=previous))
+    return 0
 
 
 def _existing_registry(db: str) -> str:
@@ -1901,12 +1952,24 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     version, nor one of a pending or refused namespace. Run again it signs nothing. Each record
     is chained (`pack.accepted`) with who ran this. It refuses to run when the chain does not
     verify, and skips, with why, a version whose stored archive is not one a key of its
-    namespace signed (exit 1 when any is skipped)."""
+    namespace signed (exit 1 when any is skipped). With --checkpoint (a statement `mendari
+    registry checkpoint` signed earlier, kept outside the database) the chain must also still
+    hold the head it names; without one it says so."""
     from mendari.hub.registry import RegistryStore
 
+    stated = (
+        None if args.checkpoint is None else _registry_checkpoint(args.checkpoint, "--checkpoint")
+    )
     with RegistryStore(_existing_registry(args.db)) as store:
-        done = store.countersign(by=_command_line_actor())
-    _print_json(done)
+        done = store.countersign(by=_command_line_actor(), checkpoint=stated)
+    _print_json({**done, "checkpoint": None if stated is None else stated["date"]})
+    if stated is None:
+        print(
+            "ran without a checkpoint: the chain verified, but a chain rewritten whole verifies "
+            "too. Keep `mendari registry checkpoint` outside the database and pass it with "
+            "--checkpoint",
+            file=sys.stderr,
+        )
     if done["skipped"]:
         print(
             f"{len(done['skipped'])} not counter-signed: not a version the registry could have "
@@ -3556,7 +3619,32 @@ def build_parser() -> argparse.ArgumentParser:
     verify_registry.add_argument(
         "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
     )
+    verify_registry.add_argument(
+        "--checkpoint",
+        metavar="FILE",
+        help="a statement `mendari registry checkpoint` signed, kept outside the database: "
+        "the chain must still hold its head",
+    )
+    verify_registry.add_argument(
+        "--public-key",
+        help="the registry's public key (base64, as GET /v1/registry-key shows it) to check "
+        "--checkpoint with; otherwise $MENDARI_REGISTRY_SIGNING_KEY",
+    )
     verify_registry.set_defaults(handler=cmd_registry_verify)
+    checkpoint_registry = registry_cmd.add_parser(
+        "checkpoint",
+        help="print the signed statement of the chain's head today, to keep outside the "
+        "database (key: $MENDARI_REGISTRY_SIGNING_KEY; read-only)",
+    )
+    checkpoint_registry.add_argument(
+        "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
+    )
+    checkpoint_registry.add_argument(
+        "--previous",
+        metavar="FILE",
+        help="the last statement kept: refuse to sign when the chain no longer holds its head",
+    )
+    checkpoint_registry.set_defaults(handler=cmd_registry_checkpoint)
     registry_db = "SQLite path or postgresql:// URL"
     mint_token = registry_cmd.add_parser(
         "token", help="mint a publisher token as the operator (shown once; chained with why)"
@@ -3619,6 +3707,12 @@ def build_parser() -> argparse.ArgumentParser:
         "(key: $MENDARI_REGISTRY_SIGNING_KEY; chained)",
     )
     countersign.add_argument("--db", default="var/registry.db", help=registry_db)
+    countersign.add_argument(
+        "--checkpoint",
+        metavar="FILE",
+        help="a statement `mendari registry checkpoint` signed, kept outside the database: "
+        "sign nothing unless the chain still holds its head",
+    )
     countersign.set_defaults(handler=cmd_registry_countersign)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")

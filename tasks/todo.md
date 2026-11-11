@@ -3024,6 +3024,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     hosted registry gets its key (a PR of its own); (5) no key rotation for launch: the key is treated as
     permanent, and `docs/operations/registry.md` says what a rotation still needs (a chained
     command that signs the existing versions again).
+  - [x] **A signed head for the registry's chain** (owner decision 4 of 19i, 2026-11-10,
+    brought forward from "not in LP-19"): `hub/checkpoint.py` (`mendari.registry-checkpoint/1`,
+    signed with the registry's key), `mendari registry checkpoint` (read-only, prints the
+    statement, `--previous` for the daily routine), `mendari registry verify --checkpoint`,
+    `mendari registry countersign --checkpoint` (says when it ran without one); nothing stored
+    in the database, so no new table; tests in `tests/test_registry_checkpoint.py`; threat rows
+    T7 and T11. Left to the owner: where the statements are kept and what runs the command
+    daily for the hosted registry (the PR's questions), before it gets its key.
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.

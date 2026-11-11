@@ -489,7 +489,11 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     _keyed(monkeypatch)
     assert main(command) == 0
     done = json.loads(capsys.readouterr().out)
-    assert done == {"signed": [f"mendari/inbox@{SHIPPED}", SUBJECT], "skipped": []}
+    assert done == {
+        "signed": [f"mendari/inbox@{SHIPPED}", SUBJECT],
+        "skipped": [],
+        "checkpoint": None,
+    }
     signed = _events(db_target)
     assert [(e["event"], e["subject"]) for e in signed[len(before) :]] == [
         ("pack.accepted", f"mendari/inbox@{SHIPPED}"),
@@ -502,7 +506,11 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     deleted_version = registry.client.get(f"/v1/packs/mendari/gone/{SHIPPED}", headers=ADMIN)
     assert deleted_version.json()["checked"]["accepted"] is None  # a deleted version, never
     assert main(command) == 0  # again: nothing to sign, nothing written
-    assert json.loads(capsys.readouterr().out) == {"signed": [], "skipped": []}
+    assert json.loads(capsys.readouterr().out) == {
+        "signed": [],
+        "skipped": [],
+        "checkpoint": None,
+    }
     assert _events(db_target) == signed and _record(registry) == record
     assert _verify(db_target)["ok"]
     assert main(["registry", "verify", "--db", db_target]) == 0
@@ -561,8 +569,9 @@ def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
     assert json.loads(printed.out) == {
         "signed": [SUBJECT],
         "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+        "checkpoint": None,
     }
-    assert "1 not counter-signed" in printed.err
+    assert "1 not counter-signed" in printed.err and "ran without a checkpoint" in printed.err
     assert (
         registry.client.get(f"/v1/packs/{REFERRAL.id}/9.9.9").json()["checked"]["accepted"] is None
     )

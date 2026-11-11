@@ -681,7 +681,9 @@ Every PR:
   (`registry.py:633-639`).
 - **Not in LP-19:** releasing a refused or abandoned name; transferring a namespace between
   organizations; rotating a publisher token (mint a new one, revoke the old); a keyed registry
-  chain or a signed checkpoint of its head; e-mail to claimants (Mendari sends none).
+  chain or a signed checkpoint of its head (the signed checkpoint was brought forward by the
+  owner on 2026-11-10 and built after 19i: `hub/checkpoint.py`; a keyed chain is still not
+  in LP-19); e-mail to claimants (Mendari sends none).
 
 ## Risks
 

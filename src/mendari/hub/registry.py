@@ -26,7 +26,10 @@
   (`hub_events`: namespaces, claims, publisher types, tokens, keys, publishes, site reports,
   reviews), and `RegistryStore.verify` (`mendari registry verify`) checks the chain and that
   every row it covers is named by its event. A registry created before the chain records what
-  it held then (`registry.chain_started`).
+  it held then (`registry.chain_started`). The chain is unkeyed, so with a signing key the
+  registry signs its head for a day (`hub/checkpoint.py`, `RegistryStore.checkpoint`, `mendari
+  registry checkpoint`): kept outside the database, the statement shows a chain rewritten from
+  before it (`verify(head=…)`). Nothing of it is stored here.
 - **Reviews.** A registry reviewer records the risk level a version's review found
   (`POST …/review`, the admin token until reviewer accounts exist); until then the version's
   risk level is shown as declared by the publisher.
@@ -81,7 +84,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -109,6 +112,7 @@ from mendari.evals.share import (
     where,
 )
 from mendari.hub import acceptance, archive, regression, yank
+from mendari.hub import checkpoint as chain_checkpoint
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
@@ -390,6 +394,12 @@ _NOT_COUNTERSIGNED = (
 )
 
 
+_NOT_THE_CHECKPOINTS = (
+    "the chain does not hold the checkpoint's head: it was rewritten or cut short from before "
+    "the checkpoint, or the checkpoint is another registry's"
+)
+
+
 def _signing_key() -> Ed25519PrivateKey | None:
     """The registry's signing key, or None when unset. One that is set and is not a key is the
     operator's to fix: a `503` that says what the setting must be, never the value."""
@@ -472,6 +482,23 @@ def _countersign(
         row=("acceptances", "namespace = ? AND name = ? AND version = ?", _key(version)),
     )
     return True
+
+
+def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
+    """The head a registry checkpoint names (`hub/checkpoint.py`), once its signature holds with
+    `public` (None: this registry's own key). A `HubError` says why it is not one."""
+    if public is None:
+        own = _signing_key()
+        if own is None:
+            raise HubError(
+                f"a checkpoint is checked with the registry's key: set {yank.KEY_ENV}, or give "
+                "its public key"
+            )
+        public = own.public_key()
+    why = chain_checkpoint.problem(statement, public)
+    if why is not None:
+        raise HubError(f"the checkpoint is refused: {why}")
+    return str(statement["head"])
 
 
 class RegistryStore(RateBuckets):
@@ -1017,7 +1044,32 @@ class RegistryStore(RateBuckets):
                 _countersign(db, own, written, by, verified=True)
         return self.version(namespace, name, version, REVIEWER)
 
-    def countersign(self, *, by: str) -> dict[str, list[str]]:
+    def checkpoint(self, *, previous: Mapping[str, Any] | None = None) -> dict[str, str]:
+        """The signed statement of the chain's head today (UTC), for the operator to keep
+        where the registry cannot write (`hub/checkpoint.py`). Read-only: nothing is stored or
+        chained. It vouches for the chain, so it refuses one that does not verify, and, given
+        the `previous` statement, one that no longer holds that statement's head."""
+        own = _signing_key()
+        if own is None:
+            raise HubError(
+                f"this registry has no signing key: set {yank.KEY_ENV} (32 random bytes in "
+                "base64) to sign a checkpoint"
+            )
+        head = None if previous is None else stated_head(previous, own.public_key())
+        chain = self.verify(head=head)
+        if not chain["ok"]:
+            raise HubError(
+                f"no checkpoint was signed: the registry's chain does not verify "
+                f"({chain['problem']}). A statement of its head would vouch for it",
+                409,
+            )
+        if not chain["events"]:
+            raise HubError("no checkpoint was signed: the registry's chain has no event yet", 409)
+        return chain_checkpoint.sign(str(chain["head"]), datetime.now(UTC).date(), own)
+
+    def countersign(
+        self, *, by: str, checkpoint: Mapping[str, Any] | None = None
+    ) -> dict[str, list[str]]:
         """Counter-sign every listed version that has no record (LP-19i): those from before
         the registry counter-signed, or published while it had no signing key. Never a deleted
         version, nor one of a pending or refused namespace. Run again it signs nothing.
@@ -1026,14 +1078,19 @@ class RegistryStore(RateBuckets):
         a database whose chain does not verify (`verify`: a planted or changed row), and each
         version is checked again from what is stored (`_not_genuine`: its archive, signed by a
         key of its namespace, naming this pack, version and digest). `signed` names the versions
-        signed; `skipped` those that failed that check, each with why."""
+        signed; `skipped` those that failed that check, each with why.
+
+        The chain is unkeyed, so one rewritten whole verifies. Given a `checkpoint` (a statement
+        `checkpoint` signed earlier, kept outside the database), the chain must also still hold
+        the head it names, or nothing is signed."""
         own = _signing_key()
         if own is None:
             raise HubError(
                 f"this registry has no signing key: set {yank.KEY_ENV} (32 random bytes in "
                 "base64) to counter-sign"
             )
-        chain = self.verify()
+        head = None if checkpoint is None else stated_head(checkpoint, own.public_key())
+        chain = self.verify(head=head)
         if not chain["ok"]:
             raise HubError(
                 f"nothing was counter-signed: the registry's chain does not verify "
@@ -1435,7 +1492,7 @@ class RegistryStore(RateBuckets):
             )
         return self.version(namespace, name, version, REVIEWER)
 
-    def verify(self) -> dict[str, Any]:
+    def verify(self, *, head: str | None = None) -> dict[str, Any]:
         """Check the chain and the rows it covers. Each event's hash and its order; then every
         namespace, key, token, version, report, review and counter-signature must be the row its
         newest event hashed (none changed, none removed, none without an event); every archive
@@ -1443,7 +1500,12 @@ class RegistryStore(RateBuckets):
         key's. Rows a
         registry held when its chain started (`registry.chain_started`) are hashed there. The
         head (`head`, `events`) is what an outside copy compares, as the chain is unkeyed: a
-        writer of the database could rewrite it whole, and only a head kept elsewhere shows it."""
+        writer of the database could rewrite it whole, and only a head kept elsewhere shows it.
+
+        With `head` (a signed checkpoint's, `stated_head`), the chain must also hold an event
+        with that hash: a chain rewritten or cut short from before the checkpoint does not.
+        `after_checkpoint` then counts the events appended since, which the checkpoint says
+        nothing about."""
         with self._db.session(exclusive=False) as db:
             if not db.columns("hub_events"):
                 problem = "no chain yet: run `mendari registry serve` on this database once"
@@ -1481,6 +1543,12 @@ class RegistryStore(RateBuckets):
                 chained[(written["kind"], written["key"])] = written["sha256"]
         if started is not None and not events:
             return _broken(None, "the chain was emptied", events, prev)
+        since: dict[str, int] = {}
+        if head is not None:
+            at = next((i for i, event in enumerate(events) if event["hash"] == head), None)
+            if at is None:
+                return _broken(None, _NOT_THE_CHECKPOINTS, events, prev)
+            since = {"after_checkpoint": len(events) - 1 - at}
         found = {
             (kind, ROWS[kind][1](row)): _row_sha(row)
             for kind, listed in rows.items()
@@ -1520,7 +1588,7 @@ class RegistryStore(RateBuckets):
                 same = None
             if same != key["key_id"]:
                 return _broken(None, "a key is not the key its id names", events, prev)
-        return {"ok": True, "seq": None, "problem": None, **_head(events, prev)}
+        return {"ok": True, "seq": None, "problem": None, **_head(events, prev), **since}
 
     def head(self) -> dict[str, Any]:
         """The chain's head: how many events, and the last one's hash (published, so a copy kept
