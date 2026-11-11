@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from mendari.core.learned import ADDED_BY, IMPROVE, added
 from mendari.core.pack import Pack
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals.harness import resolve_dataset
@@ -97,20 +98,29 @@ def fit(
     """The model of one `naive_bayes` variant of `slot`, fitted on `records` and calibrated on
     `calibration`, for the slot's question, its labels and the variant's text fields. A record
     labels any subset of a pack's questions: one that does not label this question is not one
-    of its examples (a pack with two classifiers may hold cases only one of them learned from)."""
+    of its examples (a pack with two classifiers may hold cases only one of them learned from).
+    A model whose examples include a case `mendari improve` added says so in its `training`
+    record (`core/learned.py`)."""
     (question,) = pack.manifest.providers[slot].answers
 
     def labelled(cases: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         return [case for case in cases if question in case.get("labels", {})]
 
-    return naive_bayes.train(
-        labelled(records),
-        calibration=labelled(calibration),
+    examples, held_back = labelled(records), labelled(calibration)
+    model = naive_bayes.train(
+        examples,
+        calibration=held_back,
         question=question,
         labels=pack.manifest.labels(question),
         text_fields=text_fields(config),
         character_ngrams=character_ngrams,
     )
+    if any(added(case) for case in (*examples, *held_back)):
+        # Built from cases `mendari improve` added, whose words it holds: the model says so as
+        # they do (`core/learned.py`), and no archive is made of it until it is trained again
+        # without them. A model built from none of them is as it always was, byte for byte.
+        model["training"][ADDED_BY] = IMPROVE
+    return model
 
 
 def written(model: Mapping[str, Any]) -> str:

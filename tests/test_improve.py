@@ -330,6 +330,8 @@ def test_a_pack_it_wrote_to_is_one_train_rebuilds_and_a_second_run_learns_nothin
         assert len(added) == count
         assert all(record["id"].startswith("learned-") for record in added)
         assert all(set(record) == {"id", "input", "labels", "attributes"} for record in added)
+        # Each says a run added it: what keeps the pack out of an archive (`core/learned.py`).
+        assert all(record["attributes"]["added_by"] == "mendari improve" for record in added)
         # Where each came from, and the decision it was, to find it again (an erasure).
         assert all(record["attributes"]["source"] == "review" for record in added)
         assert all(record["attributes"]["decision_id"].startswith("decision-") for record in added)

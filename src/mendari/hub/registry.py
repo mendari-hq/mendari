@@ -8,6 +8,9 @@
   archive only if:
   - its signature verifies with one of the namespace's keys;
   - its manifest names this pack and version;
+  - none of its files holds a case `mendari improve` added, or a model built from one
+    (`archive.refuse_learned_cases`: a site's cases, which a client refuses to archive, and
+    which a client that did not look still cannot publish);
   - it extracts to a pack that loads with the signed digest, on the engine its pullers run
     (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a reference pack of
     the registry's own release, ADR-0009);
@@ -803,6 +806,9 @@ class RegistryStore(RateBuckets):
             version,
         ):
             raise HubError("the archive is not this pack and version")
+        # A site's cases are never published. `archive.build` looks before it signs; a client
+        # that did not is refused here, on the files it sent, and nothing of them is kept.
+        archive.refuse_learned_cases(verified.files)
         with tempfile.TemporaryDirectory() as scratch:
             try:
                 # Checked on the engine its pullers run, against this release's reference packs.

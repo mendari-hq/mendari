@@ -39,6 +39,14 @@ reviews`), rated decisions someone labelled, or cases a site labelled itself. A 
 A pack it wrote to is a changed pack: a new digest, to be given a new version, tested, and
 approved wherever a digest is approved, as any change is. Nothing here serves it or approves it.
 
+It also holds a site's cases now, which may be patient text, and its model holds their words.
+Every case a run adds says so (`attributes.added_by`, `core/learned.py`), `apply` writes none
+that does not, and the model built from them says so too (`evals/training.py` `fit`). No
+archive is made of a pack that holds either (`hub/archive.py`), so `mendari pack build` and
+`mendari push` refuse it, and a registry refuses one sent to it all the same. The file a run
+was given carries no mark, so the command reads none from the pack's own folder
+(`kept_in_the_pack`).
+
 The report (`mendari.improvement/1`) holds counts and rates, never a case's text or id. The
 held-out comparison is paired: the cases the two models disagree on, with an exact McNemar
 p-value, so a reader can tell a real gain from a few cases' luck. Two candidates are judged on
@@ -63,8 +71,9 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision
+from mendari.core.learned import ADDED_BY, IMPROVE, added
 from mendari.core.pack import Pack, load_pack, pack_digest
-from mendari.core.registry import origin_of
+from mendari.core.registry import is_within, origin_of
 from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.canonical import canonical_input
@@ -254,6 +263,15 @@ def not_writable(pack: Pack) -> str | None:
     return f"{what} is not changed in place: copy it, and improve the copy"
 
 
+def kept_in_the_pack(pack: Pack, cases: str | Path) -> bool:
+    """Whether a file of cases is in the pack's own folder, by the file it is, however its path
+    is spelt. The cases a run is given carry no mark, and a third of them are only held out,
+    never added; and every file in a pack's folder goes into its archive. So the command reads
+    none from there (`cli.py` `cmd_improve`): a site's cases stay outside the pack until a run
+    adds the ones it learned from, marked."""
+    return is_within(cases, pack.root)
+
+
 def apply(pack: Pack, found: Improvement) -> list[Path]:
     """Keep what a run found better: add the cases it learned from and calibrated on to the end
     of the pack's own training and calibration datasets, and write the model. The pack's data
@@ -261,8 +279,9 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
     wrote. All of it is written, or nothing: each file is written whole beside the pack first,
     then moved into place with its own permissions, and if one cannot be moved the ones already
     moved are put back. A run that found nothing better, a pack that is not the caller's own
-    (`not_writable`), and a pack that is no longer the one the run judged (so a run is kept
-    once) are each a `MendariError`, and nothing is written."""
+    (`not_writable`), a pack that is no longer the one the run judged (so a run is kept once),
+    and a case that does not say a run added it (the mark that keeps the pack out of an
+    archive, `hub/archive.py`) are each a `MendariError`, and nothing is written."""
     if found.model is None:
         raise MendariError(f"nothing to keep: no candidate was better ({found.verdict})")
     if (problem := not_writable(pack)) is not None:
@@ -280,6 +299,14 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
             raise MendariError(
                 f"nothing to keep: {name!r} is not one of the pack's datasets, and what a run "
                 "learned from goes into the pack, so that its data gives the model it holds"
+            )
+        if not all(added(case) for case in records):
+            # Read as an archive's builder reads it (`core/learned.py`): the one writer checks
+            # the mark, so no pack holds a case of a run's that nothing would recognise.
+            raise MendariError(
+                "nothing to keep: a case this run would add does not say `mendari improve` "
+                f"added it (`attributes.{ADDED_BY}`), and that is what keeps a pack that holds "
+                "a site's cases from being published"
             )
         if records:
             target = pack.path(declared[name])
@@ -420,7 +447,10 @@ def _new_cases(
         (label,) = labelled
         # Of records read alike, the one kept does not depend on the order they were given in.
         kept = min(records, key=lambda record: canonical_input(record["input"]))
-        attributes = {"source": _name(kept, "source") or "given"}
+        # A case a run adds says so, from here on: the model records the cases it was built
+        # from whole, so the mark is on them before any model is, and what `apply` writes is
+        # what `mendari train` reads. It is what keeps the pack out of an archive.
+        attributes = {ADDED_BY: IMPROVE, "source": _name(kept, "source") or "given"}
         if (decision_id := _name(kept, "decision_id")) is not None:
             attributes["decision_id"] = decision_id  # to find the case again (an erasure)
         case = {
@@ -529,7 +559,9 @@ def _judged(
         return {
             "features": _features(model.get("character_ngrams")),
             "model": candidate.provider_info[next(iter(providers))].model,
-            "training": dict(model["training"]),
+            # How it was trained, without the mark a model built from added cases carries: a
+            # report holds no case, and kept beside a pack's files it must stop no archive.
+            "training": {k: v for k, v in model["training"].items() if k != ADDED_BY},
             "temperature": model["temperature"],
             "held_out": held_out,
             "datasets": compared,

@@ -3386,11 +3386,61 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
     packs rebuilt from source byte-identical (data, models, ledgers; all five benchmarks
     reproduce); the new test files on Python 3.11, 3.12 and 3.13; the docs site (strict); the
     README's command tour and the API examples.
+- [x] **Step 6: a pack that holds learned cases is not published** (2026-11-11). Every case a
+  run adds says so in its record (`attributes.added_by: "mendari improve"`), written where the
+  case is made: a model records the cases it was built from whole, so a mark added only when
+  the files are written would stop `mendari train` rebuilding the model byte for byte. `apply`
+  writes no case that does not carry it, and a model trained on such a case says so in its
+  `training` record (`evals/training.py` `fit`), since it holds their words. The mark and its
+  one reader are `core/learned.py`. `hub/archive.py`
+  `build` searches every file the archive would hold for that mark, as bytes, and refuses
+  before anything is signed (`refuse_learned_cases`), so `mendari pack build` and `mendari
+  push` both stop there with one line naming the files (the first five) with how many times
+  each is marked, never a case. The registry's publish does the same on the files it is sent
+  (a client from before this step, or anything else that can sign, need not have looked) and
+  keeps nothing. `mendari community-check` fails a community pack that holds the mark in any
+  file, a hidden one too (rule `phi`). A case is recognised by the mark alone, not by its
+  `learned-` id, which is a naming habit. `mendari improve` reads no `--with` file from the
+  pack's own folder, however the path is spelt: that file carries no mark, and every file
+  there goes into the archive. Tests (`tests/test_learned_cases.py`, one in
+  `tests/test_community_check.py`): both commands and the client, with nothing signed and
+  nothing sent; cases taken out and the model left, refused until `mendari train` gives back
+  the model the pack came with; a case in a dataset the pack only tests with, in a copy the
+  manifest does not name, as one indented or one compact JSON document, in another folder, and
+  cut short; a pack whose own cases only look like a run's is built as before; no pack of the
+  repository holds one; the registry refuses one, after the signature, and keeps nothing.
+  - One independent review of the step: 1 high, 2 medium, 4 low, all fixed here but the part
+    of the high one that is the owner's (below). **High:** the `--with` file kept in the pack's
+    folder was archived unmarked, held-out cases included, once the refusal's own advice had
+    been followed (now `improve` reads none from there). **Medium:** taking the cases out
+    passed with the model left as it was (the model is marked now); the community check
+    passed a pack holding marked cases (it fails now). **Low:** the refusal named five files
+    and did not count the rest, and a file name with a newline made it two lines; three broken
+    guards passed the tests (only `.jsonl`, only `data/`, only one spelling of the mark); the
+    count built a list of every match; the docs said "each file".
+  - Verified: lint, format and types; the new and affected test files on Python 3.11, 3.12 and
+    3.13; the repository-wide checks; the archives of the five reference packs byte-identical
+    to the ones the code before this step builds, with one key; the full suite once.
+  **Not recognised, and said so in the README and ADR-0019:** a site's cases put into a pack by
+  hand (an export saved in the pack's folder and never given to a run; a copy compressed or
+  in another encoding), and a pack a run was kept in before this step, which has no mark (this
+  branch only, never released: improve a fresh copy). A file that only quotes the mark is
+  refused like one that holds a case.
 
 ### Left for the owner
 - **Merging.** Step 1 changes what a pack decides on text that holds such characters.
-- **Whether a pack that holds a site's cases may be pushed.** Nothing stops `mendari push` yet;
-  a guard there would refuse a pack whose datasets hold records `mendari improve` added.
+- **Whether a site may ever publish a pack that holds its cases.** It is refused everywhere now
+  (step 6), and nothing turns that off. A private registry inside one site may be a fair place
+  for such a pack; a way to allow it (a flag, or a setting of the registry) is a decision about
+  a site's data, and was not built.
+- **Whether an export carries the mark too.** `mendari feedback export` (and its route) writes
+  a site's cases to a file with no mark on them. `mendari improve` no longer reads such a file
+  from inside the pack's folder, but one saved there and left (`--out my-pack/reviewed.jsonl`)
+  would still be archived with the pack, and nothing would recognise it. Marking exported
+  records the way step 6 marks added ones would close it. It changes the export's record
+  format, and the README tells people to turn exported thumbs-down cases into a pack's own
+  tests and evaluation data, which that mark would then keep out of an archive: so it is a
+  decision, and was left.
 - **Whether the reference packs adopt any of it**: character features for their models, or the
   harder draft as training data, each a new pack version with its own review.
 - **An automatic hold when monitoring alerts.** It only lowers automation, and ADR-0010 chose

@@ -91,6 +91,12 @@ def origin_of(path: str | Path) -> Origin:
     return "local"
 
 
+def is_within(path: str | Path, directory: str | Path) -> bool:
+    """Whether the file or folder at `path` is `directory` or in it, by the file it is, however
+    either path is spelt (`_inside`)."""
+    return _inside(Path(path).resolve(), Path(directory))
+
+
 def _inside(path: Path, directory: Path) -> bool:
     """Whether `path` (resolved) is `directory` or in it: by how it is spelt or, since one
     directory can be spelt two ways (on a volume that ignores case, or under a second name for

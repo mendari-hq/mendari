@@ -311,7 +311,14 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 def cmd_improve(args: argparse.Namespace) -> int:
     from mendari.evals.harness import load_dataset
-    from mendari.evals.improve import BETTER, apply, improve, not_writable, text
+    from mendari.evals.improve import (
+        BETTER,
+        apply,
+        improve,
+        kept_in_the_pack,
+        not_writable,
+        text,
+    )
 
     pack = resolve_pack(args.pack)
     if args.write and (problem := not_writable(pack)) is not None:
@@ -320,6 +327,12 @@ def cmd_improve(args: argparse.Namespace) -> int:
     for path in args.cases:
         if not Path(path).is_file():
             raise MendariError(f"--with {Path(path).name}: no such file")
+        if kept_in_the_pack(pack, path):
+            raise MendariError(
+                f"--with {Path(path).name}: this file is in the pack's own folder, and every "
+                "file there goes into the pack's archive: keep the cases a run is given outside "
+                "it (move the file out, do not copy it)"
+            )
         given.append(load_dataset(path))
     found = improve(pack, given, slot=args.slot, train=args.train, calibration=args.calibration)
     if args.out:
@@ -335,9 +348,10 @@ def cmd_improve(args: argparse.Namespace) -> int:
     for path in apply(pack, found):
         print(f"wrote {path.relative_to(pack.root)}", file=said)
     print(
-        "The pack now holds the cases it learned from, and `mendari train` rebuilds this model "
-        "from them. Keep it where those cases may be: do not publish a pack that holds a "
-        "site's cases.\nIt is a changed pack: bump the pack's version, run `mendari test` and "
+        "The pack now holds the cases it learned from, each marked as added by this command, "
+        "and `mendari train` rebuilds this model from them. Keep it where those cases may be: "
+        "`mendari pack build` and `mendari push` refuse a pack that holds a site's cases.\n"
+        "It is a changed pack: bump the pack's version, run `mendari test` and "
         "`mendari eval`, and have it approved wherever a digest is approved.",
         file=said,
     )
@@ -2952,7 +2966,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="CASES",
         help="a JSONL file of labelled cases, such as `feedback export --source reviews` "
-        "writes (repeatable)",
+        "writes, kept outside the pack's folder (repeatable)",
     )
     better.add_argument("--slot", help="the classifier's slot, when several slots have one")
     better.add_argument("--train", default="train", help="training dataset (default: train)")

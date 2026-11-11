@@ -354,7 +354,11 @@ exactly how it judges). `--write` puts the model and the cases it learned from i
 
 What it writes is a change to your pack like any other: bump the version, run the tests and the
 evaluation again, and have it reviewed. The pack then holds the cases it learned from, so keep
-it where those cases may be kept. Reviewed cases are the ones the pack sent to a person,
+it where those cases may be kept: `mendari pack build` and `mendari push` refuse a pack that
+holds them, and so does a registry. To publish it without them, take them out and run `mendari
+train`, which builds the model again without them. Keep `reviewed.jsonl` outside the pack's
+folder (`mendari improve` reads none from there): every file in it goes into the pack's
+archive, and that file carries no mark. Reviewed cases are the ones the pack sent to a person,
 labelled by someone who saw its suggestion: good to learn from and to compare two models on,
 not a measure of the pack's accuracy on everything.
 

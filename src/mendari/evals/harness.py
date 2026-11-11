@@ -7,6 +7,9 @@ Dataset format (JSON Lines), one case per line:
      "labels": {"<question>": "<label>", ...},        # ground truth, any subset of questions
      "attributes": {"language": "es", "site": "..."}} # optional, for subgroup analysis
 
+One attribute means something to Mendari itself: `added_by`, which `mendari improve` writes on
+a case it adds to a pack (`core/learned.py`). A pack that holds such a case is not published.
+
 Reports never contain case inputs or ids: a case is named by its ledger hash
 (mendari.evals.ledger), so a report on local data can be shared without sharing the data. A
 report's result is computed from its ledger (mendari.evals.result); `evaluation` keeps both.

@@ -182,8 +182,10 @@ addresses, record numbers, phone numbers or messages copied from a chart or an i
 merged into a public repository cannot be fully taken back. Write every case yourself, the way
 a teaching case is written, and keep rare-condition and date combinations vague. `community-check`
 warns on text in `data/`, `tests/` and a trained model's vocabulary that looks like a real
-person's details; act on every warning. A trained model (a composite's members too) must be
-what `mendari train` gives from the pack's own data, byte for byte.
+person's details; act on every warning. It fails on any file that holds a case `mendari
+improve` added to a pack, or a model built from one: those are a site's own cases. A trained
+model (a composite's members too) must be what `mendari train` gives from the pack's own data,
+byte for byte.
 
 Two ways to make the data, neither needs Python:
 

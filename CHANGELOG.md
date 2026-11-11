@@ -84,11 +84,19 @@ The first release (not yet published).
   none, so `mendari train` rebuilds the model byte for byte, and a second run with the same
   cases learns nothing new. It writes only into a pack of one's own: never a reference pack, a
   community pack or a pulled one, however the path is spelt (`core.registry.origin_of` now
-  tells a directory by the file it is). With the harder draft's train split standing in for
-  reviewed cases, the inbox router gets 138 of 145 held-out messages right where it got 102,
-  and 354 of the draft's other 436 where it got 322; the local-site example is not kept (its
-  gain is no more than chance, and one candidate is confidently wrong on emergency messages),
-  and neither is a file of wrong labels.
+  tells a directory by the file it is). The cases it adds are a site's own, so each says a run
+  added it (`attributes.added_by` in its record), a model trained on one says so too, and a
+  pack with a file that holds that mark is not published: `mendari pack build` and `mendari
+  push` refuse it before anything is signed or sent, naming the files with how many times each
+  is marked and never a case, a registry refuses one it is sent, and `mendari community-check`
+  fails a community pack that holds one. Taking the cases out is not enough until `mendari
+  train` has built the model again without them. The file a run is given carries no mark, so
+  `--with` reads none from the pack's own folder. Nothing turns any of this off, and a pack
+  that holds no such case is built as before, byte for byte. With the harder
+  draft's train split standing in for reviewed cases, the inbox router gets 138 of 145 held-out
+  messages right where it got 102, and 354 of the draft's other 436 where it got 322; the
+  local-site example is not kept (its gain is no more than chance, and one candidate is
+  confidently wrong on emergency messages), and neither is a file of wrong labels.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:

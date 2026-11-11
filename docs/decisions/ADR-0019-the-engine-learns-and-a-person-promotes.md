@@ -92,7 +92,23 @@ The engine learns, and what it learned is a proposal.
   those, not every message a site will see.
 - A pack that learned from a site's cases holds them (each with the id of the decision it was,
   so it can be found again and taken out), and its model holds their words. It is the site's
-  data: nothing stops `mendari push` from publishing such a pack yet.
+  data, so it is not published. Every case a run adds says a run added it (`attributes.added_by`
+  in its record: `apply` writes none that does not), and a model trained on such a case says so
+  in its `training` record, since it holds their words. No archive is made of a pack with a
+  file that holds that mark: `mendari pack build` and `mendari push` refuse it before anything
+  is signed or sent, naming the files (the first five) with how many times each is marked and
+  never a case, and a registry refuses one it is sent, since a client need not have looked.
+  `mendari community-check` fails a community pack that holds one, before it is pushed. Every
+  file an archive would hold is searched, as bytes, not only the datasets the pack declares,
+  because an archive holds them all. Taking the cases out is half of it: the pack is refused
+  until `mendari train` has built the model again without them. There is no way to turn it
+  off: whether a site may ever publish such a pack is the owner's question.
+- The mark is all that is looked for. The file a run is given carries none (a third of its
+  cases are only held out, never added), so `mendari improve` reads no cases from the pack's
+  own folder, where every file goes into the archive. A site's cases put into a pack by hand
+  are not recognised: an export saved in the pack's folder and never given to a run, a copy
+  compressed or in another encoding. And a file that only quotes the mark is refused like one
+  that holds a case.
 - Reviews label the primary question only. A classifier that answers another question (the
   Referral Router's specialty reader) learns from cases labelled for that question: ratings
   that say the right answer, or a site's own labelled data.
@@ -125,3 +141,8 @@ The engine learns, and what it learned is a proposal.
   refused by an engine that does not know its format, so the pack format is left alone.
 - **Keeping the learned cases outside the pack.** `mendari train` would then rebuild the old
   model and silently undo what was learned.
+- **Telling a learned case by its id** (`learned-` and a hash, as a run names it). A naming
+  habit, not a statement: an author's own cases may be named so, and a tidied id would hide a
+  site's case. The record says it instead, and that alone is read.
+- **A flag to publish such a pack anyway.** Not built. A private registry inside one site may
+  be a fair place for it, and that is a decision about a site's data, so it is the owner's.

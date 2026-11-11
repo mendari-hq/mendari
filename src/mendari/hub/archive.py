@@ -10,6 +10,13 @@ mtime 0), so the same pack always gives the same bytes and the same archive dige
 - `pack/...`: the pack's files (everything but hidden files and caches; evaluation reports and
   the rendered card included, so they are signed too, though the pack digest leaves them out).
 
+`build` makes no archive of a pack that holds cases `mendari improve` added, or a model built
+from them: they are a site's cases, and may be patient text. Each says what it is
+(`core/learned.py`), and that mark is looked for in every file the archive would hold, before
+anything is signed (`refuse_learned_cases`). So `mendari pack build` and `mendari push` stop
+there, and a registry looks again at what it is sent (`hub/registry.py`), since a client need
+not have.
+
 `verify` checks the whole archive before anything is written to disk: only regular files under
 `pack/` (no link, device, FIFO or sparse file), every name a plain relative path (no empty, `.`,
 `..` or hidden segment, so no absolute path and no traversal), size and count caps, every file
@@ -42,6 +49,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.learned import learned_cases
 from mendari.core.origin import Origin
 from mendari.core.pack import Pack, load_pack
 from mendari.errors import HubError
@@ -58,6 +66,7 @@ MAX_UNPACKED_BYTES = MAX_ARCHIVE_BYTES * 4  # the tar stream the gzip expands to
 MAX_EXPANSION = 100
 EXPANSION_FLOOR = 64 * 1024 * 1024
 _CHUNK = 64 * 1024
+MAX_FILES_NAMED = 5  # the files a refusal of learned cases names: the rest are counted
 
 
 @dataclass(frozen=True)
@@ -130,9 +139,42 @@ def archive_name(pack: Pack) -> str:
     return f"{namespace}-{name}-{pack.version}.ohpack"
 
 
+def refuse_learned_cases(files: Mapping[str, bytes]) -> None:
+    """A `HubError` when a pack's files (path -> content, as an archive holds them) hold cases
+    `mendari improve` added, or a model built from them: found by their mark, in any file and
+    however it is laid out (`core/learned.py`). One line that names the first `MAX_FILES_NAMED`
+    files with how many times each is marked, and counts the rest; never a case's id or text.
+    A site's cases stay where the site keeps them: whether such a pack may ever be published is
+    not this function's to decide, so nothing turns it off."""
+    found = sorted(learned_cases(files).items())
+    if not found:
+        return
+    named, rest = found[:MAX_FILES_NAMED], found[MAX_FILES_NAMED:]
+    where = ", ".join(f"{count} in {_shown(path)}" for path, count in named)
+    if rest:
+        others = "1 other file" if len(rest) == 1 else f"{len(rest)} other files"
+        where += f", and {sum(count for _, count in rest)} more in {others}"
+    raise HubError(
+        f"the pack holds cases `mendari improve` added, or a model built from them ({where}): "
+        "a site's cases, which are never published. Keep the pack where those cases may be, or "
+        "take the cases out and run `mendari train`, which builds the model again without "
+        "them, before it is built or pushed."
+    )
+
+
+def _shown(path: str) -> str:
+    """A file's path as one line of a message holds it: escaped when a character of it (a
+    newline, say) would break the line."""
+    return path if path.isprintable() else ascii(path)
+
+
 def build(pack: Pack, key: Ed25519PrivateKey) -> bytes:
-    """The archive's bytes (deterministic: the same pack and key give the same archive)."""
+    """The archive's bytes (deterministic: the same pack and key give the same archive). A pack
+    that holds cases `mendari improve` added, or a model built from them, is a `HubError`
+    (`refuse_learned_cases`), raised on the bytes the archive would hold, before anything is
+    signed."""
     files = {f.relative_to(pack.root).as_posix(): f.read_bytes() for f in pack_files(pack.root)}
+    refuse_learned_cases(files)
     manifest = {
         "format": FORMAT,
         "id": pack.id,
