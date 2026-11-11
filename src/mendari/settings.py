@@ -171,6 +171,18 @@ def status_org() -> str | None:
     return raw
 
 
+def registry_mounted() -> bool:
+    """Whether the pack registry is served under this engine ($MENDARI_REGISTRY: `on`; unset or
+    `off`: nothing is mounted and no registry table is made, LP-19d). Anything else fails at
+    startup."""
+    raw = os.environ.get("MENDARI_REGISTRY", "").strip().lower()
+    if raw in ("", "off"):
+        return False
+    if raw == "on":
+        return True
+    raise MendariError("MENDARI_REGISTRY is on or off")
+
+
 def database_target() -> str:
     """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
     Vercel; elsewhere `var/mendari.db`."""

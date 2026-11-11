@@ -44,6 +44,10 @@ Configuration comes from the environment:
   (`/api/internal/monitor`) and the checkpoint at 10:00 (`/api/internal/checkpoint`);
   `MENDARI_RETENTION_DAYS` (default 30); `MENDARI_STATUS_ORG` is the organization the monitor
   leaves out (the status checks').
+- `MENDARI_REGISTRY`: `on` serves the pack registry under this app, on its database, at
+  `/registry/v1/...`, with an administrator's claims and publisher tokens at
+  `/api/registry/...` (LP-19d; docs/operations/registry.md). Unset (the default): nothing is
+  mounted. A request body there is `MENDARI_MAX_BODY_BYTES` at most, under Vercel's 4.5 MB.
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).
 - `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` (32 bytes in base64 each, two different

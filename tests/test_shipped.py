@@ -183,6 +183,12 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/review"): ("pack.reviewed",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/delete"): ("pack.deleted",),
+    # The registry under the engine (LP-19d): an organization's administrators, in the
+    # registry's own chain. The mounted registry's routes are the registry's, above.
+    (ENGINE, "POST", "/api/registry/namespaces"): ("namespace.created", "namespace.claimed"),
+    (ENGINE, "POST", "/api/registry/namespaces/{namespace}/keys"): ("key.added",),
+    (ENGINE, "POST", "/api/registry/tokens"): ("token.issued",),
+    (ENGINE, "DELETE", "/api/registry/tokens/{token_id}"): ("token.revoked",),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
     (ENGINE, "POST", "/api/registry-approvals"): ("registry_pack.approved",),
     (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_pack.revoked",),
@@ -273,16 +279,25 @@ NOT_CHAINED: dict[Route, str] = {
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).
 NOT_CHAINED_YET: dict[Route, str] = {}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+REGISTRY_PAGES = {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
 
 
-def _routes(app: FastAPI, name: str) -> set[Route]:
+def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[Route]:
     """Every route by its methods (an APIRoute is a starlette Route). Anything else, a mount, a
-    websocket or a host, would hide its routes here: only the dashboard's /static is allowed."""
+    websocket or a host, would hide its routes here: only the dashboard's /static is allowed,
+    and the registry under the engine (LP-19d), whose routes must be the registry's own
+    (`mounted`), which are listed as the registry's."""
     found: set[Route] = set()
     for route in app.routes:
         if isinstance(route, ServedRoute):
             methods = route.methods if route.methods is not None else UNSAFE | {"GET"}
             found |= {(name, method, route.path) for method in methods}
+        elif isinstance(route, Mount) and route.path == "/registry" and mounted is not None:
+            assert isinstance(route.app, FastAPI), route
+            within = {(method, path) for _, method, path in _routes(route.app, name)}
+            alone = {(method, path) for _, method, path in mounted}
+            # All of them, but FastAPI's own pages, which a mounted registry does not serve.
+            assert within <= alone and {path for _, path in alone - within} == REGISTRY_PAGES
         else:
             assert isinstance(route, Mount) and route.path == "/static", (name, route)
     return found
@@ -298,6 +313,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     evalset_on(monkeypatch)
     found: set[Route] = set()
     apps = {
@@ -308,9 +324,12 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     with encrypted_store(tmp_path / "engine.db") as served:
         reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
     evalsets_are_on(TestClient(apps[ENGINE], base_url="https://mendari.test"), reader)
+    with TestClient(apps[REGISTRY]):  # runs the app's lifespan, which closes its store
+        registrys = _routes(apps[REGISTRY], REGISTRY)
     for name, app in apps.items():
-        with TestClient(app):  # runs each app's lifespan, which closes its store
-            found |= _routes(app, name)
+        with TestClient(app):
+            found |= _routes(app, name, registrys if name == ENGINE else None)
+    apps[ENGINE].state.registry_store.close()
     return found
 
 

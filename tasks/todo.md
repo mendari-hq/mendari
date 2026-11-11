@@ -3004,8 +3004,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (store and operator commands): `hub_claims`, `RegistryStore.claim|decide_claim|claims`, one
     `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
     `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
-  - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
-    people's routes for claims and tokens.
+  - [x] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
+    people's routes for claims and tokens (`server/registry_routes.py`, `/api/registry/...`,
+    the `keys` permission, people only); the mounted registry reads no cookie and no
+    administrator token; tests in `tests/test_registry_mount.py`; threat rows S22 (second
+    half), I19 and D15. Turning it on anywhere is the owner's step.
   - [x] **19i** The registry counter-signs what it accepts and the client checks it
     (`hub/acceptance.py`, `hub_acceptances`, `checked.accepted`, `mendari registry countersign`,
     `hub/registry_keys.json` shipped empty); tests in `tests/test_registry_acceptance.py`;

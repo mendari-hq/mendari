@@ -8,9 +8,10 @@ uploads, and answers what it verified (`checked`) apart from what the publisher 
 (`claimed`). This page is for whoever runs a registry, and for a deployment that serves packs
 pulled from one.
 
-There is no public registry yet. Until LP-19 is finished a registry has one administrator
-token and no accounts (`tasks/todo.md`); namespace claims are made and decided with the
-operator's commands ([Namespace claims](#namespace-claims)). The docker sandbox runs one on port 8100.
+There is no public registry yet. Until LP-19 is finished a registry of its own has one
+administrator token and no accounts (`tasks/todo.md`); namespace claims are made and decided
+with the operator's commands ([Namespace claims](#namespace-claims)). A registry can also run
+under the engine, where people sign in to claim and mint ([Under the engine](#under-the-engine)). The docker sandbox runs one on port 8100.
 
 ## Starting a registry
 
@@ -25,12 +26,69 @@ mendari registry verify --db var/registry.db                # read-only; exit 1 
 |---|---|---|
 | `MENDARI_REGISTRY_ADMIN_TOKEN` | unset: no administrator | The one administrator's bearer token: namespaces, tokens, publisher types, reviews, recalls and deletions. Keep it in a secret manager. |
 | `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself and counter-signs nothing | 32 random bytes in base64, the Ed25519 key that signs an administrator's recalls and counter-signs each version the registry lists ([below](#the-counter-signature)), published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
-| `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per token (burst 30), site reports 60 an hour per token (burst 10). A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
+| `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per namespace (burst 30; all of a namespace's tokens share it), site reports 60 an hour per namespace (burst 10). A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
 | `MENDARI_REGISTRY_REGRESSION` | `on` | `off` publishes without the regression check. |
 
 Every answer carries a CSP that loads nothing, refuses framing, is never cached, and sends HSTS
 but on this machine. A refusal by the limits is `429` with `Retry-After`, before the body is
 read.
+
+## Under the engine
+
+`MENDARI_REGISTRY=on` serves the registry from the engine itself, on the engine's database, at
+`/registry/v1/...` (so a client's registry address is the engine's, with `/registry`). It is
+off by default: unset or `off`, the engine mounts nothing, makes no registry table and answers
+those paths as it did before. Any other value stops the server. Turning it on puts publisher
+bytes and reads that need no sign-in on the engine's origin and database: it is the owner's
+decision for a deployment, and no release turns it on.
+
+- **Reads need no sign-in**, as on a registry of its own, and carry the same headers: the CSP
+  that loads nothing, `nosniff`, `no-store`, and HSTS but on this machine. An archive is sent as
+  an attachment (`Content-Disposition: attachment`). The registry serves no page of its own
+  there; its routes are in the engine's API reference (`/docs/reference`, tag *Registry*).
+- **Publishing is by publisher token only** (`Authorization: Bearer ohr_…`). The engine's
+  guard reads no credential under `/registry/`, and the registry reads no session cookie: a
+  signed-in browser on any page publishes nothing. An engine API key (`ohk_`) or access token
+  is refused by the registry like any unknown token, and a publisher token is refused by the
+  engine everywhere else.
+- **No administrator token.** `MENDARI_REGISTRY_ADMIN_TOKEN` is not read under the engine: a
+  shared secret that publishes to every namespace has no place on the engine's origin. Until
+  registry reviewers sign in (LP-19e), claims are approved and refused, and versions reviewed,
+  recalled by the registry and deleted, with the operator's commands on the database
+  ([Namespace claims](#namespace-claims)).
+- **People claim and mint in the engine**, with sign-in on. An organization's administrators
+  (the `keys` permission; never a key, a client or a publisher token) use:
+
+  | Route | What it does |
+  |---|---|
+  | `GET /api/registry/namespaces` | The organization's claims: status, whether listed, publisher keys by id |
+  | `POST /api/registry/namespaces` `{name, display_name}` | Claim a namespace (`pending`; three pending at most) |
+  | `POST /api/registry/namespaces/{namespace}/keys` `{public_pem}` | Register a publisher key |
+  | `GET /api/registry/tokens` | The organization's publisher tokens, never a secret |
+  | `POST /api/registry/tokens` `{namespace, name, days}` | Mint a token (shown in this answer only; 90 days unless asked, 365 at most) |
+  | `DELETE /api/registry/tokens/{id}` | Revoke it, at once |
+
+  Each acts for the organization the person is signed in to, never one a body names: another
+  organization's namespace or token answers `404`, as one that does not exist. Another site's
+  page cannot call them (the engine's origin check). Each write is chained in the registry's
+  chain with the organization and the person's id (`user:<hash>`, never an address), and
+  logged (`admin.registry_namespace.claimed`, `admin.registry_key.added`,
+  `admin.registry_token.created|revoked`) with ids only. With sign-in off these routes are not
+  mounted: the operator's commands claim and mint. A namespace has 20 working tokens and 20
+  publisher keys at most through these routes, and an organization mints 50 tokens a day at
+  most (`409`, `429`).
+- **A request body is the engine's limit at most** (`MENDARI_MAX_BODY_BYTES`, 4 MiB by default;
+  a host may allow less): a larger archive is a `413` that says so. A registry of its own takes
+  100 MB. Larger archives under the engine wait for the pack store (LP-20).
+- **Limits and logs.** The registry's own rate limits apply (`MENDARI_REGISTRY_RATE_LIMITS`,
+  above), counted in the engine's database. Requests under `/registry/` get an access line in
+  the engine's security log with the route's template (`/registry/v1/packs/{namespace}/{name}`),
+  never the raw path or a token.
+- **Two chains, one database.** The registry's events stay in its own chain (`hub_events`,
+  `mendari registry verify --db`), the engine's in the audit chain; neither is written twice.
+  The registry's events are not in the Access view's Activity tab.
+- The engine does not close the function early for a long publish: the regression check runs
+  within the host's request time limit.
 
 ## What an administrator does
 
@@ -312,13 +370,15 @@ on a schedule, and compare a later head with it. A signed head is for later.
 
 ## Not yet
 
-- **Accounts (LP-19).** One shared administrator token; people cannot yet sign in to claim a
-  namespace, make their own publisher tokens or review a claim (the operator's commands do,
-  above). A namespace the administrator token makes over HTTP has no claim and is listed at
-  once, until LP-19g ends that token. The
-  registry is to run under the engine app (LP-19's option A, the default the owner confirmed on
-  2026-11-07, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
-  LP-19's build is next; its deploy, the registry's signing key and DNS are the owner's.
+- **Accounts (LP-19).** Under the engine, an organization's administrators claim namespaces
+  and make publisher tokens ([Under the engine](#under-the-engine)); nobody yet signs in to
+  review a claim (LP-19e: the operator's commands do, above), and the dashboard has no page for
+  any of it (LP-19f). A registry of its own still has one shared administrator token, and a
+  namespace that token makes over HTTP has no claim and is listed at once, until LP-19g ends
+  it. Running the registry under the engine is LP-19's option A, the default the owner
+  confirmed on 2026-11-07
+  ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); turning it
+  on anywhere, the registry's signing key and DNS are the owner's.
 - **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
   shows none.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
