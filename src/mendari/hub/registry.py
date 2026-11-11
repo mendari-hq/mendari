@@ -41,8 +41,8 @@
   is never served or published again. Both are chained.
 - **Limits and headers** (LP-18f). Every request counts against a rate in the registry's own
   database (`Limiter`, `MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then
-  overrides such as `registry_write=240/h:40`): reads per address, writes per token (or
-  address), site reports per token. A refused one is `429` with `Retry-After`, before its body
+  overrides such as `registry_write=240/h:40`): reads per address, writes per namespace (or
+  address), site reports per namespace. A refused one is `429` with `Retry-After`, before its body
   is read. Every answer carries the security headers, a CSP that loads nothing
   (`default-src 'none'; frame-ancestors 'none'`), `Cache-Control: no-store`, and HSTS but on
   this machine.
@@ -117,8 +117,8 @@ from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
 PublisherType = Literal["community", "verified", "institutional"]
-_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
-_VERSION = re.compile(r"^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\Z")  # `$` would take a final newline
+_VERSION = re.compile(r"^(?=.{1,64}\Z)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\Z")
 # Stored with each version published since the registry renders its own card (ADR-0012). A
 # version stored without it was published before: its uploaded card, benchmark and leaderboard
 # are never served.
@@ -2011,8 +2011,8 @@ REGISTRY_HEADERS = {
 }
 REGISTRY_RATES: dict[str, Rate] = {
     "registry_read": Rate(600, 60, 200),  # per address
-    "registry_write": Rate(120, 3600, 30),  # per token, or address without one
-    "registry_report": Rate(60, 3600, 10),  # a site's report, per token
+    "registry_write": Rate(120, 3600, 30),  # per namespace, or address without a token
+    "registry_report": Rate(60, 3600, 10),  # a site's report, per namespace
 }
 _REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
 
@@ -2049,23 +2049,43 @@ def registry_limit_settings() -> LimitSettings:
     return LimitSettings(mode=cast(Literal["on", "log", "off"], mode), rates=rates)
 
 
-def _rate_class(request: Request, known: Callable[[str], bool]) -> tuple[str, str]:
-    """A request's limit and its bucket's key: reads per address; writes and reports per token
-    (by its id) when the token is one the registry issued (or the admin's), else per address, so
-    made-up tokens share their sender's bucket."""
+def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[str, str]:
+    """A request's limit and its bucket's key: reads per address; writes and reports per
+    namespace when the token is one the registry issued (`known`: its bucket; the admin's
+    token by its id), else per address, so made-up tokens share their sender's bucket. Per
+    namespace, not per token: a namespace that mints a token gains no budget (LP-19d)."""
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return "registry_read", f"ip:{client_ip(request)}"
     header = request.headers.get("authorization", "")
     token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
-    key = f"token:{token_id(token)}" if token and known(token) else f"ip:{client_ip(request)}"
-    kind = "registry_report" if _REPORTS.match(request.url.path) else "registry_write"
+    key = (known(token) if token else None) or f"ip:{client_ip(request)}"
+    # The path as the registry's routes see it: under a mount (LP-19d) without the mount's.
+    root = str(request.scope.get("root_path", ""))
+    path = str(request.scope["path"])
+    path = path[len(root) :] if root and path.startswith(root) else path
+    kind = "registry_report" if _REPORTS.match(path) else "registry_write"
     return kind, key
 
 
 def create_registry_app(
-    target: str | Path, *, admin_token: str | None = None, migrate_url: str | None = None
+    target: str | Path | None = None,
+    *,
+    admin_token: str | None = None,
+    migrate_url: str | None = None,
+    store: RegistryStore | None = None,
 ) -> FastAPI:
-    store = RegistryStore(target, migrate_url=migrate_url)
+    """The registry's app, on a store it opens at `target`, or on one it is given (`store`:
+    the engine mounts the registry on the store its own routes use, LP-19d). An app on a given
+    store never closes it, and serves no page of its own (FastAPI's `/docs`, `/redoc` and
+    `/openapi.json`): whoever mounts it describes its routes."""
+    if store is not None:
+        return _registry_app(store, admin_token, owned=False)
+    if target is None:
+        raise MendariError("a registry needs a database, or a store")
+    return _registry_app(RegistryStore(target, migrate_url=migrate_url), admin_token, owned=True)
+
+
+def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool) -> FastAPI:
     admin = (
         admin_token
         if admin_token is not None
@@ -2075,9 +2095,13 @@ def create_registry_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        store.close()  # the Postgres pool, closed with the app rather than by the collector
+        if owned:
+            store.close()  # the Postgres pool, closed with the app rather than by the collector
 
-    app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan)
+    pages: dict[str, Any] = (
+        {} if owned else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    )
+    app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan, **pages)
     limiter = Limiter(store, registry_limit_settings())
 
     def publisher_namespace(token: str, *, used: bool = False) -> str | None:
@@ -2099,11 +2123,13 @@ def create_registry_app(
             store.token_used(owned["id"])
         return owned["namespace"] == namespace
 
-    def known(token: str) -> bool:
-        """A token the registry issued, or the admin's."""
+    def known(token: str) -> str | None:
+        """The write bucket of a token the registry issued (its namespace's) or of the
+        admin's (its own); None for any other."""
         if admin and hmac.compare_digest(token, admin):
-            return True
-        return publisher_namespace(token) is not None
+            return f"token:{token_id(token)}"
+        namespace = publisher_namespace(token)
+        return None if namespace is None else f"namespace:{namespace}"
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, error: Exception) -> JSONResponse:
@@ -2410,7 +2436,11 @@ def create_registry_app(
         return Response(
             store.archive(found["archive_sha256"], viewer),
             media_type="application/octet-stream",
-            headers={"x-archive-sha256": found["archive_sha256"]},
+            # Publisher bytes: saved, never shown, wherever the registry is served (LP-19d).
+            headers={
+                "x-archive-sha256": found["archive_sha256"],
+                "content-disposition": "attachment",
+            },
         )
 
     @app.post("/v1/packs/{namespace}/{name}/{version}/reports", status_code=201)

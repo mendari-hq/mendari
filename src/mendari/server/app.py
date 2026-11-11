@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
@@ -890,6 +891,10 @@ def create_app(
         require_evalset_deployment(sign_in=sign_in is not None)
     retention_days = settings.retention_days()  # likewise
     status_org = settings.status_org()  # likewise
+    # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
+    registry_on = settings.registry_mounted()  # likewise
+    registry_app: FastAPI | None = None  # mounted with the routes, below
+    registry_headers: Mapping[str, str] | None = None  # the mounted registry's own
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
         # An optional job never stops the server: the jobs stay off, and health says so.
@@ -933,9 +938,12 @@ def create_app(
         ehrs=ehrs if smart_options is not None else None,
         cds=cds,
         cds_open=cds_open,
+        registry=registry_on,
     )
     cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
-    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted, cds_origins=cds_origins)
+    origins = OriginCheck(
+        open_mode=not auth.enabled, trusted=trusted, cds_origins=cds_origins, registry=registry_on
+    )
     limiter = Limiter(store, rate_limits)
     # The daily cap per principal (MENDARI_PRINCIPAL_DAILY_LIMIT): sign-in only.
     cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
@@ -1278,6 +1286,12 @@ def create_app(
                 session_cookie=session_cookie_name(),
                 launch_cookie=session_cookie_name(sessions.SMART),
             )
+            if registry_app is not None:  # mounted below; its routes are described here
+                api_docs.mounted(
+                    app.openapi_schema,
+                    registry_app.openapi(),
+                    prefix=REGISTRY_PREFIX.rstrip("/"),
+                )
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]
@@ -1387,6 +1401,8 @@ def create_app(
             return public  # a scoped key or token reaches only the routes its scope names
         return {
             **public,
+            # The pack registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
+            **({"registry": True} if registry_on else {}),
             "packs": len(packs),
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
@@ -3016,7 +3032,9 @@ def create_app(
 
     # Innermost, so the route reads through it directly: Starlette's middleware would wrap the
     # 413 it raises mid-body in an exception group, which FastAPI answers with a 400.
-    app.add_middleware(BodyCap, limit=body_limit)
+    app.add_middleware(
+        BodyCap, limit=body_limit, counted_within=(REGISTRY_PREFIX,) if registry_on else ()
+    )
 
     @app.middleware("http")
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
@@ -3116,9 +3134,15 @@ def create_app(
         a CSP and COEP: a page sets its own policy (computed from its HTML), anything else gets
         the dashboard's. Any host but this machine also gets HSTS."""
         response: Response = await call_next(request)
+        path = request.url.path
+        if registry_headers is not None and path.startswith(REGISTRY_PREFIX):
+            # What the engine answers for the mounted registry before the registry is reached
+            # (the origin check, the body limit, a 500): the registry's own headers too, so
+            # every answer under it carries the policy that loads nothing (LP-19d).
+            for name, value in registry_headers.items():
+                response.headers.setdefault(name, value)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
-        path = request.url.path
         if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
             response.headers["Cache-Control"] = "no-store"
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
@@ -3139,9 +3163,30 @@ def create_app(
         open_mode=not auth.enabled,
         phi_mode=phi.mode,
         on_vercel=bool(os.environ.get("VERCEL")),
+        also_logged=(REGISTRY_PREFIX,) if registry_on else (),
     )
 
     add_auth_routes(app, auth)
+    if registry_on:
+        # Imported here only: `mendari.hub.registry` imports this module.
+        from mendari.hub.registry import REGISTRY_HEADERS, RegistryStore, create_registry_app
+        from mendari.server.registry_routes import add_registry_routes
+
+        # One store, on the engine's database, for the mounted registry and the people's
+        # routes. The mounted registry is public to the guard and checks its own publisher
+        # tokens; it has no administrator token here, whatever the environment holds (a shared
+        # secret that publishes to every namespace has no place on the engine's origin).
+        registry_store = RegistryStore(db_path, migrate_url=migrate_url)
+        registry_app = create_registry_app(store=registry_store, admin_token="")
+        # The engine's body limit, innermost in the registry too (as above, and for the same
+        # reason): the registry's own routes read through it directly. A declared length over
+        # the limit never gets this far.
+        registry_app.user_middleware.append(Middleware(BodyCap, limit=body_limit))
+        registry_headers = REGISTRY_HEADERS
+        app.mount(REGISTRY_PREFIX.rstrip("/"), registry_app, name="registry")
+        app.state.registry_store = registry_store  # closed by whoever closes the app (tests)
+        if auth.enabled:  # the people's routes need someone signed in
+            add_registry_routes(app, auth, registry_store)
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(
@@ -3879,6 +3924,7 @@ def _offered(format_parameter: str) -> bool:
 
 
 MAX_SEARCH_FORM_BYTES = 256 * 1024
+REGISTRY_PREFIX = "/registry/"  # where the pack registry is mounted (LP-19d; auth.py's rule)
 
 
 class BodyCap:
@@ -3888,9 +3934,13 @@ class BodyCap:
     once they pass it. It runs inside the guard, so sign-in answers first and no body is read
     before the sign-in check."""
 
-    def __init__(self, app: ASGIApp, limit: int) -> None:
+    def __init__(self, app: ASGIApp, limit: int, counted_within: tuple[str, ...] = ()) -> None:
         self.app = app
         self.limit = limit
+        # Paths an app mounted there counts itself, with a `BodyCap` of its own inside its
+        # middleware (the registry, LP-19d): raised from here mid-body, the 413 would pass
+        # through that app's middleware as an exception group, and be answered as a 500.
+        self.counted_within = counted_within
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -3899,6 +3949,9 @@ class BodyCap:
         declared = Headers(scope=scope).get("content-length", "")
         if declared.isdigit() and int(declared) > self.limit:
             await self.too_large(scope["path"])(scope, receive, send)
+            return
+        if self.counted_within and scope["path"].startswith(self.counted_within):
+            await self.app(scope, receive, send)
             return
         received = 0
 

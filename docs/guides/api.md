@@ -198,6 +198,12 @@ refused unless an EHR is registered for it.
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`. A client keeps
   its id when its public keys change (`POST /api/auth/clients/{id}/keys`, or the Access view's
   Clients tab): its tokens stop at once.
+- Where the pack registry is served under the engine (`MENDARI_REGISTRY=on`, off by default),
+  an administrator claims a namespace and mints publisher tokens with
+  `POST /api/registry/namespaces` and `POST /api/registry/tokens` (people only, like API keys).
+  A publisher token (`Bearer ohr_…`) publishes to its own namespace at `/registry/v1/...` and
+  is a credential nowhere else; an API key or a session cookie is never one there:
+  [Running a pack registry](../operations/registry.md#under-the-engine).
 - A credential never goes in a URL or a form. Refusals are a `401` or `403` with
   `WWW-Authenticate`, except a signed-in person's who has not yet acknowledged the notice
   (`GET /api/notice`): a `403` with `Mendari-Notice-Required` on routes that take data in.

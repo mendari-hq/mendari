@@ -77,6 +77,9 @@ class OriginCheck:
     # The origins CDS clients registered (`CdsRegistry.origins`, LP-23c): pages there may call
     # `/cds-services` without a Mendari cookie.
     cds_origins: frozenset[str] = frozenset()
+    # The pack registry is mounted here (LP-19d): only then is `/registry/` a public route
+    # another site's page may read, as the guard reads it (`Auth.permission`).
+    registry: bool = False
 
     def check(self, request: Request) -> None:
         """Returns when the request may go on; an `AuthError` (403) when another site started
@@ -102,7 +105,8 @@ class OriginCheck:
             ):
                 return
         # Another site started it (or the address bar sent an unsafe method): a page, to read.
-        if safe and permission_for("GET", request.url.path) in REACHABLE:
+        needed = permission_for("GET", request.url.path, registry=self.registry)
+        if safe and needed in REACHABLE:
             return
         if site:
             reason = _REASONS.get(site, "unknown_site")

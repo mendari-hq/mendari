@@ -347,6 +347,52 @@ def document(
     return schema
 
 
+REGISTRY_TAGS = [
+    {
+        "name": "Registry",
+        "description": "The pack registry served under this deployment (`MENDARI_REGISTRY=on`): "
+        "search, a pack's versions, its signed archive, recalls and site reports. Reads need no "
+        "credential. Writes need a publisher token (`Authorization: Bearer ohr_…`), which "
+        "publishes to its own namespace only; a session cookie or an API key is never a "
+        "credential here. A request body is this deployment's limit at most (a `413` names it).",
+    },
+    {
+        "name": "Registry accounts",
+        "description": "An organization's namespaces and publisher tokens in the pack registry, "
+        "managed by its administrators (people only): claim a namespace, register a publisher "
+        "key, and mint, list and revoke publisher tokens.",
+    },
+]
+PUBLISHER_TOKEN = {
+    "type": "http",
+    "scheme": "bearer",
+    "description": "A publisher token (`ohr_…`) an organization's administrator mints with "
+    "`POST /api/registry/tokens`: one namespace, an expiry, revocable. A credential on the "
+    "registry's routes only.",
+}
+_SCHEMA_REF = '"#/components/schemas/'
+
+
+def mounted(schema: dict[str, Any], registry: Mapping[str, Any], *, prefix: str) -> None:
+    """Add the mounted registry's operations to this deployment's document, under `prefix`
+    (LP-19d). Its schemas are renamed (`Registry…`: the two apps name some alike), its reads
+    are marked as needing no credential and its writes a publisher token. Called after
+    `document`, which knows only the engine's own rules and examples."""
+    renamed = json.loads(json.dumps(registry).replace(_SCHEMA_REF, f"{_SCHEMA_REF}Registry"))
+    for path, operations in renamed.get("paths", {}).items():
+        for method, operation in operations.items():
+            operation["tags"] = [REGISTRY_TAGS[0]["name"]]
+            operation["operationId"] = f"registry_{operation.get('operationId', method)}"
+            reads = method.upper() in ("GET", "HEAD")
+            operation["security"] = [] if reads else [{"publisherToken": []}]
+        schema.setdefault("paths", {})[f"{prefix}{path}"] = operations
+    components = schema.setdefault("components", {})
+    for name, model in renamed.get("components", {}).get("schemas", {}).items():
+        components.setdefault("schemas", {})[f"Registry{name}"] = model
+    components.setdefault("securitySchemes", {})["publisherToken"] = PUBLISHER_TOKEN
+    schema["tags"] = [*schema.get("tags", []), *REGISTRY_TAGS]
+
+
 TOO_MANY = {
     "description": "Too many requests from this caller: retry after `Retry-After` seconds.",
     "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},

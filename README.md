@@ -954,7 +954,10 @@ PyPI) can pull from a registry they name with `mendari login --registry URL` or
 public registry yet; the docker sandbox runs one. A registry that has a signing key
 counter-signs each version it lists, and `mendari pull` refuses a version of such a registry
 whose counter-signature is missing or does not verify
-([running a registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#the-counter-signature)).
+([running a registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#the-counter-signature)). A registry runs on its own
+(`mendari registry serve`) or under the engine (`MENDARI_REGISTRY=on`, off by default), where
+an organization's administrators sign in to claim a namespace and make publisher tokens:
+[Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#under-the-engine).
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash
@@ -1029,7 +1032,7 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   earlier version (the pack gate); it shows the result as "publisher's own test set:
   regression check, not a ranking" and never refuses a version for it
   (`MENDARI_REGISTRY_REGRESSION=off` turns it off).
-- **Limits and headers.** The registry limits reads per address and writes per token
+- **Limits and headers.** The registry limits reads per address and writes per namespace
   (`MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then overrides such as
   `registry_write=240/h:40`), and both it and the Hub send a strict CSP, refuse framing and send
   HSTS.

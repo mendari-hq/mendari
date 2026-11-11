@@ -1490,9 +1490,16 @@ Connect) is not supported yet.
     - 2026-11-08: first SMART launch on Epic's sandbox (owner): launch, authorize, callback,
       patient read worked; the trial pack abstained for Anna Cadence on three gaps
       (MedicationStatement not offered, the shared 20-link cap, RTF twins counted twice), built
-      on branch `claude/epic-data-fit` (PR #290); the owner's run
-      stays open; the trial card's "20 links" wording waits on #287. Run notes:
+      in #290 (merged 2026-11-09); the owner's run stays open; the trial card's "20 links"
+      wording waits on the trial pack's next version (O4 below). Run notes:
       `notes/epic-sandbox-checklist.md` section 7.
+    - 2026-11-10: the same launch after #290 (merged 2026-11-09) and #287, with the owner's
+      MedicationStatement declaration on the sandbox only, decided for Epic's test patient:
+      `HUMAN_REVIEW`, `not_eligible` on `stable_metformin` "no" from its default, the
+      limitation stated; nothing unread (3 notes, 2 orders, both drugs read), so only the
+      declaration was exercised, not #290's budgets. Epic's certificate chain (2026-11-09) and
+      its test tool's DSTU2 `iss` (early afternoon) failed first, both on Epic's side. The run
+      stays open: the other packs and the hook path. Checklist section 7.
     - [ ] Owner (O1): set `MENDARI_EHR_DECLARATIONS` for Epic's base on the hosted site, a
       production setting and a clinical claim, only after the checks in
       `docs/guides/connecting-an-ehr.md#what-your-ehr-does-not-offer` (where Epic keeps reported
@@ -1502,22 +1509,28 @@ Connect) is not supported yet.
     - [ ] Owner (O2): RTF-only notes, A (today: abstain, now with the format counted), B (decide
       on the readable notes, at most HUMAN_REVIEW, the unread notes stated; a spec 0.3 change
       and a pack opt-in) or C (a bounded RTF-to-text reader with its own tests). No
-      recommendation; `unread_formats` from the next run says how often Epic notes are RTF only.
+      recommendation. The 2026-11-10 run read all 3 of its notes (none RTF only, so no
+      `unread_formats`), too few to say how often; a chart with more notes says it.
     - [ ] Owner (O3): name-first's safe form (a follow read only when no earlier path of the
       field gives a value; one sentence in spec 0.3 §2.3), only with a pack change that orders a
       MedicationRequest's own paths first.
     - [ ] Owner (O5): under a declaration, whether a list-based answer that came from its
       criteria's `default` (`no_insulin` "yes" when no insulin is listed) reads `unknown`
       instead. Not built: today it reads "yes", recorded with the limitation and never
-      automated.
+      automated. Seen on Epic on 2026-11-10: `stable_metformin` "no" from its default (neither
+      of 2 stopped orders names metformin) made the prescreen `not_eligible`, and `no_insulin`
+      read "yes" by its default (checklist section 7).
     - [ ] Owner (O6): under a declaration, whether the trial card shows for every decision
       (its `show` hides `not_eligible`, which an incomplete list can give); `shows_card` (#288,
       merged) could treat a declared limitation as it treats an unreadable record. The review
       queue holds every such decision today.
-    - [ ] For #287 (O4, in that PR, which bumps the trial pack anyway): the trial card's "more
-      links than one decision reads (20, `cap`)" wording (now 50 notes and 50 followed
-      references), a date window or `_count` on the notes prefetch, and whether to add
+    - [ ] At the trial pack's next version (O4; #287 merged it at 0.4.0 without these): the
+      trial card's "more links than one decision reads (20, `cap`)" wording (now 50 notes and 50
+      followed references), a date window or `_count` on the notes prefetch, and whether to add
       `_include=MedicationRequest:medication` (unverified on Epic).
+    - [ ] Next Epic run: why the clinical-note search found 3 notes on 2026-11-10 and 21 on
+      2026-11-08 with the same prefetch (Epic's sandbox data, its paging, or another patient);
+      and a chart with more than 20 notes, to show #290's budgets and per-note counting on Epic.
     - [ ] At prior-auth's next version (#288 merged without it): the pack's "20, `cap`" wording
       in `pack.yaml`, `DECISION_CARD.md` and its CHANGELOG (now 50 notes and 50 followed
       references).
@@ -3004,8 +3017,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (store and operator commands): `hub_claims`, `RegistryStore.claim|decide_claim|claims`, one
     `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
     `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
-  - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
-    people's routes for claims and tokens.
+  - [x] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
+    people's routes for claims and tokens (`server/registry_routes.py`, `/api/registry/...`,
+    the `keys` permission, people only); the mounted registry reads no cookie and no
+    administrator token; tests in `tests/test_registry_mount.py`; threat rows S22 (second
+    half), I19 and D15. Turning it on anywhere is the owner's step.
   - [x] **19i** The registry counter-signs what it accepts and the client checks it
     (`hub/acceptance.py`, `hub_acceptances`, `checked.accepted`, `mendari registry countersign`,
     `hub/registry_keys.json` shipped empty); tests in `tests/test_registry_acceptance.py`;

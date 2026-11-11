@@ -82,6 +82,9 @@ The services' prefetch templates, which Epic either fills or leaves to Mendari t
   `order-sign`), which prefetch tokens it fills, and whether it sends `fhirServer` and
   `fhirAuthorization` for the rest.
 - [ ] **The searches above:** which Epic answers, and which it refuses.
+  So far, for the trial pack's SMART launch only (section 7): Condition, Observation (by
+  LOINC code), MedicationRequest and DocumentReference (`category=clinical-note`) answer, and
+  MedicationStatement is refused (403). The other packs' searches are not run yet.
 - [ ] **Codings:** the code systems on Conditions, Observations and DocumentReferences, and
   their order (a local code first, then ICD-10-CM or LOINC, say).
 - [ ] **Notes:** inline `data` or a `Binary` link, and their content types (plain text, HTML,
@@ -100,7 +103,7 @@ The services' prefetch templates, which Epic either fills or leaves to Mendari t
   all. If it cannot, the Epic path is proven with test keys and Inferno only until a pilot site's
   own environment exists (owner decision 15), and the scorecard says so.
 - [ ] **`mendari smart check`:** its output against Epic's FHIR base, with sign-in on.
-- [ ] **The 2026-11-08 decision's counts** (counts only, from its data-coverage record; reading
+- [x] **The 2026-11-08 decision's counts** (counts only, from its data-coverage record; reading
   the hosted database is a production read, so the owner's): `fields.notes.unreadable` (`cap`
   and `unsupported_type`: equal counts mean each `unsupported_type` was an RTF twin; 20 plus the
   `cap` count is the patient's note count, which says whether 50 is enough),
@@ -109,14 +112,25 @@ The services' prefetch templates, which Epic either fills or leaves to Mendari t
   the next run on, the record also gives `prefetch` (the status of each failed prefetch read),
   `links` (reads by budget, failed reads by status) and `unread_formats` (how many notes were
   RTF, PDF or XML only).
+  Read on 2026-11-10 from the sandbox's record (section 7): 21 notes (DocumentReference) with 42
+  attachments; `notes.unreadable` `cap: 1` and `unsupported_type: 1`, equal. That code counted
+  each attachment, so the one `unsupported_type` was the capped note's other rendition (its RTF
+  twin, assumed), and 20 read plus 1 capped is the 21: 50 notes would have read them all.
+  MedicationStatement `unauthorized: 1`; the MedicationRequest source `cap: 4` (2 orders, each
+  drug's code and name not read).
 - [ ] **Medications on Epic:** whether patient-reported and historical home medications come back
   as MedicationRequest, and with which `intent` (PR #287 leaves out `proposal`, `plan` and
   `option`); whether the default MedicationRequest search returns stopped, completed and
   inpatient orders; whether `Medication.code.text` or the request's `display` carries the generic
   name; whether one drug ordered twice names one Medication id. All four before declaring
-  MedicationStatement.
+  MedicationStatement for a pilot or the hosted site (O1); the sandbox's declaration, attested
+  on 2026-11-08 for synthetic data only, was set without them. So far (section 7): the default
+  search returned 2 `stopped` orders for the test patient, so it returns stopped ones.
 - [ ] **Notes on Epic:** whether each Clinical Notes DocumentReference gives the same note as
   `text/html` and `text/rtf` Binaries (assumed, unconfirmed), and how many are RTF only.
+  So far (section 7): 42 attachments for 21 notes, then 6 for 3 (two a note on average), and on
+  2026-11-10 every note read once and none left unread, so none of the 3 was RTF only. The
+  counts do not give the content types, so the twin assumption is consistent, not confirmed.
 - [ ] **Epic's CDS prefetch for MedicationStatement:** whether it sends nothing, null, an empty
   search or an OperationOutcome for the key it cannot fill.
 - [ ] **`_include=MedicationRequest:medication`:** whether Epic's MedicationRequest search
@@ -161,7 +175,7 @@ its shorter token (ADR-0006).
   - `notes: unsupported_type`: the RTF twin of each capped HTML note, counted again (assumed:
     each Epic note an HTML and an RTF Binary).
 
-  Built in the Epic data fit pull request (branch `claude/epic-data-fit`): budgets by purpose (50
+  Built in the Epic data fit pull request (#290, merged 2026-11-09): budgets by purpose (50
   notes, 50 followed references) with a request bound and clocks, a note's renditions counted
   once, the coverage record's `prefetch`, `links` and `unread_formats`, and
   `MENDARI_EHR_DECLARATIONS` (off by default). With the declaration set, a chart is decided and
@@ -170,8 +184,63 @@ its shorter token (ADR-0006).
   `unsupported_type`); at most 50 distinct drugs among its listed MedicationRequests, each
   Medication read; every prefetch search (Condition, Observation and DocumentReference as well as
   MedicationRequest) of at most 11 pages (`cap`); the linked reads done within 60 s and the
-  decision's deadline (`timeout`); and, once #287 lands, no medication recorded with `intent`
+  decision's deadline (`timeout`); and, since #287 (trial pack 0.4.0), no medication recorded
+  with `intent`
   `plan`. On a CDS hook, a MedicationStatement prefetch the EHR sends as an OperationOutcome still
   abstains (`operation_outcome`). Without the declaration, the trial pack abstains on
   MedicationStatement alone, by design. The run stays the
   owner's acceptance; setting the declaration on the hosted site is the owner's too.
+
+- **2026-11-10, the same launch after #290 (the owner).** The sandbox, redeployed from main at
+  678eaf86 (#290, and #287's trial pack 0.4.0; the 2026-11-08 run was 5fac9d0f), with
+  `MENDARI_EHR_DECLARATIONS` set on the sandbox only: MedicationStatement not offered on Epic's
+  R4 base, attested by the owner in chat on 2026-11-08 for synthetic data
+  (`ehr_declaration` version `2026-11-08-sandbox`). Two faults on Epic's side came first, and
+  neither needed a change here:
+  - on 2026-11-09 `fhir.epic.com` sent its new certificate without the intermediate, so the
+    engine's HTTP client refused it (`ConnectError`) where browsers did not; Epic sent the full
+    chain again by 12:45 pm EST on 2026-11-10;
+  - from about 1 pm to 1:45 pm EST on 2026-11-10 the "Launching Your App" tool sent `iss` as the
+    DSTU2 base for this R4 app, with an empty `launch`, which Mendari refuses as an unregistered
+    EHR; at 6:23 pm EST a launch from it was accepted, so it sent the R4 base and a launch code.
+
+  The launch then worked end to end (launch, authorize, callback, the patient and focus reads,
+  decide), and the trial pack **decided** for Epic's test patient (the same age, sex and
+  conditions as on 2026-11-08): `HUMAN_REVIEW`, recommending `not_eligible` (confidence 0.98;
+  risk level 2, with no governance override, sends it to a person, as the declaration alone
+  would). Its reasons, besides the threshold and the risk level:
+  - `medications may be incomplete: read without MedicationStatement, which this EHR does not
+    offer (declared, …): a person decides`;
+  - `not_eligible: stable_metformin is no`;
+  - `needs_review: t2d_diagnosis, hba1c_in_range, egfr_30_or_more are unknown`.
+
+  Its data coverage (counts only):
+  - **medications:** 2 MedicationRequests, both `stopped` with a start and an end date, each
+    naming its drug by `medicationReference`; both Medications read (2 of the 50 followed
+    references), with 2 RxNorm codings beside 3 in other systems. MedicationStatement is marked
+    `not_offered` and was not asked for.
+  - **notes:** 3 clinical-note DocumentReferences with 6 attachments, each note read once (3 of
+    the 50), none unread. The same search found 21 notes on 2026-11-08 (the prefetch is the same
+    in 0.3.0 and 0.4.0); why 3 now is not known (Epic's sandbox data, its paging, or another
+    patient with the same conditions), so the next run checks it.
+  - **conditions:** 6, with 20 codings: 6 ICD-10-CM and 14 in other systems.
+  - **observations:** the HbA1c and eGFR search (LOINC 4548-4, 33914-3, 62238-1) answered with
+    no entries, so both criteria read `unknown`.
+  - **prefetch:** no failed read.
+
+  What it shows:
+  - The declaration works on Epic: the chart is decided, goes to a person, and says the
+    medication list may be incomplete. #290's other two fixes are not shown yet: 3 notes and 2
+    drugs (5 linked reads) fit even the old budget of 20, and with no note capped the old code
+    counted no second rendition either. A chart with more than 20 notes shows them.
+  - The recommendation rests on what the incomplete list does not hold. Neither order names
+    metformin (both are stopped, and neither is a metformin brand), so `stable_metformin` took
+    its criteria's default, "no", which makes the prescreen `not_eligible`; `no_insulin` is "yes"
+    by its default too. This is the case owner question O5 names, seen on Epic: a person
+    reviews it, and the record says why.
+  - On a CDS hook the trial pack shows no card for `not_eligible` (its `show`; owner question
+    O6). The SMART launch shows the decision.
+
+  The owner's acceptance (section 6) stays open: one pack, by SMART launch, for one patient.
+  The other packs and the CDS Hooks path are not run on Epic yet, so the gate's pending line
+  stays.
