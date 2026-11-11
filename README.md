@@ -954,7 +954,7 @@ PyPI) can pull from a registry they name with `mendari login --registry URL` or
 public registry yet; the docker sandbox runs one. A registry runs on its own
 (`mendari registry serve`) or under the engine (`MENDARI_REGISTRY=on`, off by default), where
 an organization's administrators sign in to claim a namespace and make publisher tokens:
-[Running a pack registry](docs/operations/registry.md#under-the-engine).
+[Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#under-the-engine).
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash
