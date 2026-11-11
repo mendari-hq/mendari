@@ -1596,10 +1596,12 @@ no more than chance. The same file with every label set to `billing`: each candi
 more of the pack's 600 test cases and gains none, which is inside the 3% the eval gate
 tolerates and more than chance.
 
-`--write` keeps a better candidate: it writes the model, and adds the cases it learned from and
-calibrated on to the end of the pack's own training and calibration datasets, so the pack's
-data still gives the model it holds and `mendari train` rebuilds it byte for byte. A second run
-with the same cases learns nothing new. What it wrote is a changed pack, with a new digest:
+`--write` keeps a better candidate, in a pack of your own: it writes the model, and adds the
+cases it learned from and calibrated on to the end of the pack's own training and calibration
+datasets, so the pack's data still gives the model it holds and `mendari train` rebuilds it
+byte for byte. All three files change or none does, a run is kept once, and a second run with
+the same cases learns nothing new. A reference pack of this release, and a pack pulled from a
+registry, are never changed in place: copy one, and improve the copy. What it wrote is a changed pack, with a new digest:
 bump its version, run `mendari test` and `mendari eval`, and have it approved wherever a digest
 is approved (an automation approval names one digest, so it does not carry over). Nothing
 serves the new model or approves it for you.

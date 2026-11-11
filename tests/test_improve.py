@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ import pytest
 
 from mendari import Decision, load_pack
 from mendari.cli import main
+from mendari.core import registry
 from mendari.core.pack import pack_digest
 from mendari.errors import MendariError
 from mendari.evals.harness import Dataset, load_dataset
@@ -42,6 +44,17 @@ UNSEEN = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
 MODEL = "models/destination-nb.json"
 TRAIN = "data/train.jsonl"
 CALIBRATION = "data/calibration.jsonl"
+
+
+SHIPPED = pack_digest(INBOX_DIR)
+
+
+@pytest.fixture(autouse=True)
+def _the_repositorys_own_pack_is_never_written_to() -> Iterator[None]:
+    """Every test here works on a copy. Once, a test of this file applied a run to the
+    repository's own pack; this fails the test that does."""
+    yield
+    assert pack_digest(INBOX_DIR) == SHIPPED, "a test changed packs/patient-inbox-router"
 
 
 def copy_of_the_inbox(root: Path) -> Path:
@@ -160,6 +173,28 @@ def test_nothing_is_written_until_asked(learned: tuple[Path, Improvement]) -> No
     assert pack_digest(root) == pack_digest(INBOX_DIR)
 
 
+def test_a_pack_pulled_from_a_registry_is_never_written_to(
+    learned: tuple[Path, Improvement],
+) -> None:
+    root, found = learned
+    with pytest.raises(MendariError, match="pulled from a registry"):
+        apply(load_pack(root, origin="hub"), found)
+    assert pack_digest(root) == pack_digest(INBOX_DIR)
+
+
+def test_a_reference_pack_of_this_release_is_never_written_to(
+    inbox: Path, harder: Dataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mendari improve mendari/patient-inbox-router --write` reports and keeps nothing: the
+    bundled packs' data comes from their generators. Here the copy stands where they are."""
+    found = improve(load_pack(inbox), [harder])
+    monkeypatch.setattr(registry, "_BUNDLED_DIRS", [inbox.parent])
+    assert registry.origin_of(inbox) == "maintained"
+    with pytest.raises(MendariError, match="a reference pack of this release is not changed"):
+        apply(load_pack(inbox), found)
+    assert pack_digest(inbox) == SHIPPED
+
+
 def test_the_same_pack_and_cases_give_the_same_report(
     inbox: Path, harder: Dataset, learned: tuple[Path, Improvement]
 ) -> None:
@@ -193,6 +228,13 @@ def test_a_pack_it_wrote_to_is_one_train_rebuilds_and_a_second_run_learns_nothin
         assert len(added) == count
         assert all(record["id"].startswith("learned-") for record in added)
         assert all(set(record) == {"id", "input", "labels", "attributes"} for record in added)
+
+    # The run is kept once: the pack it judged is not the pack on disk any more.
+    stale = {name: (inbox / name).read_bytes() for name in (MODEL, TRAIN, CALIBRATION)}
+    with pytest.raises(MendariError, match="the pack has changed since this run judged it"):
+        apply(load_pack(inbox), found)
+    assert stale == {name: (inbox / name).read_bytes() for name in (MODEL, TRAIN, CALIBRATION)}
+    assert not list(inbox.parent.glob(".mendari-improve-*"))  # nothing left beside the pack
 
     # The pack is whole again: its own data gives the model it holds.
     improved = (inbox / MODEL).read_bytes()

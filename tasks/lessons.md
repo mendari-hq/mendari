@@ -845,3 +845,28 @@ for each.
 ### Verification
 A script over the changed files prints each character outside ASCII by its Unicode name, and the
 list holds only intended, visible letters.
+
+## 2026-11-10 - testing
+
+### What happened
+A new test of `mendari improve` meant to show that a run cannot be applied to a pack that has
+changed. It called `apply(load_pack(INBOX_DIR), found)` with a run judged on a temporary copy of
+that pack. The copy and the repository's own pack have the same digest, so nothing was refused:
+the call appended 303 records to `packs/patient-inbox-router/data/` and rewrote its model. The
+full suite was running in the background on the same tree, so its result was void. `git status`
+showed it within a minute; the three files were restored with `git checkout`.
+
+### Root cause
+A test passed a path inside the repository to a function that writes. Nothing in the function
+or the suite stood between a test and the repository's own packs.
+
+### Rule
+A function that writes into a pack refuses the bundled packs and the registry's cache by where
+the pack is on disk (`core.registry.origin_of`), not by how it was loaded. A test of such a
+function builds every path it passes from `tmp_path`, and its module has an autouse fixture that
+fails a test after which the repository's pack no longer has its digest. While a full run is in
+progress, nothing else that can write runs in the same tree.
+
+### Verification
+`git status --short packs datasets` is empty after every test run, and
+`tests/test_improve.py` holds the fixture.

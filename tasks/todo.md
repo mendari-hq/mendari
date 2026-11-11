@@ -3352,6 +3352,9 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   (90 to 124 of 133 held out; 322 to 369 of the draft's other split), nothing written unless
   asked, the report holds no case, a pack it wrote to is rebuilt byte for byte by `mendari
   train`, a second run learns nothing new, wrong labels and the pack's own data are not learned.
+  `apply` stages its three files beside the pack and moves them into place together, keeps a
+  run once (the pack's digest on disk must still be the one judged), and refuses a pack in
+  the registry's cache or among the bundled packs.
   **Found while building it:** the 3% the eval gate tolerates let a file of wrong labels
   through (7 of 600 test cases lost), which is why the paired test is there; and the local-site
   example's own candidate was confidently wrong on 4 emergency messages, which is why the

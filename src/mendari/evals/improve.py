@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -55,7 +56,9 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
+from mendari.core.origin import NOT_OWNED
+from mendari.core.pack import Pack, load_pack, pack_digest
+from mendari.core.registry import origin_of
 from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.canonical import canonical_input
@@ -217,33 +220,55 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
     pack's own training and calibration datasets, and write the model. The pack's data then gives
     the model it holds (`mendari train` rebuilds it byte for byte). Returns what it wrote. A run
     that found nothing better, or was made on another state of the pack, is a `MendariError`,
-    and nothing is written."""
+    and so is a pack in the registry's cache or among the packs this release bundles, which
+    are never changed in place: nothing is written."""
     if found.model is None:
         raise MendariError(f"nothing to keep: no candidate was better ({found.verdict})")
-    if pack.digest != found.report["pack"]["digest"]:
+    # Where the pack is, whatever it was loaded as: a pack is never changed in the registry's
+    # cache or among the packs this release bundles.
+    where = origin_of(pack.root)
+    if pack.origin in NOT_OWNED or where in NOT_OWNED:
+        raise MendariError(
+            "nothing to keep: a pack pulled from a registry is not this deployment's to change. "
+            "Improve a copy of it under an id of your own"
+        )
+    if where == "maintained":
+        raise MendariError(
+            "nothing to keep: a reference pack of this release is not changed in place (its "
+            "data comes from its generator). Copy it, and improve the copy"
+        )
+    # The pack as it is on disk now, not as it was when loaded: a run is kept once.
+    if pack_digest(pack.root) != found.report["pack"]["digest"]:
         raise MendariError("nothing to keep: the pack has changed since this run judged it")
     declared = pack.manifest.evaluation.datasets
-    files = []
-    for name in (found.train_dataset, found.calibration_dataset):
+    contents: list[tuple[Path, bytes]] = []
+    for name, records in (
+        (found.train_dataset, found.learned),
+        (found.calibration_dataset, found.calibration),
+    ):
         if name not in declared:
             raise MendariError(
                 f"nothing to keep: {name!r} is not one of the pack's datasets, and what a run "
                 "learned from goes into the pack, so that its data gives the model it holds"
             )
-        files.append(pack.path(declared[name]))
-    wrote = []
-    for target, records in zip(files, (found.learned, found.calibration), strict=True):
-        if not records:
-            continue
-        ends_in_newline = target.read_bytes().endswith(b"\n")
-        with target.open("ab") as handle:
-            if not ends_in_newline:
-                handle.write(b"\n")
-            handle.write(_lines(records))
-        wrote.append(target)
+        if records:
+            target = pack.path(declared[name])
+            held = target.read_bytes()
+            ends = b"" if held.endswith(b"\n") or not held else b"\n"
+            contents.append((target, held + ends + _lines(records)))
     model = pack.path(str(found.report["model_file"]))
-    model.write_text(written(found.model), encoding="utf-8")
-    return [*wrote, model]
+    contents.append((model, written(found.model).encode()))
+    # Each file is written whole beside the pack first, then all are moved into place: a disk
+    # that fills, or a file that cannot be written, leaves the pack as it was.
+    with tempfile.TemporaryDirectory(dir=pack.root.parent, prefix=".mendari-improve-") as beside:
+        staged = []
+        for number, (target, content) in enumerate(contents):
+            ready = Path(beside) / str(number)
+            ready.write_bytes(content)
+            staged.append((ready, target))
+        for ready, target in staged:
+            os.replace(ready, target)
+    return [target for target, _ in contents]
 
 
 def text(report: Mapping[str, Any]) -> str:
