@@ -970,6 +970,79 @@ td .interval {
   color: #9aa6b8;
 }
 
+/* Legal pages (terms, privacy, acceptable use): one column of prose under a draft banner. */
+
+.legal {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 47.5rem;
+  margin-inline: auto;
+  padding: 3rem 1.5rem 5rem;
+}
+
+.legal h1 {
+  font-size: clamp(2.25rem, 4.4vw, 3.25rem);
+}
+
+.legal h2 {
+  font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+  margin-top: 1.75rem;
+}
+
+.legal h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.legal p,
+.legal li {
+  color: var(--ink-2);
+}
+
+.legal ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.legal .contents {
+  list-style: none;
+  padding-left: 0;
+  gap: 0;
+  font-size: 0.9375rem;
+}
+
+.legal .contents a {
+  display: inline-block;
+  padding-block: 0.5rem;
+}
+
+.draft {
+  background: var(--review-soft);
+  color: var(--review-text);
+  border-left: 4px solid var(--review);
+  border-radius: 6px;
+  padding: 0.875rem 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.legal .draft {
+  color: var(--review-text);
+}
+
+/* A fact the owner or counsel has still to supply. */
+.placeholder {
+  background: var(--review-soft);
+  color: var(--review-text);
+  border-radius: 4px;
+  padding: 0.0625rem 0.3125rem;
+  font-weight: 600;
+}
+
 /* Footer */
 
 .foot {
@@ -996,9 +1069,25 @@ td .interval {
   text-align: right;
 }
 
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 1.25rem;
+}
+
+.foot-links a {
+  display: inline-block;
+  padding-block: 0.625rem;
+}
+
 @media (max-width: 40rem) {
   .foot-meta {
     text-align: left;
+  }
+
+  .foot-links {
+    justify-content: flex-start;
   }
 
   .hero {

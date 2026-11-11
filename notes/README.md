@@ -21,6 +21,7 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`epic-sandbox-checklist.md`](epic-sandbox-checklist.md) | What the owner registers in Epic's sandbox for LP-23, and what to note back |
 | [`lp22-plan.md`](lp22-plan.md) | The build plan for LP-22, the site evaluation network (2026-11-10): ten pull requests, the conflicts written before building and the owner's decisions |
 | [`clinician-review-harder-inbox-benchmark.md`](clinician-review-harder-inbox-benchmark.md) | The owner's brief for reviewing the harder inbox benchmark's draft (2026-11-07): what to read, the quick-pick questions, and what adoption would do |
+| [`legal-pages-open-questions.md`](legal-pages-open-questions.md) | The placeholders in the draft terms, privacy notice and acceptable-use policy (`web/`, 2026-11-10), and the questions for the owner and counsel before they take effect (launch gate `legal-pages-live`, B16) |
 | `clinician-review-*.md` | Briefs for the clinician review of the reference packs (launch gate `clinician-review`, B21.1-B21.5), each naming the pack version and digest it describes: [medication period](clinician-review-medication-period.md), [trial criteria](clinician-review-trial-criteria.md), [inbox router](clinician-review-inbox-router.md), [AI Guard doses](clinician-review-ai-guard-doses.md), [referral and prior authorization](clinician-review-referral-and-prior-auth.md) |
 
 Plan and status: [`tasks/todo.md`](../tasks/todo.md). Lessons: [`tasks/lessons.md`](../tasks/lessons.md).

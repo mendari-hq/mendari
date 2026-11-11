@@ -258,7 +258,7 @@ gates:
         what: "Terms of use, privacy notice and acceptable-use policy live and linked (B16)"
         owner: owner
         probes:
-          - pending: "a build prompt, not yet assigned: serve and link the three texts and record acceptance (tasks/todo.md)"
+          - pending: "drafts on the public page (web/terms.html, privacy.html, acceptable-use.html; open questions in notes/legal-pages-open-questions.md), not in effect; still to do: counsel's review, and a build prompt, not yet assigned, to link them from the hosted site and record acceptance (tasks/todo.md)"
           - attested: {what: "counsel-approved texts live on the hosted site", by: "", date: ""}
 
   - id: G3-4

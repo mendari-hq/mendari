@@ -77,3 +77,17 @@ def test_each_scores_row_header_stays_in_view_as_its_figures_scroll(site: Page) 
     assert abs(held["x"] - area["x"]) < 1  # held at the left edge
     assert last["x"] >= held["x"] + held["width"] - 1  # not under the held header
     assert last["x"] + last["width"] <= area["x"] + area["width"] + 1  # in view
+
+
+@pytest.mark.parametrize("name", ["terms", "privacy", "acceptable-use"])
+@pytest.mark.parametrize("width", [320, 390])
+def test_a_legal_page_never_scrolls_sideways_on_a_phone(site: Page, name: str, width: int) -> None:
+    """The draft legal pages reflow as the home page does, their longest placeholder included,
+    and each shows its draft marker before its first section."""
+    site.set_viewport_size({"width": width, "height": 800})
+    site.goto(f"{ORIGIN}/{name}.html")
+    marker = site.locator("main .draft")
+    marker.wait_for()
+    assert site.evaluate("document.documentElement.scrollWidth") == width
+    first_section = site.locator("main h2").first
+    assert marker.bounding_box()["y"] < first_section.bounding_box()["y"]  # type: ignore[index]
