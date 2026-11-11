@@ -3330,7 +3330,16 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   tests (`tests/test_reviewed_cases.py`), SQLite and Postgres. Not built: a dashboard button
   for it, and `review` / `outcome` among the blocks a hidden set refuses (the `system` block
   every exported record carries already refuses it).
-- [ ] **Step 3: character features for the built-in learner**, off unless a model file says so.
+- [x] **Step 3: character features for the built-in learner**, off unless a model file says
+  so. `providers/naive_bayes.py`: `tokenize(text, character_ngrams)`, a model's
+  `character_ngrams` and its own format (`mendari.naive_bayes/2`), checked at load both ways (a
+  /2 file must hold the key, a /1 file must not). `mendari train --character-ngrams LOW-HIGH |
+  none`; with neither, each model is rebuilt as its file says (`evals/training.py`
+  `built_with`), so the reference models rebuild byte for byte. The pack format and the
+  provider's config are unchanged: the option lives in the model file, which already records
+  how it was trained. 24 tests (`tests/test_character_features.py`), one pinning the measured
+  gain (322 and 353 of 436). Considered and not done: a `character_ngrams` key on the variant
+  in `pack.yaml`, which would be a spec 0.3 key with its own gating and is the owner's call.
 - [ ] **Step 4: `mendari improve`**: retrain on new cases, judge the candidate against the
   model in the pack, keep it only when it is better and no less safe.
 - [ ] **Step 5: the whole gate**, the reference packs rebuilt byte-identical, the docs site.

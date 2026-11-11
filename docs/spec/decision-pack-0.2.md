@@ -340,7 +340,10 @@ input as FHIR R4; each answered question maps to a definition whose String resul
 or whose Boolean result is `yes` / `no`, null being `unknown`; the library's declaration,
 `library Name version '...'`, MUST be its first statement, comments aside, and the runtime
 uploads it to the engine under a name and id unique to the pack and the text), `naive_bayes` (local,
-temperature-calibrated text classifier), `jev`, `llm` (a chat
+temperature-calibrated text classifier over a text's words and pairs of neighbouring words; its
+model file, which `mendari train` writes, MAY also count the runs of characters inside each word,
+`character_ngrams: [shortest, longest]`, each from 2 to 8, and then names the format
+`mendari.naive_bayes/2`, so that an engine that does not count them refuses the file), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most
@@ -769,6 +772,7 @@ of these.
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| A `naive_bayes` model file may count runs of characters inside each word (`character_ngrams`, format `mendari.naive_bayes/2`); a model without the key is trained and scored as before (every spec version) | §5 |
 | The built-in types that read free text on the machine (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read it in its plain form: typography only (quotation marks, dashes, white space, line ends, invisible format characters, composed accents), so a pack's patterns, names and tokens are written in it (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
 | `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |

@@ -10,7 +10,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any, NoReturn
@@ -255,18 +255,50 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return EXIT_DEGRADED if degraded and args.fail_on_degradation else 0
 
 
+def _character_ngrams(given: str | None) -> Any:
+    """`--character-ngrams`: `none` (words alone), `LOW-HIGH` (also the runs of that many
+    characters inside each word), or not given: each model as its file says it was built."""
+    from mendari.evals.training import AS_BUILT
+    from mendari.providers.naive_bayes import MAX_NGRAM, MIN_NGRAM, ngrams_problem
+
+    if given is None:
+        return AS_BUILT
+    if given == "none":
+        return None
+    low, dash, high = given.partition("-")
+    sizes = [int(part) for part in (low, high) if part.isascii() and part.isdigit()]
+    if not dash or len(sizes) != 2 or ngrams_problem(sizes):
+        raise MendariError(
+            f"--character-ngrams is LOW-HIGH, the shortest and longest run ({MIN_NGRAM} to "
+            f"{MAX_NGRAM}, as in 3-5), or none"
+        )
+    return (sizes[0], sizes[1])
+
+
+def _features(model: Mapping[str, Any]) -> str:
+    """What a trained model counts beside its words, for the line that reports it."""
+    runs = model.get("character_ngrams")
+    return f"words and runs of {runs[0]} to {runs[1]} characters, " if runs else ""
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     from mendari.evals.training import train_naive_bayes
 
+    features = _character_ngrams(args.character_ngrams)
     pack = resolve_pack(args.pack, missing_models_ok=True)
     trained = train_naive_bayes(
-        pack, train=args.train, calibration=args.calibration, slot=args.slot
+        pack,
+        train=args.train,
+        calibration=args.calibration,
+        slot=args.slot,
+        character_ngrams=features,
     )
     for item in trained:
         training = item.model["training"]
         calibration = training["calibration"]
         print(
             f"{item.slot}/{item.variant}: {training['examples']} examples, "
+            f"{_features(item.model)}"
             f"vocabulary {training['vocabulary']}, temperature {item.model['temperature']} "
             f"(calibration NLL {calibration['nll_before']} -> {calibration['nll_after']}) "
             f"-> {item.path.relative_to(pack.root)}"
@@ -2861,6 +2893,12 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--slot", help="only this provider slot")
     train.add_argument("--train", default="train", help="training dataset (default: train)")
     train.add_argument("--calibration", default="calibration", help="calibration dataset")
+    train.add_argument(
+        "--character-ngrams",
+        metavar="LOW-HIGH",
+        help="also count the runs of LOW to HIGH characters inside each word (as in 3-5), or "
+        "`none` for words alone (default: each model as its file says it was built)",
+    )
 
     calibrate = pack_command(
         "calibrate", cmd_calibrate, "fit per-question temperatures for an llm variant (live calls)"

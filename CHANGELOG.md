@@ -48,6 +48,17 @@ The first release (not yet published).
   two the label is. A record names no person and carries no note. A decision kept as a hash, or
   sealed with no reader, is counted and left out; under PHI mode `encrypt` each input read is
   chained, as in every other export. The ratings export is as it was.
+- **Character features for the built-in classifier** (off unless a model file says so; nothing
+  changes how a pack decides). A `naive_bayes` model may also count the runs of characters
+  inside each word, so a misspelt or unseen word is read by the parts it shares with the words
+  the model learned. The model file says so (`character_ngrams`, the shortest and longest run)
+  and names a format of its own, `mendari.naive_bayes/2`, which an engine that does not count
+  them refuses. `mendari train --character-ngrams 3-5` builds one, `none` goes back, and with
+  neither each model is rebuilt the way its file says it was built, so the reference packs'
+  models, which are words alone, come out byte for byte as before. Measured on the inbox
+  router, trained on the pack's own data and read on the harder draft's held-out messages: 322
+  of 436 right with words alone, 353 with runs of 3 to 5 characters (a test pins both). On the
+  pack's own test the two agree within one case, and the model with them is a little less sure.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:
