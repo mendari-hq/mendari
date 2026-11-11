@@ -40,12 +40,13 @@ A pack it wrote to is a changed pack: a new digest, to be given a new version, t
 approved wherever a digest is approved, as any change is. Nothing here serves it or approves it.
 
 It also holds a site's cases now, which may be patient text, and its model holds their words.
-Every case a run adds says so (`attributes.added_by`, `core/learned.py`), `apply` writes none
+Every case a run adds says so (`attributes.added_by`, `core/site_cases.py`), `apply` writes none
 that does not, and the model built from them says so too (`evals/training.py` `fit`). No
 archive is made of a pack that holds either (`hub/archive.py`), so `mendari pack build` and
 `mendari push` refuse it, and a registry refuses one sent to it all the same. The file a run
-was given carries no mark, so the command reads none from the pack's own folder
-(`kept_in_the_pack`).
+was given is a site's cases too, a third of them only held out, and it need carry no mark (an
+export's records do, cases a site labelled itself do not): the command reads none from the
+pack's own folder (`kept_in_the_pack`).
 
 The report (`mendari.improvement/1`) holds counts and rates, never a case's text or id. The
 held-out comparison is paired: the cases the two models disagree on, with an exact McNemar
@@ -71,9 +72,9 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision
-from mendari.core.learned import ADDED_BY, IMPROVE, added
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import is_within, origin_of
+from mendari.core.site_cases import ADDED_BY, IMPROVE, MARKS, added
 from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.canonical import canonical_input
@@ -265,10 +266,11 @@ def not_writable(pack: Pack) -> str | None:
 
 def kept_in_the_pack(pack: Pack, cases: str | Path) -> bool:
     """Whether a file of cases is in the pack's own folder, by the file it is, however its path
-    is spelt. The cases a run is given carry no mark, and a third of them are only held out,
-    never added; and every file in a pack's folder goes into its archive. So the command reads
-    none from there (`cli.py` `cmd_improve`): a site's cases stay outside the pack until a run
-    adds the ones it learned from, marked."""
+    is spelt. The cases a run is given need carry no mark (an export's do, a site's own file of
+    them does not), and a third of them are only held out, never added; and every file in a
+    pack's folder goes into its archive. So the command reads none from there (`cli.py`
+    `cmd_improve`): a site's cases stay outside the pack until a run adds the ones it learned
+    from, marked."""
     return is_within(cases, pack.root)
 
 
@@ -301,7 +303,7 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
                 "learned from goes into the pack, so that its data gives the model it holds"
             )
         if not all(added(case) for case in records):
-            # Read as an archive's builder reads it (`core/learned.py`): the one writer checks
+            # Read as an archive's builder reads it (`core/site_cases.py`): the one writer checks
             # the mark, so no pack holds a case of a run's that nothing would recognise.
             raise MendariError(
                 "nothing to keep: a case this run would add does not say `mendari improve` "
@@ -559,9 +561,10 @@ def _judged(
         return {
             "features": _features(model.get("character_ngrams")),
             "model": candidate.provider_info[next(iter(providers))].model,
-            # How it was trained, without the mark a model built from added cases carries: a
-            # report holds no case, and kept beside a pack's files it must stop no archive.
-            "training": {k: v for k, v in model["training"].items() if k != ADDED_BY},
+            # How it was trained, without the marks a model built from a site's cases
+            # carries: a report holds no case, and kept beside a pack's files it must stop no
+            # archive.
+            "training": {k: v for k, v in model["training"].items() if k not in MARKS},
             "temperature": model["temperature"],
             "held_out": held_out,
             "datasets": compared,

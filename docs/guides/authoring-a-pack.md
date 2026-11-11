@@ -358,9 +358,10 @@ it where those cases may be kept: `mendari pack build` and `mendari push` refuse
 holds them, and so does a registry. To publish it without them, take them out and run `mendari
 train`, which builds the model again without them. Keep `reviewed.jsonl` outside the pack's
 folder (`mendari improve` reads none from there): every file in it goes into the pack's
-archive, and that file carries no mark. Reviewed cases are the ones the pack sent to a person,
-labelled by someone who saw its suggestion: good to learn from and to compare two models on,
-not a measure of the pack's accuracy on everything.
+archive, and an export is a site's cases too. Each of its records says it was exported, so a
+pack that holds the file, or records copied from it, is refused the same way. Reviewed cases
+are the ones the pack sent to a person, labelled by someone who saw its suggestion: good to
+learn from and to compare two models on, not a measure of the pack's accuracy on everything.
 
 ## 9. Publish the card
 

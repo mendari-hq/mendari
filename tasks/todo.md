@@ -3392,17 +3392,18 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   the files are written would stop `mendari train` rebuilding the model byte for byte. `apply`
   writes no case that does not carry it, and a model trained on such a case says so in its
   `training` record (`evals/training.py` `fit`), since it holds their words. The mark and its
-  one reader are `core/learned.py`. `hub/archive.py`
+  one reader are `core/site_cases.py` (`core/learned.py` until step 7). `hub/archive.py`
   `build` searches every file the archive would hold for that mark, as bytes, and refuses
-  before anything is signed (`refuse_learned_cases`), so `mendari pack build` and `mendari
+  before anything is signed (`refuse_site_cases`), so `mendari pack build` and `mendari
   push` both stop there with one line naming the files (the first five) with how many times
   each is marked, never a case. The registry's publish does the same on the files it is sent
   (a client from before this step, or anything else that can sign, need not have looked) and
   keeps nothing. `mendari community-check` fails a community pack that holds the mark in any
   file, a hidden one too (rule `phi`). A case is recognised by the mark alone, not by its
   `learned-` id, which is a naming habit. `mendari improve` reads no `--with` file from the
-  pack's own folder, however the path is spelt: that file carries no mark, and every file
-  there goes into the archive. Tests (`tests/test_learned_cases.py`, one in
+  pack's own folder, however the path is spelt: that file need carry no mark (an export's has
+  its own since step 7; a site's own file has none), and every file there goes into the
+  archive. Tests (`tests/test_site_cases.py`, one in
   `tests/test_community_check.py`): both commands and the client, with nothing signed and
   nothing sent; cases taken out and the model left, refused until `mendari train` gives back
   the model the pack came with; a case in a dataset the pack only tests with, in a copy the
@@ -3422,25 +3423,77 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
     3.13; the repository-wide checks; the archives of the five reference packs byte-identical
     to the ones the code before this step builds, with one key; the full suite once.
   **Not recognised, and said so in the README and ADR-0019:** a site's cases put into a pack by
-  hand (an export saved in the pack's folder and never given to a run; a copy compressed or
-  in another encoding), and a pack a run was kept in before this step, which has no mark (this
-  branch only, never released: improve a fresh copy). A file that only quotes the mark is
-  refused like one that holds a case.
+  hand (an export saved in the pack's folder and never given to a run, which step 7 closes; a
+  copy compressed or in another encoding), and a pack a run was kept in before this step,
+  which has no mark (this branch only, never released: improve a fresh copy). A file that only
+  quotes the mark is refused like one that holds a case.
+- [x] **Step 7: an export says what it is too** (2026-11-11, the owner's decision of that day:
+  "Yes, mark exports"). Every record `mendari feedback export` and its route write, of ratings
+  and of reviews, carries `attributes.exported_by: "mendari feedback export"`
+  (`evals/feedback.py` `_attributes`), and the command says so when it writes one. Step 6's
+  reader looks for both marks (`core/site_cases.py`, as `core/learned.py` is now named, since
+  an exported case is not a learned one; `hub/archive.py` `refuse_site_cases`), so an export
+  saved in a pack's folder, or its records copied into the pack's datasets, keeps that pack
+  out of an archive, of a registry and of the community packs. A model carries the marks of
+  the cases it was built from, in one order whichever case comes first
+  (`site_cases.carried`), so one trained on exported cases put into a pack by hand is refused
+  until `mendari train` builds it again without them. `apply` still takes only a run's own
+  mark, and a run's report carries neither. A case a run adds from an export says a run added
+  it, once: the export's mark stays on the file the run was given, so a file's count is still
+  its cases. Nothing else changed: a pack that holds no such record is built byte for byte as
+  before, and a model trained on none is the same bytes. Tests (`tests/test_site_cases.py`,
+  as `tests/test_learned_cases.py` is now named; one each in `tests/test_reviewed_cases.py`,
+  `tests/test_feedback.py` and `tests/test_community_check.py`): the command's file and the
+  route's answer, of both sources; `--out` in the pack's folder, then `pack build` and `push`
+  with nothing sent and no archive until the file is out; exported records in a dataset the
+  pack tests with and as one JSON document, indented and compact; a model trained on them,
+  and on both kinds; a run's report on a pack whose data holds them; the registry; a case of
+  a run's with only the export's mark, not kept; a model calibrated on exported cases; a mark
+  outside a record's `attributes`, and one with a tab or a line break beside its colon. Each
+  test was seen to fail first, and nine ways of breaking the reader or a writer were each
+  noticed by a test.
+  - One independent review of the step: no high finding, 1 medium, 3 low, all acted on here.
+    **Medium:** two more commands write a site's cases with no mark, `mendari omop dataset`
+    and `mendari bulk dataset` (one record per patient, documented with `--out local.jsonl`),
+    and the docs said the two marked commands were all there was. The docs now name those
+    datasets among what is not recognised; whether to mark them is the owner's (below).
+    **Low:** the refusal said to run `mendari train` once the cases are out, which fails on a
+    pack with no classifier (now: where a model was built from them); four broken guards
+    passed the tests (no notice with the ratings export, a model calibrated on marked cases
+    left unmarked, a mark outside `attributes` missed, a tab beside the colon missed), each
+    failing a test now; the README called exported records "ready-made test cases" a
+    paragraph before saying a behaviour test is written afresh, and step 6 here said the
+    `--with` file carries no mark.
+  - Verified before the review's findings were fixed (they changed two messages, docstrings,
+    docs and tests): the full suite once; the new and affected test files on Python 3.11 and
+    3.13; the README's server commands and the API examples; the archives of the five
+    reference packs byte-identical to the ones the code before step 6 builds, with one key,
+    and both reference models trained again to the bytes they ship with. After: lint, format
+    and types, the affected test files, the documentation blocks and the repository-wide
+    checks.
+  **What it costs, and what is still not recognised:** an export can no longer sit in a pack
+  that is built or pushed, so a site that kept exported cases in its own pack as evaluation
+  data cannot archive that pack, to a registry of its own either (the first question below).
+  A confirmed miss becomes a behaviour test a person writes, with no patient's words in it
+  (README). Not recognised: the datasets `mendari omop dataset` and `mendari bulk dataset`
+  build from a site's records, a file of cases a site labelled itself, a case retyped into a
+  pack or copied without its `attributes`, a copy compressed or in another encoding. Not done:
+  the dashboard's Feedback view says nothing of it where it offers the download (the file it
+  downloads carries the mark all the same), and still calls a thumbs-down with its right
+  answer "a ready-made test", meaning a case to evaluate the pack on.
 
 ### Left for the owner
 - **Merging.** Step 1 changes what a pack decides on text that holds such characters.
 - **Whether a site may ever publish a pack that holds its cases.** It is refused everywhere now
-  (step 6), and nothing turns that off. A private registry inside one site may be a fair place
-  for such a pack; a way to allow it (a flag, or a setting of the registry) is a decision about
-  a site's data, and was not built.
-- **Whether an export carries the mark too.** `mendari feedback export` (and its route) writes
-  a site's cases to a file with no mark on them. `mendari improve` no longer reads such a file
-  from inside the pack's folder, but one saved there and left (`--out my-pack/reviewed.jsonl`)
-  would still be archived with the pack, and nothing would recognise it. Marking exported
-  records the way step 6 marks added ones would close it. It changes the export's record
-  format, and the README tells people to turn exported thumbs-down cases into a pack's own
-  tests and evaluation data, which that mark would then keep out of an archive: so it is a
-  decision, and was left.
+  (steps 6 and 7: the cases a run added, an export, a model built from either), and nothing
+  turns that off. A private registry inside one site may be a fair place for such a pack; a
+  way to allow it (a flag, or a setting of the registry) is a decision about a site's data,
+  and was not built.
+- **Whether what `mendari omop dataset` and `mendari bulk dataset` write carries a mark too.**
+  Each is a site's records, one per patient, and a file of them saved in a pack's folder, or
+  declared as one of the pack's datasets, goes into the pack's archive unrecognised. A mark of
+  their own, read as step 7 reads an export's, would keep such a pack out of an archive. It
+  changes those commands' record format, so, as for the export, it is the owner's decision.
 - **Whether the reference packs adopt any of it**: character features for their models, or the
   harder draft as training data, each a new pack version with its own review.
 - **An automatic hold when monitoring alerts.** It only lowers automation, and ADR-0010 chose

@@ -39,8 +39,9 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
   git submodule, no files in `evals/` but the benchmark, and a `CHANGELOG.md` entry for the
   version; a change to what the pack decides with raises the version.
 - **phi**: data, tests and a trained model's vocabulary that look like a real person's details
-  (warnings); and any file that holds a case `mendari improve` added, or a model built from
-  one (an error: they are a site's cases, `core/learned.py`).
+  (warnings); and any file that holds a case `mendari improve` added or `mendari feedback
+  export` wrote, or a model built from one (an error: they are a site's cases,
+  `core/site_cases.py`).
 
 The limits are constants here, so a pull request cannot set its own bar: the scope rule keeps
 a community pull request from changing this file.
@@ -66,7 +67,7 @@ from typing import Any
 
 from mendari.community import maintainers, phi_scan
 from mendari.community.gitbase import COMMUNITY_DIR, Base, gitlinks, toplevel
-from mendari.core import caps, learned, re2_syntax
+from mendari.core import caps, re2_syntax, site_cases
 from mendari.core.origin import (
     COMMUNITY_NAME,
     COMMUNITY_NAMESPACE,
@@ -1498,28 +1499,29 @@ def _parsed(data: bytes | None) -> dict[str, Any]:
 # -- PHI -----------------------------------------------------------------------------------------
 
 
-def _added_cases(ctx: _Context) -> None:
-    """A case `mendari improve` added to a pack is a site's case, and says so; a model built
-    from one says so too (`core/learned.py`). A pull request carries every file
-    of the folder, a hidden one too, so every regular file is searched. The finding names the
-    file and how many times it is marked, never a case."""
+def _site_cases(ctx: _Context) -> None:
+    """A case `mendari improve` added to a pack or `mendari feedback export` wrote is a site's
+    case, and says so; a model built from one says so too (`core/site_cases.py`). A pull
+    request carries every file of the folder, a hidden one too, so every regular file is
+    searched. The finding names the file and how many times it is marked, never a case."""
     files: dict[str, bytes] = {}
     for directory, _, names in os.walk(ctx.root):
         for name in names:
             path = Path(directory, name)
             if path.is_file() and not path.is_symlink():
                 files[path.relative_to(ctx.root).as_posix()] = path.read_bytes()
-    for relative, count in sorted(learned.learned_cases(files).items()):
+    for relative, count in sorted(site_cases.marked_files(files).items()):
         ctx.report.error(
             "phi",
-            f"{relative} holds cases `mendari improve` added, or a model built from them "
-            f"({count} marked). They are a site's cases, and a community pack's data is "
-            "synthetic: take them out, and run `mendari train` so no model holds their words",
+            f"{relative} holds cases `mendari improve` added or `mendari feedback export` "
+            f"wrote, or a model built from them ({count} marked). They are a site's cases, "
+            "and a community pack's data is synthetic: take them out, and where a model was "
+            "built from them, run `mendari train` so that it is built again without them",
         )
 
 
 def _phi(ctx: _Context) -> None:
-    _added_cases(ctx)
+    _site_cases(ctx)
     for relative in sorted(_model_files(ctx)):
         # A trained model's vocabulary is words from the data it was trained on, one per line.
         path = ctx.root / relative

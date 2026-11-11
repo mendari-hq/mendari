@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from mendari.core.learned import ADDED_BY, IMPROVE, added
 from mendari.core.pack import Pack
+from mendari.core.site_cases import carried
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals.harness import resolve_dataset
 from mendari.providers import naive_bayes
@@ -99,8 +99,9 @@ def fit(
     `calibration`, for the slot's question, its labels and the variant's text fields. A record
     labels any subset of a pack's questions: one that does not label this question is not one
     of its examples (a pack with two classifiers may hold cases only one of them learned from).
-    A model whose examples include a case `mendari improve` added says so in its `training`
-    record (`core/learned.py`)."""
+    A model whose examples or calibration cases include a site's case (one `mendari improve`
+    added, or one `mendari feedback export` wrote) says what the case says in its `training`
+    record (`core/site_cases.py`)."""
     (question,) = pack.manifest.providers[slot].answers
 
     def labelled(cases: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -115,11 +116,10 @@ def fit(
         text_fields=text_fields(config),
         character_ngrams=character_ngrams,
     )
-    if any(added(case) for case in (*examples, *held_back)):
-        # Built from cases `mendari improve` added, whose words it holds: the model says so as
-        # they do (`core/learned.py`), and no archive is made of it until it is trained again
-        # without them. A model built from none of them is as it always was, byte for byte.
-        model["training"][ADDED_BY] = IMPROVE
+    # Fitted on a site's cases (and holding the words of those it learned from), the model
+    # carries the marks they do (`core/site_cases.py`), and no archive is made of it until it
+    # is trained again without them. A model fitted on none is as it always was, byte for byte.
+    model["training"].update(carried((*examples, *held_back)))
     return model
 
 

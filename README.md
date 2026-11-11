@@ -967,9 +967,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 ```
 
 - **An archive** (`.ohpack`) is deterministic and carries a manifest of file hashes signed with
-  the publisher's key. None is made of a pack that holds cases `mendari improve` added, which
-  are a site's own ([Feedback loop](#feedback-loop)): `pack build` and `push` refuse it, and a
-  registry refuses one it is sent.
+  the publisher's key. None is made of a pack that holds a site's own cases, the ones
+  `mendari improve` added to it or `mendari feedback export` wrote
+  ([Feedback loop](#feedback-loop)): `pack build` and `push` refuse it, and a registry refuses
+  one it is sent.
 - **`pull`** checks the archive digest the registry recorded, every file hash, the signature and
   the pack digest before caching the pack. Namespace keys are pinned on first use, and a changed
   key needs `--accept-new-key`. `Decision.from_hub` pulls on its own when a pack isn't local.
@@ -1531,9 +1532,15 @@ mendari feedback export mendari/patient-inbox-router --db "$DATABASE_URL" --out 
 ```
 
 Records whose raters gave the right answer (and agree) already carry it in `labels`, so they are
-ready-made test cases; fill in the others' `labels`. The file then works with
-`mendari eval --dataset`, and confirmed misses become behaviour tests in the pack's
-`tests/cases.yaml`. Improvements ship as a new, reviewed and versioned pack.
+ready-made cases to evaluate the pack on; fill in the others' `labels`. The file then works with
+`mendari eval --dataset`. Improvements ship as a new, reviewed and versioned pack.
+
+An export is a site's cases, and may be patient text. Every record says it was exported
+(`attributes.exported_by`), and the command says so when it writes one: keep the file outside
+the pack's folder. No archive is made of a pack that holds such a record, as the file an export
+wrote or as records copied into the pack's own datasets (more below). So a confirmed miss
+becomes a behaviour test in the pack's `tests/cases.yaml` by writing one: a message of your own
+that fails the same way, with no patient's words in it.
 
 The review queue labels cases too. Every decision a reviewer resolves keeps the label that
 person chose, and a downstream system can record what really happened (`POST
@@ -1618,20 +1625,25 @@ digest, so it does not carry over). Nothing serves the new model or approves it 
 
 **What a pack learned from is not published.** The pack now holds the cases it learned from,
 each with the id of the decision it was (so one can be found again and taken out), and its model
-holds their words: keep it where those cases may be. Every case a run adds says a run added it
-(`attributes.added_by` in its record), and the model built from them says so too. No archive is
-made of a pack with a file that holds that mark: `mendari pack build` and `mendari push` refuse
-it before anything is signed or sent, naming the files (the first five) with how many times
-each is marked, and never a case. A registry refuses one sent to it all the same, and `mendari
-community-check` fails a community pack that holds one. Nothing turns that off. To publish the
-pack without those cases, take them out and run `mendari train`: until the model is built again
-without them, the pack is still refused. The file a run is given carries no mark, so keep it
-outside the pack's folder; `mendari improve` reads none from there.
+holds their words: keep it where those cases may be. Two commands' cases say what they are:
+every case a run adds says a run added it (`attributes.added_by` in its record), every record an
+export writes says it was exported (`attributes.exported_by`), and a model built from either
+says what they say. No archive is made of a pack with a file that holds one of those marks:
+`mendari pack build` and `mendari push` refuse it before anything is signed or sent, naming the
+files (the first five) with how many times each is marked, and never a case. A registry refuses
+one sent to it all the same, and `mendari community-check` fails a community pack that holds
+one. Nothing turns that off. To publish the pack without those cases, take them out and run
+`mendari train`: until the model is built again without them, the pack is still refused. Keep
+the file a run is given outside the pack's folder too: a third of its cases are only held out,
+and `mendari improve` reads none from there.
 
-Four limits to keep in mind. That mark is the only thing looked for, in a file's bytes as JSON
-spells it: a site's cases put into a pack by hand are not recognised, nor is a copy compressed
-or in another encoding, and a file that merely quotes the mark is refused like one that holds a
-case. A database that several organizations share gives the command line every organization's
+Four limits to keep in mind. Those marks are the only thing looked for, in a file's bytes as
+JSON spells them. A site's cases that carry neither are not recognised: the datasets `mendari
+omop dataset` and `mendari bulk dataset` build from a site's records, cases a site labelled in a
+file of its own, a case retyped into a pack or copied without its `attributes`, a copy
+compressed or in another encoding. And a file that merely quotes a mark is refused like one
+that holds a case.
+A database that several organizations share gives the command line every organization's
 decisions: export one organization's with `--org`. The held-out cases come from the same file
 as the ones learned from, so they measure messages like those, not every message a site will
 see. And a run is judged with the providers that decide on this machine: a pack whose other

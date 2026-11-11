@@ -48,12 +48,12 @@ command for it. Each write is a chained event naming `admin` (see [The chain](#t
 
 A publisher, with its token, registers its keys (`mendari keys register`), publishes
 (`mendari push`) and recalls its own versions (`mendari yank`, signed with one of its keys). A
-publish whose archive holds cases `mendari improve` added to a pack, or a model built from
-them, is refused (`422`, naming the files with how many times each is marked, never a case):
-they are a site's cases, which `mendari push` refuses to send, and the registry keeps nothing
-of one sent by a client that did not look. A
-review shows in `checked.review` and `claimed.risk.confirmed`; the newest review of a version
-is the one shown. A review's note stays in the chain for good.
+publish whose archive holds cases `mendari improve` added to a pack or `mendari feedback
+export` wrote, or a model built from them, is refused (`422`, naming the files with how many
+times each is marked, never a case): they are a site's cases, which `mendari push` refuses to
+send, and the registry keeps nothing of one sent by a client that did not look. A review shows
+in `checked.review` and `claimed.risk.confirmed`; the newest review of a version is the one
+shown. A review's note stays in the chain for good.
 
 ## Recalls and deletions
 

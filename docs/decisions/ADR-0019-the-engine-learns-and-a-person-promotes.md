@@ -46,7 +46,8 @@ The engine learns, and what it learned is a proposal.
    records: the input and the primary question's label, the outcome when one was recorded, else
    the reviewer's. A record names no person and carries no note. Inputs kept as a hash are left
    out; sealed inputs open only for a reader, and each read is chained. `--org` exports one
-   organization's.
+   organization's. Every record an export writes, of ratings too, says it was exported
+   (`attributes.exported_by`): it is a site's case wherever the file goes.
 2. **A case is what the classifier reads of it**: its words, in order, in the fields it reads.
    The same message received twice, or with another time stamp, channel or capitals, is one
    case; given with two labels it is left out; one the pack's own data holds is never learned
@@ -92,23 +93,34 @@ The engine learns, and what it learned is a proposal.
   those, not every message a site will see.
 - A pack that learned from a site's cases holds them (each with the id of the decision it was,
   so it can be found again and taken out), and its model holds their words. It is the site's
-  data, so it is not published. Every case a run adds says a run added it (`attributes.added_by`
-  in its record: `apply` writes none that does not), and a model trained on such a case says so
-  in its `training` record, since it holds their words. No archive is made of a pack with a
-  file that holds that mark: `mendari pack build` and `mendari push` refuse it before anything
-  is signed or sent, naming the files (the first five) with how many times each is marked and
-  never a case, and a registry refuses one it is sent, since a client need not have looked.
-  `mendari community-check` fails a community pack that holds one, before it is pushed. Every
-  file an archive would hold is searched, as bytes, not only the datasets the pack declares,
-  because an archive holds them all. Taking the cases out is half of it: the pack is refused
-  until `mendari train` has built the model again without them. There is no way to turn it
-  off: whether a site may ever publish such a pack is the owner's question.
-- The mark is all that is looked for. The file a run is given carries none (a third of its
-  cases are only held out, never added), so `mendari improve` reads no cases from the pack's
-  own folder, where every file goes into the archive. A site's cases put into a pack by hand
-  are not recognised: an export saved in the pack's folder and never given to a run, a copy
-  compressed or in another encoding. And a file that only quotes the mark is refused like one
-  that holds a case.
+  data, so it is not published. A site's cases say what they are: every case a run adds says
+  a run added it (`attributes.added_by` in its record: `apply` writes none that does not),
+  every record an export writes says it was exported (`attributes.exported_by`), and a model
+  trained on a case with either mark carries the same in its `training` record, since it holds
+  their words. No archive is made of a pack with a file that holds one of those marks:
+  `mendari pack build` and `mendari push` refuse it before anything is signed or sent, naming
+  the files (the first five) with how many times each is marked and never a case, and a
+  registry refuses one it is sent, since a client need not have looked. `mendari
+  community-check` fails a community pack that holds one, before it is pushed. Every file an
+  archive would hold is searched, as bytes, not only the datasets the pack declares, because an
+  archive holds them all. Taking the cases out is half of it: the pack is refused until
+  `mendari train` has built the model again without them. There is no way to turn it off:
+  whether a site may ever publish such a pack is the owner's question.
+- An export is marked (the owner's decision, 2026-11-11): it is the file of a site's cases that
+  this loop makes, the one `mendari improve` reads, and the one most likely to be saved beside
+  a pack. The cost is the export's use inside a pack: the file saved in a pack's folder, or its
+  records copied into the pack's datasets, keeps that pack out of an archive. So a confirmed
+  miss becomes a behaviour test a person writes, with no patient's words in it, and the record
+  stays at the site.
+- Those marks are all that is looked for. The file a run is given need carry none (an export's
+  records do, cases a site labelled in a file of its own do not), and a third of its cases are
+  only held out, never added, so `mendari improve` reads no cases from the pack's own folder,
+  where every file goes into the archive. A site's cases that no mark is on are not
+  recognised: the datasets `mendari omop dataset` and `mendari bulk dataset` build from a
+  site's records (marking them would change their format: the owner's question), a file of
+  cases a site labelled itself, a case retyped into a pack or copied without its `attributes`,
+  a copy compressed or in another encoding. And a file that only quotes a mark is refused like
+  one that holds a case.
 - Reviews label the primary question only. A classifier that answers another question (the
   Referral Router's specialty reader) learns from cases labelled for that question: ratings
   that say the right answer, or a site's own labelled data.
@@ -144,5 +156,8 @@ The engine learns, and what it learned is a proposal.
 - **Telling a learned case by its id** (`learned-` and a hash, as a run names it). A naming
   habit, not a statement: an author's own cases may be named so, and a tidied id would hide a
   site's case. The record says it instead, and that alone is read.
+- **Leaving an export unmarked.** Built first: only the cases a run added said what they
+  were, so an export saved in a pack's folder, or its records copied into the pack's
+  evaluation data, went into an archive unrecognised. The owner chose the mark (2026-11-11).
 - **A flag to publish such a pack anyway.** Not built. A private registry inside one site may
   be a fair place for it, and that is a decision about a site's data, so it is the owner's.

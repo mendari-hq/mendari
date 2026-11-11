@@ -4,15 +4,21 @@
 Two sources, each exported as pack-dataset records (JSON Lines), one per decision:
 
 - **Ratings** (`feedback_dataset`): thumbs-down feedback. Where the people who rated a decision
-  gave the right answer (and agree), it is already in `labels`, so the record is a ready-made
-  test case; otherwise a clinician or engineer fills in `labels`.
+  gave the right answer (and agree), it is already in `labels`, so the record is a case ready
+  to evaluate the pack on; otherwise a clinician or engineer fills in `labels`.
 - **Reviews** (`reviewed_dataset`): decisions a person resolved in the review queue, and
   decisions a downstream system recorded an outcome for. `labels` holds the primary question's
   label: what really happened when an outcome says, else what the reviewer chose
   (`core.audit.truth_label`, as observed accuracy counts it).
 
-A file then becomes evaluation data, behaviour tests, or the cases `mendari improve` learns
-from. Nothing here changes a pack; improvements stay reviewed and versioned.
+A file then is evaluation data (`mendari eval --dataset`) or the cases `mendari improve` learns
+from, and a confirmed miss becomes a behaviour test a person writes for the pack. Nothing here
+changes a pack; improvements stay reviewed and versioned.
+
+Every record says it was exported (`attributes.exported_by`, `core/site_cases.py`). It is a
+site's case wherever the file goes, and may be patient text: no archive is made of a pack that
+holds one, as the file an export wrote or as records copied into the pack's datasets, nor of a
+pack whose model was trained on one.
 
 Reviewed cases are not a sample of what a pack sees. They are the decisions it sent to a person
 (the ones it was unsure of, or a rule held), labelled by someone who saw its suggestion. They
@@ -25,6 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from mendari.core.audit import AuditStore, Rating, truth_label
+from mendari.core.site_cases import EXPORT, EXPORTED_BY
 
 
 def feedback_dataset(
@@ -55,7 +62,7 @@ def feedback_dataset(
                 "labels": {},
                 "system": _system(record),
                 "feedback": [],
-                "attributes": {"source": "feedback", "decision_id": item["decision_id"]},
+                "attributes": _attributes("feedback", item["decision_id"]),
             },
         )
         entry["feedback"].append(
@@ -105,12 +112,17 @@ def reviewed_dataset(
             }
         if item["observed_label"] is not None:
             entry["outcome"] = {"label": item["observed_label"]}
-        entry["attributes"] = {
-            "source": "outcome" if item["observed_label"] is not None else "review",
-            "decision_id": item["id"],
-        }
+        entry["attributes"] = _attributes(
+            "outcome" if item["observed_label"] is not None else "review", item["id"]
+        )
         records.append(entry)
     return records, skipped
+
+
+def _attributes(source: str, decision_id: str) -> dict[str, str]:
+    """Where a record came from, the decision it was, and that an export wrote it: the mark
+    that keeps a site's cases out of a pack's archive (`core/site_cases.py`)."""
+    return {"source": source, "decision_id": decision_id, EXPORTED_BY: EXPORT}
 
 
 def _system(record: dict[str, Any]) -> dict[str, Any]:

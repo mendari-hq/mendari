@@ -1400,6 +1400,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
 
 MAX_EXPORTED = 100_000  # the most decisions one `feedback export` reads
+# Said with every export that wrote a record (`core/site_cases.py`).
+EXPORTED_CASES = (
+    "These are a site's cases, and each record says so (`attributes.exported_by`): keep the "
+    "file outside the pack's folder, since `mendari pack build` and `mendari push` refuse a "
+    "pack that holds one."
+)
 
 
 def cmd_feedback_export(args: argparse.Namespace) -> int:
@@ -1440,6 +1446,7 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
                 "Each carries the label a person chose. Use the file with `mendari eval "
                 "--dataset`, or learn from it with `mendari improve --with`."
             )
+            print(EXPORTED_CASES)
         return 0
     labelled = sum(bool(record["labels"]) for record in records)
     if labelled:
@@ -1448,6 +1455,7 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
         print(f"Fill in `labels` for the {'other ' if labelled else ''}{len(records) - labelled}.")
     if records:
         print("Then use the file with `mendari eval --dataset`.")
+        print(EXPORTED_CASES)
     return 0
 
 

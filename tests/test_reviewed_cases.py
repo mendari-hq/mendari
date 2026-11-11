@@ -117,6 +117,29 @@ def test_a_case_names_no_person(inbox_pack: Pack, store: AuditStore) -> None:
     assert "rn-1" not in written and "fd-7" not in written and "called the patient" not in written
 
 
+def test_a_case_says_it_was_exported(inbox_pack: Pack, store: AuditStore) -> None:
+    """It is a site's case wherever the file goes, so it says what it is: the mark that keeps
+    a pack that holds it out of an archive (`core/site_cases.py`), whoever gave its label."""
+    decision = Decision(inbox_pack, store=store)
+    reviewed, happened = decision(message(CALL_BACK)), decision(message(REFILL))
+    for result in (reviewed, happened):
+        store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
+    store.record_outcome(happened.id, final_label="nurse", source="ehr", recorded_by="fd-7")
+    records, _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+    assert {record["attributes"]["decision_id"]: record["attributes"] for record in records} == {
+        reviewed.id: {
+            "source": "review",
+            "decision_id": reviewed.id,
+            "exported_by": "mendari feedback export",
+        },
+        happened.id: {
+            "source": "outcome",
+            "decision_id": happened.id,
+            "exported_by": "mendari feedback export",
+        },
+    }
+
+
 def test_only_the_packs_own_cases_and_the_newest_first(store: AuditStore) -> None:
     inbox = Decision.from_path(INBOX_DIR, store=store)
     first = inbox(message(CALL_BACK))

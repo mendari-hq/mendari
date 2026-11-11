@@ -2525,7 +2525,9 @@ def create_app(
         """What people said about a pack's decisions, as JSONL for evaluation, the newest 1,000:
         rated decisions (`source=ratings`, thumbs `rating`, down unless given), or decisions a
         reviewer resolved or an outcome was recorded for, each with the label a person chose
-        (`source=reviews`). `x-mendari-skipped` counts the ones stored without their input."""
+        (`source=reviews`). `x-mendari-skipped` counts the ones stored without their input.
+        Each record says it was exported (`attributes.exported_by`): a site's cases, which no
+        pack archive holds."""
         pack = pack_or_404(f"{namespace}/{name}")
         if source == "reviews":
             if rating is not None:
