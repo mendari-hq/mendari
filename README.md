@@ -1532,6 +1532,22 @@ ready-made test cases; fill in the others' `labels`. The file then works with
 `mendari eval --dataset`, and confirmed misses become behaviour tests in the pack's
 `tests/cases.yaml`. Improvements ship as a new, reviewed and versioned pack.
 
+The review queue labels cases too. Every decision a reviewer resolves keeps the label that
+person chose, and a downstream system can record what really happened (`POST
+/api/audit/{id}/outcome`). Those decisions are downloaded the same way, each with its label
+already filled in (the outcome when one was recorded, else the reviewer's):
+
+<!-- check: run server-db -->
+```bash
+mendari feedback export mendari/patient-inbox-router --source reviews --db "$DATABASE_URL" --out reviewed.jsonl
+```
+
+A record names no person and carries no note. These are not a sample of what the pack sees: they
+are the decisions it sent to a person, labelled by someone who saw its suggestion. They are
+cases to learn from and to compare two versions of a pack on, not a measure of its accuracy on
+every message. The route is `GET /api/packs/{namespace}/{name}/feedback/export?source=reviews`
+(an admin's, as the ratings export is: it carries case inputs in bulk).
+
 ## Jev
 
 Jev answers bounded, typed choice questions ("which team?", "is documentation missing?",

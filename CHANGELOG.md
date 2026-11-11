@@ -38,6 +38,16 @@ The first release (not yet published).
   in any pack's datasets differs from its plain form, so the data, the models, the benchmarks
   and the digests are byte-identical. The record, the input hash, the schema's checks and what a
   remote model is sent keep the text as received.
+- **Reviewed decisions as labelled cases** (nothing changes how a pack decides). The review
+  queue already keeps the label a person chose for every decision they resolve, and a
+  downstream system can record what really happened; nothing exported them. `mendari feedback
+  export --source reviews` (and `GET /api/packs/{namespace}/{name}/feedback/export?source=reviews`,
+  an admin's) writes them as pack-dataset records, the newest 1,000 unless `--limit` says
+  otherwise: the input, the primary question's label (the outcome when one was recorded, else
+  the reviewer's, as observed accuracy counts it), what the pack had decided, and which of the
+  two the label is. A record names no person and carries no note. A decision kept as a hash, or
+  sealed with no reader, is counted and left out; under PHI mode `encrypt` each input read is
+  chained, as in every other export. The ratings export is as it was.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:

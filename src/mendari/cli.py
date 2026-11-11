@@ -1317,18 +1317,44 @@ def cmd_usage(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_feedback_export(args: argparse.Namespace) -> int:
-    from mendari.evals.feedback import feedback_dataset
+MAX_EXPORTED = 100_000  # the most decisions one `feedback export` reads
 
+
+def cmd_feedback_export(args: argparse.Namespace) -> int:
+    from mendari.evals.feedback import feedback_dataset, reviewed_dataset
+
+    reviews = args.source == "reviews"
+    if reviews and args.rating is not None:
+        raise MendariError("--rating filters ratings: leave it out with --source reviews")
+    if not 1 <= args.limit <= MAX_EXPORTED:
+        raise MendariError(f"--limit is 1 to {MAX_EXPORTED:,}")
     pack = resolve_pack(args.pack)
     with _read_store(args.db) as store:
         store.require_current("feedback export")
-        records, skipped = feedback_dataset(store, pack_id=pack.id, rating=args.rating)
+        if reviews:
+            records, skipped = reviewed_dataset(store, pack_id=pack.id, limit=args.limit)
+        else:
+            records, skipped = feedback_dataset(
+                store, pack_id=pack.id, rating=args.rating or "down", limit=args.limit
+            )
     _write_jsonl(Path(args.out), records)
-    print(
-        f"{len(records)} rated decisions -> {args.out}"
-        + (f" ({skipped} skipped: input stored as hash only)" if skipped else "")
+    counted = (
+        f"{len(records)} reviewed decision{'' if len(records) == 1 else 's'}"
+        if reviews
+        else f"{len(records)} rated decisions"
     )
+    print(
+        f"{counted} -> {args.out}"
+        + (f" ({skipped} skipped: no input to export, kept as a hash or sealed)" if skipped else "")
+    )
+    if reviews:
+        if len(records) + skipped == args.limit:
+            print(f"These are the newest {args.limit:,}: raise --limit for more.")
+        if records:
+            print(
+                "Each carries the label a person chose. Use the file with `mendari eval --dataset`."
+            )
+        return 0
     labelled = sum(bool(record["labels"]) for record in records)
     if labelled:
         print(f"{labelled} already carry the right answer from feedback.")
@@ -3225,10 +3251,22 @@ def build_parser() -> argparse.ArgumentParser:
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True
     )
-    export = feedback.add_parser("export", help="export rated decisions as a dataset to label")
+    export = feedback.add_parser(
+        "export", help="export rated or reviewed decisions as a dataset of cases"
+    )
     export.add_argument("pack", help="pack id or directory")
     export.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
-    export.add_argument("--rating", choices=["down", "up"], default="down")
+    export.add_argument(
+        "--source",
+        choices=["ratings", "reviews"],
+        default="ratings",
+        help="ratings: thumbs feedback, to label (default); reviews: decisions a reviewer "
+        "resolved or an outcome was recorded for, each with the label a person chose",
+    )
+    export.add_argument("--rating", choices=["down", "up"], help="with ratings (default: down)")
+    export.add_argument(
+        "--limit", type=int, default=1000, help="the newest N decisions (default 1000)"
+    )
     export.add_argument("--out", required=True, help="JSONL file to write")
     export.set_defaults(handler=cmd_feedback_export)
 

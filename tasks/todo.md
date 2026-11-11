@@ -3320,7 +3320,16 @@ promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0
   case of every reference pack retyped four ways deciding as shipped, no text of any pack's
   datasets changed by it (so data, models, benchmarks and digests are byte-identical), the
   spec's list of characters equal to the code's. Passes on Python 3.11, 3.12 and 3.13.
-- [ ] **Step 2: reviewed decisions as labelled cases.**
+- [x] **Step 2: reviewed decisions as labelled cases.** `AuditStore.labelled` (a pack's
+  decisions with a reviewer's label or a recorded outcome, in the caller's organization) and
+  `evals/feedback.py` `reviewed_dataset`; `mendari feedback export --source reviews [--limit N]`
+  and the same route with `?source=reviews` (the existing admin route, so its permission, rate
+  limit and log lines are the ratings export's). The label is `truth_label`'s: the outcome when
+  one was recorded, else the reviewer's. No person is named, no note is carried, a hashed or
+  sealed input is counted and left out, and a sealed one opened for a reader is chained. 15
+  tests (`tests/test_reviewed_cases.py`), SQLite and Postgres. Not built: a dashboard button
+  for it, and `review` / `outcome` among the blocks a hidden set refuses (the `system` block
+  every exported record carries already refuses it).
 - [ ] **Step 3: character features for the built-in learner**, off unless a model file says so.
 - [ ] **Step 4: `mendari improve`**: retrain on new cases, judge the candidate against the
   model in the pack, keep it only when it is better and no less safe.
