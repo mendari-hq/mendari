@@ -34,7 +34,10 @@ is refused, unless the user accepts the new key, the way SSH treats a changed ho
 
 Pulled packs are cached under `~/.cache/mendari/packs/<namespace>/<name>/<version>`, which is
 on the pack search path, so `mendari test`, `Decision.from_hub` and the server find them like
-any local pack. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600).
+any local pack. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
+written whole and moved in). Pins are filed per registry address, scheme and host in lower
+case and without the default port; a pin file that is there and cannot be read is refused,
+never read as empty.
 `MENDARI_CONFIG_DIR` and `MENDARI_CACHE_DIR` move them.
 """
 
@@ -84,11 +87,80 @@ def _read(path: Path) -> dict[str, Any]:
 
 
 def _write_private(path: Path, data: dict[str, Any]) -> None:
+    """Written whole beside the file (mode 0600), then moved in: a reader never finds half a
+    file, and a write that is cut short leaves the old one."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, sort_keys=True)
-    os.chmod(path, 0o600)
+    descriptor, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")  # 0600
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+        os.chmod(staged, 0o600)
+        os.replace(staged, path)
+    except BaseException:
+        Path(staged).unlink(missing_ok=True)
+        raise
+
+
+def _pins_path() -> Path:
+    return config_dir() / "trusted_keys.json"
+
+
+def _read_pins() -> dict[str, Any]:
+    """The pinned keys (`trusted_keys.json`): nothing when the file is not there, and refused
+    when it is there and cannot be read as one. A pin file read as empty would make this
+    machine trust, as on first use, whatever a registry shows next."""
+    path = _pins_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    try:
+        pins = json.loads(text)
+    except (ValueError, RecursionError):
+        pins = None
+    if not isinstance(pins, dict) or not all(isinstance(held, dict) for held in pins.values()):
+        raise HubError(
+            f"the pinned keys in {path} cannot be read, so no registry key is trusted: restore "
+            "the file, or remove it to pin every registry's keys again on first use"
+        )
+    return pins
+
+
+def _pin_url(url: str) -> str:
+    """A registry's address as its pins are filed: scheme and host in lower case, without the
+    scheme's default port or a trailing slash, so one registry has one set of pins however its
+    address is typed."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    scheme, host = parts.scheme.lower(), (parts.hostname or "").lower()
+    try:
+        port = parts.port
+    except ValueError:
+        return url
+    if ":" in host:
+        host = f"[{host}]"
+    if port is not None and port != {"https": 443, "http": 80}.get(scheme):
+        host = f"{host}:{port}"
+    return urlunsplit((scheme, host, parts.path.rstrip("/"), "", ""))
+
+
+def _pins_of(pins: dict[str, Any], url: str) -> dict[str, Any]:
+    """This registry's pins, filed under its address (`_pin_url`). Pins filed before under the
+    address as it was typed (another case, a default port) are read with them."""
+    filed = _pin_url(url)
+    found: dict[str, Any] = {}
+    for address in sorted(pins, key=lambda a: a != filed):  # the filed one first: it wins
+        if _pin_url(address) != filed:
+            continue
+        for name, held in pins[address].items():
+            if isinstance(held, list):
+                found[name] = sorted({*found.get(name, []), *held})
+            else:
+                found.setdefault(name, held)
+    return found
 
 
 def login(url: str, token: str | None) -> dict[str, Any]:
@@ -434,12 +506,12 @@ def _published_key(
         return published, None, None
     if raw_key_id(key) != published.get("key_id"):
         return published, None, None
-    path = config_dir() / "trusted_keys.json"
-    pins = _read(path)
-    pinned = pins.setdefault(client.url, {}).get(_REGISTRY_PIN)
+    pins = _read_pins()
+    mine = _pins_of(pins, client.url)
+    pinned = mine.get(_REGISTRY_PIN)
     if pinned is None:
-        pins[client.url][_REGISTRY_PIN] = published["key_id"]
-        _write_private(path, pins)
+        pins[_pin_url(client.url)] = {**mine, _REGISTRY_PIN: published["key_id"]}
+        _write_private(_pins_path(), pins)
     elif pinned != published["key_id"]:
         return published, key, None
     return published, key, key
@@ -461,7 +533,7 @@ def _accepted(
     version = f"{pack_id}@{meta.get('version')}"
     published, presented, key = _published_key(client)
     if published is None:
-        if _read(config_dir() / "trusted_keys.json").get(client.url, {}).get(_REGISTRY_PIN) is None:
+        if _pins_of(_read_pins(), client.url).get(_REGISTRY_PIN) is None:
             return None
         raise HubError(
             f"{version} is refused: this registry published a signing key before and publishes "
@@ -476,7 +548,7 @@ def _accepted(
         raise HubError(
             f"{version} is refused: the registry's signing key is not the one this machine "
             "pinned for it. If its operator confirms the new key, remove the registry's "
-            f"'{_REGISTRY_PIN}' entry from {config_dir() / 'trusted_keys.json'} and pull again"
+            f"'{_REGISTRY_PIN}' entry from {_pins_path()} and pull again"
         )
     checked = meta.get("checked")
     record = checked.get("accepted") if isinstance(checked, Mapping) else None
@@ -514,13 +586,13 @@ def _trusted_keys(
     for key_id, key in found.items():
         if archive.key_id(key) != key_id:
             raise HubError("the registry listed a key under the wrong id")
-    path = config_dir() / "trusted_keys.json"
-    pins = _read(path)
-    pinned = set(pins.get(client.url, {}).get(namespace, []))
+    pins = _read_pins()
+    mine = _pins_of(pins, client.url)
+    pinned = set(mine.get(namespace, []))
     if not pinned or accept_new_key:
         pinned |= set(found)
-        pins.setdefault(client.url, {})[namespace] = sorted(pinned)
-        _write_private(path, pins)
+        pins[_pin_url(client.url)] = {**mine, namespace: sorted(pinned)}
+        _write_private(_pins_path(), pins)
     elif signer not in pinned:
         raise HubError(
             f"{namespace} is signed by {signer}, which this machine has not seen before; "

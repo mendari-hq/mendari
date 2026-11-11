@@ -232,15 +232,52 @@ Turning the key on for a registry that already holds versions refuses those vers
 client until they are counter-signed. Do both together:
 
 ```bash
+mendari registry verify --db var/registry.db            # first: the chain must verify
 export MENDARI_REGISTRY_SIGNING_KEY=...                 # the same key the registry serves with
 mendari registry countersign --db var/registry.db       # signs the listed versions with no record
-mendari registry verify --db var/registry.db
+mendari registry verify --db var/registry.db            # and again after
 ```
 
-`countersign` prints the versions it signed and those it skipped (stored without a digest or a
-publisher key to name), chains each record (`pack.accepted`) with who ran it, and signs nothing
-the second time. It needs the key, and never creates a database. Run it again after any stretch
-in which the registry served without its key.
+`countersign` signs after the fact, so it is the one step that could put the registry's
+signature on a version it never accepted. It therefore:
+
+- refuses to run, signing nothing, when the chain does not verify (a planted, changed or removed
+  row). Run `verify` first, and compare its head with the copy you keep outside the database
+  ([the chain](#the-chain)): the chain is unkeyed, so only that copy shows a chain rewritten
+  whole;
+- checks each version again from what is stored before it signs: its archive is there and
+  hashes to its name, is signed by a key of its namespace, and its signed manifest names this
+  pack, version and digest. One that fails is skipped and printed with why, and the command
+  exits 1. An approval makes the same check on the versions published while the claim was
+  pending;
+- prints the versions it signed, chains each record (`pack.accepted`) with who ran it, and signs
+  nothing the second time. It needs the key, and never creates a database.
+
+Run it again after any stretch in which the registry served without its key. A signing key that
+is set and is not a key (not 32 bytes in base64) stops publishing, approval and `countersign`
+with an error that names the setting and never its value (`503` over HTTP).
+
+Known limits, stated plainly:
+
+- **A shipped key does not make a signature required.** A machine that has no pin for a
+  registry's address accepts, on first contact, a registry that shows no key (an unsigned pull,
+  `accepted: null`) or shows any valid key (pinned on first use), before the shipped keys count
+  for anything. Shipping the key removes the first-use step for the real registry; it does not
+  stop a first contact with an impostor.
+- **A cached copy is not re-checked when it is loaded.** `Decision.from_hub` and the server
+  load a pack already in the cache without asking the registry, so a copy pulled while the
+  registry had no key (`accepted: null`) keeps loading after the registry gets one. The check
+  runs at `mendari pull`.
+- **No freshness and no revocation.** A record has no expiry and is never withdrawn: a deleted
+  version's record still verifies (the deletion is what stops it being served), and someone who
+  can write the database can serve an older accepted version as the latest. Recalls
+  ([above](#recalls-and-deletions)) are the way a version is stopped.
+- **Whoever can write the database and has the chain's head rewritten can still plant a
+  namespace key** and an archive it signed; the backfill would then sign that version. The head
+  kept outside the database is what catches it.
+- A machine's pins are filed by the registry's address (scheme and host in lower case, no
+  default port). A pin file that is there and cannot be read is refused, with what to remove,
+  rather than read as empty.
 
 The key has no rotation path yet: a registry that changes it is refused by every machine that
 pinned the old one, until that machine's `@registry` entry is removed or the new key ships with

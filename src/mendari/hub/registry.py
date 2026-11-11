@@ -390,16 +390,65 @@ _NOT_COUNTERSIGNED = (
 )
 
 
-def _countersign(db: Session, key: Ed25519PrivateKey, version: Mapping[str, Any], by: str) -> bool:
-    """Counter-sign one version as it becomes listed (`hub/acceptance.py`), in the caller's
-    exclusive session: the record, and its chained `pack.accepted`. False, and nothing written,
-    for a version stored without the digest or the publisher key a record names."""
+def _signing_key() -> Ed25519PrivateKey | None:
+    """The registry's signing key, or None when unset. One that is set and is not a key is the
+    operator's to fix: a `503` that says what the setting must be, never the value."""
+    try:
+        return yank.registry_key()
+    except MendariError as error:
+        raise HubError(f"the registry cannot counter-sign: {error}", 503) from None
+
+
+def _not_genuine(db: Session, version: Mapping[str, Any]) -> str | None:
+    """Why a stored version is not one the registry could have accepted (None: it is), checked
+    again from what is stored before it is counter-signed after the fact: its archive is there
+    and hashes to its name, is signed by a key of its namespace, and its signed manifest names
+    this pack, version, digest and that key. A row written straight into the database with no
+    archive a namespace key signed fails here."""
     stored = json.loads(version["metadata"])
     digest, publisher_key = stored.get("digest"), stored.get("key_id")
     if not (
         isinstance(digest, str) and digest and isinstance(publisher_key, str) and publisher_key
     ):
+        return "it was stored without a digest or a publisher key"
+    namespace, name, number = _key(version)
+    held = db.one(
+        "SELECT data FROM hub_archives WHERE archive_sha256 = ?", (version["archive_sha256"],)
+    )
+    if held is None:
+        return "its archive is missing"
+    data = bytes(held["data"])
+    if hashlib.sha256(data).hexdigest() != version["archive_sha256"]:
+        return "its archive is not the bytes its name hashes"
+    listed = db.all("SELECT key_id, public_pem FROM hub_keys WHERE namespace = ?", (namespace,))
+    try:
+        keys = {
+            str(k["key_id"]): archive.load_public_key(str(k["public_pem"]).encode()) for k in listed
+        }
+        if any(archive.key_id(key) != key_id for key_id, key in keys.items()):
+            return "a key of its namespace is not the key its id names"
+        verified = archive.verify(data, keys)
+    except HubError as error:
+        return str(error)
+    manifest = verified.manifest
+    if (manifest.get("id"), manifest.get("version")) != (f"{namespace}/{name}", number):
+        return "its archive is another pack or version"
+    if manifest.get("digest") != digest or verified.key_id != publisher_key:
+        return "its archive is another build, or signed by another key, than it records"
+    return None
+
+
+def _countersign(
+    db: Session, key: Ed25519PrivateKey, version: Mapping[str, Any], by: str, *, verified: bool
+) -> bool:
+    """Counter-sign one version as it becomes listed (`hub/acceptance.py`), in the caller's
+    exclusive session: the record, and its chained `pack.accepted`. `verified`: the caller
+    verified its archive itself (this publish, or `_not_genuine` just now); otherwise it is
+    checked again from what is stored. False, and nothing written, for one that fails."""
+    if not verified and _not_genuine(db, version) is not None:
         return False
+    stored = json.loads(version["metadata"])
+    digest, publisher_key = stored["digest"], stored["key_id"]
     namespace, name, number = _key(version)
     record = acceptance.sign(
         pack=f"{namespace}/{name}",
@@ -598,7 +647,7 @@ class RegistryStore(RateBuckets):
         Chained `namespace.approved` or `namespace.refused` with the organization."""
         by = _label(by, "who decides", 200)
         note = _label(note, "the note", 300) if note.strip() else ""
-        own = yank.registry_key() if approve else None
+        own = _signing_key() if approve else None
         with self._db.session(exclusive=True) as db:
             claim = db.one("SELECT * FROM hub_claims WHERE namespace = ?", (name,))
             if claim is None:
@@ -634,7 +683,9 @@ class RegistryStore(RateBuckets):
                 for version in sorted(
                     waiting, key=lambda v: (v["name"], version_key(v["version"]))
                 ):
-                    _countersign(db, own, version, by)
+                    # Checked again from what is stored: one that is not genuine stays without
+                    # a record, and every client of this registry refuses it.
+                    _countersign(db, own, version, by, verified=False)
         (decided,) = self.claims(namespace=name)
         return decided
 
@@ -871,7 +922,7 @@ class RegistryStore(RateBuckets):
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
-        own = yank.registry_key()  # a key that is set and is not one fails here, before any work
+        own = _signing_key()  # a key that is set and is not one fails here, before any work
         self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
@@ -963,20 +1014,32 @@ class RegistryStore(RateBuckets):
                     (namespace, name, version),
                 )
                 assert written is not None
-                _countersign(db, own, written, by)
+                _countersign(db, own, written, by, verified=True)
         return self.version(namespace, name, version, REVIEWER)
 
     def countersign(self, *, by: str) -> dict[str, list[str]]:
         """Counter-sign every listed version that has no record (LP-19i): those from before
         the registry counter-signed, or published while it had no signing key. Never a deleted
-        version, nor one of a pending or refused namespace. Run again it signs nothing. `signed`
-        and `skipped` name the versions (a skipped one was stored without a digest or a
-        publisher key to name)."""
-        own = yank.registry_key()
+        version, nor one of a pending or refused namespace. Run again it signs nothing.
+
+        It signs after the fact, so it trusts nothing it has not checked: it refuses to run on
+        a database whose chain does not verify (`verify`: a planted or changed row), and each
+        version is checked again from what is stored (`_not_genuine`: its archive, signed by a
+        key of its namespace, naming this pack, version and digest). `signed` names the versions
+        signed; `skipped` those that failed that check, each with why."""
+        own = _signing_key()
         if own is None:
             raise HubError(
                 f"this registry has no signing key: set {yank.KEY_ENV} (32 random bytes in "
                 "base64) to counter-sign"
+            )
+        chain = self.verify()
+        if not chain["ok"]:
+            raise HubError(
+                f"nothing was counter-signed: the registry's chain does not verify "
+                f"({chain['problem']}). Find out why with `mendari registry verify` first: "
+                "counter-signing would vouch for rows the registry never accepted",
+                409,
             )
         by = _label(by, "who counter-signs", 200)
         signed: list[str] = []
@@ -987,8 +1050,12 @@ class RegistryStore(RateBuckets):
             for version in sorted(
                 waiting, key=lambda v: (v["namespace"], v["name"], version_key(v["version"]))
             ):
-                done = signed if _countersign(db, own, version, by) else skipped
-                done.append(_pack_subject(*_key(version)))
+                why = _not_genuine(db, version)
+                if why is None:
+                    _countersign(db, own, version, by, verified=True)
+                    signed.append(_pack_subject(*_key(version)))
+                else:
+                    skipped.append(f"{_pack_subject(*_key(version))}: {why}")
         return {"signed": signed, "skipped": skipped}
 
     def _accepted(

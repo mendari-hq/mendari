@@ -8,8 +8,10 @@ Every key here is made at runtime; none is kept."""
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
+import shutil
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -26,10 +28,18 @@ from mendari.core.origin import pulled_record
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
 from mendari.hub import acceptance, yank
+from mendari.hub import client as client_module
+from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, config_dir, packs_cache, pull
 from mendari.hub.registry import REVIEWER, RegistryStore
 from tests.conftest import REGISTRY_ADMIN, Registry
-from tests.test_hub_client import SHIPPED, Hub, copy_pack, hub  # noqa: F401 - the live registry
+from tests.test_hub_client import (  # noqa: F401 - `hub` is the live registry fixture
+    SHIPPED,
+    HostileRegistry,
+    Hub,
+    copy_pack,
+    hub,
+)
 from tests.test_registry_claims import Claimed
 
 ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
@@ -57,7 +67,10 @@ Change = Callable[[dict[str, Any]], Any]
 
 
 def _client(
-    registry: Registry, change: Change | None = None, seen: list[str] | None = None
+    registry: Registry,
+    change: Change | None = None,
+    seen: list[str] | None = None,
+    url: str = URL,
 ) -> RegistryClient:
     """The real client, its requests answered by the registry under test. `change` rewrites a
     version as the registry answers it (a registry that lies); `seen` collects the paths asked."""
@@ -76,7 +89,7 @@ def _client(
                 content = json.dumps({**found, "latest": change(found["latest"])}).encode()
         return httpx.Response(answer.status_code, content=content)
 
-    return RegistryClient(URL, transport=httpx.MockTransport(handle))
+    return RegistryClient(url, transport=httpx.MockTransport(handle))
 
 
 def _events(db_target: str) -> list[dict[str, Any]]:
@@ -495,14 +508,229 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     assert main(["registry", "verify", "--db", db_target]) == 0
     with _client(registry) as client:
         assert pulled_record(pull(REFERRAL.id, client).root)["accepted"] is True
-    # A version stored without the digest or key a record names is skipped, and said so.
-    _write(db_target, "DELETE FROM hub_acceptances WHERE name = 'inbox'")
-    _write(db_target, "UPDATE hub_versions SET metadata = '{}' WHERE name = 'inbox'")
-    capsys.readouterr()
-    assert main(command) == 0
+
+
+def _plant(db_target: str, namespace: str, version: str = "9.9.9") -> None:
+    """Write a version past the registry, as someone who can write its database would: a copy
+    of the namespace's real row under another number, and with it an archive no key of the
+    namespace signed (the hostile registry's own build of the referral pack)."""
+    _write(
+        db_target,
+        "INSERT INTO hub_versions (namespace, name, version, created_at, archive_sha256, metadata) "
+        "SELECT namespace, name, ?, created_at, archive_sha256, metadata FROM hub_versions "
+        "WHERE namespace = ? LIMIT 1",
+        (version, namespace),
+    )
+
+
+def _restart_chain(db_target: str) -> None:
+    """Rewrite the unkeyed chain whole, as a writer of the database can: every row it holds
+    now is hashed anew in one first event, so `verify` passes with the planted rows in it."""
+    _drop(db_target, "hub_events")
+    _drop(db_target, "hub_meta")
+    assert _verify(db_target)["ok"]
+
+
+def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
+    registry: Registry,
+    db_target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The backfill signs after the fact, so it is the one place a row the registry never
+    accepted could gain its signature. It refuses a chain that does not verify; and where the
+    chain was rewritten to hide the row, it still signs no version whose stored archive is not
+    signed by a key of its namespace, for this pack, version and digest."""
+    _keyed(monkeypatch, None)
+    assert registry.publish().status_code == 201
+    _plant(db_target, "mendari")
+    _keyed(monkeypatch)
+    command = ["registry", "countersign", "--db", db_target]
+    before = _events(db_target)
+    assert main(command) != 0
+    err = capsys.readouterr().err
+    assert "nothing was counter-signed" in err and "1 of the versions have no chained event" in err
+    assert "mendari registry verify" in err
+    assert _events(db_target) == before and _record(registry) is None
+    # The chain rewritten whole, the planted row in it: `verify` passes, the archive check does
+    # not (the row's archive is the real version's, whose signed manifest names that version).
+    _restart_chain(db_target)
+    assert main(command) != 0
     printed = capsys.readouterr()
-    assert json.loads(printed.out) == {"signed": [], "skipped": [f"mendari/inbox@{SHIPPED}"]}
+    assert json.loads(printed.out) == {
+        "signed": [SUBJECT],
+        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+    }
     assert "1 not counter-signed" in printed.err
+    assert (
+        registry.client.get(f"/v1/packs/{REFERRAL.id}/9.9.9").json()["checked"]["accepted"] is None
+    )
+    with _client(registry) as client, pytest.raises(HubError, match="is not counter-signed"):
+        pull(f"{REFERRAL.id}@9.9.9", client)
+    # Each other way a stored version is not one the registry accepted, by what the check says.
+    other = HostileRegistry(tmp_path)  # a real archive of the pack, signed by nobody's key here
+    sha = hashlib.sha256(other.data).hexdigest()
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        row = db.one("SELECT * FROM hub_versions WHERE version = ?", (REFERRAL.version,))
+        assert row is not None and registry_module._not_genuine(db, row) is None
+        db.all("INSERT INTO hub_archives (archive_sha256, data) VALUES (?, ?)", (sha, other.data))
+        unsigned = {**row, "archive_sha256": sha}
+        assert "signed by a key that is not trusted" in str(
+            registry_module._not_genuine(db, unsigned)
+        )
+        assert registry_module._not_genuine(db, {**row, "archive_sha256": "0" * 64}) == (
+            "its archive is missing"
+        )
+        elsewhere = {**row, "metadata": json.dumps({"digest": "sha256:" + "1" * 64, "key_id": "k"})}
+        assert "another build" in str(registry_module._not_genuine(db, elsewhere))
+        assert "without a digest" in str(
+            registry_module._not_genuine(db, {**row, "metadata": "{}"})
+        )
+        db.all("UPDATE hub_archives SET data = ? WHERE archive_sha256 = ?", (b"x", sha))
+        assert registry_module._not_genuine(db, unsigned) == (
+            "its archive is not the bytes its name hashes"
+        )
+
+
+def test_approval_never_signs_a_version_planted_while_the_claim_was_pending(
+    registry: Registry, db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _keyed(monkeypatch)
+    acme = Claimed(registry, db_target, tmp_path)
+    acme.publish()
+    _plant(db_target, "acme")
+    with RegistryStore(db_target) as store:
+        store.decide_claim("acme", approve=True, by="user:77aa")
+    assert [e["subject"] for e in _events(db_target) if e["event"] == "pack.accepted"] == [
+        f"acme/inbox@{SHIPPED}"
+    ]
+    assert _record(registry, f"/v1/packs/acme/inbox/{SHIPPED}") is not None
+    assert _record(registry, "/v1/packs/acme/inbox/9.9.9") is None
+    with _client(registry) as client:
+        with pytest.raises(HubError, match="is not counter-signed"):
+            pull("acme/inbox", client)  # the planted one is the newest: refused, not skipped
+        assert pulled_record(pull(f"acme/inbox@{SHIPPED}", client).root)["accepted"] is True
+
+
+def test_a_signing_key_that_is_not_one_is_a_clear_error_and_never_shown(
+    registry: Registry,
+    db_target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    secret = "not-a-key-" + base64.b64encode(os.urandom(9)).decode()
+    monkeypatch.setenv(yank.KEY_ENV, secret)
+    refused = registry.publish()
+    assert refused.status_code == 503, refused.text
+    said = refused.json()
+    assert said["error"] == "HubError" and "the registry cannot counter-sign" in said["detail"]
+    assert yank.KEY_ENV in said["detail"] and "32 random bytes in base64" in said["detail"]
+    assert secret not in refused.text
+    assert registry.client.get(PATH).status_code == 404  # nothing was published
+    _keyed(monkeypatch)
+    acme = Claimed(registry, db_target, tmp_path)
+    acme.publish()
+    monkeypatch.setenv(yank.KEY_ENV, secret)
+    with RegistryStore(db_target) as store:
+        with pytest.raises(HubError, match="cannot counter-sign") as approval:
+            store.decide_claim("acme", approve=True, by="user:77aa")
+        assert approval.value.status == 503 and secret not in str(approval.value)
+        assert store.claims(namespace="acme")[0]["status"] == "pending"  # nothing decided
+        assert store.decide_claim("acme", approve=False, by="user:77aa")["status"] == "refused"
+    assert main(["registry", "countersign", "--db", db_target]) != 0
+    err = capsys.readouterr().err
+    assert yank.KEY_ENV in err and secret not in err
+
+
+def test_a_pin_file_that_cannot_be_read_is_refused_and_is_written_whole(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _keyed(monkeypatch)
+    assert registry.publish().status_code == 201
+    pins = config_dir() / "trusted_keys.json"
+    with _client(registry) as client:
+        pull(REFERRAL.id, client)
+    assert pins.stat().st_mode & 0o777 == 0o600
+    assert sorted(path.name for path in pins.parent.iterdir()) == ["trusted_keys.json"]  # no scrap
+    whole = pins.read_text()
+    _keyed(monkeypatch, None)  # the registry shows no key: with the pins lost, an unsigned pull
+    shutil.rmtree(packs_cache())
+    for broken in (whole[: len(whole) // 2], "", "[]", '{"https://registry.example": []}', "\xff"):
+        pins.write_text(broken)
+        with _client(registry) as client, pytest.raises(HubError, match="cannot be read") as lost:
+            pull(REFERRAL.id, client)
+        assert str(pins) in str(lost.value) and "remove it" in str(lost.value)
+        assert pins.read_text() == broken and _cached() == []  # never overwritten, nothing pulled
+    pins.write_text(whole)
+    with _client(registry) as client, pytest.raises(HubError, match="publishes none now"):
+        pull(REFERRAL.id, client)
+
+    # A write that fails part way leaves the old file, whole.
+    def cut_short(*_: Any, **__: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(client_module.json, "dump", cut_short)
+    with pytest.raises(OSError, match="disk full"):
+        client_module._write_private(pins, {"lost": {}})
+    assert pins.read_text() == whole
+    assert sorted(path.name for path in pins.parent.iterdir()) == ["trusted_keys.json"]
+
+
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "https://REGISTRY.example",
+        "https://registry.example:443",
+        "HTTPS://Registry.Example:443/",
+        "https://registry.example/",
+    ],
+)
+def test_one_registry_has_one_pin_however_its_address_is_typed(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch, typed: str
+) -> None:
+    _keyed(monkeypatch)
+    assert registry.publish().status_code == 201
+    with _client(registry) as client:
+        pull(REFERRAL.id, client)  # pinned as https://registry.example
+    assert list(json.loads((config_dir() / "trusted_keys.json").read_text())) == [URL]
+    shutil.rmtree(packs_cache())
+    _keyed(monkeypatch, OTHER_SEED)  # another key, shown at the same registry typed another way
+    with _client(registry, url=typed) as client, pytest.raises(HubError, match="not the one this"):
+        pull(REFERRAL.id, client)
+    _keyed(monkeypatch, None)
+    with _client(registry, url=typed) as client, pytest.raises(HubError, match="publishes none"):
+        pull(REFERRAL.id, client)
+    assert client_module._pin_url(typed) == URL
+    # Another host, port, scheme or path is another registry.
+    for other in (
+        "https://registry.example:8443",
+        "https://registry.example/v2",
+        "https://b.example",
+    ):
+        assert client_module._pin_url(other) == other
+    assert client_module._pin_url("http://LOCALHOST:80/") == "http://localhost"
+    assert client_module._pin_url("http://[::1]:8100") == "http://[::1]:8100"
+
+
+def test_pins_filed_under_an_address_as_it_was_typed_are_still_read(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pin file from before pins were filed by normalised address: its entries count."""
+    _keyed(monkeypatch)
+    assert registry.publish().status_code == 201
+    old = yank.registry_public(_key(OTHER_SEED))["key_id"]
+    pins = config_dir() / "trusted_keys.json"
+    pins.parent.mkdir(parents=True)
+    pins.write_text(
+        json.dumps({"https://Registry.Example:443": {"@registry": old, "acme": ["k1"]}})
+    )
+    with _client(registry) as client, pytest.raises(HubError, match="not the one this machine"):
+        pull(REFERRAL.id, client)
+    kept = json.loads(pins.read_text())
+    assert kept["https://Registry.Example:443"]["@registry"] == old  # nothing overwritten
+    assert client_module._pins_of(kept, URL) == {"@registry": old, "acme": ["k1"]}
 
 
 def test_a_database_from_before_counter_signatures_reads_and_verifies(

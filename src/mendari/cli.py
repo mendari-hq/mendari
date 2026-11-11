@@ -1899,7 +1899,9 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     ($MENDARI_REGISTRY_SIGNING_KEY), on the registry's database (LP-19i): the versions from
     before the registry counter-signed, or published while it had no key. Never a deleted
     version, nor one of a pending or refused namespace. Run again it signs nothing. Each record
-    is chained (`pack.accepted`) with who ran this."""
+    is chained (`pack.accepted`) with who ran this. It refuses to run when the chain does not
+    verify, and skips, with why, a version whose stored archive is not one a key of its
+    namespace signed (exit 1 when any is skipped)."""
     from mendari.hub.registry import RegistryStore
 
     with RegistryStore(_existing_registry(args.db)) as store:
@@ -1907,10 +1909,11 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     _print_json(done)
     if done["skipped"]:
         print(
-            f"{len(done['skipped'])} not counter-signed: stored without a digest or a publisher "
-            "key to name",
+            f"{len(done['skipped'])} not counter-signed: not a version the registry could have "
+            "accepted (each is named above with why); clients refuse them",
             file=sys.stderr,
         )
+        return 1
     return 0
 
 
