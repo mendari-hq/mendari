@@ -638,11 +638,13 @@ Whatever it says, and whoever wrote it, a pack cannot:
   be the commoner cause. The first SMART launch on Epic's sandbox (2026-11-08) showed both kinds:
   the trial pack's test patient abstained with `notes: cap` and `notes: unsupported_type`, the
   second most likely the RTF twin of each capped HTML note (assumed: each Epic note an HTML and an
-  RTF Binary, which the run's counts can confirm; a note's renditions now count once, by its text
-  rendition's reason, `fhir.unread_notes`); its drugs were `cap` too, behind one budget of 20
-  that the notes had used. A note counted `unsupported_type`
-  now has its format counted (`unread_formats`: `rtf`, `pdf`, `xml`, `image`, `none`, `other`),
-  so the next run says how many of Epic's notes are RTF only. Each abstention goes to a person, which only lowers automation, and shows an
+  RTF Binary, which the run's counts fit but cannot confirm, since they give no content types; a
+  note's renditions now count once, by its text rendition's reason, `fhir.unread_notes`); its
+  drugs were `cap` too, behind one budget of 20 that the notes had used. A note counted
+  `unsupported_type` now has its format counted (`unread_formats`: `rtf`, `pdf`, `xml`, `image`,
+  `none`, `other`), so a run with unread notes says how many of Epic's notes are RTF only (the
+  2026-11-10 run read all 3 of its notes, too few to say). Each abstention goes to a person,
+  which only lowers automation, and shows an
   `info` card whatever the pack's `show` says (owner decision 6), so the risk is workload and
   cards clinicians learn to pass over, not a wrong `AUTO`. Each decision's data-coverage record
   counts its unreadable notes by reason, so the sandbox run shows how often it happens; LP-23
