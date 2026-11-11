@@ -638,6 +638,7 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
             "status_label": REFERRAL.status_label,
             "review": {"status": "unreviewed"},
             "regression": None,  # the check is off in the suite unless a test turns it on
+            "accepted": None,  # no signing key in the suite unless a test sets one (LP-19i)
             "publisher_type": "community",  # the namespace's, set by the registry's admins
         }
         assert version["claimed"] == {

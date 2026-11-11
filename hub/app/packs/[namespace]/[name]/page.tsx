@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { shown } from "@/lib/figures";
-import { ENGINE_WORDS, pack, type Recalled, regressionWords, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
+import { acceptanceWords, ENGINE_WORDS, pack, type Recalled, regressionWords, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +80,10 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           <Item term="Regression check">
             <span className="regression-label">{checked.regression?.label ?? "publisher's own test set: regression check, not a ranking"}</span>
             {" "}{regressionWords(checked.regression, shown)}
+          </Item>
+          <Item term="Counter-signature">
+            {acceptanceWords(checked.accepted)}
+            {checked.accepted ? <>, key <span className="mono">{checked.accepted.key_id}</span>, {checked.accepted.at}</> : null}
           </Item>
         </dl>
       </section>

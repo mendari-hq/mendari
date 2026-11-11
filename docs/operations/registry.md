@@ -24,7 +24,7 @@ mendari registry verify --db var/registry.db                # read-only; exit 1 
 | Setting | Default | What it does |
 |---|---|---|
 | `MENDARI_REGISTRY_ADMIN_TOKEN` | unset: no administrator | The one administrator's bearer token: namespaces, tokens, publisher types, reviews, recalls and deletions. Keep it in a secret manager. |
-| `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself | 32 random bytes in base64, the Ed25519 key that signs an administrator's recalls, published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
+| `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself and counter-signs nothing | 32 random bytes in base64, the Ed25519 key that signs an administrator's recalls and counter-signs each version the registry lists ([below](#the-counter-signature)), published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
 | `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per token (burst 30), site reports 60 an hour per token (burst 10). A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
 | `MENDARI_REGISTRY_REGRESSION` | `on` | `off` publishes without the regression check. |
 
@@ -202,10 +202,106 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
   `pack.published` records the organization and whether the version was listed then.
 - Until reviewers sign in (LP-19e) the administrator token reads everything, as a reviewer.
 
+## The counter-signature
+
+With `MENDARI_REGISTRY_SIGNING_KEY` set, the registry signs a record for each version when it
+becomes listed (`mendari.registry-acceptance/1`: the pack, version, digest, archive SHA-256, the
+publisher key that signed the archive, the registry's key id and the time). It does so at
+publish in a listed namespace, and at approval for every version published while the claim was
+pending. A version of a refused namespace is never counter-signed, nor a deleted one. The record
+is served with the version as `checked.accepted` (`null` when there is none), and the Hub shows
+"Counter-signed by the registry" or "Not counter-signed".
+
+A version written straight into the database has no record. `mendari pull` checks the record
+before it fetches the archive:
+
+| The registry | The version's record | The pull |
+|---|---|---|
+| publishes a key this machine trusts | verifies, and names exactly this pack, version, digest, archive and publisher key | pulled; the marker beside the pack records `accepted: true` |
+| publishes a key this machine trusts | missing, does not verify, or names something else | **refused**, nothing cached |
+| publishes no key, and never did to this machine | (none) | pulled as before; `accepted: null`, and `mendari pull` says it is not counter-signed |
+| published a key before, and now publishes none or another | (any) | **refused**, as a changed host key is |
+
+A machine trusts the registry's key when it is one shipped with the client
+(`src/mendari/hub/registry_keys.json`, public keys only, never a hostname) or the one it pinned
+for that registry's URL on first use (`trusted_keys.json` in `~/.config/mendari`, the
+`@registry` entry). The shipped file is empty until the registry's owner makes the key and sends
+its public half (`GET /v1/registry-key`) for the one-line change that ships it.
+
+Turning the key on for a registry that already holds versions refuses those versions to every
+client until they are counter-signed. Do both together:
+
+```bash
+mendari registry verify --db var/registry.db            # first: the chain must verify
+export MENDARI_REGISTRY_SIGNING_KEY=...                 # the same key the registry serves with
+mendari registry countersign --db var/registry.db       # signs the listed versions with no record
+mendari registry verify --db var/registry.db            # and again after
+```
+
+`countersign` signs after the fact, so it is the one step that could put the registry's
+signature on a version it never accepted. It therefore:
+
+- refuses to run, signing nothing, when the chain does not verify (a planted, changed or removed
+  row). Run `verify` first, and compare its head with the copy you keep outside the database
+  ([the chain](#the-chain)): the chain is unkeyed, so only that copy shows a chain rewritten
+  whole;
+- checks each version again from what is stored before it signs: its archive is there and
+  hashes to its name, is signed by a key of its namespace, and its signed manifest names this
+  pack, version and digest. One that fails is skipped and printed with why, and the command
+  exits 1. An approval makes the same check on the versions published while the claim was
+  pending;
+- prints the versions it signed, chains each record (`pack.accepted`) with who ran it, and signs
+  nothing the second time. It needs the key, and never creates a database.
+
+Run it again after any stretch in which the registry served without its key. A signing key that
+is set and is not a key (not 32 bytes in base64) stops publishing, approval and `countersign`
+with an error that names the setting and never its value (`503` over HTTP).
+
+Known limits, stated plainly:
+
+- **A shipped key does not make a signature required, unless the machine asks for it.** By
+  default a machine that has no pin for a registry's address accepts, on first contact, a
+  registry that shows no key (an unsigned pull, `accepted: null`) or shows any valid key
+  (pinned on first use), before the shipped keys count for anything. Shipping the key removes
+  the first-use step for the real registry; it does not stop a first contact with an impostor.
+  Set `MENDARI_REGISTRY_COUNTERSIGNATURE` on the machine that pulls to close that:
+
+    | Value | A pull is refused when |
+    |---|---|
+    | `optional` (unset) | only as the table above says |
+    | `required` | the registry shows no key: every pull is counter-signed by a shipped or pinned key |
+    | `shipped` | the registry's key is not one shipped with the client: nothing is trusted on first use |
+
+    Use `shipped` on any machine that pulls from the hosted registry once its key ships with
+  the client, and `required` for a self-hosted registry that has a key. A value that is not one
+  of the three refuses every pull.
+- **A cached copy is not re-checked when it is loaded.** `Decision.from_hub` and the server
+  load a pack already in the cache without asking the registry, so a copy pulled while the
+  registry had no key (`accepted: null`) keeps loading after the registry gets one. The check
+  runs at `mendari pull`.
+- **No freshness and no revocation.** A record has no expiry and is never withdrawn: a deleted
+  version's record still verifies (the deletion is what stops it being served), and someone who
+  can write the database can serve an older accepted version as the latest. Recalls
+  ([above](#recalls-and-deletions)) are the way a version is stopped.
+- **Whoever can write the database and has the chain's head rewritten can still plant a
+  namespace key** and an archive it signed; the backfill would then sign that version. The head
+  kept outside the database is what catches it.
+- A machine's pins are filed by the registry's address (scheme and host in lower case, no
+  default port). A pin file that is there and cannot be read is refused, with what to remove,
+  rather than read as empty.
+
+Changing the key is not supported yet, by decision for launch. Each version holds one record,
+signed with the key of the day, and no command signs it again: after a change, every record made
+before it stops verifying, and every machine that pinned the old key refuses the registry. The
+pieces a rotation will use are already there (the shipped file is a list, and a shipped key is
+trusted whatever a machine pinned, so a new key can ship beside the old one before the switch);
+the missing piece is a chained command that signs the existing versions again. Until it exists,
+treat the key as permanent and keep it where only the registry's environment reads it.
+
 ## The chain
 
 Every write (a namespace, its claim and its decision, its publisher type, a token made or revoked, a
-key, a publish, a site report, a review, a recall, a deletion) appends a hash-chained event, naming who acted: `admin`, or a
+key, a publish, a counter-signature, a site report, a review, a recall, a deletion) appends a hash-chained event, naming who acted: `admin`, or a
 token by its id (`token:<id>`), never the token. `mendari registry verify --db` opens the
 database read-only and checks every event's hash and order, that every row is exactly the one
 its newest event hashed, every archive's hash and every key's id. It prints the head.
@@ -225,8 +321,9 @@ on a schedule, and compare a later head with it. A signed head is for later.
   LP-19's build is next; its deploy, the registry's signing key and DNS are the owner's.
 - **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
   shows none.
-- **The registry's signing key** has no rotation path; clients pin it at first contact.
+- **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
+  it because it ships with them (the shipped file is empty until the owner makes the key).
 - **`GET /v1/yanks` is not paged.**
 
-The threat model's rows S18, S19, T7, R3, D11, D12, E12 and E13 hold the registry's checks and
+The threat model's rows S18, S19, T7, T11, R3, D11, D12, E12 and E13 hold the registry's checks and
 the tests that prove them ([threat model](../security/threat-model.md)).
