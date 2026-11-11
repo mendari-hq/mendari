@@ -351,6 +351,30 @@ recorded as a failure of the slot's questions (`<member>:<code>`), which caps `A
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
 
+The built-in types that read free text on the machine read it in its **plain form**: `rules`,
+`dosing` and `naive_bayes` their text fields, and `criteria` a medication's name. The plain form
+is the same words in the characters a keyboard types, so that text which differs only in
+typography decides the same:
+
+1. invisible format characters are left out (Unicode category Cf: zero-width spaces and joiners,
+   the byte order mark, the soft hyphen, direction marks);
+2. a letter and an accent written as two characters become the one character (Unicode NFC),
+   unless composing would make the text longer, where the text stays as it is;
+3. apostrophes and single quotation marks (U+2018 to U+201B, the prime U+2032, U+02BC, and the
+   acute and grave accents U+00B4 and U+0060) become `'`; double quotation marks (U+201C to
+   U+201F, the double prime U+2033) become `"`; hyphens, dashes and the minus sign (U+2010 to
+   U+2015, U+2212) become `-`; the ellipsis character (U+2026) becomes `.`;
+4. every line end (a carriage return with or without a newline, a vertical tab, a form feed,
+   U+0085, U+2028, U+2029) becomes a newline, and every other run of white space one space.
+
+A newline stays a newline, and nothing else changes: case is kept (rules patterns ignore it
+themselves), and so are compatibility characters (a ligature, a full-width letter, the micro
+sign). The plain form is never longer than the text. A pack's patterns, a medication check's
+`names` and a trained model's tokens are matched against it, so they MUST be written in it: a
+character the plain form never holds, such as a curly apostrophe or a no-break space, matches
+nothing. The decision's record, its input hash, the input schema's checks and what a remote
+provider is sent keep the text as it was received.
+
 A pack's patterns (every `rules` pattern, of every variant and composite member, and every
 `pattern` and `patternProperties` key in its input schema) are Python `re` regular expressions,
 run as `re` runs them (rules patterns with case ignored). Each MUST compile and be at most 2,000
@@ -745,6 +769,7 @@ of these.
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| The built-in types that read free text on the machine (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read it in its plain form: typography only (quotation marks, dashes, white space, line ends, invisible format characters, composed accents), so a pack's patterns, names and tokens are written in it (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
 | `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |
 | A behaviour test has an `expect` of at least one known key and no other, each value one the pack can decide, and no key beyond `name`, `input` and `expect`; a test run with no test fails; declared datasets are read by `validate` (every spec version) | §10 |

@@ -24,6 +24,20 @@ The first release (not yet published).
   SNOMED CT's url, OID and concept URIs in the built wheel and sdist, and any number written as
   a SNOMED CT concept id in Mendari's own files there (`scripts/check_snomed.py`); NOTICE carries
   NLM's RxNorm acknowledgement.
+- **Text is read in its plain form** (ADR-0018; this changes what a pack decides on text that
+  holds such characters, and on nothing that ships). The providers that decide on the machine
+  (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read the same words in
+  a keyboard's characters: invisible format characters left out, accents composed, apostrophes,
+  quotation marks and dashes straightened, the ellipsis character a full stop, every run of
+  white space one space (`core/text.py`, spec §5). Before, typography hid text from a pack's
+  patterns: a phone's curly apostrophe took the stat priority off "it won't stop bleeding" (3 of
+  the 55 emergencies the inbox rules flag), a no-break space hid 22 of the referral screen's 136
+  urgent referrals at 15% of spaces, and an en dash in "every 4 to 6 hours" made the AI Guard's
+  dose check call 6,000 mg of acetaminophen a day within the limit. Every true critical case of
+  every reference pack is now retyped four ways in the tests and must decide as shipped. No text
+  in any pack's datasets differs from its plain form, so the data, the models, the benchmarks
+  and the digests are byte-identical. The record, the input hash, the schema's checks and what a
+  remote model is sent keep the text as received.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:

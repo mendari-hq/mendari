@@ -805,3 +805,43 @@ If the full run went first, run those six files again once the new files are sta
 
 ### Verification
 `git status --short | grep '^??'` lists nothing of the change before the full run starts.
+
+## 2026-11-10 - communication
+
+### What happened
+Asked to "examine the mendari model to make it more robust ... and capable to self improve", I
+read "the Mendari model" as the naive Bayes classifier two packs ship, and measured that first.
+The owner corrected it: Mendari is the engine the packs are built on.
+
+### Root cause
+The request named a thing no file, type or page of the repository names, and I took the nearest
+match in the code without saying so before starting.
+
+### Rule
+When a request names something the repository does not, say in the first message what it is
+taken to mean and what else it could mean, before measuring or planning, and start with the work
+both readings share.
+
+### Verification
+The first message of the turn states the reading in one sentence.
+
+## 2026-11-10 - syntax
+
+### What happened
+Writing `core/text.py` and its tests, each `\u` escape typed into the file-writing tool arrived in
+the source as the character itself: curly quotes, a line separator and zero-width spaces sat in
+string literals, some of them invisible. The tests passed all the same; ruff's ambiguous-character
+rules (RUF001, RUF002) caught it.
+
+### Root cause
+The tool decodes `\u` escapes in the text it is given. `\x`, `\r` and `\N{...}` pass through.
+
+### Rule
+In source, write a character a reader cannot see, or cannot tell from an ASCII one, as
+`\N{NAME}` (or build it with `chr()`), never as a `\u` escape typed into a file-writing tool. After
+writing a file that handles such characters, list every non-ASCII character it holds and account
+for each.
+
+### Verification
+A script over the changed files prints each character outside ASCII by its Unicode name, and the
+list holds only intended, visible letters.

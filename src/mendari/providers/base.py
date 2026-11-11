@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
+from mendari.core.text import plain
 from mendari.errors import PackValidationError, ProviderError
 
 T = TypeVar("T")
@@ -382,5 +383,8 @@ def batch_state(inputs: Mapping[str, Any], selections: list[list[str] | None]) -
 
 
 def text_from(inputs: Mapping[str, Any], fields: list[str]) -> str:
-    parts = [get_path(inputs, name) for name in fields]
-    return "\n".join(str(part) for part in parts if isinstance(part, str) and part.strip())
+    """The text of the named (dotted) fields, one to a line, each in its plain form
+    (`core/text.py`): what a provider that decides on this machine reads. A field that is not
+    text, or holds nothing to read, is left out."""
+    parts = [plain(part) for name in fields if isinstance(part := get_path(inputs, name), str)]
+    return "\n".join(part for part in parts if part.strip())

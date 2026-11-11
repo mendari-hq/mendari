@@ -3276,6 +3276,56 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   checking who each site is before verifying it; telling each site where its key and
   commitment secret are kept; attesting `site-validation` per site with the signed report's id.
 
+## Plan: an engine that learns (2026-11-10)
+The owner's request, in their words: make Mendari, "the infrastructure the packs are built on",
+"intelligent, robust, and able to self improve". Outside the launch plan's LP steps: it gates
+nothing there. Built on one branch (`claude/mendari-robustness-self-improve-fc257e`), one commit
+a step; **merging is the owner's decision**, since step 1 changes what a pack decides on some
+inputs.
+
+### Objective
+An engine that reads what people actually type, learns from what its reviewers decide, and keeps
+what it learns only when that is measurably better and no less safe. It proposes; a person
+promotes: nothing changes a pack, or holds or lifts automation, by itself (ADR-0010, and
+`evals/feedback.py`'s "improvements stay reviewed and versioned").
+
+### What the examination measured (2026-11-10, default offline providers, the packs' own data)
+- **Typography hides text from every pack's patterns.** A phone's curly apostrophe: P(urgent) of
+  "it won't stop bleeding" falls from 0.98 to 0.12 (3 of the 55 emergencies the inbox rules
+  flag). 15% of spaces no-break: the referral screen stops detecting 22 of 136 urgent referrals.
+  An en dash in "every 4 to 6 hours": the AI Guard's dose check calls 6,000 mg of acetaminophen
+  a day within the limit, at 0.98. No case was automated by it (the default configurations
+  automate nothing without a model beside the rules).
+- **The engine never learns from its reviewers.** A resolved review stores the label a person
+  chose (`decisions.final_label`), and nothing exports it: `mendari feedback export` reads
+  thumbs only.
+- **Learning from new labelled cases works.** The inbox router, on the harder draft's held-out
+  split (436 cases, sharing no family or paraphrase with what it learned from): 73.9% as shipped,
+  81.2% with 332 new labelled cases added to its training data; on the local-site example 93.2%
+  to 98.5%; on the pack's own test 99.3% to 99.2%.
+- **Character features help the built-in learner.** Word and character features, same data:
+  81.0% as shipped, 85.1% with the new cases, and 6 confident mistakes (at 0.90 or more) where
+  the shipped model makes 12.
+- **Tried and not built.** A logistic-regression learner: 100% on the pack's test, but 49
+  confident mistakes on the held-out split where naive Bayes makes 12 (overconfident off its
+  training text). A cap on automation when few of a message's words are known to the model: it
+  held back most of the held-out split but did not tell right from wrong (on the draft's train
+  split, 21 of the 67 "familiar" confident answers were wrong).
+
+### Plan
+- [x] **Step 1: text is read in its plain form** (ADR-0018). `core/text.py` `plain`; `rules`,
+  `dosing` and `naive_bayes` read through it (`providers.base.text_from`), `criteria` a
+  medication's name. Typography only, never longer than the text, its own plain form. 102 tests
+  (`tests/test_text.py`): each mapping, the two properties (hypothesis), every true critical
+  case of every reference pack retyped four ways deciding as shipped, no text of any pack's
+  datasets changed by it (so data, models, benchmarks and digests are byte-identical), the
+  spec's list of characters equal to the code's. Passes on Python 3.11, 3.12 and 3.13.
+- [ ] **Step 2: reviewed decisions as labelled cases.**
+- [ ] **Step 3: character features for the built-in learner**, off unless a model file says so.
+- [ ] **Step 4: `mendari improve`**: retrain on new cases, judge the candidate against the
+  model in the pack, keep it only when it is better and no less safe.
+- [ ] **Step 5: the whole gate**, the reference packs rebuilt byte-identical, the docs site.
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).

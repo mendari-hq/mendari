@@ -172,6 +172,15 @@ Each matching pattern adds its weight to a label's score, so a message saying "c
 scores `yes`. `negatable: true` means "no chest pain" doesn't count, and the audit record names
 the pattern that matched.
 
+Write a pattern as a keyboard types it: a straight apostrophe, one space between words. People
+do not write that way. A phone writes a curly apostrophe, a web form a no-break space, pasted
+text carries invisible characters, and a language model writes "every 4 to 6 hours" with an en
+dash. So the engine reads every text in its **plain form** before a pattern sees it: the same
+words in a keyboard's characters ([the spec, §5](../spec/decision-pack-0.2.md#5-providers), lists
+exactly what changes). `can'?t breathe` then matches however the apostrophe was typed, and you
+never write a pattern for typography. A line break still ends a sentence: a pattern never
+matches across one.
+
 Patterns are Python regular expressions (`re`), matched with case ignored. `mendari validate`
 compiles every one, so a typo is reported with its file and rule; a pattern may be at most
 2,000 characters, and a pack may hold 500 (input-schema `pattern`s and `patternProperties` keys
