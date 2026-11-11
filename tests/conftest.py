@@ -115,6 +115,7 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_CACHE_DIR", str(tmp_path / "hub-cache"))
     monkeypatch.delenv("MENDARI_REGISTRY_URL", raising=False)
     monkeypatch.delenv("MENDARI_REGISTRY_TOKEN", raising=False)
+    monkeypatch.delenv("MENDARI_REGISTRY_COUNTERSIGNATURE", raising=False)
 
 
 @pytest.fixture(autouse=True)

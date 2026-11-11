@@ -27,7 +27,9 @@ archive is fetched. The registry's key is trusted when it is one shipped with th
 record is missing, does not verify, or names another pack, version, digest, archive or publisher
 key is refused, and nothing is cached; so is a registry that published a key before and now
 publishes none, or another. A registry that has never published a key (a local one) is pulled
-from as before, and the marker beside the pack records `accepted: null`.
+from as before, and the marker beside the pack records `accepted: null`; unless
+`MENDARI_REGISTRY_COUNTERSIGNATURE` is `required` (every pull is counter-signed by a shipped or
+pinned key) or `shipped` (by a shipped key only: nothing is trusted on first use).
 
 Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
 is refused, unless the user accepts the new key, the way SSH treats a changed host key.
@@ -64,6 +66,19 @@ from mendari.errors import HubError, MendariError
 from mendari.hub import archive
 
 TIMEOUT = 60.0
+# What a pull asks of the registry's counter-signature (LP-19i): `optional` (unless set) pulls
+# from a registry that has never shown this machine a key; `required` refuses one, so every
+# pull is counter-signed by a shipped or pinned key; `shipped` also refuses a key that is not
+# one shipped with this package, so a first contact trusts nothing it is merely shown.
+COUNTERSIGNATURE_ENV = "MENDARI_REGISTRY_COUNTERSIGNATURE"
+COUNTERSIGNATURE_MODES = ("optional", "required", "shipped")
+
+
+def countersignature_mode() -> str:
+    mode = os.environ.get(COUNTERSIGNATURE_ENV, "").strip().lower() or "optional"
+    if mode not in COUNTERSIGNATURE_MODES:
+        raise HubError(f"{COUNTERSIGNATURE_ENV} is one of {', '.join(COUNTERSIGNATURE_MODES)}")
+    return mode
 
 
 def config_dir() -> Path:
@@ -531,9 +546,15 @@ def _accepted(
     from mendari.hub import acceptance
 
     version = f"{pack_id}@{meta.get('version')}"
+    mode = countersignature_mode()  # a value that is not one fails here, before any trust
     published, presented, key = _published_key(client)
     if published is None:
         if _pins_of(_read_pins(), client.url).get(_REGISTRY_PIN) is None:
+            if mode != "optional":
+                raise HubError(
+                    f"{version} is refused: this registry publishes no signing key, and "
+                    f"{COUNTERSIGNATURE_ENV}={mode} pulls only what a registry counter-signed"
+                )
             return None
         raise HubError(
             f"{version} is refused: this registry published a signing key before and publishes "
@@ -544,6 +565,11 @@ def _accepted(
     shipped = acceptance.shipped_keys(registry_keys).get(str(published["key_id"]))
     if shipped is not None and public_text(shipped) == public_text(presented):
         key = presented  # a shipped key is trusted without first use, whatever was pinned
+    elif mode == "shipped":
+        raise HubError(
+            f"{version} is refused: the registry's signing key is not one shipped with this "
+            f"release of Mendari, and {COUNTERSIGNATURE_ENV}=shipped trusts no other"
+        )
     if key is None:
         raise HubError(
             f"{version} is refused: the registry's signing key is not the one this machine "

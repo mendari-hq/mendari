@@ -733,6 +733,50 @@ def test_pins_filed_under_an_address_as_it_was_typed_are_still_read(
     assert client_module._pins_of(kept, URL) == {"@registry": old, "acme": ["k1"]}
 
 
+def test_a_machine_can_require_the_counter_signature(
+    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`MENDARI_REGISTRY_COUNTERSIGNATURE`: `required` refuses a registry that shows no key
+    (the unsigned pull a first contact with an impostor would get); `shipped` also refuses a key
+    that is merely shown, so nothing is trusted on first use."""
+    _keyed(monkeypatch, None)
+    assert registry.publish().status_code == 201
+    env = client_module.COUNTERSIGNATURE_ENV
+    seen: list[str] = []
+    for mode in ("required", "shipped", " Required "):
+        monkeypatch.setenv(env, mode)
+        with (
+            _client(registry, seen=seen) as client,
+            pytest.raises(HubError, match="publishes no signing key") as refused,
+        ):
+            pull(REFERRAL.id, client)
+        assert env in str(refused.value)
+    assert not any(path.endswith("/archive") for path in seen) and _cached() == []
+    monkeypatch.setenv(env, "sometimes")  # not a mode: refused, never read as optional
+    with _client(registry) as client, pytest.raises(HubError, match="optional, required, shipped"):
+        pull(REFERRAL.id, client)
+    monkeypatch.setenv(env, "optional")
+    with _client(registry) as client:
+        assert pulled_record(pull(REFERRAL.id, client).root)["accepted"] is None
+    # The registry gets its key and counter-signs. `required` takes it, pinned on first use.
+    shutil.rmtree(packs_cache())
+    _keyed(monkeypatch)
+    with RegistryStore(db_target) as store:
+        assert store.countersign(by="operator")["signed"] == [SUBJECT]
+    monkeypatch.setenv(env, "shipped")  # but it is not a shipped key: refused
+    with _client(registry) as client, pytest.raises(HubError, match="not one shipped"):
+        pull(REFERRAL.id, client)
+    assert _cached() == []
+    shipped = _keys_file(tmp_path / "keys.json", _key())
+    with _client(registry) as client:
+        pulled = pull(REFERRAL.id, client, registry_keys=shipped)
+    assert pulled_record(pulled.root)["accepted"] is True
+    monkeypatch.setenv(env, "required")
+    with _client(registry) as client:
+        assert pulled_record(pull(REFERRAL.id, client).root)["accepted"] is True
+    assert client_module.COUNTERSIGNATURE_MODES == ("optional", "required", "shipped")
+
+
 def test_a_database_from_before_counter_signatures_reads_and_verifies(
     registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1327,7 +1327,10 @@ The first release (not yet published).
   setting. The client's pinned keys (`trusted_keys.json`) are written whole and moved in,
   filed by the registry's address in lower case without the default port (pins filed under
   the address as typed are still read), and **a pin file that is there and cannot be read is
-  refused** with what to remove, where it was read as empty.
+  refused** with what to remove, where it was read as empty. A machine can require the
+  counter-signature with `MENDARI_REGISTRY_COUNTERSIGNATURE`: `required` refuses a registry
+  that shows no key, `shipped` trusts only a key shipped with the client (nothing on first
+  use); unset, a pull is as described above.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

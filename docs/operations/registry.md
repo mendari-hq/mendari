@@ -259,11 +259,22 @@ with an error that names the setting and never its value (`503` over HTTP).
 
 Known limits, stated plainly:
 
-- **A shipped key does not make a signature required.** A machine that has no pin for a
-  registry's address accepts, on first contact, a registry that shows no key (an unsigned pull,
-  `accepted: null`) or shows any valid key (pinned on first use), before the shipped keys count
-  for anything. Shipping the key removes the first-use step for the real registry; it does not
-  stop a first contact with an impostor.
+- **A shipped key does not make a signature required, unless the machine asks for it.** By
+  default a machine that has no pin for a registry's address accepts, on first contact, a
+  registry that shows no key (an unsigned pull, `accepted: null`) or shows any valid key
+  (pinned on first use), before the shipped keys count for anything. Shipping the key removes
+  the first-use step for the real registry; it does not stop a first contact with an impostor.
+  Set `MENDARI_REGISTRY_COUNTERSIGNATURE` on the machine that pulls to close that:
+
+    | Value | A pull is refused when |
+    |---|---|
+    | `optional` (unset) | only as the table above says |
+    | `required` | the registry shows no key: every pull is counter-signed by a shipped or pinned key |
+    | `shipped` | the registry's key is not one shipped with the client: nothing is trusted on first use |
+
+    Use `shipped` on any machine that pulls from the hosted registry once its key ships with
+  the client, and `required` for a self-hosted registry that has a key. A value that is not one
+  of the three refuses every pull.
 - **A cached copy is not re-checked when it is loaded.** `Decision.from_hub` and the server
   load a pack already in the cache without asking the registry, so a copy pulled while the
   registry had no key (`accepted: null`) keeps loading after the registry gets one. The check
@@ -279,9 +290,13 @@ Known limits, stated plainly:
   default port). A pin file that is there and cannot be read is refused, with what to remove,
   rather than read as empty.
 
-The key has no rotation path yet: a registry that changes it is refused by every machine that
-pinned the old one, until that machine's `@registry` entry is removed or the new key ships with
-the client. Records signed with the old key do not verify with the new one.
+Changing the key is not supported yet, by decision for launch. Each version holds one record,
+signed with the key of the day, and no command signs it again: after a change, every record made
+before it stops verifying, and every machine that pinned the old key refuses the registry. The
+pieces a rotation will use are already there (the shipped file is a list, and a shipped key is
+trusted whatever a machine pinned, so a new key can ship beside the old one before the switch);
+the missing piece is a chained command that signs the existing versions again. Until it exists,
+treat the key as permanent and keep it where only the registry's environment reads it.
 
 ## The chain
 
