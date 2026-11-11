@@ -1894,6 +1894,26 @@ def cmd_registry_claims(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_countersign(args: argparse.Namespace) -> int:
+    """Counter-sign every listed version that has no record, with the registry's own key
+    ($MENDARI_REGISTRY_SIGNING_KEY), on the registry's database (LP-19i): the versions from
+    before the registry counter-signed, or published while it had no key. Never a deleted
+    version, nor one of a pending or refused namespace. Run again it signs nothing. Each record
+    is chained (`pack.accepted`) with who ran this."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        done = store.countersign(by=_command_line_actor())
+    _print_json(done)
+    if done["skipped"]:
+        print(
+            f"{len(done['skipped'])} not counter-signed: stored without a digest or a publisher "
+            "key to name",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def _registry_client(args: argparse.Namespace) -> Any:
     from mendari.hub.client import RegistryClient, default_registry
 
@@ -1930,6 +1950,7 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
+    from mendari.core.origin import pulled_record
     from mendari.hub.client import pull, recall_of
 
     with _registry_client(args) as registry:
@@ -1937,6 +1958,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
         namespace, name = pack.id.split("/")
         recall = recall_of(registry.version(namespace, name, pack.version), registry, pack)
     print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
+    if pulled_record(pack.root).get("accepted") is True:
+        print("  counter-signed by the registry: its record names this version and verifies")
+    else:
+        print("  not counter-signed: this registry publishes no signing key")
     if recall is not None:
         by = "its publisher" if recall["signer"] == "publisher" else "the registry"
         signed = (
@@ -3585,6 +3610,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", choices=("pending", "approved", "refused"), help="only in this status"
     )
     list_claims.set_defaults(handler=cmd_registry_claims)
+    countersign = registry_cmd.add_parser(
+        "countersign",
+        help="counter-sign the listed versions that have no record "
+        "(key: $MENDARI_REGISTRY_SIGNING_KEY; chained)",
+    )
+    countersign.add_argument("--db", default="var/registry.db", help=registry_db)
+    countersign.set_defaults(handler=cmd_registry_countersign)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
     monitor_cmd.add_argument(

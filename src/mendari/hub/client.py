@@ -20,6 +20,15 @@ signature holds with a key this machine pinned (the namespace's, or the registry
 on first use like them). A record that does not verify is still a recall: it only stops
 automation, the safe direction.
 
+A registry with a signing key counter-signs each version it accepts (a signed
+`mendari.registry-acceptance/1` record, `hub/acceptance.py`), and `pull` checks it before the
+archive is fetched. The registry's key is trusted when it is one shipped with this package
+(`registry_keys.json`) or the one pinned for that registry on first use. Then a version whose
+record is missing, does not verify, or names another pack, version, digest, archive or publisher
+key is refused, and nothing is cached; so is a registry that published a key before and now
+publishes none, or another. A registry that has never published a key (a local one) is pulled
+from as before, and the marker beside the pack records `accepted: null`.
+
 Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
 is refused, unless the user accepts the new key, the way SSH treats a changed host key.
 
@@ -249,9 +258,16 @@ class RegistryClient:
         return dict(self._json(response))
 
 
-def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> Pack:
+def pull(
+    ref: str,
+    client: RegistryClient,
+    *,
+    accept_new_key: bool = False,
+    registry_keys: Path | None = None,
+) -> Pack:
     """Download, verify and cache a pack (`namespace/name[@version]`); a verified copy in the
-    cache is used as is."""
+    cache is used as is. `registry_keys` is the file of registry keys trusted without first use
+    (the one shipped with this package unless given)."""
     pack_id, _, wanted = ref.partition("@")
     if not is_pack_id(pack_id) or (wanted and not is_version(wanted)):
         raise HubError(f"{ref!r} is not namespace/name[@version]")
@@ -272,12 +288,14 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
         raise HubError(
             f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
-    _registry_key(client)  # pinned on first contact, before any recall it signs is read
+    # The registry's key is pinned on first contact, before any recall it signs is read; and the
+    # version's counter-signature is checked before the archive is fetched or a cached copy used.
+    accepted = _accepted(client, pack_id, meta, registry_keys)
     if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
         pack = load_pack(target, origin="hub")
         if pack.digest == meta["digest"]:
             # Cached: what the registry says of it now (a recall since) is written beside it.
-            _write_origin(target, client, namespace, meta)
+            _write_origin(target, client, namespace, meta, accepted)
             return pack
     keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
     data = client.archive(namespace, name, version)
@@ -286,12 +304,17 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     verified = archive.verify(data, keys)
     if (verified.manifest.get("id"), verified.manifest.get("version")) != (pack_id, version):
         raise HubError(f"the archive is not {pack_id}@{version}, which the registry named")
+    if accepted and verified.key_id != meta["key_id"]:
+        raise HubError("the archive is not signed by the key the registry counter-signed")
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
         staged = Path(scratch) / "pack"
         # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
         pack = archive.extract(verified, staged, origin="hub")
-        _write_origin(staged, client, namespace, {**meta, "archive_sha256": verified.sha256})
+        if accepted and pack.digest != meta["digest"]:
+            raise HubError("the pack is not the build the registry counter-signed")
+        marked = {**meta, "archive_sha256": verified.sha256}
+        _write_origin(staged, client, namespace, marked, accepted)
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
@@ -299,10 +322,16 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
 
 
 def _write_origin(
-    root: Path, client: RegistryClient, namespace: str, meta: Mapping[str, Any]
+    root: Path,
+    client: RegistryClient,
+    namespace: str,
+    meta: Mapping[str, Any],
+    accepted: bool | None = None,
 ) -> None:
-    """The verified marker (`core/origin.py` `pulled_record`): where the pack came from, and the
-    recall the registry served for it at this pull, if any. Written whole, then moved in."""
+    """The verified marker (`core/origin.py` `pulled_record`): where the pack came from, the
+    recall the registry served for it at this pull, if any, and whether the registry's
+    counter-signature was checked (`accepted`: true, or null for a registry with no key).
+    Written whole, then moved in."""
     record = {
         "format": ORIGIN_FORMAT,
         "registry": _shown_url(client.url),
@@ -313,6 +342,7 @@ def _write_origin(
         "digest": meta.get("digest"),
         "pulled_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "yank": meta.get("yank") if isinstance(meta.get("yank"), Mapping) else None,
+        "accepted": accepted,
     }
     staged = root / f"{MARKER}.new"
     staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
@@ -384,18 +414,26 @@ def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> di
 def _registry_key(client: RegistryClient) -> Ed25519PublicKey | None:
     """The registry's own key, pinned on first use (as namespace keys are); None when it has
     none or it changed since it was pinned."""
+    return _published_key(client)[2]
+
+
+def _published_key(
+    client: RegistryClient,
+) -> tuple[dict[str, Any] | None, Ed25519PublicKey | None, Ed25519PublicKey | None]:
+    """What the registry publishes as its key (None: nothing); that key when it is the key its
+    id names; and that key again when this machine pinned it (now, on first use, or before)."""
     from mendari.core.checkpoint import key_id as raw_key_id
     from mendari.core.checkpoint import load_public
 
     published = client.registry_key()
     if published is None:
-        return None
+        return None, None, None
     try:
         key = load_public(str(published.get("public_key", "")))
     except MendariError:
-        return None
+        return published, None, None
     if raw_key_id(key) != published.get("key_id"):
-        return None
+        return published, None, None
     path = config_dir() / "trusted_keys.json"
     pins = _read(path)
     pinned = pins.setdefault(client.url, {}).get(_REGISTRY_PIN)
@@ -403,8 +441,65 @@ def _registry_key(client: RegistryClient) -> Ed25519PublicKey | None:
         pins[client.url][_REGISTRY_PIN] = published["key_id"]
         _write_private(path, pins)
     elif pinned != published["key_id"]:
-        return None
-    return key
+        return published, key, None
+    return published, key, key
+
+
+def _accepted(
+    client: RegistryClient, pack_id: str, meta: Mapping[str, Any], registry_keys: Path | None
+) -> bool | None:
+    """Check the registry's counter-signature on the version `meta` describes (LP-19i,
+    `hub/acceptance.py`). True: the registry's key is trusted (shipped with this package, or
+    pinned for this registry) and its record verifies and names exactly this pack, version,
+    digest, archive and publisher key. None: the registry publishes no key and none was ever
+    pinned for it, so nothing is counter-signed. Anything else is refused: a record that is
+    missing, does not verify or names something else, and a registry whose key is gone, is
+    not a key, or changed since it was pinned (as a changed host key is)."""
+    from mendari.core.checkpoint import public_text
+    from mendari.hub import acceptance
+
+    version = f"{pack_id}@{meta.get('version')}"
+    published, presented, key = _published_key(client)
+    if published is None:
+        if _read(config_dir() / "trusted_keys.json").get(client.url, {}).get(_REGISTRY_PIN) is None:
+            return None
+        raise HubError(
+            f"{version} is refused: this registry published a signing key before and publishes "
+            "none now, so its versions cannot be checked"
+        )
+    if presented is None:
+        raise HubError(f"{version} is refused: the registry's signing key is not a key")
+    shipped = acceptance.shipped_keys(registry_keys).get(str(published["key_id"]))
+    if shipped is not None and public_text(shipped) == public_text(presented):
+        key = presented  # a shipped key is trusted without first use, whatever was pinned
+    if key is None:
+        raise HubError(
+            f"{version} is refused: the registry's signing key is not the one this machine "
+            "pinned for it. If its operator confirms the new key, remove the registry's "
+            f"'{_REGISTRY_PIN}' entry from {config_dir() / 'trusted_keys.json'} and pull again"
+        )
+    checked = meta.get("checked")
+    record = checked.get("accepted") if isinstance(checked, Mapping) else None
+    if record is None:
+        raise HubError(
+            f"{version} is not counter-signed by the registry, which has a signing key: "
+            "refused (its operator counter-signs with `mendari registry countersign`)"
+        )
+    problem = acceptance.problem(record, key, str(published["key_id"]))
+    if problem is None:
+        problem = acceptance.names_problem(
+            record,
+            pack=pack_id,
+            version=meta.get("version"),
+            digest=meta.get("digest"),
+            archive_sha256=meta.get("archive_sha256"),
+            publisher_key_id=meta.get("key_id"),
+        )
+    if problem:
+        raise HubError(
+            f"{version} is refused: the registry's counter-signature is not one: {problem}"
+        )
+    return True
 
 
 _REGISTRY_PIN = "@registry"  # never a namespace (a namespace is letters, digits and dashes)

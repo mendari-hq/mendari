@@ -1305,6 +1305,22 @@ The first release (not yet published).
   a `.localhost` name, a loopback address), as a local registry and the docker sandbox need. An
   address that carries a user or a password is refused too. A server's reads of a registry's
   recalls follow the same rule (before, `localhost`, `127.0.0.1` and `::1` only).
+- **The registry counter-signs what it accepts, and a pull checks it** (LP-19i; nothing changes
+  for a registry with no signing key, which is every registry today). With
+  `MENDARI_REGISTRY_SIGNING_KEY` set, the registry signs a `mendari.registry-acceptance/1`
+  record for each version when it becomes listed (at publish, or at approval for the versions
+  published while a claim was pending; never for a refused namespace), serves it as
+  `checked.accepted` and chains it (`pack.accepted`, in a new table `hub_acceptances`; a
+  database from before opens and verifies as it did). `mendari pull` checks the record before
+  it fetches the archive, with a key shipped in the package (`hub/registry_keys.json`, which
+  ships empty) or the one it pinned for that registry on first use. **A change for a client of
+  a registry that has a key:** a version with no record, or one whose record does not verify or
+  names another pack, version, digest, archive or publisher key, is refused and nothing is
+  cached; so is a registry that published a key before and now publishes none or another. An
+  operator who turns the key on runs `mendari registry countersign --db ...` once, which signs
+  the listed versions that have no record and changes nothing the second time. A registry that
+  has never published a key is pulled from as before, and `mendari pull` says the version is
+  not counter-signed. The Hub's pack page shows which.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

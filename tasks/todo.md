@@ -3005,7 +3005,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `Viewer` rule on every read, `mendari registry claim|approve|refuse|claims`; tests in
     `tests/test_registry_claims.py`; threat rows S23, I19 and R6 (second half).
   - [ ] **19d** The registry mounted under the engine (`MENDARI_REGISTRY`, off by default) and
-    people's routes for claims and tokens. **19i** the counter-signature, in parallel.
+    people's routes for claims and tokens.
+  - [x] **19i** The registry counter-signs what it accepts and the client checks it
+    (`hub/acceptance.py`, `hub_acceptances`, `checked.accepted`, `mendari registry countersign`,
+    `hub/registry_keys.json` shipped empty); tests in `tests/test_registry_acceptance.py`;
+    threat row T11. Followed the default of owner decision 6 (a version with no
+    counter-signature on a registry that has a key is refused) and of conflict 7 (the shipped
+    file holds keys only). Left to the owner: make the key, send its public half for the
+    one-line change that ships it, and run `mendari registry countersign` once.
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
