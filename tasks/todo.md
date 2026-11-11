@@ -3009,7 +3009,24 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the `keys` permission, people only); the mounted registry reads no cookie and no
     administrator token; tests in `tests/test_registry_mount.py`; threat rows S22 (second
     half), I19 and D15. Turning it on anywhere is the owner's step.
-  - [ ] **19i** The counter-signature (built in parallel with 19d).
+  - [x] **19i** The registry counter-signs what it accepts and the client checks it
+    (`hub/acceptance.py`, `hub_acceptances`, `checked.accepted`, `mendari registry countersign`,
+    `hub/registry_keys.json` shipped empty); tests in `tests/test_registry_acceptance.py`;
+    threat row T11. Followed the default of owner decision 6 (a version with no
+    counter-signature on a registry that has a key is refused) and of conflict 7 (the shipped
+    file holds keys only). Left to the owner: make the key, send its public half for the
+    one-line change that ships it, and run `mendari registry countersign` once.
+    The owner took the recommended answer to each of the PR's five questions (2026-11-10):
+    (1) a machine can require the counter-signature (`MENDARI_REGISTRY_COUNTERSIGNATURE`,
+    `required` or `shipped`; built in 19i, off unless set; make `shipped` the documented
+    setting for the hosted registry when its key ships); (2) a server stops automating a
+    cached copy that was never counter-signed once its registry has a key, checked where it
+    already checks recalls (a PR of its own, after 19d); (3) no expiry on records and no signed
+    "latest" for launch: recalls stop a version, and freshness is taken up with the signed head;
+    (4) a signed daily head of the registry's chain, as the engine's checkpoint is, before the
+    hosted registry gets its key (a PR of its own); (5) no key rotation for launch: the key is treated as
+    permanent, and `docs/operations/registry.md` says what a rotation still needs (a chained
+    command that signs the existing versions again).
   - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.

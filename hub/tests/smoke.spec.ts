@@ -66,8 +66,10 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
   const checked = page.getByRole("region", { name: "Checked by the registry" });
-  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Regression check"]);
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Regression check", "Counter-signature"]);
   await expect(checked).toContainText("verified at publish");
+  // The CI registry has no signing key, so it counter-signs nothing, and the page says so.
+  await expect(checked).toContainText("Not counter-signed");
   await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
   await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
   await expect(checked).toContainText("Rendered by the registry from the files the digest covers");

@@ -9,6 +9,7 @@ engine credential: publishing is by publisher token only. On SQLite and Postgres
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -673,3 +674,33 @@ def test_a_site_report_is_counted_as_one_under_the_mount() -> None:
     for root in ("", "/registry"):
         assert classed(root, "/v1/packs/acme/inbox/1.0.0/reports") == "registry_report"
         assert classed(root, "/v1/packs/acme/inbox/1.0.0/yank") == "registry_write"
+
+
+def test_the_mounted_registry_counter_signs_and_a_malformed_key_is_a_clean_503(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LP-19i under the mount: with the registry's key, an approved namespace's publish is
+    counter-signed and the key is served; a key that is set and is not one refuses the publish
+    as the registry answers it, with the registry's headers, and stores nothing."""
+    token, pack = world.published()
+    version = f"/registry/v1/packs/acme/inbox/{pack.version}"
+    assert world.http.get("/registry/v1/registry-key").status_code == 404  # no key: none served
+    monkeypatch.setenv("MENDARI_REGISTRY_SIGNING_KEY", base64.b64encode(bytes(range(32))).decode())
+    world.registry.decide_claim("acme", approve=True, by="operator")
+    shown = world.http.get("/registry/v1/registry-key")
+    assert shown.status_code == 200 and shown.json()["key_id"]
+    carries_the_registrys_headers(shown)
+    first = world.http.get(version)
+    carries_the_registrys_headers(first)
+    assert first.json()["checked"]["accepted"]["key_id"] == shown.json()["key_id"]
+    key = world.key()
+    later = world.publish(copy_pack(world.tmp_path, "acme/inbox", "9.9.8"), key, bearer(token))
+    assert later.status_code == 201, later.text
+    assert later.json()["checked"]["accepted"]["key_id"] == shown.json()["key_id"]
+    monkeypatch.setenv("MENDARI_REGISTRY_SIGNING_KEY", "not-a-key")
+    before = world.events()
+    refused = world.publish(copy_pack(world.tmp_path, "acme/inbox", "9.9.9"), key, bearer(token))
+    assert refused.status_code == 503, refused.text
+    assert "not-a-key" not in refused.text
+    carries_the_registrys_headers(refused)
+    assert world.events() == before

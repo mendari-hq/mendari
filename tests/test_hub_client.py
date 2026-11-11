@@ -239,6 +239,8 @@ class HostileRegistry:
         if path.startswith("/v1/namespaces/"):
             keys = [{"key_id": self.key_id, "public_pem": self.public.decode()}]
             return httpx.Response(200, json={"keys": keys})
+        if path == "/v1/registry-key":  # it has no signing key, so it counter-signs nothing
+            return httpx.Response(404, json={"detail": "this registry has no signing key"})
         meta = {
             "version": self.version,
             "archive_sha256": hashlib.sha256(self.data).hexdigest(),

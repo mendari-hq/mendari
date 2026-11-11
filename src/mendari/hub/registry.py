@@ -49,6 +49,14 @@
   and nothing of the namespace is served to anyone else: every read takes a `Viewer`, and to the
   public a pending or refused namespace answers exactly as one that does not exist. A namespace
   with no claim (one from before claims) stays listed.
+- **Counter-signature** (LP-19i, `hub/acceptance.py`). With a signing key
+  (`MENDARI_REGISTRY_SIGNING_KEY`) the registry signs a `mendari.registry-acceptance/1` record
+  for each version when it becomes listed: at publish in a listed namespace, or at approval for
+  the versions published while the claim was pending. Never for a refused namespace, and never
+  without the key. It is served as `checked.accepted` (null: none), chained `pack.accepted`,
+  and `RegistryStore.countersign` (`mendari registry countersign`) signs the listed versions
+  that have none. A version written straight into the database has none, and a client that
+  trusts the registry's key refuses it.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
 
@@ -73,6 +81,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -99,7 +108,7 @@ from mendari.evals.share import (
     summary,
     where,
 )
-from mendari.hub import archive, regression, yank
+from mendari.hub import acceptance, archive, regression, yank
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
@@ -226,6 +235,14 @@ CREATE TABLE IF NOT EXISTS hub_claims (
     decided_at  TEXT,
     note        TEXT
 );
+CREATE TABLE IF NOT EXISTS hub_acceptances (
+    namespace   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    record      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (namespace, name, version)
+);
 """
     + RATE_SCHEMA
 )
@@ -313,6 +330,10 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
         "hub_deletions",
         lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
     ),
+    "acceptances": (
+        "hub_acceptances",
+        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+    ),
 }
 
 
@@ -356,6 +377,101 @@ def _now_ms() -> str:
 
 def _pack_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
+
+
+_NOT_COUNTERSIGNED = (
+    # The versions the clause selects that are neither deleted nor counter-signed yet.
+    "SELECT v.namespace, v.name, v.version, v.archive_sha256, v.metadata FROM hub_versions v "
+    "LEFT JOIN hub_deletions d ON d.namespace = v.namespace AND d.name = v.name "
+    "AND d.version = v.version "
+    "LEFT JOIN hub_acceptances a ON a.namespace = v.namespace AND a.name = v.name "
+    "AND a.version = v.version "
+    "WHERE d.version IS NULL AND a.version IS NULL"
+)
+
+
+def _signing_key() -> Ed25519PrivateKey | None:
+    """The registry's signing key, or None when unset. One that is set and is not a key is the
+    operator's to fix: a `503` that says what the setting must be, never the value."""
+    try:
+        return yank.registry_key()
+    except MendariError as error:
+        raise HubError(f"the registry cannot counter-sign: {error}", 503) from None
+
+
+def _not_genuine(db: Session, version: Mapping[str, Any]) -> str | None:
+    """Why a stored version is not one the registry could have accepted (None: it is), checked
+    again from what is stored before it is counter-signed after the fact: its archive is there
+    and hashes to its name, is signed by a key of its namespace, and its signed manifest names
+    this pack, version, digest and that key. A row written straight into the database with no
+    archive a namespace key signed fails here."""
+    stored = json.loads(version["metadata"])
+    digest, publisher_key = stored.get("digest"), stored.get("key_id")
+    if not (
+        isinstance(digest, str) and digest and isinstance(publisher_key, str) and publisher_key
+    ):
+        return "it was stored without a digest or a publisher key"
+    namespace, name, number = _key(version)
+    held = db.one(
+        "SELECT data FROM hub_archives WHERE archive_sha256 = ?", (version["archive_sha256"],)
+    )
+    if held is None:
+        return "its archive is missing"
+    data = bytes(held["data"])
+    if hashlib.sha256(data).hexdigest() != version["archive_sha256"]:
+        return "its archive is not the bytes its name hashes"
+    listed = db.all("SELECT key_id, public_pem FROM hub_keys WHERE namespace = ?", (namespace,))
+    try:
+        keys = {
+            str(k["key_id"]): archive.load_public_key(str(k["public_pem"]).encode()) for k in listed
+        }
+        if any(archive.key_id(key) != key_id for key_id, key in keys.items()):
+            return "a key of its namespace is not the key its id names"
+        verified = archive.verify(data, keys)
+    except HubError as error:
+        return str(error)
+    manifest = verified.manifest
+    if (manifest.get("id"), manifest.get("version")) != (f"{namespace}/{name}", number):
+        return "its archive is another pack or version"
+    if manifest.get("digest") != digest or verified.key_id != publisher_key:
+        return "its archive is another build, or signed by another key, than it records"
+    return None
+
+
+def _countersign(
+    db: Session, key: Ed25519PrivateKey, version: Mapping[str, Any], by: str, *, verified: bool
+) -> bool:
+    """Counter-sign one version as it becomes listed (`hub/acceptance.py`), in the caller's
+    exclusive session: the record, and its chained `pack.accepted`. `verified`: the caller
+    verified its archive itself (this publish, or `_not_genuine` just now); otherwise it is
+    checked again from what is stored. False, and nothing written, for one that fails."""
+    if not verified and _not_genuine(db, version) is not None:
+        return False
+    stored = json.loads(version["metadata"])
+    digest, publisher_key = stored["digest"], stored["key_id"]
+    namespace, name, number = _key(version)
+    record = acceptance.sign(
+        pack=f"{namespace}/{name}",
+        version=number,
+        digest=digest,
+        archive_sha256=str(version["archive_sha256"]),
+        publisher_key_id=publisher_key,
+        key=key,
+    )
+    db.all(
+        "INSERT INTO hub_acceptances (namespace, name, version, record, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (namespace, name, number, json.dumps(record, sort_keys=True), _now_ms()),
+    )
+    record_event(
+        db,
+        "pack.accepted",
+        _pack_subject(namespace, name, number),
+        {f: record[f] for f in ("pack", "version", "digest", "archive_sha256", "key_id")}
+        | {"by": by},
+        row=("acceptances", "namespace = ? AND name = ? AND version = ?", _key(version)),
+    )
+    return True
 
 
 class RegistryStore(RateBuckets):
@@ -526,10 +642,12 @@ class RegistryStore(RateBuckets):
     def decide_claim(self, name: str, *, approve: bool, by: str, note: str = "") -> dict[str, Any]:
         """Approve or refuse a pending claim, once. Approval needs a published version that is
         not deleted (there is nothing to review otherwise); from then the namespace is listed,
-        with every version it has and will have. A refused namespace stays taken and never
-        lists. Chained `namespace.approved` or `namespace.refused` with the organization."""
+        with every version it has and will have, and each one it has is counter-signed (when
+        the registry has a signing key). A refused namespace stays taken and never lists.
+        Chained `namespace.approved` or `namespace.refused` with the organization."""
         by = _label(by, "who decides", 200)
         note = _label(note, "the note", 300) if note.strip() else ""
+        own = _signing_key() if approve else None
         with self._db.session(exclusive=True) as db:
             claim = db.one("SELECT * FROM hub_claims WHERE namespace = ?", (name,))
             if claim is None:
@@ -560,6 +678,14 @@ class RegistryStore(RateBuckets):
                 {"namespace": name, "org": claim["org"], "by": by, "note": note},
                 row=("claims", "namespace = ?", (name,)),
             )
+            if own is not None:  # listed from here: what was published while it was pending
+                waiting = db.all(f"{_NOT_COUNTERSIGNED} AND v.namespace = ?", (name,))
+                for version in sorted(
+                    waiting, key=lambda v: (v["name"], version_key(v["version"]))
+                ):
+                    # Checked again from what is stored: one that is not genuine stays without
+                    # a record, and every client of this registry refuses it.
+                    _countersign(db, own, version, by, verified=False)
         (decided,) = self.claims(namespace=name)
         return decided
 
@@ -796,6 +922,7 @@ class RegistryStore(RateBuckets):
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
+        own = _signing_key()  # a key that is set and is not one fails here, before any work
         self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
@@ -879,7 +1006,67 @@ class RegistryStore(RateBuckets):
                     (namespace, name, version),
                 ),
             )
+            if own is not None and (claim is None or claim["status"] == "approved"):
+                # Listed as it is published: counter-signed with it. A pending namespace's
+                # versions are signed at approval, a refused one's never.
+                written = db.one(
+                    "SELECT * FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
+                    (namespace, name, version),
+                )
+                assert written is not None
+                _countersign(db, own, written, by, verified=True)
         return self.version(namespace, name, version, REVIEWER)
+
+    def countersign(self, *, by: str) -> dict[str, list[str]]:
+        """Counter-sign every listed version that has no record (LP-19i): those from before
+        the registry counter-signed, or published while it had no signing key. Never a deleted
+        version, nor one of a pending or refused namespace. Run again it signs nothing.
+
+        It signs after the fact, so it trusts nothing it has not checked: it refuses to run on
+        a database whose chain does not verify (`verify`: a planted or changed row), and each
+        version is checked again from what is stored (`_not_genuine`: its archive, signed by a
+        key of its namespace, naming this pack, version and digest). `signed` names the versions
+        signed; `skipped` those that failed that check, each with why."""
+        own = _signing_key()
+        if own is None:
+            raise HubError(
+                f"this registry has no signing key: set {yank.KEY_ENV} (32 random bytes in "
+                "base64) to counter-sign"
+            )
+        chain = self.verify()
+        if not chain["ok"]:
+            raise HubError(
+                f"nothing was counter-signed: the registry's chain does not verify "
+                f"({chain['problem']}). Find out why with `mendari registry verify` first: "
+                "counter-signing would vouch for rows the registry never accepted",
+                409,
+            )
+        by = _label(by, "who counter-signs", 200)
+        signed: list[str] = []
+        skipped: list[str] = []
+        with self._db.session(exclusive=True) as db:
+            unlisted = self._unlisted(db)
+            waiting = [v for v in db.all(_NOT_COUNTERSIGNED) if v["namespace"] not in unlisted]
+            for version in sorted(
+                waiting, key=lambda v: (v["namespace"], v["name"], version_key(v["version"]))
+            ):
+                why = _not_genuine(db, version)
+                if why is None:
+                    _countersign(db, own, version, by, verified=True)
+                    signed.append(_pack_subject(*_key(version)))
+                else:
+                    skipped.append(f"{_pack_subject(*_key(version))}: {why}")
+        return {"signed": signed, "skipped": skipped}
+
+    def _accepted(
+        self, db: Session, where: str, params: tuple[str, ...]
+    ) -> dict[tuple[str, str, str], dict[str, Any]]:
+        """The counter-signature of each version the clause selects that has one. None in a
+        database from before them that is read as it is (`read_only`)."""
+        if self._db.read_only and not db.columns("hub_acceptances"):
+            return {}
+        rows = db.all(f"SELECT * FROM hub_acceptances {where}", params)
+        return {_key(row): json.loads(row["record"]) for row in rows}
 
     def _refuse_existing(self, namespace: str, name: str, version: str) -> None:
         with self._db.session(exclusive=False) as db:
@@ -925,9 +1112,15 @@ class RegistryStore(RateBuckets):
             )
             reviews = _reviews(db, "WHERE namespace = ? AND name = ?", (namespace, name))
             recalls = _recalls(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+            accepted = self._accepted(db, "WHERE namespace = ? AND name = ?", (namespace, name))
         listed = namespace not in unlisted
         return sorted(
-            (_version_row(r, reviews.get(_key(r)), recalls.get(_key(r)), listed) for r in rows),
+            (
+                _version_row(
+                    r, reviews.get(_key(r)), recalls.get(_key(r)), listed, accepted.get(_key(r))
+                )
+                for r in rows
+            ),
             key=lambda v: version_key(v["version"]),
         )
 
@@ -942,11 +1135,16 @@ class RegistryStore(RateBuckets):
             selected = "WHERE namespace = ? AND name = ? AND version = ?"
             reviews = _reviews(db, selected, (namespace, name, version))
             recalls = _recalls(db, selected, (namespace, name, version))
+            accepted = self._accepted(db, selected, (namespace, name, version))
             unlisted = self._unlisted(db)
         if row is None or not viewer.reads(namespace, unlisted):
             raise HubError(f"no pack {namespace}/{name}@{version}", 404)
         return _version_row(
-            row, reviews.get(_key(row)), recalls.get(_key(row)), namespace not in unlisted
+            row,
+            reviews.get(_key(row)),
+            recalls.get(_key(row)),
+            namespace not in unlisted,
+            accepted.get(_key(row)),
         )
 
     def archive(self, sha256: str, viewer: Viewer = PUBLIC) -> bytes:
@@ -1239,9 +1437,10 @@ class RegistryStore(RateBuckets):
 
     def verify(self) -> dict[str, Any]:
         """Check the chain and the rows it covers. Each event's hash and its order; then every
-        namespace, key, token, version, report and review must be the row its newest event
-        hashed (none changed, none removed, none without an event); every archive must hash to
-        its name and every version's archive be there; every key's id must be its key's. Rows a
+        namespace, key, token, version, report, review and counter-signature must be the row its
+        newest event hashed (none changed, none removed, none without an event); every archive
+        must hash to its name and every version's archive be there; every key's id must be its
+        key's. Rows a
         registry held when its chain started (`registry.chain_started`) are hashed there. The
         head (`head`, `events`) is what an outside copy compares, as the chain is unkeyed: a
         writer of the database could rewrite it whole, and only a head kept elsewhere shows it."""
@@ -1342,6 +1541,7 @@ class RegistryStore(RateBuckets):
             unlisted = self._unlisted(db)
             reviews = _reviews(db, "", ())
             recalls = _recalls(db, "", ())
+            accepted = self._accepted(db, "", ())
             types = {
                 r["name"]: r["publisher_type"]
                 for r in db.all("SELECT name, publisher_type FROM hub_namespaces")
@@ -1353,7 +1553,10 @@ class RegistryStore(RateBuckets):
             if not viewer.reads(row["namespace"], unlisted):
                 continue
             item = _version_row(
-                row, reviews.get(_key(row)), listed=row["namespace"] not in unlisted
+                row,
+                reviews.get(_key(row)),
+                listed=row["namespace"] not in unlisted,
+                accepted=accepted.get(_key(row)),
             )
             key = (row["namespace"], row["name"])
             if key not in newest or version_key(item["version"]) > version_key(
@@ -1427,6 +1630,7 @@ def _version_row(
     review: Mapping[str, Any] | None = None,
     recall: Mapping[str, Any] | None = None,
     listed: bool = True,
+    accepted: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A version as every read serves it: what was stored at publish, without anything the pack
     carried about itself (a version published before the registry rendered its own card stored
@@ -1455,7 +1659,7 @@ def _version_row(
         # False while its namespace's claim is not approved: only its own token and a reviewer
         # read it then (LP-19c).
         "listed": listed,
-        "checked": _checked(served, rendered, review, regression_of),
+        "checked": _checked(served, rendered, review, regression_of, accepted),
         "claimed": _claimed(served, review),
     }
 
@@ -1483,6 +1687,7 @@ def _checked(
     rendered: bool,
     review: Mapping[str, Any] | None = None,
     regression_of: Any = None,
+    accepted: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """What the registry verified or worked out itself, at publish."""
     return {
@@ -1504,6 +1709,9 @@ def _checked(
         # Worked out here on the publisher's own test set (`hub/regression.py`): a regression
         # check against the earlier version, never a ranking. None: published without it.
         "regression": _regression(regression_of),
+        # The registry's counter-signature (`hub/acceptance.py`), written when the version
+        # became listed: the signed record, or None (no signing key then, or never listed).
+        "accepted": None if accepted is None else dict(accepted),
     }
 
 

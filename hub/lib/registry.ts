@@ -23,7 +23,18 @@ export type Checked = {
   publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
   // The registry's own evaluation on the publisher's test set: a regression check, never a ranking.
   regression?: Regression | null;
+  // The registry's counter-signature on the version (a signed mendari.registry-acceptance/1
+  // record), written when it became listed. null: the registry had no signing key then.
+  accepted?: Acceptance | null;
 };
+
+export type Acceptance = { format: string; pack: string; version: string; digest: string; archive_sha256: string; publisher_key_id: string; key_id: string; at: string; signature: string };
+
+// The counter-signature in a sentence. The page states what the registry recorded; a pull checks
+// the signature itself, against a key shipped with the client or pinned for the registry.
+export function acceptanceWords(accepted: Acceptance | null | undefined): string {
+  return accepted ? "Counter-signed by the registry" : "Not counter-signed";
+}
 
 export type Regression = {
   label: string;

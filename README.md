@@ -951,7 +951,10 @@ can pull and verify them:
 Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0.1.0 is on
 PyPI) can pull from a registry they name with `mendari login --registry URL` or
 `MENDARI_REGISTRY_URL`, over https (plain http only to a registry on this machine). There is no
-public registry yet; the docker sandbox runs one. A registry runs on its own
+public registry yet; the docker sandbox runs one. A registry that has a signing key
+counter-signs each version it lists, and `mendari pull` refuses a version of such a registry
+whose counter-signature is missing or does not verify
+([running a registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#the-counter-signature)). A registry runs on its own
 (`mendari registry serve`) or under the engine (`MENDARI_REGISTRY=on`, off by default), where
 an organization's administrators sign in to claim a namespace and make publisher tokens:
 [Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#under-the-engine).
