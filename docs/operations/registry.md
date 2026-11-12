@@ -291,19 +291,34 @@ Turning the key on for a registry that already holds versions refuses those vers
 client until they are counter-signed. Do both together:
 
 ```bash
-mendari registry verify --db var/registry.db            # first: the chain must verify
 export MENDARI_REGISTRY_SIGNING_KEY=...                 # the same key the registry serves with
-mendari registry countersign --db var/registry.db       # signs the listed versions with no record
-mendari registry verify --db var/registry.db            # and again after
+# first: the chain must verify, and still hold the last checkpoint you kept outside the database
+mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json
+# signs the listed versions with no record, and nothing if the chain no longer holds that head
+mendari registry countersign --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json
+mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json
 ```
+
+Before the registry has a signing key there is no checkpoint to give: take the first one
+(`mendari registry checkpoint`, [the chain](#the-chain)) as soon as the key is set, compare the
+head `verify` prints with any copy of `GET /v1/chain/head` you kept by hand, and only then
+counter-sign.
 
 `countersign` signs after the fact, so it is the one step that could put the registry's
 signature on a version it never accepted. It therefore:
 
 - refuses to run, signing nothing, when the chain does not verify (a planted, changed or removed
-  row). Run `verify` first, and compare its head with the copy you keep outside the database
-  ([the chain](#the-chain)): the chain is unkeyed, so only that copy shows a chain rewritten
-  whole;
+  row);
+- with `--checkpoint FILE` (a statement `mendari registry checkpoint` signed earlier, kept
+  outside the database, [the chain](#the-chain)), also refuses when the chain no longer holds
+  the head the statement names, or when the statement is not one this registry's key signed.
+  The chain is unkeyed, so only that copy shows a chain rewritten whole. Run without one, it
+  says so (`"checkpoint": null` in what it prints, and a line on standard error): the chain
+  verified, and a chain rewritten whole would have too. Run with one, it prints
+  `"events_since_checkpoint"`: how many events the chain held after the checkpoint's head.
+  The checkpoint says nothing about those, so when the number is not 0 the command says so on
+  standard error too. A backfill against an old checkpoint is only as checked as the events
+  since are read: take a fresh checkpoint (with `--previous`) just before, or read them;
 - checks each version again from what is stored before it signs: its archive is there and
   hashes to its name, is signed by a key of its namespace, and its signed manifest names this
   pack, version and digest. One that fails is skipped and printed with why, and the command
@@ -348,9 +363,14 @@ Known limits, stated plainly:
   version's record still verifies (the deletion is what stops it being served), and someone who
   can write the database can serve an older accepted version as the latest. Recalls
   ([above](#recalls-and-deletions)) are the way a version is stopped.
-- **Whoever can write the database and has the chain's head rewritten can still plant a
-  namespace key** and an archive it signed; the backfill would then sign that version. The head
-  kept outside the database is what catches it.
+- **Whoever can write the database can still plant a namespace key** and an archive it
+  signed, and the backfill would then sign that version. If they rewrote the chain to do it, a
+  checkpoint from before, given with `--checkpoint`, refuses the run. If they appended to the
+  chain instead (it is unkeyed, so they can), the checkpoint still holds and nothing refuses:
+  `verify --checkpoint` prints how many events came after the checkpoint, and those are yours
+  to read before you counter-sign. A checkpoint taken after the plant vouches for it, so take
+  them on a schedule, not just before a backfill. Run without `--checkpoint`, nothing shows a
+  rewrite.
 - A machine's pins are filed by the registry's address (scheme and host in lower case, no
   default port). A pin file that is there and cannot be read is refused, with what to remove,
   rather than read as empty.
@@ -371,9 +391,59 @@ token by its id (`token:<id>`), never the token. `mendari registry verify --db` 
 database read-only and checks every event's hash and order, that every row is exactly the one
 its newest event hashed, every archive's hash and every key's id. It prints the head.
 
-The chain is unkeyed: whoever can write the whole database can rewrite it. Keep its head
-(`GET /v1/chain/head`: the event count and the last hash) somewhere the registry cannot write,
-on a schedule, and compare a later head with it. A signed head is for later.
+The chain is unkeyed: whoever can write the whole database can rewrite it, and it then
+verifies. What shows a rewrite is a head kept somewhere the registry cannot write. With a
+signing key (`MENDARI_REGISTRY_SIGNING_KEY`) the registry signs one for you:
+
+```bash
+# once a day, from a machine that reads the database and holds the key; keep every file
+mendari registry checkpoint --db var/registry.db \
+  --previous /elsewhere/registry-checkpoint.json > /elsewhere/registry-checkpoint.new.json \
+  && mv /elsewhere/registry-checkpoint.new.json /elsewhere/registry-checkpoint.json
+# whenever you check the registry, and before every countersign
+mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json
+```
+
+`mendari registry checkpoint` prints a `mendari.registry-checkpoint/1` statement: the head, the
+day (UTC), the key's id and an Ed25519 signature over those and the format. The format is the
+statement's own, so a recall, a counter-signature, the engine's audit checkpoint
+(`mendari.checkpoint/1`) or a scoreboard result signed by the same key is never read as one.
+The command opens the database read-only and stores nothing in it (a copy there could be
+rewritten with the chain); it never makes a missing database. It refuses to sign when the chain
+does not verify and, with `--previous`, when the chain no longer holds the last statement's
+head, so a rewrite stops the routine instead of being signed over. The first run has no
+`--previous`. Keep the files where no credential of the registry can write: another account's
+bucket with versioning, a repository, a mailbox. Keep the dated copies too if you want to know
+since when.
+
+`mendari registry verify --checkpoint FILE` checks the statement's signature with the
+registry's key, then the chain, then that the head the statement names is an event of the
+chain. It does not need the private key: on a host that does not hold
+`MENDARI_REGISTRY_SIGNING_KEY` (an auditor's machine, a monitoring job), give the public key
+instead, as `GET /v1/registry-key` shows it:
+
+```bash
+mendari registry verify --db var/registry.db --checkpoint /elsewhere/registry-checkpoint.json \
+  --public-key "$(curl -s https://registry.example/v1/registry-key | jq -r .public_key)"
+```
+
+Better still, keep the public key with the statements, so the check does not trust the
+registry for its own key. `checkpoint` and `countersign` sign, so they need the private key. A chain rewritten or cut short from
+before the checkpoint fails (exit 1), where `verify` alone passes. It prints how many events
+were appended since the checkpoint.
+
+What a checkpoint does not show:
+
+- **Anything appended after it.** A writer of the database can append events as well as rewrite
+  them. The newest checkpoint bounds what they could have changed unseen to the events since.
+- **A rewrite made before the first checkpoint**, or between a plant and the next checkpoint
+  when nobody gave `--previous`: a statement signed over a rewritten chain vouches for it.
+- **Anything, to someone who also holds the key.** The key lives in the registry's environment;
+  whoever has it can sign a statement for any head. Keeping the statements elsewhere, with their
+  dates, is what makes a replaced one visible.
+
+Without a signing key, keep the unsigned head (`GET /v1/chain/head`: the event count and the
+last hash) the same way and compare by hand.
 
 ## Not yet
 

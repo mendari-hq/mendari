@@ -166,6 +166,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "registry refuse": (["--namespace", "a", "--reason", "x", "--db", "{not_db}"], {}),
     "registry claims": (["--db", "{missing_db}"], {}),
     "registry countersign": (["--db", "{missing_db}"], {}),
+    "registry checkpoint": (["--db", "{missing_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),
     "monitor": (["--db", "{missing_db}"], {}),
     # No webhook (the tests clear MENDARI_ALERT_WEBHOOK); in CI, refused before that.
