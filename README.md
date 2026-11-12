@@ -1016,7 +1016,8 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   (the publisher, the risk level it declares, the licence and summary). Every registry write
   is a hash-chained event (`mendari registry verify --db …` checks the chain and that every
   namespace, key, token, version, report, review, recall and deletion is the row its event
-  hashed; keep `GET /v1/chain/head` elsewhere, since the chain is unkeyed), and a registry
+  hashed; the chain is unkeyed, so keep a signed head elsewhere, `mendari registry
+  checkpoint`, and check against it with `verify --checkpoint`), and a registry
   reviewer's review (`POST /v1/packs/{namespace}/{name}/{version}/review`, the admin token
   until LP-19) records the risk level it found beside the one the publisher declared.
 - **A recall** (`mendari yank`) is a signed record with a reason and a severity: the

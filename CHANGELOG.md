@@ -1352,6 +1352,25 @@ The first release (not yet published).
   counter-signature with `MENDARI_REGISTRY_COUNTERSIGNATURE`: `required` refuses a registry
   that shows no key, `shipped` trusts only a key shipped with the client (nothing on first
   use); unset, a pull is as described above.
+- **A signed head for the registry's chain, kept outside its database** (nothing changes for a
+  registry with no signing key; no table or column is added, so a database from before reads
+  as it did). The chain is unkeyed: whoever can write the whole database can rewrite it, and it
+  then verifies. `mendari registry checkpoint --db ...` prints a `mendari.registry-checkpoint/1`
+  statement of the chain's head for the day (UTC), signed with `MENDARI_REGISTRY_SIGNING_KEY`,
+  for the operator to keep where the registry cannot write; it opens the database read-only,
+  stores nothing, and refuses a chain that does not verify or (`--previous FILE`) one that no
+  longer holds the last statement's head. `mendari registry verify --checkpoint FILE` also
+  requires the chain to hold the head a kept statement names (`--public-key` checks it without
+  the private key), so a chain rewritten from before the checkpoint fails where `verify` alone
+  passes, and it prints how many events came after. `mendari registry countersign` takes
+  `--checkpoint FILE` and signs nothing when that check fails. **Changes to what the commands
+  print:** `countersign` adds `"checkpoint"` (the statement's day, or `null`) and
+  `"events_since_checkpoint"` (how many events the chain held after that head, or `null`) to
+  its JSON, and says on standard error when it ran without one or against a checkpoint the
+  chain has moved past; `verify` without `--checkpoint` prints a
+  second line saying so. A statement signed by another key, changed after signing, or of
+  another format (a recall, a counter-signature, the engine's `mendari.checkpoint/1`) is
+  refused. A checkpoint says nothing about events appended after it.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no
