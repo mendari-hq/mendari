@@ -80,6 +80,19 @@ def test_export_is_a_dataset_to_label(inbox_pack: Pack, store: AuditStore, tmp_p
     assert load_dataset(path).records[0]["id"] == record["id"]  # loads as a pack dataset
 
 
+def test_a_rated_decision_says_it_was_exported(inbox_pack: Pack, store: AuditStore) -> None:
+    """A site's case wherever the file goes: the mark that keeps a pack that holds it out of
+    an archive (`core/site_cases.py`)."""
+    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+    store.record_feedback(result.id, rating="down", expected=FRONT_DESK)
+    (record,), _ = feedback_dataset(store, pack_id=inbox_pack.id)
+    assert record["attributes"] == {
+        "source": "feedback",
+        "decision_id": result.id,
+        "exported_by": "mendari feedback export",
+    }
+
+
 def test_feedback_api_and_export(db_target: str, screened: dict[str, str]) -> None:
     app = create_app(db_path=db_target, providers=screened, datasets_dir=LOCAL_DATASET.parent)
     client = TestClient(app)

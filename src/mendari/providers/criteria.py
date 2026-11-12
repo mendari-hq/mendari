@@ -78,6 +78,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from mendari.core import clock
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
+from mendari.core.text import plain
 from mendari.errors import PackValidationError
 from mendari.providers.base import (
     FileConfig,
@@ -454,7 +455,7 @@ def _medication(
     check: MedicationCheck, medications: list[Mapping[str, Any]], as_of: date
 ) -> Decision | None:
     for item in medications:
-        name = str(item.get("name") or "")
+        name = plain(str(item.get("name") or ""))  # as a pack's `names` are written
         named = any(n.lower() in name.lower() for n in check.names)
         if not (_code_matches(item.get("code"), check.codes) or named):
             continue

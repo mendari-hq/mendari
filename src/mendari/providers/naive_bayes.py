@@ -5,6 +5,16 @@ It exists so that every pack can ship a local, inspectable, reproducible statist
 no network, no credentials, no PHI leaving the machine. Naive Bayes is famously overconfident,
 so training always fits a temperature on a held-out calibration split; the fitted value and the
 negative log-likelihood before/after calibration are stored in the model file as provenance.
+
+Its features are a text's words and pairs of neighbouring words. A model file may add the runs
+of characters inside each word (`character_ngrams`, the shortest and longest run): a misspelt or
+unseen word is then read by the parts it shares with the words the model learned. Such a file
+says so and has a format of its own (`FORMAT_CHARACTERS`), so an engine that does not know the
+features refuses it instead of scoring it without them. Measured on the inbox router, trained on
+the pack's own data and read on the harder draft's held-out messages: 322 of 436 right with
+words alone, 353 with runs of 3 to 5 characters, and 6 confident mistakes (at 0.90 or more) for
+12. On the pack's own test it is the same within one case, and a little less sure. A model
+without the key is trained and scored as it always was, byte for byte.
 """
 
 from __future__ import annotations
@@ -36,6 +46,14 @@ from mendari.providers.base import (
 from mendari.providers.calibration import fit_temperature
 
 FORMAT = "mendari.naive_bayes/1"
+FORMAT_CHARACTERS = "mendari.naive_bayes/2"  # a model with `character_ngrams`
+# The shortest and longest run of characters a model may count.
+MIN_NGRAM = 2
+MAX_NGRAM = 8
+# A longer "word" (a link, an encoded attachment) is counted as a word and has no runs counted:
+# each character of a word gives up to seven of them.
+MAX_NGRAM_WORD = 64
+CharacterNgrams = tuple[int, int]  # the shortest and the longest run, both counted
 _TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?")
 
 
@@ -50,9 +68,36 @@ class NaiveBayesConfig(BaseModel):
     text_fields: list[str] | None = None
 
 
-def tokenize(text: str) -> list[str]:
+def tokenize(text: str, character_ngrams: CharacterNgrams | None = None) -> list[str]:
+    """A text's features: its words, each pair of neighbouring words and, with
+    `character_ngrams`, every run of that many characters inside each word of at most
+    `MAX_NGRAM_WORD` characters, the word held between its edges (`<` and `>`) and each run
+    marked `#`, which no word holds."""
     words = _TOKEN.findall(text.lower())
-    return words + [f"{a} {b}" for a, b in itertools.pairwise(words)]
+    tokens = words + [f"{a} {b}" for a, b in itertools.pairwise(words)]
+    if character_ngrams is not None:
+        shortest, longest = character_ngrams
+        for word in words:
+            if len(word) > MAX_NGRAM_WORD:
+                continue
+            edged = f"<{word}>"
+            tokens += [
+                f"#{edged[start : start + size]}"
+                for size in range(shortest, longest + 1)
+                for start in range(len(edged) - size + 1)
+            ]
+    return tokens
+
+
+def ngrams_problem(value: Any) -> bool:
+    """Whether `value` is not a `character_ngrams`: two whole numbers, the shortest run and the
+    longest, from `MIN_NGRAM` to `MAX_NGRAM`."""
+    return not (
+        isinstance(value, list | tuple)
+        and len(value) == 2
+        and all(isinstance(size, int) and not isinstance(size, bool) for size in value)
+        and MIN_NGRAM <= value[0] <= value[1] <= MAX_NGRAM
+    )
 
 
 class NaiveBayesProvider(Provider):
@@ -72,6 +117,10 @@ class NaiveBayesProvider(Provider):
         self.labels: list[str] = model["labels"]
         self.text_fields: list[str] = model["text_fields"]
         self.temperature: float = model["temperature"]
+        features = model.get("character_ngrams")
+        self._character_ngrams: CharacterNgrams | None = (
+            None if features is None else (features[0], features[1])
+        )
         self._log_prior: list[float] = model["log_prior"]
         self._tokens: dict[str, list[float]] = model["tokens"]
 
@@ -122,8 +171,8 @@ class NaiveBayesProvider(Provider):
         return (None, problems) if problems else (model, [])
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
-        text = text_from(inputs, self.text_fields)
-        logits = log_posterior(self.labels, self._log_prior, self._tokens, tokenize(text))
+        words = tokenize(text_from(inputs, self.text_fields), self._character_ngrams)
+        logits = log_posterior(self.labels, self._log_prior, self._tokens, words)
         probabilities = softmax(logits, self.temperature)
         return ProviderOutput(
             answers={self.question: self.make_answer(self.question, probabilities)}
@@ -138,7 +187,7 @@ def _read(pack: Pack, relative: str) -> tuple[Any, list[str]]:
         return None, problems
     if not isinstance(model, dict):
         return None, [f"{relative}: not a naive_bayes model (expected a mapping)"]
-    if model.get("format") != FORMAT:
+    if model.get("format") not in (FORMAT, FORMAT_CHARACTERS):
         return None, [f"{relative}: expected format {FORMAT}"]
     if (shape := _shape_problem(model)) is not None:
         return None, [f"{relative}: not a naive_bayes model ({shape})"]
@@ -169,6 +218,12 @@ def _shape_problem(model: dict[str, Any]) -> str | None:
         and temperature > 0,
         "log_prior": numbers(model.get("log_prior")),
         "tokens": isinstance(tokens, dict) and all(numbers(v) for v in tokens.values()),
+        # A model that counts runs of characters says so in its format, and no other does.
+        "character_ngrams": (
+            not ngrams_problem(model.get("character_ngrams"))
+            if model["format"] == FORMAT_CHARACTERS
+            else "character_ngrams" not in model
+        ),
     }
     return next((name for name, ok in checks.items() if not ok), None)
 
@@ -197,20 +252,27 @@ def train(
     calibration: Sequence[Mapping[str, Any]],
     alpha: float = 1.0,
     min_count: int = 2,
+    character_ngrams: CharacterNgrams | None = None,
 ) -> dict[str, Any]:
     """Fit on `records` and calibrate on the disjoint `calibration` split.
 
-    Each record looks like {"input": {...}, "labels": {question: label, ...}}.
+    Each record looks like {"input": {...}, "labels": {question: label, ...}}. With
+    `character_ngrams` the model also counts those runs of characters (`tokenize`), says so, and
+    is of `FORMAT_CHARACTERS`; without, it is the model this always trained.
     """
     if not records or not calibration:
         raise ValueError("training and calibration splits must both be non-empty")
+    if character_ngrams is not None and ngrams_problem(character_ngrams):
+        raise ValueError(
+            f"character_ngrams is the shortest and longest run, {MIN_NGRAM} to {MAX_NGRAM}"
+        )
     index = {label: i for i, label in enumerate(labels)}
     doc_counts = [0] * len(labels)
     token_counts: dict[str, list[int]] = {}
     for record in records:
         label_index = index[record["labels"][question]]
         doc_counts[label_index] += 1
-        for token in tokenize(text_from(record["input"], list(text_fields))):
+        for token in tokenize(text_from(record["input"], list(text_fields)), character_ngrams):
             token_counts.setdefault(token, [0] * len(labels))[label_index] += 1
 
     vocabulary = {t: c for t, c in token_counts.items() if sum(c) >= min_count}
@@ -231,18 +293,25 @@ def train(
     logits = [
         (
             log_posterior(
-                labels, log_prior, tokens, tokenize(text_from(r["input"], list(text_fields)))
+                labels,
+                log_prior,
+                tokens,
+                tokenize(text_from(r["input"], list(text_fields)), character_ngrams),
             ),
             r["labels"][question],
         )
         for r in calibration
     ]
     temperature, nll_before, nll_after = fit_temperature(logits)
+    features: dict[str, Any] = (
+        {} if character_ngrams is None else {"character_ngrams": list(character_ngrams)}
+    )
     return {
-        "format": FORMAT,
+        "format": FORMAT_CHARACTERS if features else FORMAT,
         "question": question,
         "labels": list(labels),
         "text_fields": list(text_fields),
+        **features,
         "temperature": round(temperature, 4),
         "log_prior": log_prior,
         "training": {

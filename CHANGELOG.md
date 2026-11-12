@@ -24,6 +24,85 @@ The first release (not yet published).
   SNOMED CT's url, OID and concept URIs in the built wheel and sdist, and any number written as
   a SNOMED CT concept id in Mendari's own files there (`scripts/check_snomed.py`); NOTICE carries
   NLM's RxNorm acknowledgement.
+- **Text is read in its plain form** (ADR-0018; this changes what a pack decides on text that
+  holds such characters, and on nothing that ships). The providers that decide on the machine
+  (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read the same words in
+  a keyboard's characters: a zero-width space a space and the other invisible format characters
+  left out, accents composed, apostrophes, quotation marks and dashes straightened, the ellipsis
+  character a full stop (a hyphen between two digits), every run of white space one space
+  (`core/text.py`, spec §5). Before, typography hid text from a pack's patterns: a phone's curly
+  apostrophe took the stat priority off "it won't stop bleeding" (3 of the 55 emergencies the
+  inbox rules flag), every third space no-break and every third doubled hid 23 of those 55 and
+  28 of the referral screen's 136 urgent referrals, and an en dash in "every 4 to 6 hours" made
+  the AI Guard's dose check call 6,000 mg of acetaminophen a day within the limit. Every true
+  critical case of every reference pack is now retyped six ways in the tests and must decide as
+  shipped, and the tests pin what the same retypings hide when text is matched as received. No
+  text in any pack's datasets differs from its plain form, so the data, the models, the
+  benchmarks and the digests are byte-identical. A pattern that matched the text as received
+  matches its plain form too, but for three cases the decision record lists. The record, the
+  input hash, the schema's checks and what a remote model is sent keep the text as received.
+- **Reviewed decisions as labelled cases** (nothing changes how a pack decides). The review
+  queue already keeps the label a person chose for every decision they resolve, and a
+  downstream system can record what really happened; nothing exported them. `mendari feedback
+  export --source reviews` (and `GET /api/packs/{namespace}/{name}/feedback/export?source=reviews`,
+  an admin's) writes them as pack-dataset records, the newest 1,000 unless `--limit` says
+  otherwise: the input, the primary question's label (the outcome when one was recorded, else
+  the reviewer's, as observed accuracy counts it), what the pack had decided, and which of the
+  two the label is. A record names no person and carries no note. A decision kept as a hash, or
+  sealed with no reader, is counted and left out; under PHI mode `encrypt` each input read is
+  chained, as in every other export. The command line reads every organization's decisions, as
+  its other commands do: `--org` exports one organization's (for ratings too). Every record
+  of either export now says it was exported (`attributes.exported_by`), and the command says so
+  when it writes one: an export is a site's cases, and a pack that holds one is not published
+  (below). The ratings export is otherwise as it was.
+- **Character features for the built-in classifier** (off unless a model file says so; nothing
+  changes how a pack decides). A `naive_bayes` model may also count the runs of characters
+  inside each word, so a misspelt or unseen word is read by the parts it shares with the words
+  the model learned. The model file says so (`character_ngrams`, the shortest and longest run)
+  and names a format of its own, `mendari.naive_bayes/2`, which an engine that does not count
+  them refuses. `mendari train --character-ngrams 3-5` builds one, `none` goes back, and with
+  neither each model is rebuilt the way its file says it was built, so the reference packs'
+  models, which are words alone, come out byte for byte as before (a model file that does not
+  say, because it is damaged, is not guessed at: the command asks). A word of more than 64
+  characters has no runs counted. `mendari train` no longer fails on a dataset record that does
+  not label a classifier's question: such a record is not one of its examples. Measured on the inbox
+  router, trained on the pack's own data and read on the harder draft's held-out messages: 322
+  of 436 right with words alone, 353 with runs of 3 to 5 characters (a test pins both). On the
+  pack's own test the two agree within one case, and the model with them is a little less sure.
+- **`mendari improve`: a pack's classifier learns from new cases, and a person promotes**
+  (ADR-0019; nothing changes how a pack decides until someone runs it with `--write` on a pack
+  of their own and serves the result). Given labelled cases (what reviewers decided, or a
+  site's own), it holds 30% out by a hash of what the classifier reads of each, retrains the
+  pack's `naive_bayes` model on the rest with the pack's own data, once with the model's
+  features and once with the other set, and judges each candidate against the model in the
+  pack on every dataset the pack declares and on the held-out cases. A case is what the
+  classifier reads of it, so a message received twice, or with another time stamp, is one case,
+  and one the pack already holds is never learned from. A candidate that fails the eval gate,
+  gets fewer cases right by more than chance, is confidently wrong more often or breaks a
+  behaviour test has regressed; one that has not, and gets more of the held-out cases right by
+  more than chance, is better (exit 0; none better, exit 3). The report
+  (`mendari.improvement/1`) holds counts, never a case. `--write` writes the model and adds the
+  cases it learned from to the pack's training and calibration datasets, all three files or
+  none, so `mendari train` rebuilds the model byte for byte, and a second run with the same
+  cases learns nothing new. It writes only into a pack of one's own: never a reference pack, a
+  community pack or a pulled one, however the path is spelt (`core.registry.origin_of` now
+  tells a directory by the file it is). The cases it adds are a site's own, so each says a run
+  added it (`attributes.added_by` in its record), as every record an export writes says it was
+  exported (`attributes.exported_by`); a model trained on a case with either mark says the
+  same, and a pack with a file that holds one is not published: `mendari pack build` and
+  `mendari push` refuse it before anything is signed or sent, naming the files with how many
+  times each is marked and never a case, a registry refuses one it is sent, and `mendari
+  community-check` fails a community pack that holds one. So an export saved in a pack's
+  folder, or its records copied into the pack's datasets, keeps that pack out of an archive: a
+  confirmed miss becomes a behaviour test a person writes, with no patient's words in it.
+  Taking the cases out is not enough until `mendari train` has built the model again without
+  them. The file a run is given stays outside the pack's folder: `--with` reads none from
+  there. Nothing turns any of this off, and a pack that holds no such case is built as before,
+  byte for byte. With the harder
+  draft's train split standing in for reviewed cases, the inbox router gets 138 of 145 held-out
+  messages right where it got 102, and 354 of the draft's other 436 where it got 322; the
+  local-site example is not kept (its gain is no more than chance, and one candidate is
+  confidently wrong on emergency messages), and neither is a file of wrong labels.
 - **A harder inbox benchmark, as a draft** (draft, not clinically reviewed; nothing changes how
   a pack decides). `mendari.sandbox.synthetic_inbox_harder` writes a harder synthetic set for
   the Patient Inbox Router, locally and seeded, to `datasets/drafts/patient-inbox-harder/`:

@@ -340,7 +340,10 @@ input as FHIR R4; each answered question maps to a definition whose String resul
 or whose Boolean result is `yes` / `no`, null being `unknown`; the library's declaration,
 `library Name version '...'`, MUST be its first statement, comments aside, and the runtime
 uploads it to the engine under a name and id unique to the pack and the text), `naive_bayes` (local,
-temperature-calibrated text classifier), `jev`, `llm` (a chat
+temperature-calibrated text classifier over a text's words and pairs of neighbouring words; its
+model file, which `mendari train` writes, MAY also count the runs of characters inside each word,
+`character_ngrams: [shortest, longest]`, each from 2 to 8, and then names the format
+`mendari.naive_bayes/2`, so that an engine that does not count them refuses the file), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most
@@ -350,6 +353,37 @@ confidence on every slot question is ≥ `accept_at` is accepted; the last alway
 recorded as a failure of the slot's questions (`<member>:<code>`), which caps `AUTO` (§6). Providers answer
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
+
+The built-in types that read free text on the machine read it in its **plain form**: `rules`,
+`dosing` and `naive_bayes` their text fields, and `criteria` a medication's name. The plain form
+is the same words in the characters a keyboard types, so that text which differs only in
+typography decides the same:
+
+1. a zero-width space (U+200B) becomes a space, since it separates words, and the other
+   invisible format characters are left out (Unicode category Cf: zero-width joiners, the byte
+   order mark, the soft hyphen, direction marks), since they sit inside words;
+2. a letter and an accent written as two characters become the one character (Unicode NFC),
+   unless composing would make the text longer, where the text stays as it is;
+3. apostrophes and single quotation marks (U+2018 to U+201B, the prime U+2032, U+02BC, and the
+   acute and grave accents U+00B4 and U+0060) become `'`; double quotation marks (U+201C to
+   U+201F, the double prime U+2033) become `"`; hyphens, dashes and the minus sign (U+2010 to
+   U+2015, U+2212) become `-`; the ellipsis character (U+2026) becomes `.`, or `-` between two
+   digits, where a full stop would read as a decimal point;
+4. a carriage return before a newline is left out, and every run of white space that holds no
+   newline becomes one space: a no-break space, a tab, a lone carriage return, a vertical tab,
+   a form feed, and the line and paragraph separators are all white space.
+
+A newline stays a newline, and nothing else changes: case is kept (rules patterns ignore it
+themselves), and so are compatibility characters (a ligature, a full-width letter, the micro
+sign). The plain form is never longer than the text. A pattern that matched the text as received
+matches its plain form too, but for three cases, each of which decides as the same words typed
+on a keyboard do: words joined by a format character other than the zero-width space, a
+negation cue that a long run of spaces had kept outside a rule's `negation_window`, and a
+pattern or a negation that reached across an ellipsis character. A pack's patterns, a medication check's
+`names` and a trained model's tokens are matched against it, so they MUST be written in it: a
+character the plain form never holds, such as a curly apostrophe or a no-break space, matches
+nothing. The decision's record, its input hash, the input schema's checks and what a remote
+provider is sent keep the text as it was received.
 
 A pack's patterns (every `rules` pattern, of every variant and composite member, and every
 `pattern` and `patternProperties` key in its input schema) are Python `re` regular expressions,
@@ -745,6 +779,8 @@ of these.
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| A `naive_bayes` model file may count runs of characters inside each word (`character_ngrams`, format `mendari.naive_bayes/2`); a model without the key is trained and scored as before (every spec version) | §5 |
+| The built-in types that read free text on the machine (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read it in its plain form: typography only (quotation marks, dashes, white space, line ends, invisible format characters, composed accents), so a pack's patterns, names and tokens are written in it (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
 | `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |
 | A behaviour test has an `expect` of at least one known key and no other, each value one the pack can decide, and no key beyond `name`, `input` and `expect`; a test run with no test fails; declared datasets are read by `validate` (every spec version) | §10 |

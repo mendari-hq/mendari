@@ -973,7 +973,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 ```
 
 - **An archive** (`.ohpack`) is deterministic and carries a manifest of file hashes signed with
-  the publisher's key.
+  the publisher's key. None is made of a pack that holds a site's own cases, the ones
+  `mendari improve` added to it or `mendari feedback export` wrote
+  ([Feedback loop](#feedback-loop)): `pack build` and `push` refuse it, and a registry refuses
+  one it is sent.
 - **`pull`** checks the archive digest the registry recorded, every file hash, the signature and
   the pack digest before caching the pack. Namespace keys are pinned on first use, and a changed
   key needs `--accept-new-key`. `Decision.from_hub` pulls on its own when a pack isn't local.
@@ -1526,8 +1529,9 @@ audit trail keeps both (people are told apart by reporter name; unnamed ratings 
 count as one person). The **Feedback** view lists the thumbs-down cases, and a thumbs-down on an
 AUTO decision counts as "confidently wrong".
 
-The system never retrains or rewrites itself from ratings. Instead, the thumbs-down cases are
-downloaded as a dataset:
+Nothing retrains or rewrites a pack by itself. What people said is downloaded as a dataset, a
+person runs what learns from it, and a pack that changed is a new version to review. The
+thumbs-down cases:
 
 <!-- check: run server-db -->
 ```bash
@@ -1535,9 +1539,122 @@ mendari feedback export mendari/patient-inbox-router --db "$DATABASE_URL" --out 
 ```
 
 Records whose raters gave the right answer (and agree) already carry it in `labels`, so they are
-ready-made test cases; fill in the others' `labels`. The file then works with
-`mendari eval --dataset`, and confirmed misses become behaviour tests in the pack's
-`tests/cases.yaml`. Improvements ship as a new, reviewed and versioned pack.
+ready-made cases to evaluate the pack on; fill in the others' `labels`. The file then works with
+`mendari eval --dataset`. Improvements ship as a new, reviewed and versioned pack.
+
+An export is a site's cases, and may be patient text. Every record says it was exported
+(`attributes.exported_by`), and the command says so when it writes one: keep the file outside
+the pack's folder. No archive is made of a pack that holds such a record, as the file an export
+wrote or as records copied into the pack's own datasets (more below). So a confirmed miss
+becomes a behaviour test in the pack's `tests/cases.yaml` by writing one: a message of your own
+that fails the same way, with no patient's words in it.
+
+The review queue labels cases too. Every decision a reviewer resolves keeps the label that
+person chose, and a downstream system can record what really happened (`POST
+/api/audit/{id}/outcome`). Those decisions are downloaded the same way, each with its label
+already filled in (the outcome when one was recorded, else the reviewer's):
+
+<!-- check: run server-db -->
+```bash
+mendari feedback export mendari/patient-inbox-router --source reviews --db "$DATABASE_URL" --out reviewed.jsonl
+```
+
+The command line reads every organization's decisions; `--org NAME` exports one organization's.
+
+A record names no person and carries no note. These are not a sample of what the pack sees: they
+are the decisions it sent to a person, labelled by someone who saw its suggestion. They are
+cases to learn from and to compare two versions of a pack on, not a measure of its accuracy on
+every message. The route is `GET /api/packs/{namespace}/{name}/feedback/export?source=reviews`
+(an admin's, as the ratings export is: it carries case inputs in bulk).
+
+**Learning from them.** `mendari improve` retrains a pack's classifier with new labelled cases
+and says whether the result is better. It writes nothing unless asked. Try it with the harder
+inbox draft's train split standing in for a site's reviewed cases (436 synthetic messages; a
+draft, not clinically reviewed):
+
+<!-- check: run cli -->
+```bash
+uv run mendari improve mendari/patient-inbox-router --with datasets/drafts/patient-inbox-harder/train.jsonl
+```
+
+A run takes the cases it can use: labelled for the classifier's question, accepted by the pack's
+input schema, and not already in the pack's own data. A case is what the classifier reads of it,
+its words in order, so the same message received twice, or with another time stamp, another
+channel or other capitals, is one case; given with two labels it is left out; and a message the
+pack already holds is known whatever else its record says. It sets some aside before it looks
+at any: each case falls by a hash of what the classifier reads of it, 30% held out, 15% to
+calibrate on, the rest to learn from, the same way in every run. It builds the pack's model
+again with the cases to learn from, once with the features the model has and once with the
+other set (words alone, or words and runs of characters, which read misspelt and unseen words
+by their parts). Then it judges each candidate against the model in the pack, on this machine
+and with the pack's own policy, on every dataset the pack declares but the two it trains on,
+and on the held-out cases. A candidate has regressed when, on any of them:
+
+- the eval gate fails (the primary question's accuracy or the false automation rate outside
+  the pack's tolerance, a critical label detected less often, a critical case newly automated);
+- it gets fewer cases right than the model in the pack by more than chance (the cases only one
+  of the two gets right, exact McNemar, p < 0.05);
+- it is confidently wrong more often: of its answers at or above the pack's automation
+  threshold, the share that are wrong is above the model in the pack's by more than the
+  tolerance (even at the lower end of its exact 95% interval), or it is confidently wrong on
+  more cases, by more than chance;
+
+or when a behaviour test that passes stops passing. It is better when it has not regressed and
+gets more of the held-out cases right, by more than chance. The report (`--out`, `--json`:
+`mendari.improvement/1`) holds counts, never a case's text or id. Exit 0 says a candidate is
+better, 3 that none is.
+
+What that run reports: 216 cases learned, 145 held out. The model in the pack gets 102 of the
+145 right, the candidate 138 (37 gained, 1 lost), and of its confident answers 1 of 116 is
+wrong, where 10 of the 71 the model in the pack gives are. Kept with `--write`, the pack goes
+from 322 right to 354 on the draft's other split, 436 messages that share no family, paraphrase
+or sentence with anything it learned. On the pack's own test it is the same within one case.
+
+Two runs that keep nothing show what the judging is for. The bundled local-site example
+(`datasets/local-site-example.jsonl`), with its true labels: 45 of its 400 messages read like
+one the pack already holds, and of the rest neither candidate's gain (98 of 99 held-out cases
+right, where the model in the pack gets 95) is more than chance; and one candidate, on the
+pack's hand-written emergency messages, would be confident about 23 answers where the model in
+the pack is about 7, and wrong on 4 of them. The same file with every label set to `billing`:
+each candidate loses 6 or 7 of the pack's 600 test cases and gains none, which is inside the 3%
+the eval gate tolerates and more than chance.
+
+`--write` keeps a better candidate, in a pack of your own: it writes the model, and adds the
+cases it learned from and calibrated on to the end of the pack's own training and calibration
+datasets, so the pack's data still gives the model it holds and `mendari train` rebuilds it
+byte for byte. All three files change or none does (each keeps its permissions), a run is kept
+once, and a second run with the same cases learns nothing new. A reference pack of this
+release, a community pack of this repository and a pack pulled from a registry are never
+changed in place, however the path to one is spelt: copy it, and improve the copy. What it
+wrote is a changed pack, with a new digest: bump its version, run `mendari test` and `mendari
+eval`, and have it approved wherever a digest is approved (an automation approval names one
+digest, so it does not carry over). Nothing serves the new model or approves it for you.
+
+**What a pack learned from is not published.** The pack now holds the cases it learned from,
+each with the id of the decision it was (so one can be found again and taken out), and its model
+holds their words: keep it where those cases may be. Two commands' cases say what they are:
+every case a run adds says a run added it (`attributes.added_by` in its record), every record an
+export writes says it was exported (`attributes.exported_by`), and a model built from either
+says what they say. No archive is made of a pack with a file that holds one of those marks:
+`mendari pack build` and `mendari push` refuse it before anything is signed or sent, naming the
+files (the first five) with how many times each is marked, and never a case. A registry refuses
+one sent to it all the same, and `mendari community-check` fails a community pack that holds
+one. Nothing turns that off. To publish the pack without those cases, take them out and run
+`mendari train`: until the model is built again without them, the pack is still refused. Keep
+the file a run is given outside the pack's folder too: a third of its cases are only held out,
+and `mendari improve` reads none from there.
+
+Four limits to keep in mind. Those marks are the only thing looked for, in a file's bytes as
+JSON spells them. A site's cases that carry neither are not recognised: the datasets `mendari
+omop dataset` and `mendari bulk dataset` build from a site's records, cases a site labelled in a
+file of its own, a case retyped into a pack or copied without its `attributes`, a copy
+compressed or in another encoding. And a file that merely quotes a mark is refused like one
+that holds a case.
+A database that several organizations share gives the command line every organization's
+decisions: export one organization's with `--org`. The held-out cases come from the same file
+as the ones learned from, so they measure messages like those, not every message a site will
+see. And a run is judged with the providers that decide on this machine: a pack whose other
+slots call a model by default is refused.
 
 ## Jev
 

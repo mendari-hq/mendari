@@ -172,6 +172,15 @@ Each matching pattern adds its weight to a label's score, so a message saying "c
 scores `yes`. `negatable: true` means "no chest pain" doesn't count, and the audit record names
 the pattern that matched.
 
+Write a pattern as a keyboard types it: a straight apostrophe, one space between words. People
+do not write that way. A phone writes a curly apostrophe, a web form a no-break space, pasted
+text carries invisible characters, and a language model writes "every 4 to 6 hours" with an en
+dash. So the engine reads every text in its **plain form** before a pattern sees it: the same
+words in a keyboard's characters ([the spec, §5](../spec/decision-pack-0.2.md#5-providers), lists
+exactly what changes). `can'?t breathe` then matches however the apostrophe was typed, and you
+never write a pattern for typography. A line break still ends a sentence: a pattern never
+matches across one.
+
 Patterns are Python regular expressions (`re`), matched with case ignored. `mendari validate`
 compiles every one, so a typo is reported with its file and rule; a pattern may be at most
 2,000 characters, and a pack may hold 500 (input-schema `pattern`s and `patternProperties` keys
@@ -323,6 +332,36 @@ contribute as a community pack has at most 4 paths a field and 200 codes a code 
 `mendari validate` holds yours to the same. Of the packs Mendari ships, the trial,
 prior-authorization and referral packs use 0.3 (their `fhir/mapping.yaml` files are worked
 examples), and the inbox still uses 0.2.
+
+### Learn from what reviewers decide
+
+A pack with a trained classifier (a `naive_bayes` variant) can learn from the cases people
+label once it is in use. Every decision a reviewer resolves keeps the label they chose:
+
+```bash
+mendari feedback export refill-router --source reviews --db var/mendari.db --out reviewed.jsonl
+mendari improve refill-router --with reviewed.jsonl            # a report: nothing is written
+mendari improve refill-router --with reviewed.jsonl --write    # keep a better model
+```
+
+`mendari improve` holds some of the cases out, retrains the model on the rest with the pack's
+own data, and keeps the result only if it gets more of the held-out cases right than the model
+you have, by more than chance, and is no worse on everything the pack already measures: its
+datasets, its critical labels, its behaviour tests and how often it is confidently wrong
+([the README](https://github.com/mendari-hq/mendari/blob/main/README.md#feedback-loop) says
+exactly how it judges). `--write` puts the model and the cases it learned from in the pack, so
+`mendari train` still rebuilds the model from the pack's own data.
+
+What it writes is a change to your pack like any other: bump the version, run the tests and the
+evaluation again, and have it reviewed. The pack then holds the cases it learned from, so keep
+it where those cases may be kept: `mendari pack build` and `mendari push` refuse a pack that
+holds them, and so does a registry. To publish it without them, take them out and run `mendari
+train`, which builds the model again without them. Keep `reviewed.jsonl` outside the pack's
+folder (`mendari improve` reads none from there): every file in it goes into the pack's
+archive, and an export is a site's cases too. Each of its records says it was exported, so a
+pack that holds the file, or records copied from it, is refused the same way. Reviewed cases
+are the ones the pack sent to a person, labelled by someone who saw its suggestion: good to
+learn from and to compare two models on, not a measure of the pack's accuracy on everything.
 
 ## 9. Publish the card
 

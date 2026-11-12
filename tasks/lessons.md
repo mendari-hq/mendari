@@ -805,3 +805,91 @@ If the full run went first, run those six files again once the new files are sta
 
 ### Verification
 `git status --short | grep '^??'` lists nothing of the change before the full run starts.
+
+## 2026-11-10 - communication
+
+### What happened
+Asked to "examine the mendari model to make it more robust ... and capable to self improve", I
+read "the Mendari model" as the naive Bayes classifier two packs ship, and measured that first.
+The owner corrected it: Mendari is the engine the packs are built on.
+
+### Root cause
+The request named a thing no file, type or page of the repository names, and I took the nearest
+match in the code without saying so before starting.
+
+### Rule
+When a request names something the repository does not, say in the first message what it is
+taken to mean and what else it could mean, before measuring or planning, and start with the work
+both readings share.
+
+### Verification
+The first message of the turn states the reading in one sentence.
+
+## 2026-11-10 - syntax
+
+### What happened
+Writing `core/text.py` and its tests, each `\u` escape typed into the file-writing tool arrived in
+the source as the character itself: curly quotes, a line separator and zero-width spaces sat in
+string literals, some of them invisible. The tests passed all the same; ruff's ambiguous-character
+rules (RUF001, RUF002) caught it.
+
+### Root cause
+The tool decodes `\u` escapes in the text it is given. `\x`, `\r` and `\N{...}` pass through.
+
+### Rule
+In source, write a character a reader cannot see, or cannot tell from an ASCII one, as
+`\N{NAME}` (or build it with `chr()`), never as a `\u` escape typed into a file-writing tool. After
+writing a file that handles such characters, list every non-ASCII character it holds and account
+for each.
+
+### Verification
+A script over the changed files prints each character outside ASCII by its Unicode name, and the
+list holds only intended, visible letters.
+
+## 2026-11-10 - testing
+
+### What happened
+A new test of `mendari improve` meant to show that a run cannot be applied to a pack that has
+changed. It called `apply(load_pack(INBOX_DIR), found)` with a run judged on a temporary copy of
+that pack. The copy and the repository's own pack have the same digest, so nothing was refused:
+the call appended 303 records to `packs/patient-inbox-router/data/` and rewrote its model. The
+full suite was running in the background on the same tree, so its result was void. `git status`
+showed it within a minute; the three files were restored with `git checkout`.
+
+### Root cause
+A test passed a path inside the repository to a function that writes. Nothing in the function
+or the suite stood between a test and the repository's own packs.
+
+### Rule
+A function that writes into a pack refuses the bundled packs and the registry's cache by where
+the pack is on disk (`core.registry.origin_of`), not by how it was loaded. A test of such a
+function builds every path it passes from `tmp_path`, and its module has an autouse fixture that
+fails a test after which the repository's pack no longer has its digest. While a full run is in
+progress, nothing else that can write runs in the same tree.
+
+### Verification
+`git status --short packs datasets` is empty after every test run, and
+`tests/test_improve.py` holds the fixture.
+
+## 2026-11-10 - testing
+
+### What happened
+`mendari improve` held 30% of the new cases out and judged a retrained model on them. It told
+cases apart by their whole input, so the same message with another time stamp, channel or
+capitals was another case. A review gave it each message three times: copies fell on both sides
+of the split and every held-out case came out right. It also learned from messages of the pack's
+own test once their records differed in one field. The tests gave each message once.
+
+### Root cause
+"The same case" was decided by the record, while the model reads only part of it. Any field the
+model does not read made two cases of one.
+
+### Rule
+When data is split to judge a model, identify a case by what the model reads of it (its
+features), and use that one identity everywhere: for duplicates, for conflicting labels, for
+what the pack already holds, and for the split itself. Test the split with every case given
+again as another record of the same text.
+
+### Verification
+`tests/test_improve.py::test_a_message_received_again_is_one_case` gives each message three
+times and expects the run on each message once.

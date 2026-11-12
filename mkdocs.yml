@@ -100,5 +100,7 @@ nav:
       - "ADR-0015: Registry accounts, under the engine": decisions/ADR-0015-registry-accounts-under-the-engine.md
       - "ADR-0016: A pack store per organization, and promotion": decisions/ADR-0016-a-pack-store-per-organization.md
       - "ADR-0017: A site network of signed counts": decisions/ADR-0017-a-site-network-of-signed-counts.md
+      - "ADR-0018: Local providers read text in its plain form": decisions/ADR-0018-local-providers-read-plain-text.md
+      - "ADR-0019: The engine learns from review, and a person promotes": decisions/ADR-0019-the-engine-learns-and-a-person-promotes.md
   - Project:
       - Roadmap: roadmap.md

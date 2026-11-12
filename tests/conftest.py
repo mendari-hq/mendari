@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
+from mendari.core.pack import pack_digest
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -91,6 +92,18 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         core = item.path.parent == ROOT / "tests" and item.path.name in CORE
         if core and item.get_closest_marker("slow") is None:
             item.add_marker(pytest.mark.core)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _the_repositorys_own_packs_are_as_they_were() -> Iterator[None]:
+    """No test changes a pack of the repository: each works on a copy. One did once (it applied
+    a run of `mendari improve` to packs/patient-inbox-router), and every test that read the pack
+    after it read another pack. A run that leaves one changed fails here, at its end."""
+    packs = sorted(path for path in (ROOT / "packs").iterdir() if (path / "pack.yaml").is_file())
+    before = {path: pack_digest(path) for path in packs}
+    yield
+    changed = [path.name for path, digest in before.items() if pack_digest(path) != digest]
+    assert not changed, f"a test changed the repository's own packs: {', '.join(changed)}"
 
 
 @pytest.fixture(autouse=True)

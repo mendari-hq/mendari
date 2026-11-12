@@ -1,17 +1,37 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Turn thumbs-down feedback into a dataset.
+"""Turn what people said about decisions into datasets.
 
-Each exported line is a pack-dataset record. Where the people who rated a decision gave the right
-answer (and agree), it is already in `labels`, so the record is a ready-made test case; otherwise
-a clinician or engineer fills in `labels`. The file then becomes evaluation data or behaviour tests
-for the next pack version. Nothing here changes a pack; improvements stay reviewed and versioned.
+Two sources, each exported as pack-dataset records (JSON Lines), one per decision:
+
+- **Ratings** (`feedback_dataset`): thumbs-down feedback. Where the people who rated a decision
+  gave the right answer (and agree), it is already in `labels`, so the record is a case ready
+  to evaluate the pack on; otherwise a clinician or engineer fills in `labels`.
+- **Reviews** (`reviewed_dataset`): decisions a person resolved in the review queue, and
+  decisions a downstream system recorded an outcome for. `labels` holds the primary question's
+  label: what really happened when an outcome says, else what the reviewer chose
+  (`core.audit.truth_label`, as observed accuracy counts it).
+
+A file then is evaluation data (`mendari eval --dataset`) or the cases `mendari improve` learns
+from, and a confirmed miss becomes a behaviour test a person writes for the pack. Nothing here
+changes a pack; improvements stay reviewed and versioned.
+
+Every record says it was exported (`attributes.exported_by`, `core/site_cases.py`). It is a
+site's case wherever the file goes, and may be patient text: no archive is made of a pack that
+holds one, as the file an export wrote or as records copied into the pack's datasets, nor of a
+pack whose model was trained on one.
+
+Reviewed cases are not a sample of what a pack sees. They are the decisions it sent to a person
+(the ones it was unsure of, or a rule held), labelled by someone who saw its suggestion. They
+are cases to learn from and to compare two models on; a pack's accuracy on all its decisions is
+not theirs.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from mendari.core.audit import AuditStore, Rating
+from mendari.core.audit import AuditStore, Rating, truth_label
+from mendari.core.site_cases import EXPORT, EXPORTED_BY
 
 
 def feedback_dataset(
@@ -40,15 +60,9 @@ def feedback_dataset(
                 "id": f"feedback-{item['decision_id']}",
                 "input": record["input"],
                 "labels": {},
-                "system": {
-                    "outcome": record["outcome"],
-                    "recommendation": record["recommendation"],
-                    "priority": record["priority"],
-                    "answers": {q: a["label"] for q, a in record["answers"].items()},
-                    "pack_version": record["pack"]["version"],
-                },
+                "system": _system(record),
                 "feedback": [],
-                "attributes": {"source": "feedback", "decision_id": item["decision_id"]},
+                "attributes": _attributes("feedback", item["decision_id"]),
             },
         )
         entry["feedback"].append(
@@ -63,6 +77,63 @@ def feedback_dataset(
     for entry in by_decision.values():
         entry["labels"] = _agreed_labels(entry["feedback"])
     return list(by_decision.values()), len(skipped)
+
+
+def reviewed_dataset(
+    store: AuditStore, *, pack_id: str, limit: int = 1000, reader: str | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """(records, skipped): one record per decision of the pack that a reviewer resolved or a
+    downstream system recorded an outcome for (`AuditStore.labelled`), the newest `limit`.
+    `labels` holds its primary question's label (`truth_label`: the outcome when there is one,
+    else the reviewer's), `attributes.source` says which (`outcome` or `review`), and `review`
+    and `outcome` what each said. A decision whose input was stored only as a hash is counted in
+    `skipped`, and so are an encrypted input without a `reader` and a record from before records
+    named their primary question. A record names no person: not the reviewer, not who recorded
+    the outcome, and no note."""
+    records = []
+    skipped = 0
+    for item in store.labelled(pack_id=pack_id, limit=limit, reader=reader):
+        record = item["record"]
+        primary = record.get("primary")
+        if record.get("input") is None or not isinstance(primary, str):
+            skipped += 1
+            continue
+        entry: dict[str, Any] = {
+            "id": f"reviewed-{item['id']}",
+            "input": record["input"],
+            "labels": {primary: truth_label(item)},
+            "system": _system(record),
+        }
+        if item["final_label"] is not None:
+            entry["review"] = {
+                "label": item["final_label"],
+                "overridden": item["human_override"],
+                "resolved_at": item["resolved_at"],
+            }
+        if item["observed_label"] is not None:
+            entry["outcome"] = {"label": item["observed_label"]}
+        entry["attributes"] = _attributes(
+            "outcome" if item["observed_label"] is not None else "review", item["id"]
+        )
+        records.append(entry)
+    return records, skipped
+
+
+def _attributes(source: str, decision_id: str) -> dict[str, str]:
+    """Where a record came from, the decision it was, and that an export wrote it: the mark
+    that keeps a site's cases out of a pack's archive (`core/site_cases.py`)."""
+    return {"source": source, "decision_id": decision_id, EXPORTED_BY: EXPORT}
+
+
+def _system(record: dict[str, Any]) -> dict[str, Any]:
+    """What the pack decided, beside what people said of it."""
+    return {
+        "outcome": record["outcome"],
+        "recommendation": record["recommendation"],
+        "priority": record["priority"],
+        "answers": {q: a["label"] for q, a in record["answers"].items()},
+        "pack_version": record["pack"]["version"],
+    }
 
 
 def _agreed_labels(feedback: list[dict[str, Any]]) -> dict[str, str]:

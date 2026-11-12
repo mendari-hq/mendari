@@ -10,6 +10,13 @@ mtime 0), so the same pack always gives the same bytes and the same archive dige
 - `pack/...`: the pack's files (everything but hidden files and caches; evaluation reports and
   the rendered card included, so they are signed too, though the pack digest leaves them out).
 
+`build` makes no archive of a pack that holds a site's cases that say what they are: cases
+`mendari improve` added to it or `mendari feedback export` wrote, or a model built from them.
+They may be patient text. Each is marked (`core/site_cases.py`), and those marks are looked for
+in every file the archive would hold, before anything is signed (`refuse_site_cases`). So
+`mendari pack build` and `mendari push` stop there, and a registry looks again at what it is
+sent (`hub/registry.py`), since a client need not have.
+
 `verify` checks the whole archive before anything is written to disk: only regular files under
 `pack/` (no link, device, FIFO or sparse file), every name a plain relative path (no empty, `.`,
 `..` or hidden segment, so no absolute path and no traversal), size and count caps, every file
@@ -44,6 +51,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 
 from mendari.core.origin import Origin
 from mendari.core.pack import Pack, load_pack
+from mendari.core.site_cases import marked_files
 from mendari.errors import HubError
 
 FORMAT = "mendari-pack/1"
@@ -58,6 +66,7 @@ MAX_UNPACKED_BYTES = MAX_ARCHIVE_BYTES * 4  # the tar stream the gzip expands to
 MAX_EXPANSION = 100
 EXPANSION_FLOOR = 64 * 1024 * 1024
 _CHUNK = 64 * 1024
+MAX_FILES_NAMED = 5  # the files a refusal of a site's cases names: the rest are counted
 
 
 @dataclass(frozen=True)
@@ -130,9 +139,44 @@ def archive_name(pack: Pack) -> str:
     return f"{namespace}-{name}-{pack.version}.ohpack"
 
 
+def refuse_site_cases(files: Mapping[str, bytes]) -> None:
+    """A `HubError` when a pack's files (path -> content, as an archive holds them) hold a
+    site's cases: cases `mendari improve` added or `mendari feedback export` wrote, or a model
+    built from them, found by their marks, in any file and however it is laid out
+    (`core/site_cases.py`). One line that names the first `MAX_FILES_NAMED` files with how many
+    times each is marked, and counts the rest; never a case's id or text. A site's cases stay
+    where the site keeps them: whether such a pack may ever be published is not this function's
+    to decide, so nothing turns it off."""
+    found = sorted(marked_files(files).items())
+    if not found:
+        return
+    named, rest = found[:MAX_FILES_NAMED], found[MAX_FILES_NAMED:]
+    where = ", ".join(f"{count} in {_shown(path)}" for path, count in named)
+    if rest:
+        others = "1 other file" if len(rest) == 1 else f"{len(rest)} other files"
+        where += f", and {sum(count for _, count in rest)} more in {others}"
+    raise HubError(
+        "the pack holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
+        f"model built from them ({where}): a site's cases, which are never published. Keep "
+        "the pack where those cases may be, or take them out before it is built or pushed, "
+        "and where a model was built from them, run `mendari train`, which builds it again "
+        "without them."
+    )
+
+
+def _shown(path: str) -> str:
+    """A file's path as one line of a message holds it: escaped when a character of it (a
+    newline, say) would break the line."""
+    return path if path.isprintable() else ascii(path)
+
+
 def build(pack: Pack, key: Ed25519PrivateKey) -> bytes:
-    """The archive's bytes (deterministic: the same pack and key give the same archive)."""
+    """The archive's bytes (deterministic: the same pack and key give the same archive). A pack
+    that holds a site's cases, or a model built from them, is a `HubError`
+    (`refuse_site_cases`), raised on the bytes the archive would hold, before anything is
+    signed."""
     files = {f.relative_to(pack.root).as_posix(): f.read_bytes() for f in pack_files(pack.root)}
+    refuse_site_cases(files)
     manifest = {
         "format": FORMAT,
         "id": pack.id,

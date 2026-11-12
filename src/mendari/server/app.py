@@ -93,7 +93,7 @@ from mendari.errors import (
 )
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.compare import FROM_REGISTRY, not_compared
-from mendari.evals.feedback import feedback_dataset
+from mendari.evals.feedback import feedback_dataset, reviewed_dataset
 from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.hidden import (
     Declared,
@@ -2532,24 +2532,42 @@ def create_app(
         summary="Export feedback as a dataset",
     )
     def export_feedback(
-        request: Request, namespace: str, name: str, rating: Literal["up", "down"] = "down"
+        request: Request,
+        namespace: str,
+        name: str,
+        source: Literal["ratings", "reviews"] = "ratings",
+        rating: Literal["up", "down"] | None = None,
     ) -> Response:
-        """Rated decisions as JSONL for evaluation; `x-mendari-skipped` counts the ones stored
-        without their input."""
+        """What people said about a pack's decisions, as JSONL for evaluation, the newest 1,000:
+        rated decisions (`source=ratings`, thumbs `rating`, down unless given), or decisions a
+        reviewer resolved or an outcome was recorded for, each with the label a person chose
+        (`source=reviews`). `x-mendari-skipped` counts the ones stored without their input.
+        Each record says it was exported (`attributes.exported_by`): a site's cases, which no
+        pack archive holds."""
         pack = pack_or_404(f"{namespace}/{name}")
-        records, skipped = feedback_dataset(
-            store, pack_id=pack.id, rating=rating, reader=input_reader(request)
-        )
+        if source == "reviews":
+            if rating is not None:
+                raise HTTPException(422, "rating filters ratings: leave it out with reviews")
+            records, skipped = reviewed_dataset(
+                store, pack_id=pack.id, reader=input_reader(request)
+            )
+            filename = f"{name}-reviewed.jsonl"
+        else:
+            rating = rating or "down"
+            records, skipped = feedback_dataset(
+                store, pack_id=pack.id, rating=rating, reader=input_reader(request)
+            )
+            filename = f"{name}-feedback-{rating}.jsonl"
         log_event(request, "export.feedback", ids=[pack.id], count=len(records))
         if phi.mode != "off" and input_reader(request) is not None and records:
-            shown = [str(record["id"]).removeprefix("feedback-") for record in records]
+            shown = [str(record["attributes"]["decision_id"]) for record in records]
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
         return Response(
             body,
             media_type="application/x-ndjson",
             headers={
-                "content-disposition": f'attachment; filename="{name}-feedback-{rating}.jsonl"',
+                "content-disposition": f'attachment; filename="{filename}"',
                 # Decisions stored with audit.store_input=hash have no text to export.
                 "x-mendari-skipped": str(skipped),
             },

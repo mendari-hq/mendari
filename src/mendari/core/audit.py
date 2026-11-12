@@ -4886,6 +4886,28 @@ class AuditStore(RateBuckets):
         items = [_feedback_item(r) for r in rows]
         return self.reveal_inputs(items, reader, id_key="decision_id", own_notes=True)
 
+    def labelled(
+        self, *, pack_id: str, limit: int = 1000, reader: str | None = None
+    ) -> list[dict[str, Any]]:
+        """A pack's decisions that someone has labelled, newest first: a reviewer's
+        `final_label` (a resolved review), a downstream outcome's `observed_label`, or both
+        (`truth_label` says which one counts). Each as `query` gives a decision; under PHI mode
+        `encrypt`, with inputs for a `reader`, each such read chained (`reveal_inputs`)."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                f"SELECT d.* FROM decisions d WHERE {scope} AND d.pack_id = ? "
+                "AND (d.final_label IS NOT NULL OR d.observed_label IS NOT NULL) "
+                "ORDER BY d.created_at DESC, d.id LIMIT ?",
+                (*scoped, pack_id, limit),
+            )
+        items = [_row(row) for row in rows]
+        # A database binds only so many values in one statement: inputs are opened a part at a
+        # time (each part's reads chained together).
+        for start in range(0, len(items), _REVEALED_AT_ONCE):
+            self.reveal_inputs(items[start : start + _REVEALED_AT_ONCE], reader)
+        return items
+
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         scope, scoped = _scope()
         packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
@@ -5878,6 +5900,9 @@ def _page(db: _Session, sql: str, params: Sequence[Any], limit: int) -> list[dic
 def _total(db: _Session, sql: str, params: Sequence[Any]) -> int:
     row = db.one(sql, params)
     return int(row["n"]) if row else 0
+
+
+_REVEALED_AT_ONCE = 500  # the decisions `labelled` opens the inputs of in one statement
 
 
 def truth_label(row: Mapping[str, Any]) -> str | None:

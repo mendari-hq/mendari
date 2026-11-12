@@ -1004,6 +1004,48 @@ def test_phi_lookalikes_are_warnings_that_never_quote_the_text(new_pack: Path) -
     assert "123-45-6789" not in kinds and "617-555-2368" not in kinds
 
 
+def test_a_sites_case_is_an_error_in_any_file_of_the_folder(new_pack: Path) -> None:
+    """A site's cases are never contributed. A case a run of `mendari improve` added says so,
+    and so does one `mendari feedback export` wrote (`core/site_cases.py`), and a pull request
+    carries every file of the folder, a hidden one too: each file that holds one is an error,
+    named with how many times it is marked and never with the case."""
+    assert run(new_pack, base=None).passed
+    row = {
+        "id": "learned-0123456789abcdef",
+        "input": {"message": {"body": "a message one site's reviewer labelled"}},
+        "labels": {"request": "other", "urgent_symptoms": "no"},
+        "attributes": {"added_by": "mendari improve", "source": "review", "decision_id": "d-1"},
+    }
+    exported = {
+        **row,
+        "id": "reviewed-d-2",
+        "attributes": {
+            "source": "review",
+            "decision_id": "d-2",
+            "exported_by": "mendari feedback export",
+        },
+    }
+    (new_pack / "notes").mkdir()
+    (new_pack / "notes" / "kept.jsonl").write_text(json.dumps(row) + "\n")
+    (new_pack / "notes" / "reviewed.jsonl").write_text(json.dumps(exported) + "\n")
+    (new_pack / ".kept.jsonl").write_text((json.dumps(row) + "\n") * 2)
+    regenerate(new_pack)  # its benchmark and card, for the pack these files make it
+    report = run(new_pack, base=None)
+    assert [finding.rule for finding in report.errors] == ["phi", "phi", "phi"], report.text()
+    hidden, noted, from_an_export = messages(report, "phi")
+    held = (
+        "holds cases `mendari improve` added or `mendari feedback export` wrote, or a model "
+        "built from them"
+    )
+    assert hidden.startswith(f".kept.jsonl {held} (2 marked)")
+    assert noted.startswith(f"notes/kept.jsonl {held} (1 marked)")
+    assert from_an_export.startswith(f"notes/reviewed.jsonl {held} (1 marked)")
+    assert "mendari train" in noted
+    assert "reviewer labelled" not in report.text()
+    for said in ("d-1", "d-2", "learned-0123456789abcdef", "reviewed-d-2"):
+        assert said not in report.text()
+
+
 @pytest.mark.parametrize(
     ("text", "kind"),
     [
