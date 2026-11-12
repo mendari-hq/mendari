@@ -3040,6 +3040,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     hosted registry gets its key (a PR of its own); (5) no key rotation for launch: the key is treated as
     permanent, and `docs/operations/registry.md` says what a rotation still needs (a chained
     command that signs the existing versions again).
+    - [x] Answer (2) built (2026-11-11): `server/recalls.py` reads `GET /v1/registry-key` in
+      the same read as the recalls and holds a copy whose marker is not `accepted: true` once
+      the registry has a key ("pull it again"); tests in `tests/test_registry_recalls.py`
+      (SQLite and Postgres); T11's residual and the registry guide's known limits say the gap
+      is closed for servers (`Decision.from_hub` and `mendari decide` still do not check).
   - [x] **A signed head for the registry's chain** (owner decision 4 of 19i, 2026-11-10,
     brought forward from "not in LP-19"): `hub/checkpoint.py` (`mendari.registry-checkpoint/1`,
     signed with the registry's key), `mendari registry checkpoint` (read-only, prints the

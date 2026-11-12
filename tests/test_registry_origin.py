@@ -132,6 +132,7 @@ def test_an_organization_approves_a_pulled_digest_and_can_revoke_it(
     from mendari.server import recalls
 
     monkeypatch.setattr(recalls, "fetch_yanks", lambda _: [])  # its registry recalls nothing
+    monkeypatch.setattr(recalls, "fetch_signs", lambda _: False)  # and has no signing key
     client, digest, automated = _served(tmp_path, monkeypatch)
     with client:
         client.app.state.recall_watch.refresh("https://hub.example.org")  # type: ignore[attr-defined]

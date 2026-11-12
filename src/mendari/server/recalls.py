@@ -13,6 +13,13 @@ registry was never read since the server started, and one whose verified marker 
 registry (pulled before LP-18d: pull it again): what cannot be checked is treated as recalled,
 the safe direction.
 
+The same read asks whether the registry publishes a signing key (`GET /v1/registry-key`, 200 or
+404). Once it does, a pack whose marker does not record `accepted: true` (pulled while the
+registry counter-signed nothing, or before LP-19i) stops automating as a recalled one does, until
+`mendari pull` fetches it again with the registry's counter-signature (LP-19i, ADR-0015); the
+copy in the cache is never removed. A registry with no key changes nothing, and a read that fails
+keeps what was known, as for recalls.
+
 A registry is read over https only (plain http to this machine alone), with a short timeout,
 and its answer is read as data: a recall it lists is honoured whether or not its signature can
 be checked here, since a recall only lowers automation.
@@ -47,6 +54,11 @@ MAX_YANKS_BYTES = 5_000_000
 SEVERITIES = ("low", "medium", "high", "critical")
 
 Fetch = Callable[[str], list[dict[str, Any]]]
+FetchKey = Callable[[str], bool]
+UNSIGNED = (
+    "pulled before its registry counter-signed the versions it lists: pull it again so the "
+    "registry's counter-signature is checked"
+)
 
 
 def _seconds(name: str, default: float) -> float:
@@ -93,12 +105,27 @@ def fetch_yanks(registry: str, *, deadline_s: float = DEADLINE_S) -> list[dict[s
     return [item for item in found if isinstance(item, dict)]
 
 
+def fetch_signs(registry: str) -> bool:
+    """Whether a registry publishes its signing key (`GET /v1/registry-key`: 200 yes, 404 no),
+    https only (http to this machine). The key itself is not read: `mendari pull` checks it."""
+    if not is_https_or_local(registry):
+        raise MendariError("a registry is read over https")
+    with (
+        httpx.Client(timeout=TIMEOUT_S, follow_redirects=False) as http,
+        http.stream("GET", f"{registry.rstrip('/')}/v1/registry-key") as response,
+    ):
+        if response.status_code in (200, 404):
+            return response.status_code == 200
+        raise MendariError(f"the registry answered HTTP {response.status_code}")
+
+
 @dataclass
 class _Registry:
     checked_at: float | None = None  # the last read that worked (monotonic)
     recalled: dict[tuple[str, str], str] = field(default_factory=dict)  # (pack, version) -> why
     reading_since: float | None = None  # a read in flight, since
     failing: str | None = None  # the last read's error type, while reads fail
+    signs: bool = False  # it published a signing key at the last read that worked
 
 
 class RecallWatch:
@@ -109,6 +136,7 @@ class RecallWatch:
         packs: Iterable[Pack],
         *,
         fetch: Fetch | None = None,
+        fetch_key: FetchKey | None = None,
         clock: Callable[[], float] = time.monotonic,
         check_s: float | None = None,
         stale_s: float | None = None,
@@ -121,7 +149,8 @@ class RecallWatch:
                 f"{STALE_ENV} is at least twice {CHECK_ENV}: otherwise every pack from a registry "
                 "is held between two reads"
             )
-        self._fetch, self._clock, self._background = fetch, clock, background
+        self._fetch, self._fetch_key = fetch, fetch_key
+        self._clock, self._background = clock, background
         self._lock = threading.Lock()
         self.registries: dict[str, _Registry] = {
             str(url): _Registry()
@@ -130,10 +159,12 @@ class RecallWatch:
         }
 
     def refresh(self, registry: str) -> None:
-        """Read one registry's recalls now (the background thread calls this)."""
+        """Read one registry's recalls, and whether it has a signing key, now (the background
+        thread calls this)."""
         state = self.registries[registry]
         try:
             listed = (self._fetch or fetch_yanks)(registry)
+            signs = (self._fetch_key or fetch_signs)(registry)
         except Exception as error:  # unreachable, refused, not JSON: what was known stands
             kind = type(error).__name__
             with self._lock:
@@ -153,7 +184,7 @@ class RecallWatch:
             why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
             recalled[(pack, version)] = why
         with self._lock:
-            state.recalled, state.checked_at = recalled, self._clock()
+            state.recalled, state.checked_at, state.signs = recalled, self._clock(), signs
             state.reading_since, state.failing = None, None
 
     def _due(self, registry: str) -> None:
@@ -184,13 +215,17 @@ class RecallWatch:
         self._due(registry)
         state = self.registries[registry]
         with self._lock:
-            checked, recalled = state.checked_at, dict(state.recalled)
+            checked, recalled, signs = state.checked_at, dict(state.recalled), state.signs
         if checked is None:
             return "its registry has not been checked for recalls yet"
         if self._clock() - checked > self.stale_s:
             return "its registry could not be checked for recalls"
         why = recalled.get((pack.id, pack.version))
-        return None if why is None else f"{why} by its registry"
+        if why is not None:
+            return f"{why} by its registry"
+        if signs and pack.pulled.get("accepted") is not True:
+            return UNSIGNED
+        return None
 
     def status(self) -> dict[str, Any]:
         """For health: each registry's last read's age in seconds and how many it recalls."""
@@ -203,6 +238,7 @@ class RecallWatch:
                     else round(now - state.checked_at),
                     "recalled": len(state.recalled),
                     "failing": state.failing,
+                    "signs": state.signs,
                 }
                 for url, state in self.registries.items()
             }

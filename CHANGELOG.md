@@ -1431,6 +1431,18 @@ The first release (not yet published).
   counter-signature with `MENDARI_REGISTRY_COUNTERSIGNATURE`: `required` refuses a registry
   that shows no key, `shipped` trusts only a key shipped with the client (nothing on first
   use); unset, a pull is as described above.
+- **A server stops automating a copy its registry never counter-signed** (LP-19i follow-up;
+  nothing changes for a registry with no signing key). The read a running server already makes
+  of each registry's recalls now also asks whether the registry publishes a signing key
+  (`GET /v1/registry-key`). Once it does, a pulled pack whose marker does not record
+  `accepted: true` (pulled while the registry had no key, or before LP-19i) is held as a
+  recalled one is: its decisions go to a person, with a reason that says it was pulled before
+  its registry counter-signed and to pull it again. `mendari pull` of the same version then
+  checks the counter-signature and records it, and the running server automates the pack again
+  from its next decision, with no restart. A registry that cannot be read changes nothing new
+  (what was known stands until it is stale, as for recalls), and the cached copy is never
+  removed. Health's `registry_recalls` shows each registry's `signs`. `Decision.from_hub` and
+  `mendari decide` do not make this check.
 - **A signed head for the registry's chain, kept outside its database** (nothing changes for a
   registry with no signing key; no table or column is added, so a database from before reads
   as it did). The chain is unkeyed: whoever can write the whole database can rewrite it, and it

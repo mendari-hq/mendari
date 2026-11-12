@@ -140,7 +140,8 @@ version and removes a cached copy.
    about five minutes; on a quiet one, the first decision after the recall can still automate.
    The server's full `/api/health` (signed in, or in open mode) shows, under `registry_recalls`,
    each registry's last read (`checked_s_ago`, which grows while no decision starts a read), how
-   many versions it recalls (`recalled`) and the error type while reads fail (`failing`). The
+   many versions it recalls (`recalled`), the error type while reads fail (`failing`) and
+   whether it publishes a signing key (`signs`; see the known limits below). The
    Decision Card shows a recall the last pull recorded; one read since shows in health and in
    the decisions' reasons.
 3. **Not soon enough, or a quiet server?** Hold the pack on each deployment now
@@ -352,10 +353,16 @@ Known limits, stated plainly:
     Use `shipped` on any machine that pulls from the hosted registry once its key ships with
   the client, and `required` for a self-hosted registry that has a key. A value that is not one
   of the three refuses every pull.
-- **A cached copy is not re-checked when it is loaded.** `Decision.from_hub` and the server
-  load a pack already in the cache without asking the registry, so a copy pulled while the
-  registry had no key (`accepted: null`) keeps loading after the registry gets one. The check
-  runs at `mendari pull`.
+- **A cached copy is re-checked by a running server, not by the command line.** A server
+  asks each registry its packs came from whether it publishes a signing key, in the same read
+  as its recalls ([above](#recalls-and-deletions)). Once the registry has one, a copy pulled
+  while it had none (`accepted: null`), or before counter-signatures, stops automating: its
+  decisions go to a person with a reason that says to pull it again, and `mendari pull` of the
+  same version checks the counter-signature and lets it automate again, with no restart. The
+  copy stays in the cache. A registry the server cannot read changes nothing new (what was
+  known stands until it is stale, as for recalls). `Decision.from_hub` and `mendari decide`
+  still load a cached copy without asking the registry, as before: the check for them runs at
+  `mendari pull`.
 - **No freshness and no revocation.** A record has no expiry and is never withdrawn: a deleted
   version's record still verifies (the deletion is what stops it being served), and someone who
   can write the database can serve an older accepted version as the latest. Recalls

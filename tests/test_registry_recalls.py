@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import os
 import shutil
 import threading
 import time
@@ -15,16 +17,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import Decision
+from mendari.cli import main
 from mendari.core.origin import MARKER, ORIGIN_FORMAT
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
+from mendari.hub import yank
 from mendari.hub.client import packs_cache, pull
 from mendari.server.app import create_app
-from mendari.server.recalls import RecallWatch, fetch_yanks
+from mendari.server.recalls import UNSIGNED, RecallWatch, fetch_signs, fetch_yanks
 from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
 from tests.test_registry_engine import BILL, outside_sorter
 
 REGISTRY = "https://hub.example.org"
+
+
+def no_key(_: str) -> bool:
+    """A registry with no signing key."""
+    return False
 
 
 class Clock:
@@ -35,9 +44,9 @@ class Clock:
         return self.now
 
 
-def _pulled(tmp_path: Path, registry: str | None = REGISTRY) -> Any:
+def _pulled(tmp_path: Path, registry: str | None = REGISTRY, **marked: Any) -> Any:
     pack = outside_sorter(tmp_path)
-    record: dict[str, Any] = {"format": ORIGIN_FORMAT}
+    record: dict[str, Any] = {"format": ORIGIN_FORMAT, **marked}
     if registry:
         record["registry"] = registry
     (pack.root / MARKER).write_text(json.dumps(record))
@@ -57,7 +66,13 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
         return listed
 
     watch = RecallWatch(
-        [pack], fetch=fetch, clock=clock, check_s=300, stale_s=3600, background=False
+        [pack],
+        fetch=fetch,
+        fetch_key=no_key,
+        clock=clock,
+        check_s=300,
+        stale_s=3600,
+        background=False,
     )
     assert watch.held(pack) == "its registry has not been checked for recalls yet"
     watch.refresh(REGISTRY)
@@ -77,13 +92,15 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
     clock.now += 1000
     assert watch.held(pack) == "its registry could not be checked for recalls"
     assert watch.status() == {
-        REGISTRY: {"checked_s_ago": 4000, "recalled": 0, "failing": "MendariError"}
+        REGISTRY: {"checked_s_ago": 4000, "recalled": 0, "failing": "MendariError", "signs": False}
     }
 
 
 def test_a_pack_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path) -> None:
     unnamed = _pulled(tmp_path / "a", registry=None)
-    watch = RecallWatch([unnamed], fetch=lambda _: [], check_s=300, stale_s=3600, background=False)
+    watch = RecallWatch(
+        [unnamed], fetch=lambda _: [], fetch_key=no_key, check_s=300, stale_s=3600, background=False
+    )
     assert watch.held(unnamed) == "its registry is not recorded beside it: pull it again"
     owned = outside_sorter(tmp_path / "b")
     owned = type(owned)(**{**owned.__dict__, "origin": "local"})
@@ -92,7 +109,9 @@ def test_a_pack_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path
 
 def test_a_watched_recall_stops_automation_and_its_own_block(tmp_path: Path) -> None:
     pack = _pulled(tmp_path)
-    watch = RecallWatch([pack], fetch=lambda _: [], check_s=300, stale_s=3600, background=False)
+    watch = RecallWatch(
+        [pack], fetch=lambda _: [], fetch_key=no_key, check_s=300, stale_s=3600, background=False
+    )
     decision = Decision(pack, origin_approval=lambda _: True, recall_source=watch.held)
     assert decision.decide(BILL).outcome is Outcome.HUMAN_REVIEW  # not checked yet
     watch.refresh(REGISTRY)
@@ -102,6 +121,67 @@ def test_a_watched_recall_stops_automation_and_its_own_block(tmp_path: Path) -> 
 def test_a_registry_is_read_over_https_only() -> None:
     with pytest.raises(MendariError, match="https"):
         fetch_yanks("http://hub.example.org")
+    with pytest.raises(MendariError, match="https"):
+        fetch_signs("http://hub.example.org")
+
+
+def test_once_its_registry_has_a_key_a_copy_it_never_counter_signed_is_held(
+    tmp_path: Path,
+) -> None:
+    """LP-19i's known limit, closed for servers (owner, 2026-11-10): a copy pulled while its
+    registry had no key (`accepted: null`), or before LP-19i (no `accepted`), stops automating
+    once the registry publishes a key, until it is pulled again counter-signed. A registry with
+    no key changes nothing, and a read that fails keeps what was known."""
+    unsigned = _pulled(tmp_path / "a", accepted=None)
+    older = _pulled(tmp_path / "b")
+    signed = _pulled(tmp_path / "c", accepted=True)
+    clock = Clock()
+    signs, failing = [False], [False]
+
+    def fetch_key(registry: str) -> bool:
+        if failing[0]:
+            raise MendariError("unreachable")
+        return signs[0]
+
+    watch = RecallWatch(
+        [unsigned, older, signed], fetch=lambda _: [], fetch_key=fetch_key, clock=clock,
+        check_s=300, stale_s=3600, background=False,
+    )  # fmt: skip
+    watch.refresh(REGISTRY)
+    assert [watch.held(p) for p in (unsigned, older, signed)] == [None, None, None]
+    signs[0] = True
+    watch.refresh(REGISTRY)
+    assert [watch.held(p) for p in (unsigned, older, signed)] == [UNSIGNED, UNSIGNED, None]
+    assert watch.status()[REGISTRY]["signs"] is True
+    failing[0] = True
+    clock.now += 600
+    watch.refresh(REGISTRY)  # unreachable: what was known stands until it is stale
+    assert watch.held(unsigned) == UNSIGNED
+    assert watch.held(signed) is None
+    failing[0], signs[0] = False, False
+    watch.refresh(REGISTRY)  # a registry that drops its key: nothing it lists is held for it
+    assert watch.held(unsigned) is None
+    # The copy is pulled again, counter-signed: the marker beside it now says so, and the same
+    # pack, as the server loaded it, automates again.
+    signs[0] = True
+    watch.refresh(REGISTRY)
+    assert watch.held(unsigned) == UNSIGNED
+    (unsigned.root / MARKER).write_text(
+        json.dumps({"format": ORIGIN_FORMAT, "registry": REGISTRY, "accepted": True})
+    )
+    assert watch.held(unsigned) is None
+    assert unsigned.root.is_dir()  # never removed
+
+
+def test_a_recall_is_said_before_a_missing_counter_signature(tmp_path: Path) -> None:
+    pack = _pulled(tmp_path, accepted=None)
+    listed = [{"pack": pack.id, "version": pack.version, "yank": {"severity": "low"}}]
+    watch = RecallWatch(
+        [pack], fetch=lambda _: listed, fetch_key=lambda _: True, check_s=300, stale_s=3600,
+        background=False,
+    )  # fmt: skip
+    watch.refresh(REGISTRY)
+    assert watch.held(pack) == "recalled (low) by its registry"
 
 
 def test_a_running_server_stops_automating_a_pack_its_registry_recalls(
@@ -140,6 +220,47 @@ def test_a_running_server_stops_automating_a_pack_its_registry_recalls(
     shutil.rmtree(pulled.root)
 
 
+def test_a_running_server_holds_a_copy_its_registry_never_counter_signed(
+    hub: Hub,  # noqa: F811
+    tmp_path: Path,
+    db_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On SQLite and Postgres: pulled while its registry has no key, the pack automates once
+    approved; when the registry gets a key, the running server holds it with a reason that
+    says to pull it again; pulled again, counter-signed, it automates as before."""
+    monkeypatch.delenv(yank.KEY_ENV, raising=False)
+    token, key = hub.namespace("someone")
+    hub.client(token).push(outside_sorter(tmp_path / "source"), key)
+    pulled = pull("someone/visit-sorter", hub.client())
+    assert pulled.pulled["accepted"] is None
+    monkeypatch.setenv("MENDARI_PACKS", "someone/visit-sorter")
+    decide = "/api/packs/someone/visit-sorter/decide"
+    with TestClient(create_app(db_path=db_target)) as client:
+        watch = client.app.state.recall_watch  # type: ignore[attr-defined]
+        approval = {
+            "pack_id": pulled.id,
+            "pack_digest": pulled.digest,
+            "reference": "minutes 9",
+            "approver": "dr-a",
+        }
+        assert client.post("/api/registry-approvals", json=approval).status_code == 201
+        watch.refresh(hub.url)  # a registry with no key: nothing changes
+        assert client.post(decide, json=BILL).json()["outcome"] == "AUTO"
+        monkeypatch.setenv(yank.KEY_ENV, base64.b64encode(os.urandom(32)).decode())
+        watch.refresh(hub.url)
+        held = client.post(decide, json=BILL).json()
+        assert held["outcome"] == "HUMAN_REVIEW"
+        assert any(UNSIGNED in reason for reason in held["reasons"])
+        assert client.get("/api/health").json()["registry_recalls"][hub.url]["signs"] is True
+        assert pulled.root.is_dir()  # held, never removed
+        assert main(["registry", "countersign", "--db", str(tmp_path / "registry.db")]) == 0
+        again = pull("someone/visit-sorter", hub.client())
+        assert again.root == pulled.root and again.pulled["accepted"] is True
+        assert client.post(decide, json=BILL).json()["outcome"] == "AUTO"
+    shutil.rmtree(pulled.root)
+
+
 class _Registry(BaseHTTPRequestHandler):
     """A registry on this machine that answers `/<case>/v1/yanks` as each case says."""
 
@@ -158,6 +279,15 @@ class _Registry(BaseHTTPRequestHandler):
                 self.wfile.write(b"]")
             except (BrokenPipeError, ConnectionResetError):  # the reader gave up, as it should
                 pass
+            return
+        if self.path.endswith("/v1/registry-key"):
+            status = {"keyed": 200, "keyless": 404, "moved": 302}.get(case, 500)
+            self.send_response(status)
+            if case == "moved":
+                self.send_header("location", "http://169.254.169.254/")
+            self.send_header("content-length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
             return
         body = {
             "ok": b'[{"pack": "a/b", "version": "1.0.0"}, 3]',
@@ -207,6 +337,14 @@ def test_a_registrys_answer_is_bounded_in_size_time_and_shape(local_registry: st
     assert time.monotonic() - started < 1.9
 
 
+def test_whether_a_registry_has_a_key_is_read_from_its_status_only(local_registry: str) -> None:
+    assert fetch_signs(f"{local_registry}/keyed") is True
+    assert fetch_signs(f"{local_registry}/keyless") is False
+    for case, problem in (("error", "HTTP 500"), ("moved", "HTTP 302")):
+        with pytest.raises(MendariError, match=problem):
+            fetch_signs(f"{local_registry}/{case}")
+
+
 def test_a_lost_read_is_started_again_and_one_reads_at_a_time(tmp_path: Path) -> None:
     pack = _pulled(tmp_path)
     clock = Clock()
@@ -218,7 +356,9 @@ def test_a_lost_read_is_started_again_and_one_reads_at_a_time(tmp_path: Path) ->
         gate.wait(5)
         return []
 
-    watch = RecallWatch([pack], fetch=fetch, clock=clock, check_s=300, stale_s=3600)
+    watch = RecallWatch(
+        [pack], fetch=fetch, fetch_key=no_key, clock=clock, check_s=300, stale_s=3600
+    )
     for _ in range(5):
         watch.held(pack)  # one background read in flight, however many decisions
     time.sleep(0.2)
