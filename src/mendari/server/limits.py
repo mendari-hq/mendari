@@ -344,6 +344,10 @@ class Limiter:
             return "export"
         if permission == "label":  # a labeller's routes: a person's pace, each case read chained
             return "label"
+        if permission == "registry_review" and method != "GET":
+            # A registry reviewer's acts (LP-19e): each a chained event, for good, so counted
+            # per person at a person's pace, as a labeller's are.
+            return "label"
         return None
 
     def check(self, request: Request, permission: str, principal_id: str) -> RateLimited | None:

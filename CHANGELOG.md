@@ -1398,6 +1398,21 @@ The first release (not yet published).
   people's routes a namespace has 20 working tokens and 20 keys at most, and an organization
   mints 50 tokens a day at most. Turning the switch on anywhere is the
   owner's step.
+- **Registry reviewers** (LP-19e; off unless `MENDARI_REGISTRY_REVIEW_ORG` names an
+  organization that has a record, with the registry mounted and memberships mode). A new
+  reserved membership role, `registry_reviewer`, grants one new people-only permission,
+  `registry_review`, and only for a membership of that one organization: giving it in any
+  other is refused (`422`), and held elsewhere it grants nothing, so an administrator never
+  makes themselves a reviewer of their own namespace. Reviewers read the queue of pending
+  claims (`GET /api/registry/review`: each claim's organization, who claimed it, and its
+  versions with what the registry checked apart from what the publisher claims) and do what
+  the administrator token did: approve or refuse a claim, set a publisher type, record a
+  version's review, recall it with the registry's signature and delete it, under
+  `/api/registry/review/...`, each chained by the reviewer's id. A reviewer never decides a
+  claim they filed. Never a key, a client, a publisher token, open mode or claims mode. The
+  operator has the same acts on the database where nobody signs in (`mendari registry
+  publisher-type`, `review`, `recall`, `delete`). The administrator token of a registry of its
+  own is unchanged until LP-19g. Naming the review organization anywhere is the owner's step.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

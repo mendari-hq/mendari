@@ -94,6 +94,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | governance | read, approve automation |
 | admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
 | labeller (people, memberships mode) | `label`: labelling hidden evaluation sets |
+| registry_reviewer (people, memberships mode, the review organization only) | `registry_review` |
 | a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
 
 An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
@@ -180,18 +181,22 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     # operator mints (`mendari access grader-key`), never by a person or a membership.
     "labeller": frozenset({"label"}),
     "grading": frozenset({"grade"}),
+    # The pack registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
+    # organization `MENDARI_REGISTRY_REVIEW_ORG` names (`Auth._member`), and nowhere else.
+    accounts.REGISTRY_REVIEWER: frozenset({"registry_review"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
 # managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
-# and labelling their cases (`label`).
-PEOPLE_ONLY = frozenset({"keys", "curate", "label"})
+# and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
+PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review"})
 # What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
 # administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
 GRADING_ONLY = frozenset({"grade"})
 GRADING = "grading"
 # What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
-# sets need sign-in (core/evalset_keys.py refuses the keys without it).
-NEVER_OPEN = frozenset({"grade", "label", "curate"})
+# sets need sign-in (core/evalset_keys.py refuses the keys without it), and so does reviewing
+# the pack registry (a reviewer is a person with a membership).
+NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -241,7 +246,9 @@ _MEMBERSHIPS_ONLY = re.compile(
 # as they did before there was a registry (`Auth.permission`).
 REGISTRY_MOUNT = r"^/registry/"
 REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens)(/|$)"
-_REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE})
+# Its reviewers' routes (LP-19e): the queue and the acts that were the administrator token's.
+REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
+_REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
@@ -321,6 +328,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # An organization's namespace claims and publisher tokens, managed by its
         # administrators (people only), before the reads below.
         ("*", REGISTRY_PEOPLE, "keys"),
+        # The registry's reviewers (LP-19e): members of the one review organization who hold
+        # `registry_reviewer` there, people only. Every method and path under it, before the
+        # reads below: the queue shows namespaces nobody else is served.
+        ("*", REGISTRY_REVIEW, "registry_review"),
         # Memberships mode: an organization's people, managed by its administrators (people
         # only). Before the reads below: these lists hold e-mail addresses.
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
@@ -483,7 +494,10 @@ class Principal:
         granted = self.role_permissions()
         return granted if self.grant is None else granted & self.grant.permissions
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, review_org: str | None = None) -> dict[str, Any]:
+        """As `/api/auth/me` shows a principal. `review_org` (the pack registry's review
+        organization, LP-19e): a person acting for it is told so (`registry_review_org`), so
+        its administrators are offered the reviewer role, which is refused anywhere else."""
         shown: dict[str, Any] = {
             "kind": self.kind,
             "name": self.name,
@@ -497,6 +511,8 @@ class Principal:
             shown |= {"scope": scope, "expires_at": self.expires_at}
         if self.kind == "ehr":
             shown["level"] = self.level
+        if self.kind == "user" and review_org is not None and self.org == review_org:
+            shown["registry_review_org"] = True
         return shown
 
 
@@ -794,8 +810,9 @@ def _roles_field(**default: Any) -> Any:
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
         description="Roles: viewer, reviewer, service, governance, admin, pack_author (reserved: "
-        "grants nothing yet) and labeller (labels hidden evaluation sets: label only). Never "
-        "grading.",
+        "grants nothing yet), labeller (labels hidden evaluation sets: label only) and "
+        "registry_reviewer (reviews the pack registry; given in its review organization only, "
+        "a 422 in any other). Never grading.",
     )
 
 
@@ -866,9 +883,13 @@ class Auth:
         cds: CdsRegistry | None = None,
         cds_open: CdsOpenMode | None = None,
         registry: bool = False,
+        review_org: str | None = None,
     ):
         self.settings = settings
         self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
+        # The one organization whose `registry_reviewer` members review the registry
+        # (`MENDARI_REGISTRY_REVIEW_ORG`, LP-19e); None: the role grants nothing anywhere.
+        self.review_org = review_org
         # The registered CDS clients (`MENDARI_CDS_CLIENTS`, LP-23b); None: no JWT is accepted.
         self.cds = cds
         # Where open mode answers `/cds-services` (LP-23c): this machine, or anywhere under
@@ -1045,7 +1066,9 @@ class Auth:
         cached). None for no session. Without that membership in force (none chosen, removed,
         or removed and given again: a new one is chosen anew) they act for no organization,
         with no role: never `default`, never another of their memberships. Of the reserved
-        roles, `labeller` grants `label` (LP-11); `pack_author` grants nothing yet."""
+        roles, `labeller` grants `label` (LP-11); `registry_reviewer` grants `registry_review`
+        in the review organization only (LP-19e), nothing in any other; `pack_author` grants
+        nothing yet."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
         if session is None:
             if sent:
@@ -1062,6 +1085,8 @@ class Auth:
             found = self.store.membership_in_force(person, chosen)
             if found is not None and found["id"] == held:
                 granting = frozenset(ROLES) | frozenset(accounts.GRANTING_RESERVED)
+                if self.review_org is not None and chosen == self.review_org:
+                    granting |= frozenset(accounts.REVIEW_ORG_ONLY)
                 org, roles = chosen, frozenset(found["roles"]) & granting
         request.state.member_session = session  # what choosing an organization rewrites
         return Principal(
@@ -1569,7 +1594,9 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         """Whether sign-in is on here, and the signed-in person or key with their roles. In
         memberships mode, also `accounts: "memberships"` and, for a person, `memberships`: the
         organizations they hold a membership of (theirs only), each with its name and roles;
-        `principal.org` is null while they act for none."""
+        `principal.org` is null while they act for none. `principal.registry_review_org` is
+        true for a person acting for the pack registry's review organization, and absent
+        otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
         if principal is None:
@@ -1578,7 +1605,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         mode = "sign-in" if signed_in else "open"
         if auth.memberships and principal.kind == "user":
             shown["memberships"] = store.member_of(principal.id)
-        return {"mode": mode, "signed_in": signed_in, "principal": principal.to_dict(), **shown}
+        shown_principal = principal.to_dict(review_org=auth.review_org)
+        return {"mode": mode, "signed_in": signed_in, "principal": shown_principal, **shown}
 
     if auth.memberships:
         add_membership_routes(app, auth)
@@ -1766,6 +1794,18 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         record = store.organization(org)
         return org if record is None else str(record["name"])
 
+    def grantable(roles: list[str], org: str) -> list[str]:
+        """`roles`, when `org`'s administrators may give them. `registry_reviewer` is given in
+        the registry's review organization only (`422` in any other, and where there is none):
+        an administrator elsewhere never makes a reviewer (LP-19e)."""
+        if org != auth.review_org and set(roles) & set(accounts.REVIEW_ORG_ONLY):
+            raise AuthError(
+                f"{accounts.REGISTRY_REVIEWER!r} is given only in the pack registry's review "
+                "organization",
+                422,
+            )
+        return roles
+
     def refusal(error: accounts.MembershipRefused) -> AuthError:
         """A membership change the store refused, as its answer: unknown, another
         organization's or ended (`404`), or one that would leave the organization without an
@@ -1886,7 +1926,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         made = store.create_invitation(
             org=org_of(principal),
             email=body.email,
-            roles=body.roles,
+            roles=grantable(body.roles, org_of(principal)),
             created_by=principal.id,
             days=body.days,
         )
@@ -1958,7 +1998,10 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         principal = auth.acting(request)
         try:
             changed = store.set_membership_roles(
-                membership_id, body.roles, org=org_of(principal), changed_by=principal.id
+                membership_id,
+                grantable(body.roles, org_of(principal)),
+                org=org_of(principal),
+                changed_by=principal.id,
             )
         except accounts.MembershipRefused as refused:
             raise refusal(refused) from None
@@ -2031,7 +2074,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
                 org=org,
                 outcome=body.outcome,
                 handled_by=principal.id,
-                roles=body.roles,
+                roles=grantable(body.roles, org),
             )
         except accounts.MembershipRefused as refused:
             if refused.reason != "member":

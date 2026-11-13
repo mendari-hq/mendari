@@ -507,6 +507,15 @@ def _secure(
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return
+    if permission == "registry_review":  # people only, the review organization's reviewers
+        operation["security"] = [{"session": []}]
+        needed = (
+            "a person who signed in holding the registry_reviewer role in the pack registry's "
+            "review organization (`registry_review`, memberships mode; never a key, a token "
+            "or an administrator of another organization)"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
     if permission == "curate":  # people only, an administrator (server/auth.py)
         operation["security"] = [{"session": []}]
         needed = (

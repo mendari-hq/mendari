@@ -48,6 +48,8 @@ Configuration comes from the environment:
   `/registry/v1/...`, with an administrator's claims and publisher tokens at
   `/api/registry/...` (LP-19d; docs/operations/registry.md). Unset (the default): nothing is
   mounted. A request body there is `MENDARI_MAX_BODY_BYTES` at most, under Vercel's 4.5 MB.
+  `MENDARI_REGISTRY_REVIEW_ORG` names the one organization whose `registry_reviewer` members
+  review it at `/api/registry/review/...` (LP-19e; unset: nobody does through the web).
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).
 - `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` (32 bytes in base64 each, two different

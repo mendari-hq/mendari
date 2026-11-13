@@ -345,7 +345,14 @@ export const MEMBERSHIP_ROLES = [
   { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
   { key: "pack_author", label: "Pack author", reserved: true },
   { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
+  // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
+  // where the server says this organization is that one (`me.registry_review_org`).
+  { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the pack registry: namespace claims, recalls and deletions", reviewOrg: true },
 ];
+
+// The roles this organization's administrators may give: every one, but the registry
+// reviewer's outside the registry's review organization.
+export const offeredRoles = () => MEMBERSHIP_ROLES.filter((r) => !r.reviewOrg || Boolean(state.me?.registry_review_org));
 
 export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.label ?? key;
 

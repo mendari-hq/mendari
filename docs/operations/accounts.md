@@ -27,7 +27,13 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
   only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
   [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
-  so, and no packs or review queue. An administrator manages the organization's hidden sets
+  so, and no packs or review queue. It may also hold `registry_reviewer`, which
+  grants `registry_review` alone, and only in the one organization
+  `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the pack registry served under the engine (its
+  routes under `/api/registry/review`, [Running a pack
+  registry](registry.md#registry-reviewers)). In any other organization the role is refused
+  when an administrator gives it (`422` at an invitation, a role change and a granted request
+  to join), and grants nothing if a membership holds it anyway. An administrator manages the organization's hidden sets
   (`curate`: its sets listed and read, their cases drawn, assigned and adjudicated, under
   `/api/evalsets`, mounted likewise, [evalsets](evalsets.md#curating-from-the-dashboard-api))
   and is never assigned their cases. `grading` is a machine's and is never held by a membership: an

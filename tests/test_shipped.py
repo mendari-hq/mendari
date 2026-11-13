@@ -189,6 +189,21 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/registry/namespaces/{namespace}/keys"): ("key.added",),
     (ENGINE, "POST", "/api/registry/tokens"): ("token.issued",),
     (ENGINE, "DELETE", "/api/registry/tokens/{token_id}"): ("token.revoked",),
+    # Its reviewers (LP-19e): the acts that were the administrator token's, by a person.
+    (ENGINE, "POST", "/api/registry/review/namespaces/{namespace}"): (
+        "namespace.approved",
+        "namespace.refused",
+    ),
+    (ENGINE, "POST", "/api/registry/review/namespaces/{namespace}/publisher-type"): (
+        "namespace.publisher_type_set",
+    ),
+    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}"): ("pack.reviewed",),
+    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}/recall"): (
+        "pack.yanked",
+    ),
+    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}/delete"): (
+        "pack.deleted",
+    ),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
     (ENGINE, "POST", "/api/registry-approvals"): ("registry_pack.approved",),
     (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_pack.revoked",),
@@ -314,6 +329,9 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
+    monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
+    with encrypted_store(tmp_path / "engine.db") as before:
+        before.create_organization(org="registry-review", name="Registry review", created_by="t")
     evalset_on(monkeypatch)
     found: set[Route] = set()
     apps = {

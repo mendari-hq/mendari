@@ -106,6 +106,9 @@ _WHO = {
     "never a key, a token or a labeller",
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
     "a token",
+    "registry_review": "a person holding the registry_reviewer role in the pack registry's "
+    "review organization (memberships mode), signed in: never a key, a token, or an "
+    "administrator of another organization",
     "grade": "the organization's grading key, which only the operator makes: never a person, an "
     "administrator, another key or a token; a grading run answers aggregates only",
 }

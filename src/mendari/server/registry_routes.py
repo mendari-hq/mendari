@@ -17,6 +17,15 @@ their id (`user:<hash>`), never by an address. The security log gets
 `admin.registry_namespace.claimed`, `admin.registry_key.added` and
 `admin.registry_token.created|revoked`, with ids only: never a token.
 
+The registry's reviewers (LP-19e) have routes of their own, `/api/registry/review/...`
+(`add_registry_review_routes`): the queue of pending claims and the acts that were the
+administrator token's (approve or refuse a claim, set a publisher type, review, recall and
+delete a version). They are mounted only in memberships mode with
+`MENDARI_REGISTRY_REVIEW_ORG` naming an organization that has a record, and answer only a person
+who holds `registry_reviewer` in that organization (`registry_review`: never a key, a client,
+open mode or claims mode, and never an administrator of another organization). They act on
+every organization's namespaces, which is why the role counts in one organization only.
+
 Imported inside `create_app` only: `mendari.hub.registry` imports from `server/app.py`.
 """
 
@@ -24,18 +33,46 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from mendari.errors import HubError
-from mendari.hub.registry import _NAME, MAX_TOKEN_DAYS, REVIEWER, RegistryStore
+from mendari.hub import yank
+from mendari.hub.registry import (
+    _NAME,
+    _VERSION,
+    MAX_TOKEN_DAYS,
+    REVIEWER,
+    DeleteRequest,
+    PublisherTypeRequest,
+    RegistryStore,
+    ReviewRequest,
+)
 from mendari.server import security_log
 from mendari.server.auth import Auth, Principal, org_of
 
 TAG = "Registry accounts"
+REVIEW_TAG = "Registry review"
+# What one answer of the reviewers' queue holds: the oldest pending claims, and of each
+# namespace its newest versions, without their cards (a card is up to 1 MB, and a publisher
+# chooses its size: one version's is read on its own). What is left out is counted.
+MAX_QUEUE = 50
+MAX_QUEUE_VERSIONS = 5
+_QUEUE_FIELDS = (
+    "id",
+    "name",
+    "version",
+    "digest",
+    "archive_sha256",
+    "published_at",
+    "checked",
+    "claimed",
+    "yank",
+    "deleted",
+)
 DEFAULT_TOKEN_DAYS = 90  # as an engine API key's (`core/audit.py`)
 # What one organization's administrators may make (each a row and a chained event, for good): a
 # namespace's tokens that work, the tokens an organization mints in a day (so revoking and
@@ -236,3 +273,249 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
             "admin.registry_token.revoked", actor=principal.id, org=org, ids=[token_id]
         )
         return Response(status_code=204)
+
+
+class ClaimDecisionRequest(BaseModel):
+    decision: Literal["approve", "refuse"]
+    # Chained for good and shown to the claim's organization: one short printable line.
+    note: str = Field(default="", max_length=yank.MAX_REASON)
+
+    @field_validator("note")
+    @classmethod
+    def _one_printable_line(cls, note: str) -> str:
+        why = yank.printable_line(note, yank.MAX_REASON) if note else None
+        if why or (note and not note.strip()):
+            raise ValueError(f"a note is {why or 'not only spaces'}")
+        return note
+
+
+class RegistryRecallRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=yank.MAX_REASON)
+    severity: yank.Severity
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_a_line(cls, reason: str) -> str:
+        why = yank.printable_line(reason, yank.MAX_REASON)
+        if why or not reason.strip():
+            raise ValueError(f"a reason is {why or 'not only spaces'}")
+        return reason
+
+
+def _a_version(namespace: str, name: str, version: str) -> None:
+    """A path that names a version as the registry names one: anything else is a version that
+    does not exist (never a lookup, never an echo of what was sent)."""
+    if not (_NAME.match(namespace) and _NAME.match(name) and _VERSION.match(version)):
+        raise HTTPException(404, "no such pack version")
+
+
+def add_registry_review_routes(
+    app: FastAPI, auth: Auth, registry: RegistryStore, review_org: str
+) -> None:
+    """The reviewers' routes (LP-19e). The guard lets through only a person who holds
+    `registry_review`, which `Auth._member` grants only for a `registry_reviewer` membership of
+    `review_org`; each route checks all three again, so a change to the guard's rules alone
+    never makes someone a reviewer."""
+
+    def reviewer(request: Request) -> Principal:
+        principal = auth.acting(request)
+        if (
+            principal.kind != "user"
+            or principal.org != review_org
+            or "registry_reviewer" not in principal.roles
+            or not principal.may("registry_review")
+        ):
+            raise HTTPException(403, "only a reviewer of this registry may do this")
+        return principal
+
+    def logged(name: str, principal: Principal, *ids: str) -> None:
+        security_log.event(name, actor=principal.id, org=review_org, ids=list(ids))
+
+    def not_theirs(principal: Principal, namespace: str) -> None:
+        """A reviewer never acts on a namespace whose claim they filed themselves: not its
+        decision, and not what the registry then shows as checked (its publisher type, a
+        version's review) or does to its versions. Another reviewer does."""
+        found = registry.claims(namespace=namespace)
+        if found and found[0]["claimed_by"] == principal.id:
+            raise HTTPException(403, "another reviewer acts on a namespace you claimed")
+
+    def shown(version: dict[str, Any], *, card: bool = False) -> dict[str, Any]:
+        """A version as a reviewer is shown it: what the registry checked apart from what its
+        publisher claims (ADR-0012) and, read on its own (`card`), the card the registry
+        rendered (never an uploaded one: `_version_row`)."""
+        fields = (*_QUEUE_FIELDS, "card_markdown") if card else _QUEUE_FIELDS
+        return {field: version.get(field) for field in fields}
+
+    @app.get("/api/registry/review", tags=[REVIEW_TAG], summary="The reviewers' queue")
+    def queue(request: Request) -> dict[str, Any]:
+        """The pending namespace claims, oldest first (50 at most; `more` counts the rest):
+        each with its organization, who claimed it (their id, never an address), whether that
+        is you (`own`: you cannot decide it), its publisher keys by id, and its newest versions
+        (5 at most; `more_versions` counts the rest), each with what the registry `checked`
+        apart from what the publisher `claimed`. A version's card is read with the version
+        (`GET /api/registry/review/packs/...`). A claim with no version cannot be approved
+        yet."""
+        principal = reviewer(request)
+        pending = registry.claims(status="pending")
+        items = []
+        for claim in pending[:MAX_QUEUE]:
+            space = registry.namespace(claim["namespace"], REVIEWER)
+            versions, total = registry.namespace_versions(
+                claim["namespace"], REVIEWER, limit=MAX_QUEUE_VERSIONS
+            )
+            items.append(
+                {
+                    "namespace": claim["namespace"],
+                    "org": claim["org"],
+                    "claimed_by": claim["claimed_by"],
+                    "created_at": claim["created_at"],
+                    "own": claim["claimed_by"] == principal.id,
+                    "display_name": space["display_name"],
+                    "publisher_type": space["publisher_type"],
+                    "keys": [k["key_id"] for k in space["keys"]],
+                    "versions": [shown(v) for v in versions],
+                    "more_versions": max(0, total - len(versions)),
+                }
+            )
+        return {"pending": items, "more": max(0, len(pending) - MAX_QUEUE)}
+
+    @app.get(
+        "/api/registry/review/packs/{namespace}/{name}/{version}",
+        tags=[REVIEW_TAG],
+        summary="One version, with its card",
+    )
+    def one_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """One version of any namespace, listed or not, as the queue shows it, with the card
+        the registry rendered from its archive (`card_markdown`; null for a version from before
+        the registry rendered its own)."""
+        reviewer(request)
+        _a_version(namespace, name, version)
+        found = _asked(lambda: registry.version(namespace, name, version, REVIEWER))
+        return shown(found, card=True)
+
+    @app.post(
+        "/api/registry/review/namespaces/{namespace}",
+        tags=[REVIEW_TAG],
+        summary="Approve or refuse a namespace claim",
+    )
+    def decide(request: Request, namespace: str, body: ClaimDecisionRequest) -> dict[str, Any]:
+        """Approve or refuse a pending claim, once. Approval needs a published version (`409`
+        without one); from then the namespace is listed, with every version it has and will
+        have. A refused namespace stays taken and is never listed. You never decide a claim you
+        filed yourself (`403`), nor act on its namespace in any other way here. No claim:
+        `404`; already decided: `409`. Chained
+        `namespace.approved` or `namespace.refused` with the claim's organization, your id and
+        the note."""
+        principal = reviewer(request)
+        if not _NAME.match(namespace):
+            raise HTTPException(404, "no such namespace")
+        not_theirs(principal, namespace)
+        decided = _asked(
+            lambda: registry.decide_claim(
+                namespace, approve=body.decision == "approve", by=principal.id, note=body.note
+            )
+        )
+        logged(f"admin.registry_claim.{decided['status']}", principal, namespace)
+        return decided
+
+    @app.post(
+        "/api/registry/review/namespaces/{namespace}/publisher-type",
+        tags=[REVIEW_TAG],
+        summary="Set a namespace's publisher type",
+    )
+    def publisher_type(
+        request: Request, namespace: str, body: PublisherTypeRequest
+    ) -> dict[str, Any]:
+        """Record who publishes in a namespace, after checking it: `community`, `verified` or
+        `institutional`. Shown with each of its versions as a checked fact. Chained
+        `namespace.publisher_type_set` with your id."""
+        principal = reviewer(request)
+        if not _NAME.match(namespace):
+            raise HTTPException(404, "no such namespace")
+        not_theirs(principal, namespace)
+        now = _asked(lambda: registry.namespace(namespace, REVIEWER))
+        if now["publisher_type"] == body.publisher_type:  # nothing to chain
+            return {"namespace": namespace, "publisher_type": body.publisher_type}
+        changed = _asked(
+            lambda: registry.set_publisher_type(namespace, body.publisher_type, by=principal.id)
+        )
+        logged("admin.registry_namespace.publisher_type_set", principal, namespace)
+        return {"namespace": namespace, "publisher_type": changed["publisher_type"]}
+
+    @app.post(
+        "/api/registry/review/packs/{namespace}/{name}/{version}",
+        status_code=201,
+        tags=[REVIEW_TAG],
+        summary="Record a version's review",
+    )
+    def review(
+        request: Request, namespace: str, name: str, version: str, body: ReviewRequest
+    ) -> dict[str, Any]:
+        """Record the risk level your review of one version found (which may differ from the
+        one its publisher declared) and a short note about the pack: never case text. The
+        newest review of a version is the one shown. Chained `pack.reviewed` with your id."""
+        principal = reviewer(request)
+        _a_version(namespace, name, version)
+        not_theirs(principal, namespace)
+        reviewed = _asked(
+            lambda: registry.review(
+                namespace,
+                name,
+                version,
+                risk_level=body.risk_level,
+                note=body.note,
+                reviewer=principal.id,
+            )
+        )
+        logged("admin.registry_pack.reviewed", principal, f"{namespace}/{name}@{version}")
+        return shown(reviewed)
+
+    @app.post(
+        "/api/registry/review/packs/{namespace}/{name}/{version}/recall",
+        status_code=201,
+        tags=[REVIEW_TAG],
+        summary="Recall a version",
+    )
+    def recall(
+        request: Request, namespace: str, name: str, version: str, body: RegistryRecallRequest
+    ) -> dict[str, Any]:
+        """Recall one version with a reason and a severity: the registry signs the record with
+        its own key, and every server that pulled the version stops automating with it. Without
+        a signing key (`MENDARI_REGISTRY_SIGNING_KEY`) nothing is recalled: `409`, and it says
+        so. A version is recalled once (`409`). Chained `pack.yanked` with your id."""
+        principal = reviewer(request)
+        _a_version(namespace, name, version)
+        not_theirs(principal, namespace)
+        recalled = _asked(
+            lambda: registry.recall_as_registry(
+                namespace,
+                name,
+                version,
+                reason=body.reason,
+                severity=body.severity,
+                by=principal.id,
+            )
+        )
+        logged("admin.registry_pack.recalled", principal, f"{namespace}/{name}@{version}")
+        return shown(recalled)
+
+    @app.post(
+        "/api/registry/review/packs/{namespace}/{name}/{version}/delete",
+        tags=[REVIEW_TAG],
+        summary="Delete a version",
+    )
+    def delete(
+        request: Request, namespace: str, name: str, version: str, body: DeleteRequest
+    ) -> dict[str, Any]:
+        """Delete one version (content it should never have carried): its archive is no longer
+        served, and its bytes are removed when no other version needs them. The row and a
+        tombstone with the reason stay, and the version is never published again. Once (`409`).
+        Chained `pack.deleted` with your id."""
+        principal = reviewer(request)
+        _a_version(namespace, name, version)
+        not_theirs(principal, namespace)
+        deleted = _asked(
+            lambda: registry.delete(namespace, name, version, reason=body.reason, by=principal.id)
+        )
+        logged("admin.registry_pack.deleted", principal, f"{namespace}/{name}@{version}")
+        return shown(deleted)
