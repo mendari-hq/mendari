@@ -166,6 +166,19 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "registry approve": (["--namespace", "a", "--reason", "x", "--db", "{missing_db}"], {}),
     "registry refuse": (["--namespace", "a", "--reason", "x", "--db", "{not_db}"], {}),
     "registry claims": (["--db", "{missing_db}"], {}),
+    "registry publisher-type": (
+        ["--namespace", "a", "--type", "verified", "--reason", "x", "--db", "{missing_db}"],
+        {},
+    ),
+    "registry review": (
+        ["a/b@1.0.0", "--risk-level", "1", "--reason", "x", "--db", "{missing_db}"],
+        {},
+    ),
+    "registry recall": (
+        ["a/b@1.0.0", "--severity", "low", "--reason", "x", "--db", "{not_db}"],
+        {},
+    ),
+    "registry delete": (["a/b", "--reason", "x", "--db", "{missing_db}"], {}),
     "registry countersign": (["--db", "{missing_db}"], {}),
     "registry checkpoint": (["--db", "{missing_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),

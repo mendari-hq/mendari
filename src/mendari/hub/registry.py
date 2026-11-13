@@ -699,13 +699,13 @@ class RegistryStore(RateBuckets):
                 "WHERE namespace = ?",
                 (status, by, _now(), note, name),
             )
-            record_event(
-                db,
-                f"namespace.{status}",
-                f"namespace:{name}",
-                {"namespace": name, "org": claim["org"], "by": by, "note": note},
-                row=("claims", "namespace = ?", (name,)),
-            )
+            decided = {"namespace": name, "org": claim["org"], "by": by, "note": note}
+            row = ("claims", "namespace = ?", (name,))
+            # Each name written out: the route inventory reads them (tests/test_shipped.py).
+            if approve:
+                record_event(db, "namespace.approved", f"namespace:{name}", decided, row=row)
+            else:
+                record_event(db, "namespace.refused", f"namespace:{name}", decided, row=row)
             if own is not None:  # listed from here: what was published while it was pending
                 waiting = db.all(f"{_NOT_COUNTERSIGNED} AND v.namespace = ?", (name,))
                 for version in sorted(
@@ -714,8 +714,8 @@ class RegistryStore(RateBuckets):
                     # Checked again from what is stored: one that is not genuine stays without
                     # a record, and every client of this registry refuses it.
                     _countersign(db, own, version, by, verified=False)
-        (decided,) = self.claims(namespace=name)
-        return decided
+        (claim_now,) = self.claims(namespace=name)
+        return claim_now
 
     def claims(
         self,
@@ -1191,6 +1191,35 @@ class RegistryStore(RateBuckets):
             key=lambda v: version_key(v["version"]),
         )
 
+    def namespace_versions(
+        self, namespace: str, viewer: Viewer = PUBLIC, *, limit: int = 5
+    ) -> tuple[list[dict[str, Any]], int]:
+        """The newest published versions of one namespace the viewer reads, across its packs
+        (`limit` at most), and how many it has in all: what a reviewer looks at before deciding
+        its claim (LP-19e). Only those rows are read: a version's stored card is up to 1 MB."""
+        with self._db.session(exclusive=False) as db:
+            unlisted = self._unlisted(db)
+            if not viewer.reads(namespace, unlisted):
+                return [], 0
+            total = db.one(
+                "SELECT COUNT(*) AS n FROM hub_versions WHERE namespace = ?", (namespace,)
+            )
+            rows = db.all(
+                "SELECT * FROM hub_versions WHERE namespace = ? "
+                "ORDER BY created_at DESC, name DESC, version DESC LIMIT ?",
+                (namespace, limit),
+            )
+            reviews = _reviews(db, "WHERE namespace = ?", (namespace,))
+            recalls = _recalls(db, "WHERE namespace = ?", (namespace,))
+            accepted = self._accepted(db, "WHERE namespace = ?", (namespace,))
+        listed = namespace not in unlisted
+        return [
+            _version_row(
+                r, reviews.get(_key(r)), recalls.get(_key(r)), listed, accepted.get(_key(r))
+            )
+            for r in rows
+        ], int(total["n"]) if total else 0
+
     def version(
         self, namespace: str, name: str, version: str, viewer: Viewer = PUBLIC
     ) -> dict[str, Any]:
@@ -1457,6 +1486,29 @@ class RegistryStore(RateBuckets):
                 row=("yanks", *where),
             )
         return self.version(namespace, name, version, REVIEWER)
+
+    def recall_as_registry(
+        self, namespace: str, name: str, version: str, *, reason: str, severity: str, by: str
+    ) -> dict[str, Any]:
+        """Recall a version with a record the registry signs with its own key
+        (`MENDARI_REGISTRY_SIGNING_KEY`; none: 409, and it says so): a reviewer's recall, the
+        operator's, and the administrator token's until it goes (LP-19g). `by` is who asked."""
+        own = _signing_key("recall")  # one that is set and is not a key: 503, the operator's
+        if own is None:
+            raise HubError(f"this registry has no signing key ({yank.KEY_ENV})", 409)
+        found = self.version(namespace, name, version, REVIEWER)
+        record = yank.sign(
+            pack=f"{namespace}/{name}",
+            version=version,
+            digest=found["digest"],
+            archive_sha256=found["archive_sha256"],
+            reason=reason,
+            severity=severity,
+            signer="registry",
+            key=own,
+            key_id=yank.registry_public(own)["key_id"],
+        )
+        return self.recall(namespace, name, version, record, by=by)
 
     def delete(
         self, namespace: str, name: str, version: str, *, reason: str, by: str
@@ -1961,6 +2013,8 @@ class ReviewRequest(BaseModel):
         paragraph separators): the note reads as the characters it holds."""
         if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp", "Co", "Cs") for c in note):
             raise ValueError("a review note is one line of printable text")
+        if note and not note.strip():
+            raise ValueError("a review note is not only spaces")
         return note
 
 
@@ -1986,8 +2040,8 @@ class DeleteRequest(BaseModel):
     @classmethod
     def _reason_is_a_line(cls, reason: str) -> str:
         why = yank.printable_line(reason, yank.MAX_REASON)
-        if why:
-            raise ValueError(f"a reason is {why}")
+        if why or not reason.strip():
+            raise ValueError(f"a reason is {why or 'not only spaces'}")
         return reason
 
 
@@ -2337,31 +2391,21 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
                 raise HubError("an administrator's recall is signed by the registry: send a reason")
             if body.reason is None or body.severity is None:
                 raise HubError("a recall needs a reason and a severity")
-            own = yank.registry_key()
-            if own is None:
-                raise HubError(
-                    "this registry has no signing key (MENDARI_REGISTRY_SIGNING_KEY)", 409
-                )
-            found = store.version(namespace, name, version, REVIEWER)
-            record: dict[str, Any] = yank.sign(
-                pack=f"{namespace}/{name}",
-                version=version,
-                digest=found["digest"],
-                archive_sha256=found["archive_sha256"],
+            recalled = store.recall_as_registry(
+                namespace,
+                name,
+                version,
                 reason=body.reason,
                 severity=body.severity,
-                signer="registry",
-                key=own,
-                key_id=yank.registry_public(own)["key_id"],
+                by=actor(request),
             )
-        else:
-            if body.record is None:
-                raise HubError("a publisher's recall is a record signed with a namespace key")
-            if body.record.get("signer") != "publisher":
-                raise HubError("a publisher's recall is signed by the publisher")
-            record = body.record
-        # Checked above: the namespace's own publisher, or an administrator.
-        recalled = store.recall(namespace, name, version, record, by=actor(request))
+            return served(recalled, REVIEWER)
+        if body.record is None:
+            raise HubError("a publisher's recall is a record signed with a namespace key")
+        if body.record.get("signer") != "publisher":
+            raise HubError("a publisher's recall is signed by the publisher")
+        # Checked above: the namespace's own publisher.
+        recalled = store.recall(namespace, name, version, body.record, by=actor(request))
         return served(recalled, REVIEWER)
 
     @app.post(

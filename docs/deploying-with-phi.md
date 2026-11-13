@@ -1084,6 +1084,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_ALERT_FORMAT` | `mendari` | `mendari` (JSON) or `slack` | 6 |
 | `MENDARI_ALERT_SECRET` | unset: unsigned, with a warning | Signs every alert (`Mendari-Signature`); 32 characters or more | 6 |
 | `MENDARI_STATUS_ORG` | unset | The organization the status checks decide in, which the scheduled monitor leaves out | 6 |
+| `MENDARI_REGISTRY_REVIEW_ORG` | unset: nobody reviews through the web | The one organization whose members holding `registry_reviewer` review the pack registry under this engine: the claims queue, publisher types, reviews, recalls and deletions at `/api/registry/review/...`. Needs `MENDARI_REGISTRY=on`, memberships mode and an organization with a record; otherwise the server starts, logs why and leaves reviewing off ([Registry reviewers](operations/registry.md#registry-reviewers)) | 2 |
 | `MENDARI_REGISTRY` | unset: nothing mounted | `on` serves the pack registry under this engine, on its database: public reads and token-only publishing at `/registry/v1/...`, and an administrator's claims and publisher tokens at `/api/registry/...` ([Running a pack registry](operations/registry.md#under-the-engine)) | 2 |
 
 ## 9. Before go-live

@@ -47,7 +47,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
-from mendari.core import checkpoint, clock, tenancy
+from mendari.core import accounts, checkpoint, clock, tenancy
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     OFF_DECISION_KINDS,
@@ -893,6 +893,9 @@ def create_app(
     status_org = settings.status_org()  # likewise
     # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
     registry_on = settings.registry_mounted()  # likewise
+    # Its reviewers' organization (LP-19e): unset, nobody reviews through the web. Checked once
+    # the store is open, below.
+    review_org = settings.registry_review_org()  # likewise
     registry_app: FastAPI | None = None  # mounted with the routes, below
     registry_headers: Mapping[str, str] | None = None  # the mounted registry's own
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
@@ -928,6 +931,38 @@ def create_app(
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
     if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
         store.evalset_ready(evalsets)
+    if review_org is not None:
+        # An optional feature never stops the server (as CRON_SECRET above): reviewing stays
+        # off, and the log says why.
+        why_not = (
+            "MENDARI_REGISTRY is not on"
+            if not registry_on
+            else "reviewers are memberships (MENDARI_ACCOUNTS=memberships with sign-in on)"
+            if not bind_org
+            else f"no organization {review_org!r} has a record (mendari access org create)"
+            if store.organization(review_org) is None
+            else None
+        )
+        if why_not is not None:
+            phi_logger.warning(
+                "MENDARI_REGISTRY_REVIEW_ORG is not used, so nobody reviews the pack registry "
+                "through the web (the operator's `mendari registry` commands still do): %s",
+                why_not,
+            )
+            review_org = None
+        else:
+            # Said at every start: a membership that held the role before this organization
+            # was named (the operator's command gives any role anywhere) reviews from now.
+            holding = sum(
+                accounts.REGISTRY_REVIEWER in member["roles"]
+                for member in store.memberships(org=review_org)
+            )
+            phi_logger.info(
+                "the pack registry's reviewers are the %d member(s) of %r holding %s",
+                holding,
+                review_org,
+                accounts.REGISTRY_REVIEWER,
+            )
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(
@@ -939,6 +974,7 @@ def create_app(
         cds=cds,
         cds_open=cds_open,
         registry=registry_on,
+        review_org=review_org,
     )
     cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
     origins = OriginCheck(
@@ -3188,7 +3224,10 @@ def create_app(
     if registry_on:
         # Imported here only: `mendari.hub.registry` imports this module.
         from mendari.hub.registry import REGISTRY_HEADERS, RegistryStore, create_registry_app
-        from mendari.server.registry_routes import add_registry_routes
+        from mendari.server.registry_routes import (
+            add_registry_review_routes,
+            add_registry_routes,
+        )
 
         # One store, on the engine's database, for the mounted registry and the people's
         # routes. The mounted registry is public to the guard and checks its own publisher
@@ -3205,6 +3244,8 @@ def create_app(
         app.state.registry_store = registry_store  # closed by whoever closes the app (tests)
         if auth.enabled:  # the people's routes need someone signed in
             add_registry_routes(app, auth, registry_store)
+            if review_org is not None:  # memberships mode, and the organization has a record
+                add_registry_review_routes(app, auth, registry_store, review_org)
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(

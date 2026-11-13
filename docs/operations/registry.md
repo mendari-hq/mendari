@@ -52,9 +52,10 @@ decision for a deployment, and no release turns it on.
   is refused by the registry like any unknown token, and a publisher token is refused by the
   engine everywhere else.
 - **No administrator token.** `MENDARI_REGISTRY_ADMIN_TOKEN` is not read under the engine: a
-  shared secret that publishes to every namespace has no place on the engine's origin. Until
-  registry reviewers sign in (LP-19e), claims are approved and refused, and versions reviewed,
-  recalled by the registry and deleted, with the operator's commands on the database
+  shared secret that publishes to every namespace has no place on the engine's origin. Claims
+  are approved and refused, and versions reviewed, recalled by the registry and deleted, by
+  the registry's reviewers once they are set up ([Registry reviewers](#registry-reviewers)),
+  and with the operator's commands on the database where they are not
   ([Namespace claims](#namespace-claims)).
 - **People claim and mint in the engine**, with sign-in on. An organization's administrators
   (the `keys` permission; never a key, a client or a publisher token) use:
@@ -263,7 +264,77 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
 - Each step is chained with the organization, who ran the command and why (`namespace.created`
   and `namespace.claimed`, then `namespace.approved` or `namespace.refused`), and every
   `pack.published` records the organization and whether the version was listed then.
-- Until reviewers sign in (LP-19e) the administrator token reads everything, as a reviewer.
+- On a registry of its own the administrator token reads everything, as a reviewer, until
+  LP-19g ends it.
+
+## Registry reviewers
+
+Under the engine, in memberships mode, the people who decide claims are members of one
+organization: the one `MENDARI_REGISTRY_REVIEW_ORG` names. Unset (the default), nobody reviews
+through the web and the operator's commands do. To set it up:
+
+```bash
+mendari access org create --db "$DATABASE_URL" --org registry-review --name "Registry review"
+# set MENDARI_REGISTRY_REVIEW_ORG=registry-review and restart; then an administrator of that
+# organization gives a member the role `registry_reviewer` (the Access view, or
+# PUT /api/auth/members/{id}/roles).
+```
+
+- **One organization only.** Any administrator gives any membership role, so a reviewer role
+  that counted everywhere would let every organization approve its own namespace.
+  `registry_reviewer` grants `registry_review` only for a membership of the review
+  organization. Giving it in any other organization is refused (`422`), and a membership that
+  holds it elsewhere anyway gains nothing. The review organization's own administrators are
+  not reviewers until they hold the role; whoever administers that organization decides who
+  reviews, so keep it small and its administrators few.
+- **People only**: never an API key, a Backend Services client, a publisher token, open mode
+  or claims mode (where roles come from the identity provider, and this one is never read
+  from it). Another site's page cannot call these routes (the engine's origin check).
+- **It never stops the server.** The setting must name an organization that has a record
+  (`mendari access org create`), with `MENDARI_REGISTRY=on` and memberships mode. Otherwise
+  the server starts, logs why the setting is not used, mounts none of these routes and treats
+  the role as granting nothing. An id no organization could have stops the server, like any
+  malformed setting.
+
+| Route | What it does |
+|---|---|
+| `GET /api/registry/review` | The pending claims, oldest first (50 at most): each with its organization, who claimed it (their id), its publisher keys by id, and its newest versions (5 at most) with what the registry `checked` apart from what the publisher `claimed`. No cards: a publisher chooses a card's size |
+| `GET /api/registry/review/packs/{namespace}/{name}/{version}` | One version of any namespace, listed or not, with the card the registry rendered |
+| `POST /api/registry/review/namespaces/{namespace}` `{decision, note}` | `approve` or `refuse` the claim, once |
+| `POST /api/registry/review/namespaces/{namespace}/publisher-type` `{publisher_type}` | Record who publishes there: `community`, `verified` or `institutional` |
+| `POST /api/registry/review/packs/{namespace}/{name}/{version}` `{risk_level, note}` | Record the risk level a version's review found |
+| `POST /api/registry/review/packs/{namespace}/{name}/{version}/recall` `{reason, severity}` | Recall it, signed by the registry (`409` without `MENDARI_REGISTRY_SIGNING_KEY`) |
+| `POST /api/registry/review/packs/{namespace}/{name}/{version}/delete` `{reason}` | Delete its archive for good, keeping a tombstone |
+
+- **A reviewer never acts on a namespace they claimed themselves** (`403`): not its decision,
+  its publisher type, a review, a recall or a deletion. The queue marks it `own`, and another
+  reviewer acts. A reviewer may still act on a namespace a colleague of their other
+  organization claimed; who reviews what beyond that is the review organization's to arrange.
+- **Changing the review organization changes who reviews, at the restart.** A membership of
+  the newly named organization that already holds the role (the operator's `mendari access`
+  commands give any role anywhere) reviews from then, with no new event, and the old
+  organization's reviewers stop. The server logs how many members hold the role each time it
+  starts: read that line after changing the setting.
+- A reviewer's writes are counted per person (60 a minute), and setting a publisher type to
+  what it already is chains nothing.
+- Each act is chained in the registry's chain by the store method the administrator token
+  used, with the reviewer's id (`user:<hash>`, never an address) as `by` (a review's
+  `reviewer`), and a claim's decision with the claim's organization. A review's `reviewer` is
+  served with the version, as before: an id, not a name. The security log gets
+  `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
+  `admin.registry_pack.reviewed|recalled|deleted`, with ids only.
+- Notes and reasons are one printable line, 300 characters at most, kept for good: about the
+  pack or the publisher, never case text.
+
+Where nobody signs in, or there is no review organization, the operator does the same on the
+database, each chained with who ran the command:
+
+```bash
+mendari registry publisher-type --db var/registry.db --namespace acme --type verified --reason "met them"
+mendari registry review acme/inbox@1.2.0 --db var/registry.db --risk-level 1 --reason "reads as level 1"
+mendari registry recall acme/inbox@1.2.0 --db var/registry.db --severity high --reason "a fault"   # needs the signing key
+mendari registry delete acme/inbox@1.2.0 --db var/registry.db --reason "carried what it should not"
+```
 
 ## The counter-signature
 
@@ -452,9 +523,9 @@ last hash) the same way and compare by hand.
 ## Not yet
 
 - **Accounts (LP-19).** Under the engine, an organization's administrators claim namespaces
-  and make publisher tokens ([Under the engine](#under-the-engine)); nobody yet signs in to
-  review a claim (LP-19e: the operator's commands do, above), and the dashboard has no page for
-  any of it (LP-19f). A registry of its own still has one shared administrator token, and a
+  and make publisher tokens ([Under the engine](#under-the-engine)); and the
+  members of one review organization decide claims ([Registry reviewers](#registry-reviewers));
+  the dashboard has no page for any of it yet (LP-19f). A registry of its own still has one shared administrator token, and a
   namespace that token makes over HTTP has no claim and is listed at once, until LP-19g ends
   it. Running the registry under the engine is LP-19's option A, the default the owner
   confirmed on 2026-11-07

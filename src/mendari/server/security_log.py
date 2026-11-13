@@ -56,6 +56,9 @@ replacement), `auth.key.replaced_used` (a rotated key used during its overlap, o
 `admin.registry_namespace.claimed`, `admin.registry_key.added` and
 `admin.registry_token.created|revoked` (an organization's administrators in the pack registry
 under the engine, LP-19d: the namespace, the key's id or the token's id, never a token),
+`admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
+`admin.registry_pack.reviewed|recalled|deleted` (the registry's reviewers, LP-19e: the
+reviewer's id, the review organization, and the namespace or `namespace/name@version`),
 `admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`,
 `registry_pack.approved|revoked`, `eval.run`,
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),

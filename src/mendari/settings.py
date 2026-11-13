@@ -183,6 +183,24 @@ def registry_mounted() -> bool:
     raise MendariError("MENDARI_REGISTRY is on or off")
 
 
+def registry_review_org() -> str | None:
+    """The one organization whose `registry_reviewer` members review the pack registry
+    ($MENDARI_REGISTRY_REVIEW_ORG; unset: nobody reviews through the web, LP-19e). An id no
+    organization could have fails at startup; one that is well formed and unused only leaves
+    reviewing off (`server/app.py` says so)."""
+    from mendari.core.accounts import is_org_id
+
+    raw = os.environ.get("MENDARI_REGISTRY_REVIEW_ORG", "").strip()
+    if not raw:
+        return None
+    if not is_org_id(raw):
+        raise MendariError(
+            "MENDARI_REGISTRY_REVIEW_ORG must be an organization's id: lower-case letters, "
+            "digits and hyphens"
+        )
+    return raw
+
+
 def database_target() -> str:
     """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
     Vercel; elsewhere `var/mendari.db`."""

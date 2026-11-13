@@ -32,10 +32,16 @@ USER_ID = re.compile(r"user:[0-9a-f]{16}")  # `person_id`'s form
 RESERVED_ORG = DEFAULT_ORG
 # The server's roles for people and machines (server/auth.py `ROLES`, which a test keeps equal).
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
-RESERVED_ROLES = ("pack_author", "labeller", "grading")
+RESERVED_ROLES = ("pack_author", "labeller", "registry_reviewer", "grading")
 NEVER_ON_A_MEMBERSHIP = frozenset({"grading"})
 # The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`).
 GRANTING_RESERVED = ("labeller",)
+# The pack registry's reviewers (LP-19e, ADR-0015): a role that grants `registry_review` in one
+# organization only, the one `MENDARI_REGISTRY_REVIEW_ORG` names, and is refused when given in
+# any other (server/auth.py). Any administrator grants any membership role, so a role that
+# counted everywhere would let every organization approve its own namespace.
+REGISTRY_REVIEWER = "registry_reviewer"
+REVIEW_ORG_ONLY = (REGISTRY_REVIEWER,)
 MEMBERSHIP_ROLES = (*PERSON_ROLES, *(r for r in RESERVED_ROLES if r not in NEVER_ON_A_MEMBERSHIP))
 ADMIN = "admin"
 # Who labels a hidden set's cases (`label`), and the roles that manage hidden sets (`curate`,

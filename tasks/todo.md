@@ -3053,7 +3053,36 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     in the database, so no new table; tests in `tests/test_registry_checkpoint.py`; threat rows
     T7 and T11. Left to the owner: where the statements are kept and what runs the command
     daily for the hosted registry (the PR's questions), before it gets its key.
-  - [ ] **19e** Registry reviewers. **19f** the dashboard. **19j** deployment configuration.
+  - [x] **19e** Registry reviewers (2026-11-12): `MENDARI_REGISTRY_REVIEW_ORG`, the reserved
+    role `registry_reviewer` and the people-only permission `registry_review`, which the role
+    grants only for a membership of that one organization (given in any other: `422`; held
+    there anyway: nothing); the queue and the acts that were the administrator token's at
+    `/api/registry/review/...` (`server/registry_routes.py`), each chained by the reviewer's
+    id; the operator's `mendari registry publisher-type|review|recall|delete`; tests in
+    `tests/test_registry_review.py`; threat rows E17 and R6 (reviews). Off without the
+    setting, the mount, memberships mode and an organization with a record (the server says
+    why and starts). The administrator token of a registry of its own is unchanged until 19g.
+    As built, where the plan left room: the review organization's record is checked when the
+    server starts, so the operator makes it first (`mendari access org create`); the queue is
+    the 50 oldest pending claims with each namespace's 5 newest versions, the rest counted;
+    `/api/auth/me` tells a person acting for the review organization so
+    (`registry_review_org`), and the dashboard's role picker offers the role only there (the
+    queue's own page is 19f); `decide_claim` writes its two event names out. One adversarial
+    review: no way found for anyone but a reviewer to act or read the queue; its fixes are in
+    (a reviewer acts on nothing of a namespace they claimed; the queue carries no card, and
+    one version is read with its card at `GET /api/registry/review/packs/...`; a malformed
+    signing key is a `503` on a recall; a note or reason of spaces is refused; an unchanged
+    publisher type chains nothing; a reviewer's writes are rate-limited per person; the server
+    logs how many members hold the role). Not changed: a malformed
+    `MENDARI_REGISTRY_REVIEW_ORG` stops the server as any malformed setting does. Left to the owner
+    (decision 2): which organization reviews, and setting it anywhere. Questions for the
+    owner, each built at its default: (1) a reviewer may act on a namespace claimed by a
+    colleague of another organization they belong to, only not one they claimed themselves
+    (the plan's rule, which the review widened from the decision to every act); (2) the
+    review organization's administrators choose the reviewers, and may give themselves the
+    role; (3) a review's `reviewer`, served with the version, is now a person's id
+    (`user:<hash>`), not `admin`.
+  - [ ] **19f** the dashboard. **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
   The options were:

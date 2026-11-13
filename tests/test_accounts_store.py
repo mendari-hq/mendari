@@ -494,7 +494,12 @@ def test_the_membership_roles_are_the_servers_and_the_reserved_ones() -> None:
     from mendari.server.auth import ROLES
 
     assert accounts.PERSON_ROLES == ROLES
-    assert set(accounts.MEMBERSHIP_ROLES) == {*ROLES, "pack_author", "labeller"}
+    assert set(accounts.MEMBERSHIP_ROLES) == {
+        *ROLES,
+        "pack_author",
+        "labeller",
+        "registry_reviewer",
+    }
 
 
 def test_an_older_database_reads_as_having_no_records_every_row_defaults(

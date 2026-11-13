@@ -18,7 +18,7 @@
 
 import { views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, actionDialog, api, docsLink, download, emptyState, esc, fileSlug, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, money, roleName, signedIn, state, time, toast, toastError, today, whileBusy } from "./ui.js";
+import { $, actionDialog, api, docsLink, download, emptyState, esc, fileSlug, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, money, offeredRoles, roleName, signedIn, state, time, toast, toastError, today, whileBusy } from "./ui.js";
 
 // An organization's people: memberships mode, an administrator who signed in. All three checks:
 // open mode's principal may do everything, `keys` included.
@@ -158,7 +158,7 @@ const roleText = (key) => {
 // Plain words first, each role's code one hover away (notes/ui-ux-review.md, decision 1).
 const rolesHtml = (roles) => roles.map((r) => `<span title="${esc(r)}">${esc(roleText(r))}</span>`).join(", ");
 
-const roleChoices = (checked) => `<fieldset class="role-choices"><legend>Roles</legend>${MEMBERSHIP_ROLES.map((r) => `<label>
+const roleChoices = (checked) => `<fieldset class="role-choices"><legend>Roles</legend>${offeredRoles().map((r) => `<label>
       <input type="checkbox" name="roles" value="${esc(r.key)}"${checked.includes(r.key) ? " checked" : ""}>
       <span><b>${esc(r.label)}</b> <span class="muted">${esc(r.reserved ? "reserved: grants nothing yet" : r.text)}</span></span>
     </label>`).join("")}</fieldset>`;

@@ -2066,6 +2066,108 @@ def cmd_registry_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registry_version(spec: str) -> tuple[str, str, str]:
+    """`namespace/name@version`, as every pull names a version."""
+    match = re.fullmatch(r"([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)@([0-9A-Za-z.+-]+)", spec)
+    if match is None:
+        raise MendariError(f"{spec!r} is not a version: namespace/name@version")
+    return match[1], match[2], match[3]
+
+
+def _registry_reason(text: str, what: str) -> str:
+    """A reason the registry chains: one printable line, as its routes ask."""
+    from mendari.hub import yank
+
+    why = yank.printable_line(text, yank.MAX_REASON)
+    if why or not text.strip():
+        raise MendariError(f"{what} is {why or 'empty: say why in one line'}")
+    return text
+
+
+def cmd_registry_publisher_type(args: argparse.Namespace) -> int:
+    """Record who publishes in a namespace as the operator, after checking it (LP-19e): where
+    nobody signs in, or there is no review organization. Chained
+    (`namespace.publisher_type_set`) with who ran this; the reason is printed with the answer,
+    for the operator's own record, and not kept (the event has no field for one)."""
+    from mendari.hub.registry import RegistryStore
+
+    reason = _registry_reason(args.reason, "--reason")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        changed = store.set_publisher_type(
+            args.namespace, args.publisher_type, by=_command_line_actor()
+        )
+    _print_json(
+        {
+            "namespace": args.namespace,
+            "publisher_type": changed["publisher_type"],
+            "reason": reason,
+        }
+    )
+    return 0
+
+
+def cmd_registry_review(args: argparse.Namespace) -> int:
+    """Record a version's review as the operator (LP-19e): the risk level the review found and
+    why, a short line about the pack, never case text. Chained (`pack.reviewed`) with who ran
+    this."""
+    from mendari.hub.registry import RegistryStore, ReviewRequest
+
+    namespace, name, version = _registry_version(args.version)
+    checked = ReviewRequest(
+        risk_level=args.risk_level, note=_registry_reason(args.reason, "--reason")
+    )
+    with RegistryStore(_existing_registry(args.db)) as store:
+        reviewed = store.review(
+            namespace,
+            name,
+            version,
+            risk_level=checked.risk_level,
+            note=checked.note,
+            reviewer=_command_line_actor(),
+        )
+    _print_json({"id": reviewed["id"], "version": version, "review": reviewed["checked"]["review"]})
+    return 0
+
+
+def cmd_registry_recall(args: argparse.Namespace) -> int:
+    """Recall a version as the operator (LP-19e): the registry signs the record with its own
+    key ($MENDARI_REGISTRY_SIGNING_KEY, which this command needs), and every server that pulled
+    the version stops automating with it. Once. Chained (`pack.yanked`) with who ran this."""
+    from mendari.hub.registry import RegistryStore
+
+    namespace, name, version = _registry_version(args.version)
+    with RegistryStore(_existing_registry(args.db)) as store:
+        recalled = store.recall_as_registry(
+            namespace,
+            name,
+            version,
+            reason=_registry_reason(args.reason, "--reason"),
+            severity=args.severity,
+            by=_command_line_actor(),
+        )
+    _print_json({"id": recalled["id"], "version": version, "yank": recalled["yank"]})
+    return 0
+
+
+def cmd_registry_delete(args: argparse.Namespace) -> int:
+    """Delete a version as the operator (LP-19e): its archive is no longer served, and its
+    bytes go when no other version needs them; the row and a tombstone with the reason stay.
+    Once, and for good. Chained (`pack.deleted`) with who ran this."""
+    from mendari.hub.registry import RegistryStore
+
+    namespace, name, version = _registry_version(args.version)
+    with RegistryStore(_existing_registry(args.db)) as store:
+        deleted = store.delete(
+            namespace,
+            name,
+            version,
+            reason=_registry_reason(args.reason, "--reason"),
+            by=_command_line_actor(),
+        )
+    _print_json({"id": deleted["id"], "version": version, "deleted": deleted["deleted"]})
+    return 0
+
+
 def cmd_registry_claims(args: argparse.Namespace) -> int:
     """The namespace claims in a registry's database, read-only: each one's organization, who
     claimed it, its status, and who decided it, when and why."""
@@ -3888,6 +3990,52 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", choices=("pending", "approved", "refused"), help="only in this status"
     )
     list_claims.set_defaults(handler=cmd_registry_claims)
+    set_type = registry_cmd.add_parser(
+        "publisher-type", help="record who publishes in a namespace, after checking it (chained)"
+    )
+    set_type.add_argument("--db", default="var/registry.db", help=registry_db)
+    set_type.add_argument("--namespace", required=True, help="the namespace")
+    set_type.add_argument(
+        "--type",
+        dest="publisher_type",
+        required=True,
+        choices=("community", "verified", "institutional"),
+    )
+    set_type.add_argument("--reason", required=True, help="why (printed; one line)")
+    set_type.set_defaults(handler=cmd_registry_publisher_type)
+    review_version = registry_cmd.add_parser(
+        "review", help="record the risk level a version's review found (chained)"
+    )
+    review_version.add_argument("version", help="namespace/name@version")
+    review_version.add_argument("--db", default="var/registry.db", help=registry_db)
+    review_version.add_argument(
+        "--risk-level", type=int, required=True, choices=range(5), help="0 to 4"
+    )
+    review_version.add_argument(
+        "--reason", required=True, help="a short note about the pack (chained and shown)"
+    )
+    review_version.set_defaults(handler=cmd_registry_review)
+    recall_version = registry_cmd.add_parser(
+        "recall",
+        help="recall a version, signed by the registry "
+        "(key: $MENDARI_REGISTRY_SIGNING_KEY; chained)",
+    )
+    recall_version.add_argument("version", help="namespace/name@version")
+    recall_version.add_argument("--db", default="var/registry.db", help=registry_db)
+    recall_version.add_argument(
+        "--severity", required=True, choices=("low", "medium", "high", "critical")
+    )
+    recall_version.add_argument(
+        "--reason", required=True, help="why (signed, chained and shown; one line)"
+    )
+    recall_version.set_defaults(handler=cmd_registry_recall)
+    delete_version = registry_cmd.add_parser(
+        "delete", help="delete a version's archive for good, keeping a tombstone (chained)"
+    )
+    delete_version.add_argument("version", help="namespace/name@version")
+    delete_version.add_argument("--db", default="var/registry.db", help=registry_db)
+    delete_version.add_argument("--reason", required=True, help="why (chained and kept; one line)")
+    delete_version.set_defaults(handler=cmd_registry_delete)
     countersign = registry_cmd.add_parser(
         "countersign",
         help="counter-sign the listed versions that have no record "

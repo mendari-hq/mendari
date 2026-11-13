@@ -203,7 +203,11 @@ refused unless an EHR is registered for it.
   `POST /api/registry/namespaces` and `POST /api/registry/tokens` (people only, like API keys).
   A publisher token (`Bearer ohr_…`) publishes to its own namespace at `/registry/v1/...` and
   is a credential nowhere else; an API key or a session cookie is never one there:
-  [Running a pack registry](../operations/registry.md#under-the-engine).
+  [Running a pack registry](../operations/registry.md#under-the-engine). The registry's
+  reviewers (members of its one review organization who hold `registry_reviewer`; people
+  only) read the queue of pending claims and decide them, and review, recall and delete
+  versions, under `/api/registry/review`:
+  [Registry reviewers](../operations/registry.md#registry-reviewers).
 - A credential never goes in a URL or a form. Refusals are a `401` or `403` with
   `WWW-Authenticate`, except a signed-in person's who has not yet acknowledged the notice
   (`GET /api/notice`): a `403` with `Mendari-Notice-Required` on routes that take data in.
