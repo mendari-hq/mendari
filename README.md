@@ -956,7 +956,9 @@ counter-signs each version it lists, and `mendari pull` refuses a version of suc
 whose counter-signature is missing or does not verify
 ([running a registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#the-counter-signature)). A registry runs on its own
 (`mendari registry serve`) or under the engine (`MENDARI_REGISTRY=on`, off by default), where
-an organization's administrators sign in to claim a namespace and make publisher tokens:
+an organization's administrators sign in to claim a namespace and make publisher tokens, in the
+dashboard's Access view or through the API, and the registry's reviewers approve claims on its
+Registry review screen:
 [Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#under-the-engine).
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->

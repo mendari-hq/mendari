@@ -13,6 +13,7 @@ import "./card.js";
 import "./try.js";
 import "./patient.js";
 import "./admin.js";
+import "./registry.js";
 import "./labelling.js";
 import "./evalsets.js";
 import { defaultPack, packOptions } from "./pack.js";
@@ -35,6 +36,7 @@ async function boot() {
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
   state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
   state.evalsets = Boolean(health?.evalset_keys); // hidden evaluation sets are on (evalsets.js)
+  state.registry = Boolean(health?.registry); // the pack registry is served here (registry.js)
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -54,8 +56,15 @@ async function boot() {
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
-    // A labeller and nothing else (LP-11): no packs to list, no notice, no review queue.
-    else if (me.principal.permissions.every((p) => p === "label")) state.noAccess = "label";
+    // A labeller (LP-11) or a reviewer of the pack registry (LP-19f), or both, and nothing
+    // else: no packs to list, no notice, no review queue; just their screens. The review screen
+    // where the server serves it (this organization is the registry's review organization), and
+    // labelling where it does (below).
+    else if (me.principal.permissions.every((p) => p === "label" || p === "registry_review")) {
+      state.reviewOnly = me.principal.permissions.includes("registry_review") && Boolean(me.principal.registry_review_org);
+      if (me.principal.permissions.includes("label")) state.noAccess = "label";
+      else if (!state.reviewOnly) state.noAccess = "nothing";
+    }
   }
   // Holding `label`, they label here where the deployment serves the labelling routes
   // (memberships mode with the evaluation-set keys, LP-11j): their counts say whether it does,
@@ -64,23 +73,28 @@ async function boot() {
   state.labelling = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
     && await api("/api/labelling").then(() => true, () => false);
   if (state.noAccess === "label" && state.labelling) [state.noAccess, state.labelOnly] = [null, true];
-  if (me?.signed_in && !state.noAccess && !state.labelOnly) await acknowledgeNotice(); // labelling is not notice-gated
+  if (state.noAccess === "label" && state.reviewOnly) state.noAccess = null; // no labelling here: reviewing
+  // Labelling and reviewing the registry are not notice-gated.
+  if (me?.signed_in && !state.noAccess && !state.labelOnly && !state.reviewOnly) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
   // An EHR launch in a browser whose person may do nothing here (no organization, roles that
   // grant nothing, or labelling alone): the launch's view, and, holding memberships, choosing
   // one of them.
-  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess || state.labelOnly));
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess || state.labelOnly || state.reviewOnly));
   if (state.launchOnly && state.noAccess !== "choose") state.noAccess = null;
-  if (state.launchOnly) state.labelOnly = false;
+  if (state.launchOnly) [state.labelOnly, state.reviewOnly] = [false, false];
   showLaunch();
   showOrganization();
   showAdministration();
   showEvalsets();
   showLabelling();
-  if ((state.noAccess || state.labelOnly) && !state.launchOnly) {
+  showRegistryReview();
+  if ((state.noAccess || state.labelOnly || state.reviewOnly) && !state.launchOnly) {
     $(".pack-picker").hidden = true;
-    // The docs stay; a labeller and nothing else keeps the labelling screen's link.
-    document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !(state.labelOnly && a.dataset.view === "labelling")));
+    // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
+    // links.
+    const kept = [state.labelOnly && "labelling", state.reviewOnly && "registry-review"];
+    document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !kept.includes(a.dataset.view)));
     window.addEventListener("hashchange", onHashChange);
     render();
     return;
@@ -203,6 +217,12 @@ function showEvalsets() {
 // Someone holding `label` where the labelling routes are served (LP-11m): the labelling screen.
 function showLabelling() {
   $('.nav a[data-view="labelling"]').hidden = Boolean(state.noAccess) || !views.labelling.available();
+}
+
+// A reviewer of the pack registry, in its review organization, where the registry is served here
+// (LP-19f): its review screen (registry.js).
+function showRegistryReview() {
+  $('.nav a[data-view="registry-review"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views["registry-review"].available();
 }
 
 boot().catch((error) => {

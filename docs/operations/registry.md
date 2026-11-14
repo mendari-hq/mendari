@@ -78,6 +78,11 @@ decision for a deployment, and no release turns it on.
   mounted: the operator's commands claim and mint. A namespace has 20 working tokens and 20
   publisher keys at most through these routes, and an organization mints 50 tokens a day at
   most (`409`, `429`).
+- **In the dashboard** the same administrators have two more tabs in the Access view:
+  **Namespaces** (claim one, see whether the registry lists it, add a publisher key) and
+  **Publisher tokens** (mint one, shown once in a dialog and never again; revoke, with a
+  confirmation; who made each, when it expires and the last day it was used). The tabs are
+  there only where the registry is on; a reserved or taken name is refused in words.
 - **A request body is the engine's limit at most** (`MENDARI_MAX_BODY_BYTES`, 4 MiB by default;
   a host may allow less): a larger archive is a `413` that says so. A registry of its own takes
   100 MB. Larger archives under the engine wait for the pack store (LP-20).
@@ -295,6 +300,13 @@ mendari access org create --db "$DATABASE_URL" --org registry-review --name "Reg
   the server starts, logs why the setting is not used, mounts none of these routes and treats
   the role as granting nothing. An id no organization could have stops the server, like any
   malformed setting.
+
+In the dashboard, a reviewer has the **Registry review** screen (`#registry-review`): each
+pending claim with its organization and who claimed it, and each of its newest versions with
+what the registry checked beside what the publisher claims, and the card the registry rendered
+(read as plain text when opened). Approve and Refuse ask for a one-line note, which the claim's
+organization sees; a claim you filed shows without either. Someone who holds nothing but the
+reviewer role sees this screen alone. Through the API:
 
 | Route | What it does |
 |---|---|
@@ -524,8 +536,8 @@ last hash) the same way and compare by hand.
 
 - **Accounts (LP-19).** Under the engine, an organization's administrators claim namespaces
   and make publisher tokens ([Under the engine](#under-the-engine)); and the
-  members of one review organization decide claims ([Registry reviewers](#registry-reviewers));
-  the dashboard has no page for any of it yet (LP-19f). A registry of its own still has one shared administrator token, and a
+  members of one review organization decide claims ([Registry reviewers](#registry-reviewers)),
+  in the dashboard as through the API. A registry of its own still has one shared administrator token, and a
   namespace that token makes over HTTP has no claim and is listed at once, until LP-19g ends
   it. Running the registry under the engine is LP-19's option A, the default the owner
   confirmed on 2026-11-07

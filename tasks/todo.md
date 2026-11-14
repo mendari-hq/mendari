@@ -3082,7 +3082,26 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     review organization's administrators choose the reviewers, and may give themselves the
     role; (3) a review's `reviewer`, served with the version, is now a person's id
     (`user:<hash>`), not `admin`.
-  - [ ] **19f** the dashboard. **19j** deployment configuration.
+  - [x] **19f** The dashboard (2026-11-13): `dashboard/registry.js` adds **Namespaces** and
+    **Publisher tokens** to the Access view (`extendAdmin` in `admin.js`), for an
+    administrator who signed in where `/api/health` says `registry`: claim (a reserved or taken
+    name refused in words), each claim's status in words with the reviewer's note when
+    refused, add a publisher key; mint (the token in the one-time dialog only), revoke after a
+    confirmation, who made each token, its expiry and last day used. And the **Registry
+    review** screen (`#registry-review`) for a person `/api/auth/me` marks
+    `registry_review_org` who holds `registry_review`: the pending claims, each version's
+    `checked` beside its `claimed`, the rendered card read as text when opened, Approve
+    (offered only once a version is published) and Refuse with a one-line note; a claim the
+    reviewer filed shows without either. Someone holding nothing but `registry_review` sees
+    that screen alone (`state.reviewOnly`, as a labeller alone sees labelling) and is not
+    asked the notice (reviewing is not gated). Styles from tokens; no route, rule or pack
+    changes. Tests: `tests/browser/test_registry_accounts.py` (the plan's six, plus a
+    reviewer's own claim and axe on every screen in both themes). As built, where the plan
+    left room: the reviewer's other acts (publisher type, a version's review, recall,
+    deletion) stay API and command-line only; the screen decides claims, which is what a
+    first publish waits on. Someone holding `label` and `registry_review` and nothing else sees
+    both screens (each where it is served), as one holding either alone sees theirs.
+  - [ ] **19j** deployment configuration.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
   The options were:
