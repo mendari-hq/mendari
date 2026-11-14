@@ -1413,6 +1413,16 @@ The first release (not yet published).
   operator has the same acts on the database where nobody signs in (`mendari registry
   publisher-type`, `review`, `recall`, `delete`). The administrator token of a registry of its
   own is unchanged until LP-19g. Naming the review organization anywhere is the owner's step.
+- **The registry in the dashboard** (LP-19f; shown only where `MENDARI_REGISTRY=on`). The
+  Access view gains two tabs for an organization's administrators: **Namespaces** (claim one,
+  each with its status in words, "Waiting for the registry's review", "Listed" or "Refused" with
+  the reviewer's note; add a publisher key) and **Publisher tokens** (mint one, shown once in
+  the one-time dialog; revoke after a confirmation; who made it, its expiry and the last day it
+  was used). A reserved or taken name is refused in words. A reviewer of the review organization
+  has the **Registry review** screen: the pending claims, each version's checks beside what its
+  publisher claims, the card the registry rendered as plain text, and Approve or Refuse with a
+  one-line note; a claim they filed shows without either. Someone whose only role is
+  `registry_reviewer` sees that screen alone. No route, rule or pack changes.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

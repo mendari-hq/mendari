@@ -56,15 +56,21 @@ class Site:
 
 @contextmanager
 def running(browser: Browser, db: Path) -> Iterator[Site]:
-    """The server, with the environment the caller set (memberships mode and sign-in)."""
+    """The server, with the environment the caller set (memberships mode and sign-in; the pack
+    registry too, with `MENDARI_REGISTRY=on`, its store closed with the server)."""
     app = create_app(db_path=db)
-    with AuditStore(db) as store, serving(app) as port:
-        site = Site(f"http://localhost:{port}", store, browser)
-        try:
-            yield site
-        finally:
-            for context in site.contexts:
-                context.close()
+    try:
+        with AuditStore(db) as store, serving(app) as port:
+            site = Site(f"http://localhost:{port}", store, browser)
+            try:
+                yield site
+            finally:
+                for context in site.contexts:
+                    context.close()
+    finally:
+        registry = getattr(app.state, "registry_store", None)
+        if registry is not None:
+            registry.close()
 
 
 def memberships(monkeypatch: pytest.MonkeyPatch) -> None:

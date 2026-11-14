@@ -21,6 +21,7 @@ const SHAPES = {
   admin: () => `${bar("tabs")}${bar("toolbar")}${rows(5)}`,
   labelling: () => `${rows(2)}${bar("form")}`,
   evalsets: () => `${bar("tabs")}${rows(5)}`,
+  "registry-review": () => `${repeat(2, bar("card"))}`,
 };
 
 export function skeleton(view) {

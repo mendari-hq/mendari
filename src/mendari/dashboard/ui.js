@@ -322,11 +322,14 @@ export function storageSet(key, value) {
 // the deployment serves the labelling routes (labelling.js); `labelOnly`: and holds nothing else,
 // so the labelling screen is all they see. `evalsets`: the deployment has the evaluation-set keys
 // (`/api/health` names their ids to a signed-in reader): in memberships mode, its administrators'
-// hidden sets screen is served (evalsets.js).
+// hidden sets screen is served (evalsets.js). `registry`: the pack registry is served here
+// (MENDARI_REGISTRY=on; `/api/health` says so to a signed-in reader): the Access view adds its
+// namespaces and publisher tokens (registry.js). `reviewOnly`: the person holds nothing but
+// `registry_review`, so the registry's review screen is all they see.
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
   accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, labelOnly: false,
-  evalsets: false,
+  evalsets: false, registry: false, reviewOnly: false,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 

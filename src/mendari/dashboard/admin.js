@@ -10,7 +10,9 @@
 // and its usage (the usage ledger, LP-21g): the remote model calls its decisions and evaluations
 // made over the last 30 days and what they cost, never a cost where a call was not priced; and
 // its activity (12g-ii, administrators): its administrative events of the last 90 days, newest
-// first, asked for each time the tab is shown, and all of them exported as FHIR.
+// first, asked for each time the tab is shown, and all of them exported as FHIR. Where the pack
+// registry is served here (MENDARI_REGISTRY=on), registry.js adds its namespaces and publisher
+// tokens (`extendAdmin`).
 // Open mode has no view: its API acts for every organization. Someone who may use none of the
 // tabs never sees the view: the router asks `available()`, and no list is fetched. Every request
 // names the window's organization (`api`, ui.js). Names, addresses, organization names, scopes,
@@ -224,8 +226,13 @@ const statusBadge = (status) => {
   return `<span class="badge ${tone}" title="${esc(status)}">${esc(text)}</span>`;
 };
 
-// Every row's id: a key's or an invitation's `id`, a client's `client_id`.
-const idOf = (row) => String(row.id ?? row.client_id);
+// Every row's id: a key's, an invitation's or a publisher token's `id`, a client's `client_id`, a
+// namespace claim's `namespace`.
+const idOf = (row) => String(row.id ?? row.client_id ?? row.namespace);
+
+// The row buttons of tabs another module adds (`extendAdmin`): the list its row is in, and the
+// handler.
+const ACTIONS = {};
 
 // One click handler for every row's buttons (the rows are drawn again after each change).
 function act(event) {
@@ -244,19 +251,43 @@ function act(event) {
     "replace-keys": ["clients", replaceKeys],
     "revoke-client": ["clients", revokeClient],
     "client-history": ["clients", clientHistory],
+    ...ACTIONS,
   }[button.dataset.action] ?? [];
-  const item = list && adminState[list].find((row) => idOf(row) === button.dataset.id);
+  const item = list && adminState[list]?.find((row) => idOf(row) === button.dataset.id);
   if (item) said(handle(item, button));
 }
 
 // A handler's failure, said (never an unhandled rejection the person never sees).
 const said = (task) => Promise.resolve(task).catch((error) => toastError(error.message));
 
+// The forms of tabs another module adds (`extendAdmin`), by the form's id.
+const FORMS = {};
+
 // One submit handler for the tab's form.
 function submitted(event) {
-  const handle = { "invite-form": invite, "key-form": createKey, "client-form": registerClient }[event.target.id];
+  const handle = { "invite-form": invite, "key-form": createKey, "client-form": registerClient, ...FORMS }[event.target.id];
   if (handle) said(handle(event));
 }
+
+// Tabs another module adds (registry.js, LP-19f), placed before the tab `before`: their lists load
+// and show as these do, with their rows' actions ({action: [list, handler]}) and their forms ({form
+// id: handler}). Called when that module loads, before the view is first drawn.
+export function extendAdmin({ tabs, before, actions = {}, forms = {} }) {
+  const at = ADMIN_TABS.findIndex((t) => t.key === before);
+  ADMIN_TABS.splice(at < 0 ? ADMIN_TABS.length : at, 0, ...tabs);
+  Object.assign(ACTIONS, actions);
+  Object.assign(FORMS, forms);
+}
+
+// What such a module draws with: the lists (by tab), the one-time dialog, a row's button, a list
+// reloaded after a change, and the organization's name for a caption.
+export const adminKit = {
+  lists: adminState,
+  reload: (...keys) => reload(...keys),
+  showOnce: (options) => showOnce(options),
+  actionButton: (...args) => actionButton(...args),
+  ofOrg: () => ofOrg(),
+};
 
 // Choosing a preset redraws what it says (and, for a key, its days), keeping what was typed.
 function changed(event) {
