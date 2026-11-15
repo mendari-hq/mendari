@@ -1680,7 +1680,7 @@ def _omop_records(args: argparse.Namespace) -> list[dict[str, Any]]:
             item["labels"] = labels[person]
         records.append(item)
     if not records:
-        raise MendariError(f"no people in {args.db}")
+        raise MendariError(f"no people in {_shown(args.db)}")
     return records
 
 
@@ -1736,7 +1736,7 @@ def cmd_sandbox_omop(args: argparse.Namespace) -> int:
         )
     finally:
         db.close()
-    print(f"{written} synthetic people written to {args.db}")
+    print(f"{written} synthetic people written to {_shown(args.db)}")
     return 0
 
 
@@ -2000,7 +2000,7 @@ def cmd_registry_token(args: argparse.Namespace) -> int:
         )
     _print_json(minted)
     print(
-        f"made in {args.db}: the token is shown once, above; give it only to its publisher",
+        f"made in {_shown(args.db)}: the token is shown once, above; give it only to its publisher",
         file=sys.stderr,
     )
     return 0

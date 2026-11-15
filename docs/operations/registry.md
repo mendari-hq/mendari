@@ -435,8 +435,9 @@ before it fetches the archive:
 A machine trusts the registry's key when it is one shipped with the client
 (`src/mendari/hub/registry_keys.json`, public keys only, never a hostname) or the one it pinned
 for that registry's URL on first use (`trusted_keys.json` in `~/.config/mendari`, the
-`@registry` entry). The shipped file is empty until the registry's owner makes the key and sends
-its public half (`GET /v1/registry-key`) for the one-line change that ships it.
+`@registry` entry). The shipped file holds the Mendari registry's key (`ed25519:85f132e2be678b2c`,
+made 2026-11-15); a self-hosted registry's key is pinned on first use
+(`MENDARI_REGISTRY_COUNTERSIGNATURE`, below, decides what else a machine accepts).
 
 Turning the key on for a registry that already holds versions refuses those versions to every
 client until they are counter-signed. Do both together:
@@ -611,7 +612,7 @@ last hash) the same way and compare by hand.
 - **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
   shows none.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
-  it because it ships with them (the shipped file is empty until the owner makes the key).
+  it because it ships with them (the Mendari registry's key ships from 2026-11-15).
 - **`GET /v1/yanks` is not paged.**
 
 The threat model's rows S18, S19, T7, T11, R3, D11, D12, E12 and E13 hold the registry's checks and

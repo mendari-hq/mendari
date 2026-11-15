@@ -296,6 +296,34 @@ def test_the_operators_token_records_operator_and_why(
     assert "no such token" in capsys.readouterr().err
 
 
+def test_the_operators_token_names_its_database_without_the_password(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The line after a minted token names the database it was made in, never its password."""
+    from mendari.hub import registry as registry_module
+
+    class Store:
+        def __init__(self, target: str) -> None:
+            self.target = target
+
+        def __enter__(self) -> Store:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def mint_token(self, namespace: str, **kwargs: object) -> dict[str, str]:
+            return {"id": "0" * 16, "namespace": namespace, "token": "ohr_x"}
+
+    monkeypatch.setattr(registry_module, "RegistryStore", Store)
+    url = "postgresql://owner:s3cret-pw@db.example/neondb?sslmode=require"
+    minted_by = ["registry", "token", "--db", url, "--namespace", "mendari"]
+    assert main([*minted_by, "--org", "acme", "--reason", "seed"]) == 0
+    err = capsys.readouterr().err
+    assert "made in postgresql://owner@db.example/neondb?sslmode=require:" in err
+    assert "s3cret-pw" not in err
+
+
 def _legacy_token(store: RegistryStore, namespace: str) -> str:
     """A token as registries issued them before owned tokens (`hub_tokens`, no owner, expiry or
     revocation), written and chained as the store wrote them then."""

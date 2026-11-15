@@ -3161,6 +3161,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `MENDARI_REGISTRY_REVIEW_ORG`; a reviewer; claiming `mendari` and `openhealth` and
     publishing the reference packs with an owned token, then `mendari registry countersign`;
     the Hub's project, `REGISTRY_URL` and DNS; the status checks; the daily checkpoint.
+    **Done by the owner, 2026-11-15** (reported in chat): the review organization, the signing
+    key, the switch and redeploy (health, key and `/api/health` checked), the owner as reviewer,
+    `mendari` claimed, approved and verified with the five reference packs published and
+    counter-signed, `openhealth` claimed (pending, holding the name), the publishing token
+    revoked, the first checkpoint kept outside the database; the key shipped in
+    `registry_keys.json`. Left: the Hub's project and DNS, the status checks (both at launch,
+    behind Vercel Authentication until then), and the daily checkpoint as a routine.
   The options were:
   - **A, mount the registry under the engine (the build session's recommendation).** The
     registry's routes under the engine app (`/registry/v1/...`, or its own host on the same

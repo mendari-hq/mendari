@@ -1,4 +1,9 @@
 {
   "format": "mendari.registry-keys/1",
-  "keys": []
+  "keys": [
+    {
+      "key_id": "ed25519:85f132e2be678b2c",
+      "public_key": "eN30aL/i3yg/h9N1Z4FzTkTvGdBtE4URjLxv8MEgslA="
+    }
+  ]
 }
