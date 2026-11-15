@@ -834,7 +834,7 @@ def _drop(db_target: str, table: str) -> None:
 
 def test_the_shipped_file_holds_public_keys_only() -> None:
     """The file in the wheel: the format and a list of keys, each an id and 32 public bytes.
-    No hostname, no private key. It ships empty until the registry's owner makes its key."""
+    No hostname, no private key. It ships the Mendari registry's key (2026-11-15)."""
     assert acceptance.KEYS_FILE.parent == Path(acceptance.__file__).parent
     assert acceptance.KEYS_FILE.name == "registry_keys.json"
     text = acceptance.KEYS_FILE.read_text(encoding="utf-8")

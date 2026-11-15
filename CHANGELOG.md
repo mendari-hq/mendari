@@ -1434,6 +1434,12 @@ The first release (not yet published).
   templates carry the settings commented out; a status check's registry base under the engine
   is the engine's origin with `/registry`, tested against the mounted registry; the registry
   guide gains "The hosted shape" and its runbook lines.
+- **The Mendari registry's key ships with the client** (`hub/registry_keys.json`,
+  `ed25519:85f132e2be678b2c`, made by the owner on 2026-11-15): `mendari pull` trusts a version
+  that registry counter-signed without first use. Any other registry is pinned on first use, as
+  before. **A database password is never printed:** `mendari registry token` named the database
+  it minted in as given, a Postgres URL's password included; it and the synthetic OMOP commands
+  now name it without the password, as every other message does.
 - **LP-19 closed** (19k; documentation and gates only). The launch gate `a10-registry-hub`
   names LP-19's acceptance tests and keeps one line for the owner: the registry turned on and
   the Hub deployed. The status page's line names the owner's steps alone. ADR-0012's defaults

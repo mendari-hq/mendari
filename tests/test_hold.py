@@ -249,6 +249,15 @@ def test_a_database_url_is_shown_without_its_password() -> None:
         assert _shown(url) == shown, url
 
 
+def test_no_command_prints_its_database_argument_as_given() -> None:
+    """`--db` may be a URL with its password in it: a message names it through `_shown`
+    (the operator's token command once printed the whole URL, password included)."""
+    import mendari.cli
+
+    source = Path(mendari.cli.__file__).read_text(encoding="utf-8")
+    assert "{args.db}" not in source
+
+
 def test_a_database_used_only_by_the_command_line_can_be_held(tmp_path: Path) -> None:
     """`mendari decide --db` records decisions without a deployment row: still the server's."""
     db = str(tmp_path / "cli.db")

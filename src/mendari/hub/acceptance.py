@@ -22,7 +22,7 @@ The keys a client trusts without first use ship in `registry_keys.json`, beside 
      "keys": [{"key_id": "ed25519:<16 hex>", "public_key": "<base64, 32 bytes>"}]}
 
 Public keys only, never a hostname: whichever registry presents one of them and signs with it
-is trusted. The file ships empty until the registry's owner makes its key.
+is trusted. It ships the Mendari registry's key, made by its owner on 2026-11-15.
 """
 
 from __future__ import annotations
