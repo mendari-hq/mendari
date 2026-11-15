@@ -1423,6 +1423,17 @@ The first release (not yet published).
   publisher claims, the card the registry rendered as plain text, and Approve or Refuse with a
   one-line note; a claim they filed shows without either. Someone whose only role is
   `registry_reviewer` sees that screen alone. No route, rule or pack changes.
+- **The registry's deployment configuration** (LP-19j; configuration only, nothing turned
+  on). A hosted registry is the engine's own deployment with `MENDARI_REGISTRY=on`, with no
+  function setting of its own: a test pins that the engine function's 300 s outlast a publish's
+  regression check (180 s) with a margin, and that its bundle leaves out the Hub's site and
+  keeps the registry's code. The Hub gets its own project file (`hub/vercel.json`: the build,
+  and no build for a commit that leaves `hub/` alone), with no host, project or variable in it.
+  `deploy/vercel/README.md` gains "Registry and Hub" (the order to turn things on, the firewall
+  kept off `/registry`, what to watch, how to turn it off); the on-premises and Kubernetes
+  templates carry the settings commented out; a status check's registry base under the engine
+  is the engine's origin with `/registry`, tested against the mounted registry; the registry
+  guide gains "The hosted shape" and its runbook lines.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

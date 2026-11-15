@@ -960,6 +960,8 @@ an organization's administrators sign in to claim a namespace and make publisher
 dashboard's Access view or through the API, and the registry's reviewers approve claims on its
 Registry review screen:
 [Running a pack registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#under-the-engine).
+Hosted, it is the engine's own deployment with the registry turned on, and the Hub a project of
+its own ([the hosted shape](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md#the-hosted-shape)).
 
 <!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash

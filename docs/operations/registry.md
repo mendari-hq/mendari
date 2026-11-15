@@ -96,6 +96,38 @@ decision for a deployment, and no release turns it on.
 - The engine does not close the function early for a long publish: the regression check runs
   within the host's request time limit.
 
+## The hosted shape
+
+A hosted registry is the engine's own deployment with `MENDARI_REGISTRY=on`: no project,
+database or function setting of its own. On Vercel the engine's function already allows 300 s a
+request and the regression check stops at 180 s. The Hub, the public site that reads the
+registry, is a second project built from `hub/`, whose `REGISTRY_URL` is the engine's public
+origin followed by `/registry`. The order to turn it on, what to watch and how to turn it off
+are in the Vercel guide's
+[Registry and Hub](https://github.com/mendari-hq/mendari/blob/main/deploy/vercel/README.md#registry-and-hub);
+the on-premises and Kubernetes templates carry the same settings, commented out. A status
+check's registry base is then the engine's origin with `/registry`
+([status checks](status-checks.md)).
+
+What running it adds to the engine's runbook:
+
+- **Backup is the engine's.** The registry's tables (`hub_`, archives included) are in the
+  engine's database, so its backups and restores cover them. After a restore, check both chains:
+
+  ```bash
+  mendari audit verify --db "$DATABASE_URL"
+  mendari registry verify --db "$DATABASE_URL" --checkpoint /elsewhere/registry-checkpoint.json
+  ```
+
+  Each checks its own chain only: a restore that brought one back and not the other passes one
+  and fails the other.
+- **The chain's head is kept elsewhere**, every day, as [the chain](#the-chain) says: the
+  database's credentials can rewrite both chains, and only a head kept where they cannot write
+  shows it.
+- **Turning it off** (unset `MENDARI_REGISTRY`, redeploy) deletes nothing: `/registry/` answers
+  as it did before, the `hub_` rows stay, and turning it on again serves them as they were.
+  Unsetting `MENDARI_REGISTRY_REVIEW_ORG` alone takes reviewing back to the operator's commands.
+
 ## What an administrator does
 
 All of it is HTTP with `Authorization: Bearer $MENDARI_REGISTRY_ADMIN_TOKEN`; there is no
@@ -541,8 +573,9 @@ last hash) the same way and compare by hand.
   namespace that token makes over HTTP has no claim and is listed at once, until LP-19g ends
   it. Running the registry under the engine is LP-19's option A, the default the owner
   confirmed on 2026-11-07
-  ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); turning it
-  on anywhere, the registry's signing key and DNS are the owner's.
+  ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); its
+  configuration is written ([The hosted shape](#the-hosted-shape)), and turning it on anywhere,
+  the registry's signing key, the Hub's project and DNS are the owner's.
 - **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
   shows none.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust

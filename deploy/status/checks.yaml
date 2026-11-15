@@ -3,6 +3,7 @@
 # `python scripts/status_checks.py --api https://... [--registry ...] [--hub ...]`.
 #
 # {api}, {registry} and {hub} are your base URLs. A check whose base is not given is skipped.
+# A registry served under the engine (MENDARI_REGISTRY=on) has the base {api}/registry.
 # The decide check's key is read from the environment variable it names, never from this file:
 # a key of its own, decide-only, in an organization of its own, so its decisions are told apart
 # from anyone's (each waits in that organization's review queue). It decides with AI Guard,
