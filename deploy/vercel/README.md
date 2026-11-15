@@ -82,7 +82,7 @@ Hub, the public site that reads the registry, is a second Vercel project built f
 Turn it on in this order, each step checked before the next:
 
 1. **The review organization's record**, made on the engine's database:
-   `mendari access org create --db "$DATABASE_URL" --org <review org> --name "Registry review"`.
+   `mendari access org create <review org> --name "Registry review" --db "$DATABASE_URL"`.
 2. **The registry's key**, for Production only, as a Secret: `MENDARI_REGISTRY_SIGNING_KEY`, 32
    random bytes in base64 (`openssl rand -base64 32`). Keep a copy where the project's
    credentials cannot reach it. Without it the registry recalls nothing itself and counter-signs

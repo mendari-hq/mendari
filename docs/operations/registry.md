@@ -343,7 +343,7 @@ organization: the one `MENDARI_REGISTRY_REVIEW_ORG` names. Unset (the default), 
 through the web and the operator's commands do. To set it up:
 
 ```bash
-mendari access org create --db "$DATABASE_URL" --org registry-review --name "Registry review"
+mendari access org create registry-review --name "Registry review" --db "$DATABASE_URL"
 # set MENDARI_REGISTRY_REVIEW_ORG=registry-review and restart; then an administrator of that
 # organization gives a member the role `registry_reviewer` (the Access view, or
 # PUT /api/auth/members/{id}/roles).
