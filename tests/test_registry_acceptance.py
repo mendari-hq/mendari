@@ -32,7 +32,7 @@ from mendari.hub import client as client_module
 from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, config_dir, packs_cache, pull
 from mendari.hub.registry import REVIEWER, RegistryStore
-from tests.conftest import REGISTRY_ADMIN, Registry
+from tests.conftest import Registry
 from tests.test_hub_client import (  # noqa: F401 - `hub` is the live registry fixture
     SHIPPED,
     HostileRegistry,
@@ -42,7 +42,6 @@ from tests.test_hub_client import (  # noqa: F401 - `hub` is the live registry f
 )
 from tests.test_registry_claims import Claimed
 
-ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
 REFERRAL = resolve_pack("mendari/referral-router")
 PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
 SUBJECT = f"{REFERRAL.id}@{REFERRAL.version}"
@@ -256,8 +255,10 @@ def test_a_recall_or_a_checkpoint_signature_is_not_an_acceptance(
     real = _record(registry)
     public, key_id = _key().public_key(), real["key_id"]
     # The registry's own recall of the same version, signed with the same key.
-    body = {"reason": "a safety notice from the registry", "severity": "critical"}
-    recall = registry.client.post(f"{PATH}/yank", json=body, headers=ADMIN).json()["yank"]
+    recall = registry.operator.recall_as_registry(
+        "mendari", "referral-router", REFERRAL.version,
+        reason="a safety notice from the registry", severity="critical", by="operator",
+    )["yank"]  # fmt: skip
     assert yank.problem(recall, public, key_id) is None
     statement = checkpoint.sign("a" * 64, date(2026, 11, 10), _key())  # and a checkpoint by it
     assert checkpoint.problem(statement, public) is None
@@ -473,11 +474,10 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     assert registry.publish(inbox).status_code == 201
     gone = copy_pack(tmp_path, "mendari/gone")
     assert registry.publish(gone).status_code == 201
-    body = {"reason": "the archive carried a file it must not"}
-    deleted = registry.client.post(
-        f"/v1/packs/mendari/gone/{SHIPPED}/delete", json=body, headers=ADMIN
+    deleted = registry.operator.delete(
+        "mendari", "gone", SHIPPED, reason="the archive carried a file it must not", by="operator"
     )
-    assert deleted.status_code == 200, deleted.text
+    assert deleted["deleted"] is not None
     assert _record(registry) is None
     before = _events(db_target)
     command = ["registry", "countersign", "--db", db_target]
@@ -505,8 +505,8 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     record = _record(registry)
     key_id = yank.registry_public(_key())["key_id"]
     assert acceptance.problem(record, _key().public_key(), key_id) is None
-    deleted_version = registry.client.get(f"/v1/packs/mendari/gone/{SHIPPED}", headers=ADMIN)
-    assert deleted_version.json()["checked"]["accepted"] is None  # a deleted version, never
+    deleted_version = registry.operator.version("mendari", "gone", SHIPPED, REVIEWER)
+    assert deleted_version["checked"]["accepted"] is None  # a deleted version, never
     assert main(command) == 0  # again: nothing to sign, nothing written
     assert json.loads(capsys.readouterr().out) == {
         "signed": [],

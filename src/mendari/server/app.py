@@ -3231,10 +3231,9 @@ def create_app(
 
         # One store, on the engine's database, for the mounted registry and the people's
         # routes. The mounted registry is public to the guard and checks its own publisher
-        # tokens; it has no administrator token here, whatever the environment holds (a shared
-        # secret that publishes to every namespace has no place on the engine's origin).
+        # tokens; it holds no shared secret (LP-19g).
         registry_store = RegistryStore(db_path, migrate_url=migrate_url)
-        registry_app = create_registry_app(store=registry_store, admin_token="")
+        registry_app = create_registry_app(store=registry_store)
         # The engine's body limit, innermost in the registry too (as above, and for the same
         # reason): the registry's own routes read through it directly. A declared length over
         # the limit never gets this far.

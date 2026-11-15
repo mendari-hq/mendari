@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Publish the five reference packs to a registry (local development, CI, the clean-machine check).
 
-Creates the `mendari` namespace as a verified publisher, a publisher token and a signing key,
-then signs and pushes every bundled pack. Prints the token and key id; with `--key-out` it keeps
-the key pair for later pushes. With `--hostile-example` it also publishes, as a community
-publisher, a pack whose text tries to run a script and a `javascript:` link (the Hub's tests
-check it is shown as inert text, ADR-0012).
+As the registry's operator, on its database (`--db`, as `mendari registry ...` acts; there is no
+shared administrator token since LP-19g): claims the `mendari` namespace for the `mendari`
+organization and mints an owned publisher token. Then, over HTTP as that publisher, registers a
+signing key and signs and pushes every bundled pack; then approves the claim, which lists the
+namespace, and records it as a verified publisher. Prints the token and key id; with `--key-out`
+it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
+community publisher, a pack whose text tries to run a script and a `javascript:` link (the
+Hub's tests check it is shown as inert text, ADR-0012).
 
-    MENDARI_REGISTRY_ADMIN_TOKEN=... uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
+    uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db
 """
 
 from __future__ import annotations
@@ -19,13 +22,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-import httpx
 import yaml
 
 from mendari.core.pack import load_pack
 from mendari.core.registry import discover, resolve_pack
+from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub.client import RegistryClient
+from mendari.hub.registry import REVIEWER, RegistryStore
+
+OPERATOR = "operator (scripts/hub_seed.py)"  # who the chain names for what this script does
 
 HOSTILE_ID = "hub-test/hostile-text"
 # Publisher text that would run in a page that rendered it as HTML.
@@ -40,16 +46,42 @@ HOSTILE_MARKDOWN = (
 )
 
 
-def namespace(http: httpx.Client, name: str, display_name: str, publisher_type: str) -> str:
-    """Create a namespace (or keep it), set its publisher type, and return a new token for it."""
-    created = http.post("/v1/namespaces", json={"name": name, "display_name": display_name})
-    if created.status_code not in (201, 409):
-        created.raise_for_status()
-    http.patch(f"/v1/namespaces/{name}", json={"publisher_type": publisher_type}).raise_for_status()
-    return str(http.post(f"/v1/namespaces/{name}/tokens").raise_for_status().json()["token"])
+def namespace(store: RegistryStore, name: str, display_name: str) -> str:
+    """Claim a namespace for the organization of the same name, as the operator (a reserved name
+    too), unless it exists; return a new owned token for it."""
+    if not _exists(store, name):
+        store.claim(
+            name,
+            org=name,
+            by=OPERATOR,
+            display_name=display_name,
+            reserved=True,
+            reason="seeded by scripts/hub_seed.py",
+        )
+    minted = store.mint_token(
+        name, org=name, owner="operator", name="hub_seed", days=30, by=OPERATOR,
+        reason="seeded by scripts/hub_seed.py",
+    )  # fmt: skip
+    return str(minted["token"])
 
 
-def hostile_example(registry: str, token: str, admin: str) -> None:
+def _exists(store: RegistryStore, name: str) -> bool:
+    try:
+        store.namespace(name, REVIEWER)
+    except HubError:
+        return False
+    return True
+
+
+def listed(store: RegistryStore, name: str, publisher_type: str) -> None:
+    """Approve a pending claim (it lists the namespace and what was published while pending),
+    then record who publishes there."""
+    if any(claim["status"] == "pending" for claim in store.claims(namespace=name)):
+        store.decide_claim(name, approve=True, by=OPERATOR, note="seeded by scripts/hub_seed.py")
+    store.set_publisher_type(name, publisher_type, by=OPERATOR)
+
+
+def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     """A copy of the inbox pack under another id whose summary, intended use and evidence carry
     a script tag, an image with an `onerror` handler, Markdown that would read as the registry's
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
@@ -85,19 +117,24 @@ def hostile_example(registry: str, token: str, admin: str) -> None:
                 severity="high",
                 key=key,
             )
+    listed(store, namespace, "community")
     # A registry review that found a higher risk level than the pack declares (risk 0).
-    review = {"risk_level": 2, "note": "Reads free text from patients <b>not</b> routing alone"}
-    with httpx.Client(base_url=registry.rstrip("/"), timeout=60) as http:
-        http.post(
-            f"/v1/packs/{HOSTILE_ID}/1.0.0/review",
-            json=review,
-            headers={"authorization": f"Bearer {admin}"},
-        ).raise_for_status()
+    store.review(
+        namespace,
+        name,
+        "1.0.0",
+        risk_level=2,
+        note="Reads free text from patients <b>not</b> routing alone",
+        reviewer=OPERATOR,
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--registry", required=True)
+    parser.add_argument("--registry", required=True, help="the registry's URL, to publish to")
+    parser.add_argument(
+        "--db", required=True, help="the registry's database (SQLite path or postgresql:// URL)"
+    )
     parser.add_argument("--namespace", default="mendari")
     parser.add_argument("--key-out", help="directory to keep the key pair in")
     parser.add_argument(
@@ -106,17 +143,18 @@ def main() -> int:
         help=f"also publish {HOSTILE_ID}, whose text tries to run a script (the Hub's tests)",
     )
     args = parser.parse_args()
-    admin = os.environ.get("MENDARI_REGISTRY_ADMIN_TOKEN", "")
-    if not admin:
-        sys.exit("set MENDARI_REGISTRY_ADMIN_TOKEN")
-    headers = {"authorization": f"Bearer {admin}"}
-    with httpx.Client(base_url=args.registry.rstrip("/"), headers=headers, timeout=60) as http:
-        token = namespace(http, args.namespace, "Mendari reference packs", "verified")
-        hostile = (
-            namespace(http, HOSTILE_ID.split("/")[0], "Hub test publisher", "community")
-            if args.hostile_example
-            else None
-        )
+    with RegistryStore(args.db) as store:
+        seed(args, store)
+    return 0
+
+
+def seed(args: argparse.Namespace, store: RegistryStore) -> None:
+    token = namespace(store, args.namespace, "Mendari reference packs")
+    hostile = (
+        namespace(store, HOSTILE_ID.split("/")[0], "Hub test publisher")
+        if args.hostile_example
+        else None
+    )
     private, public = archive.generate_key()
     if args.key_out:
         out = Path(args.key_out)
@@ -133,10 +171,10 @@ def main() -> int:
                 continue
             published = registry.push(pack, key)
             print(f"published {published['id']}@{published['version']}")
+    listed(store, args.namespace, "verified")
     if hostile is not None:
-        hostile_example(args.registry, hostile, admin)
+        hostile_example(args.registry, hostile, store)
     print(f"token {token}\nkey {key_id}")
-    return 0
 
 
 if __name__ == "__main__":

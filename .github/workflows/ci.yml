@@ -313,7 +313,6 @@ jobs:
     # The Hub website (hub/, Next.js) against a real registry holding the five reference packs.
     runs-on: ubuntu-latest
     env:
-      MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
       REGISTRY_URL: http://127.0.0.1:8100
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -330,7 +329,7 @@ jobs:
         run: |
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
-          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --hostile-example
+          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db /tmp/registry.db --hostile-example
           .venv/bin/mendari registry verify --db /tmp/registry.db
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
@@ -371,8 +370,6 @@ jobs:
     # mendari/referral-router` works. The wheel, built from the sdist, stands in for PyPI until
     # the release.
     runs-on: ubuntu-latest
-    env:
-      MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -386,7 +383,7 @@ jobs:
         run: |
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
-          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
+          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db /tmp/registry.db
       - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
         # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
         # and the websites must not reach a release (scripts/check_sdist.py), nor notes, plans,

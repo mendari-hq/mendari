@@ -31,7 +31,7 @@ from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
 from mendari.hub import archive
-from mendari.hub.registry import create_registry_app
+from mendari.hub.registry import RegistryStore, create_registry_app
 from mendari.providers import credentials, llm
 from mendari.providers.jev import JevProvider
 from mendari.server import app as server_app
@@ -292,14 +292,15 @@ def store(db_target: str) -> Iterator[AuditStore]:
         yield audit_store
 
 
-REGISTRY_ADMIN = "admin-token-for-tests"
-
-
 @dataclass
 class Registry:
     client: TestClient
-    token: str  # the mendari namespace's publisher token
+    token: str  # the mendari namespace's owned publisher token
     key: archive.Ed25519PrivateKey
+    # The operator's own store on the registry's database, as `mendari registry ...` opens it:
+    # since LP-19g every write that is not a publisher's goes through it (or a reviewer's routes
+    # under the engine), never over the registry's own HTTP routes.
+    operator: RegistryStore
 
     def publish(
         self,
@@ -318,31 +319,42 @@ class Registry:
             headers={"authorization": f"Bearer {token or self.token}"},
         )
 
+    def namespace(self, name: str, display_name: str = "") -> str:
+        """A namespace made by the operator with no claim (listed, as one from before claims),
+        and an owned token for it."""
+        self.operator.create_namespace(name, "community", display_name)
+        return self.mint(name)
+
+    def mint(self, namespace: str, *, org: str = "tests", days: int = 90) -> str:
+        """An owned publisher token for `namespace`, minted by the operator."""
+        minted = self.operator.mint_token(
+            namespace, org=org, owner="operator", name="tests", days=days, by="operator"
+        )
+        return str(minted["token"])
+
 
 @pytest.fixture
 def registry(db_target: str) -> Iterator[Registry]:
-    """A registry (hub/registry.py) with the `mendari` namespace, its token and a key."""
-    client = TestClient(create_registry_app(db_target, admin_token=REGISTRY_ADMIN))
+    """A registry (hub/registry.py) with the `mendari` namespace, its owned token and a key."""
+    operator = RegistryStore(db_target)
+    client = TestClient(create_registry_app(db_target))
     client.__enter__()  # runs the app's lifespan, so its store is closed at the end
-    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
-    assert (
-        client.post(
-            "/v1/namespaces",
-            json={"name": "mendari", "display_name": "Mendari"},
-            headers=admin,
-        ).status_code
-        == 201
-    )
-    token = client.post("/v1/namespaces/mendari/tokens", headers=admin).json()["token"]
-    private, public = archive.generate_key()
-    added = client.post(
-        "/v1/namespaces/mendari/keys",
-        json={"public_pem": public.decode()},
-        headers={"authorization": f"Bearer {token}"},
-    )
-    assert added.status_code == 201
-    yield Registry(client, token, archive.load_private_key(private))
-    client.__exit__(None, None, None)
+    try:
+        operator.create_namespace("mendari", "community", "Mendari")
+        token = operator.mint_token(
+            "mendari", org="mendari", owner="operator", name="tests", days=90, by="operator"
+        )["token"]
+        private, public = archive.generate_key()
+        added = client.post(
+            "/v1/namespaces/mendari/keys",
+            json={"public_pem": public.decode()},
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert added.status_code == 201
+        yield Registry(client, token, archive.load_private_key(private), operator)
+    finally:
+        client.__exit__(None, None, None)
+        operator.close()
 
 
 @pytest.fixture(scope="session")

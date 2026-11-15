@@ -10,8 +10,8 @@ registry API (`src/mendari/hub/registry.py`) at request time, from `REGISTRY_URL
 
 ```bash
 # a registry with the five reference packs, and the test pack whose text tries to run a script
-MENDARI_REGISTRY_ADMIN_TOKEN=dev uv run mendari registry serve --db var/registry.db &
-MENDARI_REGISTRY_ADMIN_TOKEN=dev uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --hostile-example
+uv run mendari registry serve --db var/registry.db &
+uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db --hostile-example
 
 cd hub && npm ci
 REGISTRY_URL=http://127.0.0.1:8100 npm run dev        # http://localhost:3100

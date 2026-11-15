@@ -8,15 +8,17 @@ uploads, and answers what it verified (`checked`) apart from what the publisher 
 (`claimed`). This page is for whoever runs a registry, and for a deployment that serves packs
 pulled from one.
 
-There is no public registry yet. Until LP-19 is finished a registry of its own has one
-administrator token and no accounts (`tasks/todo.md`); namespace claims are made and decided
-with the operator's commands ([Namespace claims](#namespace-claims)). A registry can also run
-under the engine, where people sign in to claim and mint ([Under the engine](#under-the-engine)). The docker sandbox runs one on port 8100.
+There is no public registry yet. A registry of its own has no accounts and no shared secret
+(LP-19g): a publisher writes with an owned token ([Publisher tokens](#publisher-tokens-that-belong-to-someone)),
+and the operator's commands on its database do the rest: claims, publisher types, reviews,
+the registry's recalls and deletions ([What the operator does](#what-the-operator-does)). A
+registry can also run under the engine, where people sign in to claim and mint and the
+registry's reviewers decide ([Under the engine](#under-the-engine)). The docker sandbox runs
+one on port 8100.
 
 ## Starting a registry
 
 ```bash
-export MENDARI_REGISTRY_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 export MENDARI_REGISTRY_SIGNING_KEY=$(openssl rand -base64 32)
 mendari registry serve --db var/registry.db --port 8100     # a SQLite path or a postgresql:// URL
 mendari registry verify --db var/registry.db                # read-only; exit 1 when broken
@@ -24,10 +26,13 @@ mendari registry verify --db var/registry.db                # read-only; exit 1 
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MENDARI_REGISTRY_ADMIN_TOKEN` | unset: no administrator | The one administrator's bearer token: namespaces, tokens, publisher types, reviews, recalls and deletions. Keep it in a secret manager. |
-| `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself and counter-signs nothing | 32 random bytes in base64, the Ed25519 key that signs an administrator's recalls and counter-signs each version the registry lists ([below](#the-counter-signature)), published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
+| `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself and counter-signs nothing | 32 random bytes in base64, the Ed25519 key that signs the registry's own recalls (a reviewer's or the operator's) and counter-signs each version the registry lists ([below](#the-counter-signature)), published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
 | `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per namespace (burst 30; all of a namespace's tokens share it), site reports 60 an hour per namespace (burst 10). A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
 | `MENDARI_REGISTRY_REGRESSION` | `on` | `off` publishes without the regression check. |
+
+`MENDARI_REGISTRY_ADMIN_TOKEN` is no longer read (LP-19g). Set, the registry logs once at
+startup that it is unused and names the commands that replace it; unset it
+([From a registry with an administrator token](#from-a-registry-with-an-administrator-token)).
 
 Every answer carries a CSP that loads nothing, refuses framing, is never cached, and sends HSTS
 but on this machine. A refusal by the limits is `429` with `Retry-After`, before the body is
@@ -51,12 +56,11 @@ decision for a deployment, and no release turns it on.
   signed-in browser on any page publishes nothing. An engine API key (`ohk_`) or access token
   is refused by the registry like any unknown token, and a publisher token is refused by the
   engine everywhere else.
-- **No administrator token.** `MENDARI_REGISTRY_ADMIN_TOKEN` is not read under the engine: a
-  shared secret that publishes to every namespace has no place on the engine's origin. Claims
-  are approved and refused, and versions reviewed, recalled by the registry and deleted, by
-  the registry's reviewers once they are set up ([Registry reviewers](#registry-reviewers)),
-  and with the operator's commands on the database where they are not
-  ([Namespace claims](#namespace-claims)).
+- **No shared secret.** No registry has an administrator token (LP-19g). Claims are approved
+  and refused, and versions reviewed, recalled by the registry and deleted, by the registry's
+  reviewers once they are set up ([Registry reviewers](#registry-reviewers)), and with the
+  operator's commands on the database where they are not
+  ([What the operator does](#what-the-operator-does)).
 - **People claim and mint in the engine**, with sign-in on. An organization's administrators
   (the `keys` permission; never a key, a client or a publisher token) use:
 
@@ -128,19 +132,26 @@ What running it adds to the engine's runbook:
   as it did before, the `hub_` rows stay, and turning it on again serves them as they were.
   Unsetting `MENDARI_REGISTRY_REVIEW_ORG` alone takes reviewing back to the operator's commands.
 
-## What an administrator does
+## What the operator does
 
-All of it is HTTP with `Authorization: Bearer $MENDARI_REGISTRY_ADMIN_TOKEN`; there is no
-command for it. Each write is a chained event naming `admin` (see [The chain](#the-chain)).
+A registry has no administrator over HTTP (LP-19g): over its routes only a namespace's own
+publisher writes. Everything else is a command on the registry's database, which works while
+the registry runs. Under the engine the registry's reviewers do the same through the web
+([Registry reviewers](#registry-reviewers)). Each write is a chained event naming who ran the
+command and, where the command asks for one, why ([The chain](#the-chain)).
 
-| Action | Route | Body |
-|---|---|---|
-| Create a namespace | `POST /v1/namespaces` | `name`, `publisher_type` (`community` unless set), `display_name` |
-| Set its publisher type, after checking who publishes there | `PATCH /v1/namespaces/{namespace}` | `publisher_type`: `community`, `verified` or `institutional` |
-| Issue a publisher token (shown once, stored hashed) | `POST /v1/namespaces/{namespace}/tokens` | none |
-| Review a version | `POST /v1/packs/{namespace}/{name}/{version}/review` | `risk_level` (0 to 4) found, and a `note` of one printable line, at most 300 characters, never case text |
-| Recall a version | `POST /v1/packs/{namespace}/{name}/{version}/yank` | `reason` (one line, at most 300) and `severity` (`low`, `medium`, `high`, `critical`); signed with `MENDARI_REGISTRY_SIGNING_KEY` (`409` without it) |
-| Delete a version that must not be served | `POST /v1/packs/{namespace}/{name}/{version}/delete` | `reason` |
+| Action | Command |
+|---|---|
+| Claim a namespace for an organization (a reserved one too) | `mendari registry claim --namespace N --org ORG --reason …` |
+| Approve or refuse a claim, after its first publish | `mendari registry approve` or `refuse --namespace N --reason …` |
+| Set its publisher type, after checking who publishes there | `mendari registry publisher-type --namespace N --type verified --reason …` |
+| Mint, list or revoke a publisher token | `mendari registry token`, `tokens`, `revoke-token` ([below](#publisher-tokens-that-belong-to-someone)) |
+| Review a version | `mendari registry review N/NAME@VERSION --risk-level 0-4 --reason …` (one printable line, at most 300 characters, never case text) |
+| Recall a version, signed by the registry | `mendari registry recall N/NAME@VERSION --severity high --reason …` (needs `MENDARI_REGISTRY_SIGNING_KEY`) |
+| Delete a version that must not be served | `mendari registry delete N/NAME@VERSION --reason …` |
+
+Every command takes `--db` (a SQLite path or a `postgresql://` URL). `scripts/hub_seed.py`
+does the first steps for the reference packs (claim `mendari`, mint, publish, approve).
 
 A publisher, with its token, registers its keys (`mendari keys register`), publishes
 (`mendari push`) and recalls its own versions (`mendari yank`, signed with one of its keys). A
@@ -167,7 +178,8 @@ version and removes a cached copy.
 
 1. **Recall it.** The publisher runs
    `mendari yank ns/name@1.2.0 --reason "misroutes refills" --severity high --key keys/publisher.key`,
-   or the administrator posts to `…/yank` with a reason and a severity.
+   or the registry recalls it, signed with its own key: a reviewer under the engine, or the
+   operator's `mendari registry recall ns/name@1.2.0 --severity high --reason …`.
 2. **Servers stop automating it, from their next read.** A server reads `GET /v1/yanks` of a
    registry its served packs came from in a thread of its own. A decision for one of that
    registry's packs starts the read, once the last one is older than
@@ -263,16 +275,36 @@ mendari registry revoke-token --db var/registry.db ID --reason "the runner was r
 - `tokens` shows each token's organization, owner, name, expiry, when and by whom it was
   revoked, and the last day it was used (in the deployment's time zone). That day is kept
   outside the chain; revoke a token nobody uses.
-- A token an administrator issued over HTTP (`POST /v1/namespaces/{namespace}/tokens`) has no
-  owner or expiry and cannot be revoked. Those keep working for now; LP-19g ends them.
+- A token from before owned tokens (one an administrator issued over HTTP until LP-19g) has
+  no owner or expiry and cannot be revoked, so it no longer writes: the registry answers it as
+  any unknown token (`403`), and it reads what the public reads. Its row and its chained event
+  stay, so `mendari registry verify` still passes. Mint an owned token in its place.
+
+### From a registry with an administrator token
+
+LP-19g removed the shared administrator token and its routes. On a registry that had them:
+
+1. Unset `MENDARI_REGISTRY_ADMIN_TOKEN` (set, it is only logged as unused).
+2. For each namespace a token from before publishes to, mint an owned one
+   (`mendari registry token --namespace N --org ORG --reason …`) and hand it to the publisher:
+   the old one is refused from the upgrade on. `mendari registry tokens` lists what was minted.
+3. Replace each call to a route that is gone with its command
+   ([What the operator does](#what-the-operator-does)): `POST /v1/namespaces` with `claim`
+   (and `approve` after the first publish), `PATCH /v1/namespaces/{namespace}` with
+   `publisher-type`, `POST /v1/namespaces/{namespace}/tokens` with `token`, `POST …/review`
+   with `review`, an administrator's `POST …/yank` with `recall`, and `POST …/delete` with
+   `delete`. Each of those routes now answers `404` or `405`. A publisher's own signed recall
+   (`mendari yank`) is unchanged.
+
+Namespaces made before stay listed (they have no claim), and nothing in the database changes.
 
 ## Namespace claims
 
 A claim links a namespace to an organization. It is `pending` until it is approved or refused,
 once, and until it is approved nothing of the namespace is served to anyone but its own token
 and a reviewer: to everyone else it answers as a namespace that does not exist (the same `404`),
-in every read, search, the recall list and health's pack count. A namespace with no claim, such
-as one an administrator made over HTTP or one from before claims, is listed as before.
+in every read, search, the recall list and health's pack count. A namespace with no claim (one
+from before claims, which an administrator made over HTTP until LP-19g) is listed as before.
 
 ```bash
 mendari registry claim --db var/registry.db --namespace acme --org acme \
@@ -301,8 +333,8 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
 - Each step is chained with the organization, who ran the command and why (`namespace.created`
   and `namespace.claimed`, then `namespace.approved` or `namespace.refused`), and every
   `pack.published` records the organization and whether the version was listed then.
-- On a registry of its own the administrator token reads everything, as a reviewer, until
-  LP-19g ends it.
+- Over the registry's own routes nobody reads as a reviewer: reviewers read through the
+  engine's routes, and the operator with the commands (`mendari registry claims`).
 
 ## Registry reviewers
 
@@ -361,8 +393,8 @@ reviewer role sees this screen alone. Through the API:
   starts: read that line after changing the setting.
 - A reviewer's writes are counted per person (60 a minute), and setting a publisher type to
   what it already is chains nothing.
-- Each act is chained in the registry's chain by the store method the administrator token
-  used, with the reviewer's id (`user:<hash>`, never an address) as `by` (a review's
+- Each act is chained in the registry's chain by the store method the operator's command uses,
+  with the reviewer's id (`user:<hash>`, never an address) as `by` (a review's
   `reviewer`), and a claim's decision with the claim's organization. A review's `reviewer` is
   served with the version, as before: an id, not a name. The security log gets
   `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
@@ -569,9 +601,9 @@ last hash) the same way and compare by hand.
 - **Accounts (LP-19).** Under the engine, an organization's administrators claim namespaces
   and make publisher tokens ([Under the engine](#under-the-engine)); and the
   members of one review organization decide claims ([Registry reviewers](#registry-reviewers)),
-  in the dashboard as through the API. A registry of its own still has one shared administrator token, and a
-  namespace that token makes over HTTP has no claim and is listed at once, until LP-19g ends
-  it. Running the registry under the engine is LP-19's option A, the default the owner
+  in the dashboard as through the API. A registry of its own has no accounts: its operator
+  mints tokens and decides with commands, and no registry has a shared administrator token
+  (LP-19g). Running the registry under the engine is LP-19's option A, the default the owner
   confirmed on 2026-11-07
   ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); its
   configuration is written ([The hosted shape](#the-hosted-shape)), and turning it on anywhere,

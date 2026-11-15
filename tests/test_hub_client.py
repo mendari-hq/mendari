@@ -25,11 +25,10 @@ from mendari.errors import HubError, PackNotFoundError, PackValidationError
 from mendari.evals.share import SiteReport
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
-from mendari.hub.registry import create_registry_app
+from mendari.hub.registry import RegistryStore, create_registry_app
 from mendari.sandbox import example_datasets_dir
 from tests.conftest import INBOX_DIR
 
-ADMIN = "admin-token-for-tests"
 REFERRAL_DIR = resolve_pack("mendari/referral-router").root
 # The packs these tests publish under other ids are copies of the inbox pack, whose patterns
 # all run on RE2: a pulled pack that is not a reference pack of this release runs on the engine
@@ -44,8 +43,9 @@ def free_port() -> int:
 
 
 class Hub:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, db: Path) -> None:
         self.url = url
+        self.db = db  # the registry's database, where the operator's commands act
         self.clients: list[RegistryClient] = []
 
     def client(self, token: str | None = None) -> RegistryClient:
@@ -54,11 +54,17 @@ class Hub:
         self.clients.append(opened)
         return opened
 
+    def operator(self) -> RegistryStore:
+        """The operator's store on the registry's database (`mendari registry ...`)."""
+        return RegistryStore(self.db)
+
     def namespace(self, name: str) -> tuple[str, archive.Ed25519PrivateKey]:
-        """A namespace with a token and a registered key."""
-        with httpx.Client(base_url=self.url, headers={"authorization": f"Bearer {ADMIN}"}) as admin:
-            admin.post("/v1/namespaces", json={"name": name}).raise_for_status()
-            token = admin.post(f"/v1/namespaces/{name}/tokens").json()["token"]
+        """A namespace the operator made (no claim: listed), its owned token and a key."""
+        with self.operator() as store:
+            store.create_namespace(name, "community", "")
+            token = store.mint_token(
+                name, org=name, owner="operator", name="tests", days=90, by="operator"
+            )["token"]
         private, public = archive.generate_key()
         self.client(token).add_key(name, public)
         return token, archive.load_private_key(private)
@@ -67,7 +73,8 @@ class Hub:
 @pytest.fixture
 def hub(tmp_path: Path) -> Iterator[Hub]:
     port = free_port()
-    app = create_registry_app(tmp_path / "registry.db", admin_token=ADMIN)
+    db = tmp_path / "registry.db"
+    app = create_registry_app(db)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -79,7 +86,7 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
             break
         except httpx.HTTPError:
             time.sleep(0.05)
-    registry = Hub(url)
+    registry = Hub(url, db)
     yield registry
     for opened in registry.clients:
         opened.close()

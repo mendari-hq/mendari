@@ -3894,7 +3894,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="registry_command", required=True
     )
     serve_registry = registry_cmd.add_parser(
-        "serve", help="run the registry (admin token: $MENDARI_REGISTRY_ADMIN_TOKEN)"
+        "serve",
+        help="run the registry: public reads, publishes by owned token; every other write is "
+        "the operator's commands below, on its database",
     )
     serve_registry.add_argument(
         "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"

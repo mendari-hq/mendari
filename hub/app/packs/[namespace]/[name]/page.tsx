@@ -63,7 +63,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
             namespace, verified at publish
           </Item>
           <Item term="Publisher type">
-            {checked.publisher_type ?? "Not set"}: set by the registry&apos;s administrators for this namespace (as it stands now)
+            {checked.publisher_type ?? "Not set"}: set by the registry&apos;s reviewers for this namespace (as it stands now)
           </Item>
           <Item term="Archive"><span className="mono break">sha256 {checked.archive_sha256}</span></Item>
           <Item term="Pack digest"><span className="mono break">{checked.digest}</span></Item>

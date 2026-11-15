@@ -1434,6 +1434,22 @@ The first release (not yet published).
   templates carry the settings commented out; a status check's registry base under the engine
   is the engine's origin with `/registry`, tested against the mounted registry; the registry
   guide gains "The hosted shape" and its runbook lines.
+- **Breaking, for a registry of its own: no shared administrator token** (LP-19g). The
+  registry no longer reads `MENDARI_REGISTRY_ADMIN_TOKEN` (set, it logs once at startup that it
+  is unused, and what replaces it) and these routes are gone (`404` or `405`):
+  `POST /v1/namespaces`, `PATCH /v1/namespaces/{namespace}`,
+  `POST /v1/namespaces/{namespace}/tokens`, `POST …/review`, `POST …/delete`, and an
+  administrator's recall at `POST …/yank` (a publisher's signed recall is unchanged). A token
+  from before owned tokens (no owner, expiry or revocation) no longer writes and reads as the
+  public; its row and its event stay, so the chain verifies. Over the registry's routes only a
+  namespace's own owned token writes; everything else is a reviewer's under the engine, or the
+  operator's commands on the database: `mendari registry claim`, `approve`, `refuse`,
+  `publisher-type`, `token`, `review`, `recall` and `delete`. To upgrade: unset the variable,
+  mint an owned token for each namespace an old one published to, and replace each call to a
+  removed route with its command (the registry guide, "From a registry with an administrator
+  token"). `scripts/hub_seed.py` now takes `--db` and acts as the operator on the database;
+  the docker sandbox mounts it into the registry container. No hosted registry existed, so
+  nothing deployed loses a path.
 - **A registry is reached over https** (LP-19h; a change for a client pointed at a plain-http
   registry on another machine). `mendari login`, `pull`, `push`, `search`, `yank` and
   `Decision.from_hub` refuse a registry address that is not https, before any request, so a

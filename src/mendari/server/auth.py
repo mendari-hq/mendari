@@ -246,7 +246,7 @@ _MEMBERSHIPS_ONLY = re.compile(
 # as they did before there was a registry (`Auth.permission`).
 REGISTRY_MOUNT = r"^/registry/"
 REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens)(/|$)"
-# Its reviewers' routes (LP-19e): the queue and the acts that were the administrator token's.
+# Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".

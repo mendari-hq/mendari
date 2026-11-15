@@ -19,13 +19,14 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from mendari.errors import MendariError
+from mendari.hub import archive
 from mendari.hub.registry import (
     REGISTRY_CSP,
+    REVIEWER,
     RegistryStore,
     create_registry_app,
     registry_limit_settings,
 )
-from tests.conftest import REGISTRY_ADMIN
 
 ROOT = Path(__file__).resolve().parents[1]
 HUB_TESTS = ROOT / "hub" / "tests"
@@ -61,7 +62,7 @@ def _example(path: str) -> str:
 def test_every_registry_route_answers_with_the_headers(tmp_path: Path) -> None:
     """On every route, as every method it takes, answered or refused: the exact values, and
     HSTS but on this machine."""
-    app = create_registry_app(tmp_path / "r.db", admin_token=REGISTRY_ADMIN)
+    app = create_registry_app(tmp_path / "r.db")
     with TestClient(app, base_url="https://hub.example.org") as remote:
         local = TestClient(app, base_url="http://localhost")
         seen = 0
@@ -78,30 +79,36 @@ def test_every_registry_route_answers_with_the_headers(tmp_path: Path) -> None:
                     not in local.request(method, _example(route.path)).headers
                 )
                 seen += 1
-    assert seen >= 15
+    assert seen >= 14
     assert EXPECTED["content-security-policy"] == REGISTRY_CSP
 
 
-def test_writes_are_limited_per_token_before_their_body_is_read(
+def test_writes_are_limited_per_namespace_before_their_body_is_read(
     db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_REGISTRY_RATE_LIMITS", "on,registry_write=2/h:2")
-    app = create_registry_app(db_target, admin_token=REGISTRY_ADMIN)
-    with TestClient(app) as client:
-        admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
-        for name in ("a", "b"):
-            assert (
-                client.post("/v1/namespaces", json={"name": name}, headers=admin).status_code == 201
+    app = create_registry_app(db_target)
+    with RegistryStore(db_target) as store, TestClient(app) as client:
+        store.create_namespace("a", "community", "")
+        minted = store.mint_token("a", org="a", owner="operator", name="t", days=1, by="operator")
+        own = {"authorization": f"Bearer {minted['token']}"}
+
+        def add_key(headers: dict[str, str]) -> Any:
+            return client.post(
+                "/v1/namespaces/a/keys",
+                json={"public_pem": archive.generate_key()[1].decode()},
+                headers=headers,
             )
-        refused = client.post("/v1/namespaces", json={"name": "c"}, headers=admin)
+
+        assert [add_key(own).status_code for _ in range(2)] == [201, 201]
+        refused = add_key(own)
         assert refused.status_code == 429 and int(refused.headers["retry-after"]) >= 1
         assert refused.headers["x-frame-options"] == "DENY"
         # Another token has its own bucket; a refused write stored and chained nothing.
         other = {"authorization": "Bearer ohr_someone_else"}
-        assert client.post("/v1/namespaces", json={"name": "d"}, headers=other).status_code == 401
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        names = {row["name"] for row in db.all("SELECT name FROM hub_namespaces")}
-    assert "c" not in names and {"a", "b"} <= names
+        assert add_key(other).status_code == 403
+        keys = store.namespace("a", REVIEWER)["keys"]
+    assert len(keys) == 2
 
 
 def test_reads_are_limited_per_address_and_log_mode_never_refuses(
@@ -141,16 +148,16 @@ def test_made_up_tokens_share_their_senders_bucket(
     fresh one each time were never limited. A token the registry did not issue counts against
     its sender's address."""
     monkeypatch.setenv("MENDARI_REGISTRY_RATE_LIMITS", "on,registry_write=2/h:2")
-    with TestClient(create_registry_app(tmp_path / "a.db", admin_token=REGISTRY_ADMIN)) as client:
+    with TestClient(create_registry_app(tmp_path / "a.db")) as client:
         codes = [
             client.post(
-                "/v1/namespaces",
-                json={"name": "x"},
+                "/v1/namespaces/x/keys",
+                json={"public_pem": archive.generate_key()[1].decode()},
                 headers={"authorization": f"Bearer made-up-{n}"},
             ).status_code
             for n in range(4)
         ]
-    assert codes == [401, 401, 429, 429]
+    assert codes == [403, 403, 429, 429]
 
 
 @pytest.mark.parametrize(

@@ -452,7 +452,7 @@ gates:
           - tests:
               - tests/test_registry_limits.py::test_every_registry_route_answers_with_the_headers
               - tests/test_registry_limits.py::test_an_unhandled_error_is_a_bare_500_with_the_headers
-              - tests/test_registry_limits.py::test_writes_are_limited_per_token_before_their_body_is_read
+              - tests/test_registry_limits.py::test_writes_are_limited_per_namespace_before_their_body_is_read
               - tests/test_registry_limits.py::test_made_up_tokens_share_their_senders_bucket
               - tests/test_registry_regression.py::test_a_burst_of_publishes_is_told_to_try_again
               - tests/test_registry_limits.py::test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner
