@@ -1434,6 +1434,13 @@ The first release (not yet published).
   templates carry the settings commented out; a status check's registry base under the engine
   is the engine's origin with `/registry`, tested against the mounted registry; the registry
   guide gains "The hosted shape" and its runbook lines.
+- **LP-19 closed** (19k; documentation and gates only). The launch gate `a10-registry-hub`
+  names LP-19's acceptance tests and keeps one line for the owner: the registry turned on and
+  the Hub deployed. The status page's line names the owner's steps alone. ADR-0012's defaults
+  3 and 5 are amended (a review is a reviewer's or the operator's, never a shared token's), and
+  ADR-0015 is Accepted (the owner accepted its ten defaults, 2026-11-15). Revoking
+  access now covers publisher tokens, and the pack-authoring guide shows claiming a namespace,
+  minting a token and publishing.
 - **Breaking, for a registry of its own: no shared administrator token** (LP-19g). The
   registry no longer reads `MENDARI_REGISTRY_ADMIN_TOKEN` (set, it logs once at startup that it
   is unused, and what replaces it) and these routes are gone (`404` or `405`):

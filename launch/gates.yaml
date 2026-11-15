@@ -400,7 +400,7 @@ gates:
           - tests:
               - tests/test_scoreboard_end_to_end.py::test_a_local_run_to_a_signed_verified_result
           - pending: "owner: LP-17i, the remote arms on the public `test` sets (the price table, the disclosures and the declarations written, then the run by hand, committed and signed: owner decisions 6 and 7); then a build PR removes this line"
-          - pending: "LP-17l, the developer flow, after LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07)"
+          - pending: "LP-17l, the developer flow, after LP-20 (LP-19 is built; owner decisions 4 and 10 decided 2026-11-07)"
       - id: a10-registry-hub
         what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
         owner: build
@@ -466,7 +466,63 @@ gates:
               - tests/test_registry_chain.py::test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify
               - tests/test_registry_chain.py::test_a_registry_from_before_the_chain_records_what_it_held_once
               - tests/test_shipped.py::test_every_state_changing_route_is_in_the_inventory
-          - pending: "LP-19 (registry accounts, namespace claims, the registry and Hub deployed): the registry runs under the engine (ADR-0012, LP-19's option A); its build is next"
+          # LP-19 (ADR-0015): owned publisher tokens (19b) and namespace claims, a first publish
+          # nobody sees until it is approved (19c).
+          - tests:
+              - tests/test_registry_tokens.py::test_a_token_names_its_owner_organization_and_expiry_and_never_its_secret
+              - tests/test_registry_tokens.py::test_an_expired_token_is_refused
+              - tests/test_registry_tokens.py::test_a_revoked_token_is_refused_at_once_and_revoking_is_chained
+              - tests/test_registry_tokens.py::test_a_token_publishes_only_to_its_namespace
+              - tests/test_registry_tokens.py::test_the_operators_token_records_operator_and_why
+              - tests/test_registry_tokens.py::test_a_database_from_before_owned_tokens_still_verifies
+              - tests/test_registry_claims.py::test_a_reserved_namespace_is_never_claimed
+              - tests/test_registry_claims.py::test_a_claimed_name_is_not_claimed_twice
+              - tests/test_registry_claims.py::test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_list_and_health
+              - tests/test_registry_claims.py::test_a_pending_namespace_answers_as_one_that_does_not_exist
+              - tests/test_registry_claims.py::test_approved_it_is_listed_and_pulls
+              - tests/test_registry_claims.py::test_a_refused_namespace_never_lists_and_its_archive_is_kept
+              - tests/test_registry_claims.py::test_claim_approval_and_publish_are_chained_with_the_organization
+          # The registry under the engine (19d), its reviewers (19e) and the dashboard (19f).
+          - tests:
+              - tests/test_registry_mount.py::test_without_the_switch_nothing_is_mounted_and_no_hub_table_is_made
+              - tests/test_registry_mount.py::test_a_member_claims_mints_publishes_and_only_to_the_claimed_namespace
+              - tests/test_registry_mount.py::test_a_session_cookie_is_not_a_publish_credential
+              - tests/test_registry_mount.py::test_an_engine_key_is_refused_by_the_registry_and_a_publisher_token_by_the_engine
+              - tests/test_registry_mount.py::test_one_organization_never_sees_or_revokes_anothers_tokens_or_claims
+              - tests/test_registry_mount.py::test_another_sites_page_cannot_claim_or_mint
+              - tests/test_registry_mount.py::test_public_reads_need_no_sign_in_and_carry_the_registrys_headers
+              - tests/test_registry_mount.py::test_the_registry_chain_and_the_audit_chain_both_verify_in_one_database
+              - tests/test_registry_review.py::test_a_first_publish_stays_invisible_until_a_reviewer_approves_it
+              - tests/test_registry_review.py::test_an_administrator_of_another_organization_is_not_a_reviewer
+              - tests/test_registry_review.py::test_the_reviewer_role_cannot_be_granted_outside_the_review_organization
+              - tests/test_registry_review.py::test_a_reviewer_does_not_decide_their_own_claim
+              - tests/test_registry_review.py::test_a_key_a_client_open_mode_and_claims_mode_never_review
+              - tests/test_registry_review.py::test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewers_id
+              - tests/browser/test_registry_accounts.py::test_from_a_claim_to_an_approved_pack
+              - tests/browser/test_registry_accounts.py::test_a_token_is_shown_once_and_never_again
+              - tests/browser/test_registry_accounts.py::test_a_revoked_token_says_so_and_no_longer_publishes
+              - tests/browser/test_registry_accounts.py::test_only_reviewers_see_the_queue_and_only_administrators_the_tabs
+              - tests/browser/test_registry_accounts.py::test_the_registry_screens_pass_axe
+          # No shared secret (19g), https only (19h), the registry's counter-signature (19i) and the
+          # deployment configuration (19j).
+          - tests:
+              - tests/test_registry_tokens.py::test_no_shared_secret_publishes_creates_reviews_or_deletes
+              - tests/test_registry_tokens.py::test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifies
+              - tests/test_registry_mount.py::test_the_mounted_registry_has_no_administrator_token
+              - tests/test_hub_client.py::test_a_registry_is_reached_over_https_only
+              - tests/test_hub_client.py::test_https_and_this_machine_are_reached
+              - tests/test_hub_client.py::test_no_token_is_sent_to_a_refused_address
+              - tests/test_registry_acceptance.py::test_an_accepted_version_carries_a_record_that_verifies
+              - tests/test_registry_acceptance.py::test_a_version_planted_in_the_database_has_no_record_and_is_not_pulled
+              - tests/test_registry_acceptance.py::test_a_recall_or_a_checkpoint_signature_is_not_an_acceptance
+              - tests/test_registry_acceptance.py::test_a_pending_version_is_signed_at_approval_and_a_refused_one_never
+              - tests/test_registry_acceptance.py::test_a_registry_that_drops_or_changes_its_key_is_refused
+              - tests/test_registry_acceptance.py::test_a_shipped_key_is_trusted_without_first_use
+              - tests/test_registry_acceptance.py::test_the_shipped_file_holds_public_keys_only
+              - tests/test_vercel.py::test_the_function_outlasts_a_publishs_regression_check
+              - tests/test_vercel.py::test_the_engine_function_ships_the_registry_and_not_the_hub_site
+              - tests/test_vercel.py::test_the_hubs_project_file_names_no_host_or_project
+          - pending: "owner: the registry turned on under the engine (its review organization, signing key and MENDARI_REGISTRY=on) and the Hub's project deployed, in deploy/vercel/README.md's order (\"Registry and Hub\"); then a build PR removes this line"
       - id: external-review
         what: "An external security review whose scope covers the registry, the Hub and the pack store (B29)"
         owner: owner
@@ -555,7 +611,8 @@ gates:
               - tests/test_status_checks.py::test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_fail_in_an_outage
               - tests/test_status_checks.py::test_the_status_page_is_public_static_and_does_no_database_work
               - tests/browser/test_status.py::test_the_status_view_shows_a_database_outage
-          - pending: "LP-19 (the registry and Hub hosted) and a status organization (the hosted site runs memberships mode since 2026-11-07, LP-12), for the registry, Hub and decide checks"
+              - tests/test_status_checks.py::test_the_registry_check_reads_the_mounted_registry
+          - pending: "owner: the registry and Hub hosted (LP-19 is built; a10-registry-hub) and a status organization (the hosted site runs memberships mode since 2026-11-07, LP-12), for the registry, Hub and decide checks"
           - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
       - id: hosted-monitoring
         what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"
@@ -595,7 +652,7 @@ gates:
         what: "A11: the site evaluation network (site keys, signed results, pooled intervals, a homogeneity warning)"
         owner: build
         probes:
-          - pending: "LP-22, after LP-07 (done), LP-10 and LP-19"
+          - pending: "LP-22, after LP-07 (done), LP-10 and LP-19 (done)"
       - id: a12-ehr-pilot
         what: "A12: EHR pilot readiness (EHR-signed CDS Hooks tokens, selectionBehavior, a feedback endpoint, mappings for real EHR data)"
         owner: build

@@ -2845,7 +2845,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     declaration names a `local` configuration for (17h's `mendari.declared/1`), each with it
     (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
-    Blocked on LP-19 and LP-20 (owner decisions 4 and 10 decided 2026-11-07).
+    Blocked on LP-20 (LP-19 is built; owner decisions 4 and 10 decided 2026-11-07).
   - [x] **17m** (#279) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
     acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
     end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
@@ -2987,7 +2987,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     decided (owner, 2026-11-07): 3 submissions per organization and lineage per rotation, the
     confirmation once per version; who submits stays with LP-19 and LP-20.
 
-- [ ] **LP-19** Registry accounts and deployment. **Stopped before any code (2026-10-09; recorded
+- [x] **LP-19** Registry accounts and deployment. **Built, 19a to 19k (2026-11-09 to
+  2026-11-15); ADR-0015 Accepted by the owner on 2026-11-15 ("Accept all defaults"); left to
+  the owner: the steps listed under 19k.**
+  **Stopped before any code (2026-10-09; recorded
   by 18h, 2026-10-17) until the owner chose where the registry runs: A, mounted under the
   engine, on 2026-11-07** (the build session's recommendation, confirmed in chat: "the patent
   gate is clear and I approve everything on my part"). The build prompt said to stop ("Owner
@@ -3139,7 +3142,25 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `..._per_namespace_...` (the admin's bucket was the per-token case; the gate's probe
     follows); the registry guide gains "What the operator does" (replacing "What an
     administrator does") and "From a registry with an administrator token".
-  - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
+  - [x] **19k** Close-out (2026-11-15). Gate `a10-registry-hub`'s LP-19 pending line replaced by
+    the acceptance tests of 19b to 19j (owned tokens, claims, the mount, reviewers, the browser
+    flow, no shared secret, https, the counter-signature, the deployment configuration) and an
+    owner line: the registry turned on and the Hub deployed (a build prerequisite carries no
+    attestation, so it is a `pending: "owner: ..."` line a build PR removes once they are).
+    `status-page`'s pending line names the owner's steps alone and takes 19j's status-check
+    test; LP-17l's line names LP-20 alone; `a11-site-network`'s marks LP-19 done. ADR-0012's
+    status and defaults 3 and 5 amended; ADR-0015 Accepted (the owner, in chat, 2026-11-15:
+    "Accept all defaults", the ten defaults of `notes/lp19-plan.md`). Threat model: D15's line about
+    the administrator's routes dropped, the chain's residual names a reviewer's or the
+    operator's notes, and a residual for names that stay taken and tokens that outlive their
+    maker. `docs/operations/revoking-access.md` lists publisher tokens; the authoring guide
+    shows claiming, minting and publishing. **Owner steps left** (each in
+    `deploy/vercel/README.md`, "Registry and Hub", in order): the review organization's record;
+    `MENDARI_REGISTRY_SIGNING_KEY` for Production (and its public half shipped in
+    `registry_keys.json` by a one-line PR); `MENDARI_REGISTRY=on` and
+    `MENDARI_REGISTRY_REVIEW_ORG`; a reviewer; claiming `mendari` and `openhealth` and
+    publishing the reference packs with an owned token, then `mendari registry countersign`;
+    the Hub's project, `REGISTRY_URL` and DNS; the status checks; the daily checkpoint.
   The options were:
   - **A, mount the registry under the engine (the build session's recommendation).** The
     registry's routes under the engine app (`/registry/v1/...`, or its own host on the same
@@ -3163,8 +3184,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   required but on localhost. **Owner steps then** (A chosen, so no project or database of its
   own): set `MENDARI_REGISTRY_SIGNING_KEY` (32 random bytes, base64) for the registry's own
   recalls and counter-signatures; DNS for the registry and the Hub; the Hub's `REGISTRY_URL`.
-  LP-22 (the site evaluation network) needs LP-19's organizations in the registry, so it waits
-  too.
+  LP-22 (the site evaluation network) needed LP-19's organizations in the registry; LP-19 is
+  built, so it no longer waits on it.
 
 - [ ] **LP-20** The pack store (A7; gate G3-4's `a7-pack-store`). **Planned 2026-11-10:
   `notes/lp20-plan.md`, eleven PRs (20a to 20k), and ADR-0016 (Proposed).** Each organization
@@ -3360,9 +3381,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 
 - [ ] **LP-22** The site evaluation network (A11): sites share signed counts of how a pack did
   on their own chart-reviewed data. **Planned 2026-11-10: `notes/lp22-plan.md`, ten PRs (22a to
-  22j), and ADR-0017 (Proposed; 0016 is left for LP-20's plan).** Building waits on LP-19: 22b
-  (the statistics) and 22c (the counts-only payload) can start now; 22d waits for 19c, 22f for
-  19g, 22h for 19i, 22i for 19d to 19g. No step needs an LP-20 step as LP-20 is described
+  22j), and ADR-0017 (Proposed; 0016 is left for LP-20's plan).** LP-19 is built (2026-11-15),
+  so no step waits on it any more (22d needed 19c, 22f 19g, 22h 19i, 22i 19d to 19g). No step needs an LP-20 step as LP-20 is described
   today. Build PRs run against a local registry with synthetic sites; nothing is deployed, and
   no PR drafts or attests a site agreement. Conflicts between the build prompt, the notes and
   the code, written before building as the prompt asks (the plan gives each one's default):

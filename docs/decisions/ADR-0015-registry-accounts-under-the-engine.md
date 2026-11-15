@@ -1,11 +1,18 @@
 # ADR-0015: Registry accounts, under the engine
 
 ## Status
-Proposed (2026-11-09, LP-19a). Nothing in it is built yet. It follows the owner's choice of
-2026-11-07 that the registry runs under the engine app (LP-19's option A, `tasks/todo.md`), and
-is built in steps planned in `notes/lp19-plan.md` (19a to 19k). When it is accepted it replaces
+Accepted (2026-11-15, the owner, in chat: "Accept all defaults", which accepts each of the ten
+defaults in `notes/lp19-plan.md`, "Owner decisions still open"). Proposed 2026-11-09 (LP-19a).
+Built, 19a to 19k, 2026-11-09 to
+2026-11-15, each step as `tasks/todo.md` records it: owned publisher tokens (19b), namespace
+claims (19c), the mount and the people's routes (19d), reviewers (19e), the dashboard (19f), the
+administrator token removed (19g), https only (19h), the counter-signature (19i), the
+deployment configuration (19j) and the close-out (19k). It follows the owner's choice of
+2026-11-07 that the registry runs under the engine app (LP-19's option A). It replaces
 [ADR-0012](ADR-0012-a-registry-that-shows-only-what-it-checked.md)'s default that a review is
-recorded with the registry's administrator token.
+recorded with the registry's administrator token (ADR-0012's defaults 3 and 5 are amended).
+Gate G3-4's `a10-registry-hub` names its tests; the registry turned on and the Hub deployed are
+the owner's, and stay pending there.
 
 ## Context
 The registry ([ADR-0012](ADR-0012-a-registry-that-shows-only-what-it-checked.md)) shows only

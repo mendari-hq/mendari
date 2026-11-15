@@ -648,6 +648,8 @@ Every PR:
 
 ## Owner decisions still open (each PR follows the default until told otherwise)
 
+All ten defaults accepted by the owner on 2026-11-15 ("Accept all defaults"); ADR-0015 is Accepted.
+
 1. **The mount path.** Default: `/registry` on the engine's origin. A host of its own on the
    same project is a domain setting the owner adds; no code depends on it.
 2. **The review organization, and whether a second role is wanted.** Default: one organization,

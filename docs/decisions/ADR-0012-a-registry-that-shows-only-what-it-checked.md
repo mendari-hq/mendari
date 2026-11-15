@@ -5,11 +5,13 @@ Accepted (2026-11-07, the owner: "the patent gate is clear and I approve everyth
 which confirms each default below). Proposed 2026-10-09. Built (LP-18, 18a to 18h and the
 Decision Card's approval screen, 2026-10-09 to 2026-10-17), each default below as
 `tasks/todo.md` records it. Gate G3-4's prerequisite `a10-registry-hub` (`launch/gates.yaml`)
-names the tests that hold it; LP-19 (registry accounts, namespace claims, the registry and the
-Hub deployed) stays pending there. On 2026-11-07 the owner confirmed the default for where the
-registry runs: under the engine app (LP-19's option A, the build session's recommendation); its
-build is next, and its deploy, signing key and DNS stay the owner's. The steps, in the order
-they landed:
+names the tests that hold it. On 2026-11-07 the owner confirmed the default for where the
+registry runs: under the engine app (LP-19's option A, the build session's recommendation).
+LP-19 (registry accounts, namespace claims, reviewers, the counter-signature, no shared
+administrator token) is built, 19a to 19k, 2026-11-09 to 2026-11-15
+([ADR-0015](ADR-0015-registry-accounts-under-the-engine.md), Accepted 2026-11-15); it amends defaults 3 and 5 below.
+Turning the registry on, its signing key, the Hub's project and DNS stay the owner's, and the
+gate's line for them stays pending until they are done. The steps, in the order they landed:
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
@@ -75,8 +77,9 @@ Nothing on a pack's page comes from the uploader unchecked.
    review (18b). Until then its risk level is shown as declared by the publisher, never as
    recomputed or confirmed. A review records the risk level it found and a short note; the
    publisher's declared level stays as declared, with `confirmed` true or false beside it, and
-   the newest review of a version is the one shown. Until LP-19's reviewer accounts the admin
-   token records reviews.
+   the newest review of a version is the one shown. A registry reviewer is a person of the
+   review organization under the engine, or the operator's command (`mendari registry
+   review`): no shared token records reviews since LP-19g (ADR-0015).
 4. **The chain (18b).** Every write (a namespace created, its publisher type set, a token
    issued, a key added, a version published, a site report shared, a review) appends a
    hash-chained event in the same transaction (`hub_events`, hashed as the audit chain is). A
@@ -157,6 +160,8 @@ Nothing on a pack's page comes from the uploader unchecked.
    `mendari card`), it shows the registry's card too, without the pack's uploaded benchmark and
    leaderboard (`card_of`).
 5. (18b) Until LP-19's reviewer accounts, a review is recorded with the admin token.
+   Amended by LP-19 (ADR-0015): a review is a reviewer's, by id, or the operator's command,
+   each named on the chain; the admin token is gone (19g).
 6. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
    registry with its own key. A client honours every yank, verified or not (a forged yank only
    stops automation, the safe direction), and says whether it verified.

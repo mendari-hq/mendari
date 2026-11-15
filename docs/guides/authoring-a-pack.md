@@ -380,12 +380,26 @@ into one page. Share it with your AI or clinical decision support committee. At 
   path, from the proposal to the merge; CI checks the pack and shows its card.
 - **In your own deployment:** keep the folder anywhere and put its parent on
   `MENDARI_PACKS_PATH`. The packs in `packs/` are the ones Mendari maintains.
-- **On a registry:** `mendari push refill-router --key my-key.pem` signs the pack and
-  publishes it, and others `mendari pull my-clinic/refill-router` and verify it. The registry
+- **On a registry:** first your organization claims the namespace (`my-clinic`) and mints a
+  publisher token: an administrator does both in the dashboard's Access view (Namespaces, then
+  Publisher tokens) where the registry runs under the engine, or the registry's operator runs
+  `mendari registry claim` and `mendari registry token`. The token is shown once; it belongs to
+  your organization, ends (90 days unless asked) and can be revoked. Then:
+
+  ```bash
+  mendari keys generate --out keys/                         # once: your publisher key pair
+  mendari login --registry https://registry.example --token ohr_...
+  mendari keys register --namespace my-clinic --public-key keys/publisher.pub
+  mendari push refill-router --key keys/publisher.key
+  ```
+
+  Until a registry reviewer approves the claim, nothing of the namespace is shown to anyone
+  but your token: approval comes after your first publish, with that version in front of them.
+  Once approved, others `mendari pull my-clinic/refill-router` and verify it. The registry
   renders the pack's card itself and shows no benchmark, leaderboard or card you upload; it
   runs its own regression check on `evaluation.benchmark_dataset` and shows it as your own test
   set, never a ranking. Whoever serves the pack approves its digest before it automates.
-  `mendari yank my-clinic/refill-router@1.0.0 --reason "..." --severity high --key my-key.pem`
+  `mendari yank my-clinic/refill-router@1.0.0 --reason "..." --severity high --key keys/publisher.key`
   recalls a version, and servers that pulled it stop automating it
   ([Running a pack registry](../operations/registry.md)).
 
