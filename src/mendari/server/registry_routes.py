@@ -18,12 +18,13 @@ their id (`user:<hash>`), never by an address. The security log gets
 `admin.registry_token.created|revoked`, with ids only: never a token.
 
 The registry's reviewers (LP-19e) have routes of their own, `/api/registry/review/...`
-(`add_registry_review_routes`): the queue of pending claims and the acts that were the
-administrator token's (approve or refuse a claim, set a publisher type, review, recall and
-delete a version). They are mounted only in memberships mode with
-`MENDARI_REGISTRY_REVIEW_ORG` naming an organization that has a record, and answer only a person
-who holds `registry_reviewer` in that organization (`registry_review`: never a key, a client,
-open mode or claims mode, and never an administrator of another organization). They act on
+(`add_registry_review_routes`): the queue of pending claims and the acts that are a reviewer's
+(approve or refuse a claim, set a publisher type, review, recall and delete a version; a shared
+administrator token did them until LP-19g removed it). They are mounted only in memberships
+mode with `MENDARI_REGISTRY_REVIEW_ORG` naming an organization that has a record, and answer
+only a person who holds `registry_reviewer` in that organization (`registry_review`: never a
+key, a client, open mode or claims mode, and never an administrator of another organization).
+They act on
 every organization's namespaces, which is why the role counts in one organization only.
 
 Imported inside `create_app` only: `mendari.hub.registry` imports from `server/app.py`.

@@ -143,10 +143,12 @@ services:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
   registry:
-    # The pack registry (mendari.hub): push and pull signed packs locally. The admin token is
-    # for this sandbox only; seed it with `scripts/hub_seed.py --registry http://127.0.0.1:8100`
-    # after `docker compose up --build`: the registry checks the checkout's packs against the
-    # reference packs of this image (ADR-0009).
+    # The pack registry (mendari.hub): push and pull signed packs locally. There is no shared
+    # administrator token (LP-19g): seed it after `docker compose up --build` as its operator, on
+    # its database, with the image's own reference packs:
+    #   docker compose exec registry python /seed/hub_seed.py \
+    #     --registry http://127.0.0.1:8100 --db /data/registry.db
+    # Its other writes are `mendari registry ...` there too (claim, approve, token, review).
     image: mendari-engine:0.1.0
     depends_on:
       engine:
@@ -154,10 +156,9 @@ services:
     command: mendari registry serve --host 0.0.0.0 --port 8100 --db /data/registry.db
     ports:
       - "127.0.0.1:8100:8100"
-    environment:
-      MENDARI_REGISTRY_ADMIN_TOKEN: ${MENDARI_REGISTRY_ADMIN_TOKEN:-sandbox-admin}
     volumes:
       - mendari-data:/data
+      - ./scripts/hub_seed.py:/seed/hub_seed.py:ro
     healthcheck:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 

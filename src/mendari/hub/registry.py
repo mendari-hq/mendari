@@ -2,9 +2,9 @@
 """The registry: namespaces, publisher keys, immutable signed pack versions, and search.
 
 - **Namespaces** are owned by publishers. Each has a publisher type (community, verified,
-  institutional) that registry admins set after verification; a pack's own `publisher.type` is
-  only what it claims. Each namespace registers Ed25519 public keys.
-- **Publishing** (`PUT /v1/packs/{ns}/{name}/{version}`, with a namespace token) accepts an
+  institutional) that the registry's reviewers set after verification; a pack's own
+  `publisher.type` is only what it claims. Each namespace registers Ed25519 public keys.
+- **Publishing** (`PUT /v1/packs/{ns}/{name}/{version}`, with a namespace's owned token) accepts an
   archive only if:
   - its signature verifies with one of the namespace's keys;
   - its manifest names this pack and version;
@@ -33,15 +33,15 @@
   registry signs its head for a day (`hub/checkpoint.py`, `RegistryStore.checkpoint`, `mendari
   registry checkpoint`): kept outside the database, the statement shows a chain rewritten from
   before it (`verify(head=…)`). Nothing of it is stored here.
-- **Reviews.** A registry reviewer records the risk level a version's review found
-  (`POST …/review`, the admin token until reviewer accounts exist); until then the version's
-  risk level is shown as declared by the publisher.
+- **Reviews.** A registry reviewer records the risk level a version's review found (under the
+  engine, at `/api/registry/review/...`; otherwise the operator's `mendari registry review`);
+  until then the version's risk level is shown as declared by the publisher.
 - **Recalls** (`hub/yank.py`). A version is yanked by a signed `mendari.yank/1` record (the
   publisher's, signed with a namespace key, or the registry's, signed with its own key): it
   leaves the latest version, search and the namespace's list, and is still served by exact
-  version with the record. An administrator may delete a version, with a reason: its archive's
-  bytes are removed (no version still needing them), its row and a tombstone are kept, and it
-  is never served or published again. Both are chained.
+  version with the record. A reviewer or the operator may delete a version, with a reason: its
+  archive's bytes are removed (no version still needing them), its row and a tombstone are kept,
+  and it is never served or published again. Both are chained.
 - **Limits and headers** (LP-18f). Every request counts against a rate in the registry's own
   database (`Limiter`, `MENDARI_REGISTRY_RATE_LIMITS`: `on` unless set, `log` or `off`, then
   overrides such as `registry_write=240/h:40`): reads per address, writes per namespace (or
@@ -63,8 +63,13 @@
   and `RegistryStore.countersign` (`mendari registry countersign`) signs the listed versions
   that have none. A version written straight into the database has none, and a client that
   trusts the registry's key refuses it.
-- **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
-  `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
+- **Who writes** (LP-19g). Over this app, only a namespace's own publisher, with an owned token
+  (`mint_token`: an organization, an owner, an expiry, revocable): it adds keys, publishes,
+  recalls with a record it signed, and shares site reports. Tokens are random, shown once, and
+  stored as SHA-256. A token from before owned tokens (`hub_tokens`) no longer publishes; its
+  row and its event stay, so the chain verifies. There is no shared administrator token:
+  claims, publisher types, reviews, the registry's recalls and deletions are a reviewer's
+  (under the engine) or the operator's commands on the database (`mendari registry ...`).
 
 Storage is the shared database layer (`core/db.py`): SQLite locally, Postgres deployed. Archives
 are small (a pack is a few MB), so they live in the database.
@@ -73,8 +78,8 @@ are small (a pack is a few MB), so they live in the database.
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -119,6 +124,7 @@ from mendari.hub import checkpoint as chain_checkpoint
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
+logger = logging.getLogger("mendari.registry")
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\Z")  # `$` would take a final newline
 _VERSION = re.compile(r"^(?=.{1,64}\Z)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\Z")
@@ -531,8 +537,11 @@ class RegistryStore(RateBuckets):
     # -- namespaces, keys, tokens -------------------------------------------------------------
 
     def create_namespace(
-        self, name: str, publisher_type: str, display_name: str, *, by: str = "admin"
+        self, name: str, publisher_type: str, display_name: str, *, by: str = "operator"
     ) -> dict[str, Any]:
+        """A namespace with no claim, listed at once, as one from before claims. No route or
+        command makes one since LP-19g (a namespace is claimed, `claim`): this is the store's
+        own, for tests. Chained `namespace.created`."""
         if not _NAME.match(name):
             raise HubError("a namespace is lowercase letters, digits and dashes")
         with self._db.session(exclusive=True) as db:
@@ -553,7 +562,7 @@ class RegistryStore(RateBuckets):
         return self.namespace(name, REVIEWER)
 
     def set_publisher_type(
-        self, name: str, publisher_type: str, *, by: str = "admin"
+        self, name: str, publisher_type: str, *, by: str = "operator"
     ) -> dict[str, Any]:
         self.namespace(name, REVIEWER)
         with self._db.session(exclusive=True) as db:
@@ -739,7 +748,7 @@ class RegistryStore(RateBuckets):
                 f"SELECT * FROM hub_claims{where} ORDER BY created_at, namespace", tuple(params)
             )
 
-    def add_key(self, namespace: str, public_pem: str, *, by: str = "admin") -> str:
+    def add_key(self, namespace: str, public_pem: str, *, by: str = "operator") -> str:
         key = archive.load_public_key(public_pem.encode())
         key_id = archive.key_id(key)
         self.namespace(namespace, REVIEWER)
@@ -761,30 +770,6 @@ class RegistryStore(RateBuckets):
                     row=("keys", "key_id = ?", (key_id,)),
                 )
         return key_id
-
-    def issue_token(self, namespace: str, *, by: str = "admin") -> str:
-        self.namespace(namespace, REVIEWER)
-        token = "ohr_" + secrets.token_urlsafe(32)
-        with self._db.session(exclusive=True) as db:
-            db.all(
-                "INSERT INTO hub_tokens (token_sha256, namespace, created_at) VALUES (?, ?, ?)",
-                (_sha(token), namespace, _now()),
-            )
-            record_event(
-                db,
-                "token.issued",
-                f"namespace:{namespace}",
-                {"namespace": namespace, "token_id": token_id(token), "by": by},
-                row=("tokens", "token_sha256 = ?", (_sha(token),)),
-            )
-        return token
-
-    def token_namespace(self, token: str) -> str | None:
-        """The namespace of a token from before owned tokens (`issue_token`): no owner, no
-        expiry, never revoked."""
-        with self._db.session(exclusive=False) as db:
-            row = db.one("SELECT namespace FROM hub_tokens WHERE token_sha256 = ?", (_sha(token),))
-        return None if row is None else str(row["namespace"])
 
     def mint_token(
         self,
@@ -942,7 +927,7 @@ class RegistryStore(RateBuckets):
     # -- packs ----------------------------------------------------------------------------------
 
     def publish(
-        self, namespace: str, name: str, version: str, data: bytes, *, by: str = "admin"
+        self, namespace: str, name: str, version: str, data: bytes, *, by: str = "operator"
     ) -> dict[str, Any]:
         keys = {
             k["key_id"]: archive.load_public_key(k["public_pem"].encode())
@@ -1268,7 +1253,7 @@ class RegistryStore(RateBuckets):
         submitted_by: str,
         report: SiteReport,
         *,
-        by: str = "admin",
+        by: str = "operator",
         viewer: Viewer = PUBLIC,
     ) -> dict[str, Any]:
         """A site's evaluation of a published version (`mendari.site-report/1`, already
@@ -1492,7 +1477,7 @@ class RegistryStore(RateBuckets):
     ) -> dict[str, Any]:
         """Recall a version with a record the registry signs with its own key
         (`MENDARI_REGISTRY_SIGNING_KEY`; none: 409, and it says so): a reviewer's recall, the
-        operator's, and the administrator token's until it goes (LP-19g). `by` is who asked."""
+        operator's. `by` is who asked."""
         own = _signing_key("recall")  # one that is set and is not a key: 503, the operator's
         if own is None:
             raise HubError(f"this registry has no signing key ({yank.KEY_ENV})", 409)
@@ -1983,12 +1968,6 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
 # -- the HTTP API ---------------------------------------------------------------------------------
 
 
-class NamespaceRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=63)
-    publisher_type: PublisherType = "community"
-    display_name: str = Field(default="", max_length=200)
-
-
 MAX_REPORT_BYTES = 2_000_000
 
 
@@ -2115,8 +2094,8 @@ def registry_limit_settings() -> LimitSettings:
 
 def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[str, str]:
     """A request's limit and its bucket's key: reads per address; writes and reports per
-    namespace when the token is one the registry issued (`known`: its bucket; the admin's
-    token by its id), else per address, so made-up tokens share their sender's bucket. Per
+    namespace when the token is one the registry issued (`known`: its bucket), else per
+    address, so made-up tokens share their sender's bucket. Per
     namespace, not per token: a namespace that mints a token gains no budget (LP-19d)."""
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return "registry_read", f"ip:{client_ip(request)}"
@@ -2131,31 +2110,37 @@ def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[s
     return kind, key
 
 
+RETIRED_ADMIN_TOKEN = "MENDARI_REGISTRY_ADMIN_TOKEN"  # read by nothing since LP-19g
+_RETIRED_ADMIN_NOTE = (
+    "%s is set but no longer used (LP-19g): nothing publishes, claims, reviews, recalls or "
+    "deletes with a shared token. A publisher mints an owned token (`mendari registry token`, or "
+    "the Access view under the engine); the operator claims, approves, sets publisher types, "
+    "reviews, recalls and deletes with `mendari registry claim|approve|refuse|publisher-type|"
+    "review|recall|delete`. Unset it."
+)
+
+
 def create_registry_app(
     target: str | Path | None = None,
     *,
-    admin_token: str | None = None,
     migrate_url: str | None = None,
     store: RegistryStore | None = None,
 ) -> FastAPI:
     """The registry's app, on a store it opens at `target`, or on one it is given (`store`:
     the engine mounts the registry on the store its own routes use, LP-19d). An app on a given
     store never closes it, and serves no page of its own (FastAPI's `/docs`, `/redoc` and
-    `/openapi.json`): whoever mounts it describes its routes."""
+    `/openapi.json`): whoever mounts it describes its routes. It holds no shared secret: a
+    write is a namespace's own publisher's, by an owned token (LP-19g)."""
+    if os.environ.get(RETIRED_ADMIN_TOKEN, "").strip():
+        logger.warning(_RETIRED_ADMIN_NOTE, RETIRED_ADMIN_TOKEN)
     if store is not None:
-        return _registry_app(store, admin_token, owned=False)
+        return _registry_app(store, owned=False)
     if target is None:
         raise MendariError("a registry needs a database, or a store")
-    return _registry_app(RegistryStore(target, migrate_url=migrate_url), admin_token, owned=True)
+    return _registry_app(RegistryStore(target, migrate_url=migrate_url), owned=True)
 
 
-def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool) -> FastAPI:
-    admin = (
-        admin_token
-        if admin_token is not None
-        else os.environ.get("MENDARI_REGISTRY_ADMIN_TOKEN", "")
-    )
-
+def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
@@ -2169,29 +2154,26 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
     limiter = Limiter(store, registry_limit_settings())
 
     def publisher_namespace(token: str, *, used: bool = False) -> str | None:
-        """The namespace a token publishes to: an owned token that is neither revoked nor
-        expired, or a token from before owned tokens. `used` notes the day an owned token was
-        used, for a request it was let through on."""
+        """The namespace an owned token publishes to, while it is neither revoked nor expired;
+        None for any other token, one from before owned tokens included (LP-19g). `used` notes
+        the day the token was used, for a request it was let through on."""
         owned = store.publisher(token)
         if owned is None:
-            return store.token_namespace(token)
+            return None
         if used:
             store.token_used(owned["id"])
         return owned["namespace"]
 
     def publishes_to(token: str, namespace: str) -> bool:
         owned = store.publisher(token)
-        if owned is None:
-            return store.token_namespace(token) == namespace
-        if owned["namespace"] == namespace:
-            store.token_used(owned["id"])
-        return owned["namespace"] == namespace
+        if owned is None or owned["namespace"] != namespace:
+            return False
+        store.token_used(owned["id"])
+        return True
 
     def known(token: str) -> str | None:
-        """The write bucket of a token the registry issued (its namespace's) or of the
-        admin's (its own); None for any other."""
-        if admin and hmac.compare_digest(token, admin):
-            return f"token:{token_id(token)}"
+        """The write bucket of a token the registry issued (its namespace's); None for any
+        other, which shares its sender's address's bucket."""
         namespace = publisher_namespace(token)
         return None if namespace is None else f"namespace:{namespace}"
 
@@ -2240,34 +2222,23 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
         header = request.headers.get("authorization", "")
         return header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
 
-    def require_admin(request: Request) -> None:
-        if not admin or not hmac.compare_digest(bearer(request), admin):
-            raise HTTPException(401, "admin token required")
-
     def require_publisher(request: Request, namespace: str) -> None:
         token = bearer(request)
-        if admin and token and hmac.compare_digest(token, admin):
-            return
         if not token or not publishes_to(token, namespace):
             raise HTTPException(403, f"a token for namespace {namespace!r} is required")
 
     def actor(request: Request) -> str:
-        """Who a checked request acts as, as the chain names them: `admin`, or a token by its
-        id (`token:<id>`, never the token)."""
-        token = bearer(request)
-        if admin and token and hmac.compare_digest(token, admin):
-            return "admin"
-        return f"token:{token_id(token)}"
+        """Who a checked request acts as, as the chain names them: a token by its id
+        (`token:<id>`, never the token)."""
+        return f"token:{token_id(bearer(request))}"
 
     def viewer_of(request: Request) -> Viewer:
-        """Who reads: a reviewer (the admin token, until reviewers sign in), a namespace's own
-        token, or the public (no token, or one that is unknown, revoked or expired). A read
+        """Who reads: a namespace's own token, or the public (no token, or one that is unknown,
+        revoked or expired). Reviewers read through the engine's routes, never here. A read
         never notes a token as used."""
         token = bearer(request)
         if not token:
             return PUBLIC
-        if admin and hmac.compare_digest(token, admin):
-            return REVIEWER
         return Viewer(namespace=publisher_namespace(token))
 
     @app.get("/v1/chain/head")
@@ -2284,25 +2255,6 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
             "storage": store.backend,
             "packs": len(store.latest()),
         }
-
-    @app.post("/v1/namespaces", status_code=201)
-    def create_namespace(request: Request, body: NamespaceRequest) -> dict[str, Any]:
-        require_admin(request)
-        return store.create_namespace(
-            body.name, body.publisher_type, body.display_name, by=actor(request)
-        )
-
-    @app.patch("/v1/namespaces/{namespace}")
-    def verify_namespace(
-        request: Request, namespace: str, body: PublisherTypeRequest
-    ) -> dict[str, Any]:
-        require_admin(request)
-        return store.set_publisher_type(namespace, body.publisher_type, by=actor(request))
-
-    @app.post("/v1/namespaces/{namespace}/tokens", status_code=201)
-    def issue_token(request: Request, namespace: str) -> dict[str, str]:
-        require_admin(request)
-        return {"namespace": namespace, "token": store.issue_token(namespace, by=actor(request))}
 
     @app.post("/v1/namespaces/{namespace}/keys", status_code=201)
     def add_key(request: Request, namespace: str, body: KeyRequest) -> dict[str, str]:
@@ -2351,55 +2303,17 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
             raise RequestValidationError(error.errors()) from None
 
     @app.post(
-        "/v1/packs/{namespace}/{name}/{version}/review",
-        status_code=201,
-        openapi_extra=_body_of(ReviewRequest),
-    )
-    async def review(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        """A registry reviewer records the risk level a version's review found, with a short
-        note (chained `pack.reviewed`). Until reviewer accounts exist (LP-19), the admin token
-        records it. The newest review of a version is the one shown."""
-        require_admin(request)
-        body = await small_body(request, ReviewRequest)
-        store.review(
-            namespace,
-            name,
-            version,
-            risk_level=body.risk_level,
-            note=body.note,
-            reviewer=actor(request),
-        )
-        return served(store.version(namespace, name, version, REVIEWER), REVIEWER)
-
-    @app.post(
         "/v1/packs/{namespace}/{name}/{version}/yank",
         status_code=201,
         openapi_extra=_body_of(YankRequest),
     )
     async def recall(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        """Recall a version. The namespace's publisher sends a `mendari.yank/1` record it signed
-        with one of the namespace's keys (`mendari yank`); an administrator sends a reason and a
-        severity, and the registry signs the record with its own key
-        (`MENDARI_REGISTRY_SIGNING_KEY`). Chained `pack.yanked`; a version is recalled once."""
-        token = bearer(request)
-        as_admin = bool(admin and token and hmac.compare_digest(token, admin))
-        if not as_admin:
-            require_publisher(request, namespace)
+        """Recall a version: the namespace's publisher sends a `mendari.yank/1` record it signed
+        with one of the namespace's keys (`mendari yank`). Chained `pack.yanked`; a version is
+        recalled once. The registry's own recall, signed with its key, is a reviewer's (under
+        the engine) or the operator's (`mendari registry recall`)."""
+        require_publisher(request, namespace)
         body = await small_body(request, YankRequest)
-        if as_admin:
-            if body.record is not None:
-                raise HubError("an administrator's recall is signed by the registry: send a reason")
-            if body.reason is None or body.severity is None:
-                raise HubError("a recall needs a reason and a severity")
-            recalled = store.recall_as_registry(
-                namespace,
-                name,
-                version,
-                reason=body.reason,
-                severity=body.severity,
-                by=actor(request),
-            )
-            return served(recalled, REVIEWER)
         if body.record is None:
             raise HubError("a publisher's recall is a record signed with a namespace key")
         if body.record.get("signer") != "publisher":
@@ -2407,18 +2321,6 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
         # Checked above: the namespace's own publisher.
         recalled = store.recall(namespace, name, version, body.record, by=actor(request))
         return served(recalled, REVIEWER)
-
-    @app.post(
-        "/v1/packs/{namespace}/{name}/{version}/delete", openapi_extra=_body_of(DeleteRequest)
-    )
-    async def delete(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        """Delete a version (administrators): its archive is no longer served, and its bytes
-        are removed when no other version needs them. The row and a tombstone with the reason
-        stay; chained `pack.deleted`."""
-        require_admin(request)
-        body = await small_body(request, DeleteRequest)
-        deleted = store.delete(namespace, name, version, reason=body.reason, by=actor(request))
-        return served(deleted, REVIEWER)
 
     @app.get("/v1/registry-key")
     def registry_key() -> dict[str, str]:
@@ -2506,13 +2408,11 @@ def _registry_app(store: RegistryStore, admin_token: str | None, *, owned: bool)
         reports are listed as unverified. The token is checked before the body is read, and the
         body is read only up to `MAX_REPORT_BYTES`."""
         token = bearer(request)
-        submitter = "admin" if admin and token and hmac.compare_digest(token, admin) else None
-        viewer = REVIEWER if submitter else PUBLIC
-        submitter = submitter or (publisher_namespace(token, used=True) if token else None)
+        submitter = publisher_namespace(token, used=True) if token else None
         if submitter is None:
             raise HTTPException(401, "a registry token is required to share a report")
-        if viewer is PUBLIC:  # a version in a namespace that is not listed: its own token's only
-            viewer = Viewer(namespace=submitter)
+        # A version in a namespace that is not listed: its own token's only.
+        viewer = Viewer(namespace=submitter)
         body = bytearray()
         async for chunk in request.stream():
             body += chunk

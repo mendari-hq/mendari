@@ -173,23 +173,19 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
-    # The registry's own chain (`hub_events`, LP-18b).
-    (REGISTRY, "POST", "/v1/namespaces"): ("namespace.created",),
-    (REGISTRY, "PATCH", "/v1/namespaces/{namespace}"): ("namespace.publisher_type_set",),
-    (REGISTRY, "POST", "/v1/namespaces/{namespace}/tokens"): ("token.issued",),
+    # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over
+    # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
     (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): ("report.shared",),
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/review"): ("pack.reviewed",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/delete"): ("pack.deleted",),
     # The registry under the engine (LP-19d): an organization's administrators, in the
     # registry's own chain. The mounted registry's routes are the registry's, above.
     (ENGINE, "POST", "/api/registry/namespaces"): ("namespace.created", "namespace.claimed"),
     (ENGINE, "POST", "/api/registry/namespaces/{namespace}/keys"): ("key.added",),
     (ENGINE, "POST", "/api/registry/tokens"): ("token.issued",),
     (ENGINE, "DELETE", "/api/registry/tokens/{token_id}"): ("token.revoked",),
-    # Its reviewers (LP-19e): the acts that were the administrator token's, by a person.
+    # Its reviewers (LP-19e): the registry's acts on any namespace, by a person.
     (ENGINE, "POST", "/api/registry/review/namespaces/{namespace}"): (
         "namespace.approved",
         "namespace.refused",
@@ -336,7 +332,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     found: set[Route] = set()
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),
-        REGISTRY: create_registry_app(tmp_path / "registry.db", admin_token="t"),
+        REGISTRY: create_registry_app(tmp_path / "registry.db"),
         PAYER: create_payer_app(),
     }
     with encrypted_store(tmp_path / "engine.db") as served:

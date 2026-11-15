@@ -17,11 +17,10 @@ from mendari.errors import HubError
 from mendari.hub import archive, yank
 from mendari.hub.client import pull, recall_of
 from mendari.hub.registry import RegistryStore
-from tests.conftest import REGISTRY_ADMIN, Registry
+from tests.conftest import Registry
 from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
 
 REFERRAL = resolve_pack("mendari/referral-router")
-ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
 PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
 REGISTRY_KEY = base64.b64encode(os.urandom(32)).decode()
 
@@ -139,8 +138,7 @@ def test_a_yank_whose_text_was_changed_after_signing_is_refused(registry: Regist
 
 def test_only_the_namespace_or_the_registry_recalls(registry: Registry) -> None:
     assert registry.publish().status_code == 201
-    registry.client.post("/v1/namespaces", json={"name": "other"}, headers=ADMIN)
-    other = registry.client.post("/v1/namespaces/other/tokens", headers=ADMIN).json()["token"]
+    other = registry.namespace("other")
     assert _yank(registry, _record(registry), token=other).status_code == 403
     assert (
         registry.client.post(f"{PATH}/yank", json={"record": _record(registry)}).status_code == 403
@@ -154,13 +152,24 @@ def test_the_registry_signs_its_own_recall(
 ) -> None:
     assert registry.publish().status_code == 201
     body = {"reason": "a safety notice from the registry", "severity": "critical"}
-    unkeyed = registry.client.post(f"{PATH}/yank", json=body, headers=ADMIN)
-    assert unkeyed.status_code == 409 and "no signing key" in unkeyed.text
+    # Over the registry's own routes a reason is never enough: a recall is the publisher's
+    # signed record there (LP-19g). The registry's is a reviewer's or the operator's.
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    unsigned = registry.client.post(f"{PATH}/yank", json=body, headers=publisher)
+    assert unsigned.status_code == 422 and "signed with a namespace key" in unsigned.text
+
+    def recall() -> dict[str, Any]:
+        return registry.operator.recall_as_registry(
+            "mendari", "referral-router", REFERRAL.version, by="operator", **body
+        )
+
+    with pytest.raises(HubError, match="no signing key") as unkeyed:
+        recall()
+    assert unkeyed.value.status == 409
     assert registry.client.get("/v1/registry-key").status_code == 404
     monkeypatch.setenv(yank.KEY_ENV, REGISTRY_KEY)
-    recalled = registry.client.post(f"{PATH}/yank", json=body, headers=ADMIN)
-    assert recalled.status_code == 201, recalled.text
-    record = recalled.json()["yank"]
+    record = recall()["yank"]
+    assert registry.client.get(PATH).json()["yank"] == record
     published = registry.client.get("/v1/registry-key").json()
     from mendari.core.checkpoint import load_public
 
@@ -176,10 +185,15 @@ def test_a_deleted_version_is_never_served_and_its_bytes_are_gone(
     assert registry.publish().status_code == 201
     publisher = {"authorization": f"Bearer {registry.token}"}
     body = {"reason": "the archive carried a file it must not"}
-    assert registry.client.post(f"{PATH}/delete", json=body, headers=publisher).status_code == 401
-    deleted = registry.client.post(f"{PATH}/delete", json=body, headers=ADMIN)
-    assert deleted.status_code == 200, deleted.text
-    assert deleted.json()["deleted"]["reason"] == body["reason"]
+    gone_route = registry.client.post(f"{PATH}/delete", json=body, headers=publisher)
+    assert gone_route.status_code in (404, 405)  # a reviewer's or the operator's (LP-19g)
+
+    def delete() -> dict[str, Any]:
+        return registry.operator.delete(
+            "mendari", "referral-router", REFERRAL.version, by="operator", **body
+        )
+
+    assert delete()["deleted"]["reason"] == body["reason"]
     gone = registry.client.get(f"{PATH}/archive")
     assert gone.status_code == 410 and body["reason"] in gone.text
     assert registry.client.get("/v1/search").json() == []
@@ -188,8 +202,9 @@ def test_a_deleted_version_is_never_served_and_its_bytes_are_gone(
         assert db.all("SELECT archive_sha256 FROM hub_archives") == []
     with RegistryStore(db_target) as store:
         assert store.verify()["ok"]
-    again = registry.client.post(f"{PATH}/delete", json=body, headers=ADMIN)
-    assert again.status_code == 409
+    with pytest.raises(HubError) as again:
+        delete()
+    assert again.value.status == 409
 
 
 def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
@@ -238,7 +253,6 @@ def test_a_deleted_version_is_removed_from_the_cache_and_never_pulled(
 ) -> None:
     """The LP-18c review: a version deleted after it was pulled was still served from the cache
     with no word. A pull now refuses it and removes the cached copy."""
-    import httpx
 
     from mendari.hub import client
 
@@ -247,12 +261,8 @@ def test_a_deleted_version_is_removed_from_the_cache_and_never_pulled(
     hub.client(token).push(pack, key)
     cached = pull(f"site-a/inbox@{pack.version}", hub.client())
     assert cached.root.is_dir()
-    with httpx.Client(
-        base_url=hub.url, headers={"authorization": "Bearer admin-token-for-tests"}
-    ) as http:
-        http.post(
-            f"/v1/packs/site-a/inbox/{pack.version}/delete", json={"reason": "carried a file"}
-        ).raise_for_status()
+    with hub.operator() as store:
+        store.delete("site-a", "inbox", pack.version, reason="carried a file", by="operator")
     assert main(["pull", f"site-a/inbox@{pack.version}", "--registry", hub.url]) == 1
     assert "was deleted from the registry: carried a file" in capsys.readouterr().err
     assert not cached.root.exists()
@@ -264,12 +274,12 @@ def test_a_recall_body_is_read_only_after_its_sender_is_checked(registry: Regist
     checked the token. Now the token comes first, and the body is capped."""
     assert registry.publish().status_code == 201
     huge = b'{"record": {"x": "' + b"a" * 5_000_000 + b'"}}'
-    for route in ("yank", "delete", "review"):
-        refused = registry.client.post(f"{PATH}/{route}", content=huge)
-        assert refused.status_code in (401, 403), (route, refused.status_code)
-        too_big = registry.client.post(f"{PATH}/{route}", content=huge, headers=ADMIN)
-        assert too_big.status_code == 413, route
-    not_json = registry.client.post(f"{PATH}/delete", content=b"{", headers=ADMIN)
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    refused = registry.client.post(f"{PATH}/yank", content=huge)
+    assert refused.status_code == 403
+    too_big = registry.client.post(f"{PATH}/yank", content=huge, headers=publisher)
+    assert too_big.status_code == 413
+    not_json = registry.client.post(f"{PATH}/yank", content=b"{", headers=publisher)
     assert not_json.status_code == 422
 
 

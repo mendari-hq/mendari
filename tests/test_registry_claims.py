@@ -22,10 +22,9 @@ from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import PUBLIC, REVIEWER, RegistryStore, Viewer, token_id
-from tests.conftest import REGISTRY_ADMIN, Registry
+from tests.conftest import Registry
 from tests.test_hub_client import SHIPPED, copy_pack
 
-ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
 CLAIMANT = "user:3f9a"  # a person as a chain names one: an id, never an address
 REVIEWED_BY = "user:77aa"
 REFERRAL = resolve_pack("mendari/referral-router")
@@ -181,15 +180,15 @@ def test_a_claimed_name_is_not_claimed_twice(registry: Registry, db_target: str)
         "note": None,
     }
     events = len(_events(db_target))
-    made = registry.client.post("/v1/namespaces", json={"name": "other"}, headers=ADMIN)
-    assert made.status_code == 201, made.text
+    registry.operator.create_namespace("other", "community", "")  # one with no claim
     for name, org in (("acme", "acme"), ("acme", "rival"), ("other", "rival"), ("mendari", "x")):
-        with pytest.raises(HubError) as taken:  # claimed, made by an administrator, or reserved
+        with pytest.raises(HubError) as taken:  # claimed, made by the operator, or reserved
             _claim(db_target, name, org=org)
         if name != "mendari":
             assert (str(taken.value), taken.value.status) == (f"namespace {name!r} exists", 409)
-    again = registry.client.post("/v1/namespaces", json={"name": "acme"}, headers=ADMIN)
-    assert again.status_code == 409  # and an administrator cannot make it over the claim
+    with pytest.raises(HubError) as again:  # and the operator cannot make it over the claim
+        registry.operator.create_namespace("acme", "community", "")
+    assert again.value.status == 409
     for bad in ("Acme", "-acme", "a" * 64, "ac me", ""):
         with pytest.raises(HubError, match="lowercase letters, digits and dashes"):
             _claim(db_target, bad)
@@ -338,8 +337,10 @@ def test_its_own_token_reads_its_pending_version(
     with _client(registry, claimed.token) as client:
         assert client.version("acme", "inbox")["listed"] is False
         assert pull("acme/inbox", client).digest == published["digest"]
-    # A reviewer reads it (the admin token, until reviewers sign in); nobody else.
-    assert [status for status, _ in _reads(registry, "acme", REGISTRY_ADMIN)] == [200] * len(READS)
+    # A reviewer reads it, through the store (the engine's reviewer routes, or the operator's
+    # commands): no token reads as a reviewer over the registry's own routes (LP-19g).
+    reviewed = registry.operator.version("acme", "inbox", SHIPPED, REVIEWER)
+    assert reviewed["digest"] == published["digest"]
     assert registry.client.get("/v1/health", headers=own).json()["packs"] == 0  # the public count
     with RegistryStore(db_target) as store:
         store.revoke_token(claimed.token_id, org="acme", by=CLAIMANT)
@@ -442,10 +443,7 @@ def test_a_claim_without_a_publish_cannot_be_approved(
     assert _claims(db_target)[0]["status"] == "pending" and len(_events(db_target)) == events
     # A version that was deleted is nothing to review either.
     claimed.publish()
-    deleted = registry.client.post(
-        f"/v1/packs/acme/inbox/{SHIPPED}/delete", json={"reason": "carried a secret"}, headers=ADMIN
-    )
-    assert deleted.status_code == 200, deleted.text
+    registry.operator.delete("acme", "inbox", SHIPPED, reason="carried a secret", by="operator")
     with pytest.raises(HubError, match="no published version to review"):
         _decide(db_target, approve=True)
     claimed.publish("9.9.9")

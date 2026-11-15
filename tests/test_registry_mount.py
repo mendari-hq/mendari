@@ -289,15 +289,15 @@ def test_a_session_cookie_is_not_a_publish_credential(world: World) -> None:
 def test_the_mounted_registry_has_no_administrator_token(
     db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The shared administrator token publishes to every namespace on a registry of its own
-    (until LP-19g): under the engine it is no credential, whatever the environment holds."""
+    """The shared administrator token is gone (LP-19g): under the engine, the old variable set
+    makes no route and no credential."""
     sign_in_on(monkeypatch)
     monkeypatch.setenv("MENDARI_REGISTRY", "on")
     monkeypatch.setenv("MENDARI_REGISTRY_ADMIN_TOKEN", "an-administrator-token")
     with served(db_target, tmp_path) as world:
         admin = bearer("an-administrator-token")
         made = world.http.post("/registry/v1/namespaces", json={"name": "taken"}, headers=admin)
-        assert made.status_code == 401
+        assert made.status_code == 404  # no such route
         world.claim()
         assert world.publish(world.pack(), world.key(), admin).status_code == 403
         assert world.http.get("/registry/v1/namespaces/acme", headers=admin).status_code == 404
@@ -456,7 +456,7 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
         404: world.http.get("/registry/v1/packs/acme/none"),
         422: world.http.get("/registry/v1/search?risk=high"),
         403: world.http.put(version, content=b"x", headers=bearer("ohr_made-up")),
-        401: world.http.post("/registry/v1/namespaces", json={"name": "x"}, headers=bearer("x")),
+        401: world.http.post(f"{version}/reports", json={}, headers=bearer("ohr_made-up")),
         405: world.http.delete("/registry/v1/health", headers=bearer(token)),
         409: world.http.put(
             version, content=archive.build(pack, world.key()), headers=bearer(token)
@@ -480,7 +480,8 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
     assert publish["security"] == [{"publisherToken": []}]
     assert schema["paths"]["/registry/v1/search"]["get"]["security"] == []
     assert schema["paths"]["/api/registry/tokens"]["post"]["security"] == [{"session": []}]
-    assert "#/components/schemas/Registry" in json.dumps(schema["paths"]["/registry/v1/namespaces"])
+    keys = schema["paths"]["/registry/v1/namespaces/{namespace}/keys"]
+    assert "#/components/schemas/Registry" in json.dumps(keys)
     assert "RegistryKeyRequest" in schema["components"]["schemas"]
 
 

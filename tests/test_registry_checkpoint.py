@@ -81,12 +81,7 @@ def test_a_checkpoint_states_the_head_and_the_chain_holds_it(
     assert code == 0 and f"it holds the checkpoint of {statement['date']}; 0 events since" in out
     assert "after_checkpoint" not in _verify(db_target)  # without one, as it always answered
     # The chain grows: the statement still holds, and says nothing about what came after it.
-    inbox = registry.client.post(
-        "/v1/namespaces",
-        json={"name": "site-a", "display_name": "Site A"},
-        headers={"authorization": "Bearer admin-token-for-tests"},
-    )
-    assert inbox.status_code == 201
+    registry.operator.create_namespace("site-a", "community", "Site A")
     code, out, _ = _run(capsys, *command)
     assert code == 0 and "1 events since, which the checkpoint says nothing about" in out
     with RegistryStore(db_target, read_only=True) as store:

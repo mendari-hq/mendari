@@ -1025,15 +1025,15 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   namespace, key, token, version, report, review, recall and deletion is the row its event
   hashed; the chain is unkeyed, so keep a signed head elsewhere, `mendari registry
   checkpoint`, and check against it with `verify --checkpoint`), and a registry
-  reviewer's review (`POST /v1/packs/{namespace}/{name}/{version}/review`, the admin token
-  until LP-19) records the risk level it found beside the one the publisher declared.
+  reviewer's review (under the engine, or the operator's `mendari registry review`) records
+  the risk level it found beside the one the publisher declared.
 - **A recall** (`mendari yank`) is a signed record with a reason and a severity: the
   publisher signs it with a namespace key, or the registry with its own
   (`MENDARI_REGISTRY_SIGNING_KEY`, published at `GET /v1/registry-key`); `GET /v1/yanks` lists
   every recall. A recalled version is never the latest and is not
   searched, and is still pulled by its exact version, with the record shown and its signature
-  checked against the keys you pinned. An administrator can also delete a version that must
-  not be served: its archive's bytes go, and a tombstone stays.
+  checked against the keys you pinned. A reviewer or the operator can also delete a version
+  that must not be served: its archive's bytes go, and a tombstone stays.
 - **The regression check.** On every publish the registry evaluates the version on its own
   test set, in an isolated child process with local providers only, and compares it with the
   earlier version (the pack gate); it shows the result as "publisher's own test set:

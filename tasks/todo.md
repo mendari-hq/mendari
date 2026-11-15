@@ -3117,7 +3117,28 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     order): the review organization's record, `MENDARI_REGISTRY_SIGNING_KEY`, the switch and
     `MENDARI_REGISTRY_REVIEW_ORG`, a reviewer, the Hub's project with its `REGISTRY_URL` and
     domain, the status checks, and the daily checkpoint's routine.
-  - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
+  - [x] **19g** The shared admin token removed (2026-11-14; breaking for a self-hosted
+    registry, on the owner's "Start 19g"). `create_registry_app` takes no administrator token;
+    `MENDARI_REGISTRY_ADMIN_TOKEN` is read only to log once that it is unused and what replaces
+    it. Gone: `POST /v1/namespaces`, `PATCH /v1/namespaces/{namespace}`,
+    `POST /v1/namespaces/{namespace}/tokens`, `POST …/review`, `POST …/delete`, the
+    administrator's recall, and the admin branches of the publisher check, the write bucket,
+    the actor, the reader and the report route. A `hub_tokens` row no longer authenticates; its
+    row and event stay. `RegistryStore.issue_token` and `token_namespace` are removed; the
+    store's default actor is `operator`. `scripts/hub_seed.py` takes `--db` and claims, mints,
+    approves, sets the publisher type and reviews on the database; CI's `hub-site` and `hub-e2e`
+    drop the variable; the docker sandbox mounts the seed script into the registry container
+    (checked against a fresh image). Tests: the `registry` fixture and the live `hub` fixture
+    build their namespace and token through the store (`Registry.operator`, `Hub.operator`);
+    every test that used the token gets its write from the store, with no assertion about what
+    a version shows changed; new `tests/test_registry_tokens.py::
+    test_no_shared_secret_publishes_creates_reviews_or_deletes` and
+    `::test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifies`, and the
+    database-from-before test now builds such a database itself. As built, where the plan left
+    room: `test_writes_are_limited_per_token_before_their_body_is_read` became
+    `..._per_namespace_...` (the admin's bucket was the per-token case; the gate's probe
+    follows); the registry guide gains "What the operator does" (replacing "What an
+    administrator does") and "From a registry with an administrator token".
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
   The options were:
   - **A, mount the registry under the engine (the build session's recommendation).** The

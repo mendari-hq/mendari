@@ -16,7 +16,7 @@
     {
       "name": "registry",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["MENDARI_REGISTRY_ADMIN_TOKEN=local-admin", "uv", "run", "mendari", "registry", "serve", "--db", "var/registry.db", "--port", "8100"],
+      "runtimeArgs": ["uv", "run", "mendari", "registry", "serve", "--db", "var/registry.db", "--port", "8100"],
       "port": 8100
     },
     {

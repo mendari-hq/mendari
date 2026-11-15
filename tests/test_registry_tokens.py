@@ -1,25 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0
 """Owned publisher tokens (LP-19b, `hub/registry.py` `mint_token`, `publisher`, `revoke_token`):
 a token belongs to a person and an organization, ends, and can be revoked; each change is
-chained; the last day it was used is kept outside the chain. On SQLite and Postgres."""
+chained; the last day it was used is kept outside the chain. Since LP-19g it is the only thing
+that writes over the registry's routes: no shared secret, and no token from before owned tokens.
+On SQLite and Postgres."""
 
 from __future__ import annotations
 
 import json
+import logging
+import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from mendari.cli import main
 from mendari.core import clock
+from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
+from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
-from mendari.hub.registry import RegistryStore, token_id
-from tests.conftest import REGISTRY_ADMIN, Registry
+from mendari.hub.registry import RegistryStore, create_registry_app, token_id
+from tests.conftest import Registry
 
-ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
 OWNER = "user:3f9a"  # a person as a chain names one: an id, never an address
 
 
@@ -30,8 +36,10 @@ def _mint(db_target: str, namespace: str = "mendari", **more: Any) -> dict[str, 
 
 
 def _tokens(db_target: str, **which: Any) -> list[dict[str, Any]]:
+    """The owned tokens `which` names; by default the organization `_mint` mints for (the
+    fixture's own token is the `mendari` organization's)."""
     with RegistryStore(db_target) as store:
-        return store.tokens(**which)
+        return store.tokens(**(which or {"org": "acme"}))
 
 
 def _events(db_target: str) -> list[dict[str, Any]]:
@@ -169,8 +177,7 @@ def last_row_sha(db_target: str, id: str) -> str:
 
 
 def test_a_token_publishes_only_to_its_namespace(registry: Registry, db_target: str) -> None:
-    made = registry.client.post("/v1/namespaces", json={"name": "other"}, headers=ADMIN)
-    assert made.status_code == 201, made.text
+    registry.operator.create_namespace("other", "community", "")
     minted = _mint(db_target, "other")
     assert _register_key(registry, minted["token"], "other") == 201
     assert _register_key(registry, minted["token"]) == 403
@@ -182,8 +189,7 @@ def test_a_token_publishes_only_to_its_namespace(registry: Registry, db_target: 
 def test_using_a_token_records_the_day_and_the_chain_still_verifies(
     registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    made = registry.client.post("/v1/namespaces", json={"name": "other"}, headers=ADMIN)
-    assert made.status_code == 201, made.text
+    registry.operator.create_namespace("other", "community", "")
     minted = _mint(db_target)
     today = clock.today()
     monkeypatch.setattr(clock, "today", lambda: today)  # one day, also across midnight
@@ -290,13 +296,42 @@ def test_the_operators_token_records_operator_and_why(
     assert "no such token" in capsys.readouterr().err
 
 
+def _legacy_token(store: RegistryStore, namespace: str) -> str:
+    """A token as registries issued them before owned tokens (`hub_tokens`, no owner, expiry or
+    revocation), written and chained as the store wrote them then."""
+    token = "ohr_" + secrets.token_urlsafe(32)
+    with store._db.session(exclusive=True) as db:
+        sha = registry_module._sha(token)
+        db.all(
+            "INSERT INTO hub_tokens (token_sha256, namespace, created_at) VALUES (?, ?, ?)",
+            (sha, namespace, registry_module._now()),
+        )
+        registry_module.record_event(
+            db,
+            "token.issued",
+            f"namespace:{namespace}",
+            {"namespace": namespace, "token_id": token_id(token), "by": "admin"},
+            row=("tokens", "token_sha256 = ?", (sha,)),
+        )
+    return token
+
+
 def test_a_database_from_before_owned_tokens_still_verifies(
-    registry: Registry, db_target: str, capsys: pytest.CaptureFixture[str]
+    db_target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A database made before owned tokens has neither of their tables. Read as it is
     (`mendari registry verify`, read-only) it verifies and lists no owned token; opened by a
-    registry it gains the tables, and its chain and every old row's hash are as they were."""
-    assert registry.publish().status_code == 201
+    registry it gains the tables, and its chain and every old row's hash are as they were. Its
+    token no longer writes (LP-19g); a token minted now does."""
+    referral = resolve_pack("mendari/referral-router")
+    private, public = archive.generate_key()
+    with RegistryStore(db_target) as store:  # as such a registry was written
+        store.create_namespace("mendari", "community", "Mendari", by="admin")
+        legacy = _legacy_token(store, "mendari")
+        store.add_key("mendari", public.decode(), by=f"token:{token_id(legacy)}")
+        data = archive.build(referral, archive.load_private_key(private))
+        by = f"token:{token_id(legacy)}"
+        store.publish("mendari", "referral-router", referral.version, data, by=by)
     _write_raw_drop(db_target)
     with RegistryStore(db_target, read_only=True) as store:
         before = store.verify()
@@ -309,10 +344,108 @@ def test_a_database_from_before_owned_tokens_still_verifies(
     assert json.loads(capsys.readouterr().out) == []
     assert _events(db_target) == events  # opened read-write: the tables come, no event does
     assert _verify(db_target) == before
-    assert _register_key(registry, registry.token) == 201  # a token from before still works
-    minted = _mint(db_target)
-    assert _register_key(registry, minted["token"]) == 201
+    with TestClient(create_registry_app(db_target)) as client:
+        registry = Registry(client, legacy, archive.load_private_key(private), store)
+        assert _register_key(registry, legacy) == 403  # a token from before no longer writes
+        minted = _mint(db_target)
+        assert _register_key(registry, minted["token"]) == 201
     assert _verify(db_target)["ok"]
+
+
+def test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifies(
+    registry: Registry, db_target: str
+) -> None:
+    """LP-19g: a `hub_tokens` row has no owner, expiry or revocation, so it no longer
+    authenticates anything: no key, publish, recall or site report, and it reads as the public.
+    Its row and its chained event stay, so the chain verifies."""
+    assert registry.publish().status_code == 201
+    legacy = _legacy_token(registry.operator, "mendari")
+    events = len(_events(db_target))
+    assert _verify(db_target)["ok"]
+    assert _register_key(registry, legacy) == 403
+    assert registry.publish(token=legacy, version="9.9.9").status_code == 403
+    path = f"/v1/packs/mendari/referral-router/{resolve_pack('mendari/referral-router').version}"
+    bearer = {"authorization": f"Bearer {legacy}"}
+    assert registry.client.post(f"{path}/yank", json={}, headers=bearer).status_code == 403
+    report = shareable(
+        json.loads(
+            (resolve_pack("mendari/referral-router").root / "evals" / "benchmark.json").read_text()
+        )
+    )
+    shared = registry.client.post(
+        f"{path}/reports", json={"site": "Site A", "report": report}, headers=bearer
+    )
+    assert shared.status_code == 401
+    # A pending namespace is not shown to it: it reads as anyone does.
+    registry.operator.claim("acme", org="acme", by="user:3f9a")
+    assert registry.client.get("/v1/namespaces/acme", headers=bearer).status_code == 404
+    assert len(_events(db_target)) == events + 2  # the claim's two events; nothing else written
+    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
+        assert db.all("SELECT namespace FROM hub_tokens") == [{"namespace": "mendari"}]
+    assert _verify(db_target)["ok"]
+
+
+# Every route that took the shared administrator token before LP-19g, by method.
+RETIRED = [
+    ("POST", "/v1/namespaces", {"name": "x"}),
+    ("PATCH", "/v1/namespaces/mendari", {"publisher_type": "verified"}),
+    ("POST", "/v1/namespaces/mendari/tokens", None),
+    ("POST", "/v1/packs/mendari/referral-router/{version}/review", {"risk_level": 0}),
+    ("POST", "/v1/packs/mendari/referral-router/{version}/delete", {"reason": "x"}),
+]
+
+
+def test_no_shared_secret_publishes_creates_reviews_or_deletes(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The prompt's "do not keep the shared admin token as a publishing path": with the old
+    variable still set, the registry says once that it is unused and what replaces it, every
+    route it opened is gone, and the old value is nobody: no publish, key, recall or report,
+    and it reads only what the public reads."""
+    old = "an-old-shared-admin-token"
+    monkeypatch.setenv(registry_module.RETIRED_ADMIN_TOKEN, old)
+    referral = resolve_pack("mendari/referral-router")
+    with caplog.at_level(logging.WARNING, logger="mendari.registry"):
+        app = create_registry_app(db_target)
+    said = [r.getMessage() for r in caplog.records if r.name == "mendari.registry"]
+    assert len(said) == 1 and registry_module.RETIRED_ADMIN_TOKEN in said[0]
+    assert old not in said[0]  # the value is never logged
+    assert "mendari registry token" in said[0] and "review|recall|delete" in said[0]
+    bearer = {"authorization": f"Bearer {old}"}
+    with RegistryStore(db_target) as store, TestClient(app) as client:
+        store.create_namespace("mendari", "community", "Mendari")
+        token = store.mint_token(
+            "mendari", org="mendari", owner="operator", name="t", days=1, by="operator"
+        )["token"]
+        private, public = archive.generate_key()
+        key = archive.load_private_key(private)
+        registry = Registry(client, token, key, store)
+        added = client.post(
+            "/v1/namespaces/mendari/keys",
+            json={"public_pem": public.decode()},
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert added.status_code == 201
+        assert registry.publish().status_code == 201
+        for method, path, body in RETIRED:
+            for headers in ({}, bearer, {"authorization": f"Bearer {token}"}):
+                answer = client.request(
+                    method, path.format(version=referral.version), json=body, headers=headers
+                )
+                assert answer.status_code in (404, 405), (method, path, answer.status_code)
+        assert _register_key(registry, old) == 403
+        assert registry.publish(token=old, version="9.9.9").status_code == 403
+        recall = {"reason": "a safety notice", "severity": "critical"}
+        yank_path = f"/v1/packs/mendari/referral-router/{referral.version}/yank"
+        assert client.post(yank_path, json=recall, headers=bearer).status_code == 403
+        store.claim("acme", org="acme", by="user:3f9a")
+        assert client.get("/v1/namespaces/acme", headers=bearer).status_code == 404
+        paths = client.get("/openapi.json").json()["paths"]
+        assert "/v1/namespaces" not in paths
+        assert set(paths["/v1/namespaces/{namespace}"]) == {"get"}
+        for path in paths:
+            assert not path.endswith(("/tokens", "/review", "/delete")), path
+        assert store.verify()["ok"]
 
 
 def _write_raw_drop(db_target: str) -> None:

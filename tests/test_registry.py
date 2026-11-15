@@ -22,7 +22,7 @@ from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, REGISTRY_ADMIN, Registry
+from tests.conftest import INBOX_DIR, Registry
 
 REFERRAL = resolve_pack("mendari/referral-router")
 GUARD = resolve_pack("mendari/ai-guard")
@@ -57,9 +57,7 @@ def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
 
 
 def test_publishing_needs_the_namespaces_token(registry: Registry) -> None:
-    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
-    registry.client.post("/v1/namespaces", json={"name": "other"}, headers=admin)
-    other_token = registry.client.post("/v1/namespaces/other/tokens", headers=admin).json()["token"]
+    other_token = registry.namespace("other")
     assert registry.publish(token=other_token).status_code == 403
     assert registry.publish(token="ohr_made_up").status_code == 403
 
@@ -75,25 +73,10 @@ def test_the_archive_must_be_the_pack_and_version_in_the_url(registry: Registry)
     assert refused.status_code == 422 and "not this pack and version" in refused.text
 
 
-def test_admin_routes_need_the_admin_token(registry: Registry) -> None:
-    assert registry.client.post("/v1/namespaces", json={"name": "x"}).status_code == 401
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    assert (
-        registry.client.post("/v1/namespaces", json={"name": "x"}, headers=publisher).status_code
-        == 401
-    )
-    assert (
-        registry.client.post("/v1/namespaces/mendari/tokens", headers=publisher).status_code == 401
-    )
-
-
 def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
-    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
-    patched = registry.client.patch(
-        "/v1/namespaces/mendari", json={"publisher_type": "verified"}, headers=admin
-    )
-    assert patched.json()["publisher_type"] == "verified"
+    patched = registry.operator.set_publisher_type("mendari", "verified", by="operator")
+    assert patched["publisher_type"] == "verified"
     pack = registry.client.get("/v1/packs/mendari/referral-router").json()
     assert pack["latest"]["publisher_type"] == "verified"
     namespace = registry.client.get("/v1/namespaces/mendari").json()
@@ -126,7 +109,9 @@ def test_unknown_things_are_404(registry: Registry) -> None:
 
 def test_tokens_are_stored_hashed(registry: Registry, db_target: str) -> None:
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        stored = [row["token_sha256"] for row in db.all("SELECT token_sha256 FROM hub_tokens")]
+        stored = [
+            row["token_sha256"] for row in db.all("SELECT token_sha256 FROM hub_publisher_tokens")
+        ]
     assert stored == [hashlib.sha256(registry.token.encode()).hexdigest()]
     assert registry.client.get("/v1/health").json()["status"] == "ok"
 

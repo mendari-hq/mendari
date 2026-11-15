@@ -9,15 +9,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from mendari.cli import main
 from mendari.core.registry import resolve_pack
+from mendari.errors import HubError
 from mendari.evals.share import shareable
-from mendari.hub.registry import RegistryStore, token_id
-from tests.conftest import REGISTRY_ADMIN, Registry
+from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
+from tests.conftest import Registry
 
 REFERRAL = resolve_pack("mendari/referral-router")
-ADMIN = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
 VERSION_PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
 
 
@@ -49,14 +50,11 @@ def _share(registry: Registry) -> None:
 def test_every_write_is_chained_and_the_chain_verifies(registry: Registry, db_target: str) -> None:
     assert registry.publish().status_code == 201
     _share(registry)
-    patched = registry.client.patch(
-        "/v1/namespaces/mendari", json={"publisher_type": "verified"}, headers=ADMIN
-    )
-    assert patched.status_code == 200
-    reviewed = registry.client.post(
-        f"{VERSION_PATH}/review", json={"risk_level": 1, "note": "checked"}, headers=ADMIN
-    )
-    assert reviewed.status_code == 201, reviewed.text
+    registry.operator.set_publisher_type("mendari", "verified", by="operator")
+    registry.operator.review(
+        "mendari", "referral-router", REFERRAL.version, risk_level=1, note="checked",
+        reviewer="operator",
+    )  # fmt: skip
     events = _events(db_target)
     assert [e["event"] for e in events] == [
         "namespace.created",
@@ -135,8 +133,8 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the namespaces changed since their chained event",
         ),
         (
-            ("UPDATE hub_tokens SET namespace = ?", ("other",)),
-            "1 of the tokens changed since their chained event",
+            ("UPDATE hub_publisher_tokens SET namespace = ?", ("other",)),
+            "1 of the publisher_tokens changed since their chained event",
         ),
         (
             ("UPDATE hub_versions SET archive_sha256 = ?", ("0" * 64,)),
@@ -249,50 +247,62 @@ def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registr
     assert unreviewed["claimed"]["risk"]["confirmed"] is None
     publisher = {"authorization": f"Bearer {registry.token}"}
     body = {"risk_level": 2, "note": "reads clinical notes"}
-    assert registry.client.post(f"{VERSION_PATH}/review", json=body).status_code == 401
-    refused = registry.client.post(f"{VERSION_PATH}/review", json=body, headers=publisher)
-    assert refused.status_code == 401
+    # Nobody reviews over the registry's own routes (LP-19g): a reviewer, under the engine, or
+    # the operator's command, which checks the same body.
+    for headers in ({}, publisher):
+        gone = registry.client.post(f"{VERSION_PATH}/review", json=body, headers=headers)
+        assert gone.status_code in (404, 405)
     for bad in (
         {"risk_level": 5},
         {"risk_level": 1, "note": "two\nlines"},
         {"risk_level": 1, "note": "a \u202e reversed"},
         {"risk_level": 1, "note": "x" * 301},
     ):
-        assert (
-            registry.client.post(f"{VERSION_PATH}/review", json=bad, headers=ADMIN).status_code
-            == 422
-        )
-    corrected = registry.client.post(f"{VERSION_PATH}/review", json=body, headers=ADMIN)
-    assert corrected.status_code == 201, corrected.text
-    review = corrected.json()["checked"]["review"]
-    assert {k: review[k] for k in ("status", "risk_level", "matches_declared", "reviewer")} == {
+        with pytest.raises(ValidationError):
+            ReviewRequest.model_validate(bad)
+
+    def review(risk_level: int, note: str = "") -> dict[str, Any]:
+        return registry.operator.review(
+            "mendari", "referral-router", REFERRAL.version, risk_level=risk_level, note=note,
+            reviewer="operator",
+        )  # fmt: skip
+
+    corrected = review(2, "reads clinical notes")
+    shown = registry.client.get(VERSION_PATH).json()
+    assert shown["checked"]["review"] == corrected["checked"]["review"]
+    review_shown = shown["checked"]["review"]
+    assert {
+        k: review_shown[k] for k in ("status", "risk_level", "matches_declared", "reviewer")
+    } == {
         "status": "reviewed",
         "risk_level": 2,
         "matches_declared": False,
-        "reviewer": "admin",
+        "reviewer": "operator",
     }
-    assert corrected.json()["claimed"]["risk"]["level"] == 1  # the publisher's word is kept
-    assert corrected.json()["claimed"]["risk"]["confirmed"] is False
-    again = registry.client.post(
-        f"{VERSION_PATH}/review", json={"risk_level": 1}, headers=ADMIN
-    ).json()
+    assert shown["claimed"]["risk"]["level"] == 1  # the publisher's word is kept
+    assert shown["claimed"]["risk"]["confirmed"] is False
+    review(1)
+    again = registry.client.get(VERSION_PATH).json()
     assert again["checked"]["review"]["matches_declared"] is True  # the newest review is shown
     for shown in (
         registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert shown["claimed"]["risk"]["confirmed"] is True
-    missing = registry.client.post(
-        f"/v1/packs/{REFERRAL.id}/0.0.1/review", json={"risk_level": 1}, headers=ADMIN
-    )
-    assert missing.status_code == 404
+    with pytest.raises(HubError) as missing:
+        registry.operator.review(
+            "mendari", "referral-router", "0.0.1", risk_level=1, note="", reviewer="operator"
+        )
+    assert missing.value.status == 404
 
 
 def test_a_review_is_chained_and_planted_reviews_do_not_verify(
     registry: Registry, db_target: str, tmp_path: Path
 ) -> None:
     assert registry.publish().status_code == 201
-    registry.client.post(f"{VERSION_PATH}/review", json={"risk_level": 1}, headers=ADMIN)
+    registry.operator.review(
+        "mendari", "referral-router", REFERRAL.version, risk_level=1, note="", reviewer="operator"
+    )
     assert _verify(db_target)["ok"]
     _write(
         db_target,
