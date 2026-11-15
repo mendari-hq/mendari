@@ -404,3 +404,34 @@ def test_the_status_page_is_public_static_and_does_no_database_work(
         policy = page.headers["content-security-policy"]
         assert "'unsafe-inline'" not in policy and page.headers["cache-control"] == "no-cache"
         assert site.get("/status", headers={"authorization": "Bearer ohk_junk"}).status_code == 200
+
+
+@pytest.mark.parametrize("mounted", [True, False])
+def test_the_registry_check_reads_the_mounted_registry(
+    mounted: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Under the engine (LP-19j) the registry's base is the engine's origin with `/registry`: the
+    same check, unchanged, is up there when the registry is mounted and fails when it is not,
+    while the engine's own checks stay up either way."""
+    checks = script()
+    if mounted:
+        monkeypatch.setenv("MENDARI_REGISTRY", "on")
+    else:
+        monkeypatch.delenv("MENDARI_REGISTRY", raising=False)
+    app = create_app(db_path=tmp_path / "a.db")  # open mode: the registry needs no sign-in
+    try:
+        with TestClient(app) as site:
+            api = str(site.base_url)
+            bases = {"api": api, "registry": f"{api}/registry"}
+            results = checks.run(checks.load(), bases, lambda base: site, {})
+            found = {r.name: (r.outcome, r.detail) for r in results}
+            assert found["readiness"][0] == "ok"
+            if mounted:
+                assert found["registry"] == ("ok", "200")
+            else:
+                assert found["registry"][0] == "failed"
+                assert "404" in found["registry"][1]
+    finally:
+        store = getattr(app.state, "registry_store", None)
+        if store is not None:
+            store.close()

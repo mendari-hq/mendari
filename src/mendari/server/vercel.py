@@ -50,6 +50,12 @@ Configuration comes from the environment:
   mounted. A request body there is `MENDARI_MAX_BODY_BYTES` at most, under Vercel's 4.5 MB.
   `MENDARI_REGISTRY_REVIEW_ORG` names the one organization whose `registry_reviewer` members
   review it at `/api/registry/review/...` (LP-19e; unset: nobody does through the web).
+  `MENDARI_REGISTRY_SIGNING_KEY` (32 bytes in base64) signs the registry's recalls and
+  counter-signs what it lists (unset: neither); `MENDARI_REGISTRY_RATE_LIMITS` (`on` unless
+  set, `log` or `off`, then overrides); `MENDARI_REGISTRY_REGRESSION` (`on` unless set, or
+  `off`): a publish's regression check runs within this function's `maxDuration`
+  (`vercel.json`, 300 s; the check stops at 180). The order to turn these on, and the Hub's
+  own project, are in deploy/vercel/README.md ("Registry and Hub").
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).
 - `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` (32 bytes in base64 each, two different

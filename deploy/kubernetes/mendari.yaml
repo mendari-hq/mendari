@@ -45,6 +45,10 @@ data:
   # JEV_API_URL: https://...
   # JEV_MODEL: jev-1.13.0
   # MENDARI_JEV_DAILY_LIMIT: "2000"
+  # The pack registry under this engine (off unless set; docs/operations/registry.md): served at
+  # /registry/v1/... on this database. MENDARI_REGISTRY_SIGNING_KEY goes in mendari-secrets.
+  # MENDARI_REGISTRY: "on"
+  # MENDARI_REGISTRY_REVIEW_ORG: registry-review
 ---
 apiVersion: apps/v1
 kind: Deployment

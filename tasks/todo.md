@@ -3101,7 +3101,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     deletion) stay API and command-line only; the screen decides claims, which is what a
     first publish waits on. Someone holding `label` and `registry_review` and nothing else sees
     both screens (each where it is served), as one holding either alone sees theirs.
-  - [ ] **19j** deployment configuration.
+  - [x] **19j** Deployment configuration (2026-11-14), configuration only, nothing turned on:
+    `hub/vercel.json` (the Hub's build, an ignored-build step for commits that leave `hub/`
+    alone, no host, project or variable); `vercel.json` unchanged (300 s already outlast the
+    regression check's 180 s); `server/vercel.py` lists the registry's five settings;
+    `deploy/vercel/README.md` "Registry and Hub" (the order to turn things on, the firewall kept
+    off `/registry`, what to watch, how to turn it off); the on-premises `.env.example` and the
+    Kubernetes template carry the settings commented out; `deploy/status/checks.yaml` and
+    `docs/operations/status-checks.md`: the registry's base under the engine is
+    `{api}/registry`; `docs/operations/registry.md` "The hosted shape" and its runbook lines.
+    Tests: `tests/test_vercel.py` (the deadline, the bundle, the Hub's project file) and
+    `tests/test_status_checks.py::test_the_registry_check_reads_the_mounted_registry`. As built,
+    where the plan left room: the on-premises setting is in `.env.example`, which the compose
+    file reads, not in `docker-compose.yml`. Left to the owner (each in the Vercel guide's
+    order): the review organization's record, `MENDARI_REGISTRY_SIGNING_KEY`, the switch and
+    `MENDARI_REGISTRY_REVIEW_ORG`, a reviewer, the Hub's project with its `REGISTRY_URL` and
+    domain, the status checks, and the daily checkpoint's routine.
   - [ ] **19g** The shared admin token removed (breaking for a self-hosted registry).
   - [ ] **19k** Close-out: gates, the threat model, ADR-0015 Accepted on the owner's word.
   The options were:

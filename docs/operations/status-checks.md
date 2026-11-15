@@ -22,7 +22,7 @@ checks](#exporting-the-checks) prints them ready to copy):
 | Readiness | `GET /api/health/ready` | `200` | The database answers and the packs loaded. `503` when not. |
 | Sign-in | `GET /auth/login?next=%2F`, redirects not followed | `302` to the identity provider (another host) | Sign-in works. Only with sign-in on. |
 | Decide | `POST /api/packs/mendari/ai-guard/decide` with the status key and the file's case | `200` with an `outcome` | A decision is made and recorded, end to end. |
-| Registry | `GET <registry>/v1/health` | `200` | Packs can be published and pulled. |
+| Registry | `GET <registry>/v1/health` | `200` | Packs can be published and pulled. A registry under the engine (`MENDARI_REGISTRY=on`) has the base `<engine>/registry`, so the check is `GET <engine>/registry/v1/health`. |
 | Hub | `GET <hub>/` | `200` | The Hub's site loads. |
 
 Never use `/api/health` for any of them. With sign-in on, it answers `ok` without touching the
@@ -149,5 +149,7 @@ Protection Bypass for Automation secret to get past it: that secret passes every
 Vercel puts on the deployment, not one check. On that deployment the decide check also waits
 for a status organization (it runs in memberships mode since 2026-11-07, and has no status
 organization yet: it is made as above), and the
-registry and Hub checks wait until both are hosted.
+registry and Hub checks wait until both are hosted (the registry under the engine, its base the
+engine's origin with `/registry`; the Hub on a project of its own:
+[Registry and Hub](https://github.com/mendari-hq/mendari/blob/main/deploy/vercel/README.md#registry-and-hub)).
 
