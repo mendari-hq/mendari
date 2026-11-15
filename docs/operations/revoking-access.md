@@ -20,6 +20,7 @@ change to one (`MENDARI_OIDC_ROLE_MAP`, say) needs a redeploy.
 | Every key and client of an organization | `mendari access revoke all --org <org>` | each one still in force (an expired key is left as it is) |
 | One person, in memberships mode | remove their membership in the Access view (`DELETE /api/auth/members/{id}`), then revoke what they made (below) | their own access to that organization, at their next request; not the keys and clients they made |
 | One person, in claims mode | remove them at the identity provider, or take their group out of `MENDARI_OIDC_ROLE_MAP` and redeploy, then end people's sessions and revoke what they made (below) | a session keeps the claims it signed in with: their roles are re-read under the settings in force on every request, but the claims change only at the next sign-in. The role map only stops a value it translates: a claim that is already a role's name (`admin`) passes through it |
+| One publisher token of the pack registry | the Access view's Publisher tokens tab (`DELETE /api/registry/tokens/{id}`), or `mendari registry revoke-token <id> --db … --reason …` | the token, at the registry's next request; nothing it published |
 | Everyone signed in | `mendari access end-sessions --kind people` | every person's session and every sign-in under way |
 | Every EHR launch | `mendari access end-sessions --kind launches` | every launch's session and every launch under way |
 
@@ -33,7 +34,10 @@ sent and nobody has accepted. List them (`mendari access keys --org <org>` and
 `mendari access clients --org <org>`: `created_by` names who made each, or the Access view's
 keys and clients), revoke each one the person may hold the secret or private key of (or
 `revoke all --org` when in doubt), and revoke their open invitations in the Access view
-([Organizations and memberships](accounts.md)).
+([Organizations and memberships](accounts.md)). Where the pack registry is on, the publisher
+tokens they made are the organization's too and keep publishing: the Publisher tokens tab (or
+`mendari registry tokens --org <org> --db …`) names who made each; revoke theirs
+([Running a pack registry](registry.md#publisher-tokens-that-belong-to-someone)).
 
 A person's session in memberships mode and an EHR launch's are sealed under their cookie, so
 the database cannot tell whose they are: `end-sessions` ends a whole kind, never one person's or
