@@ -406,6 +406,30 @@ arm unless `--provider` names variants; a remote one needs `--consent-remote`), 
 ticket and its secret there too, or with `--out FILE` writes the signed request to carry to a
 machine that reaches the registry.
 
+### Signed reports
+
+A verified site answers one ticket with a `mendari.site-submission/1` it signed (`mendari eval
+--share`, or `--share-out` then `mendari site submit`), sent to
+`POST /v1/packs/{namespace}/{name}/{version}/reports` with the ticket's one-time secret as the
+bearer credential: the registry finds the ticket by the secret's SHA-256 before it reads the
+body, then reads at most 2 MB and checks that the ticket is the record's and still open (not
+expired, withdrawn or reported), that the key is a live key of the ticket's site, the signature
+over the exact fields, the nonce, that the report's pack, digest, configuration, size and
+consent are the ticket's, its names, and that suppression changes nothing. The report and the
+ticket's `reported` status are written in one transaction, chained `report.shared` (with the
+site, key, ticket and the body's SHA-256) and `site.ticket_reported`. A publisher token no
+longer shares a report (401, naming `mendari site init`).
+
+`GET /v1/packs/{namespace}/{name}/reports` lists the signed reports (`verified: true`, each
+with its site, key, ticket, whether a correction superseded it and whether its key was revoked
+as compromised, and its figures worked out from its counts) and how many are superseded;
+`GET …/reports/{id}` serves the signed record, to check against the site's key. A correction
+asks for a ticket naming the report it supersedes (`supersedes`); both stay listed. Unsigned
+reports stored before LP-22f stay in `hub_reports` and are no longer served.
+
+A submission carried by hand is taken by the operator through the same checks (but the
+secret): `mendari registry accept-report --db … submission.json`.
+
 ## Registry reviewers
 
 Under the engine, in memberships mode, the people who decide claims are members of one
@@ -679,9 +703,8 @@ last hash) the same way and compare by hand.
   ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); its
   configuration is written ([The hosted shape](#the-hosted-shape)), and turning it on anywhere,
   the registry's signing key, the Hub's project and DNS are the owner's.
-- **Site reports** are served marked `verified: false` until sites sign them (LP-22f); the Hub
-  shows none. Sites and their keys are stored and verified ([Sites](#sites)); nothing reads
-  them yet.
+- **Site reports** are signed and checked on receipt (LP-22f, [Signed reports](#signed-reports));
+  the Hub shows none until LP-22h.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
   it because it ships with them (the Mendari registry's key ships from 2026-11-15).
 - **`GET /v1/yanks` is not paged.**

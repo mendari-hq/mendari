@@ -827,6 +827,21 @@ The first release (not yet published).
   `--provider` names variants, a remote one only with `--consent-remote`). A version published
   from now records its composite members' provider types, so the registry can tell a local
   composite from a remote one.
+- **The site evaluation network: signed reports, checked on receipt (breaking, for `mendari
+  eval --share` and the reports route)** (LP-22f, ADR-0017 Proposed). `--share` is now a flag:
+  the site comes from `mendari site init`, a ticket is asked for before the run (the
+  deterministic arm unless `--provider` names variants; a remote one needs `--consent-remote`),
+  the run covers the whole dataset file (`--limit` is refused), and the counts are sent as a
+  `mendari.site-submission/1` signed with the site's key, with the ticket's one-time secret.
+  `--share-out FILE` writes the signed submission and a summary and sends nothing; `mendari site
+  submit FILE` sends it later. Offline: `mendari site ticket --out`, `site ticket --request
+  FILE --out FILE`, `eval --ticket FILE`, and the operator's `mendari registry accept-report`.
+  The registry checks the secret before reading the body, then the ticket, the key, the
+  signature, the nonce, that the report is the ticket's (pack, digest, configuration, size,
+  consent), its names and its suppression. A ticket takes one report; a correction names the
+  report it supersedes (`--supersedes`), and both stay listed. A publisher token no longer
+  shares a report; unsigned reports stored before are kept and no longer served. New guide:
+  [Evaluating a pack at your site](docs/guides/evaluate-at-your-site.md).
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

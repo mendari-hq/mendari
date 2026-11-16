@@ -177,10 +177,14 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
     (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): ("report.shared",),
+    # A verified site's signed report, sent with its ticket's secret (LP-22f).
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): (
+        "report.shared",
+        "site.ticket_reported",
+    ),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
     # A verified site, signing with its own key (LP-22e).
-    (REGISTRY, "POST", "/v1/tickets"): ("site.ticket_issued",),
+    (REGISTRY, "POST", "/v1/tickets"): ("site.ticket_issued", "site.correction_opened"),
     (REGISTRY, "POST", "/v1/tickets/{ticket_id}/withdraw"): ("site.ticket_withdrawn",),
     # The registry under the engine (LP-19d): an organization's administrators, in the
     # registry's own chain. The mounted registry's routes are the registry's, above.

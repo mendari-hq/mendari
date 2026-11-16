@@ -191,6 +191,8 @@ class TicketRequest(_Record):
     remote_consent: bool
     commitment: Annotated[str, Field(pattern=r"^hmac-sha256:[0-9a-f]{64}$")]
     n: Annotated[int, Field(ge=MIN_DATASET, le=10**9)]
+    # A correction (LP-22f): the report this ticket's report will supersede.
+    supersedes: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")] | None = None
 
 
 def _iso(when: datetime) -> str:
@@ -259,18 +261,30 @@ def _recall_free(db: Session, namespace: str, name: str, version: str) -> bool:
     )
 
 
-def live_result(db: Session, site: str, digest: str, configuration: str, commitment: str) -> bool:
+def live_result(
+    db: Session,
+    site: str,
+    digest: str,
+    configuration: str,
+    commitment: str,
+    *,
+    excluding: str | None = None,
+) -> bool:
     """Whether a site holds a live result for a digest, configuration and dataset: an open
     ticket not yet expired, a reported one (whose report LP-22f may supersede), or a withdrawn
     one: withdrawing a ticket never frees its dataset for a second run (the adversarial review
     of LP-22e). An expired ticket stays counted as unreported, for good."""
     now = _iso(datetime.now(UTC))
     rows = db.all(
-        "SELECT status, expires_at FROM hub_tickets WHERE site = ? AND digest = ? AND "
+        "SELECT id, status, expires_at FROM hub_tickets WHERE site = ? AND digest = ? AND "
         "configuration = ? AND commitment = ?",
         (site, digest, configuration, commitment),
     )
-    return any(_status(row, now) in ("open", "reported", "withdrawn") for row in rows)
+    return any(
+        _status(row, now) in ("open", "reported", "withdrawn")
+        for row in rows
+        if row["id"] != excluding  # the ticket of the report a correction supersedes
+    )
 
 
 class SiteStore:
@@ -656,8 +670,18 @@ class SiteStore:
                 raise HubError("no such published version", 404)
             if not _recall_free(db, namespace, name, request.pack.version):
                 raise HubError("that version is recalled: it takes no evaluation", 409)
+            corrected = None
+            if request.supersedes is not None:
+                corrected = self.correction_target(  # type: ignore[attr-defined]
+                    db, request.site, request.supersedes, request.pack.digest, configuration
+                )
             if live_result(
-                db, request.site, request.pack.digest, configuration, request.commitment
+                db,
+                request.site,
+                request.pack.digest,
+                configuration,
+                request.commitment,
+                excluding=None if corrected is None else str(corrected["ticket"]),
             ):
                 raise HubError(
                     "this site has a live ticket or report for this digest, configuration and "
@@ -706,6 +730,19 @@ class SiteStore:
                 },
                 row=("tickets", "id = ?", (ticket_id,)),
             )
+            if request.supersedes is not None:
+                db.all(
+                    "INSERT INTO hub_ticket_corrections (ticket, supersedes, created_at) "
+                    "VALUES (?, ?, ?)",
+                    (ticket_id, request.supersedes, _iso(created)),
+                )
+                record_event(
+                    db,
+                    "site.correction_opened",
+                    f"site:{request.site}",
+                    {"ticket": ticket_id, "site": request.site, "supersedes": request.supersedes},
+                    row=("corrections", "ticket = ?", (ticket_id,)),
+                )
         return {"ticket": self.ticket(ticket_id), "submit_secret": secret}
 
     def withdraw_ticket(self, ticket_id: str, record: Mapping[str, Any]) -> dict[str, Any]:

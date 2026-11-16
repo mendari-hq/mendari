@@ -60,6 +60,7 @@ nav:
       - Contributing a community pack: guides/contributing-a-pack.md
       - Using the API: guides/api.md
       - Connecting an EHR: guides/connecting-an-ehr.md
+      - Evaluating a pack at your site: guides/evaluate-at-your-site.md
       - Deploying with real patient data: deploying-with-phi.md
       - Holding automation: operations/automation-hold.md
       - Revoking access: operations/revoking-access.md

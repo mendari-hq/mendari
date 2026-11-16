@@ -180,6 +180,9 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "site init": (["--site", "not-a-site-id", "--out", "{out}"], {}),
     "site key": (["--new", "--out", "{out}"], {}),
     "site ticket": (["mendari/referral-router", "--dataset", "{missing}"], {}),
+    # Signed reports (LP-22f): a submission that is not there.
+    "site submit": (["{missing}"], {}),
+    "registry accept-report": (["{missing}", "--db", "{missing_db}"], {}),
     "registry publisher-type": (
         ["--namespace", "a", "--type", "verified", "--reason", "x", "--db", "{missing_db}"],
         {},

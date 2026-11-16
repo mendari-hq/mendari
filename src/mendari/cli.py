@@ -196,11 +196,29 @@ def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
 
-    decision = _decision(args, origin_cap=False)  # measures the pack's own policy
-    pack = decision.pack
-    dataset = resolve_dataset(pack, args.dataset)
-    if args.limit:
-        dataset = dataset.head(args.limit)
+    sharing = bool(args.share or args.share_out)
+    issued: dict[str, Any] | None = None
+    if sharing:
+        # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
+        # configuration (the deterministic arm unless --provider names one), then the run.
+        if args.limit:
+            raise MendariError(
+                "a shared run covers the whole dataset file (its ticket's commitment is over "
+                "the file): drop --limit"
+            )
+        pack = resolve_pack(args.pack)
+        configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
+        decision = Decision(
+            pack, providers=configuration, fhir_validation=fhir_validation(), origin_cap=False
+        )
+        dataset = resolve_dataset(pack, args.dataset)
+        issued = _ticket_for(args, pack, configuration, dataset)
+    else:
+        decision = _decision(args, origin_cap=False)  # measures the pack's own policy
+        pack = decision.pack
+        dataset = resolve_dataset(pack, args.dataset)
+        if args.limit:
+            dataset = dataset.head(args.limit)
     workers = args.workers or (8 if decision.is_remote else 1)
     run = evaluation(decision, dataset, workers=workers)
     report = run.report
@@ -232,20 +250,34 @@ def cmd_eval(args: argparse.Namespace) -> int:
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
-    if args.share_out or args.share:
+    if issued is not None:
         from mendari.evals.share import shareable
+        from mendari.hub import site_signing
 
-        # Counts only (mendari.site-report/2), from the run's ledger, small cells suppressed.
-        counts = shareable(run.ledger)
-    if args.share_out:
-        Path(args.share_out).parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(counts, indent=2) + "\n"
-        Path(args.share_out).write_text(payload, encoding="utf-8")
-        print(f"wrote the report --share sends to {args.share_out} (counts only)", file=sys.stderr)
-    if args.share:
-        with _registry_client(args) as registry:
-            shared = registry.share_report(counts, args.share)
-        print(f"shared with the registry as {shared['site']} (counts only)", file=sys.stderr)
+        # Counts only (mendari.site-report/2), from the run's ledger, small cells suppressed,
+        # signed with the site's key as the ticket's answer.
+        counts = shareable(run.ledger, remote_consent=bool(args.consent_remote))
+        submission = site_signing.Site().sign(
+            site_signing.SUBMISSION, {"ticket": issued["ticket"]["id"], "report": counts}
+        )
+        if args.share_out:
+            Path(args.share_out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.share_out).write_text(
+                json.dumps(submission, indent=2) + "\n", encoding="utf-8"
+            )
+            print(_submission_summary(submission), file=sys.stderr)
+            print(
+                f"wrote the signed submission to {args.share_out} (counts only; nothing sent): "
+                "read it, then `mendari site submit` it",
+                file=sys.stderr,
+            )
+        else:
+            with _registry_client(args) as registry:
+                shared = registry.submit(submission, issued["submit_secret"])
+            print(
+                f"shared report {shared['id']} for ticket {shared['ticket']} (counts only, signed)",
+                file=sys.stderr,
+            )
     if args.json:
         _print_json(report)
     else:
@@ -2221,55 +2253,184 @@ def cmd_site_key(args: argparse.Namespace) -> int:
     return cmd_site_init(args)
 
 
-def _ticket_request(args: argparse.Namespace) -> dict[str, Any]:
-    """A signed ticket request for a run of `args.pack` on `args.dataset` (LP-22e)."""
-    from mendari.evals import resolve_dataset
+def _ticket_request(
+    pack: Any, configuration: dict[str, str], dataset: Any, *, consent: bool, supersedes: Any
+) -> dict[str, Any]:
+    """A signed ticket request for a run of `pack` in `configuration` on `dataset`'s whole
+    file (LP-22e): the commitment is over the file's bytes, `n` its cases."""
     from mendari.hub import site_signing
 
     site = site_signing.Site()
-    pack = resolve_pack(args.pack)
-    configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
-    dataset = resolve_dataset(pack, args.dataset)
-    # The whole file: the commitment is over its bytes, so it binds every case the run reads.
     raw = dataset.path.read_bytes() if dataset.path.is_file() else b""
     if not raw:
-        raise MendariError(f"{args.dataset}: a site's dataset is a file it holds")
-    fields = {
+        raise MendariError(f"{dataset.name}: a site's dataset is a file it holds")
+    fields: dict[str, Any] = {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
         "configuration": configuration,
-        "remote_consent": bool(args.consent_remote),
+        "remote_consent": bool(consent),
         "commitment": site.commitment(raw),
         "n": len(dataset.records),
     }
+    if supersedes:
+        fields["supersedes"] = supersedes
     return site.sign(site_signing.TICKET_REQUEST, fields)
+
+
+def _keep_ticket(issued: Mapping[str, Any]) -> Path:
+    """A ticket and its one-time secret, kept private in the configuration directory."""
+    from mendari.hub import client as hub_client
+
+    ticket_id = str((issued.get("ticket") or {}).get("id", ""))
+    if not re.fullmatch(r"[0-9a-f]{16}", ticket_id):  # it names a file here
+        raise MendariError("the registry answered with a ticket id that is not one")
+    path = hub_client.config_dir() / "tickets" / f"{ticket_id}.json"
+    hub_client._write_private(path, dict(issued))
+    return path
+
+
+def _ticket_for(
+    args: argparse.Namespace, pack: Any, configuration: dict[str, str], dataset: Any
+) -> dict[str, Any]:
+    """The ticket a shared run answers: `--ticket FILE` (fetched on another machine), or one
+    asked for now; either way checked against this run before it starts."""
+    from mendari.hub import site_signing
+
+    if args.ticket:
+        issued = _read_json(args.ticket, "--ticket", shape=dict)
+    else:
+        request = _ticket_request(
+            pack, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
+        )
+        with _registry_client(args) as registry:
+            issued = registry.request_ticket(request)
+        _keep_ticket(issued)
+    ticket = issued.get("ticket") if isinstance(issued.get("ticket"), dict) else {}
+    site = site_signing.Site()
+    expected = {
+        "site": site.id,
+        "digest": pack.digest,
+        "configuration": configuration,
+        "n": len(dataset.records),
+        "commitment": site.commitment(dataset.path.read_bytes()),
+        "remote_consent": bool(args.consent_remote),
+    }
+    if any(ticket.get(key) != value for key, value in expected.items()) or not isinstance(
+        issued.get("submit_secret"), str
+    ):
+        raise MendariError(
+            "the ticket is not this run's: its site, digest, configuration, dataset or consent "
+            "differ (ask for a ticket for this run: `mendari site ticket`)"
+        )
+    return issued
+
+
+def _submission_summary(submission: Mapping[str, Any]) -> str:
+    """What a signed submission says, to read before it is sent: its counts, never more."""
+    report = submission["report"]
+    primary = report["questions"].get(report["primary"]) or {}
+    lines = [
+        f"{report['pack']['id']}@{report['pack']['version']} on {report['dataset']['n']} cases "
+        f"(ticket {submission['ticket']}, site {submission['site']})",
+        f"  {report['primary']}: {primary.get('right')} of {primary.get('n')} right",
+        f"  automated with a wrong recommendation: {report['decisions']['false_automation']}",
+    ]
+    for item in report["decisions"]["critical"]:
+        lines.append(
+            f"  critical {item['question']}={item['label']}: {item['detected']} of {item['n']} "
+            f"detected, {item['auto_missed']} automated"
+        )
+    return "\n".join(lines)
 
 
 def cmd_site_ticket(args: argparse.Namespace) -> int:
     """Ask the registry for a ticket before evaluating (LP-22e): signed with this site's key,
     bound to the pack's digest, the configuration, the dataset's size and a keyed commitment to
     the dataset (an HMAC under the site's secret; the file's own hash never leaves). The ticket
-    and its one-time submission secret are kept private here (`tickets/ID.json`). With --out
-    the signed request is written to carry to a machine that reaches the registry, and nothing
-    is sent."""
+    and its one-time submission secret are kept private here (`tickets/ID.json`). Offline:
+    `--out FILE` writes the signed request and sends nothing; on a machine that reaches the
+    registry, `--request FILE --out FILE` sends it and writes the ticket and its secret, for
+    `mendari eval --ticket` (LP-22f)."""
+    from mendari.evals import resolve_dataset
     from mendari.hub import client as hub_client
 
-    request = _ticket_request(args)
-    if args.out:
-        Path(args.out).write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
-        print(f"wrote the signed ticket request to {args.out} (nothing sent)", file=sys.stderr)
-        return 0
+    if args.request:
+        if not args.out:
+            raise MendariError("--request sends a carried request: --out FILE keeps its ticket")
+        request = _read_json(args.request, "--request", shape=dict)
+    else:
+        if not (args.pack and args.dataset):
+            raise MendariError("name the pack and --dataset, or send a carried --request")
+        pack = resolve_pack(args.pack)
+        configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
+        dataset = resolve_dataset(pack, args.dataset)
+        request = _ticket_request(
+            pack, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
+        )
+        if args.out:
+            Path(args.out).write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+            print(f"wrote the signed ticket request to {args.out} (nothing sent)", file=sys.stderr)
+            return 0
     with _registry_client(args) as registry:
         issued = registry.request_ticket(request)
-    ticket = issued["ticket"]
-    if not re.fullmatch(r"[0-9a-f]{16}", str(ticket.get("id", ""))):  # it names a file here
-        raise MendariError("the registry answered with a ticket id that is not one")
-    hub_client._write_private(hub_client.config_dir() / "tickets" / f"{ticket['id']}.json", issued)
-    _print_json(ticket)
+    kept = _keep_ticket(issued)
+    if args.request:
+        hub_client._write_private(Path(args.out), dict(issued))
+        kept = Path(args.out)
+    _print_json(issued["ticket"])
     print(
-        f"ticket {ticket['id']} kept with its submission secret in "
-        f"{hub_client.config_dir() / 'tickets'}; it lasts 30 days",
+        f"ticket {issued['ticket']['id']} kept with its secret in {kept}; 30 days", file=sys.stderr
+    )
+    return 0
+
+
+def cmd_site_submit(args: argparse.Namespace) -> int:
+    """Send a signed submission written by `mendari eval --share-out` (LP-22f), from any
+    machine: its ticket's secret from `--ticket FILE`, or from the tickets kept here."""
+    from mendari.hub import client as hub_client
+
+    submission = _read_json(args.submission, "the submission", shape=dict)
+    ticket_id = str(submission.get("ticket", ""))
+    if not re.fullmatch(r"[0-9a-f]{16}", ticket_id):
+        raise MendariError("not a signed submission: it names no ticket")
+    source = (
+        Path(args.ticket)
+        if args.ticket
+        else hub_client.config_dir() / "tickets" / f"{ticket_id}.json"
+    )
+    issued = _read_json(str(source), "--ticket", shape=dict)
+    secret = issued.get("submit_secret")
+    if (issued.get("ticket") or {}).get("id") != ticket_id or not isinstance(secret, str):
+        raise MendariError(f"{_path_shown(source)} is not this submission's ticket")
+    with _registry_client(args) as registry:
+        shared = registry.submit(submission, secret)
+    print(
+        f"shared report {shared['id']} for ticket {ticket_id} (counts only, signed)",
         file=sys.stderr,
     )
+    return 0
+
+
+def cmd_registry_accept_report(args: argparse.Namespace) -> int:
+    """Take a signed submission carried by hand, as the operator, on the registry's database
+    (LP-22f): every check a sent one passes but the ticket's secret (the operator holds the
+    file, not the secret). Chained with who ran this."""
+    from mendari.hub.registry import RegistryStore
+
+    submission = _read_json(args.submission, "the submission", shape=dict)
+    report = submission.get("report")
+    found = report.get("pack") if isinstance(report, dict) else None
+    pack: dict[str, Any] = found if isinstance(found, dict) else {}
+    namespace, _, name = str(pack.get("id", "")).partition("/")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        accepted = store.accept_submission(
+            namespace,
+            name,
+            str(pack.get("version", "")),
+            submission,
+            ticket_id=None,
+            by=_command_line_actor(),
+        )
+    _print_json(accepted)
     return 0
 
 
@@ -3349,14 +3510,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument(
         "--share",
-        metavar="SITE",
-        help="share the counts (never cases; mendari.site-report/2) with the registry as SITE",
+        action="store_true",
+        help="share the counts (never cases) with the registry as this site, signed, answering "
+        "a ticket asked for before the run (`mendari site init` first)",
+    )
+    evaluate.add_argument(
+        "--consent-remote",
+        action="store_true",
+        help="a shared run may call a provider off this machine (recorded)",
+    )
+    evaluate.add_argument(
+        "--ticket", metavar="FILE", help="a ticket fetched on another machine (offline sharing)"
+    )
+    evaluate.add_argument(
+        "--supersedes", metavar="REPORT", help="a shared run corrects this report of the site's"
     )
     evaluate.add_argument("--registry", help="registry URL for --share (default: logged into)")
     evaluate.add_argument(
         "--share-out",
         metavar="FILE",
-        help="write the report --share sends to FILE, to read first (sends nothing)",
+        help="write the signed submission --share sends to FILE, to read first (sends nothing)",
     )
 
     data = sub.add_parser("data", help="labelled datasets").add_subparsers(
@@ -4119,8 +4292,14 @@ def build_parser() -> argparse.ArgumentParser:
     site_ticket = site_cmd.add_parser(
         "ticket", help="ask the registry for a ticket before an evaluation (signed)"
     )
-    site_ticket.add_argument("pack", help="pack id (namespace/name[@version])")
-    site_ticket.add_argument("--dataset", required=True, help="the site's labelled cases (JSONL)")
+    site_ticket.add_argument("pack", nargs="?", help="pack id (namespace/name[@version])")
+    site_ticket.add_argument("--dataset", help="the site's labelled cases (JSONL)")
+    site_ticket.add_argument(
+        "--request", metavar="FILE", help="send a signed request carried from the site (--out)"
+    )
+    site_ticket.add_argument(
+        "--supersedes", metavar="REPORT", help="the ticket's report corrects this report"
+    )
     site_ticket.add_argument(
         "--provider",
         action="append",
@@ -4137,6 +4316,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", metavar="FILE", help="write the signed request to FILE and send nothing"
     )
     site_ticket.set_defaults(handler=cmd_site_ticket)
+    site_submit = site_cmd.add_parser(
+        "submit", help="send a signed submission `mendari eval --share-out` wrote"
+    )
+    site_submit.add_argument("submission", help="the signed submission (JSON)")
+    site_submit.add_argument("--ticket", metavar="FILE", help="its ticket file (default: kept)")
+    site_submit.add_argument("--registry", help="registry URL (default: logged into)")
+    site_submit.set_defaults(handler=cmd_site_submit)
     registry_cmd = sub.add_parser("registry", help="the pack registry service").add_subparsers(
         dest="registry_command", required=True
     )
@@ -4289,6 +4475,12 @@ def build_parser() -> argparse.ArgumentParser:
     site_close.add_argument("--site", required=True, help="the site's id")
     site_close.add_argument("--reason", required=True, help="why (chained; one line)")
     site_close.set_defaults(handler=cmd_registry_site_close)
+    accept_report = registry_cmd.add_parser(
+        "accept-report", help="take a signed site submission carried by hand (every check)"
+    )
+    accept_report.add_argument("submission", help="the signed submission (JSON)")
+    accept_report.add_argument("--db", default="var/registry.db", help=registry_db)
+    accept_report.set_defaults(handler=cmd_registry_accept_report)
     list_sites = registry_cmd.add_parser("sites", help="list the sites and their keys, read-only")
     list_sites.add_argument("--db", default="var/registry.db", help=registry_db)
     list_sites.add_argument("--org", help="only this organization's")
