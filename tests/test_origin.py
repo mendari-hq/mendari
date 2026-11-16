@@ -489,21 +489,28 @@ def test_cookies_of_a_sign_in_say_samesite_lax_explicitly(
 
 
 def test_every_page_sends_mendaris_own_header(tmp_path: Path) -> None:
-    """The check reads `OWN_REQUEST`, and Mendari's pages send it on every request they make:
-    each script that calls `fetch` sends ui.js's `OWN_REQUEST` (the dashboard's `api` and
-    `download`, the invitation, landing and status pages), and the API reference, which imports
-    nothing, names the same header for Swagger UI's requests and its links to the document. A
-    plain link on a page reaches only what another site's link may (a public route or a page),
-    else it is fetched (the landing's OpenAPI document, `data-openapi`, and the API
-    reference's, which the browser suite clicks). A new script that fetches fails here until
-    it is looked at."""
+    """The check reads `OWN_REQUEST`, and Mendari's pages send it on every request they make: each
+    script that calls `fetch` sends ui.js's `OWN_REQUEST` (the dashboard's `api` and `download`, the
+    invitation, landing and status pages, the pack store's raw uploads), and the API reference,
+    which imports nothing, names the same header for Swagger UI's requests and its links to the
+    document. A plain link on a page reaches only what another site's link may (a public route or a
+    page), else it is fetched (the landing's OpenAPI document, `data-openapi`, and the API
+    reference's, which the browser suite clicks). A new script that fetches fails here until it is
+    looked at."""
     sent = f'{{ "{OWN_REQUEST}": "1" }}'
     assert f"export const OWN_REQUEST = {sent};" in (DASHBOARD_DIR / "ui.js").read_text()
     reference = (DASHBOARD_DIR / "docs" / "reference.js").read_text()
     assert f"const OWN_REQUEST = {sent};" in reference and "requestInterceptor" in reference
     scripts = [p for p in DASHBOARD_DIR.rglob("*.js") if "vendor" not in p.parts]
     fetching = {p.name: p.read_text() for p in scripts if "fetch(" in p.read_text()}
-    assert sorted(fetching) == ["docs.js", "invite.js", "reference.js", "status.js", "ui.js"]
+    assert sorted(fetching) == [
+        "docs.js",
+        "invite.js",
+        "reference.js",
+        "status.js",
+        "store.js",
+        "ui.js",
+    ]
     assert all("OWN_REQUEST" in text for text in fetching.values())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     # The API reference's introduction, which Swagger UI shows as links on the page.
