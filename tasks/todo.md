@@ -3439,8 +3439,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
     offline path (`hub/site_reports.py`, `tests/test_site_reports.py`, the guide
     `docs/guides/evaluate-at-your-site.md`).
-  - [ ] **22g** Aggregation served per digest and configuration. **22h** the Hub's forest plot,
-    apart from every rank (after 19i).
+  - [x] **22g** Aggregation served per digest and configuration (`hub/site_evidence.py`,
+    `tests/test_site_evidence.py`; withdrawn tickets counted beside unreported ones, from 22e's
+    review).
+  - [ ] **22h** the Hub's forest plot, apart from every rank.
   - [ ] **22i** People register sites in the dashboard and reviewers verify them (after 19d to
     19g; beside 22e to 22h).
   - [ ] **22j** Close-out: gates `a11-site-network` and `site-validation`'s pending line, the

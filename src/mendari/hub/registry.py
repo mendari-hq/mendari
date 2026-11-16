@@ -119,7 +119,7 @@ from mendari.evals.share import (
     composite_members,
     where,
 )
-from mendari.hub import acceptance, archive, regression, site_signing, yank
+from mendari.hub import acceptance, archive, regression, site_evidence, site_signing, yank
 from mendari.hub import checkpoint as chain_checkpoint
 from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
@@ -2333,6 +2333,15 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         reported, are unreported (open or expired) and were withdrawn (LP-22e). No commitment
         and no secret is served."""
         return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
+
+    @app.get("/v1/packs/{namespace}/{name}/site-evidence")
+    def pack_site_evidence(request: Request, namespace: str, name: str) -> dict[str, Any]:
+        """What sites' signed reports say of a pack (`mendari.site-evidence/1`, LP-22g): per
+        digest and configuration, each site's k of n, then the pooled figures and the
+        homogeneity test, worked out on read from the verified counts. Never part of a rank."""
+        if not store.versions(namespace, name, viewer_of(request)):
+            raise HubError("no such pack", 404)
+        return site_evidence.evidence(store, namespace, name)
 
     @app.get("/v1/packs/{namespace}/{name}/reports/{report_id}")
     def signed_report(

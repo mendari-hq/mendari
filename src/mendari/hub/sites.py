@@ -800,6 +800,20 @@ class SiteStore:
             raise HubError("no such ticket", 404)
         return _ticket_shown(row)
 
+    def pack_ticket_rows(self, namespace: str, name: str) -> list[dict[str, Any]]:
+        """A pack's tickets of verified or closed sites, as stored (for site evidence, LP-22g):
+        never the secret's hash, the commitment or the nonce."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_tickets"):
+                return []
+            return db.all(
+                "SELECT t.id, t.site, t.version, t.digest, t.configuration, t.remote_consent, "
+                "t.status, t.created_at, t.expires_at FROM hub_tickets t JOIN hub_sites s "
+                "ON s.id = t.site WHERE t.namespace = ? AND t.name = ? "
+                "AND s.status IN ('verified', 'closed') ORDER BY t.created_at, t.id",
+                (namespace, name),
+            )
+
     def pack_tickets(self, namespace: str, name: str) -> list[dict[str, Any]]:
         """What a pack's tickets say, for anyone (LP-22e): per site that was issued any (a
         closed one too, with its status: closing a site never hides what it did not report),

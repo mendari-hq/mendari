@@ -433,6 +433,13 @@ reports stored before LP-22f stay in `hub_reports` and are no longer served.
 A submission carried by hand is taken by the operator through the same checks (but the
 secret): `mendari registry accept-report --db … submission.json`.
 
+`GET /v1/packs/{namespace}/{name}/site-evidence` (`mendari.site-evidence/1`, LP-22g) puts the
+signed reports side by side per digest and configuration: each site's k of n first, then the
+pooled figures, the homogeneity test and its warning, with the publisher's own site, reports
+under a compromised key and superseded reports left out and listed, and the unreported and
+withdrawn tickets counted beside them
+([the format](../spec/evaluation-reports.md#site-evidence-mendarisite-evidence1)).
+
 ## Registry reviewers
 
 Under the engine, in memberships mode, the people who decide claims are members of one
