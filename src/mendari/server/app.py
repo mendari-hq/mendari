@@ -893,6 +893,8 @@ def create_app(
     status_org = settings.status_org()  # likewise
     # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
     registry_on = settings.registry_mounted()  # likewise
+    # Organizations' pack stores (LP-20f, ADR-0016): off unless MENDARI_PACK_STORE=on.
+    store_on = settings.pack_store_on()  # likewise
     # Its reviewers' organization (LP-19e): unset, nobody reviews through the web. Checked once
     # the store is open, below.
     review_org = settings.registry_review_org()  # likewise
@@ -929,6 +931,17 @@ def create_app(
     bind_org = sign_in is not None and sign_in.accounts == "memberships"
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi, bind_org=bind_org)
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
+    if store_on:
+        # The store needs memberships mode, and what it rests on, checked by running it: a
+        # missing one stops the server here, before any route is mounted (LP-20f).
+        from mendari.core.pack_store import prerequisites
+
+        mode = "open" if sign_in is None else sign_in.accounts
+        unmet = prerequisites(mode)
+        if unmet:
+            raise MendariError(
+                "MENDARI_PACK_STORE is on, but the pack store cannot open: " + "; ".join(unmet)
+            )
     if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
         store.evalset_ready(evalsets)
     if review_org is not None:
@@ -975,6 +988,7 @@ def create_app(
         cds_open=cds_open,
         registry=registry_on,
         review_org=review_org,
+        pack_store=store_on,
     )
     cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
     origins = OriginCheck(
@@ -1443,6 +1457,13 @@ def create_app(
             **public,
             # The pack registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
             **({"registry": True} if registry_on else {}),
+            # The organization's pack store (LP-20f): how many of its versions wait for the
+            # operator's review, for its administrators; only with the store on.
+            **(
+                {"store": {"held": app.state.pack_store.held_count(principal.org)}}
+                if store_on and principal.may("admin")
+                else {}
+            ),
             "packs": len(packs),
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
@@ -3249,6 +3270,32 @@ def create_app(
             add_registry_routes(app, auth, registry_store)
             if review_org is not None:  # memberships mode, and the organization has a record
                 add_registry_review_routes(app, auth, registry_store, review_org)
+
+    if store_on:
+        # An organization's pack store (LP-20f): its authors' routes. The hidden-set check
+        # reads every organization's hidden sets with the index key, when it is set; a
+        # namespace an organization holds by an approved registry claim is its too.
+        from mendari.core.evalsets import EvalsetStore as _Evalsets
+        from mendari.core.pack_store import PackStore
+        from mendari.server.store_routes import add_store_routes
+
+        def claimed_namespace(org: str, namespace: str) -> bool:
+            if not registry_on:
+                return False
+            claims = app.state.registry_store.claims(org=org, namespace=namespace)
+            return any(claim["status"] == "approved" for claim in claims)
+
+        pack_store = PackStore(store)
+        app.state.pack_store = pack_store
+        add_store_routes(
+            app,
+            auth,
+            pack_store,
+            served=lambda: packs,
+            hidden=None if evalsets is None else _Evalsets(store, evalsets),
+            claimed=claimed_namespace,
+            deadline_s=deadline_s,
+        )
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(

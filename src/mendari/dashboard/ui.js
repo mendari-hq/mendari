@@ -346,7 +346,7 @@ export const MEMBERSHIP_ROLES = [
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
   { key: "governance", label: "Governance", text: "approves packs and holds automation" },
   { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
-  { key: "pack_author", label: "Pack author", reserved: true },
+  { key: "pack_author", label: "Pack author", text: "writes packs in the organization's pack store, where it is on" },
   { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
   // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
   // where the server says this organization is that one (`me.registry_review_org`).

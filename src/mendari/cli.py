@@ -3041,6 +3041,49 @@ def cmd_store_withdraw(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_store_held(args: argparse.Namespace) -> int:
+    """The versions the hidden-set check held, not yet cleared, with the hidden sets and cases
+    each matched (LP-20f): the operator's only, no route answers it. Read-only."""
+    store, _ = _pack_store(args.db, writes=False)
+    with store.store:
+        _print_json(store.held())
+    return 0
+
+
+def cmd_store_clear(args: argparse.Namespace) -> int:
+    """The operator releases a held version (a draft again) or withdraws it, with a reason on
+    the chain; its match no longer counts towards stopping the organization's uploads."""
+    store, shown = _pack_store(args.db, writes=True)
+    release = args.store_command == "release"
+    with store.store:
+        moved = store.clear(
+            args.org, args.digest, by="operator", release=release, reason=args.reason
+        )
+    _print_json(moved)
+    print(f"{'released' if release else 'withdrawn'} in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_store_recheck(args: argparse.Namespace) -> int:
+    """The hidden-set check again over every draft of every store, once hidden sets are frozen
+    and their keys set (LP-20f): a draft that now matches is held for the operator's review."""
+    from mendari.core.evalset_keys import evalset_keys
+    from mendari.core.evalsets import EvalsetStore
+
+    keys = evalset_keys()
+    if keys is None:
+        raise MendariError(
+            "set MENDARI_EVALSET_KEY and MENDARI_EVALSET_INDEX_KEY: no hidden set "
+            "can be matched without them"
+        )
+    store, shown = _pack_store(args.db, writes=True)
+    with store.store:
+        held = store.recheck(EvalsetStore(store.store, keys))
+    _print_json(held)
+    print(f"{len(held)} version(s) held in {shown}", file=sys.stderr)
+    return 0
+
+
 def cmd_store_purge(args: argparse.Namespace) -> int:
     """Free the files that only versions withdrawn more than 30 days ago hold (LP-20e); the rows
     and their events stay."""
@@ -4786,6 +4829,24 @@ def build_parser() -> argparse.ArgumentParser:
     store_withdraw.add_argument("--reason", required=True, help="why, kept on the chain")
     store_withdraw.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_withdraw.set_defaults(handler=cmd_store_withdraw)
+    store_held = store.add_parser(
+        "held", help="versions the hidden-set check held, with what each matched (operator's)"
+    )
+    store_held.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_held.set_defaults(handler=cmd_store_held)
+    for verb, what in (("release", "release a held version: a draft again"),
+                       ("dismiss", "withdraw a held version")):  # fmt: skip
+        cleared = store.add_parser(verb, help=what)
+        cleared.add_argument("digest", help="the version's digest (sha256:...)")
+        cleared.add_argument("--org", required=True, help="the organization")
+        cleared.add_argument("--reason", required=True, help="why, kept on the chain")
+        cleared.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        cleared.set_defaults(handler=cmd_store_clear)
+    store_recheck = store.add_parser(
+        "recheck", help="the hidden-set check again over every draft (with the index key)"
+    )
+    store_recheck.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_recheck.set_defaults(handler=cmd_store_recheck)
     store_purge = store.add_parser(
         "purge", help="free the files of versions withdrawn more than 30 days ago"
     )

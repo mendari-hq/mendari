@@ -4,9 +4,41 @@ Each organization can keep its own versions of packs on the server: written and 
 authors, checked, evaluated and, once someone other than the author signs off, served to that
 organization alone (ADR-0016, Proposed). LP-20 builds it in steps; this page grows with them.
 
-**Status:** the store exists as a library and as the operator's commands below (LP-20e). No
-route reaches it yet, nothing turns it on, and no request is answered by a store version. Its
-tables are created empty in every database.
+**Status:** off unless `MENDARI_PACK_STORE=on`, and then only in memberships mode: with the
+switch on in claims or open mode, or with a prerequisite below missing, the server stops at
+start-up and says why. Its authors' routes are mounted (LP-20f); no request is answered by a
+store version yet (promotion is LP-20h). Its tables are created empty in every database.
+
+## Who does what
+
+- **Authors** hold the reserved role `pack_author` (`author`, people only). An administrator
+  gives it, themself included: `admin` does not hold it. Authors upload signed archives, copy a
+  pack this deployment serves, edit text files into new drafts, run a draft's tests and
+  withdraw a draft (`docs/guides/api.md`, "An organization's pack store").
+- **Administrators** (`keys`) register and revoke the authors' Ed25519 public keys: an upload
+  must be signed by one of the organization's keys that is not revoked.
+- **The operator** reads and answers held versions with the commands below.
+
+## The checks of a new version
+
+Before any row is written, in this order: the archive's own (size, signature, names,
+expansion), the PHI detector over every text file (a refusal answers `422` with kinds, files,
+lines and counts, never a value), the load on the bounded engine, the namespace rule (the id is
+`<organization>/<name>`, or a namespace the organization holds by an approved registry claim;
+`mendari`, `openhealth` and `community` never), then the validation and the dataset checks of
+each declared dataset (kept with the version), then the hidden-set check.
+
+**The hidden-set check.** With the hidden evaluation sets' keys set, every case the version
+carries (each JSON Lines record's input and each behaviour test's) is looked up in the keyed
+hidden-case index, exactly and under `norm/v1`. On any match the version is stored `held`: it
+is not tested, edited from or served, and its uploader is told only that it is held for the
+operator's review. The match (set and case ids) is kept for the operator only. After three
+held versions in 30 days an organization's uploads stop until the operator answers them.
+Without the keys the check is "not applicable": the deployment holds no hidden case.
+Once keys are set, `mendari store recheck` runs it over every draft kept before.
+
+A signed-in administrator's `/api/health` shows `store.held`, how many of their organization's
+versions wait for the operator.
 
 ## What a version is
 
@@ -45,6 +77,7 @@ reach it, as for a community pack.
 |---|---|---|
 | `MENDARI_STORE_ORG_BYTES` | 256 MiB | The bytes of files one organization's store keeps, each file counted once |
 | `MENDARI_ORG_DAILY_LIMITS` `store_uploads=N` | no limit | The versions an organization adds a day |
+| `MENDARI_STORE_MAX_ARCHIVE_BYTES` | 32 MiB | An archive, sent in parts each under `MENDARI_MAX_BODY_BYTES` |
 
 A version has at most 2,000 files of at most 50 MB each, an archive's own limits. A withdrawn
 version's files are freed 30 days after it was withdrawn (`mendari store purge`); its row and
@@ -58,6 +91,9 @@ events stay.
 | Check every kept file and version against its hash and digest | `mendari store verify --db …` |
 | Withdraw a draft or held version, with a reason on the chain | `mendari store withdraw DIGEST --db … --org ORG --reason …` |
 | Free the files of versions withdrawn more than 30 days ago | `mendari store purge --db …` |
+| Read the held versions, with the hidden sets and cases each matched | `mendari store held --db …` |
+| Release a held version (a draft again), or withdraw it | `mendari store release` or `dismiss DIGEST --db … --org ORG --reason …` |
+| Run the hidden-set check again over every draft | `mendari store recheck --db …` (needs the evaluation-set keys) |
 
 Every command takes `--db` (a SQLite path or a `postgresql://` URL) or reads `DATABASE_URL`; the
 reads open the database read-only.
@@ -67,8 +103,8 @@ reads open the database read-only.
 `mendari.core.pack_store.prerequisites` runs what the store rests on and names what is missing:
 memberships mode (LP-12), a store pack on the bounded engine whose rules stop at the budget
 (LP-16), the exact statistics and the ledger's canonical JSON answering pinned values (LP-10),
-and the canonical forms of a case answering their pinned vectors (LP-11). The routes (LP-20f)
-are not mounted unless it finds nothing missing.
+and the canonical forms of a case answering their pinned vectors (LP-11). With the switch on,
+the server does not start unless it finds nothing missing.
 
 ## Scratch disk
 

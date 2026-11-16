@@ -172,6 +172,22 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("POST", "/api/evalsets/{set_id}/sample"),
     ("POST", "/api/evalsets/{set_id}/assignments"),
     ("POST", "/api/evalsets/{set_id}/adjudication"),
+    # An organization's pack store (LP-20f): MENDARI_PACK_STORE=on, which this world sets in
+    # memberships mode.
+    ("GET", "/api/store/packs"),
+    ("GET", "/api/store/packs/{namespace}/{name}"),
+    ("GET", "/api/store/versions/{digest}"),
+    ("POST", "/api/store/versions"),
+    ("POST", "/api/store/uploads"),
+    ("PUT", "/api/store/uploads/{upload_id}/parts/{n}"),
+    ("POST", "/api/store/uploads/{upload_id}/complete"),
+    ("POST", "/api/store/copies"),
+    ("POST", "/api/store/versions/{digest}/edits"),
+    ("POST", "/api/store/versions/{digest}/tests"),
+    ("DELETE", "/api/store/versions/{digest}"),
+    ("GET", "/api/store/keys"),
+    ("POST", "/api/store/keys"),
+    ("DELETE", "/api/store/keys/{key_id}"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -370,9 +386,10 @@ DEPLOYMENT_READS = {
     ),
     "last_purge": ("claims memberships", "the last purge in health (its counts claims-only)"),
     "EvalsetStore.hidden_matches": (
-        "",
-        "the hidden-case index across every organization (LP-11e): read in the store only, for "
-        "the pack store's upload check (LP-20), never during a call",
+        "memberships",
+        "the hidden-case index across every organization (LP-11e), read by the pack store's "
+        "upload check (LP-20f) on a new version's cases: its answer is one state, `held`, and "
+        "no set or case id reaches the caller",
     ),
     # The evaluation-set keys' lifecycle (LP-11f): the key holder's command line only.
     "EvalsetStore.rotate": ("", "re-seals every organization's sets: never during a call"),
@@ -471,6 +488,8 @@ def world(
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
+    if accounts == "memberships":  # an organization's pack store (LP-20f): memberships only
+        monkeypatch.setenv("MENDARI_PACK_STORE", "on")
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     # Each organization's quota, and each principal's cap, counted (health shows them).
@@ -1760,6 +1779,191 @@ def served(world: World, x: Org) -> None:
         served_people(world, x)
         served_labelling(world, x)
         served_curating(world, x)
+        served_store(world, x)
+
+
+def _store_archive(org: str, key: Any, note: str) -> bytes:
+    """A signed archive of the inbox pack in `org`'s namespace, its tests carrying `note`."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    import yaml
+
+    from mendari.core.pack import load_pack
+    from mendari.hub import archive
+
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch) / "pack"
+        shutil.copytree(resolve_pack(INBOX).root, root)
+        manifest = yaml.safe_load((root / "pack.yaml").read_text())
+        manifest["id"] = f"{org}/inbox-upload"
+        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        cases = root / "tests" / "cases.yaml"
+        cases.write_text(cases.read_text() + f"\n# {note}\n")
+        return archive.build(load_pack(root), key)
+
+
+def served_store(world: World, x: Org) -> None:
+    """Memberships mode, the pack store on (LP-20f): `x`'s administrator registers an author
+    key; its author copies the inbox pack, edits the copy, runs its tests, uploads a signed
+    archive whole and another in parts, lists and reads them, and withdraws one; the key is
+    revoked. Every digest, key and upload of the other organization's answers `404` here."""
+    import hashlib
+
+    from mendari.hub import archive
+
+    o = world.other(x)
+    admin = x.people["admin"]
+    author = person(world, x, "pack_author")
+    for kind, route, template in (
+        ("store version", "/api/store/versions/{d}", ("GET", "/api/store/versions/{digest}")),
+        ("store version", "/api/store/versions/{d}/tests",
+         ("POST", "/api/store/versions/{digest}/tests")),
+        ("store version", "/api/store/versions/{d}", ("DELETE", "/api/store/versions/{digest}")),
+        ("store upload", "/api/store/uploads/{d}/complete",
+         ("POST", "/api/store/uploads/{upload_id}/complete")),
+    ):  # fmt: skip
+        for found in o.ids.get(kind, []):
+            world.call(x, author, template, route.format(d=found), expect=404)
+    for found in o.ids.get("store version", []):
+        world.call(
+            x,
+            author,
+            ("POST", "/api/store/versions/{digest}/edits"),
+            f"/api/store/versions/{found}/edits",
+            json={"files": [{"path": "pack.yaml", "content": "x"}]},
+            expect=404,
+        )
+    for found in o.ids.get("store upload", []):
+        world.call(
+            x,
+            author,
+            ("PUT", "/api/store/uploads/{upload_id}/parts/{n}"),
+            f"/api/store/uploads/{found}/parts/0",
+            content=b"x",
+            expect=404,
+        )
+    for found in o.ids.get("store key", []):
+        world.call(
+            x, admin, ("DELETE", "/api/store/keys/{key_id}"), f"/api/store/keys/{found}", expect=404
+        )
+    if o.ids.get("store version"):
+        world.call(
+            x,
+            author,
+            ("GET", "/api/store/packs/{namespace}/{name}"),
+            f"/api/store/packs/{o.name}/inbox-copy",
+            expect=404,
+        )
+
+    private, public = archive.generate_key()
+    key = archive.load_private_key(private)
+    added = world.call(
+        x,
+        admin,
+        ("POST", "/api/store/keys"),
+        "/api/store/keys",
+        json={"public_pem": public.decode()},
+        expect=201,
+    ).json()
+    x.made("store key", added["key_id"])
+    world.call(x, admin, ("GET", "/api/store/keys"), "/api/store/keys", expect=200)
+    copy = world.call(
+        x,
+        author,
+        ("POST", "/api/store/copies"),
+        "/api/store/copies",
+        json={"pack": INBOX, "name": "inbox-copy"},
+        expect=201,
+    ).json()
+    x.made("store version", copy["digest"])
+    rules = resolve_pack(INBOX).read_bytes("logic/routing_rules.yaml").decode()
+    rules += f"\n# {x.marker}\n"
+    edited = world.call(
+        x,
+        author,
+        ("POST", "/api/store/versions/{digest}/edits"),
+        f"/api/store/versions/{copy['digest']}/edits",
+        json={"files": [{"path": "logic/routing_rules.yaml", "content": rules}]},
+        expect=201,
+    ).json()
+    x.made("store version", edited["digest"])
+    world.call(
+        x,
+        author,
+        ("POST", "/api/store/versions/{digest}/tests"),
+        f"/api/store/versions/{edited['digest']}/tests",
+        expect=200,
+    )
+    whole = world.call(
+        x,
+        author,
+        ("POST", "/api/store/versions"),
+        "/api/store/versions",
+        content=_store_archive(x.name, key, f"whole {x.marker}"),
+        expect=201,
+    ).json()
+    x.made("store version", whole["digest"])
+    data = _store_archive(x.name, key, f"parts {x.marker}")
+    begun = world.call(
+        x,
+        author,
+        ("POST", "/api/store/uploads"),
+        "/api/store/uploads",
+        json={"size": len(data), "sha256": hashlib.sha256(data).hexdigest()},
+        expect=201,
+    ).json()
+    x.made("store upload", begun["upload"])
+    world.call(
+        x,
+        author,
+        ("PUT", "/api/store/uploads/{upload_id}/parts/{n}"),
+        f"/api/store/uploads/{begun['upload']}/parts/0",
+        content=data,
+        expect=200,
+    )
+    parts = world.call(
+        x,
+        author,
+        ("POST", "/api/store/uploads/{upload_id}/complete"),
+        f"/api/store/uploads/{begun['upload']}/complete",
+        expect=201,
+    ).json()
+    x.made("store version", parts["digest"])
+    listed = world.call(x, author, ("GET", "/api/store/packs"), "/api/store/packs", expect=200)
+    assert {lineage["pack_id"] for lineage in listed.json()} == {
+        f"{x.name}/inbox-copy",
+        f"{x.name}/inbox-upload",
+    }
+    world.call(
+        x,
+        author,
+        ("GET", "/api/store/packs/{namespace}/{name}"),
+        f"/api/store/packs/{x.name}/inbox-copy",
+        expect=200,
+    )
+    world.call(
+        x,
+        author,
+        ("GET", "/api/store/versions/{digest}"),
+        f"/api/store/versions/{whole['digest']}",
+        expect=200,
+    )
+    world.call(
+        x,
+        author,
+        ("DELETE", "/api/store/versions/{digest}"),
+        f"/api/store/versions/{parts['digest']}",
+        expect=200,
+    )
+    world.call(
+        x,
+        admin,
+        ("DELETE", "/api/store/keys/{key_id}"),
+        f"/api/store/keys/{added['key_id']}",
+        expect=200,
+    )
 
 
 def served_grading(world: World, x: Org) -> None:

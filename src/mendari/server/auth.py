@@ -184,11 +184,14 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     # The pack registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
     # organization `MENDARI_REGISTRY_REVIEW_ORG` names (`Auth._member`), and nowhere else.
     accounts.REGISTRY_REVIEWER: frozenset({"registry_review"}),
+    # An organization's pack store (LP-20f, ADR-0016): a reserved role a membership holds, which
+    # an administrator gives, themself included; `admin` does not hold it (owner decision 4).
+    "pack_author": frozenset({"author"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
 # managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
 # and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
-PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review"})
+PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review", "author"})
 # What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
 # administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
 GRADING_ONLY = frozenset({"grade"})
@@ -196,7 +199,7 @@ GRADING = "grading"
 # What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
 # sets need sign-in (core/evalset_keys.py refuses the keys without it), and so does reviewing
 # the pack registry (a reviewer is a person with a membership).
-NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review"})
+NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review", "author"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -350,6 +353,12 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # method and path under it, before the reads below: a set's answer names its strata,
         # languages and labellers.
         ("*", r"^/api/evalsets(/|$)", "curate"),
+        # An organization's pack store (LP-20f; `MENDARI_PACK_STORE=on` in memberships mode, not
+        # mounted otherwise): its authors' keys, managed by its administrators, and every other
+        # route of the store its authors' (`pack_author`), people only. Before the reads below:
+        # a draft is not served to anyone but its organization's authors.
+        ("*", r"^/api/store/keys(/|$)", "keys"),
+        ("*", r"^/api/store(/|$)", "author"),
         # The whole chain, read or exported, and an organization's administrative events (its
         # keys, clients, people, approvals and holds): administrators only.
         ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
@@ -802,15 +811,17 @@ class OrganizationRequest(BaseModel):
 
 
 def _roles_field(**default: Any) -> Any:
-    """The roles a membership may be given: the server's, `pack_author` (which grants nothing
-    yet) and `labeller` (`label` only, memberships mode), never `grading`. Each model checks them
+    """The roles a membership may be given: the server's, `pack_author` (`author`: the
+    organization's pack store, LP-20f) and `labeller` (`label` only, memberships mode), never
+    `grading`. Each model checks them
     (`accounts.check_roles`: sorted, each once, a 422 otherwise)."""
     return Field(
         **default,
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
-        description="Roles: viewer, reviewer, service, governance, admin, pack_author (reserved: "
-        "grants nothing yet), labeller (labels hidden evaluation sets: label only) and "
+        description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
+        "packs in the organization's pack store: author only), labeller (labels hidden "
+        "evaluation sets: label only) and "
         "registry_reviewer (reviews the pack registry; given in its review organization only, "
         "a 422 in any other). Never grading.",
     )
@@ -884,9 +895,11 @@ class Auth:
         cds_open: CdsOpenMode | None = None,
         registry: bool = False,
         review_org: str | None = None,
+        pack_store: bool = False,
     ):
         self.settings = settings
         self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
+        self.pack_store = pack_store  # organizations' pack stores are served (LP-20f)
         # The one organization whose `registry_reviewer` members review the registry
         # (`MENDARI_REGISTRY_REVIEW_ORG`, LP-19e); None: the role grants nothing anywhere.
         self.review_org = review_org
@@ -1068,7 +1081,7 @@ class Auth:
         with no role: never `default`, never another of their memberships. Of the reserved
         roles, `labeller` grants `label` (LP-11); `registry_reviewer` grants `registry_review`
         in the review organization only (LP-19e), nothing in any other; `pack_author` grants
-        nothing yet."""
+        `author` (LP-20f)."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
         if session is None:
             if sent:
@@ -1596,9 +1609,12 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         organizations they hold a membership of (theirs only), each with its name and roles;
         `principal.org` is null while they act for none. `principal.registry_review_org` is
         true for a person acting for the pack registry's review organization, and absent
-        otherwise."""
+        otherwise. `store: true` when organizations' pack stores are served here (LP-20f), so
+        the dashboard knows whether to show one; absent otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
+        if auth.pack_store:
+            shown["store"] = True
         if principal is None:
             return {"mode": "sign-in", "signed_in": False, **shown}
         signed_in = principal.kind != "open"
@@ -1920,8 +1936,8 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
         path on this site to put after its address), stored hashed. `grading` is never given,
-        `pack_author` grants nothing yet, and `labeller` grants `label` only. Recorded in the
-        audit chain (`invitation.created`, with a digest of the address)."""
+        `pack_author` grants `author` (the pack store) and `labeller` grants `label` only.
+        Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(
             org=org_of(principal),

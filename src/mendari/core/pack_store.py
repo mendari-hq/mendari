@@ -34,7 +34,7 @@ import tempfile
 import threading
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -59,6 +59,16 @@ PURGE_AFTER_DAYS = 30  # a withdrawn version's files are freed after this (owner
 CACHE_VERSIONS = 32
 CACHE_BYTES = 256 * 1024 * 1024
 MAX_REASON_CHARS = 500
+# Uploads stop after this many held versions in this many days, until the operator clears them
+# (owner decision 12): a held answer still tells an uploader one bit.
+HELD_STOP = 3
+HELD_WINDOW_DAYS = 30
+SYSTEM = "mendari"  # who holds a version the hidden-set check matched
+MAX_KEYS = 20  # an organization's authors' keys that are not revoked
+MAX_PENDING_UPLOADS = 3  # an organization's archives under way in parts at once
+MAX_PARTS = 64
+# Namespaces no store pack takes, whatever an organization is called.
+STORE_RESERVED = ("mendari", "openhealth", "community")
 
 
 class StoreError(MendariError):
@@ -155,11 +165,136 @@ def _row(found: Mapping[str, Any]) -> dict[str, Any]:
         "source": found["source"],
         "copied_from": None if found["copied_from"] is None else json.loads(found["copied_from"]),
         "validation": json.loads(found["validation"]),
+        "checks": None if found["checks"] is None else json.loads(found["checks"]),
         "created_by": found["created_by"],
         "created_at": found["created_at"],
         "state": found["state"],
         "state_at": found["state_at"],
     }
+
+
+def _check_source(source: str, parent: str | None) -> None:
+    if source not in SOURCES:
+        raise ValueError(f"source is one of {', '.join(SOURCES)}")
+    if (source == "edit") != (parent is not None):
+        raise ValueError("an edit, and only an edit, names its parent")
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """A pack's files as the store keeps them (those its digest covers), loaded on the bounded
+    engine, listed by path, hash and size; what the validation found; and, read while its files
+    were on disk, every case input it carries and its declared datasets' checks."""
+
+    pack: Pack
+    kept: dict[str, bytes]
+    listed: list[dict[str, Any]]
+    problems: list[dict[str, str]]
+    cases: list[Any]
+    datasets: list[dict[str, Any]]
+
+
+def _prepare(files: Mapping[str, bytes]) -> Prepared:
+    for path in files:
+        _check_path(path)
+    kept = {path: bytes(data) for path, data in files.items() if _kept(path)}
+    if not kept:
+        raise StoreError("no file of a pack: a pack.yaml and the files it names")
+    if len(kept) > MAX_FILES:
+        raise StoreError(f"more than {MAX_FILES} files", 413)
+    large = sorted(path for path, data in kept.items() if len(data) > MAX_FILE_BYTES)
+    if large:
+        raise StoreError(f"{large[0]}: larger than {MAX_FILE_BYTES} bytes", 413)
+    with tempfile.TemporaryDirectory(prefix="mendari-store-") as scratch:
+        root = Path(scratch) / "pack"
+        _write(kept, root)
+        pack = _load(root)
+        from mendari.evals.validation import problems
+
+        found = [problem.to_json() for problem in problems(pack)]
+        cases, datasets = _cases_of(pack, kept), _dataset_reports(pack)
+    listed: list[dict[str, Any]] = [
+        {"path": path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+        for path, data in sorted(kept.items())
+    ]
+    return Prepared(pack, kept, listed, found, cases, datasets)
+
+
+def _cases_of(pack: Pack, kept: Mapping[str, bytes]) -> list[Any]:
+    """Every case input the pack carries, whatever a file is called: each line of any file that
+    reads as a JSON object with an `input` object (a dataset may have any name), and each
+    behaviour test's input, read case by case (one malformed case hides no other). A line that
+    does not read is skipped: the validation names it."""
+    found: list[Any] = []
+    for _, data in sorted(kept.items()):
+        for line in data.decode("utf-8", "replace").split("\n"):
+            if not line.lstrip().startswith("{"):
+                continue
+            try:
+                record = json.loads(line)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(record, dict) and isinstance(record.get("input"), dict):
+                found.append(record["input"])
+    if pack.manifest.tests is not None:
+        try:
+            cases = pack.read_yaml(pack.manifest.tests)
+        except MendariError:
+            cases = None
+        for case in cases if isinstance(cases, list) else []:
+            if isinstance(case, dict) and isinstance(case.get("input"), dict):
+                found.append(case["input"])
+    return found
+
+
+def _dataset_reports(pack: Pack) -> list[dict[str, Any]]:
+    """The dataset checks (`evals/dataset_checks.py`) of each dataset the pack declares that
+    reads: ids and counts, never an input."""
+    from mendari.evals import dataset_checks
+    from mendari.evals.harness import resolve_dataset
+
+    reports = []
+    for name in pack.manifest.evaluation.datasets:
+        try:
+            dataset = resolve_dataset(pack, name)
+        except MendariError:
+            continue
+        reports.append(dataset_checks.check(pack, dataset).data)
+    return reports
+
+
+def _hidden_matches(cases: list[Any], hidden: Any) -> list[dict[str, str]]:
+    """The hidden cases, of every organization's sets, equal to one of `cases` under either
+    canonical form (`EvalsetStore.hidden_matches`), by set and case id."""
+    found: dict[tuple[str, str], dict[str, str]] = {}
+    for value in cases:
+        try:
+            matched = hidden.hidden_matches(value)
+        except MendariError:
+            continue  # not JSON a case can hold: the validation names it
+        for match in matched:
+            found[(match["set"], match["case"])] = match
+    return [found[key] for key in sorted(found)]
+
+
+def _reserved(namespace: str) -> bool:
+    """A namespace no store pack takes: each of `STORE_RESERVED`, and any name that starts with
+    one and a dash, as the registry reserves them (`hub/registry.py`)."""
+    return any(namespace == held or namespace.startswith(f"{held}-") for held in STORE_RESERVED)
+
+
+class PhiRejected(StoreError):
+    """An upload refused for what reads as a person's details: `report` is the detector's
+    (`mendari.phi-check/1`: kinds, files, lines and counts, never a value)."""
+
+    def __init__(self, report: dict[str, Any]):
+        self.report = report
+        counts = ", ".join(f"{kind} {n}" for kind, n in report["counts"].items())
+        super().__init__(
+            f"refused: files hold what reads as a person's details ({counts}); use synthetic "
+            "data only",
+            422,
+        )
 
 
 class PackStore:
@@ -190,44 +325,107 @@ class PackStore:
         `pack_version.created`. Files outside the digest are dropped first. Refused (a
         `StoreError`, nothing written) when the pack does not load, `org` holds this digest
         already, `parent` is not one of `org`'s versions it may build on, or a limit or quota is
-        passed."""
+        passed. The checks of an upload (PHI, namespace, hidden cases) are `admit`'s."""
         org, by = _org(org), _actor(by)
-        if source not in SOURCES:
-            raise ValueError(f"source is one of {', '.join(SOURCES)}")
-        if (source == "edit") != (parent is not None):
-            raise ValueError("an edit, and only an edit, names its parent")
-        for path in files:
-            _check_path(path)
-        kept = {path: bytes(data) for path, data in files.items() if _kept(path)}
-        if not kept:
-            raise StoreError("no file of a pack: a pack.yaml and the files it names")
-        if len(kept) > MAX_FILES:
-            raise StoreError(f"more than {MAX_FILES} files", 413)
-        large = sorted(path for path, data in kept.items() if len(data) > MAX_FILE_BYTES)
-        if large:
-            raise StoreError(f"{large[0]}: larger than {MAX_FILE_BYTES} bytes", 413)
-        with tempfile.TemporaryDirectory(prefix="mendari-store-") as scratch:
-            root = Path(scratch) / "pack"
-            _write(kept, root)
-            pack = _load(root)
-            from mendari.evals.validation import problems
-
-            found = [problem.to_json() for problem in problems(pack)]
-        listed: list[dict[str, Any]] = [
-            {"path": path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
-            for path, data in sorted(kept.items())
-        ]
+        _check_source(source, parent)
+        ready = _prepare(files)
         return self._insert(
             org,
-            pack,
-            kept,
-            listed,
-            found,
+            ready.pack,
+            ready.kept,
+            ready.listed,
+            ready.problems,
             by=by,
             source=source,
             parent=parent,
             copied_from=copied_from,
         )
+
+    def admit(
+        self,
+        org: str,
+        files: Mapping[str, bytes],
+        *,
+        by: str,
+        source: str,
+        parent: str | None = None,
+        copied_from: Mapping[str, str] | None = None,
+        hidden: Any = None,
+        claimed: Callable[[str, str], bool] | None = None,
+        expect_digest: str | None = None,
+    ) -> Stored:
+        """A new version of `org` that passed every check an upload, a copy or an edit passes,
+        in this order, before any row is written (LP-20f): the organization's uploads are not
+        stopped (`HELD_STOP` held versions in `HELD_WINDOW_DAYS`); no file reads as a person's
+        details (`core/phi_detect.py`; `PhiRejected`, with the report: kinds, files and lines,
+        never a value); the pack loads on the bounded engine; its namespace is `org`'s
+        (`claimed(org, namespace)` may allow one more, an approved registry claim) and never a
+        reserved one; it is the pack `expect_digest` names, if one does; then the validation
+        and dataset checks, recorded with it; and the hidden-set check: with `hidden` (an
+        `EvalsetStore` with the index key) each case the pack carries is looked up, and on any
+        match the version is stored `held` and the match recorded for the operator only.
+        Without `hidden` the check is "not applicable": this deployment holds no hidden set."""
+        from mendari.core import phi_detect
+
+        org, by = _org(org), _actor(by)
+        _check_source(source, parent)
+        self._refuse_stopped(org)
+        for path in files:
+            _check_path(path)
+        found = phi_detect.detect_files({p: d for p, d in files.items() if _kept(p)})
+        if phi_detect.rejects(found):
+            raise PhiRejected(found.to_json())
+        ready = _prepare(files)
+        pack = ready.pack
+        namespace = pack.id.partition("/")[0]
+        if _reserved(namespace) or (
+            namespace != org and not (claimed is not None and claimed(org, namespace))
+        ):
+            raise StoreError(
+                f"a pack in this organization's store is named {org}/<name>: {pack.id!r} is "
+                "not (a copy is renamed on the way in)"
+            )
+        if expect_digest is not None and pack.digest != expect_digest:
+            raise StoreError("the archive's files are not the pack its manifest names")
+        checks: dict[str, Any] = {
+            "phi": {"files": found.files, "findings": len(found.findings)},
+            "datasets": ready.datasets,
+            "hidden": "not_applicable" if hidden is None else "checked",
+        }
+        matches = None if hidden is None else _hidden_matches(ready.cases, hidden)
+        return self._insert(
+            org,
+            pack,
+            ready.kept,
+            ready.listed,
+            ready.problems,
+            by=by,
+            source=source,
+            parent=parent,
+            copied_from=copied_from,
+            checks=checks,
+            matches=matches or None,
+        )
+
+    def _refuse_stopped(self, org: str, db: Any = None) -> None:
+        """A `StoreError` (429) when `org` has `HELD_STOP` held versions or datasets in
+        `HELD_WINDOW_DAYS` that the operator has not cleared; read in `db` when given."""
+        since = (datetime.now(UTC) - timedelta(days=HELD_WINDOW_DAYS)).isoformat()
+        query = (
+            "SELECT COUNT(*) AS n FROM store_matches WHERE org = ? AND created_at >= ? "
+            "AND cleared_at IS NULL"
+        )
+        if db is None:
+            with self.store._db.session(exclusive=False) as session:
+                held = session.one(query, (org, since))
+        else:
+            held = db.one(query, (org, since))
+        if held is not None and int(held["n"]) >= HELD_STOP:
+            raise StoreError(
+                "this organization's uploads are stopped until the operator reviews its held "
+                "versions",
+                429,
+            )
 
     def _insert(
         self,
@@ -241,6 +439,8 @@ class PackStore:
         source: str,
         parent: str | None,
         copied_from: Mapping[str, str] | None,
+        checks: Mapping[str, Any] | None = None,
+        matches: list[dict[str, str]] | None = None,
     ) -> Stored:
         from mendari import settings
 
@@ -257,12 +457,14 @@ class PackStore:
                     "changes",
                     409,
                 )
+            if matches:  # the stop again, in this transaction: parallel uploads count too
+                self._refuse_stopped(org, db)
             if parent is not None:
                 above = db.one(
                     "SELECT state FROM store_versions WHERE org = ? AND digest = ?", (org, parent)
                 )
                 if above is None:
-                    raise StoreError(f"no version {parent} in this organization's store", 404)
+                    raise StoreError("no such version in this organization's store", 404)
                 if above["state"] in (HELD, WITHDRAWN):
                     raise StoreError(f"version {parent} is {above['state']}: nothing builds on it")
             used = db.one("SELECT uploads FROM store_usage WHERE org = ? AND day = ?", (org, day))
@@ -301,13 +503,15 @@ class PackStore:
                 "source": source,
                 "copied_from": None if copied_from is None else _canonical(dict(copied_from)),
                 "validation": _canonical(validation),
+                "checks": None if checks is None else _canonical(dict(checks)),
                 "created_by": by,
                 "created_at": now,
             }
+            state = HELD if matches else DRAFT
             db.all(
                 f"INSERT INTO store_versions ({', '.join(row)}, state, state_at) "
                 f"VALUES ({', '.join('?' for _ in row)}, ?, ?)",
-                (*row.values(), DRAFT, now),
+                (*row.values(), state, now),
             )
             db.all(
                 "INSERT INTO store_usage (org, day, uploads, bytes) VALUES (?, ?, 1, ?) "
@@ -327,7 +531,16 @@ class PackStore:
             }
             chained = self.store._bound("pack_version.created", payload, org)
             self.store._append(db, f"pack_version:{version_id}", "pack_version.created", chained)
-        return Stored(version_id, org, pack.digest, pack.id, pack.version, DRAFT, not validation)
+            if matches:  # held at once, in the same transaction; the event names no case
+                payload = {"digest": pack.digest, "by": SYSTEM}
+                marked = self.store._bound("pack_version.held", payload, org)
+                self.store._append(db, f"pack_version:{version_id}", "pack_version.held", marked)
+                db.all(
+                    "INSERT INTO store_matches (id, org, version_id, digest, matches, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), org, version_id, pack.digest, _canonical(matches), now),
+                )
+        return Stored(version_id, org, pack.digest, pack.id, pack.version, state, not validation)
 
     def _org_shas(self, db: Any, org: str) -> set[str]:
         held: set[str] = set()
@@ -344,7 +557,10 @@ class PackStore:
         *,
         by: str,
         reason: str | None = None,
+        also: Callable[[Any, str], None] | None = None,
     ) -> dict[str, Any]:
+        """Move a version's state, one chained event; `also(db, version_id)` runs in the same
+        transaction (a match recorded or cleared with it)."""
         org, by = _org(org), _actor(by)
         if reason is not None:
             reason = " ".join(reason.split())
@@ -355,7 +571,7 @@ class PackStore:
                 "SELECT id, state FROM store_versions WHERE org = ? AND digest = ?", (org, digest)
             )
             if found is None:
-                raise StoreError(f"no version {digest} in this organization's store", 404)
+                raise StoreError("no such version in this organization's store", 404)
             if found["state"] not in allowed:
                 raise StoreError(f"version {digest} is {found['state']}", 409)
             state, now = STORE_STATES[kind], _now()
@@ -374,6 +590,8 @@ class PackStore:
                 self.store._append(db, chain, "pack_version.released", chained)
             else:
                 self.store._append(db, chain, "pack_version.withdrawn", chained)
+            if also is not None:
+                also(db, str(found["id"]))
         if state != DRAFT:
             self._forget(digest)
         return {"org": org, "digest": digest, "state": state, "state_at": now}
@@ -388,13 +606,18 @@ class PackStore:
         return self._move(org, digest, "pack_version.released", (HELD,), by=by, reason=reason)
 
     def withdraw(
-        self, org: str, digest: str, *, by: str, reason: str | None = None
+        self,
+        org: str,
+        digest: str,
+        *,
+        by: str,
+        reason: str | None = None,
+        allowed: tuple[str, ...] = (DRAFT, HELD),
     ) -> dict[str, Any]:
-        """Withdraw a draft or a held version: its row and events stay, and its files are freed
-        `PURGE_AFTER_DAYS` later (`purge`)."""
-        return self._move(
-            org, digest, "pack_version.withdrawn", (DRAFT, HELD), by=by, reason=reason
-        )
+        """Withdraw a draft (`allowed`: an author's route takes drafts only) or a held version
+        (the operator's): its row and events stay, its files are freed `PURGE_AFTER_DAYS` later
+        (`purge`)."""
+        return self._move(org, digest, "pack_version.withdrawn", allowed, by=by, reason=reason)
 
     def purge(self, *, now: datetime | None = None) -> int:
         """Remove each kept file that no version holds but one withdrawn more than
@@ -439,7 +662,7 @@ class PackStore:
                 "SELECT * FROM store_versions WHERE org = ? AND digest = ?", (org, digest)
             )
         if found is None:
-            raise StoreError(f"no version {digest} in this organization's store", 404)
+            raise StoreError("no such version in this organization's store", 404)
         return _row(found)
 
     def files(self, org: str, digest: str) -> dict[str, bytes]:
@@ -474,13 +697,18 @@ class PackStore:
                 cached = self._cache.get(digest)
                 if cached is not None and cached[0].root.is_dir():
                     return cached[0]
-            files = self.files(org, digest)
             root = self._scratch_dir() / digest.replace(":", "-") / uuid.uuid4().hex
-            _write(files, root)
-            pack = _load(root)
-            if pack.digest != digest:
+            try:
+                files = self.files(org, digest)
+                _write(files, root)
+                pack = _load(root)
+                if pack.digest != digest:
+                    raise StoreError(f"version {digest}'s files hash to {pack.digest}", 500)
+            except BaseException:
                 shutil.rmtree(root, ignore_errors=True)
-                raise StoreError(f"version {digest}'s files hash to {pack.digest}", 500)
+                with self._lock:
+                    self._building.pop(digest, None)
+                raise
             size = sum(len(data) for data in files.values())
             with self._lock:
                 self._cache[digest] = (pack, size)
@@ -515,6 +743,267 @@ class PackStore:
             cached = self._cache.pop(digest, None)
         if cached is not None:
             shutil.rmtree(cached[0].root, ignore_errors=True)
+
+    # -- authors' keys (LP-20f) -----------------------------------------------------------------
+
+    def add_key(self, org: str, public_pem: str, *, by: str) -> dict[str, Any]:
+        """Register an author's Ed25519 public key (PEM) for `org`'s store: an upload must be
+        signed by one of `org`'s keys that is not revoked. Chained `store_key.added`."""
+        from mendari.errors import HubError
+        from mendari.hub import archive
+
+        org, by = _org(org), _actor(by)
+        try:
+            key = archive.load_public_key(public_pem.encode())
+        except (HubError, ValueError, UnicodeError):
+            raise StoreError("not an Ed25519 public key in PEM") from None
+        key_id = archive.key_id(key)
+        pem = archive.public_pem(key).decode()
+        with self.store._db.session(exclusive=True) as db:
+            if db.one("SELECT id FROM store_keys WHERE org = ? AND key_id = ?", (org, key_id)):
+                raise StoreError(f"key {key_id} is registered already", 409)
+            if (
+                db.one(
+                    "SELECT COUNT(*) AS n FROM store_keys WHERE org = ? AND revoked_at IS NULL",
+                    (org,),
+                )["n"]
+                >= MAX_KEYS
+            ):
+                raise StoreError(f"an organization's store has {MAX_KEYS} keys at most", 409)
+            row_id, now = str(uuid.uuid4()), _now()
+            db.all(
+                "INSERT INTO store_keys (id, org, key_id, public_pem, added_by, added_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (row_id, org, key_id, pem, by, now),
+            )
+            chained = self.store._bound("store_key.added", {"key_id": key_id, "by": by}, org)
+            self.store._append(db, f"store_key:{row_id}", "store_key.added", chained)
+        return {"key_id": key_id, "added_by": by, "added_at": now, "revoked_at": None}
+
+    def revoke_key(self, org: str, key_id: str, *, by: str) -> dict[str, Any]:
+        """Revoke one of `org`'s author keys: no upload signed by it is taken from now on (the
+        versions it signed stay). Chained `store_key.revoked`."""
+        org, by = _org(org), _actor(by)
+        with self.store._db.session(exclusive=True) as db:
+            found = db.one(
+                "SELECT id, revoked_at FROM store_keys WHERE org = ? AND key_id = ?",
+                (org, key_id),
+            )
+            if found is None:
+                raise StoreError("no such key in this organization's store", 404)
+            if found["revoked_at"] is not None:
+                raise StoreError(f"key {key_id} is revoked already", 409)
+            now = _now()
+            db.all("UPDATE store_keys SET revoked_at = ? WHERE id = ?", (now, found["id"]))
+            chained = self.store._bound("store_key.revoked", {"key_id": key_id, "by": by}, org)
+            self.store._append(db, f"store_key:{found['id']}", "store_key.revoked", chained)
+        return {"key_id": key_id, "revoked_at": now}
+
+    def keys(self, org: str) -> list[dict[str, Any]]:
+        """`org`'s author keys, oldest first: id, who added it and when, and when revoked."""
+        org = _org(org)
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT key_id, added_by, added_at, revoked_at FROM store_keys WHERE org = ? "
+                "ORDER BY added_at, key_id",
+                (org,),
+            )
+        return [dict(row) for row in rows]
+
+    def trusted(self, org: str) -> dict[str, Any]:
+        """`org`'s keys that are not revoked, by key id, as `archive.verify` takes them."""
+        from mendari.hub import archive
+
+        org = _org(org)
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT key_id, public_pem FROM store_keys WHERE org = ? AND revoked_at IS NULL",
+                (org,),
+            )
+        return {
+            str(row["key_id"]): archive.load_public_key(str(row["public_pem"]).encode())
+            for row in rows
+        }
+
+    # -- an archive in parts (LP-20f) -----------------------------------------------------------
+
+    def begin_upload(self, org: str, *, by: str, size: int, sha256: str) -> dict[str, Any]:
+        """Start an archive of `size` bytes with this SHA-256 sent in parts, each under the
+        engine's body limit. At most `MAX_PENDING_UPLOADS` an organization at once; one left a
+        day is dropped."""
+        from mendari import settings
+
+        org, by = _org(org), _actor(by)
+        limit = settings.store_max_archive_bytes()
+        if not 0 < size <= limit:
+            raise StoreError(
+                f"an archive is 1 to {limit} bytes (MENDARI_STORE_MAX_ARCHIVE_BYTES)", 413
+            )
+        if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+            raise StoreError("sha256 is 64 lower-case hexadecimal digits")
+        stale = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        with self.store._db.session(exclusive=True) as db:
+            for row in db.all("SELECT id FROM store_uploads WHERE created_at < ?", (stale,)):
+                db.all("DELETE FROM store_upload_parts WHERE upload_id = ?", (row["id"],))
+                db.all("DELETE FROM store_uploads WHERE id = ?", (row["id"],))
+            pending = db.one("SELECT COUNT(*) AS n FROM store_uploads WHERE org = ?", (org,))
+            if int(pending["n"]) >= MAX_PENDING_UPLOADS:
+                raise StoreError(
+                    f"this organization has {MAX_PENDING_UPLOADS} uploads under way: finish one",
+                    429,
+                )
+            upload_id, now = str(uuid.uuid4()), _now()
+            db.all(
+                "INSERT INTO store_uploads (id, org, created_by, size, sha256, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (upload_id, org, by, size, sha256, now),
+            )
+        return {"upload": upload_id, "size": size, "sha256": sha256, "created_at": now}
+
+    def _upload(self, db: Any, org: str, upload_id: str) -> Any:
+        found = db.one(
+            "SELECT id, size, sha256 FROM store_uploads WHERE id = ? AND org = ?", (upload_id, org)
+        )
+        if found is None:
+            raise StoreError("no such upload under way in this organization", 404)
+        return found
+
+    def add_part(self, org: str, upload_id: str, n: int, data: bytes) -> dict[str, Any]:
+        """Part `n` (from 0) of an upload under way; a part sent again replaces it. Refused past
+        the archive's declared size."""
+        org = _org(org)
+        if not 0 <= n < MAX_PARTS:
+            raise StoreError(f"a part's number is 0 to {MAX_PARTS - 1}")
+        if not data:
+            raise StoreError("a part holds at least one byte")
+        with self.store._db.session(exclusive=True) as db:
+            found = self._upload(db, org, upload_id)
+            others = db.one(
+                "SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM store_upload_parts "
+                "WHERE upload_id = ? AND n <> ?",
+                (upload_id, n),
+            )
+            received = int(others["n"]) + len(data)
+            if received > int(found["size"]):
+                raise StoreError("the parts are larger than the archive's declared size", 413)
+            db.all("DELETE FROM store_upload_parts WHERE upload_id = ? AND n = ?", (upload_id, n))
+            db.all(
+                "INSERT INTO store_upload_parts (upload_id, n, data) VALUES (?, ?, ?)",
+                (upload_id, n, data),
+            )
+        return {"upload": upload_id, "part": n, "received": received}
+
+    def finish_upload(self, org: str, upload_id: str) -> bytes:
+        """The archive an upload's parts make, joined in order and checked against its declared
+        size and SHA-256; the upload is gone afterwards whatever the check found."""
+        org = _org(org)
+        with self.store._db.session(exclusive=True) as db:
+            found = self._upload(db, org, upload_id)
+            parts = db.all(
+                "SELECT n, data FROM store_upload_parts WHERE upload_id = ? ORDER BY n",
+                (upload_id,),
+            )
+            db.all("DELETE FROM store_upload_parts WHERE upload_id = ?", (upload_id,))
+            db.all("DELETE FROM store_uploads WHERE id = ?", (upload_id,))
+        if [int(part["n"]) for part in parts] != list(range(len(parts))):
+            raise StoreError("a part is missing: parts are numbered from 0 with none left out")
+        data = b"".join(bytes(part["data"]) for part in parts)
+        if len(data) != int(found["size"]) or hashlib.sha256(data).hexdigest() != found["sha256"]:
+            raise StoreError("the parts do not join into the archive declared (size or sha256)")
+        return data
+
+    # -- held versions: the operator's (LP-20f) -------------------------------------------------
+
+    def held_count(self, org: str) -> int:
+        """How many of `org`'s versions are held for the operator's review."""
+        with self.store._db.session(exclusive=False) as db:
+            found = db.one(
+                "SELECT COUNT(*) AS n FROM store_versions WHERE org = ? AND state = ?",
+                (org, HELD),
+            )
+        return int(found["n"])
+
+    def held(self) -> list[dict[str, Any]]:
+        """Every match the hidden-set check recorded that the operator has not cleared, oldest
+        first: the organization, the version's digest and state, and the set and case ids it
+        matched. For the operator's command only: no route answers it."""
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT m.org, m.digest, m.matches, m.created_at, v.state FROM store_matches m "
+                "JOIN store_versions v ON v.id = m.version_id WHERE m.cleared_at IS NULL "
+                "ORDER BY m.created_at, m.id"
+            )
+        return [
+            {
+                "org": row["org"],
+                "digest": row["digest"],
+                "state": row["state"],
+                "matches": json.loads(row["matches"]),
+                "held_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def clear(
+        self, org: str, digest: str, *, by: str, release: bool, reason: str
+    ) -> dict[str, Any]:
+        """The operator's answer to a held version: release it (a draft again) or withdraw it,
+        with a reason on the chain; its match is cleared, so it no longer counts towards
+        stopping the organization's uploads."""
+        cleared_by = _actor(by)
+
+        def cleared(db: Any, version_id: str) -> None:
+            db.all(
+                "UPDATE store_matches SET cleared_at = ?, cleared_by = ? WHERE org = ? "
+                "AND version_id = ? AND cleared_at IS NULL",
+                (_now(), cleared_by, org, version_id),
+            )
+
+        kind = "pack_version.released" if release else "pack_version.withdrawn"
+        return self._move(org, digest, kind, (HELD,), by=by, reason=reason, also=cleared)
+
+    def recheck(self, hidden: Any) -> list[dict[str, Any]]:
+        """The hidden-set check again over every draft of every store (once hidden sets are
+        frozen and their keys set, `mendari store recheck`): a draft that now matches is held,
+        and its match recorded, in one transaction. A draft that cannot be read again is skipped
+        and listed. The versions held, by organization and digest."""
+        with self.store._db.session(exclusive=False) as db:
+            drafts = db.all("SELECT org, digest FROM store_versions WHERE state = ?", (DRAFT,))
+        held: list[dict[str, Any]] = []
+        for row in drafts:
+            org, digest = str(row["org"]), str(row["digest"])
+            try:
+                files = self.files(org, digest)
+                with tempfile.TemporaryDirectory(prefix="mendari-store-") as scratch:
+                    root = Path(scratch) / "pack"
+                    _write(files, root)
+                    cases = _cases_of(_load(root), files)
+            except StoreError:
+                held.append({"org": org, "digest": digest, "skipped": "cannot be read again"})
+                continue
+            matches = _hidden_matches(cases, hidden)
+            if not matches:
+                continue
+
+            def matched(
+                db: Any,
+                version_id: str,
+                org: str = org,
+                digest: str = digest,
+                matches: list[dict[str, str]] = matches,
+            ) -> None:
+                db.all(
+                    "INSERT INTO store_matches (id, org, version_id, digest, matches, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), org, version_id, digest, _canonical(matches), _now()),
+                )
+
+            try:
+                self._move(org, digest, "pack_version.held", (DRAFT,), by=SYSTEM, also=matched)
+            except StoreError:  # no longer a draft since it was read
+                continue
+            held.append({"org": org, "digest": digest})
+        return held
 
     # -- the operator's check -------------------------------------------------------------------
 

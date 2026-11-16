@@ -336,6 +336,32 @@ def store_org_bytes() -> int:
     return int(raw)
 
 
+DEFAULT_STORE_MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
+
+
+def store_max_archive_bytes() -> int:
+    """$MENDARI_STORE_MAX_ARCHIVE_BYTES: the largest archive an author uploads to a pack store,
+    sent in parts each under the body limit (LP-20f, owner decision 6); 32 MiB unset, and never
+    more than an archive's own 100 MB."""
+    raw = os.environ.get("MENDARI_STORE_MAX_ARCHIVE_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_STORE_MAX_ARCHIVE_BYTES
+    if not raw.isdigit() or not 0 < int(raw) <= 100 * 1024 * 1024:
+        raise MendariError("MENDARI_STORE_MAX_ARCHIVE_BYTES is 1 to 104857600 bytes")
+    return int(raw)
+
+
+def pack_store_on() -> bool:
+    """Whether organizations' pack stores are served ($MENDARI_PACK_STORE: `on`; unset or `off`:
+    no store route is mounted, LP-20f). Anything else fails at startup."""
+    raw = os.environ.get("MENDARI_PACK_STORE", "").strip().lower()
+    if raw in ("", "off"):
+        return False
+    if raw == "on":
+        return True
+    raise MendariError("MENDARI_PACK_STORE is on or off")
+
+
 def principal_daily_limit() -> int | None:
     """$MENDARI_PRINCIPAL_DAILY_LIMIT: how many decisions each principal (a person, an API key, a
     Backend Services client, an EHR launch) may ask for a local calendar day, beside its

@@ -166,6 +166,7 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "access": ("access_requests", "id", _ROW_ORG),
     "evalset": ("evalset_sets", "id", _ROW_ORG),  # a hidden evaluation set (LP-11e)
     "pack_version": ("store_versions", "id", "org"),  # a version in a pack store (LP-20e)
+    "store_key": ("store_keys", "id", "org"),  # an author's key for a pack store (LP-20f)
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -215,6 +216,9 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "pack_version.held": "pack_version",
     "pack_version.released": "pack_version",
     "pack_version.withdrawn": "pack_version",
+    # An author's public key registered for an organization's store, and revoked (LP-20f).
+    "store_key.added": "store_key",
+    "store_key.revoked": "store_key",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -236,6 +240,7 @@ STORE_VERSION_COLUMNS = (
     "source",
     "copied_from",
     "validation",
+    "checks",
     "created_by",
     "created_at",
 )
@@ -641,6 +646,7 @@ CREATE TABLE IF NOT EXISTS store_versions (
     source         TEXT NOT NULL,
     copied_from    TEXT,
     validation     TEXT NOT NULL,
+    checks         TEXT,
     created_by     TEXT NOT NULL,
     created_at     TEXT NOT NULL,
     state          TEXT NOT NULL,
@@ -654,6 +660,41 @@ CREATE TABLE IF NOT EXISTS store_usage (
     uploads  INTEGER NOT NULL,
     bytes    INTEGER NOT NULL,
     PRIMARY KEY (org, day)
+);
+CREATE TABLE IF NOT EXISTS store_keys (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    key_id      TEXT NOT NULL,
+    public_pem  TEXT NOT NULL,
+    added_by    TEXT NOT NULL,
+    added_at    TEXT NOT NULL,
+    revoked_at  TEXT,
+    UNIQUE (org, key_id)
+);
+CREATE TABLE IF NOT EXISTS store_matches (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    version_id  TEXT NOT NULL,
+    digest      TEXT NOT NULL,
+    matches     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    cleared_at  TEXT,
+    cleared_by  TEXT
+);
+CREATE INDEX IF NOT EXISTS store_matches_org ON store_matches (org, created_at);
+CREATE TABLE IF NOT EXISTS store_uploads (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    sha256      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS store_upload_parts (
+    upload_id  TEXT NOT NULL,
+    n          INTEGER NOT NULL,
+    data       {blob} NOT NULL,
+    PRIMARY KEY (upload_id, n)
 )
 """
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
@@ -671,7 +712,11 @@ CREATE TABLE IF NOT EXISTS store_usage (
 # store: `store_files` each file once by its SHA-256, whichever versions hold it;
 # `store_versions` a version's row, written once (`STORE_VERSION_COLUMNS`) but its `state`, each
 # write one chained event; and `store_usage` an organization's uploads and bytes a day, outside
-# the chain, as `rate_limits` is. Empty unless the store is on.
+# the chain, as `rate_limits` is. LP-20f adds `store_keys` (authors' public keys, by
+# organization, chained `store_key.*`), `store_matches` (which hidden cases a held version
+# matched, by set and case id: read by the operator's command only, never chained or served),
+# and `store_uploads` with `store_upload_parts` (an archive sent in parts, kept until it is
+# joined or a day old, outside the chain). Empty unless the store is on.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")

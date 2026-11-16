@@ -23,7 +23,10 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   with `MENDARI_INPUT_HASH_KEY` when the deployment has one). An address here is ASCII, and
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
-  `admin`), and may also hold `pack_author`, which grants nothing yet, and `labeller`, which
+  `admin`), and may also hold `pack_author`, which grants `author` alone: writing packs in the
+  organization's pack store (LP-20f; memberships mode only, mounted with `MENDARI_PACK_STORE=on`:
+  the routes under `/api/store`, [pack store](pack-store.md); an administrator who writes packs
+  gives themself the role), and `labeller`, which
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
   only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
   [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
@@ -263,8 +266,8 @@ client is "You", a member's name, or what the chain recorded (an e-mail address 
   membership given or bound at sign-in): it is chained as handled, outcome `joined`, and no
   longer counts against their five open requests. Granting one left open from before this,
   of someone who is a member already, is a `409`: refuse it to close it.
-- `grading` is never given (`422`); `pack_author` may be given but grants nothing yet, and
-  `labeller` grants `label` only.
+- `grading` is never given (`422`); `pack_author` grants `author` only, and `labeller` grants
+  `label` only.
 - Inviting and handling a request to join give someone access, so they wait for the notice
   acknowledgement as creating a key does; accepting an invitation does not.
 - On the command line `mendari access members` and `mendari access requests` only read:

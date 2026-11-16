@@ -3246,9 +3246,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     prerequisites run at start, quotas, and `mendari store versions|verify|withdraw|purge`. No
     route. Open point 1: a hosted function's temporary directory is written once per version
     and process, bounded at 32 versions and 256 MiB. Threat rows T12, D16.
-  - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and
-    hidden-set checks (`MENDARI_PACK_STORE`, off by default). Adversarial security review.
-    LP-17l can start once this is merged.
+  - [x] **20f** The author role (`pack_author` grants `author`, people only), and the upload
+    (whole or in parts), copy, edit, test and withdraw routes with the PHI and hidden-set checks
+    (`MENDARI_PACK_STORE`, off by default; memberships mode only, checked at start-up with the
+    prerequisites). Authors' keys registered by administrators; held versions read and answered
+    by the operator's commands; 3 held in 30 days stop uploads. A version's validation problems
+    are recorded, not refused (promotion refuses them, 20h). Adversarial security review.
+    Threat rows S24, I22, I23, D17, E18. LP-17l can start now.
   - [ ] **20g** Evaluation jobs with a ledger, dataset upload, and draft against current.
     **20i** the improvement dataset and proposed tests, in parallel.
   - [ ] **20h** Promotion, and serving the promoted version to its organization only.

@@ -228,3 +228,27 @@ own trail is `GET /api/audit/{id}`.
 What each call needs (public, `read`, `decide`, an administrator, …) comes from the server's route
 rules; a running server's `/docs` lists every call with it. Setting up sign-in, roles and keys is
 in [Deploying with real patient data](../deploying-with-phi.md).
+
+## An organization's pack store
+
+Where the operator turns it on (`MENDARI_PACK_STORE=on`, memberships mode), a person who holds
+`pack_author` in an organization keeps that organization's own versions of packs under
+`/api/store` ([the pack store](../operations/pack-store.md)). Every route acts for the
+organization the person acts for; no key or client reaches them.
+
+| Route | What it does |
+|---|---|
+| `GET /api/store/packs`, `GET /api/store/packs/{namespace}/{name}` | The organization's packs and their versions: state, validation, dataset checks |
+| `GET /api/store/versions/{digest}` | One version, with its Decision Card rendered from its files |
+| `POST /api/store/versions` | A signed archive (`mendari pack build`) under the body limit |
+| `POST /api/store/uploads`, `PUT …/parts/{n}`, `POST …/complete` | A larger archive in parts |
+| `POST /api/store/copies` | `{pack, name}`: a draft copy of a pack served here, renamed `<organization>/<name>` |
+| `POST /api/store/versions/{digest}/edits` | `{files: [{path, content}]}`: a new draft with those text files replaced |
+| `POST /api/store/versions/{digest}/tests` | Run the version's behaviour tests |
+| `DELETE /api/store/versions/{digest}` | Withdraw a draft |
+| `GET`, `POST /api/store/keys`, `DELETE /api/store/keys/{key_id}` | Authors' keys (administrators) |
+
+An upload whose files read as a person's details is refused (`422`) with the detector's report:
+kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set
+is kept `held for the operator's review`, and the answer says nothing more.
+
