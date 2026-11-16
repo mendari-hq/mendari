@@ -850,6 +850,15 @@ The first release (not yet published).
     answer when the tables are more than a million. Each takes whole counts only and refuses a
     rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
     chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
+- **The site evaluation network: site evidence, pooled** (LP-22g, ADR-0017 Proposed; never in
+  a rank). `GET /v1/packs/{namespace}/{name}/site-evidence` (`mendari.site-evidence/1`): per
+  pack digest and configuration, never across them, each verified site's k of n with its exact
+  interval for the primary question's accuracy, each critical label's detection and cases
+  automated, and false automation; then the pooled fixed-effect figure from summed counts, the
+  DerSimonian-Laird estimate from 3 sites, the range and the homogeneity test, with a warning
+  in words when the sites disagree. The publisher's own site, reports under a compromised key
+  and superseded reports are listed and left out; unreported and withdrawn tickets are counted
+  beside the figures.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

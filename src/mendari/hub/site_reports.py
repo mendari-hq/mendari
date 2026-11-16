@@ -251,7 +251,8 @@ class SiteReportStore:
                     ticket["configuration"],
                     body_sha256,
                     body,
-                    _iso(datetime.now(UTC)),
+                    # To the millisecond: reports are listed in the order they arrived.
+                    datetime.now(UTC).isoformat(timespec="milliseconds"),
                     None if correction is None else correction["supersedes"],
                 ),
             )

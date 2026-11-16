@@ -119,9 +119,8 @@ from mendari.evals.share import (
     composite_members,
     where,
 )
-from mendari.hub import acceptance, archive, regression, site_signing, yank
+from mendari.hub import acceptance, archive, regression, site_evidence, site_signing, yank
 from mendari.hub import checkpoint as chain_checkpoint
-from mendari.hub import site_evidence
 from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
 from mendari.server.app import HSTS, SECURITY_HEADERS

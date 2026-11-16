@@ -304,6 +304,37 @@ does not truncate tau² at 0, so where it is negative its fixed-effect row is th
 chi-square and the incomplete gamma against scipy, the exact test against scipy's multivariate
 hypergeometric probabilities, and the permutation test for its seed and against the exact one.
 
+## Site evidence: `mendari.site-evidence/1`
+
+What sites' signed reports say of one pack (LP-22g), served by a registry at
+`GET /v1/packs/{namespace}/{name}/site-evidence` and worked out on every read from the reports
+it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
+
+- **Groups.** One per pack digest, configuration and remote consent, never across them: two
+  digests are two packs as far as evidence goes, and a remote configuration is never pooled
+  with a local one. Each group gives its version, digest, configuration and consent; the
+  reports in the pool (`sites`, with the total of their cases); the reports left out with the
+  reason (`left_out`: the publisher's own site, whose organization holds the pack's
+  namespace; a report signed with a key later revoked as compromised; a report superseded by a
+  correction); and, beside the figures, how many of the group's tickets are unreported (open,
+  or expired with no report), how many were withdrawn, and how many reports were superseded.
+- **Figures** (owner decision 8 of the plan): the primary question's accuracy
+  (`accuracy:QUESTION`, right of n), each critical label's detection
+  (`detected:QUESTION=LABEL`) and its cases automated (`automated:QUESTION=LABEL`), and
+  automation with a wrong recommendation (`false_automation`, of the primary question's n).
+  Each lists every pooled site's k of n with its exact interval first (a critical figure on
+  fewer than 100 cases is marked `insufficient_evidence`), then the
+  [pooled statistics](#pooled-site-evidence-mendarievalspooling): `pooled` (fixed effect,
+  summed counts), `random_effects` (DerSimonian-Laird, from 3 sites), `range`, `homogeneity`
+  (its method, p and, for a permutation test, its seed), the number of sites and cases pooled,
+  and `warning`: a sentence when the sites differ by more than chance at 0.05.
+- **Tests run.** Each figure is tested alone at 0.05 (owner decision 11's default); each group
+  says how many tests were run (`tests_run`), so a reader can weigh one warning among many.
+- **Bytes.** The same reports give the same answer: the permutation test's seed comes from the
+  counts, and the pooling of a set of counts is cached, so a read does no resampling twice.
+- **Never in a rank.** Site evidence is shown apart (`note`): sites choose their own cases, and
+  a ticket binds a dataset before its run, not how its cases were chosen.
+
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
 A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and

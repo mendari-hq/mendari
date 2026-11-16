@@ -73,8 +73,8 @@ def _pooled(sites: tuple[tuple[int, int], ...]) -> dict[str, Any]:
     usable = [site for site in sites if site[1] > 0]
     homogeneity = pooling.homogeneity(usable)
     return {
-        "sites": len(usable),
-        "cases": sum(n for _, n in usable),
+        "sites_pooled": len(usable),
+        "cases_pooled": sum(n for _, n in usable),
         "pooled": pooling.pooled_fixed(usable),
         "random_effects": pooling.random_effects(usable),
         "range": pooling.range_of(usable),
