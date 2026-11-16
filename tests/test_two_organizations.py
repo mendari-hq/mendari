@@ -188,6 +188,14 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/store/keys"),
     ("POST", "/api/store/keys"),
     ("DELETE", "/api/store/keys/{key_id}"),
+    ("GET", "/api/store/datasets"),
+    ("POST", "/api/store/datasets"),
+    ("GET", "/api/store/datasets/{dataset_id}"),
+    ("GET", "/api/store/jobs"),
+    ("POST", "/api/store/jobs"),
+    ("GET", "/api/store/jobs/{job_id}"),
+    ("POST", "/api/store/jobs/{job_id}/advance"),
+    ("GET", "/api/store/comparisons"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -1957,11 +1965,100 @@ def served_store(world: World, x: Org) -> None:
         f"/api/store/versions/{parts['digest']}",
         expect=200,
     )
+    served_store_jobs(world, x, author, edited["digest"])
     world.call(
         x,
         admin,
         ("DELETE", "/api/store/keys/{key_id}"),
         f"/api/store/keys/{added['key_id']}",
+        expect=200,
+    )
+
+
+def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> None:
+    """LP-20g: `x`'s author uploads a dataset, runs a job on its draft and one on the pack it
+    was copied from, and compares them; the other organization's dataset, jobs and comparison
+    answer `404` here."""
+    o = world.other(x)
+    for found in o.ids.get("store dataset", []):
+        world.call(
+            x,
+            author,
+            ("GET", "/api/store/datasets/{dataset_id}"),
+            f"/api/store/datasets/{found}",
+            expect=404,
+        )
+    for found in o.ids.get("store job", []):
+        world.call(
+            x, author, ("GET", "/api/store/jobs/{job_id}"), f"/api/store/jobs/{found}", expect=404
+        )
+        world.call(
+            x,
+            author,
+            ("POST", "/api/store/jobs/{job_id}/advance"),
+            f"/api/store/jobs/{found}/advance",
+            expect=404,
+        )
+    others = o.ids.get("store job", [])
+    if len(others) >= 2:
+        world.call(
+            x,
+            author,
+            ("GET", "/api/store/comparisons"),
+            "/api/store/comparisons",
+            params={"draft": others[0], "current": others[1]},
+            expect=404,
+        )
+    lines = resolve_pack(INBOX).read_bytes("data/test.jsonl").decode().splitlines()[:4]
+    dataset = world.call(
+        x,
+        author,
+        ("POST", "/api/store/datasets"),
+        "/api/store/datasets",
+        json={"name": "sample", "version": digest, "content": "\n".join(lines) + "\n"},
+        expect=201,
+    ).json()
+    x.made("store dataset", dataset["id"])
+    world.call(x, author, ("GET", "/api/store/datasets"), "/api/store/datasets", expect=200)
+    world.call(
+        x,
+        author,
+        ("GET", "/api/store/datasets/{dataset_id}"),
+        f"/api/store/datasets/{dataset['id']}",
+        expect=200,
+    )
+    made = []
+    for target in ({"version": digest}, {"pack": INBOX}):
+        job = world.call(
+            x,
+            author,
+            ("POST", "/api/store/jobs"),
+            "/api/store/jobs",
+            json={**target, "dataset": {"id": dataset["id"]}},
+            expect=201,
+        ).json()
+        x.made("store job", job["id"])
+        while job["state"] not in ("done", "failed"):
+            job = world.call(
+                x,
+                author,
+                ("POST", "/api/store/jobs/{job_id}/advance"),
+                f"/api/store/jobs/{job['id']}/advance",
+                expect=200,
+            ).json()
+        assert job["state"] == "done", job
+        x.made("store report", job["report_id"])
+        made.append(job["id"])
+    world.call(x, author, ("GET", "/api/store/jobs"), "/api/store/jobs", expect=200)
+    world.call(
+        x, author, ("GET", "/api/store/jobs/{job_id}"), f"/api/store/jobs/{made[0]}", expect=200
+    )
+    world.call(
+        x,
+        author,
+        ("GET", "/api/store/comparisons"),
+        "/api/store/comparisons",
+        params={"draft": made[0], "current": made[1]},
         expect=200,
     )
 

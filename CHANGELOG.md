@@ -1669,6 +1669,16 @@ The first release (not yet published).
   stored `held` and its uploader told only that; the match is the operator's (`mendari store
   held|release|dismiss|recheck`). `/api/auth/me` says `store: true`; an administrator's health
   counts held versions. No draft is served.
+- **Evaluating a draft in the pack store** (LP-20g; with the store on). An author uploads a
+  labelled dataset, checked as a version is (PHI, dataset checks, hidden sets) and kept sealed
+  under the PHI policy (`mendari phi rotate` re-seals it); makes a job that evaluates a draft, or
+  the pack it was copied from, on a dataset; and advances it a slice (about 20 s) at a time,
+  with no worker: the last slice writes one evaluation report with its ledger, the same bytes a
+  single run writes. `GET /api/store/comparisons` pairs two finished jobs on the same cases with
+  LP-10's statistics (exact intervals, McNemar with Holm, paired bootstrap for Brier) and lists
+  the changed cases by the dataset's own ids. A remote variant needs the organization's
+  evaluation quota; `store_jobs` in `MENDARI_ORG_DAILY_LIMITS` bounds jobs a day.
+  `paired.compare` gains `lineage=True`, for a draft and the pack it was copied from.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

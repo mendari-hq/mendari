@@ -167,6 +167,8 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "evalset": ("evalset_sets", "id", _ROW_ORG),  # a hidden evaluation set (LP-11e)
     "pack_version": ("store_versions", "id", "org"),  # a version in a pack store (LP-20e)
     "store_key": ("store_keys", "id", "org"),  # an author's key for a pack store (LP-20f)
+    "store_dataset": ("store_datasets", "id", "org"),  # a pack store's dataset (LP-20g)
+    "store_job": ("store_jobs", "id", "org"),  # a pack store's evaluation job (LP-20g)
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -219,6 +221,12 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # An author's public key registered for an organization's store, and revoked (LP-20f).
     "store_key.added": "store_key",
     "store_key.revoked": "store_key",
+    # A dataset uploaded to an organization's store, and held when it holds a hidden case
+    # (LP-20g): ids, its SHA-256 and how many cases, never a case.
+    "store_dataset.created": "store_dataset",
+    "store_dataset.held": "store_dataset",
+    # An evaluation job (LP-20g): what it runs, on which dataset (its SHA-256), who asked.
+    "store_job.created": "store_job",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -659,6 +667,7 @@ CREATE TABLE IF NOT EXISTS store_usage (
     day      TEXT NOT NULL,
     uploads  INTEGER NOT NULL,
     bytes    INTEGER NOT NULL,
+    jobs     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (org, day)
 );
 CREATE TABLE IF NOT EXISTS store_keys (
@@ -690,6 +699,45 @@ CREATE TABLE IF NOT EXISTS store_uploads (
     sha256      TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS store_datasets (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    pack_id     TEXT NOT NULL,
+    digest      TEXT NOT NULL,
+    sha256      TEXT NOT NULL,
+    cases       INTEGER NOT NULL,
+    data        TEXT NOT NULL,
+    sealed      INTEGER NOT NULL,
+    report      TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    state       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS store_datasets_org ON store_datasets (org, created_at);
+CREATE TABLE IF NOT EXISTS store_jobs (
+    id              TEXT PRIMARY KEY,
+    org             TEXT NOT NULL,
+    target          TEXT NOT NULL,
+    dataset         TEXT NOT NULL,
+    dataset_sha256  TEXT NOT NULL,
+    dataset_cases   INTEGER NOT NULL,
+    config          TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    done            INTEGER NOT NULL,
+    total           INTEGER NOT NULL,
+    lines           TEXT NOT NULL,
+    latencies       TEXT,
+    header          TEXT,
+    claim           TEXT,
+    claimed_until   TEXT,
+    report_id       TEXT,
+    error           TEXT,
+    created_by      TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    finished_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS store_jobs_org ON store_jobs (org, created_at);
 CREATE TABLE IF NOT EXISTS store_upload_parts (
     upload_id  TEXT NOT NULL,
     n          INTEGER NOT NULL,
@@ -1713,21 +1761,50 @@ class AuditStore(RateBuckets):
             "org": org,
         }
         with self._db.session(exclusive=True) as db:
-            db.all(
-                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org, ledger) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    run["id"],
-                    run["created_at"],
-                    report["pack"]["id"],
-                    report["dataset"]["name"],
-                    _canonical(report),
-                    org,
-                    None if ledger is None else ledger.decode("ascii"),
-                ),
-            )
-            self._append(db, f"eval:{run['id']}", "eval.recorded", recorded)
-            _add_usage(db, org, "evaluation", usage or {})
+            self._insert_report(db, report, run, recorded, org, ledger, usage)
+
+    def _insert_report(
+        self,
+        db: _Session,
+        report: Mapping[str, Any],
+        run: Mapping[str, Any],
+        recorded: Mapping[str, Any],
+        org: str,
+        ledger: bytes | None,
+        usage: Mapping[str, Metered] | None,
+    ) -> None:
+        """`save_report`'s writes, in the caller's transaction (a pack store's job writes its
+        report with its own state, LP-20g)."""
+        db.all(
+            "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org, ledger) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                run["id"],
+                run["created_at"],
+                report["pack"]["id"],
+                report["dataset"]["name"],
+                _canonical(report),
+                org,
+                None if ledger is None else ledger.decode("ascii"),
+            ),
+        )
+        self._append(db, f"eval:{run['id']}", "eval.recorded", recorded)
+        _add_usage(db, org, "evaluation", usage or {})
+
+    def report_record(self, report: Mapping[str, Any], org: str) -> dict[str, Any]:
+        """What `eval.recorded` chains of a report, as `save_report` builds it."""
+        from mendari.evals.result import normalize
+
+        run = normalize(report)["run"]
+        return {
+            "report": run["id"],
+            "result_sha256": report.get("result_sha256"),
+            "ledger": (report.get("ledger") or {}).get("id"),
+            "pack_id": report["pack"]["id"],
+            "pack_digest": report["pack"].get("digest"),
+            "dataset_sha256": report["dataset"].get("sha256"),
+            "org": org,
+        }
 
     def usage_ledger(
         self, org: str | None = None, *, since: str | None = None, until: str | None = None
@@ -2441,6 +2518,7 @@ class AuditStore(RateBuckets):
         prefix = f"v2:{to}:"
         self._rotate_inputs(prefix, batch, summary)
         self._rotate_notes(prefix, batch, summary)
+        self._rotate_datasets(prefix, batch, summary)
         return {**summary, "from": dict(summary["from"])}
 
     def _rotate_inputs(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
@@ -2546,6 +2624,47 @@ class AuditStore(RateBuckets):
             summary["from"].update(moved)
             summary["batches"] += bool(notes)
 
+    def _rotate_datasets(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        """A pack store's datasets sealed under another key (LP-20g), re-sealed as notes are."""
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, data FROM store_datasets WHERE id > ? AND sealed = 1 "
+                    "AND substr(data, 1, 20) <> ? ORDER BY id LIMIT ?",
+                    (after, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                try:
+                    text, opened = self.phi.open("dataset", row["data"], row["id"])
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "dataset", "id": row["id"], "key": token_key(row["data"])}
+                    )
+                    continue
+                changes.append((row, self.phi.seal("dataset", text, row["id"]), opened))
+            if not changes:
+                continue
+            moved: Counter[str] = Counter()
+            datasets = 0
+            with self._db.session(exclusive=True) as db:
+                for row, sealed, opened in changes:
+                    if db.all(
+                        "UPDATE store_datasets SET data = ? WHERE id = ? AND data = ? RETURNING id",
+                        (sealed, row["id"], row["data"]),
+                    ):
+                        datasets += 1
+                        moved[opened] += 1
+                if datasets:
+                    self._chain_rotation(db, moved, summary["to"], datasets=datasets)
+            summary["datasets"] = summary.get("datasets", 0) + datasets
+            summary["from"].update(moved)
+            summary["batches"] += bool(datasets)
+
     def _chain_rotation(
         self,
         db: _Session,
@@ -2555,6 +2674,7 @@ class AuditStore(RateBuckets):
         inputs: int = 0,
         details: int = 0,
         notes: int = 0,
+        datasets: int = 0,
     ) -> None:
         """One batch's chained event (`phi.rotated`: key ids and counts, never a key), and the
         keys it moved values off marked retired."""
@@ -2567,6 +2687,7 @@ class AuditStore(RateBuckets):
             "inputs": inputs,
             "details": details,
             "notes": notes,
+            **({"datasets": datasets} if datasets else {}),
         }
         self._append(db, KEYS_CHAIN, "phi.rotated", payload)
 
@@ -2652,6 +2773,20 @@ class AuditStore(RateBuckets):
                     and _commitment(salt, str(body.get("text"))) != refs[row["id"]]
                 ):
                     failures.append({"kind": "note", "id": row["id"], "key": "commitment"})
+        # A pack store's sealed datasets (LP-20g), counted only where there are any.
+        with self._db.session(exclusive=False) as db:
+            sealed_sets = (
+                db.all("SELECT id, created_at, data FROM store_datasets WHERE sealed = 1")
+                if db.columns("store_datasets")
+                else []
+            )
+        for row in sealed_sets:
+            by_key.setdefault("datasets", Counter())
+            named = seen("datasets", row["data"], row["created_at"])
+            try:
+                alone.open("dataset", row["data"], row["id"])
+            except MendariError:
+                failures.append({"kind": "dataset", "id": row["id"], "key": named})
         with self._db.session(exclusive=False) as db:
             retired = {
                 str(row["name"])[len(RETIRED) :]

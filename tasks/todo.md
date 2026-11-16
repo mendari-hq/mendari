@@ -3253,8 +3253,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     by the operator's commands; 3 held in 30 days stop uploads. A version's validation problems
     are recorded, not refused (promotion refuses them, 20h). Adversarial security review.
     Threat rows S24, I22, I23, D17, E18. LP-17l can start now.
-  - [ ] **20g** Evaluation jobs with a ledger, dataset upload, and draft against current.
-    **20i** the improvement dataset and proposed tests, in parallel.
+  - [x] **20g** Evaluation jobs with a ledger (`mendari.evals.store_jobs`: slices a caller
+    advances, claimed in one transaction; the joined ledger is the single run's bytes), dataset
+    upload (checked as a version is, sealed under the PHI policy and re-sealed by a rotation),
+    and draft against current (`paired.compare(lineage=True)` with each side's figures and the
+    changed cases by id). Decision 9's default (no worker, no cron); decision 13's (a remote arm
+    needs the organization's evaluation quota, 200 cases).
+  - [ ] **20i** The improvement dataset and proposed tests.
   - [ ] **20h** Promotion, and serving the promoted version to its organization only.
     Adversarial security review; it changes which pack answers a request, so it needs the
     owner's yes before it merges.

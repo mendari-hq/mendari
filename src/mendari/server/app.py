@@ -3285,8 +3285,23 @@ def create_app(
             claims = app.state.registry_store.claims(org=org, namespace=namespace)
             return any(claim["status"] == "approved" for claim in claims)
 
+        from mendari.evals.store_jobs import JobStore
+
         pack_store = PackStore(store)
         app.state.pack_store = pack_store
+
+        def job_decision(pack: Pack, variants: Mapping[str, str]) -> Decision:
+            """A store job's Decision: the deployment's choice for the pack, then the job's,
+            each decision under the deadline and the evaluation quotas (LP-20g)."""
+            return Decision(
+                pack,
+                providers={**variants_for(pack)[0], **variants},
+                budget=None if budget is None else budget.for_evaluation(),
+                deadline_s=deadline_s,
+                origin_cap=False,  # an evaluation measures the pack's own policy
+            )
+
+        store_jobs = JobStore(pack_store, served=lambda: packs, decision_for=job_decision)
         add_store_routes(
             app,
             auth,
@@ -3295,6 +3310,8 @@ def create_app(
             hidden=None if evalsets is None else _Evalsets(store, evalsets),
             claimed=claimed_namespace,
             deadline_s=deadline_s,
+            jobs=store_jobs,
+            limits=lambda: org_limits,
         )
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)

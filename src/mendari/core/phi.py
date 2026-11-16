@@ -174,6 +174,8 @@ def open_with(ring: Sequence[bytes], aad: bytes, token: str, what: str) -> tuple
 NOTE_AAD = b"mendari-note-v1\x00"
 # A record's sealed details (`seal_details`): the kind, then the decision id.
 DETAILS_AAD = b"mendari-details-v1\x00"
+# A pack store's dataset (LP-20g): its id after this.
+DATASET_AAD = b"mendari-store-dataset-v1\x00"
 # What the input hash's HMAC covers before the input, so the hash key signs nothing else alike.
 INPUT_HASH_PREFIX = b"mendari-input-v1\x00"
 GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`'
@@ -187,11 +189,12 @@ _V2 = re.compile(r"v2:([0-9a-f]{16}):")
 _MIN_SEALED = 12 + 16
 LEGACY = "legacy"  # a token sealed before key ids: the ring is tried
 READ_KEYS_MAX = 4
-Sealed = Literal["input", "details", "note"]
+Sealed = Literal["input", "details", "note", "dataset"]
 _WHAT: dict[str, str] = {
     "input": "a stored input",
     "details": "a stored record's details",
     "note": "a stored note",
+    "dataset": "a stored dataset",
 }
 
 
@@ -214,6 +217,9 @@ def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
     if kind == "details":
         (decision_id,) = ids
         return DETAILS_AAD + decision_id.encode()
+    if kind == "dataset":
+        (dataset_id,) = ids
+        return DATASET_AAD + dataset_id.encode()
     note_id, decision_id = ids
     return _note_aad(note_id, decision_id)
 

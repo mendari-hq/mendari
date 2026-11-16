@@ -72,6 +72,12 @@ def _env(monkeypatch: pytest.MonkeyPatch, *, store: str | None = "on") -> None:
 
 @pytest.fixture
 def world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
+    yield from store_world(db_target, tmp_path, monkeypatch)
+
+
+def store_world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
+    """A memberships-mode server with the pack store on, hidden sets' keys set, and clinic-a's
+    author key registered by its administrator."""
     _env(monkeypatch)
     keys = EvalsetKeys(*evalset_on(monkeypatch))
     app = create_app(db_path=db_target)

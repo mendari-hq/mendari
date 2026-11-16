@@ -275,6 +275,10 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("pack_version.withdrawn",),
     (ENGINE, "POST", "/api/store/keys"): ("store_key.added",),
     (ENGINE, "DELETE", "/api/store/keys/{key_id}"): ("store_key.revoked",),
+    # Its datasets and evaluation jobs (LP-20g): a job's last slice records its report.
+    (ENGINE, "POST", "/api/store/datasets"): ("store_dataset.created", "store_dataset.held"),
+    (ENGINE, "POST", "/api/store/jobs"): ("store_job.created",),
+    (ENGINE, "POST", "/api/store/jobs/{job_id}/advance"): ("eval.recorded",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
