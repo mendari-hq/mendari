@@ -296,7 +296,10 @@ def daily_limits() -> dict[str, int | None]:
 
 # Decisions, the remote calls they make by provider type, and the remote calls the
 # organization's evaluations make (`eval_jev`, `eval_llm`, LP-21h).
-ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm")
+# `store_uploads`: the versions an organization adds to its pack store a day (LP-20e).
+ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm", "store_uploads")
+# What one organization's pack store may keep, in bytes of files (LP-20e, owner decision 14).
+DEFAULT_STORE_ORG_BYTES = 256 * 1024 * 1024
 
 
 def org_daily_limits() -> dict[str, int]:
@@ -320,6 +323,17 @@ def org_daily_limits() -> dict[str, int]:
             )
         limits[metric] = int(value)
     return limits
+
+
+def store_org_bytes() -> int:
+    """$MENDARI_STORE_ORG_BYTES: the bytes of files one organization's pack store may keep
+    (LP-20e); 256 MiB unset. Each file is counted once however many of its versions hold it."""
+    raw = os.environ.get("MENDARI_STORE_ORG_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_STORE_ORG_BYTES
+    if not raw.isdigit() or int(raw) < 1:
+        raise MendariError("MENDARI_STORE_ORG_BYTES is a positive whole number of bytes")
+    return int(raw)
 
 
 def principal_daily_limit() -> int | None:

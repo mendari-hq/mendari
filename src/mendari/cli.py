@@ -50,13 +50,13 @@ def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> d
     setting, or an unscoped one for a community pack. From $MENDARI_PROVIDERS, a deployment-wide
     list naming other packs' slots too, such a setting is only a warning."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    chosen, skipped = providers_for(pack.id, slots, settings, community=pack.community)
+    chosen, skipped = providers_for(pack.id, slots, settings, community=pack.named_settings_only)
     if skipped:
         raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
     unused = [
         _unused(pack, key, variant, slots)
         for key, variant in settings.items()
-        if not applies_to(key, pack.id, slots, community=pack.community)
+        if not applies_to(key, pack.id, slots, community=pack.named_settings_only)
     ]
     if unused and typed:
         raise PackValidationError(pack.id, unused)
@@ -2995,6 +2995,62 @@ def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any,
     return EvalsetStore(AuditStore(target, marks=False), keys), shown
 
 
+def _pack_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
+    """The deployment's database for `mendari store` (LP-20e): given, or $DATABASE_URL. To
+    write, it must be a server's (`_servers_database`); otherwise opened read-only. Returns the
+    pack store (`core/pack_store.py`) and the database's name as shown (no password)."""
+    from mendari.core.pack_store import PackStore
+
+    if target is None:
+        target = os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        raise MendariError("give --db (the server's database) or set DATABASE_URL")
+    if not writes:
+        return PackStore(_read_store(target)), _shown(target)
+    shown = _servers_database(target, used=True, also=("store_versions",))
+    return PackStore(AuditStore(target, marks=False)), shown
+
+
+def cmd_store_versions(args: argparse.Namespace) -> int:
+    """An organization's pack store versions, newest first (LP-20e): ids, digests, states and
+    files' hashes, never a file's content. Read-only."""
+    store, _ = _pack_store(args.db, writes=False)
+    with store.store:
+        _print_json(store.versions(args.org, args.pack))
+    return 0
+
+
+def cmd_store_verify(args: argparse.Namespace) -> int:
+    """Every kept file of every pack store hashes to its key, and every version whose files are
+    kept to its digest (LP-20e). Read-only; exit 1 on a problem."""
+    store, _ = _pack_store(args.db, writes=False)
+    with store.store:
+        found = store.verify()
+    _print_json(found)
+    return 0 if found["ok"] else 1
+
+
+def cmd_store_withdraw(args: argparse.Namespace) -> int:
+    """The operator withdraws a draft or held version of an organization's store, with a reason
+    on the chain (LP-20e)."""
+    store, shown = _pack_store(args.db, writes=True)
+    with store.store:
+        moved = store.withdraw(args.org, args.digest, by="operator", reason=args.reason)
+    _print_json(moved)
+    print(f"withdrawn in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_store_purge(args: argparse.Namespace) -> int:
+    """Free the files that only versions withdrawn more than 30 days ago hold (LP-20e); the rows
+    and their events stay."""
+    store, shown = _pack_store(args.db, writes=True)
+    with store.store:
+        removed = store.purge()
+    print(f"{removed} file(s) freed in {shown}", file=sys.stderr)
+    return 0
+
+
 def _outside_the_code(
     path: Path, what: str = "a file of hidden cases", then: str = "move it, then add it"
 ) -> None:
@@ -4710,6 +4766,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--by", required=True, help="who erases it, as an identifier such as an email (chained)"
     )
     erase.set_defaults(handler=cmd_notes_erase)
+
+    store = sub.add_parser(
+        "store", help="organizations' pack stores: the operator's (LP-20)"
+    ).add_subparsers(dest="store_command", required=True)
+    store_versions = store.add_parser("versions", help="an organization's versions, newest first")
+    store_versions.add_argument("--org", required=True, help="the organization")
+    store_versions.add_argument("--pack", help="only this pack id")
+    store_versions.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_versions.set_defaults(handler=cmd_store_versions)
+    store_verify = store.add_parser(
+        "verify", help="every kept file and version hashes to what it is kept under"
+    )
+    store_verify.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_verify.set_defaults(handler=cmd_store_verify)
+    store_withdraw = store.add_parser("withdraw", help="withdraw a draft or held version")
+    store_withdraw.add_argument("digest", help="the version's digest (sha256:...)")
+    store_withdraw.add_argument("--org", required=True, help="the organization")
+    store_withdraw.add_argument("--reason", required=True, help="why, kept on the chain")
+    store_withdraw.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_withdraw.set_defaults(handler=cmd_store_withdraw)
+    store_purge = store.add_parser(
+        "purge", help="free the files of versions withdrawn more than 30 days ago"
+    )
+    store_purge.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    store_purge.set_defaults(handler=cmd_store_purge)
 
     evalset = sub.add_parser(
         "evalset", help="hidden evaluation sets: the key holder's (LP-11)"

@@ -165,6 +165,7 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "invitation": ("invitations", "id", _ROW_ORG),
     "access": ("access_requests", "id", _ROW_ORG),
     "evalset": ("evalset_sets", "id", _ROW_ORG),  # a hidden evaluation set (LP-11e)
+    "pack_version": ("store_versions", "id", "org"),  # a version in a pack store (LP-20e)
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -208,7 +209,36 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "evalset.activated": "evalset",
     "evalset.graded": "evalset",
     "evalset.retired": "evalset",
+    # A pack store's version (LP-20e, `core/pack_store.py`): its digest, the actor's id and the
+    # hash of its row as written; each move of its state. Never a file's content.
+    "pack_version.created": "pack_version",
+    "pack_version.held": "pack_version",
+    "pack_version.released": "pack_version",
+    "pack_version.withdrawn": "pack_version",
 }
+# A pack store version's state after each of its kinds: `verify` checks a version's row against
+# its newest (LP-20e).
+STORE_STATES: dict[str, str] = {
+    "pack_version.created": "draft",
+    "pack_version.held": "held",
+    "pack_version.released": "draft",
+    "pack_version.withdrawn": "withdrawn",
+}
+# A version row's columns that never change once written, in the order their hash reads them.
+STORE_VERSION_COLUMNS = (
+    "id",
+    "org",
+    "digest",
+    "pack_id",
+    "version",
+    "files",
+    "parent_digest",
+    "source",
+    "copied_from",
+    "validation",
+    "created_by",
+    "created_at",
+)
 # A person's, across organizations: the organization they acted for is in the payload, no row.
 PERSON_KINDS = frozenset({NOTICE_EVENT})
 # The deployment's own, no organization's: never bound.
@@ -594,7 +624,37 @@ CREATE TABLE IF NOT EXISTS evalset_labels (
     body           TEXT NOT NULL,
     created_at     TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS evalset_labels_set ON evalset_labels (set_id, case_id)
+CREATE INDEX IF NOT EXISTS evalset_labels_set ON evalset_labels (set_id, case_id);
+CREATE TABLE IF NOT EXISTS store_files (
+    sha256  TEXT PRIMARY KEY,
+    size    INTEGER NOT NULL,
+    data    {blob} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS store_versions (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    digest         TEXT NOT NULL,
+    pack_id        TEXT NOT NULL,
+    version        TEXT NOT NULL,
+    files          TEXT NOT NULL,
+    parent_digest  TEXT,
+    source         TEXT NOT NULL,
+    copied_from    TEXT,
+    validation     TEXT NOT NULL,
+    created_by     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    state          TEXT NOT NULL,
+    state_at       TEXT NOT NULL,
+    UNIQUE (org, digest)
+);
+CREATE INDEX IF NOT EXISTS store_versions_pack ON store_versions (org, pack_id, created_at);
+CREATE TABLE IF NOT EXISTS store_usage (
+    org      TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    uploads  INTEGER NOT NULL,
+    bytes    INTEGER NOT NULL,
+    PRIMARY KEY (org, day)
+)
 """
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
 # input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
@@ -606,6 +666,12 @@ CREATE INDEX IF NOT EXISTS evalset_labels_set ON evalset_labels (set_id, case_id
 # the clear, ids and times; and `evalset_labels` (one per assignment, its values sealed in
 # `body`, bound to the label's id). A database from before them (read-only) lacks both, and is
 # read as having none.
+
+# The `store_` tables (LP-20e, ADR-0016, `core/pack_store.py`) hold each organization's pack
+# store: `store_files` each file once by its SHA-256, whichever versions hold it;
+# `store_versions` a version's row, written once (`STORE_VERSION_COLUMNS`) but its `state`, each
+# write one chained event; and `store_usage` an organization's uploads and bytes a day, outside
+# the chain, as `rate_limits` is. Empty unless the store is on.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -5085,6 +5151,13 @@ class AuditStore(RateBuckets):
             held = None
             if evalsets is not False:
                 held = self._evalset_rows(db, int(events[-1]["seq"]) if events else 0)
+            # A pack store's versions (LP-20e): each against its chained hash and newest state.
+            stored = (
+                {str(row["id"]): row for row in db.all("SELECT * FROM store_versions")}
+                if db.columns("store_versions")
+                else {}
+            )
+        states: dict[str, str] = {}
         prev = GENESIS
         if start is not None:
             first = events[0] if events else None
@@ -5106,6 +5179,17 @@ class AuditStore(RateBuckets):
                 record = records.get(event["decision_id"])
                 if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
                     return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
+            if event["event"] in STORE_STATES:
+                version_id = str(event["decision_id"]).partition(":")[2]
+                row = stored.get(version_id)
+                if event["event"] == "pack_version.created" and (
+                    row is None
+                    or json.loads(event["payload"]).get("version_sha256")
+                    != store_version_sha256(row)
+                ):
+                    where = {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                    return {**where, "reason": "store"}, None
+                states[version_id] = STORE_STATES[event["event"]]
             if '"org":' in event["payload"] and not _attributed(event, owners, subjects):
                 return {
                     "ok": False,
@@ -5114,6 +5198,9 @@ class AuditStore(RateBuckets):
                     "reason": "organization",
                 }, None
             prev = event["hash"]
+        # Every store version's state is its newest event's, and none is unchained.
+        if start is None and any(states.get(i) != row["state"] for i, row in stored.items()):
+            return {"ok": False, "events": len(events), "reason": "store"}, None
         if expected:  # a checkpoint's event is gone: the chain was cut short of it
             cut = {"ok": False, "events": len(events), "broken_at": min(expected)}
             return {**cut, "reason": "checkpoint"}, None
@@ -6070,6 +6157,13 @@ def _opened(row_key: str, kind: str, stored: str, opener: str | None) -> dict[st
 
 def _sha(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode()).hexdigest()
+
+
+def store_version_sha256(row: Mapping[str, Any]) -> str:
+    """The hash a pack store version's `pack_version.created` event chains of its row: the
+    columns that never change (`STORE_VERSION_COLUMNS`), so a row changed past the store fails
+    `verify` (LP-20e)."""
+    return _sha({column: row[column] for column in STORE_VERSION_COLUMNS})
 
 
 def _commitment(salt: bytes, text: str) -> str:

@@ -69,6 +69,7 @@ nav:
       - Hidden evaluation sets: operations/evalsets.md
       - Running the scoreboard: operations/scoreboard.md
       - Running a pack registry: operations/registry.md
+      - The pack store: operations/pack-store.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
       - Decision Pack spec 0.3 (FHIR mapping): spec/decision-pack-0.3.md
