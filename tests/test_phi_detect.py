@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: Apache-2.0
+"""The PHI detector (LP-20d, `core/phi_detect.py`): seven kinds found by file and line, on RE2,
+never a matched value in a report, a log or an error; every shipped pack file and synthetic
+dataset passes; the community check's warnings are unchanged."""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+import pytest
+
+from mendari.cli import main
+from mendari.community import phi_scan
+from mendari.core import phi_detect
+from mendari.core.phi_detect import KINDS, NAME_THRESHOLD, Finding, detect, detect_files, rejects
+from tests.conftest import INBOX_DIR, ROOT, cpu_time
+
+# One planted line per kind: the value each holds is searched for in everything the detector
+# says. Every value is made up.
+PLANTED = {
+    "ssn": ("SSN on file 219-09-9999 per intake", "219-09-9999"),
+    "phone": ("call me back at 617-555-2368 tonight", "617-555-2368"),
+    "record_number": ("chart MRN 00784512 attached", "00784512"),
+    "birth_date": ("DOB 03/14/1961, still on the same dose", "03/14/1961"),
+    "email": ("write to jdoe.patient@mailhost.net about it", "jdoe.patient@mailhost.net"),
+    "street_address": ("now living at 4410 North Lake Drive with family", "4410 North Lake Drive"),
+    "name": ("my name is Margaret and the refill is late", "Margaret"),
+}
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_each_kind_is_found_with_its_file_and_line(kind: str) -> None:
+    line, _ = PLANTED[kind]
+    text = "a first line with nothing in it\n" + line + "\n"
+    assert detect(text, "data/test.jsonl") == [Finding(kind, "data/test.jsonl", 2)]
+    report = detect_files({"data/test.jsonl": text.encode()})
+    assert report.counts == {kind: 1} and rejects(report)
+
+
+def test_no_report_log_or_error_holds_a_matched_value(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG)
+    text = "\n".join(line for line, _ in PLANTED.values())
+    files = {"a.jsonl": text.encode(), "b.bin": b"\xff\xfe" + text.encode("utf-16-le")}
+    report = detect_files(files)
+    served = json.dumps(report.to_json())
+    assert report.counts == {kind: 1 for kind in KINDS}
+    assert report.unread == ("b.bin",)
+    for _, value in PLANTED.values():
+        assert value not in served
+        assert value not in caplog.text
+        assert value not in repr(report)
+
+
+def _shipped() -> dict[str, bytes]:
+    files = {}
+    for root in (ROOT / "packs", ROOT / "datasets"):
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                files[str(path.relative_to(ROOT))] = path.read_bytes()
+    return files
+
+
+def test_every_shipped_synthetic_dataset_and_pack_file_passes() -> None:
+    """The measurement in the module's docstring, kept: no finding of any kind, names included,
+    in the five reference packs and the synthetic datasets."""
+    files = _shipped()
+    assert len(files) > 50 and any(path.endswith(".jsonl") for path in files)
+    report = detect_files(files)
+    assert report.findings == () and not rejects(report)
+    assert NAME_THRESHOLD == 1
+
+
+def test_re2_and_pythons_engine_agree_on_every_shipped_line() -> None:
+    """The patterns were rewritten without lookaround for RE2: the same sources on Python's
+    `re` find the same kinds on every line of every shipped text file, and on the planted ones."""
+    ours, theirs = phi_detect.re2_patterns(), phi_detect.re_patterns()
+    lines = [line for line, _ in PLANTED.values()]
+    for raw in _shipped().values():
+        try:
+            lines += raw.decode("utf-8").split("\n")
+        except UnicodeDecodeError:
+            continue
+    assert len(lines) > 10_000
+    for line in lines:
+        assert phi_detect.kinds_of(line, ours) == phi_detect.kinds_of(line, theirs)
+
+
+def test_a_name_alone_is_not_a_finding_and_a_name_beside_a_birth_date_is() -> None:
+    assert "Margaret" in phi_detect.names() and "Will" not in phi_detect.names()
+    assert detect("Margaret asked about her refill") == []
+    assert detect("Will Margaret's refill be ready?") == []
+    beside = detect("Margaret Hughes, born 03/14/1961, asked about her refill")
+    assert [finding.kind for finding in beside] == ["birth_date", "name"]
+    assert detect("Mrs Garcia asked about her refill")[0].kind == "name"
+
+
+def test_the_fictional_phone_range_and_example_domains_pass() -> None:
+    for text in (
+        "call 617-555-0123 any time",
+        "fax (617) 555-0199",
+        "cell 6175550142",
+        "write to someone@example.org or a@b.test",
+        "lab result 6175552368 cells per microliter",  # ten digits, no phone word: an id
+        "a newborn, seen 03/14/2024",  # "born" inside a word
+    ):
+        assert detect(text) == [], text
+
+
+def test_a_long_hostile_line_costs_one_pass() -> None:
+    """Lines built to make a backtracking engine search: on RE2 each is one pass."""
+    hostile = [
+        "1" * 2_000_000,
+        ("a@" * 300_000) + "b",
+        ("Mr " * 200_000) + "x",
+        ("12 " + "Abc " * 3) * 100_000,
+        ("born 1/1/1 " * 100_000),
+    ]
+    with cpu_time() as spent:
+        for line in hostile:
+            detect(line)
+    assert spent() < 10.0
+
+
+def test_the_same_bytes_give_the_same_report() -> None:
+    files = {"z.jsonl": "\n".join(line for line, _ in PLANTED.values()).encode(), "a.md": b"x"}
+    first = detect_files(files).to_json()
+    assert detect_files(dict(reversed(files.items()))).to_json() == first
+    again = detect_files(files).to_json()
+    assert json.dumps(first, sort_keys=True) == json.dumps(again, sort_keys=True)
+
+
+def test_the_community_checks_warnings_are_unchanged() -> None:
+    """Five of the kinds, worded as the community check always worded them; a street address
+    or a name is not one of its warnings."""
+    text = "\n".join(line for line, _ in PLANTED.values())
+    assert [(hit.line, hit.kind) for hit in phi_scan.scan(text)] == [
+        (1, "a Social Security number"),
+        (2, "a phone number (use 555-0100 to 555-0199)"),
+        (3, "a medical record number"),
+        (4, "a date of birth next to a name"),
+        (5, "an email address (use one at example.org)"),
+    ]
+
+
+def test_data_check_phi_reports_kinds_and_places(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    planted = tmp_path / "planted.jsonl"
+    line, value = PLANTED["phone"]
+    record = {"id": "c1", "input": {"message": {"body": line}}, "labels": {}}
+    planted.write_text(json.dumps(record) + "\n")
+    assert main(["data", "check", str(INBOX_DIR), str(planted), "--phi", "--json"]) == 1
+    printed = capsys.readouterr().out
+    [report] = json.loads(printed)
+    assert report["phi"]["counts"] == {"phone": 1}
+    assert report["phi"]["findings"] == [{"kind": "phone", "file": "planted.jsonl", "line": 1}]
+    assert value not in printed
+    assert main(["data", "check", str(INBOX_DIR), "--phi"]) == 0

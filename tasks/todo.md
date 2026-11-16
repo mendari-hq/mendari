@@ -3231,7 +3231,14 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     their exact intervals ("too few to estimate" under 100), duplicates under both canonical
     forms and overlap with the pack's `train` and `calibration` data are reported (conflict 2's
     default). The packs workflow runs it on changed maintained and community packs.
-  - [ ] **20d** the PHI detector.
+  - [x] **20d** The PHI detector (`mendari.core.phi_detect`, on RE2): seven kinds by file and
+    line, never the value; a street address and a listed name are new, and a name counts only
+    beside another kind or a person's word. The name list (`core/phi_names.txt`, 1,289 common
+    United States given names and surnames, without those that are also everyday words) was
+    written for Mendari, not copied from the Census or SSA files, so it carries no third-party
+    licence (decision 3's default, with that difference for the owner to confirm). Measured on
+    every shipped pack file and synthetic dataset: no finding, so one name finding rejects.
+    `mendari data check --phi`; the community check's warnings are unchanged; threat row I21.
   - [ ] **20e** The store as a library: tables, versions that never change, the origin `store`
     on the bounded engine, the prerequisites test, the operator's commands. No route.
   - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and
