@@ -56,6 +56,9 @@ async function boot() {
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
+    // A pack author and nothing else (LP-20f): the store's own screens come with LP-20j; until
+    // then, the access page says what the role is for.
+    else if (me.principal.permissions.every((p) => p === "author")) state.noAccess = "author";
     // A labeller (LP-11) or a reviewer of the pack registry (LP-19f), or both, and nothing
     // else: no packs to list, no notice, no review queue; just their screens. The review screen
     // where the server serves it (this organization is the registry's review organization), and
