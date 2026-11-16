@@ -43,7 +43,7 @@ from mendari.errors import HubError
 from mendari.evals import figures
 from mendari.evals.share import SiteReportV2, composite_members, unchanged_by_suppression
 from mendari.hub import archive, site_signing
-from mendari.hub.sites import NOT_A_SITE_KEY, _canonical_text, _iso, _status
+from mendari.hub.sites import NOT_A_SITE_KEY, _canonical_text, _iso, _recall_free, _status
 
 if TYPE_CHECKING:
     from mendari.core.db import Backend, Session
@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS hub_site_reports (
     created_at    TEXT NOT NULL,
     supersedes    TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS hub_tickets_submit ON hub_tickets (submit_sha256);
 CREATE TABLE IF NOT EXISTS hub_ticket_corrections (
     ticket      TEXT PRIMARY KEY,
     supersedes  TEXT NOT NULL,
@@ -112,7 +113,7 @@ def _report_listed(
         "supersedes": row["supersedes"],
         "superseded_by": superseded_by,
         "compromised_key": compromised,
-        "figures": figures.site(record["report"]),
+        "figures": figures.guarded(lambda: figures.site(record["report"])),
     }
 
 
@@ -181,25 +182,60 @@ class SiteReportStore:
                 "providers were checked against their pack; publish a new version to receive them",
                 409,
             )
+        # Everything that needs no lock is checked first, outside the registry's write lock
+        # (the adversarial review of LP-22f: a payload that kept `suppress` busy held every
+        # write): the ticket, the key and signature, the report against the ticket, its names,
+        # its suppression and its figures. Inside the lock, only what may have changed since.
+        with self._db.session(exclusive=False) as db:
+            ticket = db.one("SELECT * FROM hub_tickets WHERE id = ?", (submission.ticket,))
+            signer = self._signer(db, record)  # type: ignore[attr-defined]
+        self._ticket_takes(ticket, namespace, name, version)
+        assert ticket is not None
+        if signer is None or signer["site"] != ticket["site"]:
+            raise HubError(NOT_A_SITE_KEY, 403)
+        public = archive.load_public_key(str(signer["public_pem"]).encode())
+        if not site_signing.signature_holds(record, public):
+            raise HubError("the record's signature does not hold", 403)
+        configuration = {slot: p.variant for slot, p in report.providers.items()}
+        if (
+            (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version)
+            or report.pack.digest != ticket["digest"]
+            or _canonical_text(configuration) != ticket["configuration"]
+            or report.dataset.n != int(ticket["n"])
+            or report.remote_consent != bool(ticket["remote_consent"])
+        ):
+            raise HubError(
+                "the report is not the ticket's: its pack, digest, configuration, size or "
+                "consent differ",
+                409,
+            )
+        unknown = _unknown_names(report, names, found.get("primary"))
+        if unknown:
+            raise HubError(f"the report names {unknown} the pack does not have")
+        if not unchanged_by_suppression(report):
+            raise HubError(
+                "the report shares a cell its suppression rule hides, or counts that do not add "
+                "up (mendari.site-report/2: cells of 1 to 9 and their complements are null)"
+            )
+        shown = figures.site(report.model_dump(mode="json"))  # before anything is written
         body = json.dumps(dict(record), sort_keys=True, separators=(",", ":"))
         report_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
             ticket = db.one("SELECT * FROM hub_tickets WHERE id = ?", (submission.ticket,))
-            if ticket is None or (ticket["namespace"], ticket["name"], ticket["version"]) != (
-                namespace,
-                name,
-                version,
-            ):
-                raise HubError("no such ticket for this version", 404)
-            status = _status(ticket, _iso(datetime.now(UTC)))
-            if status != "open":
-                raise HubError(f"the ticket is {status}: it takes no report", 409)
+            self._ticket_takes(ticket, namespace, name, version)
+            assert ticket is not None
             signer = self._signer(db, record)  # type: ignore[attr-defined]
             if signer is None or signer["site"] != ticket["site"]:
                 raise HubError(NOT_A_SITE_KEY, 403)
-            public = archive.load_public_key(str(signer["public_pem"]).encode())
-            if not site_signing.signature_holds(record, public):
-                raise HubError("the record's signature does not hold", 403)
+            # The version may have been recalled, deleted or unlisted since the ticket.
+            if not _recall_free(db, namespace, name, version) or (
+                db.columns("hub_claims")
+                and db.one(
+                    "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
+                    (namespace,),
+                )
+            ):
+                raise HubError("that version is recalled or not listed: it takes no report", 409)
             if db.one(
                 "SELECT nonce FROM hub_site_nonces WHERE site = ? AND nonce = ?",
                 (submission.site, submission.nonce),
@@ -209,27 +245,6 @@ class SiteReportStore:
                 "INSERT INTO hub_site_nonces (site, nonce, created_at) VALUES (?, ?, ?)",
                 (submission.site, submission.nonce, _iso(datetime.now(UTC))),
             )
-            configuration = {slot: p.variant for slot, p in report.providers.items()}
-            if (
-                (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version)
-                or report.pack.digest != ticket["digest"]
-                or _canonical_text(configuration) != ticket["configuration"]
-                or report.dataset.n != int(ticket["n"])
-                or report.remote_consent != bool(ticket["remote_consent"])
-            ):
-                raise HubError(
-                    "the report is not the ticket's: its pack, digest, configuration, size or "
-                    "consent differ",
-                    409,
-                )
-            unknown = _unknown_names(report, names, found.get("primary"))
-            if unknown:
-                raise HubError(f"the report names {unknown} the pack does not have")
-            if not unchanged_by_suppression(report):
-                raise HubError(
-                    "the report shares a cell its suppression rule hides (mendari.site-report/2: "
-                    "cells of 1 to 9 and their complements are null)"
-                )
             correction = db.one(
                 "SELECT supersedes FROM hub_ticket_corrections WHERE ticket = ?",
                 (submission.ticket,),
@@ -287,8 +302,23 @@ class SiteReportStore:
             "version": version,
             "ticket": submission.ticket,
             "verified": True,
-            "figures": figures.site(report.model_dump(mode="json")),
+            "figures": shown,
         }
+
+    @staticmethod
+    def _ticket_takes(
+        ticket: Mapping[str, Any] | None, namespace: str, name: str, version: str
+    ) -> None:
+        """Refuse a ticket that is not this version's, or no longer open."""
+        if ticket is None or (ticket["namespace"], ticket["name"], ticket["version"]) != (
+            namespace,
+            name,
+            version,
+        ):
+            raise HubError("no such ticket for this version", 404)
+        status = _status(ticket, _iso(datetime.now(UTC)))
+        if status != "open":
+            raise HubError(f"the ticket is {status}: it takes no report", 409)
 
     def site_reports(self, namespace: str, name: str) -> list[dict[str, Any]]:
         """A pack's signed reports, oldest first, for anyone who reads the pack: each with its

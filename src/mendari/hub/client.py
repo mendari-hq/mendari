@@ -322,9 +322,16 @@ class RegistryClient:
     def submit(self, submission: Mapping[str, Any], secret: str) -> dict[str, Any]:
         """Send a signed `mendari.site-submission/1` (LP-22f) with its ticket's one-time secret
         as the bearer credential (never a publisher token)."""
-        pack = submission["report"]["pack"]
-        namespace, name = str(pack["id"]).split("/")
-        path = f"/v1/packs/{namespace}/{name}/{pack['version']}/reports"
+        from pydantic import ValidationError
+
+        from mendari.hub.site_reports import Submission
+
+        try:  # the path is built from it: only a submission's own pack id and version
+            pack = Submission.model_validate(dict(submission)).report.pack
+        except ValidationError:
+            raise MendariError("not a signed site submission (mendari eval --share-out)") from None
+        namespace, name = pack.id.split("/")
+        path = f"/v1/packs/{namespace}/{name}/{pack.version}/reports"
         response = self._http.post(
             path, json=dict(submission), headers={"authorization": f"Bearer {secret}"}
         )
