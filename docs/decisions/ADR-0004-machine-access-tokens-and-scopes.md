@@ -54,9 +54,10 @@ per-provider handling.
 Approved by the owner, in its narrow form ("usable packs only"). The decide scope implies a
 read-only `discover` permission, with no scope URI of its own. It reaches exactly two routes,
 `GET /api/packs` and `GET /cds-services`, and each lists only the packs the credential may decide
-with: today every pack this deployment serves, with the summary people see of each (its id,
-name, version and the like); once packs belong to organizations (LP-20), never another
-organization's. A pack's detail, its examples and datasets, `/openapi.json` and the audit stay
+with: every pack this deployment serves from disk, and the caller's organization's promoted
+pack store versions (amended by LP-20h, 2026-11: a version one organization promoted is never in
+another's lists, decisions, CDS Hooks discovery or FHIR operation), with the summary people see of
+each (its id, name, version and the like). A pack's detail, its examples and datasets, `/openapi.json` and the audit stay
 closed to a scoped credential. Every role holds `discover`, so people and unscoped credentials
 reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
 

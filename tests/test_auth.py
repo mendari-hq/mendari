@@ -584,7 +584,7 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
     "viewer": {"read", "discover"},
     "reviewer": {"read", "discover", "read_input", "decide", "review", "outcome"},
     "service": {"read", "discover", "decide", "outcome"},
-    "governance": {"read", "discover", "approve"},
+    "governance": {"read", "discover", "approve", "promote"},
     "admin": {
         "read",
         "discover",
@@ -597,6 +597,7 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
         "admin",
         "keys",
         "curate",
+        "promote",
     },
     # Hidden evaluation sets (LP-11): a labeller labels (a person, memberships mode only); a
     # grading key grades (the operator's, never a person's).
@@ -607,7 +608,7 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
     # An organization's pack store (LP-20f): its authors, people only.
     "pack_author": {"author"},
 }
-PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author"}
+PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author", "promote"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {

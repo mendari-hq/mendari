@@ -400,6 +400,9 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "store_dataset.created": ("C", "Pack store dataset added", None),
     "store_dataset.held": ("U", "Pack store dataset held for the operator's review", None),
     "store_job.created": ("C", "Pack store evaluation job made", None),
+    # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
+    "pack_version.promoted": ("U", "Pack store version promoted to be served", None),
+    "pack_version.retired": ("U", "Pack store version's promotion retired", None),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (

@@ -6,8 +6,8 @@ organization alone (ADR-0016, Proposed). LP-20 builds it in steps; this page gro
 
 **Status:** off unless `MENDARI_PACK_STORE=on`, and then only in memberships mode: with the
 switch on in claims or open mode, or with a prerequisite below missing, the server stops at
-start-up and says why. Its authors' routes are mounted (LP-20f); no request is answered by a
-store version yet (promotion is LP-20h). Its tables are created empty in every database.
+start-up and says why. Its authors' routes are mounted (LP-20f), and a promoted version answers
+its own organization's requests (LP-20h). Its tables are created empty in every database.
 
 ## Who does what
 
@@ -93,6 +93,28 @@ There is no worker: a **job** is a row that runs when an author asks, a slice at
   with the exact McNemar test (Holm-adjusted over the family listed), the Brier difference with
   a paired bootstrap, and the cases that changed by the dataset's own ids. A figure on too few
   cases says "insufficient evidence". The statistics are LP-10's (`evals/paired.py`).
+
+## Promotion and serving (LP-20h)
+
+A person who holds `promote` (`governance` and `admin`, people only) signs a version off to be
+served to their organization, naming the evaluation reports of that version they relied on, a
+reference (where the sign-off is recorded) and a note. It is refused when they made the version
+or any version it was edited from, when a report is not their organization's evaluation of that
+digest, when the version is held, withdrawn or does not validate, and when the deployment serves
+that pack id from disk. Promoting retires the version promoted before; retiring a promotion stops
+serving it (the store pack's recall). Every decision a promoted version makes records the
+promotion's id.
+
+Only the promoting organization is served the version: its decide routes, `/api/packs`, CDS
+Hooks and the FHIR operation. Promotion is not the automation approval: at risk levels 2 and 3 a
+promoted version automates only once its digest is approved too, and holds stop it as any pack.
+A promoted version is built on its first use in a process, not at start-up; one that no longer
+loads (after an engine upgrade, say) is left out of its organization's packs and logged, and
+every other pack is served as before. A promotion to recommend only (`automate: false`, the
+default) never automates, as under a hold. The author of a version cannot approve it for
+automation either. Retiring a promotion stops serving it at once in the process that retired
+it, and within 5 seconds in every other instance. Packs read from disk
+are served as before; promotion is the rule for store versions only (owner decision 10).
 
 ## Limits
 

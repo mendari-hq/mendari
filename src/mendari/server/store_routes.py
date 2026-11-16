@@ -80,6 +80,14 @@ class JobRequest(BaseModel):
     variants: dict[str, str] | None = Field(default=None, description="slot -> variant")
 
 
+class PromotionRequest(BaseModel):
+    version: str = Field(description="the digest of the version to serve")
+    reports: list[str] = Field(min_length=1, max_length=20, description="evaluation report ids")
+    reference: str = Field(max_length=500, description="where the sign-off is recorded")
+    note: str | None = Field(default=None, max_length=2000)
+    automate: bool = Field(default=False, description="whether it is meant to automate")
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(max_length=4096, description="an Ed25519 public key, PEM")
 
@@ -142,6 +150,7 @@ def add_store_routes(
     deadline_s: float | None = None,
     jobs: Any = None,
     limits: Callable[[], Mapping[str, int]] = dict,
+    on_promotion: Callable[[], None] = lambda: None,
 ) -> None:
     """Mount the store's routes. `served`: the packs this deployment serves from disk (what a
     copy is made from); `hidden`: an `EvalsetStore` with the index key, or None (the hidden-set
@@ -541,6 +550,72 @@ def add_store_routes(
             raise _refused(error) from None
         except MendariError as error:
             raise HTTPException(422, str(error)) from None
+
+    # -- promotion (LP-20h) -------------------------------------------------------------------
+
+    @app.get("/api/store/promotions", tags=[TAG], summary="Promotions, and what may be promoted")
+    def store_promotions(request: Request) -> dict[str, Any]:
+        """For `governance` and administrators: the organization's promotions (in force and
+        retired) and the versions that may be promoted (validated, not held or withdrawn), each
+        with its authors and the reports of its finished jobs."""
+        principal_id, org = person(request)
+        finished: dict[str, list[str]] = {}
+        for job in jobs.jobs(org) if jobs is not None else []:
+            if job["state"] == "done" and "pack" not in job:
+                finished.setdefault(str(job["digest"]), []).append(str(job["report_id"]))
+        candidates = [
+            {
+                **_listed(row),
+                "authors": store.authors(org, row["digest"]),
+                "reports": finished.get(row["digest"], []),
+                "may_promote": principal_id not in store.authors(org, row["digest"]),
+            }
+            for row in store.versions(org)
+            if row["state"] in (DRAFT, "retired") and not row["validation"]
+        ]
+        return {"promotions": store.promotions(org), "versions": candidates}
+
+    @app.post("/api/store/promotions", status_code=201, tags=[TAG], summary="Promote a version")
+    def promote_version(request: Request, body: PromotionRequest) -> dict[str, Any]:
+        """Serve a validated version of your organization's store to your organization, on the
+        evaluation reports named (each one of this version's), with a reference and a note.
+        Refused when you made it or any version it was made from. The promoted version of the
+        same pack before it is retired. At risk levels 2 and 3 it still automates only with the
+        automation approval of its digest. Chained `pack_version.promoted`."""
+        by, org = person(request)
+        try:
+            made = store.promote(
+                org,
+                body.version,
+                approver=by,
+                reports=body.reports,
+                reference=body.reference,
+                note=body.note,
+                automate=body.automate,
+                served_ids=served(),
+            )
+        except StoreError as error:
+            raise _refused(error) from None
+        on_promotion()
+        security_log.event("store.version.promoted", actor=by, org=org, ids=[made["id"]])
+        return made
+
+    @app.post(
+        "/api/store/promotions/{promotion_id}/retire",
+        tags=[TAG],
+        summary="Withdraw a promotion",
+    )
+    def retire_promotion(request: Request, promotion_id: str) -> dict[str, Any]:
+        """Stop serving a promoted version: the organization is served no version of that pack
+        until another is promoted. A store pack's recall. Chained `pack_version.retired`."""
+        by, org = person(request)
+        try:
+            retired = store.retire(org, promotion_id, by=by)
+        except StoreError as error:
+            raise _refused(error) from None
+        on_promotion()
+        security_log.event("store.version.retired", actor=by, org=org, ids=[promotion_id])
+        return retired
 
     @app.get("/api/store/keys", tags=[TAG], summary="Your organization's author keys")
     def store_keys(request: Request) -> list[dict[str, Any]]:
