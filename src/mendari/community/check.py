@@ -871,12 +871,13 @@ def _manifest_policy(ctx: _Context) -> None:
 def _correctness(ctx: _Context) -> bool | None:
     """Validate and run the behaviour tests; True if they pass, None if they could not run."""
     from mendari.core.decision import Decision
-    from mendari.evals.pack_tests import load_cases, run_pack_tests, validate_pack
+    from mendari.evals.pack_tests import load_cases, run_pack_tests
+    from mendari.evals.validation import validate
 
     assert ctx.pack is not None
     pack = ctx.pack
     try:
-        validate_pack(pack)
+        validate(pack)
     except PackValidationError as error:
         for problem in error.problems:
             ctx.report.error("correctness", f"`mendari validate`: {problem}")

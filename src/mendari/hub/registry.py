@@ -950,6 +950,8 @@ class RegistryStore(RateBuckets):
             try:
                 # Checked on the engine its pullers run, against this release's reference packs.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
+                # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
+                _refuse_invalid(pack)
                 metadata = describe(pack, verified)
                 if regression.enabled():  # in a child process of its own (`hub/regression.py`)
                     with regression.slot():  # at most a few at once; else 503, try again
@@ -1908,6 +1910,25 @@ def _in_order(names: list[str], members: list[str]) -> bool:
     """Whether `names` are some of `members`, each once, in their order."""
     remaining = iter(members)
     return all(name in remaining for name in names)
+
+
+# At most this many of an invalid pack's problems are named in a refusal; the rest are counted.
+MAX_NAMED_PROBLEMS = 5
+
+
+def _refuse_invalid(pack: Pack) -> None:
+    """A `HubError` naming what the one validation function finds wrong with a pack the
+    publisher sent (`validation.problems`: its kind, file, place and line, never a case's
+    text); nothing otherwise."""
+    from mendari.evals.validation import problems
+
+    found = problems(pack)
+    if not found:
+        return
+    named = "; ".join(problem.text for problem in found[:MAX_NAMED_PROBLEMS])
+    more = len(found) - MAX_NAMED_PROBLEMS
+    rest = f"; and {more} more" if more > 0 else ""
+    raise HubError(f"the pack is not valid (`mendari validate`): {named}{rest}")
 
 
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:

@@ -1527,6 +1527,18 @@ The first release (not yet published).
   second line saying so. A statement signed by another key, changed after signing, or of
   another format (a recall, a counter-signature, the engine's `mendari.checkpoint/1`) is
   refused. A checkpoint says nothing about events appended after it.
+- **One validation function** (LP-20b, `mendari.evals.validation`; **a registry refuses more**).
+  `mendari validate`, the community check and the registry's publish call one function, and
+  from LP-20e the pack store does too. Each problem has a kind (`manifest`, `provider`, `fhir`,
+  `tests`, `dataset`), the pack file it is in and a place in it (a manifest key, `case 3`,
+  `case c-12`); its line is the one `mendari validate` prints. **The registry now refuses a
+  publish the validator refuses** (`422`, naming up to five problems; nothing is stored),
+  where before it took any pack that loaded: a behaviour test whose input the schema refuses,
+  a provider variant that cannot be built, a FHIR mapping that does not load or a declared
+  dataset the pack cannot evaluate. A valid publish is stored exactly as before. **A change to
+  what `mendari validate` prints:** a behaviour test's input problem names the place in the
+  input and the schema's rule (`input message: must be of type object`) as a decision's reasons
+  do, never the input's value, where it printed jsonschema's own message, which quotes it.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no
