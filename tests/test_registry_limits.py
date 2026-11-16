@@ -138,6 +138,8 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "registry_read": "600/min:200",
         "registry_write": "120/h:30",
         "registry_report": "60/h:10",
+        "registry_ticket": "60/h:10",  # a site's tickets, per address (LP-22e)
+        "registry_ticket_key": "20/h:5",  # and per site key, after its signature
     }
 
 

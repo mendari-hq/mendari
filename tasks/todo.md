@@ -3221,9 +3221,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   plan, each with a default the PRs follow until told otherwise. Threat-model rows reserved:
   S24, S25, T12, T13, R7, I21, I22, I23, D16, D17, E18, E19.
   - [x] **20a** The plan and ADR-0016 (Proposed).
-  - [ ] **20b** One validation function, called by the command line, the community check and
-    the registry (after 19c). **20c** dataset checks and `mendari data check`. **20d** the PHI
-    detector. The three in parallel.
+  - [x] **20b** One validation function (`mendari.evals.validation`: `problems` and `validate`,
+    each problem a kind, a file and a place, never a case's text), called by the command line,
+    the community check and the registry's publish, which now refuses what the validator
+    refuses (decision 1's default). A behaviour test's input problem is worded as a decision's
+    reasons are. Validating a reference pack takes under 0.25 s (open point 6).
+  - [ ] **20c** dataset checks and `mendari data check`. **20d** the PHI detector.
   - [ ] **20e** The store as a library: tables, versions that never change, the origin `store`
     on the bounded engine, the prerequisites test, the operator's commands. No route.
   - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and
@@ -3414,8 +3417,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   evidence; which figures are pooled; a compromised key; whether automation should need a site
   report; how many figures the homogeneity test covers; whether the commitment is ever shown.
   - [x] **22a** The plan and ADR-0017 (Proposed).
-  - [ ] **22b** The statistics of pooling: fixed effect from summed counts, random effects, the
-    range, and the homogeneity test (pure Python, checked against scipy and statsmodels).
+  - [x] **22b** The statistics of pooling: fixed effect from summed counts, random effects, the
+    range, and the homogeneity test (pure Python, checked against scipy and statsmodels;
+    `evals/pooling.py`, `tests/test_pooling.py`).
     **22c** in parallel: `mendari.site-report/2` (counts only) and one suppression function.
   - [x] **22c** `mendari.site-report/2`, counted from the ledger, and `suppress` on both sides
     (`evals/share.py`, `figures.site`, `tests/test_share.py`). Beyond the plan: error counts and

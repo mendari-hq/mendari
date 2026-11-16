@@ -241,7 +241,8 @@ no error line.
 
 **The loop cannot pass by accident.** `mendari test` refuses a behaviour test whose `expect` is
 missing, empty, misspelt or names what the pack can never decide, and fails when the pack has
-no tests; `mendari validate` also reads every dataset the pack declares. A `--provider` (or
+no tests; `mendari validate` also reads every dataset the pack declares, and the community
+check and a registry's publish run the same validation, so none takes a pack it refuses. A `--provider` (or
 `leaderboard --run`) setting that applies to nothing in the pack is an error; from
 `MENDARI_PROVIDERS`, which a deployment shares across packs, it is a warning (and, on a server,
 reported in `/api/health` as `provider_settings_unused`).
