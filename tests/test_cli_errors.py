@@ -176,6 +176,10 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "registry site-revoke-key": (["ed25519:" + "0" * 16, "--reason", "x", "--db", "{not_db}"], {}),
     "registry site-close": (["--site", "0" * 16, "--reason", "x", "--db", "{missing_db}"], {}),
     "registry sites": (["--db", "{missing_db}"], {}),
+    # This machine as a site (LP-22e): a site id that is not one, a site not made yet.
+    "site init": (["--site", "not-a-site-id", "--out", "{out}"], {}),
+    "site key": (["--new", "--out", "{out}"], {}),
+    "site ticket": (["mendari/referral-router", "--dataset", "{missing}"], {}),
     "registry publisher-type": (
         ["--namespace", "a", "--type", "verified", "--reason", "x", "--db", "{missing_db}"],
         {},
