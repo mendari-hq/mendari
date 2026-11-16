@@ -231,6 +231,10 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "store_dataset.held": "store_dataset",
     # An evaluation job (LP-20g): what it runs, on which dataset (its SHA-256), who asked.
     "store_job.created": "store_job",
+    # The improvement dataset's proposed behaviour tests, accepted or dismissed for a draft
+    # (LP-20i): the dataset, the case (a decision's id) and the digest, never an input.
+    "store_dataset.proposal_accepted": "store_dataset",
+    "store_dataset.proposal_dismissed": "store_dataset",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -716,6 +720,7 @@ CREATE TABLE IF NOT EXISTS store_datasets (
     data        TEXT NOT NULL,
     sealed      INTEGER NOT NULL,
     report      TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'upload',
     created_by  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     state       TEXT NOT NULL
@@ -762,6 +767,17 @@ CREATE TABLE IF NOT EXISTS store_promotions (
     retired_by  TEXT
 );
 CREATE INDEX IF NOT EXISTS store_promotions_org ON store_promotions (org, pack_id, retired_at);
+CREATE TABLE IF NOT EXISTS store_proposals (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    digest      TEXT NOT NULL,
+    dataset_id  TEXT NOT NULL,
+    case_id     TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    decided_by  TEXT NOT NULL,
+    decided_at  TEXT NOT NULL,
+    UNIQUE (org, digest, dataset_id, case_id)
+);
 CREATE TABLE IF NOT EXISTS store_upload_parts (
     upload_id  TEXT NOT NULL,
     n          INTEGER NOT NULL,

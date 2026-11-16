@@ -80,6 +80,15 @@ class JobRequest(BaseModel):
     variants: dict[str, str] | None = Field(default=None, description="slot -> variant")
 
 
+class ImprovementRequest(BaseModel):
+    version: str = Field(description="the digest of the draft the dataset is checked against")
+    limit: int = Field(default=1000, ge=1, le=5000, description="the newest corrections at most")
+
+
+class ProposalDecision(BaseModel):
+    accept: bool = Field(description="true: run it with the version's tests; false: dismiss it")
+
+
 class PromotionRequest(BaseModel):
     version: str = Field(description="the digest of the version to serve")
     reports: list[str] = Field(min_length=1, max_length=20, description="evaluation report ids")
@@ -407,6 +416,11 @@ def add_store_routes(
             raise _refused(error) from None
         except MendariError as error:
             raise HTTPException(422, f"the tests cannot run: {error}") from None
+        accepted = [
+            item
+            for dataset_id in {d for d, _ in store.proposals(org, digest)}
+            for item in proposed_results(org, digest, dataset_id, only_accepted=True)
+        ]
         return {
             "digest": digest,
             "passed": sum(outcome.passed for outcome in outcomes),
@@ -414,6 +428,12 @@ def add_store_routes(
             "cases": [
                 {"name": o.name, "passed": o.passed, "failures": list(o.failures)} for o in outcomes
             ],
+            # The reviewers' corrections accepted as tests (LP-20i), shown apart.
+            "proposed": {
+                "passed": sum(item["passed"] for item in accepted),
+                "failed": sum(not item["passed"] for item in accepted),
+                "cases": accepted,
+            },
         }
 
     @app.delete("/api/store/versions/{digest}", tags=[TAG], summary="Withdraw a draft")
@@ -550,6 +570,136 @@ def add_store_routes(
             raise _refused(error) from None
         except MendariError as error:
             raise HTTPException(422, str(error)) from None
+
+    # -- the improvement dataset and proposed tests (LP-20i) ---------------------------------
+
+    def proposed_results(
+        org: str, digest: str, dataset_id: str, only_accepted: bool = False
+    ) -> list[dict[str, Any]]:
+        """Each case of an improvement dataset as a behaviour test of the version: its case id,
+        what it expects (the reviewer's label of the primary question), whether the version
+        decides it, and what the authors decided of it. Never its input."""
+        pack = store.load(org, digest)
+        decision = Decision(pack, origin_cap=False, deadline_s=deadline_s)
+        decided = store.proposals(org, digest)
+        primary = pack.manifest.policy.primary
+        results = []
+        for record in store.dataset_records(org, dataset_id):
+            case = str(record.get("id"))
+            state = decided.get((dataset_id, case), "proposed")
+            if only_accepted and state != "accepted":
+                continue
+            wanted = (record.get("labels") or {}).get(primary)
+            got = decision.decide(record["input"]).recommendation
+            passed = got == wanted
+            failures = [] if passed else [f"recommendation: expected {wanted!r}, got {got!r}"]
+            results.append(
+                {
+                    "case": case,
+                    "expect": {"recommendation": wanted},
+                    "passed": passed,
+                    "failures": failures,
+                    "state": state,
+                }
+            )
+        return results
+
+    @app.post(
+        "/api/store/packs/{namespace}/{name}/improvement",
+        status_code=201,
+        tags=[TAG],
+        summary="Build the improvement dataset from reviewers' corrections",
+    )
+    def build_improvement(
+        request: Request, namespace: str, name: str, body: ImprovementRequest
+    ) -> JSONResponse:
+        """A dataset of your organization's decisions of this pack (and of the pack it was
+        copied from) that a reviewer resolved: each one's input and final label, with where the
+        label came from (the decision, the reviewer by id, when, whether they overrode it). Needs
+        `author` and the permission to read inputs: it reads patients' inputs, each read chained.
+        Kept sealed in your organization's store; it can be a job's dataset and offers the draft
+        proposed tests, and is never downloadable. Chained with counts only."""
+        from mendari.evals.corrections import corrections_dataset, jsonl
+
+        principal = auth.acting(request)
+        by, org = person(request)
+        if not principal.may("read_input"):
+            raise HTTPException(
+                403, "building it reads patients' inputs: it needs the permission to read them"
+            )
+        pack_id = f"{namespace}/{name}"
+        row = owned(org, body.version)
+        if row["pack_id"] != pack_id:
+            raise HTTPException(422, "that version is not one of this pack's")
+        sources = [pack_id]
+        current: Mapping[str, Any] | None = row
+        while current is not None:  # the pack its lineage was copied from
+            if current["copied_from"]:
+                sources.append(str(current["copied_from"]["id"]))
+                break
+            parent = current["parent_digest"]
+            current = None if parent is None else store.version(org, parent)
+        records, skipped = corrections_dataset(
+            store.store, org=org, pack_ids=sources, limit=body.limit, reader=principal.actor
+        )
+        if not records:
+            raise HTTPException(422, f"no reviewer's correction to build from ({skipped} skipped)")
+        try:
+            made = store.add_dataset(
+                org, jsonl(records), by=by, name="improvement", digest=body.version,
+                kind="improvement",
+            )  # fmt: skip
+        except StoreError as error:
+            raise _refused(error) from None
+        security_log.event(
+            "store.dataset.created", actor=by, org=org, ids=[made["id"]], count=len(records)
+        )
+        return JSONResponse({**made, "skipped": skipped}, status_code=201)
+
+    @app.get(
+        "/api/store/versions/{digest}/proposed-tests",
+        tags=[TAG],
+        summary="The reviewers' corrections as proposed tests",
+    )
+    def proposed_tests(request: Request, digest: str, dataset: str) -> dict[str, Any]:
+        """Each case of an improvement dataset run against this version as a behaviour test:
+        its case id, the label it expects, whether the version decides it, and whether you
+        accepted or dismissed it. Never its input. They stay beside the version, never in its
+        files. Nothing is recorded."""
+        _, org = person(request)
+        owned(org, digest, states=(DRAFT, "promoted", "retired"))
+        try:
+            if store.dataset(org, dataset).get("kind") != "improvement":
+                raise HTTPException(422, "proposed tests come from an improvement dataset")
+            results = proposed_results(org, digest, dataset)
+        except StoreError as error:
+            raise _refused(error) from None
+        return {
+            "digest": digest,
+            "dataset": dataset,
+            "passed": sum(r["passed"] for r in results),
+            "failed": sum(not r["passed"] for r in results),
+            "cases": results,
+        }
+
+    @app.post(
+        "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}",
+        tags=[TAG],
+        summary="Accept or dismiss a proposed test",
+    )
+    def decide_proposed_test(
+        request: Request, digest: str, dataset_id: str, case_id: str, body: ProposalDecision
+    ) -> dict[str, Any]:
+        """Accept a proposed test (it runs with the version's own tests, shown apart) or dismiss
+        it. Chained, naming the dataset and the case, never an input."""
+        by, org = person(request)
+        owned(org, digest, states=(DRAFT, "promoted", "retired"))
+        try:
+            return store.decide_proposal(
+                org, digest, dataset_id, case_id, by=by, accept=body.accept
+            )
+        except StoreError as error:
+            raise _refused(error) from None
 
     # -- promotion (LP-20h) -------------------------------------------------------------------
 

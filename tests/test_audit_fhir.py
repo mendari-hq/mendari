@@ -294,6 +294,8 @@ NOT_ON_A_DECISION = {
     "store_job.created",
     "pack_version.promoted",  # promotion (LP-20h)
     "pack_version.retired",
+    "store_dataset.proposal_accepted",  # proposed tests (LP-20i)
+    "store_dataset.proposal_dismissed",
 }
 
 

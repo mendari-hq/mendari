@@ -320,6 +320,7 @@ def _dataset_shown(row: Mapping[str, Any]) -> dict[str, Any]:
         return {**shown, "message": "held for the operator's review"}
     return {
         **shown,
+        "kind": row["kind"],
         "pack_id": row["pack_id"],
         "digest": row["digest"],
         "sha256": row["sha256"],
@@ -970,6 +971,7 @@ class PackStore:
         name: str,
         digest: str,
         hidden: Any = None,
+        kind: str = "upload",
     ) -> dict[str, Any]:
         """One of `org`'s datasets (JSON Lines), checked exactly as a version is: the PHI
         detector (`PhiRejected`), the dataset checks against version `digest` (kept and shown;
@@ -984,10 +986,16 @@ class PackStore:
         org, by = _org(org), _actor(by)
         if not NAME_RE.fullmatch(name):
             raise StoreError("a dataset's name is lower-case letters, digits and hyphens")
-        self._refuse_stopped(org)
-        found = phi_detect.detect_files({f"{name}.jsonl": raw})
-        if phi_detect.rejects(found):
-            raise PhiRejected(found.to_json())
+        if kind not in ("upload", "improvement"):
+            raise ValueError("a dataset is an upload or an improvement dataset")
+        # An improvement dataset (LP-20i) is the organization's own reviewed decisions: patients'
+        # inputs by construction, so neither the PHI detector nor the hidden-set check is for it;
+        # it is always sealed where the policy seals.
+        if kind == "upload":
+            self._refuse_stopped(org)
+            found = phi_detect.detect_files({f"{name}.jsonl": raw})
+            if phi_detect.rejects(found):
+                raise PhiRejected(found.to_json())
         row = self.version(org, digest)
         if row["state"] in (HELD, WITHDRAWN):
             raise StoreError(f"version {digest} is {row['state']}", 409)
@@ -1001,7 +1009,7 @@ class PackStore:
             raise StoreError("the dataset does not fit the pack: schema or label problems", 422)
         matches = (
             []
-            if hidden is None
+            if hidden is None or kind != "upload"
             else _hidden_matches([record["input"] for record in data.records], hidden)
         )
         dataset_id, now = str(uuid.uuid4()), _now()
@@ -1015,12 +1023,13 @@ class PackStore:
         with self.store._db.session(exclusive=True) as db:
             db.all(
                 "INSERT INTO store_datasets (id, org, name, pack_id, digest, sha256, cases, "
-                "data, sealed, report, created_by, created_at, state) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "data, sealed, report, created_by, created_at, state, kind) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (dataset_id, org, name, pack.id, digest, data.sha256, len(data.records), kept,
-                 int(self.store.phi.mode == "encrypt"), _canonical(report.data), by, now, state),
+                 int(self.store.phi.mode == "encrypt"), _canonical(report.data), by, now, state,
+                 kind),
             )  # fmt: skip
-            payload = {"dataset": dataset_id, "sha256": data.sha256,
+            payload = {"dataset": dataset_id, "sha256": data.sha256, "kind": kind,
                        "cases": len(data.records), "by": by}  # fmt: skip
             chained = self.store._bound("store_dataset.created", payload, org)
             self.store._append(db, f"store_dataset:{dataset_id}", "store_dataset.created", chained)
@@ -1266,6 +1275,60 @@ class PackStore:
             str(r["pack_id"]): (str(r["digest"]), str(r["id"]), bool(int(r["automate"])))
             for r in rows
         }
+
+    # -- proposed tests from the improvement dataset (LP-20i) -------------------------------------
+
+    def dataset_records(self, org: str, dataset_id: str) -> list[dict[str, Any]]:
+        """A ready dataset's records, opened: for a job or a proposed test, never a route."""
+        raw, _ = self.dataset_bytes(org, dataset_id)
+        return [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+
+    def proposals(self, org: str, digest: str) -> dict[tuple[str, str], str]:
+        """What `org`'s authors decided of the proposed tests for version `digest`: (dataset,
+        case) -> `accepted` or `dismissed`."""
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT dataset_id, case_id, state FROM store_proposals WHERE org = ? "
+                "AND digest = ?",
+                (_org(org), digest),
+            )
+        return {(str(r["dataset_id"]), str(r["case_id"])): str(r["state"]) for r in rows}
+
+    def decide_proposal(
+        self, org: str, digest: str, dataset_id: str, case_id: str, *, by: str, accept: bool
+    ) -> dict[str, Any]:
+        """Accept or dismiss one proposed test (a case of an improvement dataset) for a version:
+        accepted ones run with its own tests and are shown apart. They stay beside it in the
+        store, never in its files, so its digest never changes. Chained, naming the dataset,
+        the case and the digest, never an input."""
+        org, by = _org(org), _actor(by)
+        self.version(org, digest)
+        row = self._dataset_row(org, dataset_id)
+        if row["kind"] != "improvement":
+            raise StoreError("proposed tests come from an improvement dataset", 422)
+        if case_id not in {str(r.get("id")) for r in self.dataset_records(org, dataset_id)}:
+            raise StoreError("no such case in that dataset", 404)
+        state, now = ("accepted" if accept else "dismissed"), _now()
+        with self.store._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO store_proposals (id, org, digest, dataset_id, case_id, state, "
+                "decided_by, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (org, digest, dataset_id, case_id) DO UPDATE SET "
+                "state = excluded.state, decided_by = excluded.decided_by, "
+                "decided_at = excluded.decided_at",
+                (str(uuid.uuid4()), org, digest, dataset_id, case_id, state, by, now),
+            )
+            payload = {"dataset": dataset_id, "case": case_id, "digest": digest, "by": by}
+            chained = self.store._bound(f"store_dataset.proposal_{state}", payload, org)
+            if accept:
+                self.store._append(
+                    db, f"store_dataset:{dataset_id}", "store_dataset.proposal_accepted", chained
+                )
+            else:
+                self.store._append(
+                    db, f"store_dataset:{dataset_id}", "store_dataset.proposal_dismissed", chained
+                )
+        return {"dataset": dataset_id, "case": case_id, "digest": digest, "state": state}
 
     # -- held versions: the operator's (LP-20f) -------------------------------------------------
 

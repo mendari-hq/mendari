@@ -3259,7 +3259,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     and draft against current (`paired.compare(lineage=True)` with each side's figures and the
     changed cases by id). Decision 9's default (no worker, no cron); decision 13's (a remote arm
     needs the organization's evaluation quota, 200 cases).
-  - [ ] **20i** The improvement dataset and proposed tests.
+  - [x] **20i** The improvement dataset from reviewers' corrections (`mendari.evals.corrections`,
+    sealed, `author` plus reading inputs, never downloadable) and proposed tests beside the
+    draft, never in its files (conflict 12's default).
   - [ ] **20h** Promotion, and serving the promoted version to its organization only. Built:
     `store_promotions`, `promote` (`governance`, `admin`, people only, never an author on the
     version's chain), served through `served_here` per organization, built on first use under a

@@ -116,6 +116,23 @@ automation either. Retiring a promotion stops serving it at once in the process 
 it, and within 5 seconds in every other instance. Packs read from disk
 are served as before; promotion is the rule for store versions only (owner decision 10).
 
+## Learning from reviewers (LP-20i)
+
+An author who may also read inputs (a reviewer or an administrator) builds an **improvement
+dataset** for a draft: one record per decision of the pack (and of the pack it was copied
+from) that a reviewer resolved in this organization, its input and final label, each label with
+where it came from (the decision, the reviewer by id, when, whether they overrode the system,
+the version that decided). Each input read is chained. Decisions kept as a hash only are
+counted as skipped. The dataset holds patients' inputs: it is sealed under the PHI policy,
+stays in the organization's store, can be a job's dataset, and is never downloadable (no route,
+export, registry or site report carries it).
+
+It is offered to the draft as **proposed behaviour tests**: each case run against the draft,
+shown by its case id with the label it expects and whether the draft decides it, never its
+input. An author accepts or dismisses each; accepted ones run with the draft's own tests and
+are shown apart. They are never written into the pack's files, so the draft's digest does not
+change and no pack carries a patient's input.
+
 ## Limits
 
 | Setting | Default | What it bounds |
