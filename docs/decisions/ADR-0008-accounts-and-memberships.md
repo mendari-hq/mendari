@@ -57,8 +57,9 @@ provider's claims needs nothing to change.
   command line's, a claims-mode server's after a rollback) names the organization too. The
   kinds that already carry it keep it in both modes. Each organization gets a reader and an
   export of its own administrative events.
-- **Reserved roles.** `pack_author` and `labeller` may be held on a membership and grant nothing
-  until LP-20 and LP-11 give them permissions; `grading` is held by no person (LP-11: a machine
+- **Reserved roles.** `pack_author` and `labeller` could be held on a membership and granted
+  nothing until LP-20 and LP-11 gave them permissions (`author` from LP-20f, `label` from
+  LP-11d: the amendments above); `grading` is held by no person (LP-11: a machine
   role only). None of them joins the claims-mode roles, whose sign-in and role map stay as
   they are.
 - **Credentials.** One Access screen for API keys and Backend Services clients (create, scope,

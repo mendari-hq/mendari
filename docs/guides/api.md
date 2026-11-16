@@ -240,6 +240,7 @@ organization the person acts for; no key or client reaches them.
 |---|---|
 | `GET /api/store/packs`, `GET /api/store/packs/{namespace}/{name}` | The organization's packs and their versions: state, validation, dataset checks |
 | `GET /api/store/versions/{digest}` | One version, with its Decision Card rendered from its files |
+| `GET /api/store/versions/{digest}/file?path=…` | One text file of a version (UTF-8, at most 1 MiB), for its editor |
 | `POST /api/store/versions` | A signed archive (`mendari pack build`) under the body limit |
 | `POST /api/store/uploads`, `PUT …/parts/{n}`, `POST …/complete` | A larger archive in parts |
 | `POST /api/store/copies` | `{pack, name}`: a draft copy of a pack served here, renamed `<organization>/<name>` |
@@ -258,4 +259,7 @@ organization the person acts for; no key or client reaches them.
 An upload whose files read as a person's details is refused (`422`) with the detector's report:
 kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set
 is kept `held for the operator's review`, and the answer says nothing more.
+
+The dashboard's Pack store view (LP-20j) does all of this for a person who signs in: copy,
+upload, edit, test, run jobs, compare, and, for `governance` and `admin`, promote.
 

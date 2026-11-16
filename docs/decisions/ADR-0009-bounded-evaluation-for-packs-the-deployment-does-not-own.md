@@ -46,7 +46,7 @@ The owner decided (2026-10-07), in full:
 As built:
 
 - **Which packs.** `Pack.bounded` (`core/origin.py` `bounded`): a community pack, or a pack of
-  an origin the deployment does not own (`NOT_OWNED`: `hub` now, LP-20 adds `store`) whose
+  an origin the deployment does not own (`NOT_OWNED`: `hub`, and `store` from LP-20e) whose
   digest is not one of the installed release's reference packs (`core/reference.py`
   `reference_digests`: the digest of each pack bundled with the release, computed once per
   process). Everything a community pack's patterns, schema and inputs are held to applies to

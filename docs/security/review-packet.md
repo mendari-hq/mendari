@@ -33,6 +33,7 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 | Outbound calls (SSRF): FHIR servers, the CQL engine, the identity provider, the payer, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
 | The pack registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
 | Pulling and serving a pack from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
+| An organization's pack store (LP-20, [ADR-0016](../decisions/ADR-0016-a-pack-store-per-organization.md), off unless `MENDARI_PACK_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
 | The Hub website: rendering publisher text, its CSP and headers | the repository's top-level `hub/` (Next.js: `proxy.ts`, `app/`), not `src/mendari/hub/` |
 | The build: CI, pinned actions and images, the Docker image, Dependabot | `.github/`, `Dockerfile`, `deploy/` |
 
@@ -343,8 +344,8 @@ From the threat model's residual risks, and the plan's deferred list:
 - A pilot site's own infrastructure: TLS, network, the identity provider, the database's
   access control, backups, key custody.
 - Denial of service by volume beyond the limits above.
-- The pack store (LP-20), which is not built yet; it can follow. The registry and the Hub
-  website are in scope above, though neither is deployed yet (LP-19).
+- Nothing of the pack store (LP-20) or the registry and the Hub website (LP-19) is deployed
+  yet: they are in scope above as code, not as a running service.
 - Vercel and Neon themselves, and their business associate agreements.
 
 ## How to report

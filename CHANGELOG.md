@@ -1706,6 +1706,10 @@ The first release (not yet published).
   will be served and to whom; the control is absent for the version's author, with the reason.
   A new read, `GET /api/store/versions/{digest}/file?path=`, gives the editor one text file
   (UTF-8, at most 1 MiB, not a held version's).
+- **Gate `a7-pack-store` names its tests** (LP-20k): the pending probe is replaced by the
+  acceptance tests of 20b to 20j, and the threat model, the external review's scope, ADR-0008
+  and ADR-0009 say what the pack store is. ADR-0016 stays Proposed until the owner confirms its
+  decisions.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

@@ -1,8 +1,9 @@
 # ADR-0016: A pack store per organization, and promotion
 
 ## Status
-Proposed (2026-11-10, LP-20a). Nothing in it is built yet. It is built in steps planned in
-`notes/lp20-plan.md` (20a to 20k). When it is accepted it gives the reserved `pack_author` role
+Proposed (2026-11-10, LP-20a). Built in steps 20b to 20j (`notes/lp20-plan.md`, 2026-11-16),
+off unless `MENDARI_PACK_STORE=on`; it stays Proposed until the owner confirms the decisions
+the plan lists, each built to its default. When it is accepted it gives the reserved `pack_author` role
 of [ADR-0008](ADR-0008-accounts-and-memberships.md) its permission, adds the origin `store` that
 [ADR-0009](ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md) names, and makes
 true [ADR-0004](ADR-0004-machine-access-tokens-and-scopes.md)'s line that a credential never

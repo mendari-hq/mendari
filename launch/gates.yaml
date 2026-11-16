@@ -291,7 +291,72 @@ gates:
         what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
         owner: build
         probes:
-          - pending: "LP-20"
+          # LP-20 (ADR-0016, notes/lp20-plan.md), by each step's acceptance. 20b: one validation
+          # function, the registry's publish included.
+          - tests:
+              - tests/test_validation.py::test_the_command_the_community_check_and_the_registry_call_one_function
+              - tests/test_validation.py::test_a_publish_the_validator_refuses_stores_nothing_and_names_the_problem
+              - tests/test_validation.py::test_a_valid_publish_is_stored_as_before
+              - tests/test_validation.py::test_a_problem_names_a_file_and_a_place_and_never_case_text
+          # 20c: dataset checks; a thin label is reported, never refused.
+          - tests:
+              - tests/test_dataset_checks.py::test_a_case_that_breaks_the_schema_is_named_by_id_and_never_by_text
+              - tests/test_dataset_checks.py::test_a_thin_label_is_marked_too_few_and_is_not_refused
+              - tests/test_dataset_checks.py::test_duplicates_are_found_exactly_and_under_norm_v1
+              - tests/test_dataset_checks.py::test_overlap_with_the_packs_training_data_is_found
+              - tests/test_dataset_checks.py::test_every_shipped_dataset_is_checked_and_the_report_holds_no_input
+          # 20d: a deterministic PHI detector on RE2.
+          - tests:
+              - tests/test_phi_detect.py::test_each_kind_is_found_with_its_file_and_line
+              - tests/test_phi_detect.py::test_no_report_log_or_error_holds_a_matched_value
+              - tests/test_phi_detect.py::test_every_shipped_synthetic_dataset_and_pack_file_passes
+              - tests/test_phi_detect.py::test_a_long_hostile_line_costs_one_pass
+              - tests/test_phi_detect.py::test_no_file_goes_unread_and_no_escape_hides_a_value
+          # 20e: the store as a library: content-addressed, per organization, on the bounded engine.
+          - tests:
+              - tests/test_pack_store.py::test_a_version_is_keyed_by_the_digest_the_loader_hashed_and_never_one_it_is_told
+              - tests/test_pack_store.py::test_a_stored_version_never_changes
+              - tests/test_pack_store.py::test_a_store_pack_runs_on_the_bounded_engine_and_its_rules_stop_at_the_budget
+              - tests/test_pack_store.py::test_a_store_pack_never_takes_a_reference_packs_id_and_version
+              - tests/test_pack_store.py::test_a_version_of_one_organization_is_not_loaded_for_another
+              - tests/test_pack_store.py::test_audit_verify_passes_after_every_store_event
+              - tests/test_pack_store_prerequisites.py::test_the_stores_prerequisites_are_met
+          # 20f: the author role and upload checks: signed, PHI-checked, hidden cases held.
+          - tests:
+              - tests/test_store_uploads.py::test_without_the_switch_nothing_is_mounted_and_packs_are_served_as_before
+              - tests/test_store_uploads.py::test_the_store_refuses_to_start_outside_memberships_mode_or_with_a_prerequisite_missing
+              - tests/test_store_uploads.py::test_an_archive_signed_by_no_key_of_this_organization_is_refused
+              - tests/test_store_uploads.py::test_an_upload_with_phi_like_content_is_rejected_with_a_report_that_holds_no_value
+              - tests/test_store_uploads.py::test_an_upload_containing_a_hidden_set_case_is_quarantined
+              - tests/test_store_uploads.py::test_a_draft_in_organization_a_is_invisible_to_organization_b
+              - tests/test_store_uploads.py::test_a_key_a_client_and_an_ehr_launch_never_author
+              - tests/test_store_uploads.py::test_what_the_security_review_found_is_closed
+          # 20g: evaluation as a stored job, draft against current on the same cases.
+          - tests:
+              - tests/test_store_jobs.py::test_a_job_is_stored_runs_in_slices_and_ends_in_one_report_with_its_ledger
+              - tests/test_store_jobs.py::test_draft_against_current_is_paired_on_the_same_cases
+              - tests/test_store_jobs.py::test_every_figure_matches_an_independent_computation
+              - tests/test_store_jobs.py::test_too_few_cases_reads_insufficient_evidence
+              - tests/test_store_jobs.py::test_another_organization_reads_no_job_report_dataset_or_comparison
+          # 20h: promotion signed off by someone other than the author, served to its organization
+          # only.
+          - tests:
+              - tests/test_store_promotion.py::test_the_author_cannot_approve_their_own_promotion
+              - tests/test_store_promotion.py::test_a_promoted_version_is_served_to_its_organization_and_to_no_other
+              - tests/test_store_promotion.py::test_promotion_is_bound_to_the_digest
+              - tests/test_store_promotion.py::test_a_store_pack_never_replaces_a_pack_the_deployment_serves_from_disk
+              - tests/test_store_promotion.py::test_a_held_pack_and_the_kill_switch_still_stop_a_store_pack
+              - tests/test_store_promotion.py::test_what_the_security_review_found_is_closed
+          # 20i: learning from reviewers' corrections, sealed, never in a pack's files.
+          - tests:
+              - tests/test_store_improvement.py::test_the_dataset_is_sealed_and_no_route_returns_its_cases
+              - tests/test_store_improvement.py::test_another_organizations_corrections_are_never_in_it
+              - tests/test_store_improvement.py::test_a_proposed_test_runs_against_the_draft_and_is_not_in_the_packs_files
+          # 20j: the dashboard, in a second organization.
+          - tests:
+              - tests/browser/test_pack_store.py::test_copy_edit_test_compare_and_promote_in_a_second_organization
+              - tests/browser/test_pack_store.py::test_the_author_sees_no_promote_control_and_why
+              - tests/browser/test_pack_store.py::test_a_refused_upload_shows_kinds_and_places_and_no_value
       - id: a9-scoreboard
         what: "A9: a scoreboard and grading service with exact intervals, paired tests and signed results"
         owner: build
@@ -400,7 +465,7 @@ gates:
           - tests:
               - tests/test_scoreboard_end_to_end.py::test_a_local_run_to_a_signed_verified_result
           - pending: "owner: LP-17i, the remote arms on the public `test` sets (the price table, the disclosures and the declarations written, then the run by hand, committed and signed: owner decisions 6 and 7); then a build PR removes this line"
-          - pending: "LP-17l, the developer flow, after LP-20 (LP-19 is built; owner decisions 4 and 10 decided 2026-11-07)"
+          - pending: "LP-17l, the developer flow (LP-19 and LP-20 are built; owner decisions 4 and 10 decided 2026-11-07)"
       - id: a10-registry-hub
         what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
         owner: build
