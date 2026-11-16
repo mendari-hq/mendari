@@ -1635,6 +1635,16 @@ The first release (not yet published).
   form and under `norm/v1` (LP-11's functions), and cases the pack's own `train` or
   `calibration` data holds. A report holds ids, labels and counts, never an input. The packs
   workflow runs it on every changed maintained and community pack.
+- **A deterministic PHI detector** (LP-20d, `mendari.core.phi_detect`, `mendari.phi-check/1`;
+  nothing is refused by it until the pack store uses it). It reads text files line by line and
+  reports kinds, files and lines, never the matched text: a Social Security number, a phone
+  number outside the fictional 555-01xx range, a medical record number, a date of birth, an
+  e-mail address outside the documentation domains, a street address (new) and a common name
+  from a list shipped with the package (new, `core/phi_names.txt`, written for Mendari), which
+  counts only on a line that also holds another kind or a word such as "Mr" or "name". Every
+  pattern runs on RE2. No shipped pack file or synthetic dataset holds any of them. `mendari
+  data check --phi` reports them and fails on what the store would refuse. The community
+  check's warnings are five of its kinds, worded as before.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no
