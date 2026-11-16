@@ -245,7 +245,7 @@ _MEMBERSHIPS_ONLY = re.compile(
 # `MENDARI_REGISTRY=on` nothing is mounted at either and their rules are skipped, so both read
 # as they did before there was a registry (`Auth.permission`).
 REGISTRY_MOUNT = r"^/registry/"
-REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens)(/|$)"
+REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens|sites)(/|$)"  # sites: LP-22i
 # Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})

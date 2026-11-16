@@ -3445,8 +3445,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **22h** the Hub's forest plot, apart from every rank (`hub/app/packs/[namespace]/[name]/
     forest.tsx`, `tests/test_site_separation.py`; the scoreboard page's sentence has no link, as
     the page reads no registry: conflict 6's fallback).
-  - [ ] **22i** People register sites in the dashboard and reviewers verify them (after 19d to
-    19g; beside 22e to 22h).
+  - [x] **22i** People register sites in the dashboard and reviewers verify them
+    (`server/registry_routes.py`, `dashboard/registry.js`, `tests/test_registry_site_accounts.py`,
+    `tests/browser/test_registry_sites.py`).
   - [ ] **22j** Close-out: gates `a11-site-network` and `site-validation`'s pending line, the
     threat model (rows S26, S27, T14, T15, R9, I24, I25, I26, D18, E20), ADR-0017 Accepted on
     the owner's word.
