@@ -338,3 +338,60 @@ def test_the_registry_chain_verifies_after_a_ticket_a_report_and_a_supersession(
         "report.shared",
         "site.ticket_reported",
     ]
+
+
+def test_counts_that_cannot_add_up_are_refused_without_holding_the_registry(
+    published: Registry, tmp_path: Path
+) -> None:
+    """The adversarial review of LP-22f: a signed payload whose counts could not add up kept
+    the suppression check running inside the registry's write lock. It is refused, at once,
+    before the lock, and the ticket stays open for a report that adds up."""
+    site = verified_site(published, tmp_path)
+    report = shared_benchmark()
+    issued = site_ticket(published, site, report)
+    broken = copy.deepcopy(report)
+    broken["questions"]["next_step"]["calibration"][9]["wrong"] = 200
+    answer = _send(published, _submission(site, issued, broken), issued["submit_secret"])
+    assert answer.status_code == 422
+    assert (
+        _send(published, _submission(site, issued, report), issued["submit_secret"]).status_code
+        == 201
+    )
+
+
+def test_a_recalled_version_takes_no_report_on_a_ticket_issued_before(
+    published: Registry, tmp_path: Path
+) -> None:
+    site = verified_site(published, tmp_path)
+    report = shared_benchmark()
+    issued = site_ticket(published, site, report)
+    published.operator.delete(
+        "mendari", "referral-router", REFERRAL.version, reason="test", by="operator"
+    )
+    answer = _send(published, _submission(site, issued, report), issued["submit_secret"])
+    assert answer.status_code in (404, 409)
+    assert _stored(published) == []
+
+
+def test_a_correction_can_itself_be_corrected(published: Registry, tmp_path: Path) -> None:
+    site = verified_site(published, tmp_path)
+    report = shared_benchmark()
+    assert share_signed(published, site, report).status_code == 201
+    first = published.client.get(LISTED).json()["reports"][0]["id"]
+    second_ticket = site_ticket(published, site, report, supersedes=first)
+    assert share_signed(published, site, report, second_ticket).status_code == 201
+    second = next(
+        r["id"] for r in published.client.get(LISTED).json()["reports"] if r["id"] != first
+    )
+    third = site_ticket(published, site, report, supersedes=second)
+    assert share_signed(published, site, report, third).status_code == 201
+    listed = published.client.get(LISTED).json()
+    assert listed["superseded"] == 2
+
+
+def test_the_client_sends_only_a_submission_it_can_read(tmp_path: Path) -> None:
+    from mendari.errors import MendariError
+    from mendari.hub.client import RegistryClient
+
+    with RegistryClient("http://127.0.0.1:9") as client, pytest.raises(MendariError):
+        client.submit({"report": {"pack": {"id": "../../v1/tickets", "version": "x"}}}, "s")

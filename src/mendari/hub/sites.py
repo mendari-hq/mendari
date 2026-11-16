@@ -280,10 +280,21 @@ def live_result(
         "configuration = ? AND commitment = ?",
         (site, digest, configuration, commitment),
     )
+    # A reported ticket whose report a correction superseded is no longer live, so a
+    # correction can itself be corrected (the adversarial review of LP-22f).
+    superseded: set[str] = set()
+    if db.columns("hub_site_reports"):
+        superseded = {
+            str(row["ticket"])
+            for row in db.all(
+                "SELECT r.ticket FROM hub_site_reports r WHERE r.id IN "
+                "(SELECT supersedes FROM hub_site_reports WHERE supersedes IS NOT NULL)"
+            )
+        }
     return any(
         _status(row, now) in ("open", "reported", "withdrawn")
         for row in rows
-        if row["id"] != excluding  # the ticket of the report a correction supersedes
+        if row["id"] != excluding and row["id"] not in superseded
     )
 
 

@@ -70,7 +70,9 @@ So the registry serves every site report marked unverified, and the Hub shows no
   beside the figures. How a site drew its cases before it asked for a ticket is still not
   shown by anything here.
 - The command line changes twice for sites: the payload's format, then a registered site and a
-  ticket in place of a free name. No public registry exists, so nothing deployed loses a path.
+  ticket in place of a free name. A registry runs under the engine in production since
+  2026-11-15, holding only published packs (no site report when LP-22 was built): each change
+  reaches it when production redeploys, and is the owner's to approve.
 - Unsigned reports from before stay stored and are no longer served.
 - The registry gains statistics of its own (pooling, a random-effects estimate, a homogeneity
   test), each checked against scipy or statsmodels in tests; the product still needs neither.
