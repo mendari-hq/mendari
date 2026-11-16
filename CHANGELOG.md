@@ -842,6 +842,14 @@ The first release (not yet published).
   report it supersedes (`--supersedes`), and both stay listed. A publisher token no longer
   shares a report; unsigned reports stored before are kept and no longer served. New guide:
   [Evaluating a pack at your site](docs/guides/evaluate-at-your-site.md).
+  - **Pooled site evidence, the statistics** (LP-22b, `mendari.evals.pooling`; nothing calls
+    them yet): a pooled fixed-effect figure from summed counts with its exact interval, a
+    DerSimonian-Laird random-effects estimate on the logit scale from 3 sites, the range of
+    site rates, and a homogeneity test that is Pearson's chi-square only when every expected
+    count is 5 or more, the exact test otherwise, and a permutation test with its seed in the
+    answer when the tables are more than a million. Each takes whole counts only and refuses a
+    rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
+    chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),
