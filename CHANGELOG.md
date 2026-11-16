@@ -795,6 +795,16 @@ The first release (not yet published).
   `--days` says otherwise. ADR-0011 records what was built and its consequences.
 - **The site evaluation network, being built** (LP-22, ADR-0017 Proposed; nothing changes how
   a pack decides, what a hidden set grades or how anything ranks):
+  - **Counts in, rates out (breaking, for `mendari eval --share` and `--share-out`)** (LP-22c).
+    A site shares `mendari.site-report/2`: whole counts only, counted from the run's ledger (per
+    question its labelled and right cases, its confusion matrix and confidence deciles; the
+    outcome counts; false automations; each critical label's counts; tokens). Calibration
+    error, Brier, latency, cost, error counts and rates stay with the site. One suppression
+    function, run by the sender and again by the registry, nulls cells of 1 to 9 and their
+    complements, so none can be worked out from the totals; critical counts are shared
+    exactly; a run on fewer than 100 cases is not shared. The registry refuses
+    `mendari.site-report/1` (it names the format to send) and works out every figure it serves
+    from the counts. Reports stored as `/1` are still served as they were.
   - **Pooled site evidence, the statistics** (LP-22b, `mendari.evals.pooling`; nothing calls
     them yet): a pooled fixed-effect figure from summed counts with its exact interval, a
     DerSimonian-Laird random-effects estimate on the logit scale from 3 sites, the range of

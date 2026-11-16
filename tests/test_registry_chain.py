@@ -14,9 +14,8 @@ from pydantic import ValidationError
 from mendari.cli import main
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
-from mendari.evals.share import shareable
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
-from tests.conftest import Registry
+from tests.conftest import Registry, shared_benchmark
 
 REFERRAL = resolve_pack("mendari/referral-router")
 VERSION_PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
@@ -38,7 +37,7 @@ def _write(db_target: str, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 def _share(registry: Registry) -> None:
-    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    report = shared_benchmark()
     shared = registry.client.post(
         f"{VERSION_PATH}/reports",
         json={"site": "Site A", "report": report},

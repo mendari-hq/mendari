@@ -1015,8 +1015,9 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   [SECURITY.md](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
-  a site's metrics, never its cases or their ids, in a closed format the registry checks
-  (`mendari.site-report/1`); the registry lists them as unverified until sites sign them.
+  a site's counts, never its cases, their ids or a rate, in a closed format the registry checks
+  (`mendari.site-report/2`, small cells suppressed); the registry lists them as unverified
+  until sites sign them.
 - **What the registry shows** is only what it checked
   ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   It renders each version's Decision Card itself, from the files the pack digest covers, and
@@ -1364,8 +1365,9 @@ beside its report (`--out`: `ledgers/<hash>.jsonl`), and the report's result is 
 from it, so a second run gives the same bytes and anyone holding the ledger can check it. Neither
 holds case text or case ids: a case is a keyed hash only the dataset's holder can match
 ([the formats](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md)). What a site shares (`--share`) holds none of
-it, nor subgroups: a closed format, `mendari.site-report/1`, of names and rounded numbers only
-(`--share-out FILE` writes it to read first).
+it, nor subgroups: a closed format, `mendari.site-report/2`, of names and whole counts only, its
+small cells suppressed and nothing shared under 100 cases (`--share-out FILE` writes it to read
+first).
 
 `mendari compare A B --dataset X` compares two runs (two configurations, or two versions of a
 pack) case by case from their ledgers: each figure in each run with its interval, the cases where

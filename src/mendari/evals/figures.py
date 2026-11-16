@@ -147,6 +147,80 @@ def report(data: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+SITE_SWEEP = (5, 6, 7, 8, 9)  # deciles: the sweep's thresholds a site report's bins give
+
+
+def site(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Every figure the registry shows of one site report (`mendari.site-report/2`, LP-22c),
+    computed from its counts: none is a rate the site sent. A figure over a suppressed (null)
+    count is null ("n/a").
+
+    - per question: accuracy (right of n), and each calibration decile as right of its cases;
+    - outcomes: each outcome's share of the dataset;
+    - false automation: automated with a wrong recommendation, of the primary question's n;
+    - per critical label: detected of its n, and its cases automated (auto_missed of n);
+    - the threshold sweep at 0.5, 0.6, 0.7, 0.8 and 0.9 from the primary's deciles: the cases
+      at or above the threshold of every answered case, and how many of those were right. The
+      finer thresholds of a full report (0.85, 0.95, 0.97, 0.99) stay with the site: their
+      bands would let a suppressed decile be worked out by subtraction.
+    """
+    n = data["dataset"]["n"]
+    questions = {}
+    for name, question in data["questions"].items():
+        questions[name] = {
+            "accuracy": of(question["right"], question["n"]),
+            "calibration": [
+                {
+                    "bin": b["bin"],
+                    "accuracy": None
+                    if b["right"] is None or b["wrong"] is None
+                    else of(b["right"], b["right"] + b["wrong"]),
+                }
+                for b in question["calibration"]
+            ],
+        }
+    decisions = data["decisions"]
+    primary = data["questions"].get(data["primary"])
+    sweep: list[dict[str, Any]] = []
+    if primary is not None:
+        bins = primary["calibration"]
+        known = all(b["right"] is not None and b["wrong"] is not None for b in bins)
+        answered = sum(b["right"] + b["wrong"] for b in bins) if known else None
+        for decile in SITE_SWEEP:
+            above = bins[decile:]
+            if answered is None:
+                sweep.append({"threshold_bp": decile * 1000, "coverage": None, "accuracy": None})
+                continue
+            right = sum(b["right"] for b in above)
+            chosen = right + sum(b["wrong"] for b in above)
+            sweep.append(
+                {
+                    "threshold_bp": decile * 1000,
+                    "coverage": of(chosen, answered),
+                    "accuracy": of(right, chosen),
+                }
+            )
+    return {
+        "format": FORMAT,
+        "n": n,
+        "primary": data["primary"],
+        "questions": questions,
+        "outcomes": {key: maybe(count, n) for key, count in decisions["outcomes"].items()},
+        "false_automation": of(decisions["false_automation"], primary["n"] if primary else 0),
+        "critical": [
+            {
+                "question": item["question"],
+                "label": item["label"],
+                "detected": of(item["detected"], item["n"]),
+                "automated": of(item["auto_missed"], item["n"]),
+                "insufficient_evidence": item["n"] < MIN_POSITIVES,
+            }
+            for item in decisions["critical"]
+        ],
+        "sweep": sweep,
+    }
+
+
 def comparison(c: Mapping[str, Any]) -> dict[str, Any] | None:
     """A local validation's figures: each side's accuracy and each finding's two figures. A
     finding stored before its counts were (LP-10b) shows its benchmark side as n/a; its local

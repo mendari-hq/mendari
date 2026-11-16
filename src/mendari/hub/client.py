@@ -319,14 +319,13 @@ class RegistryClient:
     def search(self, **filters: Any) -> list[dict[str, Any]]:
         return list(self._get("/v1/search", **filters))
 
-    def share_report(self, report: Mapping[str, Any], site: str) -> dict[str, Any]:
-        """Share an evaluation of a published pack (the registry keeps only its metrics)."""
-        from mendari.evals.share import shareable
-
-        pack = report["pack"]
+    def share_report(self, shared: Mapping[str, Any], site: str) -> dict[str, Any]:
+        """Share an evaluation of a published pack: `shared` is its `mendari.site-report/2`
+        (`evals.share.shareable`, counts only, suppressed), sent as it is."""
+        pack = shared["pack"]
         namespace, name = str(pack["id"]).split("/")
         path = f"/v1/packs/{namespace}/{name}/{pack['version']}/reports"
-        response = self._http.post(path, json={"site": site, "report": shareable(report)})
+        response = self._http.post(path, json={"site": site, "report": dict(shared)})
         return dict(self._json(response))
 
     def add_key(self, namespace: str, public_pem: bytes) -> str:

@@ -563,20 +563,22 @@ regression check, not a ranking. Rows for one dataset MUST
 come from the same records. Like reports, a leaderboard MUST NOT contain case inputs. A
 `mendari.leaderboard/1` file still loads; its rows have no digest, so none ranks.
 
-A **shared report** (`format: mendari.site-report/1`) is what a site sends a registry about
-its own evaluation. It is a closed schema of names and rounded numbers: the pack (id, version,
-digest), the providers and policy, per-question metrics, outcome counts and rates, each critical
-label's counts, the threshold sweep, latency, cost, error counts and the dataset's size. It MUST
-NOT contain a case id, case text, the dataset's name or hash, who approved a governance override
-(only whether one applied), or subgroup cells (their values come from a site's data).
-Calibration bins with fewer than 10 cases are dropped. Its question, label, slot, variant and
-composite member names are the published pack's own, and a registry MUST refuse a report that
-names any other; model names are short ASCII names, and error codes are those of §5. A
-composite provider
-(`any_of`, `cascade`, `vote`) is shared as it is recorded: its model lists every member's as
-`member:model`, in the pack's order, joined by ` + ` (` → ` for a `cascade`), and a member that
-failed is counted under `member:code` (`, ` between members of one composite that failed
-together, in the same order). A registry MUST NOT echo what it refuses.
+A **shared report** (`format: mendari.site-report/2`) is what a site sends a registry about
+its own evaluation, specified in
+[Evaluation reports](evaluation-reports.md#shared-site-reports-mendarisite-report2). It is a
+closed schema of names, flags and whole counts, counted from the run's ledger: the pack (id,
+version, digest), the providers and policy, per question its labelled and right cases, its
+confusion matrix and confidence deciles, the outcome counts, the false automations, each
+critical label's counts and the dataset's size. It MUST NOT contain a rate, a case id, case
+text, the dataset's name or hash, who approved a governance override (only whether one
+applied), or subgroup cells. Cells of 1 to 9 are suppressed, with their complements, by one
+function the sender and the registry both run, and a run on fewer than 100 cases is not
+shared; a registry MUST refuse a payload that function would change, and MUST refuse
+`mendari.site-report/1`. Its question, label, slot, variant and composite member names are the
+published pack's own, and a registry MUST refuse a report that names any other; model names are
+short ASCII names. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is
+recorded: its model lists every member's as `member:model`, in the pack's order, joined by ` + `
+(` → ` for a `cascade`). A registry MUST NOT echo what it refuses.
 
 ## 9. FHIR and CDS Hooks
 

@@ -3426,6 +3426,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     range, and the homogeneity test (pure Python, checked against scipy and statsmodels;
     `evals/pooling.py`, `tests/test_pooling.py`).
     **22c** in parallel: `mendari.site-report/2` (counts only) and one suppression function.
+  - [x] **22c** `mendari.site-report/2`, counted from the ledger, and `suppress` on both sides
+    (`evals/share.py`, `figures.site`, `tests/test_share.py`). Beyond the plan: error counts and
+    the sweep's finer rows stay with the site (each would let a suppressed cell be worked out),
+    and complementary suppression also guards against bounds (no count negative, a critical
+    row within its n), not only subtraction.
   - [ ] **22d** Sites and site keys in the registry's store, and the operator's commands (after
     19c).
   - [ ] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and

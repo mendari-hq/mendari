@@ -232,17 +232,20 @@ def cmd_eval(args: argparse.Namespace) -> int:
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
-    if args.share_out:
+    if args.share_out or args.share:
         from mendari.evals.share import shareable
 
+        # Counts only (mendari.site-report/2), from the run's ledger, small cells suppressed.
+        counts = shareable(run.ledger)
+    if args.share_out:
         Path(args.share_out).parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(shareable(report), indent=2) + "\n"
+        payload = json.dumps(counts, indent=2) + "\n"
         Path(args.share_out).write_text(payload, encoding="utf-8")
-        print(f"wrote the report --share sends to {args.share_out} (metrics only)", file=sys.stderr)
+        print(f"wrote the report --share sends to {args.share_out} (counts only)", file=sys.stderr)
     if args.share:
         with _registry_client(args) as registry:
-            shared = registry.share_report(report, args.share)
-        print(f"shared with the registry as {shared['site']} (metrics only)", file=sys.stderr)
+            shared = registry.share_report(counts, args.share)
+        print(f"shared with the registry as {shared['site']} (counts only)", file=sys.stderr)
     if args.json:
         _print_json(report)
     else:
@@ -3165,7 +3168,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
     )
     evaluate.add_argument(
-        "--share", metavar="SITE", help="share the metrics (never cases) with the registry as SITE"
+        "--share",
+        metavar="SITE",
+        help="share the counts (never cases; mendari.site-report/2) with the registry as SITE",
     )
     evaluate.add_argument("--registry", help="registry URL for --share (default: logged into)")
     evaluate.add_argument(

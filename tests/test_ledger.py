@@ -36,7 +36,6 @@ from mendari.evals.result import (
     result_sha256,
     subgroup_labelled,
 )
-from mendari.evals.share import site_report
 
 ROOT = Path(__file__).resolve().parents[1]
 V1 = json.loads((ROOT / "tests" / "fixtures" / "eval-v1-inbox.json").read_text())
@@ -180,7 +179,6 @@ def test_a_ledger_with_a_case_of_another_shape_or_count_is_refused(runs: Any) ->
 def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
     assert normalize(V1)["run"]["id"] == V1["id"]
     assert leaderboard.row(V1)["report_id"] == V1["id"]
-    assert site_report(V1).questions  # shareable as before
     copy = tmp_path / "patient-inbox-router"
     shutil.copytree(ROOT / "packs" / "patient-inbox-router", copy)
     shutil.copy(ROOT / "tests" / "fixtures" / "eval-v1-inbox.json", copy / "evals/benchmark.json")

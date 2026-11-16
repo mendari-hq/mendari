@@ -209,6 +209,19 @@ def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
 # The inbox's policy automates only while its urgency screen includes a model
 # (automation_requires). Tests that need an automated inbox decision run the screen with Jev,
 # against `calm_jev`, which finds nothing urgent.
+def shared_benchmark(pack_id: str = "mendari/referral-router") -> dict[str, Any]:
+    """The `mendari.site-report/2` a site would share of a shipped pack's benchmark run:
+    counted from the benchmark's own ledger (synthetic data), as `mendari eval --share` does."""
+    from mendari.core.registry import resolve_pack
+    from mendari.evals.ledger import Ledger
+    from mendari.evals.share import shareable
+
+    root = resolve_pack(pack_id).root / "evals"
+    ledger_id = json.loads((root / "benchmark.json").read_text())["ledger"]["id"]
+    path = root / "ledgers" / (ledger_id.removeprefix("sha256:") + ".jsonl")
+    return shareable(Ledger.loads(path.read_bytes()))
+
+
 SCREENED = {"safety_screen": "rules_and_jev"}
 
 

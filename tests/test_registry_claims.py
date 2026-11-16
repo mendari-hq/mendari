@@ -17,12 +17,11 @@ from mendari.cli import main
 from mendari.core.pack import Pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
-from mendari.evals.share import shareable
 from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import PUBLIC, REVIEWER, RegistryStore, Viewer, token_id
-from tests.conftest import Registry
+from tests.conftest import Registry, shared_benchmark
 from tests.test_hub_client import SHIPPED, copy_pack
 
 CLAIMANT = "user:3f9a"  # a person as a chain names one: an id, never an address
@@ -234,7 +233,7 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
     assert registry.publish().status_code == 201  # a listed pack, beside it
     published = claimed.publish()
     assert published["listed"] is False and published["id"] == "acme/inbox"
-    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    report = shared_benchmark()
     for who in ({}, _bearer(registry.token), _bearer("ohr_made-up")):  # nobody, another publisher
         assert [p["id"] for p in registry.client.get("/v1/search", headers=who).json()] == [
             REFERRAL.id
@@ -295,7 +294,7 @@ def test_a_pending_namespace_answers_as_one_that_does_not_exist(
     assert _reads(registry, "acme", registry.token) == _reads(registry, "nobody", registry.token)
     assert _reads(registry, "acme", registry.token) == nowhere
     # A write another publisher may make to any listed version: the same answer too.
-    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    report = shared_benchmark()
     shared = [
         registry.client.post(
             f"/v1/packs/{name}/inbox/{SHIPPED}/reports",

@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shareable evaluation reports (evals/share.py): metrics leave the site, cases never do.
+"""Shareable evaluations (evals/share.py, LP-22c): counts leave the site, cases never do.
 
-A shared report is `mendari.site-report/1`, a closed schema the client builds and the registry
-checks: names and rounded numbers only, small bins dropped, no subgroup, no case id, no dataset
-identity, no approver."""
+A shared report is `mendari.site-report/2`, a closed schema the client builds from a run's
+ledger and the registry checks: whole counts, names and flags only, no rate, small cells
+suppressed by one function both sides run, no subgroup, no case id, no dataset identity, no
+approver."""
 
 from __future__ import annotations
 
 import copy
+import itertools
 import json
 import re
 import shutil
@@ -17,129 +19,347 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from mendari import Decision, Pack, load_pack
 from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import resolve_pack
 from mendari.errors import FAILURE_CODES, MendariError
-from mendari.evals import evaluate, resolve_dataset
+from mendari.evals import resolve_dataset
+from mendari.evals.harness import Evaluation, evaluation
+from mendari.evals.result import OUTCOMES
 from mendari.evals.share import (
     MAX_MEMBERS,
-    MIN_GROUP,
+    MIN_DATASET,
+    SUPPRESSION_RULES,
+    Count,
+    ErrorKey,
     SharedProvider,
-    SiteReport,
+    SiteReportV2,
     composite_members,
+    counted_report,
     shareable,
-    summary,
+    suppress,
+    unchanged_by_suppression,
 )
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, ROOT, SCREENED, Registry
+from tests.conftest import INBOX_DIR, ROOT, SCREENED, Registry, shared_benchmark
 
-BENCHMARK = json.loads(
-    (resolve_pack("mendari/referral-router").root / "evals" / "benchmark.json").read_text()
+PACKS = (
+    "ai-guard",
+    "clinical-trial-prescreener",
+    "patient-inbox-router",
+    "prior-auth-preflight",
+    "referral-router",
 )
+SHARED = shared_benchmark()
 FREE_TEXT = "Jane Doe, DOB 1960-02-01, called about chest pain"
 
 
-def _cell(n: int, accuracy: float) -> dict[str, Any]:
-    return {
-        "n": n,
-        "accuracy": accuracy,
-        "auto_rate": 0.0,
-        "abstention_rate": 0.0,
-        "false_automation_rate": None,
-    }
+def _run(pack_id: str, dataset: str, **options: Any) -> Evaluation:
+    pack = resolve_pack(pack_id)
+    return evaluation(Decision(pack, **options), resolve_dataset(pack, dataset))
 
 
 def test_case_ids_and_dataset_identity_stay_home() -> None:
-    shared = shareable(BENCHMARK)
-    text = json.dumps(shared)
-    assert shared["format"] == "mendari.site-report/1"
-    assert "misclassified" not in shared
-    named = [case.get("case") or case["id"] for case in BENCHMARK["misclassified"]]
-    assert named and all(name not in text for name in named)
-    assert shared["dataset"] == {"n": BENCHMARK["dataset"]["n"]}  # no name, no digest
-    assert "id" not in shared and "created_at" not in shared  # links to the site's store
-
-
-def test_missed_critical_cases_leave_no_id() -> None:
-    """The inbox pack's rules miss 16 of the 20 held-out emergencies: their ids were sent as
-    `missed_ids` before, their ledger hashes are kept as `missed_cases` now. Only the counts
-    leave."""
     pack = resolve_pack("mendari/patient-inbox-router")
-    dataset = resolve_dataset(pack, "red_flags_holdout")
-    report = evaluate(Decision(pack), dataset)
-    missed = report["decisions"]["critical"][0]["missed_cases"]
-    assert len(missed) >= 10
-    shared = shareable(report)
+    dataset = resolve_dataset(pack, "test")
+    run = evaluation(Decision(pack), dataset)
+    shared = shareable(run.ledger)
     text = json.dumps(shared)
+    assert shared["format"] == "mendari.site-report/2"
     assert all(record["id"] not in text for record in dataset.records)
-    assert all(case not in text for case in missed)  # nor their hashes
-    critical = shared["decisions"]["critical"][0]
-    assert critical == {
-        "question": "urgency",
-        "label": "urgent",
-        "n": 20,
-        "detected": 20 - len(missed),
-        "detection_rate": (20 - len(missed)) / 20,
-        "auto_missed": 0,
-    }
+    assert all(case["c"] not in text for case in run.ledger.cases)  # nor their hashes
+    assert shared["dataset"] == {"n": len(dataset.records)}  # no name, no digest
+    assert dataset.sha256 not in text and dataset.name not in text
+    assert "id" not in shared and "created_at" not in shared and "subgroups" not in shared
 
 
 def test_an_override_is_shared_as_a_fact_not_a_name() -> None:
-    pack = resolve_pack("mendari/clinical-trial-prescreener")
     approval = GovernanceOverride(approved_by="Dr. A. Person", reference="IRB-2026-0042")
-    report = evaluate(Decision(pack, governance=approval), resolve_dataset(pack, "exclusions"))
-    shared = shareable(report)
+    run = _run("mendari/clinical-trial-prescreener", "test", governance=approval)
+    shared = shareable(run.ledger)
     assert shared["policy"]["governance_override"] is True
     assert "Person" not in json.dumps(shared) and "IRB-2026" not in json.dumps(shared)
 
 
-def test_subgroups_never_leave_and_small_bins_are_left_out() -> None:
-    """A subgroup's values come from a site's data: a clinic, a clinician, a patient seen often
-    enough, a date. None of them leave, whatever the cell's size."""
-    report = {
-        **BENCHMARK,
-        "subgroups": {
-            "patient": {"Jane Doe MRN 00123 DOB 1985.03.14": _cell(12, 0.9)},
-            "admit_date": {"2026-03-14": _cell(12, 0.9)},
-            "age": {"90+": _cell(2, 0.5), "40-64": _cell(50, 0.9)},
-        },
+def _leaves(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _leaves(item, (*path, key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _leaves(item, (*path, index))
+    else:
+        yield path, value
+
+
+@pytest.mark.parametrize("pack_id", PACKS)
+def test_a_shared_report_holds_whole_counts_and_no_rate(pack_id: str) -> None:
+    shared = shared_benchmark(f"mendari/{pack_id}")
+    for path, leaf in _leaves(shared):
+        assert leaf is None or isinstance(leaf, int | str | bool), path
+        assert not isinstance(leaf, float), path
+    text = json.dumps(shared)
+    for rate in ("accuracy", "macro_f1", "ece", "brier", "precision", "recall", "latency", "usd"):
+        assert f'"{rate}' not in text
+
+
+def _at(value: Any, path: tuple[Any, ...]) -> Any:
+    for part in path:
+        value = value[part]
+    return value
+
+
+def _set(value: Any, path: tuple[Any, ...], new: Any) -> Any:
+    copied = copy.deepcopy(value)
+    _at(copied, path[:-1])[path[-1]] = new
+    return copied
+
+
+COUNTS = [
+    path for path, leaf in _leaves(SHARED) if isinstance(leaf, int) and not isinstance(leaf, bool)
+]
+
+
+@pytest.mark.parametrize("path", COUNTS, ids=lambda p: ".".join(map(str, p)))
+def test_a_rate_or_a_fraction_anywhere_is_refused_on_both_sides(path: tuple[Any, ...]) -> None:
+    """Every number is a whole count: a rate, a fraction, or a whole number written as a float
+    or a string is refused by the model both sides validate with."""
+    for bad in (0.5, 0.9876, 3.0, "3", True):
+        with pytest.raises(ValidationError):
+            SiteReportV2.model_validate(_set(SHARED, path, bad))
+
+
+# A hand-made run with small cells, to try to recover each suppressed one.
+_BINS = [(0, 0)] * 7 + [(30, 11), (40, 10), (25, 0)]  # rights 95, wrongs 21
+FIXTURE: dict[str, Any] = {
+    "format": "mendari.site-report/2",
+    "pack": {"id": "mendari/referral-router", "version": "1.0.0", "digest": "sha256:" + "0" * 64},
+    "providers": {"router": {"variant": "rules", "type": "rules", "model": None}},
+    "policy": {
+        "risk_level": 2,
+        "thresholds": {"auto_bp": 9000, "review_bp": 6000},
+        "governance_override": False,
+    },
+    "remote_consent": False,
+    "dataset": {"n": 120},
+    "primary": "triage",
+    "questions": {
+        "triage": {
+            "n": 120,
+            "right": 95,
+            "confusion": {
+                "routine": {"routine": 60, "soon": 4, "urgent": 0},
+                "soon": {"routine": 12, "soon": 27, "urgent": 2},
+                "urgent": {"routine": 3, "soon": 0, "urgent": 8},
+            },
+            "calibration": [
+                {"bin": i, "right": right, "wrong": wrong} for i, (right, wrong) in enumerate(_BINS)
+            ],
+        }
+    },
+    "decisions": {
+        "outcomes": {"AUTO": 30, "HUMAN_REVIEW": 84, "ABSTAIN": 5, "BLOCK": 1},
+        "false_automation": 2,
+        "critical": [
+            {"question": "triage", "label": "urgent", "n": 12, "detected": 8, "auto_missed": 1}
+        ],
+    },
+    "tokens": {"input": 0, "output": 0},
+}
+
+
+def _original(null: tuple[Any, ...]) -> int:
+    question = FIXTURE["questions"]["triage"]
+    if null[0] == "confusion":
+        return int(question["confusion"][null[1]][null[2]])
+    if null[0] == "bins":
+        return int(question["calibration"][null[1]][null[2]])
+    return int(FIXTURE["decisions"]["outcomes"][null[1]])
+
+
+def _solutions(suppressed: dict[str, Any]) -> dict[tuple[Any, ...], set[int]]:
+    """Every value each null cell can take, given all the payload states: the confusion's
+    diagonal adds up to `right`, as do the bins' `right`; its off-diagonal cells and the bins'
+    `wrong` count the same cases; the outcomes add up to n; a critical label's row holds at
+    most its n cases (its own cell is `detected`); and no count is negative. Worked out here
+    from the payload alone, not with the module's own equations."""
+    question = suppressed["questions"]["triage"]
+    confusion, bins = question["confusion"], question["calibration"]
+    critical = suppressed["decisions"]["critical"][0]
+    outcomes = suppressed["decisions"]["outcomes"]
+    n = suppressed["dataset"]["n"]
+    labels = list(confusion)
+    nulls: list[tuple[Any, ...]] = [
+        ("confusion", t, p) for t in labels for p in labels if confusion[t][p] is None
+    ]
+    nulls += [
+        ("bins", i, k) for i, b in enumerate(bins) for k in ("right", "wrong") if b[k] is None
+    ]
+    nulls += [("outcomes", o) for o in OUTCOMES if outcomes[o] is None]
+
+    def get(values: dict[tuple[Any, ...], int], *where: Any) -> int:
+        if where[0] == "confusion":
+            known = confusion[where[1]][where[2]]
+        elif where[0] == "bins":
+            known = bins[where[1]][where[2]]
+        else:
+            known = outcomes[where[1]]
+        return values[where] if known is None else int(known)
+
+    def holds(values: dict[tuple[Any, ...], int]) -> bool:
+        diagonal = sum(get(values, "confusion", t, t) for t in labels)
+        off = sum(get(values, "confusion", t, p) for t in labels for p in labels if p != t)
+        rights = sum(get(values, "bins", i, "right") for i in range(10))
+        wrongs = sum(get(values, "bins", i, "wrong") for i in range(10))
+        total = sum(get(values, "outcomes", o) for o in OUTCOMES)
+        row = sum(get(values, "confusion", "urgent", p) for p in labels)
+        return (
+            diagonal == question["right"] == rights
+            and off == wrongs
+            and total == n
+            and row <= critical["n"]
+        )
+
+    # Each equation's cells are its own, so each is solved on its own (the critical row's
+    # bound is within the off-diagonal one).
+    groups: dict[str, list[tuple[Any, ...]]] = {"diagonal": [], "right": [], "off": [], "out": []}
+    for null in nulls:
+        if null[0] == "confusion":
+            groups["diagonal" if null[1] == null[2] else "off"].append(null)
+        elif null[0] == "bins":
+            groups["right" if null[2] == "right" else "off"].append(null)
+        else:
+            groups["out"].append(null)
+    found: dict[tuple[Any, ...], set[int]] = {null: set() for null in nulls}
+    for group in groups.values():
+        rest = [null for null in nulls if null not in group]
+        truth = {null: _original(null) for null in rest}  # the other groups at their values
+        for values in itertools.product(range(0, 31), repeat=len(group)):
+            assignment = {**truth, **dict(zip(group, values, strict=True))}
+            if holds(assignment):
+                for null in group:
+                    found[null].add(assignment[null])
+    return found
+
+
+def test_a_suppressed_cell_cannot_be_recovered_from_the_totals() -> None:
+    suppressed = suppress(FIXTURE)
+    assert suppressed == suppress(suppressed)  # applied twice, it changes nothing
+    question = suppressed["questions"]["triage"]
+    # 1 to 9 is suppressed; the critical label's own cell is its detected count, so it shows.
+    assert question["confusion"]["routine"]["soon"] is None
+    assert question["confusion"]["urgent"]["routine"] is None
+    assert question["confusion"]["urgent"]["urgent"] == 8
+    assert suppressed["decisions"]["outcomes"]["BLOCK"] is None
+    found = _solutions(suppressed)
+    assert len(found) >= 5
+    for null, values in found.items():
+        assert len(values) > 1, (null, values)  # never worked out by subtraction or bounds
+        assert _original(null) in values  # and the truth is among them
+
+
+def test_one_small_cell_alone_in_its_equation_gets_a_complement() -> None:
+    lone = copy.deepcopy(FIXTURE)
+    lone["decisions"]["outcomes"] = {"AUTO": 30, "HUMAN_REVIEW": 85, "ABSTAIN": 5, "BLOCK": 0}
+    outcomes = suppress(lone)["decisions"]["outcomes"]
+    # ABSTAIN (5) alone would be n - the rest: the smallest shown cell (BLOCK, a zero) goes too.
+    assert outcomes == {"AUTO": 30, "HUMAN_REVIEW": 85, "ABSTAIN": None, "BLOCK": None}
+
+
+def test_safety_counts_are_shared_exactly_and_small_runs_are_not_shared() -> None:
+    suppressed = suppress(FIXTURE)
+    assert suppressed["decisions"]["critical"] == FIXTURE["decisions"]["critical"]
+    assert suppressed["decisions"]["false_automation"] == 2  # under 10, shared exactly
+    small = copy.deepcopy(FIXTURE)
+    small["dataset"]["n"] = MIN_DATASET - 1
+    with pytest.raises(MendariError, match="fewer than 100 cases"):
+        suppress(small)
+    with pytest.raises(ValidationError):
+        SiteReportV2.model_validate(small)
+    run = _run("mendari/patient-inbox-router", "red_flags_holdout")  # 30 cases
+    with pytest.raises(MendariError, match="fewer than 100 cases"):
+        shareable(run.ledger)
+
+
+def test_the_receiver_refuses_what_suppression_would_change() -> None:
+    assert unchanged_by_suppression(SiteReportV2.model_validate(SHARED))
+    assert unchanged_by_suppression(SiteReportV2.model_validate(suppress(FIXTURE)))
+    for changed in (FIXTURE, _set(suppress(FIXTURE), ("decisions", "outcomes", "BLOCK"), 1)):
+        assert not unchanged_by_suppression(SiteReportV2.model_validate(changed))
+
+
+def _types(annotation: Any) -> list[Any]:
+    found = [annotation]
+    for argument in getattr(annotation, "__args__", ()) or ():
+        found += _types(argument)
+    return found
+
+
+def _field_paths(model: type[BaseModel], prefix: str = "") -> Iterator[str]:
+    for name, field in model.model_fields.items():
+        path = f"{prefix}{name}"
+        nested = [
+            kind
+            for kind in _types(field.annotation)
+            if isinstance(kind, type) and issubclass(kind, BaseModel)
+        ]
+        if nested:
+            for kind in nested:
+                yield from _field_paths(kind, path + ".")
+        else:
+            yield path
+
+
+def test_every_field_has_a_written_suppression_rule() -> None:
+    spec = (ROOT / "docs" / "spec" / "evaluation-reports.md").read_text()
+    paths = list(_field_paths(SiteReportV2))
+    assert "questions.calibration.wrong" in paths and "decisions.critical.n" in paths
+    for path in paths:
+        rule = next(
+            (key for key in SUPPRESSION_RULES if path == key or path.startswith(key + ".")), None
+        )
+        assert rule is not None, path
+        assert f"| `{rule}` |" in spec, rule
+
+
+def test_the_counts_are_the_ledgers() -> None:
+    """Each count is counted from the ledger, and agrees with the report computed from it."""
+    run = _run("mendari/referral-router", "test")
+    counts, report = counted_report(run.ledger), run.report
+    for name, question in counts["questions"].items():
+        full = report["questions"][name]
+        assert question["n"] == full["n"] and question["right"] == full["proportion"]["k"]
+        assert question["confusion"] == {
+            truth: {label: count for label, count in row.items() if label != "none"}
+            for truth, row in full["confusion"].items()
+        }
+        binned = {round(b["low"] * 10): b for b in full["calibration"]["bins"]}
+        for b in question["calibration"]:
+            n = b["right"] + b["wrong"]
+            assert n == (binned[b["bin"]]["n"] if b["bin"] in binned else 0)
+            if n:
+                assert b["right"] == round(binned[b["bin"]]["accuracy"] * n)
+    decisions = report["decisions"]
+    assert counts["decisions"]["outcomes"] == decisions["outcome_counts"]
+    assert counts["decisions"]["false_automation"] == report["proportions"]["false_automation"]["k"]
+    assert counts["decisions"]["critical"] == [
+        {key: item[key] for key in ("question", "label", "n", "detected", "auto_missed")}
+        for item in decisions["critical"]
+    ]
+    assert counts["tokens"] == {
+        "input": report["cost"]["input_tokens"],
+        "output": report["cost"]["output_tokens"],
     }
-    shared = shareable(report)
-    assert "subgroups" not in shared
-    assert "Jane" not in json.dumps(shared) and "2026-03-14" not in json.dumps(shared)
-    bins = shared["questions"]["next_step"]["calibration"]["bins"]
-    assert bins and all(b["n"] >= MIN_GROUP for b in bins)
-    assert shared["questions"]["next_step"]["calibration"]["ece"] == round(
-        BENCHMARK["questions"]["next_step"]["calibration"]["ece"], 4
-    )
+    assert counts["dataset"]["n"] == report["dataset"]["n"]
 
 
-def test_numbers_are_rounded_on_both_sides() -> None:
-    report = copy.deepcopy(BENCHMARK)
-    report["questions"]["next_step"]["brier"] = 0.1234567890123456
-    report["run"]["latency_ms"]["max"] = 123456789.12345678
-    shared = shareable(report)
-    assert shared["questions"]["next_step"]["brier"] == 0.123
-    assert shared["latency_ms"]["max"] == 123456789.123
-    exact = copy.deepcopy(shared)
-    exact["decisions"]["recommendation_accuracy"] = 0.987654321
-    received = SiteReport.model_validate(exact).model_dump(mode="json")
-    assert received["decisions"]["recommendation_accuracy"] == 0.9877
-
-
-def test_the_receiver_refuses_subgroups_and_small_bins() -> None:
-    shared = shareable(BENCHMARK)
-    with pytest.raises(ValidationError):
-        SiteReport.model_validate({**shared, "subgroups": {"age": {"40-64": _cell(50, 0.9)}}})
-    small = copy.deepcopy(shared)
-    small["questions"]["next_step"]["calibration"]["bins"].append(
-        {"low": 0.0, "high": 0.1, "n": 3, "confidence": 0.05, "accuracy": 0.0}
-    )
-    with pytest.raises(ValidationError):
-        SiteReport.model_validate(small)
+@pytest.mark.parametrize("pack_id", PACKS)
+def test_every_shipped_benchmark_can_be_shared(pack_id: str) -> None:
+    shared = SiteReportV2.model_validate(shared_benchmark(f"mendari/{pack_id}"))
+    assert shared.pack.id == f"mendari/{pack_id}"
+    assert unchanged_by_suppression(shared)
 
 
 def _objects(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]]:
@@ -152,26 +372,8 @@ def _objects(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]
             yield from _objects(item, (*path, index))
 
 
-def _strings(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]]:
-    if isinstance(value, str):
-        yield path
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield from _strings(item, (*path, key))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from _strings(item, (*path, index))
-
-
-def _at(value: Any, path: tuple[Any, ...]) -> Any:
-    for part in path:
-        value = value[part]
-    return value
-
-
-SHARED = shareable(BENCHMARK)
 OBJECTS = list(_objects(SHARED))
-STRINGS = list(_strings(SHARED))
+STRINGS = [path for path, leaf in _leaves(SHARED) if isinstance(leaf, str)]
 
 
 @pytest.mark.parametrize("path", OBJECTS, ids=lambda p: ".".join(map(str, p)) or "root")
@@ -179,80 +381,34 @@ def test_an_unknown_key_anywhere_is_refused(path: tuple[Any, ...]) -> None:
     payload = copy.deepcopy(SHARED)
     target = _at(payload, path)
     target["note"] = FREE_TEXT
-    # Where the keys are names (questions, labels, subgroup values), a key of free text is
-    # refused by its pattern; everywhere else any extra key is.
+    # Where the keys are names (questions, labels), a key of free text is refused by its
+    # pattern; everywhere else any extra key is.
     target[FREE_TEXT] = target[next(iter(target))] if target else 1
     with pytest.raises(ValidationError):
-        SiteReport.model_validate(payload)
-    # The sender either leaves the key out (fields it rebuilds) or refuses the report.
-    try:
-        sent = json.dumps(shareable({**BENCHMARK, **payload}))
-    except MendariError:
-        return
-    assert FREE_TEXT not in sent and '"note"' not in sent
+        SiteReportV2.model_validate(payload)
 
 
 @pytest.mark.parametrize("path", STRINGS, ids=lambda p: ".".join(map(str, p)))
 def test_free_text_in_any_string_is_refused(path: tuple[Any, ...]) -> None:
-    payload = copy.deepcopy(SHARED)
-    parent = _at(payload, path[:-1])
-    parent[path[-1]] = FREE_TEXT
     with pytest.raises(ValidationError):
-        SiteReport.model_validate(payload)
+        SiteReportV2.model_validate(_set(SHARED, path, FREE_TEXT))
 
 
-def test_a_report_that_cannot_be_shared_names_fields_never_values() -> None:
-    report = copy.deepcopy(BENCHMARK)
-    report["providers"]["triage_screen"]["model"] = FREE_TEXT
+def test_a_run_that_cannot_be_shared_names_fields_never_values() -> None:
+    run = _run("mendari/referral-router", "test")
+    header = copy.deepcopy(run.ledger.header)
+    slot = next(iter(header["providers"]))
+    header["providers"][slot]["model"] = FREE_TEXT
     with pytest.raises(MendariError) as error:
-        shareable(report)
+        shareable(type(run.ledger)(header, run.ledger.cases))
     assert "providers.<key>.model" in str(error.value)
     assert "Jane" not in str(error.value)
-    keyed = copy.deepcopy(BENCHMARK)
-    keyed["questions"][FREE_TEXT] = keyed["questions"]["next_step"]
-    with pytest.raises(MendariError) as error:
-        shareable(keyed)
-    assert "questions.<key>" in str(error.value) and "Jane" not in str(error.value)
-    coded = copy.deepcopy(BENCHMARK)
-    coded["errors"] = {FREE_TEXT: "not a count"}
-    with pytest.raises(MendariError) as error:
-        shareable(coded)
-    assert "errors.<key>" in str(error.value) and "Jane" not in str(error.value)
-
-
-def test_the_summary_names_the_numbers_a_comparison_shows() -> None:
-    numbers = summary(shareable(BENCHMARK))
-    assert numbers["primary"] == "next_step" and numbers["n"] == BENCHMARK["dataset"]["n"]
-    assert numbers["accuracy"] == BENCHMARK["questions"]["next_step"]["accuracy"]
-    assert numbers["automation_rate"] == 0.0
-    assert numbers["ece"] is not None
-
-
-@pytest.mark.parametrize(
-    "pack_id",
-    [
-        p
-        for p in (
-            "ai-guard",
-            "clinical-trial-prescreener",
-            "patient-inbox-router",
-            "prior-auth-preflight",
-            "referral-router",
-        )
-    ],
-)
-def test_every_shipped_benchmark_can_be_shared(pack_id: str) -> None:
-    benchmark = json.loads(
-        (resolve_pack(f"mendari/{pack_id}").root / "evals" / "benchmark.json").read_text()
-    )
-    shared = SiteReport.model_validate(shareable(benchmark))
-    assert shared.pack.id == f"mendari/{pack_id}"
 
 
 # -- composite providers -------------------------------------------------------------------------
 
 
-def _composite_report(tmp_path: Path) -> tuple[Pack, dict[str, Any]]:
+def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
     """The inbox pack with its router a cascade of its two local variants (naive Bayes, then
     rules) and its shipped any_of screen (rules and Jev), evaluated where Jev is not set up:
     Jev fails without a call. At a new version: changed at its own, a registry refuses it (it
@@ -270,25 +426,24 @@ def _composite_report(tmp_path: Path) -> tuple[Pack, dict[str, Any]]:
     (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     pack = load_pack(root)
     decision = Decision(pack, providers={"router": "nb_then_rules", **SCREENED})
-    return pack, evaluate(decision, resolve_dataset(pack, "red_flags_holdout"))
+    return pack, evaluation(decision, resolve_dataset(pack, "test"))
 
 
 def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """Each composite's model lists its members in order, joined as its type joins them, and a
-    member that failed names itself in the error count: the shared report says what the
-    evaluation recorded. The registry accepts it for the pack whose members those are, and
-    refuses member names that are not the pack's own, as it does every other name."""
-    pack, report = _composite_report(tmp_path)
-    shared = shareable(report)
-    assert shared["providers"] == report["providers"]
-    received = SiteReport.model_validate(shared).providers
+    """Each composite's model lists its members in order, joined as its type joins them: the
+    shared report says what the evaluation recorded. The registry accepts it for the pack whose
+    members those are, and refuses member names that are not the pack's own, as it does every
+    other name."""
+    pack, run = _composite_run(tmp_path)
+    shared = shareable(run.ledger)
+    assert shared["providers"] == run.report["providers"]
+    received = SiteReportV2.model_validate(shared).providers
     assert received["router"].type == "cascade" and " → " in (received["router"].model or "")
     assert composite_members(received["router"]) == ["naive_bayes", "rules"]
     assert received["safety_screen"].type == "any_of"
     assert composite_members(received["safety_screen"]) == ["rules", "jev"]
-    assert shared["errors"] == report["errors"] == {"jev:not_configured": report["dataset"]["n"]}
 
     assert registry.publish(pack).status_code == 201
     publisher = {"authorization": f"Bearer {registry.token}"}
@@ -310,13 +465,6 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         renamed("router", f"{second} → {first}"),  # the pack's members, out of order
         renamed("router", f"{first} → {second} → {second}"),  # one listed twice
         renamed("safety_screen", screen.replace("jev:", "naive_bayes:")),  # the router's member
-        {**shared, "errors": {"Jane_Doe:not_configured": 1}},
-        {**shared, "errors": {"jev:not_configured, Jane_Doe:timeout": 1}},
-        # As a composite records its failed members: each once, in its order, all its own.
-        {**shared, "errors": {"llm:timeout": 1}},  # rules_and_llm's member: it did not run
-        {**shared, "errors": {"jev:timeout, rules:timeout": 1}},
-        {**shared, "errors": {"jev:timeout, jev:not_configured": 1}},
-        {**shared, "errors": {"naive_bayes:timeout, jev:timeout": 1}},
     ]
     for body in refused:
         answer = registry.client.post(
@@ -324,13 +472,6 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         )
         assert answer.status_code == 422, answer.text
         assert "a composite member" in answer.text and "Jane" not in answer.text
-    failed = {**shared, "errors": {"rules:timeout, jev:not_configured": 1, "timeout": 2}}
-    answer = registry.client.post(
-        path, json={"site": "Site B", "report": failed}, headers=publisher
-    )
-    assert answer.status_code == 201, answer.text
-    listed = registry.client.get(f"/v1/packs/{pack.id}/reports").json()["sites"]
-    assert [site["site"] for site in listed] == ["Site A", "Site B"]
 
 
 def test_a_version_published_before_members_were_recorded_refuses_a_composite(
@@ -338,8 +479,8 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
 ) -> None:
     """Its members cannot be checked, so a report from a composite is refused with the reason
     (publish a new version); a report from single providers is still received."""
-    pack, report = _composite_report(tmp_path)
-    shared = shareable(report)
+    pack, run = _composite_run(tmp_path)
+    shared = shareable(run.ledger)
     assert registry.publish(pack).status_code == 201
     namespace, name = pack.id.split("/")
     key = (namespace, name, pack.version)
@@ -358,13 +499,11 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
             "safety_screen": {"variant": "rules", "type": "rules", "model": None},
             "router": {"variant": "naive_bayes", "type": "naive_bayes", "model": None},
         },
-        "errors": {},
     }
-    for body in (shared, {**single, "errors": {"jev:not_configured": 1}}):
-        answer = registry.client.post(
-            path, json={"site": "Site A", "report": body}, headers=publisher
-        )
-        assert answer.status_code == 409 and "publish a new version" in answer.text
+    answer = registry.client.post(
+        path, json={"site": "Site A", "report": shared}, headers=publisher
+    )
+    assert answer.status_code == 409 and "publish a new version" in answer.text
     answer = registry.client.post(
         path, json={"site": "Site A", "report": single}, headers=publisher
     )
@@ -415,8 +554,11 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
     assert "Jane" not in str(error.value.errors(include_input=False))
 
 
+ERRORS = TypeAdapter(dict[ErrorKey, Count])  # as a hidden set's result counts errors
+
+
 @pytest.mark.parametrize(
-    ("key", "shareable_"),
+    ("key", "valid"),
     [
         ("not_configured", True),
         ("jev:not_configured", True),
@@ -439,22 +581,46 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
         ("Timeout", False),
     ],
 )
-def test_an_error_is_a_code_or_the_members_that_failed(key: str, shareable_: bool) -> None:
-    report = {**SHARED, "errors": {key: 1}}
-    if shareable_:
-        assert SiteReport.model_validate(report).errors == {key: 1}
+def test_an_error_is_a_code_or_the_members_that_failed(key: str, valid: bool) -> None:
+    if valid:
+        assert ERRORS.validate_python({key: 1}) == {key: 1}
     else:
         with pytest.raises(ValidationError):
-            SiteReport.model_validate(report)
+            ERRORS.validate_python({key: 1})
 
 
 @pytest.mark.parametrize("code", sorted(FAILURE_CODES))
-def test_every_error_code_mendari_records_can_be_shared(code: str) -> None:
+def test_every_error_code_mendari_records_can_be_counted(code: str) -> None:
     errors = {code: 1, f"jev:{code}": 2, f"rules:{code}, jev:{code}": 3}
-    assert SiteReport.model_validate({**SHARED, "errors": errors}).errors == errors
+    assert ERRORS.validate_python(errors) == errors
 
 
 def test_the_spec_lists_every_error_code() -> None:
     spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text()
     listed = spec[spec.index("a provider error with one of these") : spec.index("No other code")]
     assert set(re.findall(r"`([a-z_]+)`", listed)) == FAILURE_CODES
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        ("questions", "next_step", "calibration", 9, "wrong"),
+        ("questions", "next_step", "calibration", 9, "right"),
+        ("questions", "next_step", "right"),
+        ("decisions", "outcomes", "HUMAN_REVIEW"),
+    ],
+    ids=lambda w: ".".join(map(str, w)),
+)
+@pytest.mark.parametrize("value", [20, 200, 10_000])
+def test_counts_that_do_not_add_up_are_refused_at_once(where: tuple[Any, ...], value: int) -> None:
+    """The adversarial review of LP-22f: counts that passed the model but could not add up kept
+    `suppress` running for good (inside the registry's write lock, once sites sent them). They
+    are refused, by the model or by `suppress`, in one pass."""
+    changed = _set(SHARED, where, value)
+    try:
+        report = SiteReportV2.model_validate(changed)
+    except ValidationError:
+        return
+    assert not unchanged_by_suppression(report)
+    with pytest.raises(MendariError, match="do not add up"):
+        suppress(changed)
