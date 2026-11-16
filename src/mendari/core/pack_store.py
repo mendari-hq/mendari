@@ -366,8 +366,14 @@ class PackStore:
             payload: dict[str, Any] = {"digest": digest, "by": by}
             if reason is not None:
                 payload["reason"] = reason
-            chained = self.store._bound(kind, payload, org)
-            self.store._append(db, f"pack_version:{found['id']}", kind, chained)
+            chained, chain = self.store._bound(kind, payload, org), f"pack_version:{found['id']}"
+            # Each kind written out, so the inventory of chained events reads it (test_shipped).
+            if kind == "pack_version.held":
+                self.store._append(db, chain, "pack_version.held", chained)
+            elif kind == "pack_version.released":
+                self.store._append(db, chain, "pack_version.released", chained)
+            else:
+                self.store._append(db, chain, "pack_version.withdrawn", chained)
         if state != DRAFT:
             self._forget(digest)
         return {"org": org, "digest": digest, "state": state, "state_at": now}

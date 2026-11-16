@@ -34,7 +34,13 @@ from mendari.core.evalsets import EvalsetStore
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from tests.conftest import encrypt_mode, evalset_keys_for_test, hand_written, message
+from tests.conftest import (
+    INBOX_DIR,
+    encrypt_mode,
+    evalset_keys_for_test,
+    hand_written,
+    message,
+)
 from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
@@ -370,6 +376,24 @@ def _evalset(store: AuditStore, pack: Pack) -> str:
     return f"evalset:{made['set']}"
 
 
+def _store_files() -> dict[str, bytes]:
+    """The inbox pack's files under clinic-a's namespace, as a pack store keeps a version."""
+    from mendari.hub.archive import pack_files
+
+    root = INBOX_DIR
+    files = {p.relative_to(root).as_posix(): p.read_bytes() for p in pack_files(root)}
+    manifest = files["pack.yaml"].decode().replace(f"id: {INBOX}", f"id: {CLINIC}/inbox", 1)
+    files["pack.yaml"] = manifest.encode()
+    return files
+
+
+def _store_version(store: AuditStore, _: Pack) -> str:
+    from mendari.core.pack_store import PackStore
+
+    made = PackStore(store).put(CLINIC, _store_files(), by="t", source="upload")
+    return f"pack_version:{made.id}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -383,6 +407,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "invitations": ("invitations", "id", _invitation),
     "access_requests": ("access_requests", "id", _request),
     "evalset_sets": ("evalset_sets", "id", _evalset),
+    "store_versions": ("store_versions", "id", _store_version),
 }
 
 
@@ -420,11 +445,13 @@ def test_verify_finds_a_row_moved_to_another_organization_or_removed(
         # Its record is gone, which `decision.created` finds first: a hash-chain failure.
         assert result == {"ok": False, "events": result["events"], "broken_at": first}
         return
+    # A store version's row is hashed into its event whole (LP-20e): moved or gone, the hash
+    # check finds it first.
     assert result == {
         "ok": False,
         "events": result["events"],
         "broken_at": first,
-        "reason": "organization",
+        "reason": "store" if table == "store_versions" else "organization",
     }
 
 
