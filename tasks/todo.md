@@ -3460,8 +3460,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     attestation, `site-agreements` untouched; the threat model's rows S26, S27, T14, T15, R9,
     I24, I25, I26, D18 and E20, R3 reworded, the residual risk rewritten. ADR-0017 stays Proposed
     until the owner confirms the decisions below.
-  **Built 2026-11-16 (PRs #315 merged; #316, #318, #319, #320, #325, #326, #329 and 22j held for
-  the owner's yes, since merging changes the production registry when it redeploys).** Three
+  **Built 2026-11-16; merged the same day on the owner's yes (#315, then #316, #318, #319, #320,
+  #325, #326, #329 and #331). The production registry takes it on its next redeploy: `/1`
+  reports refused, the site tables added, reports signed by sites, not publisher tokens.** Three
   adversarial reviews (22d, 22e, 22f) found and fixed: a key registered without proof of
   possession; the raw key text stored; a replayed record locking a site out of tickets; a closed
   site's unreported tickets leaving the listing; withdrawal hiding a run; counts that could not
