@@ -23,7 +23,14 @@ from mendari.evals import stats
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, Registry, shared_benchmark
+from tests.conftest import (
+    INBOX_DIR,
+    Registry,
+    share_signed,
+    shared_benchmark,
+    site_ticket,
+    verified_site,
+)
 
 REFERRAL = resolve_pack("mendari/referral-router")
 GUARD = resolve_pack("mendari/ai-guard")
@@ -117,34 +124,23 @@ def test_tokens_are_stored_hashed(registry: Registry, db_target: str) -> None:
     assert registry.client.get("/v1/health").json()["status"] == "ok"
 
 
-def test_sites_share_counts_and_compare_with_the_benchmark(
-    registry: Registry, db_target: str
+def test_sites_share_signed_counts_and_publisher_tokens_no_longer_do(
+    registry: Registry, tmp_path: Path
 ) -> None:
     registry.publish()
     report = shared_benchmark()
-    publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-    assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
-    shared = registry.client.post(
-        path, json={"site": "Site A", "report": report}, headers=publisher
-    )
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    refused = registry.client.post(path, json={"report": report}, headers=publisher)
+    assert refused.status_code == 401 and "mendari site init" in refused.text
+    assert registry.client.post(path, json={"report": report}).status_code == 401
+    site = verified_site(registry, tmp_path)
+    shared = share_signed(registry, site, report)
     assert shared.status_code == 201, shared.text
-    question = report["questions"]["next_step"]
-    accuracy = shared.json()["figures"]["questions"]["next_step"]["accuracy"]
-    assert (accuracy["k"], accuracy["n"]) == (question["right"], question["n"])
-    other = {**report, "pack": {**report["pack"], "version": "0.0.9"}}
-    assert (
-        registry.client.post(
-            path, json={"site": "x", "report": other}, headers=publisher
-        ).status_code
-        == 422
-    )
-    compared = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
-    assert [(s["site"], s["verified"]) for s in compared["sites"]] == [("Site A", False)]
-    assert set(compared) == {"id", "sites"}  # no uploaded benchmark beside them (ADR-0012)
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        stored = db.one("SELECT report FROM hub_reports")
-    assert stored is not None and json.loads(stored["report"]) == report
+    listed = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
+    assert set(listed) == {"id", "reports", "superseded"}  # no uploaded benchmark (ADR-0012)
+    (served,) = listed["reports"]
+    assert (served["site"], served["verified"], served["key_id"]) == (site.id, True, site.key_id)
 
 
 def _rates(value: Any, path: str = "") -> list[str]:
@@ -158,21 +154,17 @@ def _rates(value: Any, path: str = "") -> list[str]:
     return []
 
 
-def test_the_registry_computes_every_rate_it_shows(registry: Registry) -> None:
+def test_the_registry_computes_every_rate_it_shows(registry: Registry, tmp_path: Path) -> None:
     """A shared report holds counts; every share the registry serves of it is k of n with its
     exact interval, worked out from those counts. No number in the answer is a rate the site
     sent."""
     registry.publish()
     report = shared_benchmark()
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-    added = registry.client.post(path, json={"site": "Site A", "report": report}, headers=publisher)
-    assert added.status_code == 201, added.text
-    (site,) = registry.client.get("/v1/packs/mendari/referral-router/reports").json()["sites"]
-    figures = site["figures"]
+    assert share_signed(registry, verified_site(registry, tmp_path), report).status_code == 201
+    (served,) = registry.client.get("/v1/packs/mendari/referral-router/reports").json()["reports"]
+    figures = served["figures"]
     assert _rates(figures) == []
-    expected = {**figures_module.site(report), "format": "mendari.figures/1"}
-    assert figures == json.loads(json.dumps(expected))
+    assert figures == json.loads(json.dumps(figures_module.site(report)))
     question = report["questions"]["next_step"]
     accuracy = figures["questions"]["next_step"]["accuracy"]
     assert (accuracy["k"], accuracy["n"]) == (question["right"], question["n"])
@@ -185,103 +177,21 @@ def test_the_registry_computes_every_rate_it_shows(registry: Registry) -> None:
 
 
 def test_a_site_report_of_the_old_format_is_refused_and_names_the_new_one(
-    registry: Registry, db_target: str
+    registry: Registry, db_target: str, tmp_path: Path
 ) -> None:
     registry.publish()
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    site = verified_site(registry, tmp_path)
+    issued = site_ticket(registry, site, shared_benchmark())
     old = {**shared_benchmark(), "format": "mendari.site-report/1"}
-    answer = registry.client.post(path, json={"site": "Site A", "report": old}, headers=publisher)
+    answer = registry.client.post(
+        f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports",
+        json={"ticket": issued["ticket"]["id"], "report": old},
+        headers={"authorization": f"Bearer {issued['submit_secret']}"},
+    )
     assert answer.status_code == 422
     assert "mendari.site-report/2" in answer.json()["detail"]
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.all("SELECT id FROM hub_reports") == []
-
-
-def test_a_site_report_is_checked_before_anything_is_stored(
-    registry: Registry, db_target: str
-) -> None:
-    """Anything but `mendari.site-report/2` as `suppress` leaves it is refused: a whole
-    evaluation report (case ids, the dataset's name), free text, a small cell, a rate, a
-    malformed field. Nothing is stored."""
-    registry.publish()
-    benchmark = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
-    report = shared_benchmark()
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-    free_text = {**report, "providers": {**report["providers"]}}
-    free_text["providers"]["triage_screen"] = {
-        **report["providers"]["triage_screen"],
-        "model": "Jane Doe called about chest pain",
-    }
-    small = json.loads(json.dumps(report))
-    small["decisions"]["outcomes"]["BLOCK"] = 3  # a cell under 10, shown
-    rate = json.loads(json.dumps(report))
-    rate["questions"]["next_step"]["right"] = 0.93
-    refused = [
-        benchmark,
-        free_text,
-        small,
-        rate,
-        {**report, "subgroups": {}},
-        {**report, "primary": ["next_step"]},
-        {**report, "note": "x"},
-        {**report, "dataset": {"n": 99}},
-    ]
-    for body in refused:
-        answer = registry.client.post(
-            path, json={"site": "Site A", "report": body}, headers=publisher
-        )
-        assert answer.status_code == 422, answer.text
-        assert "Jane" not in answer.text
-        detail = answer.json()["detail"]  # a validation error's problems, or the reason
-        assert isinstance(detail, str) or all("input" not in problem for problem in detail)
-    # Names the pack does not have, though shaped like names: refused, and never echoed.
-    renamed = json.loads(json.dumps(report))
-    confusion = renamed["questions"]["next_step"]["confusion"]
-    confusion["Jane_Doe_MRN00123"] = confusion.pop("schedule")
-    extra = {**report, "Jane_Doe chest pain": 1}
-    for body in (renamed, extra):
-        answer = registry.client.post(
-            path, json={"site": "Site A", "report": body}, headers=publisher
-        )
-        assert answer.status_code == 422, answer.text
-        assert "Jane" not in answer.text
-    # Not JSON a parser should accept (NaN), and a body over the cap: refused, never a 500.
-    nan = b'{"site": "Site A", "report": {"dataset": {"n": NaN}}}'
-    assert registry.client.post(path, content=nan, headers=publisher).status_code == 422
-    huge = b'{"site": "Site A", "report": {"x": "' + b"a" * 2_100_000 + b'"}}'
-    assert registry.client.post(path, content=huge, headers=publisher).status_code == 413
-    # The token is checked before the body is read.
-    assert registry.client.post(path, content=huge).status_code == 401
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.all("SELECT id FROM hub_reports") == []
-
-
-def test_reports_stored_before_they_were_checked_are_not_served(
-    registry: Registry, db_target: str
-) -> None:
-    """Rows from before `mendari.site-report/1` may hold case ids or be malformed: the listing
-    leaves them out instead of serving them or failing. A `/1` row is served as it was."""
-    registry.publish()
-    report = shared_benchmark()
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-    added = registry.client.post(path, json={"site": "Site A", "report": report}, headers=publisher)
-    assert added.status_code == 201
-    old = {"decisions": {"critical": [{"missed_ids": ["c-123"]}]}}
-    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        for number, stored in enumerate((old, {"decisions": "x"}, {"primary": ["x"]})):
-            row = (f"old-{number}", "mendari", "referral-router", REFERRAL.version, "Old")
-            db.all(
-                "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
-                "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (*row, "admin", "2026-01-01T00:00:00Z", json.dumps(stored)),
-            )
-    listed = registry.client.get("/v1/packs/mendari/referral-router/reports")
-    assert listed.status_code == 200
-    assert [s["site"] for s in listed.json()["sites"]] == ["Site A"]
-    assert "c-123" not in listed.text
+        assert db.all("SELECT id FROM hub_site_reports") == []
 
 
 # -- a publisher's content is refused with a reason, never a server error ------------------------

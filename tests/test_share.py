@@ -43,7 +43,16 @@ from mendari.evals.share import (
     unchanged_by_suppression,
 )
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, ROOT, SCREENED, Registry, shared_benchmark
+from tests.conftest import (
+    INBOX_DIR,
+    ROOT,
+    SCREENED,
+    Registry,
+    share_signed,
+    shared_benchmark,
+    site_ticket,
+    verified_site,
+)
 
 PACKS = (
     "ai-guard",
@@ -437,7 +446,7 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     members those are, and refuses member names that are not the pack's own, as it does every
     other name."""
     pack, run = _composite_run(tmp_path)
-    shared = shareable(run.ledger)
+    shared = shareable(run.ledger, remote_consent=True)  # Jev: off the site's machines
     assert shared["providers"] == run.report["providers"]
     received = SiteReportV2.model_validate(shared).providers
     assert received["router"].type == "cascade" and " → " in (received["router"].model or "")
@@ -446,12 +455,11 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     assert composite_members(received["safety_screen"]) == ["rules", "jev"]
 
     assert registry.publish(pack).status_code == 201
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/{pack.id}/{pack.version}/reports"
-    accepted = registry.client.post(
-        path, json={"site": "Site A", "report": shared}, headers=publisher
-    )
+    site = verified_site(registry, tmp_path)
+    accepted = share_signed(registry, site, shared)
     assert accepted.status_code == 201, accepted.text
+    other = verified_site(registry, tmp_path, org="south-clinic")
+    issued = site_ticket(registry, other, shared)
 
     def renamed(slot: str, model: str) -> dict[str, Any]:
         providers = {**shared["providers"], slot: {**shared["providers"][slot], "model": model}}
@@ -467,9 +475,7 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         renamed("safety_screen", screen.replace("jev:", "naive_bayes:")),  # the router's member
     ]
     for body in refused:
-        answer = registry.client.post(
-            path, json={"site": "Site A", "report": body}, headers=publisher
-        )
+        answer = share_signed(registry, other, body, issued)
         assert answer.status_code == 422, answer.text
         assert "a composite member" in answer.text and "Jane" not in answer.text
 
@@ -480,7 +486,7 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
     """Its members cannot be checked, so a report from a composite is refused with the reason
     (publish a new version); a report from single providers is still received."""
     pack, run = _composite_run(tmp_path)
-    shared = shareable(run.ledger)
+    shared = shareable(run.ledger, remote_consent=True)  # Jev: off the site's machines
     assert registry.publish(pack).status_code == 201
     namespace, name = pack.id.split("/")
     key = (namespace, name, pack.version)
@@ -491,8 +497,7 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
         metadata = json.loads(row["metadata"])
         del metadata["names"]["members"]
         db.all(f"UPDATE hub_versions SET metadata = ? {where}", (json.dumps(metadata), *key))
-    publisher = {"authorization": f"Bearer {registry.token}"}
-    path = f"/v1/packs/{pack.id}/{pack.version}/reports"
+    site = verified_site(registry, tmp_path)
     single = {
         **shared,
         "providers": {
@@ -500,13 +505,10 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
             "router": {"variant": "naive_bayes", "type": "naive_bayes", "model": None},
         },
     }
-    answer = registry.client.post(
-        path, json={"site": "Site A", "report": shared}, headers=publisher
-    )
+    answer = share_signed(registry, site, shared)
     assert answer.status_code == 409 and "publish a new version" in answer.text
-    answer = registry.client.post(
-        path, json={"site": "Site A", "report": single}, headers=publisher
-    )
+    single_ticket = site_ticket(registry, site, single, commitment=site.commitment(b"another run"))
+    answer = share_signed(registry, site, single, single_ticket)
     assert answer.status_code == 201, answer.text
 
 

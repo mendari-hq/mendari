@@ -976,7 +976,7 @@ mendari push packs/my-pack --key keys/publisher.key          # build, sign, publ
 mendari pull mendari/referral-router                         # anyone, from that registry
 mendari yank my-site/my-pack@1.0.0 --reason "misroutes refills" --severity high --key keys/publisher.key
 mendari search referral --standard "CDS Hooks"
-mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
+mendari eval mendari/referral-router --dataset local.jsonl --share   # as a verified site
 ```
 
 - **An archive** (`.ohpack`) is deterministic and carries a manifest of file hashes signed with
@@ -1015,9 +1015,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   [SECURITY.md](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
-  a site's counts, never its cases, their ids or a rate, in a closed format the registry checks
-  (`mendari.site-report/2`, small cells suppressed); the registry lists them as unverified
-  until sites sign them.
+  a verified site's counts, never its cases, their ids or a rate, in a closed format the
+  registry checks (`mendari.site-report/2`, small cells suppressed), signed with the site's key
+  and answering a ticket asked for before the run
+  ([Evaluating a pack at your site](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-at-your-site.md)).
 - **What the registry shows** is only what it checked
   ([ADR-0012](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)).
   It renders each version's Decision Card itself, from the files the pack digest covers, and

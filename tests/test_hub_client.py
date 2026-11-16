@@ -470,42 +470,73 @@ def test_an_unreachable_registry_is_reported(capsys: pytest.CaptureFixture[str])
     assert "could not reach the registry" in capsys.readouterr().err
 
 
-def test_eval_share_out_writes_what_would_be_sent_and_sends_nothing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """`--share-out` lets a site read the payload first: no registry, no login, no case id."""
-    out = tmp_path / "share.json"
-    args = ["eval", "mendari/patient-inbox-router", "--dataset", "test", "--limit", "120"]
-    assert main([*args, "--baseline", "none", "--share-out", str(out)]) == 0
-    assert f"wrote the report --share sends to {out}" in capsys.readouterr().err
-    payload = json.loads(out.read_text())
-    assert SiteReportV2.model_validate(payload).dataset.n == 120
-    pack = resolve_pack("mendari/patient-inbox-router")
-    ids = [
-        json.loads(line)["id"]
-        for line in pack.read_bytes("data/test.jsonl").decode().splitlines()
-        if line.strip()
-    ]
-    assert ids and not any(case in out.read_text() for case in ids)
+def _hub_site(hub: Hub, capsys: pytest.CaptureFixture[str]) -> str:
+    """This machine made a verified synthetic site of the hub (`mendari site init`, then the
+    operator's commands), logged in to the hub for its address."""
+    with hub.operator() as store:
+        site = store.register_site(org="north-health", name="North (synthetic)", by="user:1")
+    assert main(["site", "init", "--site", site["id"], "--out", "site-key.json"]) == 0
+    key = json.loads(Path("site-key.json").read_text())
+    with hub.operator() as store:
+        store.add_site_key(site["id"], key["public_pem"], key["proof"], org=None, by="o")
+        store.decide_site(site["id"], verify=True, by="u", note="ok", by_org=None)
+    assert main(["login", "--registry", hub.url]) == 0
+    capsys.readouterr()
+    return str(site["id"])
 
 
-def test_eval_share_sends_the_metrics(
-    hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def _reports(hub: Hub) -> list[dict[str, object]]:
+    with httpx.Client() as http:
+        answer = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()
+    return list(answer["reports"])
+
+
+def test_eval_share_out_writes_exactly_what_is_sent_and_sends_nothing(
+    hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """`--share-out` lets a site read the signed submission first: no report leaves, no case
+    id is in it; `mendari site submit` sends those bytes later (LP-22f)."""
+    monkeypatch.chdir(tmp_path)
     token, key = hub.namespace("mendari")
     hub.client(token).push(resolve_pack("mendari/referral-router"), key)
-    assert main(["login", "--registry", hub.url, "--token", token]) == 0
+    site = _hub_site(hub, capsys)
     dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
-    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "120"]
-    assert main([*args, "--baseline", "none", "--share", "Site B"]) == 0
-    assert "shared with the registry as Site B" in capsys.readouterr().err
+    out = tmp_path / "share.json"
+    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--baseline", "none"]
+    assert main([*args, "--share-out", str(out)]) == 0
+    err = capsys.readouterr().err
+    assert f"wrote the signed submission to {out}" in err and "of 300 right" in err  # a summary
+    written = json.loads(out.read_text())
+    assert written["site"] == site and SiteReportV2.model_validate(written["report"]).dataset.n
+    ids = [json.loads(line)["id"] for line in dataset.read_text().splitlines() if line.strip()]
+    assert ids and not any(case in out.read_text() for case in ids)
+    assert _reports(hub) == []  # nothing sent
+    assert main(["site", "submit", str(out)]) == 0
+    (served,) = _reports(hub)
     with httpx.Client() as http:
-        sites = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()["sites"]
-    assert [(s["site"], s["figures"]["n"]) for s in sites] == [("Site B", 120)]
-    # Under 100 cases a run is not shared, and nothing is sent.
-    short = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "99"]
-    assert main([*short, "--baseline", "none", "--share", "Site C"]) == 1
-    assert "fewer than 100 cases" in capsys.readouterr().err
+        record = http.get(
+            f"{hub.url}/v1/packs/mendari/referral-router/reports/{served['id']}"
+        ).json()["record"]
+    assert record == written  # exactly the bytes it wrote
+    assert served["site"] == site and served["verified"] is True
+
+
+def test_eval_share_sends_the_signed_counts(
+    hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    token, key = hub.namespace("mendari")
+    hub.client(token).push(resolve_pack("mendari/referral-router"), key)
+    site = _hub_site(hub, capsys)
+    dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
+    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--baseline", "none"]
+    assert main([*args, "--share"]) == 0
+    assert "shared report" in capsys.readouterr().err
+    (served,) = _reports(hub)
+    assert (served["site"], served["figures"]["n"]) == (site, 300)  # type: ignore[index]
+    # A shared run covers the whole file: its ticket's commitment is over it.
+    assert main([*args, "--limit", "120", "--share"]) == 1
+    assert "drop --limit" in capsys.readouterr().err
 
 
 def _never_called(request: httpx.Request) -> httpx.Response:

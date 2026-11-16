@@ -110,10 +110,9 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </p>
       <h2>Site reports</h2>
       <p className="muted">
-        A site can share how this pack did on its own data (metrics only; no case leaves the site):{" "}
-        <code>mendari eval {detail.id} --dataset … --share &quot;Your site&quot;</code>. Shared reports are not
-        shown yet: until sites sign what they share, anyone with a publisher token could submit one under
-        any site name.
+        A verified site can share how this pack did on its own data, as signed counts (no case leaves the
+        site): <code>mendari eval {detail.id} --dataset … --share</code>. Site reports are not shown here
+        yet.
       </p>
       <h2>Versions</h2>
       <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>

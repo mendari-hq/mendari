@@ -3436,8 +3436,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and
     consent for a remote arm (`hub/site_signing.py`, `tests/test_site_tickets.py`). `eval
     --share` takes the ticket in 22f, with the submission.
-  - [ ] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
-    offline path (after 19g; one adversarial security review).
+  - [x] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
+    offline path (`hub/site_reports.py`, `tests/test_site_reports.py`, the guide
+    `docs/guides/evaluate-at-your-site.md`).
   - [ ] **22g** Aggregation served per digest and configuration. **22h** the Hub's forest plot,
     apart from every rank (after 19i).
   - [ ] **22i** People register sites in the dashboard and reviewers verify them (after 19d to

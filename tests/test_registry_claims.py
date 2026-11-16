@@ -248,9 +248,7 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
             json={"site": "Site A", "report": report},
             headers=who,
         )
-        assert shared.status_code == (
-            404 if who.get("authorization") == _bearer(registry.token)["authorization"] else 401
-        )
+        assert shared.status_code == 401  # a report is a site's, signed (LP-22f)
     with pytest.raises(HubError, match="no pack acme/inbox"):
         pull("acme/inbox", _client(registry))
     with pytest.raises(HubError, match="no pack acme/inbox"):
@@ -264,7 +262,8 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
     # The store's own answer, whatever route asks (the rule is in the store, not per route).
     with RegistryStore(db_target) as store:
         assert [p["id"] for p in store.latest()] == [REFERRAL.id]
-        assert store.versions("acme", "inbox") == [] and store.reports("acme", "inbox") == []
+        assert store.versions("acme", "inbox") == []
+        assert store.reports("acme", "inbox") == {"reports": [], "superseded": 0}
         assert store.recalled() == [] and len(store.recalled(REVIEWER)) == 1
         for read in (
             lambda: store.namespace("acme"),
@@ -303,7 +302,7 @@ def test_a_pending_namespace_answers_as_one_that_does_not_exist(
         )
         for name in ("acme", "nobody")
     ]
-    assert [a.status_code for a in shared] == [404, 404]
+    assert [a.status_code for a in shared] == [401, 401]  # a site's, signed (LP-22f)
     assert shared[0].text.replace("acme", "NAME") == shared[1].text.replace("nobody", "NAME")
     # And its publisher routes refuse another token as they refuse it for no namespace at all.
     keys = [

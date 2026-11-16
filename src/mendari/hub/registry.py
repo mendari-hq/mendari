@@ -115,15 +115,13 @@ from mendari.evals.share import (
     JOINERS,
     SITE_REPORT_FORMAT,
     SITE_REPORT_V2,
-    SiteReport,
     SiteReportV2,
     composite_members,
-    summary,
-    unchanged_by_suppression,
     where,
 )
 from mendari.hub import acceptance, archive, regression, site_signing, yank
 from mendari.hub import checkpoint as chain_checkpoint
+from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
@@ -262,6 +260,7 @@ CREATE TABLE IF NOT EXISTS hub_acceptances (
 );
 """
     + site_store.SCHEMA
+    + site_report_store.SCHEMA
     + RATE_SCHEMA
 )
 
@@ -356,6 +355,8 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     "sites": ("hub_sites", lambda row: str(row["id"])),
     "site_keys": ("hub_site_keys", lambda row: str(row["key_id"])),
     "tickets": ("hub_tickets", lambda row: str(row["id"])),  # LP-22e
+    "site_reports": ("hub_site_reports", lambda row: str(row["id"])),  # LP-22f
+    "corrections": ("hub_ticket_corrections", lambda row: str(row["ticket"])),
 }
 
 
@@ -517,7 +518,7 @@ def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
     return str(statement["head"])
 
 
-class RegistryStore(RateBuckets, site_store.SiteStore):
+class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteReportStore):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
     ):
@@ -1259,117 +1260,19 @@ class RegistryStore(RateBuckets, site_store.SiteStore):
             raise HubError("archive not found", 404)
         return bytes(row["data"])
 
-    def add_report(
-        self,
-        namespace: str,
-        name: str,
-        version: str,
-        site: str,
-        submitted_by: str,
-        report: SiteReportV2,
-        *,
-        by: str = "operator",
-        viewer: Viewer = PUBLIC,
-    ) -> dict[str, Any]:
-        """A site's evaluation of a published version (`mendari.site-report/2`, already
-        validated: nothing in it but names, flags and whole counts). Refused when the pack does
-        not name what it names, or when `suppress` would change it. `viewer` is the submitter:
-        a version they cannot read answers as one that does not exist."""
-        found = self.version(namespace, name, version, viewer)
-        if (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version):
-            raise HubError("the report is about another pack or version")
-        names = found.get("names")
-        if not isinstance(names, dict):
-            raise HubError(
-                f"{namespace}/{name}@{version} was published before site reports were checked "
-                "against their pack; publish a new version to receive them",
-                409,
-            )
-        composite = any(composite_members(p) is not None for p in report.providers.values())
-        if composite and not isinstance(names.get("members"), dict):
-            raise HubError(
-                f"{namespace}/{name}@{version} was published before reports from composite "
-                "providers were checked against their pack; publish a new version to receive them",
-                409,
-            )
-        problem = _unknown_names(report, names, found.get("primary"))
-        if problem:
-            raise HubError(f"the report names {problem} the pack does not have")
-        if not unchanged_by_suppression(report):
-            raise HubError(
-                "the report shares a cell its suppression rule hides (mendari.site-report/2: "
-                "cells of 1 to 9 and their complements are null; mendari eval --share-out "
-                "writes what is sent)"
-            )
-        shared = report.model_dump(mode="json")
-        report_id = secrets.token_hex(8)
-        with self._db.session(exclusive=True) as db:
-            db.all(
-                "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
-                "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    report_id,
-                    namespace,
-                    name,
-                    version,
-                    site,
-                    submitted_by,
-                    _now(),
-                    json.dumps(shared),
-                ),
-            )
-            record_event(
-                db,
-                "report.shared",
-                _pack_subject(namespace, name, version),
-                {
-                    "report_id": report_id,
-                    "pack": f"{namespace}/{name}",
-                    "version": version,
-                    "site": site,
-                    "submitted_by": submitted_by,
-                    "by": by,
-                },
-                row=("reports", "id = ?", (report_id,)),
-            )
-        return {
-            "id": report_id,
-            "site": site,
-            "version": version,
-            "format": SITE_REPORT_V2,
-            "figures": figures.site(shared),
-        }
-
-    def reports(self, namespace: str, name: str, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
+    def reports(self, namespace: str, name: str, viewer: Viewer = PUBLIC) -> dict[str, Any]:
+        """A pack's signed site reports (LP-22f), for a viewer who reads the pack: each
+        `verified: true`, with its site, key, ticket and figures, and the count of those
+        superseded by a correction. Unsigned reports stored before (`hub_reports`) are kept and
+        no longer served."""
         with self._db.session(exclusive=False) as db:
             if not viewer.reads(namespace, self._unlisted(db)):
-                return []
-            rows = db.all(
-                "SELECT id, version, site, submitted_by, created_at, report FROM hub_reports "
-                "WHERE namespace = ? AND name = ? ORDER BY created_at",
-                (namespace, name),
-            )
-        shown = ("id", "version", "site", "submitted_by", "created_at")
-        listed = []
-        for r in rows:
-            # Unverified: any publisher token may submit under any site name until sites sign
-            # what they share (LP-22f). The Hub does not show them.
-            row = {**{k: r[k] for k in shown}, "verified": False}
-            try:  # counts only (LP-22c): every figure computed here, from the counts
-                counted = SiteReportV2.model_validate_json(r["report"]).model_dump(mode="json")
-                listed.append({**row, "format": SITE_REPORT_V2, "figures": figures.site(counted)})
-                continue
-            except ValidationError:
-                pass
-            # A row stored before LP-22c (mendari.site-report/1) is served as it was; one stored
-            # before reports were checked may hold case ids or be malformed: it is not served.
-            try:
-                report = SiteReport.model_validate_json(r["report"])
-            except ValidationError:
-                continue
-            shared = report.model_dump(mode="json")
-            listed.append({**row, "format": SITE_REPORT_FORMAT, **summary(shared)})
-        return listed
+                return {"reports": [], "superseded": 0}
+        listed = self.site_reports(namespace, name)
+        return {
+            "reports": listed,
+            "superseded": sum(1 for report in listed if report["superseded_by"] is not None),
+        }
 
     def review(
         self,
@@ -2031,11 +1934,6 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
 MAX_REPORT_BYTES = 2_000_000
 
 
-class ReportRequest(BaseModel):
-    site: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
-    report: SiteReportV2
-
-
 class PublisherTypeRequest(BaseModel):
     publisher_type: PublisherType
 
@@ -2436,13 +2334,24 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         and no secret is served."""
         return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
 
+    @app.get("/v1/packs/{namespace}/{name}/reports/{report_id}")
+    def signed_report(
+        request: Request, namespace: str, name: str, report_id: str
+    ) -> dict[str, Any]:
+        """One signed site report as received (LP-22f): the site's signed record, to check
+        against the site's key (`GET /v1/sites/{id}`)."""
+        with store._db.session(exclusive=False) as db:
+            if not viewer_of(request).reads(namespace, store._unlisted(db)):
+                raise HubError("no such report", 404)
+        return store.signed_report(namespace, name, report_id)
+
     @app.get("/v1/packs/{namespace}/{name}/reports")
     def reports(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """Each site's shared results, version by version (unverified until sites sign them)."""
         viewer = viewer_of(request)
         if not store.versions(namespace, name, viewer):
             raise HubError(f"no pack {namespace}/{name}", 404)
-        return {"id": f"{namespace}/{name}", "sites": store.reports(namespace, name, viewer)}
+        return {"id": f"{namespace}/{name}", **store.reports(namespace, name, viewer)}
 
     @app.get("/v1/packs/{namespace}/{name}/{version}")
     def pack_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
@@ -2483,16 +2392,25 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     async def add_report(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
-        """A site shares its local evaluation (`mendari.site-report/2`, checked before anything
-        is stored; `/1` is refused with the format to send). Any publisher token may submit;
-        the site name is the site's choice, so reports are listed as unverified. The token is
-        checked before the body is read, and the body is read only up to `MAX_REPORT_BYTES`."""
-        token = bearer(request)
-        submitter = publisher_namespace(token, used=True) if token else None
-        if submitter is None:
-            raise HTTPException(401, "a registry token is required to share a report")
-        # A version in a namespace that is not listed: its own token's only.
-        viewer = Viewer(namespace=submitter)
+        """A site shares one evaluation (LP-22f): a `mendari.site-submission/1` it signed,
+        sent with its ticket's one-time secret as the bearer credential, which is checked
+        before a byte of the body is read; then at most `MAX_REPORT_BYTES`, and every check of
+        `hub/site_reports.py`. A publisher token no longer shares a report. Nothing refused is
+        echoed. Chained `report.shared` and `site.ticket_reported`."""
+        secret = bearer(request)
+        ticket = await run_in_threadpool(store.ticket_for_secret, secret)
+        if ticket is None:
+            if secret and publisher_namespace(secret) is not None:
+                raise HTTPException(
+                    401,
+                    "a publisher token no longer shares a report: a site signs what it shares "
+                    "(`mendari site init`, then `mendari eval --share`)",
+                )
+            raise HTTPException(
+                401,
+                "a site report is sent with its ticket's secret (`mendari eval --share`, "
+                "`mendari site submit`)",
+            )
         body = bytearray()
         async for chunk in request.stream():
             body += chunk
@@ -2505,25 +2423,23 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         except ValueError:
             problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
             raise RequestValidationError([problem]) from None
-        old = parsed.get("report") if isinstance(parsed, dict) else None
+        if not isinstance(parsed, dict):
+            raise HubError(f"the body is a {site_signing.SUBMISSION} record")
+        old = parsed.get("report")
         if isinstance(old, dict) and old.get("format") == SITE_REPORT_FORMAT:
             raise HubError(
                 f"{SITE_REPORT_FORMAT} is no longer taken: send {SITE_REPORT_V2} (whole counts "
                 "only; mendari eval --share sends it)"
             )
-        try:
-            shared = ReportRequest.model_validate(parsed)
-        except ValidationError as error:
-            raise RequestValidationError(error.errors()) from None
-        return store.add_report(
-            namespace,
-            name,
-            version,
-            shared.site,
-            submitter,
-            shared.report,
-            by=actor(request),
-            viewer=viewer,
+        return await run_in_threadpool(
+            lambda: store.accept_submission(
+                namespace,
+                name,
+                version,
+                parsed,
+                ticket_id=str(ticket["id"]),
+                by=f"site:{ticket['site']}",
+            )
         )
 
     async def site_record_body(request: Request, format: str) -> dict[str, Any]:

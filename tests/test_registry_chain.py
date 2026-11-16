@@ -15,7 +15,7 @@ from mendari.cli import main
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
-from tests.conftest import Registry, shared_benchmark
+from tests.conftest import Registry, share_signed, shared_benchmark, verified_site
 
 REFERRAL = resolve_pack("mendari/referral-router")
 VERSION_PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
@@ -36,19 +36,18 @@ def _write(db_target: str, sql: str, params: tuple[Any, ...] = ()) -> None:
         db.all(sql, params)
 
 
-def _share(registry: Registry) -> None:
-    report = shared_benchmark()
-    shared = registry.client.post(
-        f"{VERSION_PATH}/reports",
-        json={"site": "Site A", "report": report},
-        headers={"authorization": f"Bearer {registry.token}"},
-    )
+def _share(registry: Registry, directory: Path) -> None:
+    """A verified synthetic site shares the benchmark's counts, signed (LP-22f)."""
+    site = verified_site(registry, directory)
+    shared = share_signed(registry, site, shared_benchmark())
     assert shared.status_code == 201, shared.text
 
 
-def test_every_write_is_chained_and_the_chain_verifies(registry: Registry, db_target: str) -> None:
+def test_every_write_is_chained_and_the_chain_verifies(
+    registry: Registry, db_target: str, tmp_path: Path
+) -> None:
     assert registry.publish().status_code == 201
-    _share(registry)
+    _share(registry, tmp_path)
     registry.operator.set_publisher_type("mendari", "verified", by="operator")
     registry.operator.review(
         "mendari", "referral-router", REFERRAL.version, risk_level=1, note="checked",
@@ -60,7 +59,12 @@ def test_every_write_is_chained_and_the_chain_verifies(registry: Registry, db_ta
         "token.issued",
         "key.added",
         "pack.published",
+        "site.registered",
+        "site.key_added",
+        "site.verified",
+        "site.ticket_issued",
         "report.shared",
+        "site.ticket_reported",
         "namespace.publisher_type_set",
         "pack.reviewed",
     ]
@@ -81,7 +85,7 @@ def test_every_write_is_chained_and_the_chain_verifies(registry: Registry, db_ta
         "ok": True,
         "seq": None,
         "problem": None,
-        "events": 7,
+        "events": 12,
         "head": events[-1]["hash"],
     }
 
@@ -175,7 +179,10 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the site_keys have no chained event",
         ),
         (
-            ("UPDATE hub_sites SET status = ?, decided_by = ?", ("verified", "user:planted")),
+            (
+                "UPDATE hub_sites SET status = ?, decided_by = ? WHERE status = 'pending'",
+                ("verified", "user:planted"),
+            ),
             "1 of the sites changed since their chained event",
         ),
     ],
@@ -199,13 +206,17 @@ PLANTED = "2026-01-01T00:00:00+00:00"
     ],
 )
 def test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify(
-    registry: Registry, db_target: str, tamper: tuple[str, tuple[Any, ...]], problem: str
+    registry: Registry,
+    db_target: str,
+    tamper: tuple[str, tuple[Any, ...]],
+    problem: str,
+    tmp_path: Path,
 ) -> None:
     """The adversarial review of LP-18b: `verify` checked only that rows were named. Each row
     the chain covers must now be the row its newest event hashed: a write straight to the
     database (a planted, changed, moved or removed row, an archive's bytes) is found."""
     assert registry.publish().status_code == 201
-    _share(registry)
+    _share(registry, tmp_path)
     with RegistryStore(db_target) as store:  # a pending claim (LP-19c): its row is covered too
         store.claim("acme", org="acme", by="user:3f9a")
         store.register_site(org="acme", name="Acme (synthetic)", by="user:3f9a")  # LP-22d

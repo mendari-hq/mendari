@@ -222,6 +222,59 @@ def shared_benchmark(pack_id: str = "mendari/referral-router") -> dict[str, Any]
     return shareable(Ledger.loads(path.read_bytes()))
 
 
+def verified_site(registry: Registry, directory: Path, *, org: str = "north-health") -> Any:
+    """A verified synthetic site with one key (LP-22): its files in `directory`."""
+    from mendari.hub.site_signing import Site, init_site
+
+    store = registry.operator
+    record = store.register_site(org=org, name=f"{org} (synthetic)", by="user:1")
+    made = init_site(record["id"], directory=directory / f"site-{record['id']}")
+    store.add_site_key(record["id"], made["public_pem"], made["proof"], org=None, by="o")
+    store.decide_site(record["id"], verify=True, by="user:reviewer", note="ok", by_org=None)
+    return Site(directory / f"site-{record['id']}")
+
+
+def site_ticket(
+    registry: Registry, site: Any, report: dict[str, Any], **changes: Any
+) -> dict[str, Any]:
+    """A ticket for sharing `report` (a mendari.site-report/2): bound to its pack, its
+    configuration, its n and consent, and a commitment the site makes (here to any bytes)."""
+    from mendari.hub import site_signing
+
+    fields: dict[str, Any] = {
+        "pack": report["pack"],
+        "configuration": {slot: p["variant"] for slot, p in report["providers"].items()},
+        "remote_consent": report["remote_consent"],
+        "commitment": site.commitment(json.dumps(report["dataset"]).encode()),
+        "n": report["dataset"]["n"],
+    }
+    fields.update(changes)
+    answer = registry.client.post(
+        "/v1/tickets", json={"record": site.sign(site_signing.TICKET_REQUEST, fields)}
+    )
+    assert answer.status_code == 201, answer.text
+    return dict(answer.json())
+
+
+def share_signed(
+    registry: Registry, site: Any, report: dict[str, Any], issued: dict[str, Any] | None = None
+) -> Any:
+    """Ask for a ticket (unless given one) and send `report` signed as its answer: the
+    response of `POST .../reports`."""
+    from mendari.hub import site_signing
+
+    issued = issued or site_ticket(registry, site, report)
+    record = site.sign(
+        site_signing.SUBMISSION, {"ticket": issued["ticket"]["id"], "report": report}
+    )
+    pack = report["pack"]
+    return registry.client.post(
+        f"/v1/packs/{pack['id']}/{pack['version']}/reports",
+        json=record,
+        headers={"authorization": f"Bearer {issued['submit_secret']}"},
+    )
+
+
 SCREENED = {"safety_screen": "rules_and_jev"}
 
 
