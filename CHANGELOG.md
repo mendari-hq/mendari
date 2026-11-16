@@ -821,6 +821,20 @@ The first release (not yet published).
   `site-revoke-key`, `site-close` and `sites`, each chained with who ran it and why.
   `GET /v1/sites/{id}` serves a verified site's name, status and key ids. A publisher key that
   is a site's key is refused, and the reverse. The chain covers both new tables.
+- **The site evaluation network: tickets before a run** (LP-22e, ADR-0017 Proposed; no report
+  is taken differently yet). A verified site asks for a ticket with a request signed by its own
+  key (`mendari.site-ticket-request/1`, a prefix and formats of its own, so no other Mendari
+  signature is a site's): bound to the pack's digest, the configuration, the dataset's size and
+  an HMAC of the dataset under a secret that never leaves the site. The registry checks the key,
+  the signature, the clock, the nonce, that the version is published, listed and not recalled
+  with that digest, that the configuration is the pack's, that a remote one carries the site's
+  consent, and that no live ticket or report holds the same site, digest, configuration and
+  dataset; it answers with a one-time submission secret. Tickets last 30 days, and every ticket
+  with no result stays counted (`GET /v1/packs/{namespace}/{name}/tickets`). On the site:
+  `mendari site init`, `site key --new` and `site ticket` (the deterministic arm unless
+  `--provider` names variants, a remote one only with `--consent-remote`). A version published
+  from now records its composite members' provider types, so the registry can tell a local
+  composite from a remote one.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

@@ -122,7 +122,7 @@ from mendari.evals.share import (
     unchanged_by_suppression,
     where,
 )
-from mendari.hub import acceptance, archive, regression, yank
+from mendari.hub import acceptance, archive, regression, site_signing, yank
 from mendari.hub import checkpoint as chain_checkpoint
 from mendari.hub import sites as site_store
 from mendari.server.app import HSTS, SECURITY_HEADERS
@@ -355,6 +355,7 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     # Sites and their keys (LP-22d, hub/sites.py).
     "sites": ("hub_sites", lambda row: str(row["id"])),
     "site_keys": ("hub_site_keys", lambda row: str(row["key_id"])),
+    "tickets": ("hub_tickets", lambda row: str(row["id"])),  # LP-22e
 }
 
 
@@ -1992,6 +1993,21 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
                 }
                 for slot, provider in m.providers.items()
             },
+            # Each composite variant's members' provider types, in order (LP-22e): what a
+            # ticket's configuration is checked against to tell a local one from a remote one.
+            "member_types": {
+                slot: {
+                    variant: [
+                        str(member.get("type"))
+                        for member in members.values()
+                        if isinstance(member, dict)
+                    ]
+                    for variant, v in provider.variants.items()
+                    if v.type in JOINERS
+                    and isinstance(members := (v.model_extra or {}).get("members"), dict)
+                }
+                for slot, provider in m.providers.items()
+            },
         },
         "standards": sorted(
             [
@@ -2083,6 +2099,12 @@ def _body_of(model: type[BaseModel]) -> dict[str, Any]:
     }
 
 
+class SignedRecordRequest(BaseModel):
+    """A site's signed record (`hub/site_signing.py`): a ticket request or a withdrawal."""
+
+    record: dict[str, Any]
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
@@ -2100,8 +2122,13 @@ REGISTRY_RATES: dict[str, Rate] = {
     "registry_read": Rate(600, 60, 200),  # per address
     "registry_write": Rate(120, 3600, 30),  # per namespace, or address without a token
     "registry_report": Rate(60, 3600, 10),  # a site's report, per namespace
+    # A site's ticket requests and withdrawals (LP-22e): per address before the signature is
+    # checked, and per site key after.
+    "registry_ticket": Rate(60, 3600, 10),
+    "registry_ticket_key": Rate(20, 3600, 5),
 }
 _REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
+_TICKETS = re.compile(r"^/v1/tickets(?:/[^/]+/withdraw)?$")
 
 
 def _answer_headers(request: Request) -> dict[str, str]:
@@ -2150,6 +2177,8 @@ def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[s
     root = str(request.scope.get("root_path", ""))
     path = str(request.scope["path"])
     path = path[len(root) :] if root and path.startswith(root) else path
+    if _TICKETS.match(path):  # a site signs, it has no token: per address
+        return "registry_ticket", f"ip:{client_ip(request)}"
     kind = "registry_report" if _REPORTS.match(path) else "registry_write"
     return kind, key
 
@@ -2400,6 +2429,13 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "latest": served(live[-1], viewer) if live else None,
         }
 
+    @app.get("/v1/packs/{namespace}/{name}/tickets")
+    def pack_tickets(request: Request, namespace: str, name: str) -> dict[str, Any]:
+        """A pack's tickets by verified site, digest and configuration: how many were
+        reported, are unreported (open or expired) and were withdrawn (LP-22e). No commitment
+        and no secret is served."""
+        return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
+
     @app.get("/v1/packs/{namespace}/{name}/reports")
     def reports(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """Each site's shared results, version by version (unverified until sites sign them)."""
@@ -2489,6 +2525,48 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             by=actor(request),
             viewer=viewer,
         )
+
+    async def site_record_body(request: Request, format: str) -> dict[str, Any]:
+        """A site's signed record, read up to `site_store.MAX_TICKET_BYTES`, then its key and
+        signature checked before the per-key rate is counted (LP-22e)."""
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > site_store.MAX_TICKET_BYTES:
+                raise HTTPException(413, "the record is too large")
+        try:
+            parsed = SignedRecordRequest.model_validate(from_json(bytes(body), allow_inf_nan=False))
+        except ValueError:
+            problem = {"type": "json_invalid", "loc": ("body",), "msg": "not a signed record"}
+            raise RequestValidationError([problem]) from None
+        key_id = await run_in_threadpool(store.site_signer, parsed.record, format)
+        if limiter.on:
+            refused = await run_in_threadpool(
+                lambda: limiter.hit("registry_ticket_key", f"site-key:{key_id}")
+            )
+            if refused is not None:
+                raise HTTPException(
+                    429,
+                    f"too many requests ({refused.limit})",
+                    {"Retry-After": str(refused.retry_after)},
+                )
+        return parsed.record
+
+    @app.post("/v1/tickets", status_code=201, openapi_extra=_body_of(SignedRecordRequest))
+    async def request_ticket(request: Request) -> dict[str, Any]:
+        """A verified site asks for a ticket before it evaluates (LP-22e): a
+        `mendari.site-ticket-request/1` it signed (`hub/site_signing.py`). The answer holds the
+        ticket and its one-time submission secret, shown once. Chained `site.ticket_issued`."""
+        record = await site_record_body(request, site_signing.TICKET_REQUEST)
+        return await run_in_threadpool(store.request_ticket, record)
+
+    @app.post("/v1/tickets/{ticket_id}/withdraw", openapi_extra=_body_of(SignedRecordRequest))
+    async def withdraw_ticket(request: Request, ticket_id: str) -> dict[str, Any]:
+        """A site gives up one of its open tickets (a signed
+        `mendari.site-ticket-withdrawal/1`). It stays listed, withdrawn. Chained
+        `site.ticket_withdrawn`."""
+        record = await site_record_body(request, site_signing.TICKET_WITHDRAWAL)
+        return await run_in_threadpool(store.withdraw_ticket, ticket_id, record)
 
     @app.get("/v1/sites/{site_id}")
     def site(site_id: str) -> dict[str, Any]:

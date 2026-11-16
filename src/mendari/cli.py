@@ -2184,6 +2184,119 @@ def cmd_registry_sites(args: argparse.Namespace) -> int:
     return 0
 
 
+def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool) -> dict[str, str]:
+    """The configuration a site evaluates and shares (LP-22e): the variants `--provider` names
+    (with the pack's defaults for the other slots), or with none named the deterministic arm,
+    the pack's defaults when they are local and else its first wholly local configuration. A
+    configuration that calls anything off the site's machines needs `--consent-remote`."""
+    from mendari.evals import arms
+
+    # Only what --provider names: never $MENDARI_PROVIDERS, a deployment's setting.
+    settings = parse_providers(providers) if providers else {}
+    chosen = _providers(pack, settings, typed=bool(providers))
+    decision = Decision(pack, providers=chosen)
+    configuration = {slot: info.variant for slot, info in decision.provider_info.items()}
+    found = {tuple(c.providers.items()): c for c in arms.configurations(pack)}
+    local = found[tuple(configuration.items())].local
+    if not providers and not local:
+        deterministic = [c for c in found.values() if c.local]
+        if not deterministic:
+            raise MendariError(
+                f"{pack.id} has no configuration that runs wholly on this machine: name one "
+                "with --provider, and --consent-remote"
+            )
+        return dict(deterministic[0].providers)
+    if not local and not consent:
+        raise MendariError(
+            "this configuration calls a provider off this machine: a site shares it only with "
+            "--consent-remote (recorded in the ticket and the report)"
+        )
+    return configuration
+
+
+def cmd_site_init(args: argparse.Namespace) -> int:
+    """Make this machine a site's (LP-22e): its id (the registry gives it when the site is
+    registered), a new private key and a commitment secret, written private (0600) in the
+    configuration directory; none of them ever leaves the site. Writes the key file to give the
+    registry (`--out`, default `site-key.json`): the public key and its proof."""
+    from mendari.hub.site_signing import init_site
+
+    made = init_site(args.site, new_key=args.command_name == "key")
+    out = Path(args.out)
+    out.write_text(json.dumps(made, indent=2) + "\n", encoding="utf-8")
+    _print_json({key: made[key] for key in ("site", "key_id")})
+    print(
+        f"wrote {out}: give it to the registry (`mendari registry site-key --key {out}`, or the "
+        "dashboard's Sites tab). The private key and the commitment secret stay here.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_site_key(args: argparse.Namespace) -> int:
+    """A new key for this site (`--new`), the id and commitment secret kept: register it, then
+    revoke the old one (`mendari registry site-revoke-key`, or the dashboard)."""
+    from mendari.hub.site_signing import Site
+
+    if not args.new:
+        raise MendariError("`mendari site key --new` makes a new key; nothing else is asked")
+    args.site = Site().id
+    args.command_name = "key"
+    return cmd_site_init(args)
+
+
+def _ticket_request(args: argparse.Namespace) -> dict[str, Any]:
+    """A signed ticket request for a run of `args.pack` on `args.dataset` (LP-22e)."""
+    from mendari.evals import resolve_dataset
+    from mendari.hub import site_signing
+
+    site = site_signing.Site()
+    pack = resolve_pack(args.pack)
+    configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
+    dataset = resolve_dataset(pack, args.dataset)
+    # The whole file: the commitment is over its bytes, so it binds every case the run reads.
+    raw = dataset.path.read_bytes() if dataset.path.is_file() else b""
+    if not raw:
+        raise MendariError(f"{args.dataset}: a site's dataset is a file it holds")
+    fields = {
+        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "configuration": configuration,
+        "remote_consent": bool(args.consent_remote),
+        "commitment": site.commitment(raw),
+        "n": len(dataset.records),
+    }
+    return site.sign(site_signing.TICKET_REQUEST, fields)
+
+
+def cmd_site_ticket(args: argparse.Namespace) -> int:
+    """Ask the registry for a ticket before evaluating (LP-22e): signed with this site's key,
+    bound to the pack's digest, the configuration, the dataset's size and a keyed commitment to
+    the dataset (an HMAC under the site's secret; the file's own hash never leaves). The ticket
+    and its one-time submission secret are kept private here (`tickets/ID.json`). With --out
+    the signed request is written to carry to a machine that reaches the registry, and nothing
+    is sent."""
+    from mendari.hub import client as hub_client
+
+    request = _ticket_request(args)
+    if args.out:
+        Path(args.out).write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote the signed ticket request to {args.out} (nothing sent)", file=sys.stderr)
+        return 0
+    with _registry_client(args) as registry:
+        issued = registry.request_ticket(request)
+    ticket = issued["ticket"]
+    if not re.fullmatch(r"[0-9a-f]{16}", str(ticket.get("id", ""))):  # it names a file here
+        raise MendariError("the registry answered with a ticket id that is not one")
+    hub_client._write_private(hub_client.config_dir() / "tickets" / f"{ticket['id']}.json", issued)
+    _print_json(ticket)
+    print(
+        f"ticket {ticket['id']} kept with its submission secret in "
+        f"{hub_client.config_dir() / 'tickets'}; it lasts 30 days",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def _registry_version(spec: str) -> tuple[str, str, str]:
     """`namespace/name@version`, as every pull names a version."""
     match = re.fullmatch(r"([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)@([0-9A-Za-z.+-]+)", spec)
@@ -4019,6 +4132,44 @@ def build_parser() -> argparse.ArgumentParser:
     verify_pack.add_argument("--public-key", required=True, help="publisher public key (PEM)")
     verify_pack.set_defaults(handler=cmd_pack_verify)
 
+    site_cmd = sub.add_parser(
+        "site", help="this machine as an evaluating site (LP-22): its key, tickets"
+    ).add_subparsers(dest="site_command", required=True)
+    site_init = site_cmd.add_parser(
+        "init", help="make this machine a site's: a key and a commitment secret, kept here"
+    )
+    site_init.add_argument("--site", required=True, help="the site's id, from the registry")
+    site_init.add_argument(
+        "--out", default="site-key.json", help="the key file to give the registry"
+    )
+    site_init.set_defaults(handler=cmd_site_init, command_name="init")
+    site_key_cmd = site_cmd.add_parser("key", help="a new key for this site (--new)")
+    site_key_cmd.add_argument("--new", action="store_true", help="make a new key")
+    site_key_cmd.add_argument(
+        "--out", default="site-key.json", help="the key file to give the registry"
+    )
+    site_key_cmd.set_defaults(handler=cmd_site_key)
+    site_ticket = site_cmd.add_parser(
+        "ticket", help="ask the registry for a ticket before an evaluation (signed)"
+    )
+    site_ticket.add_argument("pack", help="pack id (namespace/name[@version])")
+    site_ticket.add_argument("--dataset", required=True, help="the site's labelled cases (JSONL)")
+    site_ticket.add_argument(
+        "--provider",
+        action="append",
+        metavar="SLOT=VARIANT",
+        help="a variant for a slot (default: the deterministic arm)",
+    )
+    site_ticket.add_argument(
+        "--consent-remote",
+        action="store_true",
+        help="the configuration may call a provider off this machine (recorded)",
+    )
+    site_ticket.add_argument("--registry", help="registry URL (default: logged into)")
+    site_ticket.add_argument(
+        "--out", metavar="FILE", help="write the signed request to FILE and send nothing"
+    )
+    site_ticket.set_defaults(handler=cmd_site_ticket)
     registry_cmd = sub.add_parser("registry", help="the pack registry service").add_subparsers(
         dest="registry_command", required=True
     )

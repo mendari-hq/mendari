@@ -26,15 +26,22 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import json
 import re
 import secrets
-from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
 from mendari.errors import HubError
-from mendari.hub import archive
+from mendari.evals.share import MIN_DATASET, Name, SharedPack
+from mendari.hub import archive, site_signing
 
 if TYPE_CHECKING:
     from mendari.core.db import Backend, Session
@@ -111,6 +118,159 @@ def _keys(db: Session, site_id: str) -> list[dict[str, Any]]:
         (site_id,),
     )
     return [{**row, "compromised": bool(row["compromised"])} for row in rows]
+
+
+TICKET_DAYS = 30  # owner decision 5: a ticket lasts 30 days; an unreported one is listed for good
+MAX_TICKET_BYTES = 8_000
+NOT_A_SITE_KEY = "the record is not signed with a live key of a verified site"
+_TICKET_FIELDS = (
+    "id, site, key_id, namespace, name, version, digest, configuration, remote_consent, "
+    "commitment, n, created_at, expires_at, status"  # never the secret's hash or the nonce
+)
+
+TICKET_SCHEMA = """
+CREATE TABLE IF NOT EXISTS hub_tickets (
+    id              TEXT PRIMARY KEY,
+    site            TEXT NOT NULL,
+    key_id          TEXT NOT NULL,
+    namespace       TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    version         TEXT NOT NULL,
+    digest          TEXT NOT NULL,
+    configuration   TEXT NOT NULL,
+    remote_consent  INTEGER NOT NULL,
+    commitment      TEXT NOT NULL,
+    n               INTEGER NOT NULL,
+    nonce           TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    submit_sha256   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hub_site_nonces (
+    site        TEXT NOT NULL,
+    nonce       TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (site, nonce)
+);
+"""
+SCHEMA += TICKET_SCHEMA
+
+
+class _Record(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    site: str
+    key_id: str
+    nonce: str
+    at: str
+    signature: str
+
+
+class TicketWithdrawal(_Record):
+    """A signed `mendari.site-ticket-withdrawal/1` (closed)."""
+
+    format: Literal["mendari.site-ticket-withdrawal/1"]
+    ticket: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
+
+
+def _refuse_skew(record: Mapping[str, Any]) -> None:
+    if site_signing.skewed(record):
+        raise HubError(
+            f"the record's time is more than {site_signing.MAX_SKEW_S} seconds from the "
+            "registry's clock"
+        )
+
+
+class TicketRequest(_Record):
+    """A signed `mendari.site-ticket-request/1`: its common fields are checked by
+    `site_signing.shape_problem`, its own here (closed)."""
+
+    format: Literal["mendari.site-ticket-request/1"]
+    pack: SharedPack
+    configuration: Annotated[dict[Name, Name], Field(min_length=1, max_length=64)]
+    remote_consent: bool
+    commitment: Annotated[str, Field(pattern=r"^hmac-sha256:[0-9a-f]{64}$")]
+    n: Annotated[int, Field(ge=MIN_DATASET, le=10**9)]
+
+
+def _iso(when: datetime) -> str:
+    return when.isoformat(timespec="seconds")
+
+
+def _canonical_text(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _status(row: Mapping[str, Any], now: str) -> str:
+    """A ticket's status as read: `expired` is worked out from its dates, never written (the
+    chain refuses a row that changes without an event)."""
+    if row["status"] == "open" and str(row["expires_at"]) <= now:
+        return "expired"
+    return str(row["status"])
+
+
+def _ticket_shown(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        **{k: row[k] for k in row if k not in ("configuration", "remote_consent")},
+        "configuration": json.loads(row["configuration"]),
+        "remote_consent": bool(row["remote_consent"]),
+        "status": _status(row, _iso(datetime.now(UTC))),
+    }
+
+
+def configuration_problem(configuration: Mapping[str, str], names: Mapping[str, Any]) -> str | None:
+    """Why a configuration is not one of the version's (None: it is): each of its slots,
+    once, with a variant the version declares (`names.slots`, recorded at publish)."""
+    slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
+    if set(configuration) != set(slots):
+        return "must name a variant for each of the pack's provider slots"
+    if any(variant not in slots[slot] for slot, variant in configuration.items()):
+        return "names a variant the pack does not declare"
+    return None
+
+
+def wholly_local(configuration: Mapping[str, str], names: Mapping[str, Any]) -> bool:
+    """Whether every provider a configuration runs decides on the site's machines: a local
+    type, or a composite whose members' types (`names.member_types`, recorded at publish since
+    LP-22e) all are. A composite of a version published before that counts as remote, as
+    `evals.arms.remote_types` counts a composite whose members cannot be read."""
+    slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
+    members: Mapping[str, Mapping[str, list[str]]] = names.get("member_types") or {}
+    for slot, variant in configuration.items():
+        kind = slots[slot][variant]
+        if kind in LOCAL_PROVIDER_TYPES:
+            continue
+        types = members.get(slot, {}).get(variant)
+        if kind not in COMPOSITE_PROVIDER_TYPES or not types:
+            return False
+        if not all(t in LOCAL_PROVIDER_TYPES for t in types):
+            return False
+    return True
+
+
+def _recall_free(db: Session, namespace: str, name: str, version: str) -> bool:
+    """Whether a version is still neither yanked nor deleted (read again in the writing
+    transaction)."""
+    key = (namespace, name, version)
+    where = "WHERE namespace = ? AND name = ? AND version = ?"
+    return not (
+        db.one(f"SELECT version FROM hub_yanks {where}", key)
+        or db.one(f"SELECT version FROM hub_deletions {where}", key)
+    )
+
+
+def live_result(db: Session, site: str, digest: str, configuration: str, commitment: str) -> bool:
+    """Whether a site holds a live result for a digest, configuration and dataset: an open
+    ticket not yet expired, a reported one (whose report LP-22f may supersede), or a withdrawn
+    one: withdrawing a ticket never frees its dataset for a second run (the adversarial review
+    of LP-22e). An expired ticket stays counted as unreported, for good."""
+    now = _iso(datetime.now(UTC))
+    rows = db.all(
+        "SELECT status, expires_at FROM hub_tickets WHERE site = ? AND digest = ? AND "
+        "configuration = ? AND commitment = ?",
+        (site, digest, configuration, commitment),
+    )
+    return any(_status(row, now) in ("open", "reported", "withdrawn") for row in rows)
 
 
 class SiteStore:
@@ -366,3 +526,273 @@ class SiteStore:
                 return False
             claim = db.one("SELECT org FROM hub_claims WHERE namespace = ?", (namespace,))
         return claim is not None and claim["org"] == site["org"]
+
+    # -- tickets (LP-22e) --------------------------------------------------------------------
+
+    def _signer(self, db: Session, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The site key that signed `record`, when it is a live key of the verified site the
+        record names (else None: one answer for every way it is not, so none is told apart)."""
+        if not db.columns("hub_site_keys"):
+            return None
+        key = db.one(
+            f"SELECT {_KEY_FIELDS} FROM hub_site_keys WHERE key_id = ?", (record["key_id"],)
+        )
+        if key is None or key["site"] != record["site"] or key["revoked_at"] is not None:
+            return None
+        site = _site_row(db, key["site"])
+        if site is None or site["status"] != "verified":
+            return None
+        return {**key, "org": site["org"], "site_name": site["name"]}
+
+    def _checked_record(
+        self, db: Session, record: Mapping[str, Any], format: str
+    ) -> dict[str, Any]:
+        """A site record's key, signature, time and nonce, in that order (LP-22e): the key is
+        a live key of a verified site, the signature is that key's over the record's exact
+        fields, the time is within the skew, and the nonce is new for the site (it is spent
+        here, in the caller's transaction)."""
+        problem = site_signing.shape_problem(record, format)
+        if problem:
+            raise HubError(f"not a {format} record: {problem}")
+        signer = self._signer(db, record)
+        if signer is None:
+            raise HubError(NOT_A_SITE_KEY, 403)
+        public = archive.load_public_key(str(signer["public_pem"]).encode())
+        if not site_signing.signature_holds(record, public):
+            raise HubError("the record's signature does not hold", 403)
+        _refuse_skew(record)
+        # Nonces older than twice the skew can never be sent again (their record's time is
+        # refused), so they are forgotten (the adversarial review of LP-22e).
+        forget = datetime.now(UTC) - timedelta(seconds=2 * site_signing.MAX_SKEW_S)
+        db.all("DELETE FROM hub_site_nonces WHERE created_at < ?", (_iso(forget),))
+        if db.one(
+            "SELECT nonce FROM hub_site_nonces WHERE site = ? AND nonce = ?",
+            (record["site"], record["nonce"]),
+        ):
+            raise HubError("that record was sent before (its nonce is used)", 409)
+        db.all(
+            "INSERT INTO hub_site_nonces (site, nonce, created_at) VALUES (?, ?, ?)",
+            (record["site"], record["nonce"], _iso(datetime.now(UTC))),
+        )
+        return signer
+
+    def site_signer(self, record: Any, format: str) -> str:
+        """The key id of a site record signed with a live key of a verified site, within the
+        clock skew and with a nonce not yet used (read only: the write spends it), for the
+        per-key rate a route applies before the write. Refused as the write refuses, so an old
+        or replayed record, which anyone who saw it could send, never counts against the key
+        (the adversarial review of LP-22e)."""
+        problem = site_signing.shape_problem(record, format)
+        if problem:
+            raise HubError(f"not a {format} record: {problem}")
+        with self._db.session(exclusive=False) as db:
+            signer = self._signer(db, record)
+            used = signer is not None and db.one(
+                "SELECT nonce FROM hub_site_nonces WHERE site = ? AND nonce = ?",
+                (record["site"], record["nonce"]),
+            )
+        if signer is None:
+            raise HubError(NOT_A_SITE_KEY, 403)
+        public = archive.load_public_key(str(signer["public_pem"]).encode())
+        if not site_signing.signature_holds(record, public):
+            raise HubError("the record's signature does not hold", 403)
+        _refuse_skew(record)
+        if used:
+            raise HubError("that record was sent before (its nonce is used)", 409)
+        return str(signer["key_id"])
+
+    def request_ticket(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """Issue a ticket for a signed `mendari.site-ticket-request/1` (LP-22e). Checked in this
+        order: the record's fields; the key is a live key of a verified site; the signature;
+        the clock skew; the nonce is new for the site; the version is published, listed, not
+        recalled or deleted, and its digest is the one sent; the configuration is the version's
+        (each of its slots, a variant it declares); a configuration that is not wholly local
+        carries the site's consent; n is enough; no live ticket or report holds the same site,
+        digest, configuration and commitment. Returns the ticket and its one-time submission
+        secret, shown once (stored as its SHA-256). Chained `site.ticket_issued`."""
+        from mendari.hub.registry import record_event
+
+        try:
+            request = TicketRequest.model_validate(record)
+        except ValidationError:
+            raise HubError(
+                f"not a {site_signing.TICKET_REQUEST} record: its fields are the pack (id, "
+                "version, digest), the configuration, remote_consent, the commitment and n"
+            ) from None
+        namespace, name = request.pack.id.split("/")
+        # Who signed, first, before anything about the pack is answered; the nonce is spent
+        # here whatever follows, so a refused request is signed again, never replayed.
+        with self._db.session(exclusive=True) as db:
+            signer = self._checked_record(db, record, site_signing.TICKET_REQUEST)
+        try:  # as the public reads it: an unlisted namespace's version does not exist
+            found = self.version(namespace, name, request.pack.version)  # type: ignore[attr-defined]
+        except HubError:
+            raise HubError("no such published version", 404) from None
+        if found.get("yank") or found.get("deleted"):
+            raise HubError("that version is recalled: it takes no evaluation", 409)
+        if found.get("digest") != request.pack.digest:
+            raise HubError("the digest is not the published version's", 409)
+        names = found.get("names") or {}
+        problem = configuration_problem(request.configuration, names)
+        if problem:
+            raise HubError(f"the configuration {problem}")
+        if not request.remote_consent and not wholly_local(request.configuration, names):
+            raise HubError(
+                "this configuration calls a provider off the site's machines: it needs the "
+                "site's consent (remote_consent, `--consent-remote`)",
+                409,
+            )
+        configuration = _canonical_text(request.configuration)
+        with self._db.session(exclusive=True) as db:
+            # Checked again where the ticket is written: the key, the site and the listing
+            # may have changed since (the adversarial review of LP-22e).
+            if self._signer(db, record) is None:
+                raise HubError(NOT_A_SITE_KEY, 403)
+            unlisted = db.columns("hub_claims") and db.one(
+                "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
+                (namespace,),
+            )
+            if unlisted:
+                raise HubError("no such published version", 404)
+            if not _recall_free(db, namespace, name, request.pack.version):
+                raise HubError("that version is recalled: it takes no evaluation", 409)
+            if live_result(
+                db, request.site, request.pack.digest, configuration, request.commitment
+            ):
+                raise HubError(
+                    "this site has a live ticket or report for this digest, configuration and "
+                    "dataset already: one live result each (a correction names the report it "
+                    "supersedes)",
+                    409,
+                )
+            secret = secrets.token_urlsafe(32)
+            ticket_id = secrets.token_hex(8)
+            created = datetime.now(UTC)
+            db.all(
+                "INSERT INTO hub_tickets (id, site, key_id, namespace, name, version, digest, "
+                "configuration, remote_consent, commitment, n, nonce, created_at, expires_at, "
+                "status, submit_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "'open', ?)",
+                (
+                    ticket_id,
+                    request.site,
+                    request.key_id,
+                    namespace,
+                    name,
+                    request.pack.version,
+                    request.pack.digest,
+                    configuration,
+                    1 if request.remote_consent else 0,
+                    request.commitment,
+                    request.n,
+                    request.nonce,
+                    _iso(created),
+                    _iso(created + timedelta(days=TICKET_DAYS)),
+                    hashlib.sha256(secret.encode()).hexdigest(),
+                ),
+            )
+            record_event(
+                db,
+                "site.ticket_issued",
+                f"site:{request.site}",
+                {
+                    "ticket": ticket_id,
+                    "site": request.site,
+                    "org": signer["org"],
+                    "key_id": request.key_id,
+                    "pack": request.pack.id,
+                    "version": request.pack.version,
+                    "digest": request.pack.digest,
+                },
+                row=("tickets", "id = ?", (ticket_id,)),
+            )
+        return {"ticket": self.ticket(ticket_id), "submit_secret": secret}
+
+    def withdraw_ticket(self, ticket_id: str, record: Mapping[str, Any]) -> dict[str, Any]:
+        """A site gives up an open ticket with a signed `mendari.site-ticket-withdrawal/1` (any
+        live key of the ticket's site). It stays listed, as withdrawn. Chained
+        `site.ticket_withdrawn`."""
+        from mendari.hub.registry import record_event
+
+        try:
+            withdrawal = TicketWithdrawal.model_validate(record)
+        except ValidationError:
+            raise HubError(
+                f"not a {site_signing.TICKET_WITHDRAWAL} record: its one field is the ticket"
+            ) from None
+        if withdrawal.ticket != ticket_id:
+            raise HubError("the withdrawal names another ticket")
+        with self._db.session(exclusive=True) as db:
+            signer = self._checked_record(db, record, site_signing.TICKET_WITHDRAWAL)
+            ticket = db.one(
+                "SELECT site, status, expires_at FROM hub_tickets WHERE id = ?", (ticket_id,)
+            )
+            if ticket is None or ticket["site"] != signer["site"]:
+                raise HubError("no such ticket", 404)
+            # An expired ticket is not withdrawn: it stays unreported, for good (the
+            # adversarial review of LP-22e: withdrawing it would hide the run).
+            status = _status(ticket, _iso(datetime.now(UTC)))
+            if status != "open":
+                raise HubError(f"the ticket is {status}", 409)
+            db.all("UPDATE hub_tickets SET status = 'withdrawn' WHERE id = ?", (ticket_id,))
+            record_event(
+                db,
+                "site.ticket_withdrawn",
+                f"site:{signer['site']}",
+                {"ticket": ticket_id, "site": signer["site"], "org": signer["org"]},
+                row=("tickets", "id = ?", (ticket_id,)),
+            )
+        return self.ticket(ticket_id)
+
+    def ticket(self, ticket_id: str) -> dict[str, Any]:
+        """A ticket as its site sees it: never its secret's hash or its nonce."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(f"SELECT {_TICKET_FIELDS} FROM hub_tickets WHERE id = ?", (ticket_id,))
+        if row is None:
+            raise HubError("no such ticket", 404)
+        return _ticket_shown(row)
+
+    def pack_tickets(self, namespace: str, name: str) -> list[dict[str, Any]]:
+        """What a pack's tickets say, for anyone (LP-22e): per site that was issued any (a
+        closed one too, with its status: closing a site never hides what it did not report),
+        digest, configuration and consent, how many tickets were reported, are unreported
+        (open, or expired with no report) and were withdrawn, with the first and last dates.
+        No commitment, no secret. A pack the public cannot read is a 404."""
+        if not self.versions(namespace, name):  # type: ignore[attr-defined]
+            raise HubError("no such pack", 404)
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_tickets"):
+                return []
+            rows = db.all(
+                "SELECT t.site, t.version, t.digest, t.configuration, t.remote_consent, "
+                "t.status, t.created_at, t.expires_at, s.name AS site_name, "
+                "s.status AS site_status FROM hub_tickets t JOIN hub_sites s ON s.id = t.site "
+                "WHERE t.namespace = ? AND t.name = ? AND s.status IN ('verified', 'closed') "
+                "ORDER BY t.created_at, t.id",
+                (namespace, name),
+            )
+        now = _iso(datetime.now(UTC))
+        groups: dict[tuple[str, str, str, int], dict[str, Any]] = {}
+        for row in rows:
+            key = (row["site"], row["digest"], row["configuration"], int(row["remote_consent"]))
+            group = groups.setdefault(
+                key,
+                {
+                    "site": row["site"],
+                    "site_name": row["site_name"],
+                    "site_status": row["site_status"],
+                    "version": row["version"],
+                    "digest": row["digest"],
+                    "configuration": json.loads(row["configuration"]),
+                    "remote_consent": bool(row["remote_consent"]),
+                    "reported": 0,
+                    "unreported": 0,
+                    "withdrawn": 0,
+                    "first": row["created_at"],
+                    "last": row["created_at"],
+                },
+            )
+            status = _status(row, now)
+            group["unreported" if status in ("open", "expired") else status] += 1
+            group["last"] = row["created_at"]
+        return list(groups.values())

@@ -179,6 +179,9 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): ("report.shared",),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    # A verified site, signing with its own key (LP-22e).
+    (REGISTRY, "POST", "/v1/tickets"): ("site.ticket_issued",),
+    (REGISTRY, "POST", "/v1/tickets/{ticket_id}/withdraw"): ("site.ticket_withdrawn",),
     # The registry under the engine (LP-19d): an organization's administrators, in the
     # registry's own chain. The mounted registry's routes are the registry's, above.
     (ENGINE, "POST", "/api/registry/namespaces"): ("namespace.created", "namespace.claimed"),
