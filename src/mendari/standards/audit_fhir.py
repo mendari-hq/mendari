@@ -396,6 +396,10 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     # Its authors' keys (LP-20f): the key's id and who acted.
     "store_key.added": ("C", "Pack store author key registered", None),
     "store_key.revoked": ("U", "Pack store author key revoked", None),
+    # Its datasets and evaluation jobs (LP-20g): ids, a SHA-256 and counts, never a case.
+    "store_dataset.created": ("C", "Pack store dataset added", None),
+    "store_dataset.held": ("U", "Pack store dataset held for the operator's review", None),
+    "store_job.created": ("C", "Pack store evaluation job made", None),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (
