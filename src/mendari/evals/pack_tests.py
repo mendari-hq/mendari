@@ -3,15 +3,13 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
-from mendari.core import input_schema
 from mendari.core.decision import Decision
-from mendari.core.origin import bounded_reader, shape_problem
-from mendari.core.pack import Pack, manifest_template_problems, not_json
-from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S, OutOfTime, time_budget
+from mendari.core.origin import bounded_reader
+from mendari.core.pack import Pack, not_json
+from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -114,93 +112,24 @@ def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None
 
 
 def validate_pack(pack: Pack) -> None:
-    """`mendari validate`: the CDS Hooks prefetch and card templates are relative reads and
-    searches and bare placeholders (`manifest_template_problems`), every provider variant passes
-    its closed config (`providers.config_problems`; both are what `load_pack` warns an owned
-    pack of, `Pack.warnings`, and refuses a pack the deployment does not own for) and builds,
-    the FHIR mapping (if any) loads and its Task text uses bare placeholders, the behaviour
-    tests' inputs match the input schema, and every declared dataset is one the pack can
-    evaluate (`dataset_problems`); a `PackValidationError` otherwise."""
-    from mendari.providers import build_provider, config_problems
+    """`mendari validate` (`evals/validation.py`, the one validation function, LP-20b)."""
+    from mendari.evals.validation import validate
 
-    # Every template's and variant's problems, each naming it; the trained files are read
-    # whatever the pack was loaded with. Then what only a build finds: the deployment's model
-    # settings.
-    problems = manifest_template_problems(pack.manifest) + config_problems(pack)
-    if problems:
-        raise PackValidationError(pack.id, problems)
-    for slot, spec in pack.manifest.providers.items():
-        for variant in spec.variants:
-            build_provider(pack, slot, variant)
-    if pack.manifest.inputs.fhir:
-        from mendari.standards.fhir import FhirAdapter
-
-        # Parse and check the mapping, not only that it exists; its Task text bare, whoever
-        # owns the pack.
-        FhirAdapter.for_pack(pack, bare=True)
-    problems = input_problems(pack) + dataset_problems(pack)
-    if problems:
-        raise PackValidationError(pack.id, problems)
-
-
-# At most this many problems are named per dataset; the rest are counted.
-MAX_DATASET_PROBLEMS = 10
+    validate(pack)
 
 
 def dataset_problems(pack: Pack) -> list[str]:
-    """Every dataset `evaluation.datasets` declares reads as JSON Lines, each input matches the
-    input schema as a decision checks it, and each record's labels are the pack's questions and
-    labels (`record_problems`). Problems name the file and the case id, never its text."""
-    from mendari.errors import MendariError
-    from mendari.evals.harness import record_problems, resolve_dataset
+    """`validation.dataset_problems`, as lines."""
+    from mendari.evals.validation import dataset_problems
 
-    decision = Decision(pack)
-    problems: list[str] = []
-    for name, path in pack.manifest.evaluation.datasets.items():
-        try:
-            dataset = resolve_dataset(pack, name)
-        except MendariError as error:
-            problems.append(str(error))
-            continue
-        found = [f"{path}: {problem}" for problem in record_problems(pack.manifest, dataset)]
-        for record in dataset.records:
-            refused = decision.validate(record["input"])
-            if refused:
-                found.append(f"{path} case {record['id']}: input {refused[0]}")
-        problems += found[:MAX_DATASET_PROBLEMS]
-        if len(found) > MAX_DATASET_PROBLEMS:
-            problems.append(f"{path}: and {len(found) - MAX_DATASET_PROBLEMS} more problems")
-    return problems
+    return [str(problem) for problem in dataset_problems(pack)]
 
 
 def input_problems(pack: Pack) -> list[str]:
-    """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
-    otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
-    text split into extra keys)."""
-    bounded = pack.bounded  # on the community engine, as in a decision
-    reader = bounded_reader(pack.id, pack.origin)
-    validator = input_schema.validator(pack.input_schema, formats=False, community=bounded)
-    problems = []
-    for number, case in enumerate(load_cases(pack), start=1):
-        if (case.get("expect") or {}).get("outcome") == "BLOCK":
-            continue  # a test of the input contract itself
-        where = f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')})"
-        shape = shape_problem(case.get("input"), reader) if bounded else None
-        if shape is not None:
-            problems.append(f"{where}: its input is too large: {shape}")
-            continue
-        try:  # such a pack's schema runs within the time budget a decision gives it
-            with time_budget() if bounded else nullcontext():
-                for error in validator.iter_errors(case.get("input")):
-                    problems.append(f"{where}: input {error.message}")
-        except OutOfTime as error:
-            problems.append(f"{where}: checking its input against the schema stopped: {error}")
-        except (RecursionError, OverflowError):
-            problems.append(
-                f"{where}: the schema cannot check its input: it is nested too deep, or holds a "
-                "number too large"
-            )
-    return problems
+    """`validation.input_problems`, as lines."""
+    from mendari.evals.validation import input_problems
+
+    return [str(problem) for problem in input_problems(pack)]
 
 
 def run_pack_tests(decision: Decision) -> list[CaseOutcome]:

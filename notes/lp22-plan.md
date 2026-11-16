@@ -308,8 +308,10 @@ Every PR:
     - `tests/test_registry.py::test_the_registry_computes_every_rate_it_shows`;
     - `tests/test_registry.py::test_a_site_report_of_the_old_format_is_refused_and_names_the_new_one`.
   - **Safe alone because:** it only narrows what leaves a site and what the registry takes.
-    No public registry exists (`docs/operations/registry.md:10`), so no deployed client loses
-    a path; an older client is told which format to send.
+    (Corrected 2026-11-16: a registry runs under the engine in production since 2026-11-15,
+    holding only published packs. No site has shared a report there, so no client loses a
+    path in use; an older client is told which format to send. The merge reaches production
+    when it redeploys.)
   - **Breaking:** for the command line (the payload's format). `CHANGELOG.md` says so.
   - **Threat model:** I24.
 
@@ -665,7 +667,8 @@ No LP-22 PR fills in an attestation or marks an owner prerequisite met.
     (`notes/vision-audit.md:272`). Default: LP-22 does not change what may automate; the signed
     report's id is what the owner's attestation cites. (decision 10)
 15. **Old reports.** Default: unsigned rows stay stored, chained and unserved; none is
-    converted or deleted. No hosted registry exists, so this touches local databases only.
+    converted or deleted. (Corrected 2026-11-16: the production registry, live since
+    2026-11-15, held no site report when LP-22 was built.)
     (22f)
 
 ## Owner steps (not done by any PR)
@@ -746,8 +749,9 @@ No LP-22 PR fills in an attestation or marks an owner prerequisite met.
    lost commitment secret cannot be recovered, and old commitments can no longer be re-proved.
 7. **`registry.py` is being rewritten by LP-19.** LP-22's code lives in new modules, and the
    merge order above keeps each edit to that file small.
-8. **Breaking the command line twice** (22c, then 22e and 22f). No hosted registry exists, and
-   each change is named in the changelog with what to run instead.
+8. **Breaking the command line twice** (22c, then 22e and 22f). Each change is named in the
+   changelog with what to run instead. (Corrected 2026-11-16: a registry runs in production
+   since 2026-11-15; each step reaches it on a redeploy, with the owner's yes.)
 9. **Parallel lanes and ids.** ADR-0017 and the ten threat rows were free at ca7e016b only;
    LP-20's plan picks its own at the same time.
 
