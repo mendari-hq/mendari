@@ -328,6 +328,18 @@ class RegistryClient:
         response = self._http.post(path, json={"site": site, "report": dict(shared)})
         return dict(self._json(response))
 
+    def request_ticket(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """Send a signed `mendari.site-ticket-request/1` (LP-22e): the ticket and its one-time
+        submission secret come back."""
+        return dict(self._json(self._http.post("/v1/tickets", json={"record": dict(record)})))
+
+    def withdraw_ticket(self, ticket_id: str, record: Mapping[str, Any]) -> dict[str, Any]:
+        response = self._http.post(f"/v1/tickets/{ticket_id}/withdraw", json={"record": record})
+        return dict(self._json(response))
+
+    def pack_tickets(self, pack_id: str) -> list[dict[str, Any]]:
+        return list(self._get(f"/v1/packs/{pack_id}/tickets")["tickets"])
+
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}
         response = self._http.post(f"/v1/namespaces/{namespace}/keys", json=body)

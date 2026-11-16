@@ -3424,8 +3424,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     row within its n), not only subtraction.
   - [x] **22d** Sites and site keys in the registry's store, and the operator's commands
     (`hub/sites.py`, `tests/test_registry_sites.py`; `GET /v1/sites/{id}`).
-  - [ ] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and
-    consent for a remote arm.
+  - [x] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and
+    consent for a remote arm (`hub/site_signing.py`, `tests/test_site_tickets.py`). `eval
+    --share` takes the ticket in 22f, with the submission.
   - [ ] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
     offline path (after 19g; one adversarial security review).
   - [ ] **22g** Aggregation served per digest and configuration. **22h** the Hub's forest plot,

@@ -27,7 +27,7 @@ mendari registry verify --db var/registry.db                # read-only; exit 1 
 | Setting | Default | What it does |
 |---|---|---|
 | `MENDARI_REGISTRY_SIGNING_KEY` | unset: the registry recalls nothing itself and counter-signs nothing | 32 random bytes in base64, the Ed25519 key that signs the registry's own recalls (a reviewer's or the operator's) and counter-signs each version the registry lists ([below](#the-counter-signature)), published at `GET /v1/registry-key`. It is read when it is used, not at startup: after setting it, check that `GET /v1/registry-key` answers `200` with its id. |
-| `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per namespace (burst 30; all of a namespace's tokens share it), site reports 60 an hour per namespace (burst 10). A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
+| `MENDARI_REGISTRY_RATE_LIMITS` | `on` | `on`, `log` (count, never refuse) or `off`, then overrides such as `registry_write=240/h:40`. The defaults: reads 600 a minute per address (burst 200), writes 120 an hour per namespace (burst 30; all of a namespace's tokens share it), site reports 60 an hour per namespace (burst 10), site ticket requests and withdrawals 60 an hour per address (burst 10) before the signature is read and 20 an hour per site key (burst 5) after. A token the registry did not issue counts against its sender's address. A bad value stops the registry. |
 | `MENDARI_REGISTRY_REGRESSION` | `on` | `off` publishes without the regression check. |
 
 `MENDARI_REGISTRY_ADMIN_TOKEN` is no longer read (LP-19g). Set, the registry logs once at
@@ -373,6 +373,35 @@ that does not exist. Check who an organization is outside Mendari before verifyi
 a site's name is as good as that check. A site whose organization holds a pack's namespace (its
 claim) is the publisher's own site for that pack: its reports are listed and left out of the
 pool.
+
+### Tickets
+
+Before a site evaluates a pack it asks for a ticket (`mendari site ticket`, LP-22e): a
+`mendari.site-ticket-request/1` signed with one of its live keys, bound to the pack's digest,
+the configuration (each slot's variant), the dataset's size and a keyed commitment to the
+dataset (an HMAC under a secret that never leaves the site; the dataset's own hash is never
+sent). `POST /v1/tickets` reads at most 8 KB and checks, in order: the key is a live key of a
+verified site; the signature; the clock (10 minutes either way); the nonce is new for the site;
+the version is published, listed, not recalled or deleted, and its digest is the one sent; the
+configuration names a variant the version declares for each of its slots; a configuration that
+is not wholly local carries the site's consent; at least 100 cases; and no live ticket or report
+holds the same site, digest, configuration and commitment. The answer holds the ticket and a
+one-time submission secret (stored as its SHA-256), shown once. A ticket lasts 30 days; that
+it expired is worked out on read, never written. A site gives up a ticket with a signed
+withdrawal (`POST /v1/tickets/{id}/withdraw`); it stays listed. Chained `site.ticket_issued`
+and `site.ticket_withdrawn`.
+
+`GET /v1/packs/{namespace}/{name}/tickets` lists, per verified site, digest and configuration,
+how many tickets were reported, are unreported (open, or expired with no report) and were
+withdrawn, with the first and last dates: a ticket with no result stays counted for good. No
+commitment and no secret is served.
+
+On the site's machine (`mendari site`): `init --site ID` makes its key and commitment secret
+in the client's configuration directory (mode 0600) and writes the key file the registry takes;
+`key --new` makes a new key; `ticket PACK --dataset FILE` asks for a ticket (the deterministic
+arm unless `--provider` names variants; a remote one needs `--consent-remote`), keeping the
+ticket and its secret there too, or with `--out FILE` writes the signed request to carry to a
+machine that reaches the registry.
 
 ## Registry reviewers
 
