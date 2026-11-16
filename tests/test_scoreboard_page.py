@@ -211,3 +211,13 @@ def test_the_draft_legend_follows_the_effective_date(monkeypatch: pytest.MonkeyP
     legend = "measured before the method's effective date, 2026-12-15."
     assert f'- **"{scoreboard.DRAFT}":** {legend}' in text
     assert "the method has no effective date yet." not in text
+
+
+def test_the_page_points_to_site_evidence_and_ranks_none_of_it(text: str) -> None:
+    """LP-22h: sites' own evaluations are on the Hub, beside each pack; the page says so in one
+    sentence (it is made from the repository alone, so it names no registry's address) and
+    carries none of their figures."""
+    assert page_script.SITE_EVIDENCE in text
+    assert text.count("Site evidence") == 1
+    assert "site-evidence" not in text and "signed counts, are shown on the Hub" in text
+    assert "http" not in page_script.SITE_EVIDENCE

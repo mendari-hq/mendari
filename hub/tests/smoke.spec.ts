@@ -159,3 +159,38 @@ test("pages fit a phone", async ({ page }) => {
     expect(fits, path).toBe(true);
   }
 });
+
+// Site evidence (LP-22h): two synthetic sites shared signed counts of the Referral Router
+// (scripts/hub_seed.py --sites); its own section, apart from the registry's checks and any rank.
+test("a pack page shows site evidence in its own section: sites, cases, a plot and its table", async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.goto("/packs/mendari/referral-router");
+  const section = page.getByRole("region", { name: /^Site evidence/ });
+  await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence: 2 sites, 900 cases");
+  await expect(section).toContainText("not part of any hidden-set result or rank");
+  await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText("2 sites, 900 cases");
+  const plot = section.getByRole("img", { name: /accuracy of next_step: 2 sites/ });
+  await expect(plot).toBeVisible();
+  const table = section.getByRole("table").first();
+  await expect(table.getByRole("rowheader")).toHaveText([
+    "North Health (synthetic)",
+    "South Clinic (synthetic)",
+    "Pooled (fixed effect, summed counts)",
+    "Random effects (DerSimonian-Laird)",
+  ]);
+  await expect(table).toContainText(/\d+ of 600 \[[<\d.]+-[>\d.]+%\]/);
+  await expect(table).toContainText(/\d+ of 900 \[/);
+  await expect(table).toContainText("insufficient evidence (needs 3 sites)");
+  // No bare percentage anywhere in the section: every share is k of n with its interval.
+  const text = (await section.innerText()).replace(/\[[^[\]]*\]/g, "");
+  expect(text.split("\n").filter((line) => line.includes("%"))).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("a pack no site has evaluated says so in words", async ({ page }) => {
+  await page.goto("/packs/mendari/ai-guard");
+  const section = page.getByRole("region", { name: /^Site evidence/ });
+  await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence");
+  await expect(section).toContainText("No site has shared signed counts for version");
+  await expect(section.getByRole("img")).toHaveCount(0);
+});

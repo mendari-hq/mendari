@@ -56,6 +56,15 @@ WEB_BEGIN = (
 )
 WEB_END = "<!-- End of the scores scripts/scoreboard_page.py generates. -->"
 WEB_INDENT = " " * 6  # inside <section id="scores">
+# Sites' own evaluations (LP-22, ADR-0017): shown on the Hub beside each pack, never here. The
+# page is made from the repository alone, so it names no registry's address (conflict 6 of
+# notes/lp22-plan.md: the sentence, and no link).
+SITE_EVIDENCE = (
+    "Sites' own evaluations of a pack, shared as signed counts, are shown on the Hub, in each "
+    "pack's Site evidence section. None of them is on this page, in any table or any grade: "
+    "sites choose their own cases, and a ticket binds a dataset before its run, not how its "
+    "cases were chosen."
+)
 # Written in place of a configuration that calls a remote type whose disclosure is not stated.
 WITHHELD = "withheld: disclosure pending"
 
@@ -114,6 +123,8 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "    Every set here is public: it is in the repository and in the package, so anything "
         "can be tuned to it. Each table is a regression check, not a ranking. No figure orders "
         "its columns, and nothing here is graded: grades are given only on frozen hidden sets.",
+        "",
+        SITE_EVIDENCE,
         "",
         f"- **{_counted(len(current), 'current result')}** "
         f"({_counted(len(later), 'superseded result')} listed at the end), "
