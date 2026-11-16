@@ -7,7 +7,10 @@
 // (`#registry-review`), for a person who holds `registry_review` in the registry's review
 // organization (`/api/auth/me` says `registry_review_org`): the namespace claims waiting, each
 // version with what the registry checked beside what its publisher claims, the card the registry
-// rendered as plain text, and Approve or Refuse with a one-line note.
+// rendered as plain text, and Approve or Refuse with a one-line note; and the evaluating sites
+// waiting (LP-22i), each verified or refused with a note. A third tab, Sites, registers this
+// organization's sites and adds or revokes their keys from the key file `mendari site init`
+// writes (a site's private key is never typed here).
 // Namespaces, names, notes, ids and cards are what people typed or a publisher uploaded: always
 // escaped, and a card is only ever text (`textContent`), never markup.
 
@@ -34,12 +37,15 @@ extendAdmin({
   tabs: [
     { key: "namespaces", label: "Namespaces", shown: accounts, load: () => api("/api/registry/namespaces"), show: showNamespaces },
     { key: "publisher-tokens", label: "Publisher tokens", shown: accounts, load: () => api("/api/registry/tokens"), show: showTokens },
+    { key: "sites", label: "Sites", shown: accounts, load: () => api("/api/registry/sites"), show: showSites },
   ],
   actions: {
     "add-key": ["namespaces", addKey],
     "revoke-token": ["publisher-tokens", revokeToken],
+    "add-site-key": ["sites", addSiteKey],
+    "revoke-site-key": ["sites", revokeSiteKey],
   },
-  forms: { "claim-form": claim, "mint-form": mint },
+  forms: { "claim-form": claim, "mint-form": mint, "site-form": registerSite },
 });
 
 // Who made or claimed something, by their id: you, a member by name, else the id one hover away
@@ -268,6 +274,147 @@ async function revokeToken(token) {
   await reload("publisher-tokens");
 }
 
+// -- sites (LP-22i) -----------------------------------------------------------------------------
+// An evaluating site of this organization (LP-22, ADR-0017): registered here, verified by the
+// registry's reviewers, signing with keys its own machine made (`mendari site init`). A site's
+// private key is never typed or made on this page: it asks for the key file that command wrote.
+
+const MAX_SITE_NAME = 120;
+
+const SITE_STATUS = {
+  pending: ["Waiting for the registry's review", "s-warning"],
+  verified: ["Verified", "s-ok"],
+  refused: ["Refused", "o-ABSTAIN"],
+  closed: ["Closed", "o-ABSTAIN"],
+};
+
+const siteBadge = (status) => badge(...(SITE_STATUS[status] ?? [status, ""]), status);
+
+function siteWaits(site) {
+  if (site.status === "pending") return "It gets no ticket and shares nothing until a reviewer verifies it.";
+  if (site.status === "verified") return "It may ask for tickets and share signed counts.";
+  if (site.status === "refused") return site.note ? `Refused: ${esc(site.note)}` : "Refused by the registry's reviewers.";
+  return "Closed: it shares nothing again; what it shared stays.";
+}
+
+function siteKeys(site) {
+  if (!site.keys.length) return '<span class="muted">None yet</span>';
+  return site.keys.map((k) => {
+    const state = k.revoked_at
+      ? `<span class="muted">revoked ${esc(time(k.revoked_at))}${k.compromised ? ", as compromised: its reports leave the pooled figures" : ""}</span>`
+      : `<span class="muted">added ${esc(time(k.created_at))}</span> <button type="button" data-action="revoke-site-key" data-id="${esc(site.id)}" data-key="${esc(k.key_id)}" aria-label="${esc(`Revoke key ${k.key_id} of ${site.name}`)}">Revoke…</button>`;
+    return `<code class="wrap">${esc(k.key_id)}</code> ${state}`;
+  }).join("<br>");
+}
+
+function showSites() {
+  const form = `<form class="panel admin-form" id="site-form" novalidate>
+      <h2>Register a site</h2>
+      <p class="muted">A place that evaluates packs on its own chart-reviewed cases and shares signed counts, never cases. It is shown by this name once the registry's reviewers verify it.</p>
+      <label for="site-name">Name</label>
+      <input id="site-name" name="name" required maxlength="${MAX_SITE_NAME}" autocomplete="off" class="field-full">
+      <p class="error" id="site-error" role="alert" hidden></p>
+      <div class="row mt-4"><button type="submit" class="primary">Register</button></div>
+    </form>`;
+  const sites = lists.sites ?? [];
+  if (!sites.length) {
+    return form + emptyState({ icon: "inbox", title: "No sites yet", text: "Register one with the form above, then add the key file its machine makes with <code>mendari site init</code>." });
+  }
+  return form + tableHtml({
+    id: "sites",
+    caption: `Sites${ofOrg()}, oldest first`,
+    columns: [
+      { key: "name", label: "Site", sort: (x) => x.name.toLowerCase(), cell: (x) => `${esc(x.name)}<br><code class="muted">${esc(x.id)}</code>` },
+      { key: "status", label: "Status", sort: (x) => x.status, cell: (x) => `${siteBadge(x.status)}<br><span class="muted">${siteWaits(x)}</span>` },
+      { key: "registered", label: "Registered", sort: (x) => x.created_at, cell: (x) => `${esc(time(x.created_at))}<br><span class="muted">by ${person(x.created_by)}</span>` },
+      { key: "keys", label: "Keys", cell: siteKeys },
+      {
+        key: "actions", label: "Actions", className: "actions",
+        cell: (x) => (["refused", "closed"].includes(x.status) ? "" : actionButton("add-site-key", x.id, `Add key to ${x.name}`, "Add key…")),
+      },
+    ],
+    rows: sites,
+  });
+}
+
+async function registerSite(event) {
+  event.preventDefault();
+  const form = event.target;
+  const error = form.querySelector("#site-error");
+  error.hidden = true;
+  const input = form.querySelector("#site-name");
+  input.value = input.value.trim();
+  if (!form.reportValidity()) return;
+  try {
+    await whileBusy(form.querySelector('button[type="submit"]'), "Registering…", () =>
+      api("/api/registry/sites", { method: "POST", body: JSON.stringify({ name: input.value }) }));
+  } catch (failure) {
+    if (!form.isConnected) throw failure;
+    error.textContent = failure.message;
+    error.hidden = false;
+    input.focus();
+    return;
+  }
+  toast(`${input.value} is registered. It is waiting for the registry's review.`);
+  if (form.isConnected) form.reset();
+  await reload("sites");
+}
+
+async function addSiteKey(site) {
+  const added = await actionDialog({
+    title: `Add a key to ${site.name}`,
+    body: `<p>Paste the key file <code>mendari site init --site ${esc(site.id)}</code> wrote on the site's machine (<code>site-key.json</code>): its public key and the proof that the machine holds the private one. The private key never leaves that machine.</p>
+      <label for="site-key-file">Key file</label>
+      <textarea id="site-key-file" class="mono field-full" rows="8" spellcheck="false" placeholder='{"format": "mendari.site-key/1", ...}'></textarea>`,
+    action: "Add key",
+    run: (form) => {
+      let file;
+      try {
+        file = JSON.parse(form.querySelector("#site-key-file").value);
+      } catch {
+        throw new Error("Paste the whole key file: it is JSON.");
+      }
+      if (typeof file?.public_pem !== "string" || typeof file?.proof !== "string") {
+        throw new Error("This is not a site key file: it has no public key and proof.");
+      }
+      if (file.site && file.site !== site.id) throw new Error("This key file was made for another site.");
+      return api(`/api/registry/sites/${encodeURIComponent(site.id)}/keys`, {
+        method: "POST", body: JSON.stringify({ public_pem: file.public_pem, proof: file.proof }),
+      });
+    },
+  });
+  if (!added) return;
+  toast(`A key is added to ${site.name}.`);
+  await reload("sites");
+}
+
+async function revokeSiteKey(site, button) {
+  const keyId = button.dataset.key;
+  const revoked = await actionDialog({
+    title: `Revoke key ${keyId}?`,
+    body: `<p>${esc(site.name)} can no longer sign with it, from now. This can't be undone; add another key if the site needs one.</p>
+      <label for="site-key-reason">Why (one line)</label>
+      <input id="site-key-reason" class="field-full" maxlength="${MAX_NOTE}" autocomplete="off">
+      <fieldset class="role-choices mt-3"><legend>Compromised?</legend><label>
+        <input type="checkbox" id="site-key-compromised">
+        <span>The key may have been copied: take every report it signed out of the pooled figures</span>
+      </label></fieldset>`,
+    action: "Revoke",
+    danger: true,
+    run: (form) => {
+      const reason = form.querySelector("#site-key-reason").value.trim();
+      if (!reason) throw new Error("Say why, in one line.");
+      const compromised = form.querySelector("#site-key-compromised").checked;
+      return api(`/api/registry/sites/${encodeURIComponent(site.id)}/keys/${encodeURIComponent(keyId)}`, {
+        method: "DELETE", body: JSON.stringify({ reason, compromised }),
+      });
+    },
+  });
+  if (!revoked) return;
+  toast(`Key ${keyId} is revoked.`);
+  await reload("sites");
+}
+
 // -- the registry's review ----------------------------------------------------------------------
 
 const reviewer = () => signedIn() && state.me?.registry_review_org === true && may("registry_review");
@@ -275,17 +422,27 @@ const reviewer = () => signedIn() && state.me?.registry_review_org === true && m
 const PUBLISHER_TYPE = { community: "Community", verified: "Verified", institutional: "Institutional" };
 
 let queue = { pending: [], more: 0 };
+let siteQueue = { pending: [], more: 0 };
 
 views["registry-review"] = async (main) => {
-  queue = await api("/api/registry/review");
+  [queue, siteQueue] = await Promise.all([api("/api/registry/review"), api("/api/registry/review/sites")]);
   main.innerHTML = `<h1>Registry review</h1>
     <p class="muted">Namespace claims waiting for a reviewer. Approving lists the namespace: every version it has and will have is served to everyone. What the registry checked stands apart from what the publisher claims. You never decide a claim you filed yourself.</p>
-    <div id="registry-queue">${queueHtml()}</div>`;
+    <div id="registry-queue">${queueHtml()}</div>
+    <h2 class="mt-4" id="site-queue-heading">Sites waiting</h2>
+    <p class="muted">Evaluating sites an organization registered (LP-22). Check outside Mendari that the organization is who it says before you verify its site: its name is shown beside its signed counts. You never decide your own organization's site.</p>
+    <div id="site-queue">${siteQueueHtml()}</div>`;
   const body = $("#registry-queue");
   body.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-review]");
     if (button) decide(button.dataset.namespace, button.dataset.review).catch((error) => toastError(error.message));
   });
+  const sites = $("#site-queue");
+  sites.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-site-review]");
+    if (button) decideSite(button.dataset.site, button.dataset.name, button.dataset.siteReview).catch((error) => toastError(error.message));
+  });
+  wire(sites);
   body.addEventListener("toggle", showCard, true); // `toggle` does not bubble
   wire(body);
 };
@@ -296,6 +453,56 @@ views["registry-review"].available = reviewer;
 views["registry-review"].packless = true;
 
 views["registry-review"].leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
+
+function siteQueueHtml() {
+  if (!siteQueue.pending.length) {
+    return emptyState({ icon: "check", title: "No sites waiting", text: "A site shows here once an organization registers one." });
+  }
+  const more = siteQueue.more ? `<p class="muted mt-3">And ${siteQueue.more} more, older first.</p>` : "";
+  return siteQueue.pending.map((x) => {
+    const id = `site-${slug(x.id)}`;
+    const buttons = x.own
+      ? '<p class="callout neutral">Your organization registered this site: another reviewer decides it.</p>'
+      : `<div class="row mt-4"><button type="button" class="primary" data-site-review="approve" data-site="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Verify ${esc(x.name)}">Verify…</button>
+        <button type="button" data-site-review="refuse" data-site="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Refuse ${esc(x.name)}">Refuse…</button></div>`;
+    return `<article class="panel review-card registry-site" aria-labelledby="${id}">
+      <h3 class="card-title" id="${id}">${esc(x.name)}</h3>
+      <dl class="facts mt-3">
+        <dt>Organization</dt><dd><code>${esc(x.org)}</code></dd>
+        <dt>Registered</dt><dd>${esc(time(x.created_at))}, by <code class="wrap">${esc(x.created_by)}</code></dd>
+        <dt>Keys</dt><dd>${x.keys.length ? x.keys.map((k) => `<code class="wrap">${esc(k)}</code>`).join(", ") : "None yet"}</dd>
+      </dl>${buttons}
+    </article>`;
+  }).join("") + more;
+}
+
+// Verify or refuse a site, with a one-line note its organization sees.
+async function decideSite(siteId, name, decision) {
+  const verify = decision === "approve";
+  const decided = await actionDialog({
+    title: `${verify ? "Verify" : "Refuse"} ${name}?`,
+    body: `<p>${verify
+      ? "The site may ask for tickets and share signed counts, shown by this name on the Hub. Verify it only once you have checked who it is."
+      : "The site gets no ticket and shares nothing. Its organization sees your note."} This is decided once.</p>
+      <label for="site-decision-note">How you checked it (one line)</label>
+      <input id="site-decision-note" class="field-full" maxlength="${MAX_NOTE}" autocomplete="off">`,
+    action: verify ? "Verify" : "Refuse",
+    danger: !verify,
+    run: (form) => {
+      const note = form.querySelector("#site-decision-note").value.trim();
+      return api(`/api/registry/review/sites/${encodeURIComponent(siteId)}`, {
+        method: "POST", body: JSON.stringify({ decision, note }),
+      });
+    },
+  });
+  if (!decided) return;
+  toast(verify ? `${name} is verified.` : `${name} is refused.`);
+  siteQueue = await api("/api/registry/review/sites");
+  const body = $("#site-queue");
+  if (!body) return;
+  body.innerHTML = siteQueueHtml();
+  wire(body);
+}
 
 function queueHtml() {
   if (!queue.pending.length) {

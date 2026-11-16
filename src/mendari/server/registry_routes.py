@@ -81,6 +81,7 @@ DEFAULT_TOKEN_DAYS = 90  # as an engine API key's (`core/audit.py`)
 MAX_LIVE_TOKENS = 20
 MAX_TOKENS_A_DAY = 50
 MAX_KEYS = 20
+MAX_SITES = 20  # an organization's sites (LP-22i): each a row and a chained event, for good
 # What a claim's holder sees of it: never the organization (their own) or a column added later.
 _CLAIM_FIELDS = ("namespace", "status", "claimed_by", "created_at", "decided_at", "note")
 Answer = TypeVar("Answer")
@@ -110,6 +111,44 @@ class PublisherTokenRequest(BaseModel):
     days: int = Field(DEFAULT_TOKEN_DAYS, ge=1, le=MAX_TOKEN_DAYS)
 
     _a_name = field_validator("namespace")(_namespace)
+
+
+class SiteRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120, description="the site's name, as shown")
+
+
+class SiteKeyRequest(BaseModel):
+    """The key file `mendari site init` writes: the site's public key and its proof."""
+
+    public_pem: str = Field(min_length=40, max_length=2000)
+    proof: str = Field(min_length=40, max_length=200)
+
+
+class SiteKeyRevokeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=yank.MAX_REASON)
+    compromised: bool = False
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_a_line(cls, reason: str) -> str:
+        why = yank.printable_line(reason, yank.MAX_REASON)
+        if why or not reason.strip():
+            raise ValueError(f"a reason is {why or 'not only spaces'}")
+        return reason
+
+
+def _site_shown(site: dict[str, Any]) -> dict[str, Any]:
+    """A site as its organization's administrators see it: never its organization (their own)
+    nor a key's PEM (the dashboard shows ids)."""
+    return {
+        **{k: site[k] for k in ("id", "name", "status", "created_at", "created_by", "decided_at")},
+        "note": site.get("note"),
+        "closed_at": site.get("closed_at"),
+        "keys": [
+            {k: key[k] for k in ("key_id", "created_at", "added_by", "revoked_at", "compromised")}
+            for key in site["keys"]
+        ],
+    }
 
 
 def _asked(call: Callable[[], Answer]) -> Answer:
@@ -275,6 +314,77 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
         )
         return Response(status_code=204)
 
+    # -- sites (LP-22i) ---------------------------------------------------------------------
+
+    @app.get("/api/registry/sites", tags=[TAG], summary="List this organization's sites")
+    def sites(request: Request) -> list[dict[str, Any]]:
+        """This organization's evaluating sites, oldest first (LP-22): each `pending` until a
+        registry reviewer verifies it, `verified`, `refused` or `closed`, with its keys by id
+        and their dates, revoked ones too."""
+        _, org = person(request)
+        return [_site_shown(site) for site in registry.sites(org=org)]
+
+    @app.post("/api/registry/sites", status_code=201, tags=[TAG], summary="Register a site")
+    def register_site(request: Request, body: SiteRequest) -> dict[str, Any]:
+        """Register an evaluating site for this organization. It is `pending`, gets no ticket
+        and shares nothing until a registry reviewer verifies it. Chained `site.registered`
+        with the organization and your id."""
+        principal, org = person(request)
+        if len(registry.sites(org=org)) >= MAX_SITES:
+            raise HTTPException(409, f"an organization has {MAX_SITES} sites at most")
+        made = _asked(lambda: registry.register_site(org=org, name=body.name, by=principal.id))
+        security_log.event(
+            "admin.registry_site.registered", actor=principal.id, org=org, ids=[made["id"]]
+        )
+        return _site_shown(made)
+
+    @app.post(
+        "/api/registry/sites/{site_id}/keys",
+        status_code=201,
+        tags=[TAG],
+        summary="Add a site key",
+    )
+    def add_site_key(request: Request, site_id: str, body: SiteKeyRequest) -> dict[str, Any]:
+        """Add a site's Ed25519 public key with its proof that the site holds it: the key file
+        `mendari site init` writes. A site's private key is never typed or made here. Another
+        organization's site, or none: `404`; no proof: `403`; a publisher's key, another
+        site's, or a sixth live key: `409`. Chained `site.key_added`."""
+        principal, org = person(request)
+        added = _asked(
+            lambda: registry.add_site_key(
+                site_id, body.public_pem, body.proof, org=org, by=principal.id
+            )
+        )
+        security_log.event(
+            "admin.registry_site_key.added", actor=principal.id, org=org, ids=[added["key_id"]]
+        )
+        return _site_shown(registry.site_record(site_id, org=org))
+
+    @app.delete(
+        "/api/registry/sites/{site_id}/keys/{key_id}",
+        tags=[TAG],
+        summary="Revoke a site key",
+    )
+    def revoke_site_key(
+        request: Request, site_id: str, key_id: str, body: SiteKeyRevokeRequest
+    ) -> dict[str, Any]:
+        """Revoke a site key at once, saying why and whether it is thought compromised: then
+        every report it signed leaves the pooled figures. Another organization's, or not this
+        site's: `404`. Chained `site.key_revoked`."""
+        principal, org = person(request)
+        found = _asked(lambda: registry.site_record(site_id, org=org))
+        if key_id not in {key["key_id"] for key in found["keys"]}:
+            raise HTTPException(404, "no such site key")
+        revoked = _asked(
+            lambda: registry.revoke_site_key(
+                key_id, org=org, by=principal.id, reason=body.reason, compromised=body.compromised
+            )
+        )
+        security_log.event(
+            "admin.registry_site_key.revoked", actor=principal.id, org=org, ids=[key_id]
+        )
+        return _site_shown(revoked)
+
 
 class ClaimDecisionRequest(BaseModel):
     decision: Literal["approve", "refuse"]
@@ -393,6 +503,56 @@ def add_registry_review_routes(
         _a_version(namespace, name, version)
         found = _asked(lambda: registry.version(namespace, name, version, REVIEWER))
         return shown(found, card=True)
+
+    @app.get("/api/registry/review/sites", tags=[REVIEW_TAG], summary="Sites waiting")
+    def site_queue(request: Request) -> dict[str, Any]:
+        """The pending sites of every organization, oldest first (50 at most; `more` counts
+        the rest): each with its organization, its name, who registered it (their id), whether
+        that is you (`own`: you cannot decide it) and its keys by id. Check outside Mendari that
+        the organization is who it says before you verify its site (LP-22)."""
+        principal = reviewer(request)
+        pending = registry.sites(status="pending")
+        return {
+            "pending": [
+                {
+                    "id": site["id"],
+                    "org": site["org"],
+                    "name": site["name"],
+                    "created_at": site["created_at"],
+                    "created_by": site["created_by"],
+                    "own": site["created_by"] == principal.id or site["org"] == principal.org,
+                    "keys": [k["key_id"] for k in site["keys"] if k["revoked_at"] is None],
+                }
+                for site in pending[:MAX_QUEUE]
+            ],
+            "more": max(0, len(pending) - MAX_QUEUE),
+        }
+
+    @app.post(
+        "/api/registry/review/sites/{site_id}",
+        tags=[REVIEW_TAG],
+        summary="Verify or refuse a site",
+    )
+    def decide_site(request: Request, site_id: str, body: ClaimDecisionRequest) -> dict[str, Any]:
+        """Verify or refuse a pending site, once, with a note (chained and shown to its
+        organization). You never decide a site you registered or your organization's (`403`).
+        No such site: `404`; decided already: `409`. Chained `site.verified` or
+        `site.refused`."""
+        principal = reviewer(request)
+        found = _asked(lambda: registry.site_record(site_id))
+        if found["created_by"] == principal.id:
+            raise HTTPException(403, "another reviewer decides a site you registered")
+        decided = _asked(
+            lambda: registry.decide_site(
+                site_id,
+                verify=body.decision == "approve",
+                by=principal.id,
+                note=body.note or ("verified" if body.decision == "approve" else "refused"),
+                by_org=principal.org,
+            )
+        )
+        logged(f"admin.registry_site.{decided['status']}", principal, site_id)
+        return {k: decided[k] for k in ("id", "org", "name", "status", "decided_at", "note")}
 
     @app.post(
         "/api/registry/review/namespaces/{namespace}",

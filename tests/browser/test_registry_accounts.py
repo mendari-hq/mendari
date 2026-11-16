@@ -123,7 +123,7 @@ def test_from_a_claim_to_an_approved_pack(site: Site, tmp_path: Path) -> None:
     item.get_by_role("button", name="Approve acme").click()
     dialog(review).get_by_label(re.compile("^Note")).fill("Read the card and the checks.")
     dialog(review).get_by_role("button", name="Approve", exact=True).click()
-    expect(review.locator(".empty-state")).to_contain_text("No claims waiting")
+    expect(review.locator("#registry-queue .empty-state")).to_contain_text("No claims waiting")
     assert search(site) == ["acme/inbox"]
     assert httpx.get(f"{site.base}{VERSION}/archive").status_code == 200
 
@@ -230,7 +230,7 @@ def test_a_reviewer_never_decides_their_own_claim(site: Site, tmp_path: Path) ->
     theirs.get_by_role("button", name="Refuse review-tools").click()
     dialog(rita).get_by_label(re.compile("^Note")).fill("Not a pack publisher.")
     dialog(rita).get_by_role("button", name="Refuse", exact=True).click()
-    expect(rita.locator(".empty-state")).to_contain_text("No claims waiting")
+    expect(rita.locator("#registry-queue .empty-state")).to_contain_text("No claims waiting")
     access(both, "namespaces")
     refused = row(both, "namespaces", "review-tools")
     expect(refused).to_contain_text("Refused: Not a pack publisher.")
@@ -263,7 +263,7 @@ def test_the_registry_screens_pass_axe(site: Site, tmp_path: Path, scheme: str) 
     item.get_by_role("button", name="Approve acme").click()
     found["approve dialog"] = violations(review)
     dialog(review).get_by_role("button", name="Approve", exact=True).click()
-    expect(review.locator(".empty-state")).to_contain_text("No claims waiting")
+    expect(review.locator("#registry-queue .empty-state")).to_contain_text("No claims waiting")
     found["empty queue"] = violations(review)
     assert {screen: v for screen, v in found.items() if v} == {}
 

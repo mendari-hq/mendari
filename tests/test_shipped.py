@@ -192,6 +192,10 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/registry/namespaces/{namespace}/keys"): ("key.added",),
     (ENGINE, "POST", "/api/registry/tokens"): ("token.issued",),
     (ENGINE, "DELETE", "/api/registry/tokens/{token_id}"): ("token.revoked",),
+    # Sites (LP-22i): an organization's administrators register them and their keys.
+    (ENGINE, "POST", "/api/registry/sites"): ("site.registered",),
+    (ENGINE, "POST", "/api/registry/sites/{site_id}/keys"): ("site.key_added",),
+    (ENGINE, "DELETE", "/api/registry/sites/{site_id}/keys/{key_id}"): ("site.key_revoked",),
     # Its reviewers (LP-19e): the registry's acts on any namespace, by a person.
     (ENGINE, "POST", "/api/registry/review/namespaces/{namespace}"): (
         "namespace.approved",
@@ -200,6 +204,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/registry/review/namespaces/{namespace}/publisher-type"): (
         "namespace.publisher_type_set",
     ),
+    (ENGINE, "POST", "/api/registry/review/sites/{site_id}"): ("site.verified", "site.refused"),
     (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}"): ("pack.reviewed",),
     (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}/recall"): (
         "pack.yanked",

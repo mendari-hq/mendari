@@ -440,6 +440,20 @@ under a compromised key and superseded reports left out and listed, and the unre
 withdrawn tickets counted beside them
 ([the format](../spec/evaluation-reports.md#site-evidence-mendarisite-evidence1)).
 
+### Sites under the engine
+
+In memberships mode, an organization's administrators (the `keys` permission, people only)
+register its evaluating sites on the dashboard's Sites tab (`/api/registry/sites`), add a site's
+key from the key file `mendari site init` wrote on the site's machine (its public key and proof;
+the private key is never typed into the dashboard) and revoke a key with why and whether it is
+thought compromised. Another organization's sites answer as ones that do not exist. The
+registry's reviewers see the sites waiting on the review screen
+(`/api/registry/review/sites`) and verify or refuse each, once, with a note; a reviewer never
+decides a site they registered or their own organization's. Each act is chained with the
+person's id and logged (`admin.registry_site.registered`, `admin.registry_site_key.added`,
+`admin.registry_site_key.revoked`, `admin.registry_site.verified`,
+`admin.registry_site.refused`). An organization holds 20 sites at most.
+
 ## Registry reviewers
 
 Under the engine, in memberships mode, the people who decide claims are members of one

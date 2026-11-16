@@ -869,6 +869,13 @@ The first release (not yet published).
   The scoreboard page says, in one sentence and with no link (it is made from the repository
   alone), that site evidence is on the Hub and in none of its tables; a test pins that no
   ranking module imports site code. `scripts/hub_seed.py --sites` seeds two synthetic sites.
+- **The site evaluation network: sites in the dashboard** (LP-22i; under the engine, memberships
+  mode, `MENDARI_REGISTRY=on`). An organization's administrators register its evaluating sites
+  on a Sites tab in the Access view, add a key from the key file `mendari site init` writes (a
+  site's private key is never typed there) and revoke one with why and whether it is
+  compromised; the registry's reviewers verify or refuse waiting sites on the review screen,
+  never their own organization's. Routes: `/api/registry/sites` and
+  `/api/registry/review/sites`, chained and logged.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),
