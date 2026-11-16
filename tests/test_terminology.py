@@ -69,7 +69,8 @@ PINNED = {
         # lifecycle's (frozen, activated, graded, retired); and in LP-18d: a pulled pack's
         # approval and its revocation.
         # Moved in LP-20e, before 0.1.0's release: `pack_version.created|held|released|withdrawn`.
-        "CodeSystem/audit-administrative-event": "37f88022fffda73a",
+        # Moved in LP-20f, before 0.1.0's release: the store's author keys (added, revoked).
+        "CodeSystem/audit-administrative-event": "ce5f8824525bf994",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
