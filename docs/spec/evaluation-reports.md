@@ -183,6 +183,59 @@ Three functions were added for the scoreboard (LP-17). Only its entries
   each label was the truth there. Tied confidences are averaged, as the calibration error's
   are, and it is not estimable, as that error is, when a bin would hold fewer than 30 cases.
 
+## Pooled site evidence: `mendari.evals.pooling`
+
+LP-22 ([ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)) puts several
+sites' results on one pack side by side. Each site gives a whole k of n (cases right, detected
+or automated); every function here takes the sites as `(k, n)` pairs and refuses a rate, a
+fraction or anything that is not a whole k of a whole n of at least one case, as a figure does.
+Each answer names its method, and reads `insufficient evidence` (with the number of sites it
+needs) when it has too few sites. Derived numbers are rounded to six places, as stored bounds
+are, so an answer is the same bytes on every platform.
+
+| Function | What it is called | What it computes | Needs |
+|---|---|---|---|
+| `pooled_fixed` | pooled (fixed effect, summed counts) | summed k of summed n, with its exact Clopper-Pearson interval | 2 sites |
+| `random_effects` | random effects (DerSimonian-Laird, logit scale) | see below | 3 sites |
+| `range_of` | range | the lowest and the highest site rate, each as its k of n with its interval (rates compared exactly; of two equal, the first site) | 2 sites |
+| `homogeneity` | Pearson chi-square, exact, or permutation (seeded) | whether the sites differ by more than chance, at 0.05 | 2 sites |
+
+- **The pooled figure** weighs each case once, so a large site counts for more than a small
+  one. Its name says so wherever it is shown.
+- **Random effects** (DerSimonian and Laird 1986). Site i gives the log odds
+  y_i = log(k / (n - k)) and its variance v_i = 1/k + 1/(n - k); a site whose k is 0 or n has
+  0.5 added to both cells first. With weights w_i = 1/v_i, Cochran's Q is the weighted sum of
+  squares of y_i about the weighted mean; the between-site variance is
+  tau² = max(0, (Q - (K - 1)) / (Σw - Σw² / Σw)); the estimate is the mean of y weighted by
+  1/(v_i + tau²), its 95% interval that mean ± 1.959964 standard errors (1 over the root of
+  the summed weights), each turned back into a proportion. I² = max(0, (Q - (K - 1)) / Q) is
+  given beside it. Under 3 sites tau² cannot be told from noise, so it reads insufficient
+  evidence (owner decision 4 of the plan).
+- **Homogeneity** looks at the sites by (hit, miss) table and its expected counts
+  (n_i times the column's total over N):
+  - when every expected count is 5 or more, Pearson's chi-square on K - 1 degrees of freedom,
+    its p-value from the regularized upper incomplete gamma function (`stats.gamma_q`,
+    `stats.chi2_sf`), added to the statistics module for this;
+  - otherwise never chi-square, which is wrong on small expected counts (the usual case for a
+    critical label): the exact test (Freeman-Halton; Fisher's for two sites), summing the
+    hypergeometric probability of every table with the same margins that is no more likely
+    than the observed one (ties within a relative 10⁻⁷, as scipy's), when there are at most
+    1,000,000 such tables;
+  - past that, the same test estimated from 10,000 seeded resamples, each dealing the smaller
+    column's cases among all N at random (Floyd's sampling from `random.Random(seed).random()`),
+    p = (1 + as extreme) / (1 + resamples). The seed is the first 8 bytes of the SHA-256 of the
+    counts' canonical JSON and is written in the answer, so anyone can draw the same resamples.
+
+  `differ` is true when p is under 0.05: the sites disagree by more than chance, so a pooled
+  figure is not a summary of them. A table with an empty column (every site all hits, or all
+  misses) has one table only, and p is 1.
+
+Every function is checked in `tests/test_pooling.py`: the pooled interval and the
+random-effects estimate against hand-computed references and statsmodels (whose DerSimonian-Laird
+does not truncate tau² at 0, so where it is negative its fixed-effect row is the reference),
+chi-square and the incomplete gamma against scipy, the exact test against scipy's multivariate
+hypergeometric probabilities, and the permutation test for its seed and against the exact one.
+
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
 A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and

@@ -12,6 +12,8 @@ Every function is deterministic; the random ones take a seed, written into what 
   `bootstrap_defined` for a statistic a resample can leave undefined, counting those it drops.
 - `holm`: Holm-Bonferroni over a named family of comparisons.
 - `equal_mass_ece`: calibration error over equal-count bins, "not estimable" when they are small.
+- `gamma_q` and `chi2_sf`: the regularized upper incomplete gamma function and the chi-square
+  tail it gives, for the homogeneity test of pooled site evidence (LP-22, `evals.pooling`).
 
 For the scoreboard (LP-17), used by no format yet:
 
@@ -245,6 +247,71 @@ def clopper_pearson(k: int, n: int, level: float = 0.95) -> tuple[float, float]:
     lower = 0.0 if k == 0 else beta_ppf(k, n - k + 1, tail)
     upper = 1.0 if k == n else beta_ppf(k + 1, n - k, 1.0 - tail)
     return lower, upper
+
+
+# --------------------------------------------------------------------------------------------
+# Regularized incomplete gamma and the chi-square tail (LP-22)
+# --------------------------------------------------------------------------------------------
+
+
+def _log_gamma_front(a: float, x: float) -> float:
+    """log( x^a e^-x / Gamma(a) ), the factor both expansions of the incomplete gamma share."""
+    return a * math.log(x) - x - math.lgamma(a)
+
+
+def gamma_q(a: float, x: float) -> float:
+    """The regularized upper incomplete gamma function Q(a, x) = Gamma(a, x) / Gamma(a), for
+    a > 0 and x >= 0 (scipy.special.gammaincc).
+
+    Below x = a + 1 the series for P(a, x) (Numerical Recipes 6.2, gser), and Q = 1 - P; from
+    there the continued fraction for Q by the modified Lentz method (gcf), which keeps a small
+    Q's relative accuracy. Each stops when a term is within one ulp of the sum.
+    """
+    if not (a > 0.0 and math.isfinite(a)):
+        raise ValueError("a must be positive and finite")
+    if not (x >= 0.0 and math.isfinite(x)):
+        raise ValueError("x must be non-negative and finite")
+    if x == 0.0:
+        return 1.0
+    if x < a + 1.0:
+        term = total = 1.0 / a
+        ap = a
+        for _ in range(_MAX_TERMS):
+            ap += 1.0
+            term *= x / ap
+            total += term
+            if abs(term) <= abs(total) * _EPS:
+                return 1.0 - total * math.exp(_log_gamma_front(a, x))
+        raise ArithmeticError(f"incomplete gamma series did not converge (a={a}, x={x})")
+    b = x + 1.0 - a
+    c = 1.0 / _TINY
+    d = 1.0 / b
+    h = d
+    for i in range(1, _MAX_TERMS + 1):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < _TINY:
+            d = _TINY
+        c = b + an / c
+        if abs(c) < _TINY:
+            c = _TINY
+        d = 1.0 / d
+        step = d * c
+        h *= step
+        if abs(step - 1.0) <= _EPS:
+            return math.exp(_log_gamma_front(a, x)) * h
+    raise ArithmeticError(f"incomplete gamma fraction did not converge (a={a}, x={x})")
+
+
+def chi2_sf(statistic: float, df: int) -> float:
+    """P(X >= statistic) for X ~ chi-square with df degrees of freedom: Q(df/2, statistic/2)
+    (scipy.stats.chi2.sf)."""
+    if isinstance(df, bool) or not isinstance(df, int) or df < 1:
+        raise ValueError("df must be a positive integer")
+    if not (statistic >= 0.0 and math.isfinite(statistic)):
+        raise ValueError("the statistic must be non-negative and finite")
+    return gamma_q(df / 2.0, statistic / 2.0)
 
 
 # --------------------------------------------------------------------------------------------
