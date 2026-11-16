@@ -45,7 +45,7 @@ def test_no_report_log_or_error_holds_a_matched_value(caplog: pytest.LogCaptureF
     files = {"a.jsonl": text.encode(), "b.bin": b"\xff\xfe" + text.encode("utf-16-le")}
     report = detect_files(files)
     served = json.dumps(report.to_json())
-    assert report.counts == {kind: 1 for kind in KINDS}
+    assert report.counts == {kind: 2 for kind in KINDS}  # b.bin read too, as UTF-16
     assert report.unread == ("b.bin",)
     for _, value in PLANTED.values():
         assert value not in served
@@ -129,6 +129,35 @@ def test_the_same_bytes_give_the_same_report() -> None:
     assert detect_files(dict(reversed(files.items()))).to_json() == first
     again = detect_files(files).to_json()
     assert json.dumps(first, sort_keys=True) == json.dumps(again, sort_keys=True)
+
+
+def test_no_file_goes_unread_and_no_escape_hides_a_value() -> None:
+    """Found by the security review of LP-20f: a file that is not UTF-8, a value written with
+    JSON or YAML escapes, a value cut in two by the pieces of a long line, a path; and a YAML
+    alias bomb, which cannot be read through, is refused."""
+    phone = "617-555-2368"
+    latin = f"Call Jane at {phone}\n".encode() + b"\xff"
+    assert detect_files({"data/notes.txt": latin}).counts == {"phone": 1}
+    escaped = json.dumps({"input": {"body": f"call me at {phone}"}}).replace("-", "\\u002d")
+    assert "-" not in escaped
+    assert detect_files({"data/x.jsonl": escaped.encode()}).findings == (
+        Finding("phone", "data/x.jsonl", 1),
+    )
+    yaml_escaped = 'body: "call me at 617\\x2d555\\x2d2368"\n'
+    assert detect_files({"tests/cases.yaml": yaml_escaped.encode()}).counts == {"phone": 1}
+    boundary = phi_detect.MAX_LINE_CHARS - 5
+    long = "x " * (boundary // 2) + "SSN 219-09-9999 on file"
+    assert "ssn" in phi_detect.kinds_of(long)
+    assert detect_files({f"data/Jane_{phone}.txt": b"x"}).findings == (
+        Finding("phone", f"data/Jane_{phone}.txt", 0),
+    )
+    bomb = "a: &a [x, x, x, x, x, x, x, x, x, x]\n" + "".join(
+        f"{chr(98 + i)}: &{chr(98 + i)} [*{chr(97 + i)}, *{chr(97 + i)}, *{chr(97 + i)}, "
+        f"*{chr(97 + i)}, *{chr(97 + i)}, *{chr(97 + i)}, *{chr(97 + i)}, *{chr(97 + i)}]\n"
+        for i in range(8)
+    )
+    bombed = detect_files({"x.yaml": bomb.encode()})
+    assert bombed.unscannable == ("x.yaml",) and rejects(bombed)
 
 
 def test_the_community_checks_warnings_are_unchanged() -> None:

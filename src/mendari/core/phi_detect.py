@@ -6,9 +6,11 @@ reports it, and the community check's warnings (`community/phi_scan.py`) are fiv
 It finds shapes and listed names, not people: a filter, never a guarantee, so the store's terms
 still forbid real data.
 
-A finding is a kind, a file and a line. A report (`mendari.phi-check/1`) holds the findings and
-the counts per kind, **never the matched text**, which may be someone's: no report, log line or
-error here holds it.
+A finding is a kind, a file and a line (0: the file's path). Every file is read: its text (as
+UTF-8, else UTF-16 with its mark, else Latin-1), the string values a JSON, JSON Lines or YAML
+file decodes to (so an escape hides nothing) and its path. A report (`mendari.phi-check/1`)
+holds the findings and the counts per kind, **never the matched text**, which may be someone's:
+no report, log line or error here holds it.
 
 Kinds (`KINDS`):
 - `ssn`: a Social Security number (`123-45-6789`, `123 45 6789`), not one the SSA never issues
@@ -56,6 +58,10 @@ NAME_THRESHOLD = 1  # the measurement in the module's docstring
 NEAR = 40  # characters between a date and a name or a birth word, a number and a phone word
 _LONGEST_WORD = 20  # more than any keyword's length: one that starts within NEAR is read whole
 MAX_LINE_CHARS = 1_000_000  # a longer line is read in pieces of this size, each one pass
+OVERLAP_CHARS = 512  # how much each piece repeats of the one before: more than any kind's text
+# The decoded values read from one JSON or YAML file at most (an alias bomb expands without
+# end): a file past it is refused, as it cannot be read through.
+MAX_VALUES = 200_000
 RE2_MAX_MEMORY = 8 << 20
 
 # Before and after a number: not a word character or a hyphen. RE2 has no lookaround, so the
@@ -224,10 +230,11 @@ def _named(line: str, others: bool, p: Patterns) -> bool:
 
 def kinds_of(line: str, patterns: Patterns | None = None) -> list[str]:
     """The kinds one line holds, in `KINDS` order. A line longer than `MAX_LINE_CHARS` is read
-    in pieces of that size."""
+    in pieces of that size that overlap by `OVERLAP_CHARS`, so nothing is cut in two."""
     p = patterns or re2_patterns()
     found: set[str] = set()
-    for start in range(0, max(len(line), 1), MAX_LINE_CHARS):
+    step = MAX_LINE_CHARS - OVERLAP_CHARS
+    for start in range(0, max(len(line) - OVERLAP_CHARS, 1), step):
         piece = line[start : start + MAX_LINE_CHARS]
         kinds = structural_kinds(piece, p)
         found.update(kinds)
@@ -247,12 +254,14 @@ def detect(text: str, file: str = "") -> list[Finding]:
 
 @dataclass(frozen=True)
 class Report:
-    """`mendari.phi-check/1`: the findings, how many files were given, and those that are not
-    UTF-8 text (not read). Never a matched value."""
+    """`mendari.phi-check/1`: the findings, how many files were given, those that are not
+    UTF-8 text (read anyway, as UTF-16 with its mark or as Latin-1), and those whose decoded
+    values could not all be read (refused). Never a matched value."""
 
     findings: tuple[Finding, ...]
     files: int
-    unread: tuple[str, ...] = ()
+    unread: tuple[str, ...] = ()  # not UTF-8: read anyway, in another encoding
+    unscannable: tuple[str, ...] = ()
 
     @property
     def counts(self) -> dict[str, int]:
@@ -264,29 +273,127 @@ class Report:
             "format": FORMAT,
             "files": self.files,
             "unread": list(self.unread),
+            "unscannable": list(self.unscannable),
             "counts": self.counts,
             "findings": [finding.to_json() for finding in self.findings],
             "rejected": rejects(self),
         }
 
 
-def detect_files(files: Mapping[str, bytes]) -> Report:
-    """Every finding in each file (by its path), in path order. A file that is not UTF-8 text is
-    listed as unread: a model's weights or an image is not someone's details in words."""
-    findings: list[Finding] = []
-    unread = []
-    for path in sorted(files):
+def _text(data: bytes) -> tuple[str, bool]:
+    """A file's text, and whether it was UTF-8: else UTF-16 with its byte-order mark, else
+    Latin-1 (every byte a character), so no file goes unread."""
+    try:
+        return data.decode("utf-8"), True
+    except UnicodeDecodeError:
+        pass
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
         try:
-            text = files[path].decode("utf-8")
+            return data.decode("utf-16"), False
         except UnicodeDecodeError:
+            pass
+    return data.decode("latin-1"), False
+
+
+class _TooMany(Exception):
+    pass
+
+
+def _strings(value: Any, budget: list[int]) -> list[str]:
+    """Every string a parsed JSON or YAML value holds, keys included: what an escape such as
+    `\u002d` hid from the text. Stops past `MAX_VALUES`."""
+    found: list[str] = []
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        budget[0] -= 1
+        if budget[0] < 0:
+            raise _TooMany
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                stack += [key, child]
+        elif isinstance(item, list | tuple):
+            stack += list(item)
+    return found
+
+
+def _decoded(path: str, text: str) -> list[tuple[int, str]]:
+    """The decoded string values of a JSON, JSON Lines or YAML file, by line (the record's, in
+    JSON Lines; 1 otherwise). A file that does not parse is read as text only."""
+    import json
+
+    import yaml
+
+    budget = [MAX_VALUES]
+    lower = path.lower()
+    found: list[tuple[int, str]] = []
+    if lower.endswith((".jsonl", ".ndjson")):
+        for number, line in enumerate(text.split("\n"), start=1):
+            try:
+                value = json.loads(line) if line.strip() else None
+            except (ValueError, RecursionError):
+                continue
+            found += [(number, s) for s in _strings(value, budget)]
+    elif lower.endswith(".json"):
+        try:
+            value = json.loads(text)
+        except (ValueError, RecursionError):
+            return []
+        found += [(1, s) for s in _strings(value, budget)]
+    elif lower.endswith((".yaml", ".yml")):
+        try:
+            value = yaml.safe_load(text)
+        except (yaml.YAMLError, RecursionError, ValueError):
+            return []
+        found += [(1, s) for s in _strings(value, budget)]
+    return found
+
+
+def detect_files(files: Mapping[str, bytes]) -> Report:
+    """Every finding in each file (by its path), in path order, of its text, of the string
+    values a JSON or YAML file decodes to (an escape cannot hide a value), and of its path. A
+    file that is not UTF-8 is read in another encoding and listed as `unread`; one whose decoded
+    values cannot all be read is `unscannable` and refused."""
+    findings: list[Finding] = []
+    unread, unscannable = [], []
+    for path in sorted(files):
+        text, utf8 = _text(files[path])
+        if not utf8:
             unread.append(path)
-            continue
-        findings += detect(text, path)
-    return Report(tuple(findings), len(files), tuple(unread))
+        found = {(f.kind, f.line) for f in detect(text, path)}
+        in_text = {kind for kind, _ in found}
+        try:
+            for number, value in _decoded(path, text):
+                # A JSON or YAML file's values all read as its line 1: a kind its text shows
+                # already is not counted again.
+                found |= {
+                    (f.kind, number)
+                    for f in detect(value)
+                    if not (number == 1 and f.kind in in_text and not _lined(path))
+                }
+        except _TooMany:
+            unscannable.append(path)
+        # The path itself (line 0), its separators read as spaces: `Jane_617-555-0123.txt`.
+        found |= {(kind, 0) for kind in kinds_of(re.sub(r"[_/.]", " ", path))}
+        findings += [Finding(kind, path, line) for kind, line in sorted(found, key=_order)]
+    return Report(tuple(findings), len(files), tuple(unread), tuple(unscannable))
+
+
+def _lined(path: str) -> bool:
+    """A JSON Lines file, whose decoded values keep their own line."""
+    return path.lower().endswith((".jsonl", ".ndjson"))
+
+
+def _order(item: tuple[str, int]) -> tuple[int, int]:
+    return item[1], KINDS.index(item[0])
 
 
 def rejects(report: Report) -> bool:
-    """Whether an upload with these findings is refused: any structural kind, or at least
-    `NAME_THRESHOLD` name findings."""
+    """Whether an upload with these findings is refused: any structural kind, at least
+    `NAME_THRESHOLD` name findings, or a file whose decoded values could not all be read."""
     counts = report.counts
+    if report.unscannable:
+        return True
     return any(counts.get(kind) for kind in STRUCTURAL) or counts.get("name", 0) >= NAME_THRESHOLD
