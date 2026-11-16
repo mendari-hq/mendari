@@ -1665,6 +1665,13 @@ class RegistryStore(RateBuckets, site_store.SiteStore):
                 same = None
             if same != key["key_id"]:
                 return _broken(None, "a key is not the key its id names", events, prev)
+        for key in rows["site_keys"]:  # a site's too (LP-22d)
+            try:
+                same = archive.key_id(archive.load_public_key(str(key["public_pem"]).encode()))
+            except HubError:
+                same = None
+            if same != key["key_id"]:
+                return _broken(None, "a site key is not the key its id names", events, prev)
         return {"ok": True, "seq": None, "problem": None, **_head(events, prev), **since}
 
     def head(self) -> dict[str, Any]:

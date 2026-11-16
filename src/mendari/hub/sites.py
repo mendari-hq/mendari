@@ -24,8 +24,14 @@ the organization, as every other registry write is; `RegistryStore.verify` cover
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 import secrets
 from typing import TYPE_CHECKING, Any, Literal
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from mendari.errors import HubError
 from mendari.hub import archive
@@ -34,7 +40,16 @@ if TYPE_CHECKING:
     from mendari.core.db import Backend, Session
 
 MAX_SITE_KEYS = 5
+MAX_PEM_BYTES = 2_000  # an Ed25519 public key in PEM is 113 bytes
 SiteStatus = Literal["pending", "verified", "refused", "closed"]
+# Who decides a site: the operator's command (no organization), or a reviewer of one.
+OPERATOR = None
+# What a site key's proof of possession signs: the prefix, then the site's id and the key's id.
+# The registry adds a key only with the key's own signature over these bytes, so nobody can
+# register a key whose private half they do not hold (to claim another site's reports, or to
+# block its registration or a publisher's key).
+KEY_PROOF_PREFIX = b"mendari-site-key-v1\x00"
+_SITE_ID = re.compile(r"^[0-9a-f]{16}\Z")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hub_sites (
@@ -46,7 +61,9 @@ CREATE TABLE IF NOT EXISTS hub_sites (
     created_by  TEXT NOT NULL,
     decided_at  TEXT,
     decided_by  TEXT,
-    note        TEXT
+    note        TEXT,
+    closed_at   TEXT,
+    closed_by   TEXT
 );
 CREATE TABLE IF NOT EXISTS hub_site_keys (
     key_id      TEXT PRIMARY KEY,
@@ -60,12 +77,30 @@ CREATE TABLE IF NOT EXISTS hub_site_keys (
 );
 """
 
-_SITE_FIELDS = "id, org, name, status, created_at, created_by, decided_at, decided_by, note"
+_SITE_FIELDS = (
+    "id, org, name, status, created_at, created_by, decided_at, decided_by, note, closed_at, "
+    "closed_by"
+)
 _KEY_FIELDS = "key_id, site, public_pem, created_at, added_by, revoked_at, revoked_by, compromised"
 
 
+def key_proof_bytes(site_id: str, key_id: str) -> bytes:
+    return KEY_PROOF_PREFIX + site_id.encode() + b"\x00" + key_id.encode()
+
+
+def key_proof_holds(public: Ed25519PublicKey, site_id: str, proof: str) -> bool:
+    """Whether `proof` (base64) is `public`'s signature over `key_proof_bytes`: the key's
+    holder asked for it on this site."""
+    try:
+        signature = base64.b64decode(proof, validate=True)
+        public.verify(signature, key_proof_bytes(site_id, archive.key_id(public)))
+    except (binascii.Error, ValueError, InvalidSignature):
+        return False
+    return True
+
+
 def _site_row(db: Session, site_id: str) -> dict[str, Any] | None:
-    if not db.columns("hub_sites"):  # a database from before sites, read as it is
+    if not _SITE_ID.match(site_id) or not db.columns("hub_sites"):  # one from before sites
         return None
     return db.one(f"SELECT {_SITE_FIELDS} FROM hub_sites WHERE id = ?", (site_id,))
 
@@ -88,7 +123,7 @@ class SiteStore:
         organization's site answers as one that does not exist."""
         row = _site_row(db, site_id)
         if row is None or (org is not None and row["org"] != org):
-            raise HubError(f"no site {site_id!r}", 404)
+            raise HubError("no such site", 404)
         return row
 
     def register_site(
@@ -121,11 +156,12 @@ class SiteStore:
         return self.site_record(site_id)
 
     def decide_site(
-        self, site_id: str, *, verify: bool, by: str, note: str, by_org: str | None = None
+        self, site_id: str, *, verify: bool, by: str, note: str, by_org: str | None
     ) -> dict[str, Any]:
         """Verify or refuse a pending site, once, with a note (chained and kept). `by_org` is
-        the deciding reviewer's organization: a reviewer never decides a site their own
-        organization registered. Chained `site.verified` or `site.refused`."""
+        the deciding reviewer's organization, or `OPERATOR` (None) for the operator's
+        command; it is required, so no caller forgets it: a reviewer never decides a site
+        their own organization registered. Chained `site.verified` or `site.refused`."""
         from mendari.hub.registry import _label, _now, record_event
 
         by = _label(by, "who decides", 200)
@@ -162,9 +198,8 @@ class SiteStore:
             if site["status"] == "closed":
                 raise HubError("the site is already closed", 409)
             db.all(
-                "UPDATE hub_sites SET status = 'closed', decided_at = ?, decided_by = ?, "
-                "note = ? WHERE id = ?",
-                (_now(), by, reason, site_id),
+                "UPDATE hub_sites SET status = 'closed', closed_at = ?, closed_by = ? WHERE id = ?",
+                (_now(), by, site_id),
             )
             record_event(
                 db,
@@ -176,17 +211,32 @@ class SiteStore:
         return self.site_record(site_id)
 
     def add_site_key(
-        self, site_id: str, public_pem: str, *, org: str | None, by: str
+        self, site_id: str, public_pem: str, proof: str, *, org: str | None, by: str
     ) -> dict[str, Any]:
         """Add an Ed25519 public key to a site (its organization's, or the operator's with
-        `org` None). Refused: a key that is a namespace's publisher key or any site's already
-        (409), a closed or refused site (409), a site with `MAX_SITE_KEYS` live keys (409).
-        Chained `site.key_added` with the organization."""
+        `org` None), with the key's proof of possession (`key_proof_holds`, made by
+        `mendari site init`). Only the key is stored (as the registry writes it out), never
+        the text it came in. Refused: no proof that holds (403), a key that is a namespace's
+        publisher key or any site's already (409), a closed or refused site (409), a site
+        with `MAX_SITE_KEYS` live keys (409). Chained `site.key_added` with the
+        organization."""
         from mendari.hub.registry import _label, _now, record_event
 
         by = _label(by, "who adds the key", 200)
-        key = archive.load_public_key(public_pem.encode())
+        if len(public_pem.encode()) > MAX_PEM_BYTES:
+            raise HubError("a site key is one Ed25519 public key in PEM")
+        try:
+            key = archive.load_public_key(public_pem.encode())
+        except HubError:
+            raise HubError("a site key is one Ed25519 public key in PEM") from None
         key_id = archive.key_id(key)
+        public_pem = archive.public_pem(key).decode()  # the key alone: nothing that came with it
+        if not isinstance(proof, str) or not key_proof_holds(key, site_id, proof):
+            raise HubError(
+                "the key's proof does not hold: it is the key's own signature over the site "
+                "and the key (`mendari site init` makes it)",
+                403,
+            )
         with self._db.session(exclusive=True) as db:
             site = self._site_or_404(db, site_id, org)
             if site["status"] in ("closed", "refused"):
@@ -232,9 +282,9 @@ class SiteStore:
             row = None
             if db.columns("hub_site_keys"):
                 row = db.one(f"SELECT {_KEY_FIELDS} FROM hub_site_keys WHERE key_id = ?", (key_id,))
-            if row is None:
-                raise HubError(f"no site key {key_id!r}", 404)
-            site = self._site_or_404(db, row["site"], org)
+            site = None if row is None else _site_row(db, row["site"])
+            if row is None or site is None or (org is not None and site["org"] != org):
+                raise HubError("no such site key", 404)  # another organization's: the same
             if row["revoked_at"] is not None:
                 raise HubError("that key is already revoked", 409)
             db.all(
@@ -288,7 +338,7 @@ class SiteStore:
         with self._db.session(exclusive=False) as db:
             site = _site_row(db, site_id)
             if site is None or site["status"] != "verified":
-                raise HubError(f"no site {site_id!r}", 404)
+                raise HubError("no such site", 404)
             keys = _keys(db, site_id)
         return {
             "id": site["id"],
@@ -308,7 +358,8 @@ class SiteStore:
 
     def own_site(self, site_id: str, namespace: str) -> bool:
         """Whether a site is the publisher's own for a namespace: its organization holds the
-        namespace's claim (LP-19c)."""
+        namespace's claim (LP-19c), in whatever status. A namespace from before claims names
+        no organization, so no site is its own: its publisher is the operator's to name."""
         with self._db.session(exclusive=False) as db:
             site = _site_row(db, site_id)
             if site is None or not db.columns("hub_claims"):

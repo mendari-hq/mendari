@@ -2093,24 +2093,29 @@ def cmd_registry_site_verify(args: argparse.Namespace) -> int:
     reason = _registry_reason(args.reason, "--reason")
     with RegistryStore(_existing_registry(args.db)) as store:
         site = store.decide_site(
-            args.site, verify=not args.refuse, by=_command_line_actor(), note=reason
+            args.site, verify=not args.refuse, by=_command_line_actor(), note=reason, by_org=None
         )
     _print_json(site)
     return 0
 
 
 def cmd_registry_site_key(args: argparse.Namespace) -> int:
-    """Add a site's public key (the PEM `mendari site init` printed) as the operator (LP-22d).
-    Refused when it is a publisher's key or any site's. Chained (`site.key_added`)."""
+    """Add a site's public key as the operator (LP-22d), from the file the site's
+    `mendari site init` writes: its public key and the key's proof that the site holds it.
+    Refused when the proof does not hold, or the key is a publisher's or any site's. Chained
+    (`site.key_added`)."""
     from mendari.hub.registry import RegistryStore
 
     _registry_reason(args.reason, "--reason")
-    try:
-        public = Path(args.key).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        raise MendariError(f"--key {_path_shown(args.key)}: cannot read it") from None
+    sent = _read_json(args.key, "--key", shape=dict)
+    public, proof = sent.get("public_pem"), sent.get("proof")
+    if not isinstance(public, str) or not isinstance(proof, str):
+        raise MendariError(
+            f"--key {_path_shown(args.key)}: not a site key file (public_pem and proof, as "
+            "`mendari site init` writes it)"
+        )
     with RegistryStore(_existing_registry(args.db)) as store:
-        store.add_site_key(args.site, public, org=None, by=_command_line_actor())
+        store.add_site_key(args.site, public, proof, org=None, by=_command_line_actor())
         site = store.site_record(args.site)
     _print_json(site)
     return 0
@@ -4106,7 +4111,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     site_key.add_argument("--db", default="var/registry.db", help=registry_db)
     site_key.add_argument("--site", required=True, help="the site's id")
-    site_key.add_argument("--key", required=True, metavar="FILE", help="the public key (PEM)")
+    site_key.add_argument(
+        "--key",
+        required=True,
+        metavar="FILE",
+        help="the site's key file (its public key and proof, from `mendari site init`)",
+    )
     site_key.add_argument("--reason", required=True, help="why (one line)")
     site_key.set_defaults(handler=cmd_registry_site_key)
     site_revoke = registry_cmd.add_parser(

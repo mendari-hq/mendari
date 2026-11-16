@@ -344,7 +344,10 @@ counts (LP-22, [ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.
 record owned by an organization, `pending` until it is verified, once, by a registry reviewer or
 by the operator's command with how it was checked; `refused` or `closed` sites stay stored and
 are never served. A site signs with its own Ed25519 keys: at most 5 live at once, never a
-namespace's publisher key nor another site's (one key never signs in two roles). Rotating is
+namespace's publisher key nor another site's (one key never signs in two roles). A key is added
+only with its holder's proof, the key's own signature over the site's id and the key's id
+(`mendari site init` makes it), so nobody can register a key they saw but do not hold; and only
+the key is stored, never the text it came in. Rotating is
 adding a key and revoking the old one. A revocation says whether the key is thought
 compromised: if it is, every report it signed leaves the pooled figures and stays listed as
 such; if not, reports received before it stand. Every write is chained with the organization
@@ -354,8 +357,8 @@ such; if not, reports received before it stand. Every write is chained with the 
 ```bash
 mendari registry site --db var/registry.db --org north-health --name "North Health" \
   --reason "asked by its CMIO"
-# the site runs `mendari site init` and sends its public key; then:
-mendari registry site-key --db var/registry.db --site ID --key site.pem --reason "first key"
+# the site runs `mendari site init` and sends the key file it writes; then:
+mendari registry site-key --db var/registry.db --site ID --key site-key.json --reason "first key"
 mendari registry site-verify --db var/registry.db --site ID --reason "called the CMIO back"
 mendari registry site-revoke-key --db var/registry.db ed25519:… --reason "rotated"
 mendari registry site-revoke-key --db var/registry.db ed25519:… --compromised --reason "laptop lost"
@@ -364,7 +367,8 @@ mendari registry sites --db var/registry.db [--org ORG] [--status pending]   # r
 ```
 
 `GET /v1/sites/{id}` serves a verified site to anyone: its name, its status, when it was
-verified, and its keys' ids with their dates. A pending, refused or closed site answers as one
+verified, and its keys' ids with their dates and whether each was revoked as compromised (a
+reader can then tell which signed reports leave the pool). A pending, refused or closed site answers as one
 that does not exist. Check who an organization is outside Mendari before verifying its site:
 a site's name is as good as that check. A site whose organization holds a pack's namespace (its
 claim) is the publisher's own site for that pack: its reports are listed and left out of the
