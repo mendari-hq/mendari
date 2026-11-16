@@ -859,6 +859,16 @@ The first release (not yet published).
   in words when the sites disagree. The publisher's own site, reports under a compromised key
   and superseded reports are listed and left out; unreported and withdrawn tickets are counted
   beside the figures.
+- **The site evaluation network: site evidence on the Hub** (LP-22h; a page section, never a
+  rank). A pack's page has a Site evidence section for the version shown: per configuration, a
+  forest plot drawn on the server (each site's interval, the pooled figure, the random-effects
+  estimate) with the same figures as a table, the site count and total cases in its heading,
+  the homogeneity warning in words, the unreported, withdrawn and superseded counts, and the
+  sentence that these are sites' own data, not part of any hidden-set result or rank. Every
+  share is k of n; a model's estimate is "per 100" with its interval. A pack with none says so.
+  The scoreboard page says, in one sentence and with no link (it is made from the repository
+  alone), that site evidence is on the Hub and in none of its tables; a test pins that no
+  ranking module imports site code. `scripts/hub_seed.py --sites` seeds two synthetic sites.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

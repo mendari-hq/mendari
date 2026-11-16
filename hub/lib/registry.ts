@@ -198,3 +198,39 @@ export function riskWords(risk: Claimed["risk"], review: Checked["review"]): str
   }
   return "declared by the publisher, not confirmed by a review";
 }
+
+// Site evidence (mendari.site-evidence/1, LP-22g): sites' signed counts of a pack, worked out by
+// the registry from counts it verified. Shown apart from everything else on a pack's page.
+export type SiteFigure = Figure & { report: string; site: string; site_name: string; insufficient_evidence: boolean };
+export type Pooled = Partial<Figure> & { method: string; status: string; needs_sites?: number };
+export type RandomEffects = { method: string; status: string; estimate?: number; low?: number; high?: number; needs_sites?: number };
+export type Homogeneity = { method?: string; status: string; p?: number; differ?: boolean; seed?: number; needs_sites?: number };
+export type EvidenceFigure = {
+  figure: string;
+  label: string;
+  sites: SiteFigure[];
+  sites_pooled: number;
+  cases_pooled: number;
+  pooled: Pooled;
+  random_effects: RandomEffects;
+  homogeneity: Homogeneity;
+  warning: string | null;
+};
+export type EvidenceGroup = {
+  version: string;
+  digest: string;
+  configuration: Record<string, string>;
+  remote_consent: boolean;
+  sites: number;
+  cases: number;
+  left_out: { report: string; site: string; site_name: string; reason: string }[];
+  unreported_tickets: number;
+  withdrawn_tickets: number;
+  superseded_reports: number;
+  figures: EvidenceFigure[];
+  tests_run: number;
+};
+export type SiteEvidence = { format: string; pack: string; note: string; alpha: number; groups: EvidenceGroup[] };
+
+export const siteEvidence = (namespace: string, name: string) =>
+  get<SiteEvidence>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);

@@ -7,6 +7,8 @@ The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14
 !!! warning "Engineering evaluation, not clinical validation"
     Every set here is public: it is in the repository and in the package, so anything can be tuned to it. Each table is a regression check, not a ranking. No figure orders its columns, and nothing here is graded: grades are given only on frozen hidden sets.
 
+Sites' own evaluations of a pack, shared as signed counts, are shown on the Hub, in each pack's Site evidence section. None of them is on this page, in any table or any grade: sites choose their own cases, and a ticket binds a dataset before its run, not how its cases were chosen.
+
 - **21 current results** (0 superseded results listed at the end), 0 signed. A result reads "unsigned" until the owner signs it ([verifying a result](verifying.md)).
 - **"method draft, not in effect":** the method has no effective date yet.
 - **Stale:** each result shows the day it goes stale, 45 days after it was measured, as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: method changed" when the pack, the set or the method is no longer the one it was measured on. A stale result is run again, never edited, and the new one supersedes it.

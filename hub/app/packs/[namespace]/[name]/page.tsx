@@ -5,7 +5,20 @@ import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { shown } from "@/lib/figures";
-import { acceptanceWords, ENGINE_WORDS, pack, type Recalled, regressionWords, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
+import {
+  acceptanceWords,
+  ENGINE_WORDS,
+  pack,
+  type Recalled,
+  regressionWords,
+  reviewWords,
+  RISK_WORDS,
+  riskWords,
+  siteEvidence,
+  type SiteEvidence,
+} from "@/lib/registry";
+
+import { EvidenceGroupView } from "./forest";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +50,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </>
     );
   }
+  const evidence = await siteEvidence(namespace, name);
   const { checked, claimed } = latest;
   const risk = claimed.risk;
   return (
@@ -108,12 +122,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for{" "}
         <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
       </p>
-      <h2>Site reports</h2>
-      <p className="muted">
-        A verified site can share how this pack did on its own data, as signed counts (no case leaves the
-        site): <code>mendari eval {detail.id} --dataset … --share</code>. Site reports are not shown here
-        yet.
-      </p>
+      <SiteEvidenceSection evidence={evidence} version={latest.version} packId={detail.id} />
       <h2>Versions</h2>
       <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>
       <Recalls recalled={recalled} />
@@ -130,6 +139,33 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         </>
       ) : null}
     </>
+  );
+}
+
+// Site evidence (LP-22h): sites' own data, shared as signed counts, for the version shown. Its
+// own section, apart from what the registry checked and from any rank (ADR-0017).
+function SiteEvidenceSection({ evidence, version, packId }: { evidence: SiteEvidence | null; version: string; packId: string }) {
+  const groups = (evidence?.groups ?? []).filter((group) => group.version === version);
+  const sites = groups.reduce((total, group) => total + group.sites, 0);
+  const cases = groups.reduce((total, group) => total + group.cases, 0);
+  return (
+    <section className="group evidence" aria-labelledby="evidence-heading">
+      <h2 id="evidence-heading">
+        Site evidence{groups.length ? `: ${sites} ${sites === 1 ? "site" : "sites"}, ${cases} cases` : ""}
+      </h2>
+      <p className="muted">
+        These are sites&apos; own data, shared as signed counts. They are not part of any hidden-set result or
+        rank. A ticket binds a dataset before its run, not how its cases were chosen.
+      </p>
+      {groups.length ? (
+        groups.map((group) => <EvidenceGroupView key={`${group.digest}:${JSON.stringify(group.configuration)}:${group.remote_consent}`} group={group} />)
+      ) : (
+        <p>
+          No site has shared signed counts for version {version} yet. A verified site shares how this pack did on its
+          own data with <code>mendari eval {packId} --dataset … --share</code>; no case leaves the site.
+        </p>
+      )}
+    </section>
   );
 }
 

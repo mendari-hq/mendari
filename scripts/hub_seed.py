@@ -8,7 +8,9 @@ signing key and signs and pushes every bundled pack; then approves the claim, wh
 namespace, and records it as a verified publisher. Prints the token and key id; with `--key-out`
 it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
 community publisher, a pack whose text tries to run a script and a `javascript:` link (the
-Hub's tests check it is shown as inert text, ADR-0012).
+Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
+(LP-22) evaluate the Referral Router on its synthetic test cases and share signed counts, so
+the Hub's Site evidence section has something to show.
 
     uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db
 """
@@ -129,6 +131,55 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     )
 
 
+SITES = (
+    ("north-health", "North Health (synthetic)", 600),
+    ("south-clinic", "South Clinic (synthetic)", 300),
+)
+
+
+def sites_example(registry: str, store: RegistryStore) -> None:
+    """Two synthetic sites, registered and verified by the operator, each with a key made here
+    (thrown away after), share a signed evaluation of the Referral Router on the first cases of
+    its synthetic test split (LP-22): a ticket, the run, the signed counts."""
+    from mendari.core.decision import Decision
+    from mendari.evals import resolve_dataset
+    from mendari.evals.harness import evaluation
+    from mendari.evals.share import shareable
+    from mendari.hub import site_signing
+
+    pack = resolve_pack("mendari/referral-router")
+    with tempfile.TemporaryDirectory() as scratch, RegistryClient(registry) as client:
+        for org, name, cases in SITES:
+            record = store.register_site(org=org, name=name, by=OPERATOR, reason="seeded")
+            where = Path(scratch) / org
+            made = site_signing.init_site(record["id"], directory=where)
+            store.add_site_key(
+                record["id"], made["public_pem"], made["proof"], org=None, by=OPERATOR
+            )
+            store.decide_site(
+                record["id"], verify=True, by=OPERATOR, note="a synthetic site", by_org=None
+            )
+            site = site_signing.Site(where)
+            dataset = resolve_dataset(pack, "test").head(cases)
+            report = shareable(evaluation(Decision(pack), dataset).ledger)
+            request = site.sign(
+                site_signing.TICKET_REQUEST,
+                {
+                    "pack": report["pack"],
+                    "configuration": {s: p["variant"] for s, p in report["providers"].items()},
+                    "remote_consent": False,
+                    "commitment": site.commitment(f"{org}:{cases}".encode()),
+                    "n": report["dataset"]["n"],
+                },
+            )
+            issued = client.request_ticket(request)
+            submission = site.sign(
+                site_signing.SUBMISSION, {"ticket": issued["ticket"]["id"], "report": report}
+            )
+            shared = client.submit(submission, issued["submit_secret"])
+            print(f"site {name} shared report {shared['id']} on {cases} cases")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--registry", required=True, help="the registry's URL, to publish to")
@@ -141,6 +192,11 @@ def main() -> int:
         "--hostile-example",
         action="store_true",
         help=f"also publish {HOSTILE_ID}, whose text tries to run a script (the Hub's tests)",
+    )
+    parser.add_argument(
+        "--sites",
+        action="store_true",
+        help="also have two synthetic sites share signed counts of the Referral Router",
     )
     args = parser.parse_args()
     with RegistryStore(args.db) as store:
@@ -174,6 +230,8 @@ def seed(args: argparse.Namespace, store: RegistryStore) -> None:
     listed(store, args.namespace, "verified")
     if hostile is not None:
         hostile_example(args.registry, hostile, store)
+    if args.sites:
+        sites_example(args.registry, store)
     print(f"token {token}\nkey {key_id}")
 
 

@@ -3434,7 +3434,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **22g** Aggregation served per digest and configuration (`hub/site_evidence.py`,
     `tests/test_site_evidence.py`; withdrawn tickets counted beside unreported ones, from 22e's
     review).
-  - [ ] **22h** the Hub's forest plot, apart from every rank.
+  - [x] **22h** the Hub's forest plot, apart from every rank (`hub/app/packs/[namespace]/[name]/
+    forest.tsx`, `tests/test_site_separation.py`; the scoreboard page's sentence has no link, as
+    the page reads no registry: conflict 6's fallback).
   - [ ] **22i** People register sites in the dashboard and reviewers verify them (after 19d to
     19g; beside 22e to 22h).
   - [ ] **22j** Close-out: gates `a11-site-network` and `site-validation`'s pending line, the
