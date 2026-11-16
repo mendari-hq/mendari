@@ -387,13 +387,16 @@ configuration names a variant the version declares for each of its slots; a conf
 is not wholly local carries the site's consent; at least 100 cases; and no live ticket or report
 holds the same site, digest, configuration and commitment. The answer holds the ticket and a
 one-time submission secret (stored as its SHA-256), shown once. A ticket lasts 30 days; that
-it expired is worked out on read, never written. A site gives up a ticket with a signed
-withdrawal (`POST /v1/tickets/{id}/withdraw`); it stays listed. Chained `site.ticket_issued`
+it expired is worked out on read, never written. A site gives up an open ticket with a signed
+withdrawal (`POST /v1/tickets/{id}/withdraw`); it stays listed, and the same dataset gets no
+second ticket for that digest and configuration. An expired ticket is not withdrawn: it stays
+unreported. Chained `site.ticket_issued`
 and `site.ticket_withdrawn`.
 
 `GET /v1/packs/{namespace}/{name}/tickets` lists, per verified site, digest and configuration,
 how many tickets were reported, are unreported (open, or expired with no report) and were
-withdrawn, with the first and last dates: a ticket with no result stays counted for good. No
+withdrawn, with the first and last dates: a ticket with no result stays counted for good, a
+closed site's too. No
 commitment and no secret is served.
 
 On the site's machine (`mendari site`): `init --site ID` makes its key and commitment secret

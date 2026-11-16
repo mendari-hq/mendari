@@ -2230,8 +2230,7 @@ def _ticket_request(args: argparse.Namespace) -> dict[str, Any]:
     pack = resolve_pack(args.pack)
     configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
     dataset = resolve_dataset(pack, args.dataset)
-    if args.limit:
-        dataset = dataset.head(args.limit)
+    # The whole file: the commitment is over its bytes, so it binds every case the run reads.
     raw = dataset.path.read_bytes() if dataset.path.is_file() else b""
     if not raw:
         raise MendariError(f"{args.dataset}: a site's dataset is a file it holds")
@@ -2262,6 +2261,8 @@ def cmd_site_ticket(args: argparse.Namespace) -> int:
     with _registry_client(args) as registry:
         issued = registry.request_ticket(request)
     ticket = issued["ticket"]
+    if not re.fullmatch(r"[0-9a-f]{16}", str(ticket.get("id", ""))):  # it names a file here
+        raise MendariError("the registry answered with a ticket id that is not one")
     hub_client._write_private(hub_client.config_dir() / "tickets" / f"{ticket['id']}.json", issued)
     _print_json(ticket)
     print(
@@ -4120,7 +4121,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     site_ticket.add_argument("pack", help="pack id (namespace/name[@version])")
     site_ticket.add_argument("--dataset", required=True, help="the site's labelled cases (JSONL)")
-    site_ticket.add_argument("--limit", type=int, help="the first N cases only")
     site_ticket.add_argument(
         "--provider",
         action="append",

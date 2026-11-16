@@ -206,7 +206,9 @@ def test_one_live_ticket_per_site_digest_configuration_and_commitment(
         f"/v1/tickets/{first['id']}/withdraw", json={"record": withdrawal}
     )
     assert withdrawn.status_code == 200 and withdrawn.json()["status"] == "withdrawn"
-    assert _post(published, _request(site)).status_code == 201  # free again
+    # Withdrawing never frees the dataset for a second run (the adversarial review of 22e).
+    again = _post(published, _request(site))
+    assert again.status_code == 409 and "one live result" in again.text
     # Another site cannot withdraw this one's ticket.
     other = _site(published, tmp_path, org="south-clinic")
     ticket = _post(published, _request(other)).json()["ticket"]
@@ -294,3 +296,68 @@ def test_a_ticket_request_is_read_to_8_kb_and_limited_per_address_and_key(
         assert codes[:2] == [201, 409] and codes[2] == 429  # the key's own bucket
         unsigned = [_post(published, {"x": i}, limited).status_code for i in range(3)]
         assert unsigned[-1] == 429  # the address's, before any signature is read
+
+
+def test_an_old_or_replayed_record_never_counts_against_the_sites_key(
+    published: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_target: str
+) -> None:
+    """The adversarial review of LP-22e: a record anyone saw (old, or sent before) was counted
+    against its key's rate before its time and nonce were read, so it could lock the site out."""
+    site = _site(published, tmp_path)
+    old = site.sign(
+        site_signing.TICKET_REQUEST,
+        {
+            "pack": {"id": REFERRAL.id, "version": REFERRAL.version, "digest": REFERRAL.digest},
+            "configuration": LOCAL,
+            "remote_consent": False,
+            "commitment": site.commitment(b"x"),
+            "n": 300,
+        },
+        at="2026-01-01T00:00:00Z",
+    )
+    used = _request(site)
+    assert _post(published, used).status_code == 201
+    monkeypatch.setenv("MENDARI_REGISTRY_RATE_LIMITS", "on,registry_ticket_key=1/h:1")
+    with TestClient(create_registry_app(db_target)) as limited:
+        for _ in range(4):
+            assert _post(published, old, limited).status_code == 422
+            assert _post(published, used, limited).status_code == 409
+        fresh = _request(site, commitment=site.commitment(b"y"))
+        assert _post(published, fresh, limited).status_code == 201
+
+
+def test_a_closed_sites_unreported_tickets_stay_listed(published: Registry, tmp_path: Path) -> None:
+    site = _site(published, tmp_path)
+    assert _post(published, _request(site)).status_code == 201
+    published.operator.close_site(site.id, org=None, by="o", reason="merged")
+    (group,) = published.client.get(f"/v1/packs/{REFERRAL.id}/tickets").json()["tickets"]
+    assert (group["site"], group["site_status"], group["unreported"]) == (site.id, "closed", 1)
+
+
+def test_the_tickets_of_a_pack_nobody_may_read_are_a_404(
+    published: Registry, tmp_path: Path
+) -> None:
+    site = _site(published, tmp_path)
+    assert _post(published, _request(site)).status_code == 201
+    assert published.client.get("/v1/packs/mendari/no-such-pack/tickets").status_code == 404
+    with published.operator._db.session(exclusive=True) as db:  # its claim pending, planted
+        db.all(
+            "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
+            "VALUES ('mendari', 'mendari', 'u', '2026-01-01T00:00:00+00:00', 'pending')"
+        )
+    hidden = published.client.get(f"/v1/packs/{REFERRAL.id}/tickets")
+    assert hidden.status_code == 404 and site.id not in hidden.text
+
+
+def test_an_expired_ticket_is_not_withdrawn_and_a_withdrawal_is_one_field(
+    published: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = _site(published, tmp_path)
+    monkeypatch.setattr(sites, "TICKET_DAYS", 0)
+    ticket = _post(published, _request(site)).json()["ticket"]
+    late = site.sign(site_signing.TICKET_WITHDRAWAL, {"ticket": ticket["id"]})
+    answer = published.client.post(f"/v1/tickets/{ticket['id']}/withdraw", json={"record": late})
+    assert answer.status_code == 409 and "expired" in answer.text
+    padded = site.sign(site_signing.TICKET_WITHDRAWAL, {"ticket": ticket["id"], "note": "x"})
+    answer = published.client.post(f"/v1/tickets/{ticket['id']}/withdraw", json={"record": padded})
+    assert answer.status_code == 422

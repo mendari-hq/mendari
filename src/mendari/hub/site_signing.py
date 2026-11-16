@@ -72,6 +72,7 @@ _COMMITMENT = re.compile(r"^hmac-sha256:[0-9a-f]{64}\Z")
 KEY_FILE_FORMAT = "mendari.site-key/1"
 SITE_FILE = "site.json"
 KEY_FILE = "site_key.pem"
+PREVIOUS_KEY_FILE = "site_key.previous.pem"  # the key `site key --new` replaced
 SECRET_FILE = "site_secret"
 
 
@@ -210,6 +211,8 @@ def init_site(
         _write_private_bytes(secret_path, base64.b64encode(secrets.token_bytes(SECRET_BYTES)))
     elif not (where / SITE_FILE).exists():
         raise MendariError("this machine is not a site yet: run `mendari site init` first")
+    if new_key and (where / KEY_FILE).exists():  # kept until the new key is registered
+        _write_private_bytes(where / PREVIOUS_KEY_FILE, (where / KEY_FILE).read_bytes())
     private = Ed25519PrivateKey.generate()
     pem = private.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
