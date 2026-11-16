@@ -287,6 +287,8 @@ NOT_ON_A_DECISION = {
     "pack_version.held",
     "pack_version.released",
     "pack_version.withdrawn",
+    "store_key.added",  # its authors' keys (`store_key:<id>`, LP-20f)
+    "store_key.revoked",
 }
 
 

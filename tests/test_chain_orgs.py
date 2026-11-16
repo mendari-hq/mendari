@@ -394,6 +394,15 @@ def _store_version(store: AuditStore, _: Pack) -> str:
     return f"pack_version:{made.id}"
 
 
+def _store_key(store: AuditStore, _: Pack) -> str:
+    from mendari.core.pack_store import PackStore
+    from mendari.hub import archive
+
+    PackStore(store).add_key(CLINIC, archive.generate_key()[1].decode(), by="t")
+    with store._db.session(exclusive=False) as db:
+        return f"store_key:{db.one('SELECT id FROM store_keys')['id']}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -408,6 +417,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "access_requests": ("access_requests", "id", _request),
     "evalset_sets": ("evalset_sets", "id", _evalset),
     "store_versions": ("store_versions", "id", _store_version),
+    "store_keys": ("store_keys", "id", _store_key),
 }
 
 
