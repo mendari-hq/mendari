@@ -177,6 +177,7 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/store/packs"),
     ("GET", "/api/store/packs/{namespace}/{name}"),
     ("GET", "/api/store/versions/{digest}"),
+    ("GET", "/api/store/versions/{digest}/file"),
     ("POST", "/api/store/versions"),
     ("POST", "/api/store/uploads"),
     ("PUT", "/api/store/uploads/{upload_id}/parts/{n}"),
@@ -1844,6 +1845,15 @@ def served_store(world: World, x: Org) -> None:
         world.call(
             x,
             author,
+            ("GET", "/api/store/versions/{digest}/file"),
+            f"/api/store/versions/{found}/file",
+            params={"path": "pack.yaml"},
+            expect=404,
+        )
+    for found in o.ids.get("store version", []):
+        world.call(
+            x,
+            author,
             ("POST", "/api/store/versions/{digest}/edits"),
             f"/api/store/versions/{found}/edits",
             json={"files": [{"path": "pack.yaml", "content": "x"}]},
@@ -1894,6 +1904,14 @@ def served_store(world: World, x: Org) -> None:
     x.made("store version", copy["digest"])
     rules = resolve_pack(INBOX).read_bytes("logic/routing_rules.yaml").decode()
     rules += f"\n# {x.marker}\n"
+    world.call(
+        x,
+        author,
+        ("GET", "/api/store/versions/{digest}/file"),
+        f"/api/store/versions/{copy['digest']}/file",
+        params={"path": "logic/routing_rules.yaml"},
+        expect=200,
+    )
     edited = world.call(
         x,
         author,

@@ -1695,6 +1695,17 @@ The first release (not yet published).
   skipped and counted), sealed and never downloadable. Its cases are offered to a draft as
   proposed behaviour tests, shown by case id and label only; accepted ones run with the draft's
   tests, and none is written into a pack's files.
+- **The pack store in the dashboard** (LP-20j; with the store on, for a person who holds
+  `pack_author`, `governance` or `admin`). A Pack store view: the organization's packs and their
+  versions with their state in words; copy a pack or upload a signed archive (in parts, with
+  progress); a refused upload's PHI report by kind, file and line, never a value; a held one
+  says only that it is held. A version's page edits a text file into a new draft, runs its tests
+  and shows its validation and its server-rendered card. Results run jobs a slice at a time;
+  Compare pairs two jobs on the same cases, each figure k of n with its interval and its
+  Holm-adjusted p-value, or "insufficient evidence". Promote asks for a reference and says what
+  will be served and to whom; the control is absent for the version's author, with the reason.
+  A new read, `GET /api/store/versions/{digest}/file?path=`, gives the editor one text file
+  (UTF-8, at most 1 MiB, not a held version's).
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

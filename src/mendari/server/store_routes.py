@@ -269,6 +269,28 @@ def add_store_routes(
             raise _refused(error) from None
         return {**_detail(row), "card_markdown": card}
 
+    @app.get("/api/store/versions/{digest}/file", tags=[TAG], summary="One text file of a version")
+    def store_version_file(request: Request, digest: str, path: str) -> dict[str, Any]:
+        """A text file of a version of your organization's store, for its editor (LP-20j): the
+        manifest, policy, rules, criteria, wording or tests. Not a held version's, not a trained
+        model, not a file that is not UTF-8 text, and at most 1 MiB. Nothing is recorded."""
+        _, org = person(request)
+        owned(org, digest, states=(DRAFT, "promoted", "retired"))
+        try:
+            files = store.files(org, digest)
+        except StoreError as error:
+            raise _refused(error) from None
+        data = files.get(path)
+        if data is None:
+            raise HTTPException(404, "no such file in this version")
+        if len(data) > 1024 * 1024:
+            raise HTTPException(413, "a file of more than 1 MiB is not edited here")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(422, "not a text file") from None
+        return {"digest": digest, "path": path, "text": text}
+
     @app.post("/api/store/versions", status_code=201, tags=[TAG], summary="Upload a small archive")
     async def upload_archive(request: Request) -> JSONResponse:
         """A signed pack archive (`mendari pack build`) in one request, under the body limit;
