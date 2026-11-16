@@ -349,6 +349,19 @@ class CountedQuestion(_Closed):
         shown = sum(c for row in self.confusion.values() for c in row.values() if c is not None)
         if shown > self.n:
             raise ValueError("the confusion cells must add up to at most n")
+        # Each part at most its total, so no stated count is past what it is of (the
+        # adversarial review of LP-22f: counts that could not add up kept `suppress` running).
+        wrong = self.n - self.right
+        diagonal = sum(
+            row.get(t) or 0 for t, row in self.confusion.items() if row.get(t) is not None
+        )
+        off = sum(c for t, row in self.confusion.items() for p, c in row.items() if p != t and c)
+        rights = sum(b.right for b in self.calibration if b.right is not None)
+        wrongs = sum(b.wrong for b in self.calibration if b.wrong is not None)
+        if diagonal > self.right or rights > self.right:
+            raise ValueError("the right answers' cells must add up to at most right")
+        if off > wrong or wrongs > wrong:
+            raise ValueError("the wrong answers' cells must add up to at most n - right")
         return self
 
 
@@ -625,6 +638,23 @@ def _known(report: Mapping[str, Any], equation: Equation, null: _Ref) -> int | N
     return low if low >= high else None
 
 
+def _range(report: Mapping[str, Any], equation: Equation, null: _Ref) -> tuple[int, int]:
+    """The values a null cell can take (`_known`'s bounds before it chooses one)."""
+    added, subtracted, total = equation
+    rest = total
+    rest -= sum(r.value for r in added if r.value is not None)
+    rest += sum(r.value for r in subtracted if r.value is not None)
+    others_added = [r for r in added if r.value is None and r is not null]
+    others_subtracted = [r for r in subtracted if r.value is None and r is not null]
+    if any(r is null for r in added):
+        low = rest - sum(_bound(report, r) for r in others_added)
+        high = rest + sum(_bound(report, r) for r in others_subtracted)
+    else:
+        low = -rest - sum(_bound(report, r) for r in others_subtracted)
+        high = -rest + sum(_bound(report, r) for r in others_added)
+    return max(low, 0), min(high, _bound(report, null))
+
+
 def suppress(report: Mapping[str, Any]) -> dict[str, Any]:
     """The one suppression function (owner decision 3 of the plan: 1 to 9 suppressed, zeros
     shown, nothing shared under 100 cases). The sender runs it before writing or sending; the
@@ -661,13 +691,22 @@ def suppress(report: Mapping[str, Any]) -> dict[str, Any]:
             if small(ref.value) and not ref.exempt:
                 ref.holder[ref.key] = None
 
+    _add_up(out)
+    # Each pass nulls a shown cell or shows the one null left in its equation: never more passes
+    # than there are cells (the adversarial review of LP-22f: counts that could not add up made
+    # this loop run for good).
+    passes = 1 + sum(len(added) + len(subtracted) for added, subtracted, _ in _equations(out))
     changed = True
     while changed:
+        passes -= 1
+        if passes < 0:
+            raise MendariError(NOT_COUNTS)
         changed = False
         for equation in _equations(out):
             added, subtracted, _ = equation
             refs = [*added, *subtracted]
-            for null in (r for r in refs if r.value is None):
+            nulls = [r for r in refs if r.value is None]
+            for null in nulls:
                 known = _known(out, equation, null)
                 if known is None:
                     continue
@@ -675,13 +714,37 @@ def suppress(report: Mapping[str, Any]) -> dict[str, Any]:
                 if candidates:
                     chosen = min(candidates, key=lambda r: r.value)
                     chosen.holder[chosen.key] = None
-                else:
+                elif len(nulls) == 1:
                     null.holder[null.key] = known
+                else:  # two or more nulls, nothing left to suppress, one pinned: not counts
+                    raise MendariError(NOT_COUNTS)
                 changed = True
                 break
             if changed:
                 break
+    _add_up(out)
     return out
+
+
+NOT_COUNTS = "these counts cannot be shared: they do not add up to the totals they state"
+
+
+def _add_up(report: Mapping[str, Any]) -> None:
+    """Refuse counts that cannot be one run's: an equation the payload states that does not
+    hold where every cell is shown, or that no values of its null cells could make hold."""
+    for added, subtracted, total in _equations(report):
+        refs = [*added, *subtracted]
+        nulls = [r for r in refs if r.value is None]
+        if not nulls:
+            plus = sum(r.value for r in added)
+            minus = sum(r.value for r in subtracted)
+            if plus - minus != total:
+                raise MendariError(NOT_COUNTS)
+            continue
+        for null in nulls:
+            low, high = _range(report, (added, subtracted, total), null)
+            if low > high:
+                raise MendariError(NOT_COUNTS)
 
 
 def site_report(ledger: Ledger, *, remote_consent: bool = False) -> SiteReportV2:

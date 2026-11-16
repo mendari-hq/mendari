@@ -109,4 +109,6 @@ def test_validate_checks_behaviour_test_inputs_against_the_schema(
     assert main(["validate", str(root)]) != 0
     error = capsys.readouterr().err
     assert "case 4 (a stable, long-standing problem is not urgent): input" in error
-    assert "Additional properties are not allowed" in error
+    # Where and which rule, as a decision's reasons say it, never the text (LP-20b).
+    assert "input referral: has a field the schema does not allow" in error
+    assert "unchanged for 5 years" not in error

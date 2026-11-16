@@ -805,6 +805,14 @@ The first release (not yet published).
     exactly; a run on fewer than 100 cases is not shared. The registry refuses
     `mendari.site-report/1` (it names the format to send) and works out every figure it serves
     from the counts. Reports stored as `/1` are still served as they were.
+  - **Pooled site evidence, the statistics** (LP-22b, `mendari.evals.pooling`; nothing calls
+    them yet): a pooled fixed-effect figure from summed counts with its exact interval, a
+    DerSimonian-Laird random-effects estimate on the logit scale from 3 sites, the range of
+    site rates, and a homogeneity test that is Pearson's chi-square only when every expected
+    count is 5 or more, the exact test otherwise, and a permutation test with its seed in the
+    answer when the tables are more than a million. Each takes whole counts only and refuses a
+    rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
+    chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
 - **The site evaluation network: sites and their keys** (LP-22d, ADR-0017 Proposed; nothing
   reads them yet). A site is a record in the registry owned by an organization, pending until a
   registry reviewer or the operator verifies it; it signs with up to five live Ed25519 keys,
@@ -842,14 +850,6 @@ The first release (not yet published).
   report it supersedes (`--supersedes`), and both stay listed. A publisher token no longer
   shares a report; unsigned reports stored before are kept and no longer served. New guide:
   [Evaluating a pack at your site](docs/guides/evaluate-at-your-site.md).
-  - **Pooled site evidence, the statistics** (LP-22b, `mendari.evals.pooling`; nothing calls
-    them yet): a pooled fixed-effect figure from summed counts with its exact interval, a
-    DerSimonian-Laird random-effects estimate on the logit scale from 3 sites, the range of
-    site rates, and a homogeneity test that is Pearson's chi-square only when every expected
-    count is 5 or more, the exact test otherwise, and a permutation test with its seed in the
-    answer when the tables are more than a million. Each takes whole counts only and refuses a
-    rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
-    chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
 - **The site evaluation network: site evidence, pooled** (LP-22g, ADR-0017 Proposed; never in
   a rank). `GET /v1/packs/{namespace}/{name}/site-evidence` (`mendari.site-evidence/1`): per
   pack digest and configuration, never across them, each verified site's k of n with its exact
@@ -1593,6 +1593,18 @@ The first release (not yet published).
   second line saying so. A statement signed by another key, changed after signing, or of
   another format (a recall, a counter-signature, the engine's `mendari.checkpoint/1`) is
   refused. A checkpoint says nothing about events appended after it.
+- **One validation function** (LP-20b, `mendari.evals.validation`; **a registry refuses more**).
+  `mendari validate`, the community check and the registry's publish call one function, and
+  from LP-20e the pack store does too. Each problem has a kind (`manifest`, `provider`, `fhir`,
+  `tests`, `dataset`), the pack file it is in and a place in it (a manifest key, `case 3`,
+  `case c-12`); its line is the one `mendari validate` prints. **The registry now refuses a
+  publish the validator refuses** (`422`, naming up to five problems; nothing is stored),
+  where before it took any pack that loaded: a behaviour test whose input the schema refuses,
+  a provider variant that cannot be built, a FHIR mapping that does not load or a declared
+  dataset the pack cannot evaluate. A valid publish is stored exactly as before. **A change to
+  what `mendari validate` prints:** a behaviour test's input problem names the place in the
+  input and the schema's rule (`input message: must be of type object`) as a decision's reasons
+  do, never the input's value, where it printed jsonschema's own message, which quotes it.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no
