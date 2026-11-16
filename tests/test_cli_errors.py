@@ -166,6 +166,16 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "registry approve": (["--namespace", "a", "--reason", "x", "--db", "{missing_db}"], {}),
     "registry refuse": (["--namespace", "a", "--reason", "x", "--db", "{not_db}"], {}),
     "registry claims": (["--db", "{missing_db}"], {}),
+    # Sites (LP-22d): a database that is not there, or not a database.
+    "registry site": (["--org", "a", "--name", "a", "--reason", "x", "--db", "{missing_db}"], {}),
+    "registry site-verify": (["--site", "0" * 16, "--reason", "x", "--db", "{not_db}"], {}),
+    "registry site-key": (
+        ["--site", "0" * 16, "--key", "{missing}", "--reason", "x", "--db", "{missing_db}"],
+        {},
+    ),
+    "registry site-revoke-key": (["ed25519:" + "0" * 16, "--reason", "x", "--db", "{not_db}"], {}),
+    "registry site-close": (["--site", "0" * 16, "--reason", "x", "--db", "{missing_db}"], {}),
+    "registry sites": (["--db", "{missing_db}"], {}),
     "registry publisher-type": (
         ["--namespace", "a", "--type", "verified", "--reason", "x", "--db", "{missing_db}"],
         {},
