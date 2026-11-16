@@ -17,6 +17,7 @@ from mendari import __version__
 from mendari.cli import build_parser, main
 
 DEAD = "http://127.0.0.1:9"  # nothing listens: refused at once
+DIGEST = "sha256:" + "0" * 64
 
 
 def commands(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()) -> Iterator[str]:
@@ -236,6 +237,11 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     ),
     "evalset retire": ([SET_ID, "--db", "{not_db}"], {}),
     "evalset show": ([SET_ID, "--db", "{missing_db}"], {}),
+    # The pack store (LP-20e, LP-20f): each reads a missing database or one that is not one.
+    "store versions": (["--org", "a", "--db", "{missing_db}"], {}),
+    "store verify": (["--db", "{not_db}"], {}),
+    "store withdraw": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{missing_db}"], {}),
+    "store purge": (["--db", "{not_db}"], {}),
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
     "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
