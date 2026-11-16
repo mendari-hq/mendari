@@ -18,11 +18,12 @@ from mendari.core.card import render_card
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.reference import bundled_dir
 from mendari.core.registry import resolve_pack
-from mendari.evals.share import shareable
+from mendari.evals import figures as figures_module
+from mendari.evals import stats
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, Registry
+from tests.conftest import INBOX_DIR, Registry, shared_benchmark
 
 REFERRAL = resolve_pack("mendari/referral-router")
 GUARD = resolve_pack("mendari/ai-guard")
@@ -116,11 +117,11 @@ def test_tokens_are_stored_hashed(registry: Registry, db_target: str) -> None:
     assert registry.client.get("/v1/health").json()["status"] == "ok"
 
 
-def test_sites_share_metrics_and_compare_with_the_benchmark(
+def test_sites_share_counts_and_compare_with_the_benchmark(
     registry: Registry, db_target: str
 ) -> None:
     registry.publish()
-    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    report = shared_benchmark()
     publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
     assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
@@ -128,7 +129,9 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
         path, json={"site": "Site A", "report": report}, headers=publisher
     )
     assert shared.status_code == 201, shared.text
-    assert shared.json()["accuracy"] == report["questions"]["next_step"]["accuracy"]
+    question = report["questions"]["next_step"]
+    accuracy = shared.json()["figures"]["questions"]["next_step"]["accuracy"]
+    assert (accuracy["k"], accuracy["n"]) == (question["right"], question["n"])
     other = {**report, "pack": {**report["pack"], "version": "0.0.9"}}
     assert (
         registry.client.post(
@@ -144,14 +147,66 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     assert stored is not None and json.loads(stored["report"]) == report
 
 
+def _rates(value: Any, path: str = "") -> list[str]:
+    """Where a float that is not an interval's bound sits in an answer."""
+    if isinstance(value, dict):
+        return [p for key, item in value.items() for p in _rates(item, f"{path}.{key}")]
+    if isinstance(value, list):
+        return [p for i, item in enumerate(value) for p in _rates(item, f"{path}.{i}")]
+    if isinstance(value, float) and not path.endswith((".low", ".high")):
+        return [path]
+    return []
+
+
+def test_the_registry_computes_every_rate_it_shows(registry: Registry) -> None:
+    """A shared report holds counts; every share the registry serves of it is k of n with its
+    exact interval, worked out from those counts. No number in the answer is a rate the site
+    sent."""
+    registry.publish()
+    report = shared_benchmark()
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    added = registry.client.post(path, json={"site": "Site A", "report": report}, headers=publisher)
+    assert added.status_code == 201, added.text
+    (site,) = registry.client.get("/v1/packs/mendari/referral-router/reports").json()["sites"]
+    figures = site["figures"]
+    assert _rates(figures) == []
+    expected = {**figures_module.site(report), "format": "mendari.figures/1"}
+    assert figures == json.loads(json.dumps(expected))
+    question = report["questions"]["next_step"]
+    accuracy = figures["questions"]["next_step"]["accuracy"]
+    assert (accuracy["k"], accuracy["n"]) == (question["right"], question["n"])
+    assert (accuracy["low"], accuracy["high"]) == pytest.approx(
+        stats.clopper_pearson(question["right"], question["n"])
+    )
+    for item, counted in zip(figures["critical"], report["decisions"]["critical"], strict=True):
+        assert (item["detected"]["k"], item["detected"]["n"]) == (counted["detected"], counted["n"])
+        assert item["automated"]["k"] == counted["auto_missed"]
+
+
+def test_a_site_report_of_the_old_format_is_refused_and_names_the_new_one(
+    registry: Registry, db_target: str
+) -> None:
+    registry.publish()
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    old = {**shared_benchmark(), "format": "mendari.site-report/1"}
+    answer = registry.client.post(path, json={"site": "Site A", "report": old}, headers=publisher)
+    assert answer.status_code == 422
+    assert "mendari.site-report/2" in answer.json()["detail"]
+    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
+        assert db.all("SELECT id FROM hub_reports") == []
+
+
 def test_a_site_report_is_checked_before_anything_is_stored(
     registry: Registry, db_target: str
 ) -> None:
-    """Anything but `mendari.site-report/1` is refused: a whole evaluation report (case ids,
-    the dataset's name), free text, a small cell, a malformed field. Nothing is stored."""
+    """Anything but `mendari.site-report/2` as `suppress` leaves it is refused: a whole
+    evaluation report (case ids, the dataset's name), free text, a small cell, a rate, a
+    malformed field. Nothing is stored."""
     registry.publish()
     benchmark = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
-    report = shareable(benchmark)
+    report = shared_benchmark()
     publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
     free_text = {**report, "providers": {**report["providers"]}}
@@ -160,32 +215,33 @@ def test_a_site_report_is_checked_before_anything_is_stored(
         "model": "Jane Doe called about chest pain",
     }
     small = json.loads(json.dumps(report))
-    small["questions"]["next_step"]["calibration"]["bins"].append(
-        {"low": 0.0, "high": 0.1, "n": 3, "confidence": 0.05, "accuracy": 0.0}
-    )
+    small["decisions"]["outcomes"]["BLOCK"] = 3  # a cell under 10, shown
+    rate = json.loads(json.dumps(report))
+    rate["questions"]["next_step"]["right"] = 0.93
     refused = [
         benchmark,
         free_text,
         small,
+        rate,
         {**report, "subgroups": {}},
         {**report, "primary": ["next_step"]},
         {**report, "note": "x"},
+        {**report, "dataset": {"n": 99}},
     ]
     for body in refused:
         answer = registry.client.post(
             path, json={"site": "Site A", "report": body}, headers=publisher
         )
         assert answer.status_code == 422, answer.text
-        assert "Jane" not in answer.text and "input" not in answer.json()["detail"][0]
+        assert "Jane" not in answer.text
+        detail = answer.json()["detail"]  # a validation error's problems, or the reason
+        assert isinstance(detail, str) or all("input" not in problem for problem in detail)
     # Names the pack does not have, though shaped like names: refused, and never echoed.
     renamed = json.loads(json.dumps(report))
-    renamed["questions"]["next_step"]["per_label"]["Jane_Doe_MRN00123"] = renamed["questions"][
-        "next_step"
-    ]["per_label"].pop("schedule")
-    # An error code is one of Mendari's (a closed set), not anything shaped like one.
-    errors = {**report, "errors": {"Jane_Doe.chest-pain": 1}}
+    confusion = renamed["questions"]["next_step"]["confusion"]
+    confusion["Jane_Doe_MRN00123"] = confusion.pop("schedule")
     extra = {**report, "Jane_Doe chest pain": 1}
-    for body in (renamed, errors, extra):
+    for body in (renamed, extra):
         answer = registry.client.post(
             path, json={"site": "Site A", "report": body}, headers=publisher
         )
@@ -206,14 +262,14 @@ def test_reports_stored_before_they_were_checked_are_not_served(
     registry: Registry, db_target: str
 ) -> None:
     """Rows from before `mendari.site-report/1` may hold case ids or be malformed: the listing
-    leaves them out instead of serving them or failing."""
+    leaves them out instead of serving them or failing. A `/1` row is served as it was."""
     registry.publish()
-    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    report = shared_benchmark()
     publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
     added = registry.client.post(path, json={"site": "Site A", "report": report}, headers=publisher)
     assert added.status_code == 201
-    old = {**report, "decisions": {**report["decisions"], "critical": [{"missed_ids": ["c-123"]}]}}
+    old = {"decisions": {"critical": [{"missed_ids": ["c-123"]}]}}
     with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
         for number, stored in enumerate((old, {"decisions": "x"}, {"primary": ["x"]})):
             row = (f"old-{number}", "mendari", "referral-router", REFERRAL.version, "Old")

@@ -825,7 +825,7 @@ By default, nothing. Each of these is off until you configure it:
 | Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only (as for Jev) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
-| Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
+| Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/2`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
 | Da Vinci PAS submissions (`submit` on `POST /api/packs/{pack}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes; for a request that needs attention, also the completed DTR QuestionnaireResponse it gives (the clinician's answers) |
 
 **Da Vinci PAS codes.** A PAS request carries X12 codes, and Mendari ships none of their values

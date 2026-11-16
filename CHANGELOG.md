@@ -793,6 +793,18 @@ The first release (not yet published).
   attestations) and a set from start to end, and now says that every writing `mendari evalset`
   command refuses a database no server used and that a grading key lives 90 days unless
   `--days` says otherwise. ADR-0011 records what was built and its consequences.
+- **The site evaluation network, being built** (LP-22, ADR-0017 Proposed; nothing changes how
+  a pack decides, what a hidden set grades or how anything ranks):
+  - **Counts in, rates out (breaking, for `mendari eval --share` and `--share-out`)** (LP-22c).
+    A site shares `mendari.site-report/2`: whole counts only, counted from the run's ledger (per
+    question its labelled and right cases, its confusion matrix and confidence deciles; the
+    outcome counts; false automations; each critical label's counts; tokens). Calibration
+    error, Brier, latency, cost, error counts and rates stay with the site. One suppression
+    function, run by the sender and again by the registry, nulls cells of 1 to 9 and their
+    complements, so none can be worked out from the totals; critical counts are shared
+    exactly; a run on fewer than 100 cases is not shared. The registry refuses
+    `mendari.site-report/1` (it names the format to send) and works out every figure it serves
+    from the counts. Reports stored as `/1` are still served as they were.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

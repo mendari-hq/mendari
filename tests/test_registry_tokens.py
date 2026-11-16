@@ -20,11 +20,10 @@ from mendari.cli import main
 from mendari.core import clock
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
-from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore, create_registry_app, token_id
-from tests.conftest import Registry
+from tests.conftest import Registry, shared_benchmark
 
 OWNER = "user:3f9a"  # a person as a chain names one: an id, never an address
 
@@ -395,11 +394,7 @@ def test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifie
     path = f"/v1/packs/mendari/referral-router/{resolve_pack('mendari/referral-router').version}"
     bearer = {"authorization": f"Bearer {legacy}"}
     assert registry.client.post(f"{path}/yank", json={}, headers=bearer).status_code == 403
-    report = shareable(
-        json.loads(
-            (resolve_pack("mendari/referral-router").root / "evals" / "benchmark.json").read_text()
-        )
-    )
+    report = shared_benchmark()
     shared = registry.client.post(
         f"{path}/reports", json={"site": "Site A", "report": report}, headers=bearer
     )

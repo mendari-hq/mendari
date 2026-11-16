@@ -183,6 +183,75 @@ Three functions were added for the scoreboard (LP-17). Only its entries
   each label was the truth there. Tied confidences are averaged, as the calibration error's
   are, and it is not estimable, as that error is, when a bin would hold fewer than 30 cases.
 
+## Shared site reports: `mendari.site-report/2`
+
+What a site sends a registry about its own evaluation (LP-22c,
+[ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)): whole counts, names and
+flags only. No rate, no fraction and no case leaves the site; the registry computes every figure
+it shows from the counts (`mendari.evals.figures.site`). It is counted from the run's ledger
+(`mendari.evals.share.counted_report`), never as a rate times n, and every count passes one
+suppression function (`suppress`) that the sender runs before writing or sending and the
+registry runs again, refusing a payload it would change. A registry refuses
+`mendari.site-report/1`, which carried rates, and names this format in its answer.
+
+It holds the pack (id, version, digest), each slot's provider (variant, type, model), the
+policy (risk level, thresholds as whole basis points: 0.85 is 8500, and whether a governance
+override applied), whether the site consented to a remote arm, the dataset's size, the primary
+question, per question its labelled cases (`n`), how many were right (`right`), its confusion
+matrix over answered cases (truth by predicted label) and its ten confidence deciles (how many
+right, how many wrong), the outcome counts, how many cases were automated with a wrong
+recommendation (`false_automation`), each critical label's `n`, `detected` and `auto_missed`,
+and the tokens used.
+
+What stays with the site: calibration error and Brier scores (they need each case's
+confidence), latency and dollar cost (measurements, not counts), per-label precision and
+recall (the registry works them out where it shows them), error counts (with every case
+labelled they would say how many confusion cells are missing, so a suppressed cell could be
+worked out), the threshold sweep's finer rows (0.85, 0.95, 0.97, 0.99: their bands would cut
+a suppressed decile by subtraction; the registry works out the sweep at 0.5 to 0.9 from the
+deciles), and subgroups (their values come from a site's data, until a pack declares them).
+
+Each field's rule (`share.SUPPRESSION_RULES`; a test holds every field to one):
+
+| Field | Rule |
+|---|---|
+| `format` | as it is |
+| `pack` | as it is: the published version's id, version and digest |
+| `providers` | as it is: names the pack declares |
+| `policy` | as it is |
+| `remote_consent` | as it is |
+| `dataset.n` | total: shared exactly; a run on fewer than 100 cases is not shared at all |
+| `primary` | as it is |
+| `questions.n` | total: shared exactly |
+| `questions.right` | total: shared exactly |
+| `questions.confusion` | cell: null when 1 to 9, and complementary suppression; a critical label's own cell is its detected count, so it is shown |
+| `questions.calibration.bin` | as it is |
+| `questions.calibration.right` | cell: null when 1 to 9, and complementary suppression |
+| `questions.calibration.wrong` | cell: null when 1 to 9, and complementary suppression |
+| `decisions.outcomes` | cell: null when 1 to 9, and complementary suppression |
+| `decisions.false_automation` | safety count: shared exactly, never suppressed |
+| `decisions.critical.question` | as it is |
+| `decisions.critical.label` | as it is |
+| `decisions.critical.n` | safety count: shared exactly, never suppressed |
+| `decisions.critical.detected` | safety count: shared exactly, never suppressed |
+| `decisions.critical.auto_missed` | safety count: shared exactly, never suppressed |
+| `tokens.input` | total: shared exactly |
+| `tokens.output` | total: shared exactly |
+
+A cell is a count of cases that describes people; zeros are shown (owner decision 3 of the
+plan: cells of 1 to 9, and no sharing under 100 cases). Safety counts are never suppressed: a
+missed critical case must not disappear under a privacy rule.
+
+**Complementary suppression.** The payload states equations about its cells: per question, the
+confusion's diagonal adds up to `right`, and so do the deciles' `right`; its off-diagonal cells
+and the deciles' `wrong` count the same cases; the outcomes add up to the dataset's n. No cell is
+in two equations. A null cell is also bounded: no count is negative, and a critical label's
+row holds at most its `n` cases. While some null can take only one value, given its equation,
+the others' bounds and that no count is negative, the smallest shown cell of its equation (a
+zero first; never one a safety count states) is made null too. A null whose equation has no
+shown cell left to suppress is known from the others whatever is done, so it is shown. Applied
+to its own output the function changes nothing, which is what the registry checks.
+
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
 A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and

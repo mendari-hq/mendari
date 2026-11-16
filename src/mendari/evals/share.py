@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What of an evaluation report a site can share: metrics, never cases.
+"""What of an evaluation a site can share: counts, never cases.
 
-A shared report (`format: mendari.site-report/1`) is a closed schema, the same on both sides:
-the client builds it with `site_report` and the registry refuses anything else. It holds the
+`mendari.site-report/1` (LP-07) was a closed schema, the same on both sides. It held the
 pack, the providers and policy, the metrics per question, the outcome counts and rates, the
 critical counts, the threshold sweep, latency, cost, error counts and the dataset's size. It
 never holds a case id, case text, the dataset's name or hash, who approved a governance
@@ -15,12 +14,21 @@ rounded. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is r
 model lists each member's as `member:model`, joined as the composite joins them (" + ", or a
 cascade's " → ", the one character that is not ASCII), and a failed member's error is
 `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
+
+Its models are kept for what is built from their parts (a hidden set's result,
+`evals/hidden.py`) and for reports a registry stored before LP-22c; a registry no longer takes
+it, and nothing here builds it. A site shares `mendari.site-report/2` (LP-22c, ADR-0017),
+built by `site_report` (`shareable`, as sent): whole counts only, counted from the run's
+ledger, small cells suppressed by one function (`suppress`) that both sides run.
 """
 
 from __future__ import annotations
 
+import copy
 import re
+from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -31,10 +39,12 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from mendari.errors import FAILURE_CODES, MendariError
-from mendari.evals.result import normalize
+from mendari.evals.ledger import Ledger
+from mendari.evals.result import CONFIDENCE, OUTCOMES, PREDICTED, TRUTH
 from mendari.providers import PROVIDER_TYPES
 from mendari.providers.composite import CompositeProvider
 
@@ -238,82 +248,8 @@ class SiteReport(_Closed):
     errors: Annotated[dict[ErrorKey, Count], Field(max_length=64)]
 
 
-_CRITICAL_KEPT = ("question", "label", "n", "detected", "detection_rate", "auto_missed")
-
-
-def _object(value: Any, where: str) -> Mapping[str, Any]:
-    if value is None:
-        return {}
-    if not isinstance(value, Mapping):
-        raise MendariError(f"this report cannot be shared: {where} is not an object")
-    return value
-
-
-def _list(value: Any, where: str) -> list[Any]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise MendariError(f"this report cannot be shared: {where} is not a list")
-    return value
-
-
-# A question's figures a site report carries (mendari.site-report/1): what a mendari.eval/2
-# report adds (each proportion's interval, the bootstrap Brier interval, the equal-mass
-# calibration) stays with the site.
-_QUESTION_KEPT = ("n", "accuracy", "macro_f1", "per_label", "confusion", "brier")
-
-
-def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> SiteReport:
-    """The shareable part of an evaluation report, validated: small bins dropped; case ids,
-    subgroups, the dataset's identity and the override's approver left out. Raises
-    `ValidationError` if anything that remains is not a bounded name or number, `MendariError`
-    if the report is not shaped like one."""
-    min_group = max(min_group, MIN_GROUP)
-    questions = {}
-    for name, question in _object(report.get("questions"), "questions").items():
-        question = _object(question, f"questions.{name}")
-        calibration = _object(question.get("calibration"), f"questions.{name}.calibration")
-        bins = [
-            b
-            for b in _list(calibration.get("bins"), f"questions.{name}.calibration.bins")
-            if (_object(b, "a calibration bin").get("n") or 0) >= min_group
-        ]
-        kept = {key: question.get(key) for key in _QUESTION_KEPT if key in question}
-        questions[name] = {**kept, "calibration": {"ece": calibration.get("ece"), "bins": bins}}
-    decisions = dict(_object(report.get("decisions"), "decisions"))
-    decisions["critical"] = [
-        {key: _object(item, "decisions.critical").get(key) for key in _CRITICAL_KEPT}
-        for item in _list(decisions.get("critical"), "decisions.critical")
-    ]
-    policy = _object(report.get("policy"), "policy")
-    return SiteReport.model_validate(
-        {
-            "format": SITE_REPORT_FORMAT,
-            "pack": report.get("pack"),
-            "providers": report.get("providers"),
-            "policy": {
-                "risk_level": policy.get("risk_level"),
-                "thresholds": policy.get("thresholds"),
-                "governance_override": policy.get("governance_override") is not None,
-            },
-            "dataset": {"n": _object(report.get("dataset"), "dataset").get("n")},
-            "primary": report.get("primary"),
-            "questions": questions,
-            "decisions": decisions,
-            "threshold_sweep": [
-                {key: row.get(key) for key in ("threshold", "coverage", "accuracy", "errors")}
-                for row in _list(report.get("threshold_sweep"), "threshold_sweep")
-                if isinstance(row, dict)
-            ],
-            "latency_ms": normalize(report)["run"].get("latency_ms"),
-            "cost": report.get("cost"),
-            "errors": report.get("errors") or {},
-        }
-    )
-
-
 def _field_names() -> frozenset[str]:
-    models: list[type[BaseModel]] = [SiteReport]
+    models: list[type[BaseModel]] = [SiteReport, SiteReportV2]
     names: set[str] = {"report", "site", "body", "query", "path"}
     while models:
         model = models.pop()
@@ -346,19 +282,6 @@ def where(loc: tuple[Any, ...] | list[Any]) -> str:
     return ".".join(shown)
 
 
-def shareable(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> dict[str, Any]:
-    """`site_report` as the JSON-ready dict that is sent. A report that cannot be shared is a
-    `MendariError` naming the fields (never their values)."""
-    try:
-        return site_report(report, min_group=min_group).model_dump(mode="json")
-    except ValidationError as error:
-        fields = sorted({where(e["loc"]) for e in error.errors()})
-        shown = ", ".join(fields[:5]) + (f" and {len(fields) - 5} more" if len(fields) > 5 else "")
-        raise MendariError(
-            f"this report cannot be shared: {shown} must be a short name or a number in range"
-        ) from None
-
-
 def summary(report: Mapping[str, Any]) -> dict[str, Any]:
     """The few numbers a site-to-site comparison shows."""
     primary = report.get("primary")
@@ -373,6 +296,421 @@ def summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "false_automation_rate": (decisions.get("automation") or {}).get("false_automation_rate"),
         "ece": (question.get("calibration") or {}).get("ece"),
     }
+
+
+# --------------------------------------------------------------------------------------------
+# mendari.site-report/2: counts in, rates out (LP-22c)
+# --------------------------------------------------------------------------------------------
+
+SITE_REPORT_V2 = "mendari.site-report/2"
+MIN_DATASET = 100  # owner decision 3 (plan): a run on fewer cases is not shared
+BASIS = 10_000  # a threshold as a whole number of basis points: 0.85 is 8500
+BINS = 10  # calibration: confidence deciles, as `metrics.calibration` cuts them
+
+BasisPoints = Annotated[int, Field(ge=0, le=BASIS)]
+Cell = Annotated[int | None, Field(ge=0, le=10**9)]  # a count of cases, or null: suppressed
+
+
+class CountedThresholds(_Closed):
+    auto_bp: BasisPoints
+    review_bp: BasisPoints
+
+
+class CountedPolicy(_Closed):
+    risk_level: Annotated[int, Field(ge=0, le=4)]
+    thresholds: CountedThresholds
+    governance_override: bool
+
+
+class CountedDataset(_Closed):
+    n: Annotated[int, Field(ge=MIN_DATASET, le=10**9)]
+
+
+class CountedBin(_Closed):
+    bin: Annotated[int, Field(ge=0, le=BINS - 1)]
+    right: Cell
+    wrong: Cell
+
+
+class CountedQuestion(_Closed):
+    n: Count
+    right: Count
+    confusion: Annotated[
+        dict[Name, Annotated[dict[Name, Cell], Field(max_length=64)]], Field(max_length=64)
+    ]
+    calibration: Annotated[list[CountedBin], Field(min_length=BINS, max_length=BINS)]
+
+    @model_validator(mode="after")
+    def _whole(self) -> CountedQuestion:
+        if self.right > self.n:
+            raise ValueError("right must be at most n")
+        if [b.bin for b in self.calibration] != list(range(BINS)):
+            raise ValueError("calibration must hold each decile once, in order")
+        shown = sum(c for row in self.confusion.values() for c in row.values() if c is not None)
+        if shown > self.n:
+            raise ValueError("the confusion cells must add up to at most n")
+        return self
+
+
+class CountedCritical(_Closed):
+    question: Name
+    label: Name
+    n: Count
+    detected: Count
+    auto_missed: Count
+
+    @model_validator(mode="after")
+    def _of_n(self) -> CountedCritical:
+        if self.detected > self.n or self.auto_missed > self.n:
+            raise ValueError("detected and auto_missed must be at most n")
+        return self
+
+
+class CountedDecisions(_Closed):
+    outcomes: dict[Outcome, Cell]
+    false_automation: Count  # automated with a wrong recommendation, of the primary's n
+    critical: Annotated[list[CountedCritical], Field(max_length=64)]
+
+
+class Tokens(_Closed):
+    input: Count
+    output: Count
+
+
+class SiteReportV2(_Closed):
+    """Everything a site may share about one evaluation: whole counts, names and booleans.
+    No rate, no fraction, no case. The registry computes every figure it shows from these."""
+
+    format: Literal["mendari.site-report/2"]
+    pack: SharedPack
+    providers: Annotated[dict[Name, SharedProvider], Field(max_length=64)]
+    policy: CountedPolicy
+    remote_consent: bool
+    dataset: CountedDataset
+    primary: Name
+    questions: Annotated[dict[Name, CountedQuestion], Field(max_length=64)]
+    decisions: CountedDecisions
+    tokens: Tokens
+
+    @model_validator(mode="after")
+    def _whole(self) -> SiteReportV2:
+        if set(self.decisions.outcomes) != set(OUTCOMES):
+            raise ValueError("outcomes must name each outcome once")
+        shown = sum(c for c in self.decisions.outcomes.values() if c is not None)
+        if shown > self.dataset.n or any(q.n > self.dataset.n for q in self.questions.values()):
+            raise ValueError("no count may be more than the dataset's n")
+        primary = self.questions.get(self.primary)
+        if self.decisions.false_automation > (primary.n if primary else 0):
+            raise ValueError("false_automation must be at most the primary question's n")
+        return self
+
+
+# The rule each field of mendari.site-report/2 is shared by (spec: docs/spec/
+# evaluation-reports.md, "Shared site reports"). A test holds every field to one.
+TOTAL = "total: shared exactly"
+CELL = "cell: null when 1 to 9, and complementary suppression"
+SAFETY = "safety count: shared exactly, never suppressed"
+NAME = "name, version, digest or flag: as it is"
+SUPPRESSION_RULES: dict[str, str] = {
+    "format": NAME,
+    "pack": NAME,
+    "providers": NAME,
+    "policy": NAME,
+    "remote_consent": NAME,
+    "dataset.n": TOTAL + f"; under {MIN_DATASET} cases nothing is shared",
+    "primary": NAME,
+    "questions.n": TOTAL,
+    "questions.right": TOTAL,
+    "questions.confusion": CELL
+    + "; a critical label's own cell is its detected count, so it is shown",
+    "questions.calibration.bin": NAME,
+    "questions.calibration.right": CELL,
+    "questions.calibration.wrong": CELL,
+    "decisions.outcomes": CELL,
+    "decisions.false_automation": SAFETY,
+    "decisions.critical.question": NAME,
+    "decisions.critical.label": NAME,
+    "decisions.critical.n": SAFETY,
+    "decisions.critical.detected": SAFETY,
+    "decisions.critical.auto_missed": SAFETY,
+    "tokens.input": TOTAL,
+    "tokens.output": TOTAL,
+}
+
+
+def _basis_points(value: Any) -> Any:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value  # refused by the model
+    return round(value * BASIS)
+
+
+def _decile(confidence: float) -> int:
+    """The calibration bin a confidence falls in, as `metrics.calibration` cuts them: [i/10,
+    (i+1)/10), the last including 1. Clamped into [0, 1], so every answered case has a bin."""
+    return min(BINS - 1, max(0, int(min(1.0, max(0.0, confidence)) * BINS)))
+
+
+def counted_report(ledger: Ledger, *, remote_consent: bool = False) -> dict[str, Any]:
+    """The counts of one run, from its ledger, before suppression: each one counted from the
+    cases, never a rate times n."""
+    header, cases = ledger.header, ledger.cases
+    primary = header["primary"]
+    questions: dict[str, Any] = {}
+    for question, labels in header["questions"].items():
+        labelled = [
+            c["q"][question] for c in cases if c["q"].get(question, [None])[TRUTH] is not None
+        ]
+        if not labelled:
+            continue
+        confusion = {truth: dict.fromkeys(labels, 0) for truth in labels}
+        bins = [[0, 0] for _ in range(BINS)]
+        for entry in labelled:
+            predicted = entry[PREDICTED]
+            if predicted is None:
+                continue
+            confusion[entry[TRUTH]][predicted] += 1
+            right = predicted == entry[TRUTH]
+            bins[_decile(entry[CONFIDENCE])][0 if right else 1] += 1
+        questions[question] = {
+            "n": len(labelled),
+            "right": sum(e[PREDICTED] == e[TRUTH] for e in labelled),
+            "confusion": confusion,
+            "calibration": [
+                {"bin": i, "right": right, "wrong": wrong} for i, (right, wrong) in enumerate(bins)
+            ],
+        }
+
+    def truth(case: Mapping[str, Any], q: str = primary) -> Any:
+        entry = case["q"].get(q)
+        return None if entry is None else entry[TRUTH]
+
+    outcomes = Counter(c["o"] for c in cases)
+    critical = []
+    for index, (question, label) in enumerate(header["critical"]):
+        positives = [c for c in cases if index in c["k"]]
+        critical.append(
+            {
+                "question": question,
+                "label": label,
+                "n": len(positives),
+                "detected": sum(
+                    (c["q"].get(question) or [None, None])[PREDICTED] == label for c in positives
+                ),
+                "auto_missed": sum(c["o"] == "AUTO" for c in positives),
+            }
+        )
+    policy = header["policy"]
+    thresholds = policy.get("thresholds") or {}
+    return {
+        "format": SITE_REPORT_V2,
+        "pack": header["pack"],
+        "providers": header["providers"],
+        "policy": {
+            "risk_level": policy.get("risk_level"),
+            "thresholds": {
+                "auto_bp": _basis_points(thresholds.get("auto")),
+                "review_bp": _basis_points(thresholds.get("review")),
+            },
+            "governance_override": policy.get("governance") is not None,
+        },
+        "remote_consent": remote_consent,
+        "dataset": {"n": len(cases)},
+        "primary": primary,
+        "questions": questions,
+        "decisions": {
+            "outcomes": {key: outcomes.get(key, 0) for key in OUTCOMES},
+            "false_automation": sum(
+                c["o"] == "AUTO" and truth(c) is not None and c["r"] != truth(c) for c in cases
+            ),
+            "critical": critical,
+        },
+        "tokens": {
+            "input": sum(c["u"][1] for c in cases),
+            "output": sum(c["u"][2] for c in cases),
+        },
+    }
+
+
+@dataclass
+class _Ref:
+    """A cell of a payload: the mapping or bin that holds it, its key there, and the most it
+    could be given the totals the payload shares (`_bound`)."""
+
+    holder: dict[str, Any]
+    key: str
+    kind: str  # diagonal, off, right, wrong, outcome
+    question: str = ""
+    row: str = ""
+    exempt: bool = False  # a cell a safety count states: never suppressed
+
+    @property
+    def value(self) -> Any:
+        return self.holder[self.key]
+
+
+Equation = tuple[list[_Ref], list[_Ref], int]
+
+
+def _equations(report: Mapping[str, Any]) -> list[Equation]:
+    """What a payload states about its cells: each (added, subtracted, total) says the added
+    cells less the subtracted ones come to `total`, a number the payload shares. No cell is in
+    two equations.
+
+    Per question: the diagonal of its confusion matrix adds up to `right`; so do the calibration
+    bins' `right`; the off-diagonal cells (answered wrongly) and the bins' `wrong` count the
+    same cases. The outcomes add up to the dataset's n."""
+    exempt = {(c["question"], c["label"]) for c in report["decisions"]["critical"]}
+    equations: list[Equation] = []
+    for name in sorted(report["questions"]):
+        question = report["questions"][name]
+        confusion = question["confusion"]
+        diagonal, off = [], []
+        for truth in sorted(confusion):
+            row = confusion[truth]
+            for predicted in sorted(row):
+                if predicted == truth:
+                    diagonal.append(
+                        _Ref(row, predicted, "diagonal", name, truth, (name, truth) in exempt)
+                    )
+                else:
+                    off.append(_Ref(row, predicted, "off", name, truth))
+        bins = question["calibration"]
+        equations.append((diagonal, [], question["right"]))
+        equations.append(([_Ref(b, "right", "right", name) for b in bins], [], question["right"]))
+        equations.append((off, [_Ref(b, "wrong", "wrong", name) for b in bins], 0))
+    outcomes = report["decisions"]["outcomes"]
+    added = [_Ref(outcomes, key, "outcome") for key in OUTCOMES]
+    equations.append((added, [], report["dataset"]["n"]))
+    return equations
+
+
+def _bound(report: Mapping[str, Any], ref: _Ref) -> int:
+    """The most a cell could be, from the totals the payload shares: a critical label's row
+    holds its n cases (its own cell is `detected`, its shown cells are known); every other
+    cell at most what its question's right or wrong answers, or the dataset, hold."""
+    if ref.kind == "outcome":
+        return int(report["dataset"]["n"])
+    question = report["questions"][ref.question]
+    wrong = question["n"] - question["right"]
+    if ref.kind == "off":
+        critical = [
+            c
+            for c in report["decisions"]["critical"]
+            if c["question"] == ref.question and c["label"] == ref.row
+        ]
+        if critical:
+            row = question["confusion"][ref.row]
+            shown = sum(v for k, v in row.items() if k not in (ref.row, ref.key) and v is not None)
+            return max(0, min(wrong, critical[0]["n"] - critical[0]["detected"] - shown))
+        return max(0, wrong)
+    return max(0, question["right"] if ref.kind in ("diagonal", "right") else wrong)
+
+
+def _known(report: Mapping[str, Any], equation: Equation, null: _Ref) -> int | None:
+    """The one value a null cell can take, or None when it can take more than one: from its
+    equation, the other cells' bounds and that no count is negative."""
+    added, subtracted, total = equation
+    rest = total
+    rest -= sum(r.value for r in added if r.value is not None)
+    rest += sum(r.value for r in subtracted if r.value is not None)
+    others_added = [r for r in added if r.value is None and r is not null]
+    others_subtracted = [r for r in subtracted if r.value is None and r is not null]
+    if any(r is null for r in added):  # null = rest - others_added + others_subtracted
+        low = rest - sum(_bound(report, r) for r in others_added)
+        high = rest + sum(_bound(report, r) for r in others_subtracted)
+    else:  # null = others_added - others_subtracted - rest
+        low = -rest - sum(_bound(report, r) for r in others_subtracted)
+        high = -rest + sum(_bound(report, r) for r in others_added)
+    low, high = max(low, 0), min(high, _bound(report, null))
+    return low if low >= high else None
+
+
+def suppress(report: Mapping[str, Any]) -> dict[str, Any]:
+    """The one suppression function (owner decision 3 of the plan: 1 to 9 suppressed, zeros
+    shown, nothing shared under 100 cases). The sender runs it before writing or sending; the
+    registry refuses a payload it would change. Applied to its own output it changes nothing.
+
+    | Field | Rule |
+    |---|---|
+    | `dataset.n` | shared exactly; under `MIN_DATASET` cases the run is not shared at all |
+    | a question's `n` and `right` | totals: shared exactly |
+    | confusion cells, calibration `right` and `wrong`, outcomes | cells: 1 to 9 is null |
+    | `decisions.critical` (`n`, `detected`, `auto_missed`), `false_automation` | safety counts:
+      shared exactly, never suppressed, so a missed critical case never disappears |
+    | `tokens` | totals: shared exactly |
+
+    Then complementary suppression: while a null cell can take only one value, given the
+    equation it is in (`_equations`), the other cells' bounds (`_bound`) and that no count is
+    negative, the smallest shown cell of that equation is made null too (a zero first; never
+    a cell a safety count states). A null whose equation has no shown cell left to suppress
+    is known from the others whatever is done, so it is shown.
+    """
+    out = copy.deepcopy(dict(report))
+    n = (out.get("dataset") or {}).get("n")
+    if isinstance(n, bool) or not isinstance(n, int) or n < MIN_DATASET:
+        raise MendariError(
+            f"this run cannot be shared: it has fewer than {MIN_DATASET} cases "
+            "(too few for its counts to describe no one)"
+        )
+
+    def small(count: Any) -> bool:
+        return isinstance(count, int) and not isinstance(count, bool) and 0 < count < MIN_GROUP
+
+    for added, subtracted, _ in _equations(out):
+        for ref in (*added, *subtracted):
+            if small(ref.value) and not ref.exempt:
+                ref.holder[ref.key] = None
+
+    changed = True
+    while changed:
+        changed = False
+        for equation in _equations(out):
+            added, subtracted, _ = equation
+            refs = [*added, *subtracted]
+            for null in (r for r in refs if r.value is None):
+                known = _known(out, equation, null)
+                if known is None:
+                    continue
+                candidates = [r for r in refs if r.value is not None and not r.exempt]
+                if candidates:
+                    chosen = min(candidates, key=lambda r: r.value)
+                    chosen.holder[chosen.key] = None
+                else:
+                    null.holder[null.key] = known
+                changed = True
+                break
+            if changed:
+                break
+    return out
+
+
+def site_report(ledger: Ledger, *, remote_consent: bool = False) -> SiteReportV2:
+    """The payload a site shares about one run: counted from its ledger, suppressed, checked."""
+    return SiteReportV2.model_validate(
+        suppress(counted_report(ledger, remote_consent=remote_consent))
+    )
+
+
+def shareable(ledger: Ledger, *, remote_consent: bool = False) -> dict[str, Any]:
+    """`site_report` as the JSON-ready dict that is sent. A run that cannot be shared is a
+    `MendariError` naming the fields (never their values)."""
+    try:
+        return site_report(ledger, remote_consent=remote_consent).model_dump(mode="json")
+    except ValidationError as error:
+        fields = sorted({where(e["loc"]) for e in error.errors()})
+        shown = ", ".join(fields[:5]) + (f" and {len(fields) - 5} more" if len(fields) > 5 else "")
+        raise MendariError(
+            f"this run cannot be shared: {shown} must be a short name or a count in range"
+        ) from None
+
+
+def unchanged_by_suppression(report: SiteReportV2) -> bool:
+    """What the registry checks: the payload is what `suppress` makes of it."""
+    shared = report.model_dump(mode="json")
+    try:
+        return suppress(shared) == shared
+    except MendariError:
+        return False
 
 
 _FIELD_NAMES = _field_names()

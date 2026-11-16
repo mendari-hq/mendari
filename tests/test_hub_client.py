@@ -22,7 +22,7 @@ from mendari.core.decision import Decision
 from mendari.core.pack import Pack, PatternsRefused, load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError, PackNotFoundError, PackValidationError
-from mendari.evals.share import SiteReport
+from mendari.evals.share import SiteReportV2
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import RegistryStore, create_registry_app
@@ -475,15 +475,15 @@ def test_eval_share_out_writes_what_would_be_sent_and_sends_nothing(
 ) -> None:
     """`--share-out` lets a site read the payload first: no registry, no login, no case id."""
     out = tmp_path / "share.json"
-    args = ["eval", "mendari/patient-inbox-router", "--dataset", "red_flags_holdout"]
+    args = ["eval", "mendari/patient-inbox-router", "--dataset", "test", "--limit", "120"]
     assert main([*args, "--baseline", "none", "--share-out", str(out)]) == 0
     assert f"wrote the report --share sends to {out}" in capsys.readouterr().err
     payload = json.loads(out.read_text())
-    assert SiteReport.model_validate(payload).dataset.n == 30
+    assert SiteReportV2.model_validate(payload).dataset.n == 120
     pack = resolve_pack("mendari/patient-inbox-router")
     ids = [
         json.loads(line)["id"]
-        for line in pack.read_bytes("data/red_flags_holdout.jsonl").decode().splitlines()
+        for line in pack.read_bytes("data/test.jsonl").decode().splitlines()
         if line.strip()
     ]
     assert ids and not any(case in out.read_text() for case in ids)
@@ -496,12 +496,16 @@ def test_eval_share_sends_the_metrics(
     hub.client(token).push(resolve_pack("mendari/referral-router"), key)
     assert main(["login", "--registry", hub.url, "--token", token]) == 0
     dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
-    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "20"]
+    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "120"]
     assert main([*args, "--baseline", "none", "--share", "Site B"]) == 0
     assert "shared with the registry as Site B" in capsys.readouterr().err
     with httpx.Client() as http:
         sites = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()["sites"]
-    assert [(s["site"], s["n"]) for s in sites] == [("Site B", 20)]
+    assert [(s["site"], s["figures"]["n"]) for s in sites] == [("Site B", 120)]
+    # Under 100 cases a run is not shared, and nothing is sent.
+    short = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "99"]
+    assert main([*short, "--baseline", "none", "--share", "Site C"]) == 1
+    assert "fewer than 100 cases" in capsys.readouterr().err
 
 
 def _never_called(request: httpx.Request) -> httpx.Response:

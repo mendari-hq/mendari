@@ -113,10 +113,13 @@ from mendari.errors import HubError, MendariError
 from mendari.evals import figures
 from mendari.evals.share import (
     JOINERS,
+    SITE_REPORT_FORMAT,
+    SITE_REPORT_V2,
     SiteReport,
+    SiteReportV2,
     composite_members,
-    failed_members,
     summary,
+    unchanged_by_suppression,
     where,
 )
 from mendari.hub import acceptance, archive, regression, yank
@@ -1251,14 +1254,15 @@ class RegistryStore(RateBuckets):
         version: str,
         site: str,
         submitted_by: str,
-        report: SiteReport,
+        report: SiteReportV2,
         *,
         by: str = "operator",
         viewer: Viewer = PUBLIC,
     ) -> dict[str, Any]:
-        """A site's evaluation of a published version (`mendari.site-report/1`, already
-        validated: nothing in it but names and numbers). `viewer` is the submitter: a version
-        they cannot read answers as one that does not exist."""
+        """A site's evaluation of a published version (`mendari.site-report/2`, already
+        validated: nothing in it but names, flags and whole counts). Refused when the pack does
+        not name what it names, or when `suppress` would change it. `viewer` is the submitter:
+        a version they cannot read answers as one that does not exist."""
         found = self.version(namespace, name, version, viewer)
         if (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version):
             raise HubError("the report is about another pack or version")
@@ -1269,9 +1273,7 @@ class RegistryStore(RateBuckets):
                 "against their pack; publish a new version to receive them",
                 409,
             )
-        composite = any(p.type in JOINERS for p in report.providers.values()) or any(
-            failed_members(key) for key in report.errors
-        )
+        composite = any(composite_members(p) is not None for p in report.providers.values())
         if composite and not isinstance(names.get("members"), dict):
             raise HubError(
                 f"{namespace}/{name}@{version} was published before reports from composite "
@@ -1281,6 +1283,12 @@ class RegistryStore(RateBuckets):
         problem = _unknown_names(report, names, found.get("primary"))
         if problem:
             raise HubError(f"the report names {problem} the pack does not have")
+        if not unchanged_by_suppression(report):
+            raise HubError(
+                "the report shares a cell its suppression rule hides (mendari.site-report/2: "
+                "cells of 1 to 9 and their complements are null; mendari eval --share-out "
+                "writes what is sent)"
+            )
         shared = report.model_dump(mode="json")
         report_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
@@ -1312,7 +1320,13 @@ class RegistryStore(RateBuckets):
                 },
                 row=("reports", "id = ?", (report_id,)),
             )
-        return {"id": report_id, "site": site, "version": version, **summary(shared)}
+        return {
+            "id": report_id,
+            "site": site,
+            "version": version,
+            "format": SITE_REPORT_V2,
+            "figures": figures.site(shared),
+        }
 
     def reports(self, namespace: str, name: str, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
         with self._db.session(exclusive=False) as db:
@@ -1326,16 +1340,23 @@ class RegistryStore(RateBuckets):
         shown = ("id", "version", "site", "submitted_by", "created_at")
         listed = []
         for r in rows:
-            # A row stored before reports were checked (mendari.site-report/1) may hold case ids
-            # or be malformed: it is not served.
+            # Unverified: any publisher token may submit under any site name until sites sign
+            # what they share (LP-22f). The Hub does not show them.
+            row = {**{k: r[k] for k in shown}, "verified": False}
+            try:  # counts only (LP-22c): every figure computed here, from the counts
+                counted = SiteReportV2.model_validate_json(r["report"]).model_dump(mode="json")
+                listed.append({**row, "format": SITE_REPORT_V2, "figures": figures.site(counted)})
+                continue
+            except ValidationError:
+                pass
+            # A row stored before LP-22c (mendari.site-report/1) is served as it was; one stored
+            # before reports were checked may hold case ids or be malformed: it is not served.
             try:
                 report = SiteReport.model_validate_json(r["report"])
             except ValidationError:
                 continue
-            # Unverified: any publisher token may submit under any site name until sites sign
-            # what they share (the site evaluation network). The Hub does not show them.
             shared = report.model_dump(mode="json")
-            listed.append({**{k: r[k] for k in shown}, "verified": False, **summary(shared)})
+            listed.append({**row, "format": SITE_REPORT_FORMAT, **summary(shared)})
         return listed
 
     def review(
@@ -1866,7 +1887,7 @@ def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None
     }
 
 
-def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -> str | None:
+def _unknown_names(report: SiteReportV2, names: Mapping[str, Any], primary: Any) -> str | None:
     """What in a site's report the published pack does not name (a kind of name, never the
     name itself: it would be echoed to whoever sent it), or None."""
     questions: Mapping[str, list[str]] = names.get("questions") or {}
@@ -1874,20 +1895,18 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
     composites: Mapping[str, Mapping[str, list[str]]] = names.get("members") or {}
     if report.primary != primary:
         return "a primary question"
-    for key, metrics in report.questions.items():
+    for key, counted in report.questions.items():
         labels = questions.get(key)
         if labels is None:
             return "a question"
-        if not set(metrics.per_label) <= set(labels):
+        # Every label is a row and a column: a missing one is a cell the site left out.
+        if set(counted.confusion) != set(labels):
             return "a label"
-        if not set(metrics.confusion) <= set(labels):
-            return "a label"
-        if any(not set(row) <= {*labels, "none"} for row in metrics.confusion.values()):
+        if any(set(row) != set(labels) for row in counted.confusion.values()):
             return "a label"
     for item in report.decisions.critical:
         if item.label not in questions.get(item.question, ()):
             return "a critical label"
-    ran: list[list[str]] = []  # the members of each composite that ran
     for slot, provider in report.providers.items():
         if slots.get(slot, {}).get(provider.variant) != provider.type:
             return "a provider slot or variant"
@@ -1895,19 +1914,7 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
         listed = composite_members(provider)
         if listed is not None and listed != declared:
             return "a composite member"
-        ran.append(declared)
-    for key in report.errors:
-        # As a composite records its failed members: each once, in its own order.
-        failed = failed_members(key)
-        if failed and not any(_in_order(failed, members) for members in ran):
-            return "a composite member"
     return None
-
-
-def _in_order(names: list[str], members: list[str]) -> bool:
-    """Whether `names` are some of `members`, each once, in their order."""
-    remaining = iter(members)
-    return all(name in remaining for name in names)
 
 
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
@@ -1973,7 +1980,7 @@ MAX_REPORT_BYTES = 2_000_000
 
 class ReportRequest(BaseModel):
     site: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
-    report: SiteReport
+    report: SiteReportV2
 
 
 class PublisherTypeRequest(BaseModel):
@@ -2403,10 +2410,10 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     async def add_report(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
-        """A site shares its local evaluation (`mendari.site-report/1`, checked before anything
-        is stored). Any publisher token may submit; the site name is the site's choice, so
-        reports are listed as unverified. The token is checked before the body is read, and the
-        body is read only up to `MAX_REPORT_BYTES`."""
+        """A site shares its local evaluation (`mendari.site-report/2`, checked before anything
+        is stored; `/1` is refused with the format to send). Any publisher token may submit;
+        the site name is the site's choice, so reports are listed as unverified. The token is
+        checked before the body is read, and the body is read only up to `MAX_REPORT_BYTES`."""
         token = bearer(request)
         submitter = publisher_namespace(token, used=True) if token else None
         if submitter is None:
@@ -2425,6 +2432,12 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         except ValueError:
             problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
             raise RequestValidationError([problem]) from None
+        old = parsed.get("report") if isinstance(parsed, dict) else None
+        if isinstance(old, dict) and old.get("format") == SITE_REPORT_FORMAT:
+            raise HubError(
+                f"{SITE_REPORT_FORMAT} is no longer taken: send {SITE_REPORT_V2} (whole counts "
+                "only; mendari eval --share sends it)"
+            )
         try:
             shared = ReportRequest.model_validate(parsed)
         except ValidationError as error:
