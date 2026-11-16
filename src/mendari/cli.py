@@ -2069,6 +2069,92 @@ def cmd_registry_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_site(args: argparse.Namespace) -> int:
+    """Register a site for an organization as the operator, on the registry's database
+    (LP-22d): for a registry nobody signs in to. The site is pending until it is verified
+    (`mendari registry site-verify`). Chained (`site.registered`) with who ran this and why."""
+    from mendari.hub.registry import RegistryStore
+
+    reason = _registry_reason(args.reason, "--reason")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        site = store.register_site(
+            org=args.org, name=args.name, by=_command_line_actor(), reason=reason
+        )
+    _print_json(site)
+    return 0
+
+
+def cmd_registry_site_verify(args: argparse.Namespace) -> int:
+    """Verify (or, with --refuse, refuse) a pending site as the operator, once, after checking
+    outside Mendari that the organization is who it says (LP-22d). Chained (`site.verified`,
+    `site.refused`) with who ran this and the reason, kept as the site's note."""
+    from mendari.hub.registry import RegistryStore
+
+    reason = _registry_reason(args.reason, "--reason")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        site = store.decide_site(
+            args.site, verify=not args.refuse, by=_command_line_actor(), note=reason
+        )
+    _print_json(site)
+    return 0
+
+
+def cmd_registry_site_key(args: argparse.Namespace) -> int:
+    """Add a site's public key (the PEM `mendari site init` printed) as the operator (LP-22d).
+    Refused when it is a publisher's key or any site's. Chained (`site.key_added`)."""
+    from mendari.hub.registry import RegistryStore
+
+    _registry_reason(args.reason, "--reason")
+    try:
+        public = Path(args.key).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        raise MendariError(f"--key {_path_shown(args.key)}: cannot read it") from None
+    with RegistryStore(_existing_registry(args.db)) as store:
+        store.add_site_key(args.site, public, org=None, by=_command_line_actor())
+        site = store.site_record(args.site)
+    _print_json(site)
+    return 0
+
+
+def cmd_registry_site_revoke_key(args: argparse.Namespace) -> int:
+    """Revoke a site key at once as the operator (LP-22d); --compromised takes every report it
+    signed out of the pooled figures. Chained (`site.key_revoked`) with who and why."""
+    from mendari.hub.registry import RegistryStore
+
+    reason = _registry_reason(args.reason, "--reason")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        site = store.revoke_site_key(
+            args.key_id,
+            org=None,
+            by=_command_line_actor(),
+            reason=reason,
+            compromised=args.compromised,
+        )
+    _print_json(site)
+    return 0
+
+
+def cmd_registry_site_close(args: argparse.Namespace) -> int:
+    """Close a site as the operator (LP-22d): no ticket and no report again; what it shared
+    stays. Chained (`site.closed`) with who and why."""
+    from mendari.hub.registry import RegistryStore
+
+    reason = _registry_reason(args.reason, "--reason")
+    with RegistryStore(_existing_registry(args.db)) as store:
+        site = store.close_site(args.site, org=None, by=_command_line_actor(), reason=reason)
+    _print_json(site)
+    return 0
+
+
+def cmd_registry_sites(args: argparse.Namespace) -> int:
+    """The sites in a registry's database with their keys, read-only."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(args.db, read_only=True) as store:
+        _print_json(store.sites(org=args.org, status=args.status))
+    return 0
+
+
 def _registry_version(spec: str) -> tuple[str, str, str]:
     """`namespace/name@version`, as every pull names a version."""
     match = re.fullmatch(r"([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)@([0-9A-Za-z.+-]+)", spec)
@@ -3997,6 +4083,58 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", choices=("pending", "approved", "refused"), help="only in this status"
     )
     list_claims.set_defaults(handler=cmd_registry_claims)
+    site = registry_cmd.add_parser(
+        "site", help="register a site for an organization as the operator (pending; chained)"
+    )
+    site.add_argument("--db", default="var/registry.db", help=registry_db)
+    site.add_argument("--org", required=True, help="the organization it belongs to")
+    site.add_argument("--name", required=True, help="the site's name, as it would be shown")
+    site.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    site.set_defaults(handler=cmd_registry_site)
+    site_verify = registry_cmd.add_parser(
+        "site-verify", help="verify a pending site after checking who it is (chained, once)"
+    )
+    site_verify.add_argument("--db", default="var/registry.db", help=registry_db)
+    site_verify.add_argument("--site", required=True, help="the site's id")
+    site_verify.add_argument("--refuse", action="store_true", help="refuse it instead")
+    site_verify.add_argument(
+        "--reason", required=True, help="how it was checked (chained and kept; one line)"
+    )
+    site_verify.set_defaults(handler=cmd_registry_site_verify)
+    site_key = registry_cmd.add_parser(
+        "site-key", help="add a site's public key (from `mendari site init`; chained)"
+    )
+    site_key.add_argument("--db", default="var/registry.db", help=registry_db)
+    site_key.add_argument("--site", required=True, help="the site's id")
+    site_key.add_argument("--key", required=True, metavar="FILE", help="the public key (PEM)")
+    site_key.add_argument("--reason", required=True, help="why (one line)")
+    site_key.set_defaults(handler=cmd_registry_site_key)
+    site_revoke = registry_cmd.add_parser(
+        "site-revoke-key", help="revoke a site key at once (chained with why)"
+    )
+    site_revoke.add_argument("key_id", help="the key's id (mendari registry sites)")
+    site_revoke.add_argument("--db", default="var/registry.db", help=registry_db)
+    site_revoke.add_argument(
+        "--compromised",
+        action="store_true",
+        help="the key is thought compromised: every report it signed leaves the pooled figures",
+    )
+    site_revoke.add_argument("--reason", required=True, help="why (chained; one line)")
+    site_revoke.set_defaults(handler=cmd_registry_site_revoke_key)
+    site_close = registry_cmd.add_parser(
+        "site-close", help="close a site: no ticket or report again (chained with why)"
+    )
+    site_close.add_argument("--db", default="var/registry.db", help=registry_db)
+    site_close.add_argument("--site", required=True, help="the site's id")
+    site_close.add_argument("--reason", required=True, help="why (chained; one line)")
+    site_close.set_defaults(handler=cmd_registry_site_close)
+    list_sites = registry_cmd.add_parser("sites", help="list the sites and their keys, read-only")
+    list_sites.add_argument("--db", default="var/registry.db", help=registry_db)
+    list_sites.add_argument("--org", help="only this organization's")
+    list_sites.add_argument(
+        "--status", choices=("pending", "verified", "refused", "closed"), help="only in this status"
+    )
+    list_sites.set_defaults(handler=cmd_registry_sites)
     set_type = registry_cmd.add_parser(
         "publisher-type", help="record who publishes in a namespace, after checking it (chained)"
     )

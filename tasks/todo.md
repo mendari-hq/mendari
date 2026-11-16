@@ -3422,8 +3422,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the sweep's finer rows stay with the site (each would let a suppressed cell be worked out),
     and complementary suppression also guards against bounds (no count negative, a critical
     row within its n), not only subtraction.
-  - [ ] **22d** Sites and site keys in the registry's store, and the operator's commands (after
-    19c).
+  - [x] **22d** Sites and site keys in the registry's store, and the operator's commands
+    (`hub/sites.py`, `tests/test_registry_sites.py`; `GET /v1/sites/{id}`).
   - [ ] **22e** Evaluation tickets, the keyed dataset commitment, `mendari site init`, and
     consent for a remote arm.
   - [ ] **22f** Signed submissions checked on receipt, one live result, `--share-out` and the
