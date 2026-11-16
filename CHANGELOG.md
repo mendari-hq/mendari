@@ -876,6 +876,10 @@ The first release (not yet published).
   compromised; the registry's reviewers verify or refuse waiting sites on the review screen,
   never their own organization's. Routes: `/api/registry/sites` and
   `/api/registry/review/sites`, chained and logged.
+- **The site evaluation network: the close-out** (LP-22j). Launch gate `a11-site-network` now
+  probes LP-22's tests (met); `site-validation` waits on the owner's attestation per site only.
+  The threat model gains rows S26, S27, T14, T15, R9, I24, I25, I26, D18 and E20. ADR-0017 stays
+  Proposed until the owner confirms its decisions.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

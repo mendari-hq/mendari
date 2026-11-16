@@ -65,7 +65,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 | FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every pack; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
-| Hub: publish / pull / search, publisher types, signed archives, shared site reports, website | ✅ v0.5 (not public yet) | Going public (a public registry and site); datasets and eval suites as first-class entries |
+| Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
 | Community (contribution flow, verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |

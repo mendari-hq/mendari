@@ -652,7 +652,28 @@ gates:
         what: "A11: the site evaluation network (site keys, signed results, pooled intervals, a homogeneity warning)"
         owner: build
         probes:
-          - pending: "LP-22, after LP-07 (done), LP-10 and LP-19 (done)"
+          - tests:
+              - tests/test_pooling.py::test_the_pooled_interval_matches_a_hand_computed_reference
+              - tests/test_pooling.py::test_the_random_effects_estimate_matches_a_hand_computed_reference_and_statsmodels
+              - tests/test_pooling.py::test_chi_square_matches_scipy
+              - tests/test_pooling.py::test_the_exact_test_matches_a_scipy_reference
+              - tests/test_pooling.py::test_small_expected_counts_never_use_chi_square
+              - tests/test_share.py::test_a_shared_report_holds_whole_counts_and_no_rate
+              - tests/test_share.py::test_a_suppressed_cell_cannot_be_recovered_from_the_totals
+              - tests/test_registry_sites.py::test_a_site_belongs_to_an_organization_and_is_pending_until_verified
+              - tests/test_registry_sites.py::test_a_site_key_is_ed25519_and_never_a_publishers_or_another_sites
+              - tests/test_site_tickets.py::test_a_ticket_binds_site_digest_configuration_size_and_commitment
+              - tests/test_site_tickets.py::test_one_live_ticket_per_site_digest_configuration_and_commitment
+              - tests/test_site_reports.py::test_a_forged_signature_is_rejected
+              - tests/test_site_reports.py::test_an_unregistered_or_revoked_key_is_rejected
+              - tests/test_site_reports.py::test_a_valid_signature_over_a_different_body_is_rejected
+              - tests/test_site_reports.py::test_a_replay_is_rejected
+              - tests/test_site_reports.py::test_a_payload_with_any_case_text_fails_on_both_sides
+              - tests/test_site_evidence.py::test_each_site_is_k_of_n_with_its_interval_before_any_pooled_figure
+              - tests/test_site_evidence.py::test_sites_that_disagree_raise_the_homogeneity_warning_and_alike_sites_do_not
+              - tests/test_site_evidence.py::test_two_digests_or_two_configurations_are_never_pooled
+              - tests/test_site_separation.py::test_site_evidence_never_enters_the_hidden_set_rank
+              - tests/test_site_separation.py::test_the_ranking_modules_import_no_site_code
       - id: a12-ehr-pilot
         what: "A12: EHR pilot readiness (EHR-signed CDS Hooks tokens, selectionBehavior, a feedback endpoint, mappings for real EHR data)"
         owner: build
@@ -739,5 +760,6 @@ gates:
         what: "Each site validated on its own chart-reviewed data, shared through the site network, before automation (B42)"
         owner: owner
         probes:
-          - pending: "LP-22 (sharing signed results)"
+          - tests:
+              - tests/test_site_reports.py::test_a_verified_report_names_its_site_key_and_ticket_and_its_signature_checks
           - attested: {what: "per site: the pack digest, the reviewed set's size and method, and the signed report's id", by: "", date: ""}

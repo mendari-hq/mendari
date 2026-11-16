@@ -3389,7 +3389,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - the checkpoint key (`MENDARI_CHECKPOINT_KEY`) and where its public key is published;
   - firewall enforcement (21o).
 
-- [ ] **LP-22** The site evaluation network (A11): sites share signed counts of how a pack did
+- [x] **LP-22** The site evaluation network (A11): sites share signed counts of how a pack did
   on their own chart-reviewed data. **Planned 2026-11-10: `notes/lp22-plan.md`, ten PRs (22a to
   22j), and ADR-0017 (Proposed; 0016 is left for LP-20's plan).** LP-19 is built (2026-11-15),
   so no step waits on it any more (22d needed 19c, 22f 19g, 22h 19i, 22i 19d to 19g). No step needs an LP-20 step as LP-20 is described
@@ -3443,9 +3443,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **22i** People register sites in the dashboard and reviewers verify them
     (`server/registry_routes.py`, `dashboard/registry.js`, `tests/test_registry_site_accounts.py`,
     `tests/browser/test_registry_sites.py`).
-  - [ ] **22j** Close-out: gates `a11-site-network` and `site-validation`'s pending line, the
-    threat model (rows S26, S27, T14, T15, R9, I24, I25, I26, D18, E20), ADR-0017 Accepted on
-    the owner's word.
+  - [x] **22j** Close-out: gate `a11-site-network` probes LP-22's tests (met, 38 tests, SQLite
+    and Postgres), `site-validation`'s pending line became a test and waits on the owner's
+    attestation, `site-agreements` untouched; the threat model's rows S26, S27, T14, T15, R9,
+    I24, I25, I26, D18 and E20, R3 reworded, the residual risk rewritten. ADR-0017 stays Proposed
+    until the owner confirms the decisions below.
+  **Built 2026-11-16 (PRs #315 merged; #316, #318, #319, #320, #325, #326, #329 and 22j held for
+  the owner's yes, since merging changes the production registry when it redeploys).** Three
+  adversarial reviews (22d, 22e, 22f) found and fixed: a key registered without proof of
+  possession; the raw key text stored; a replayed record locking a site out of tickets; a closed
+  site's unreported tickets leaving the listing; withdrawal hiding a run; counts that could not
+  add up keeping `suppress` running inside the registry's write lock (22c's loop, reachable from
+  22f); a recalled version still taking reports. Defaults followed for all twelve owner
+  decisions. Open for the owner beyond them: whether a correction must use the same dataset as
+  the report it supersedes (today it may use another; both stay listed); the namespaces tab's
+  "Add key" dialog has a `required` field that keeps Cancel from closing it (LP-19f, not
+  touched).
   **Owner steps** (no PR does them): the agreements with each site (gate `site-agreements`);
   checking who each site is before verifying it; telling each site where its key and
   commitment secret are kept; attesting `site-validation` per site with the signed report's id.
