@@ -509,6 +509,30 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_check(args: argparse.Namespace) -> int:
+    """A dataset checked against its pack (`mendari.dataset-check/1`, LP-20c): every dataset the
+    pack declares (none is nothing to check), or one file. Exit 1 on a schema or label problem;
+    duplicates, overlap with the training data and labels too thin to estimate are reported and
+    do not fail."""
+    from mendari.evals import dataset_checks
+    from mendari.evals.harness import load_dataset, resolve_dataset
+
+    pack = resolve_pack(args.pack)
+    if args.file:
+        datasets = [load_dataset(args.file)]
+    else:
+        datasets = [resolve_dataset(pack, name) for name in pack.manifest.evaluation.datasets]
+        if not datasets:
+            print(f"{pack.ref} declares no dataset: nothing to check", file=sys.stderr)
+            return 0
+    reports = [dataset_checks.check(pack, dataset) for dataset in datasets]
+    if args.json:
+        _print_json([report.data for report in reports])
+    else:
+        print("\n\n".join(dataset_checks.text(report) for report in reports))
+    return 0 if all(report.passed for report in reports) else 1
+
+
 def cmd_scoreboard_arms(args: argparse.Namespace) -> int:
     """A pack's provider configurations by arm (`mendari.arms/1`, LP-17c): Mendari only, with a
     specialised classifier, with a general LLM, or with both. From the manifest alone: nothing
@@ -3163,6 +3187,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--ids", action="store_true", help="also list the ids of duplicate cases"
     )
     data_coverage.set_defaults(handler=cmd_data_coverage)
+    data_check = data.add_parser(
+        "check", help="a dataset against its pack: schema, labels, duplicates, training overlap"
+    )
+    data_check.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    data_check.add_argument(
+        "file", nargs="?", help="a JSONL file (default: every dataset the pack declares)"
+    )
+    data_check.add_argument("--json", action="store_true", help="print the JSON reports")
+    data_check.set_defaults(handler=cmd_data_check)
 
     train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")
     train.add_argument("--slot", help="only this provider slot")

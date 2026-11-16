@@ -252,6 +252,21 @@ mendari test refill-router
 `data/examples.jsonl` has one labelled case per line: the input, and the right answer to each
 question.
 
+Check the data before you measure with it:
+
+```bash
+mendari data check refill-router                 # every dataset pack.yaml declares
+mendari data check refill-router my-cases.jsonl  # or one file
+```
+
+It names, by case id, each input the input schema refuses and each label that is not one of
+its question's answers, and fails on them. It also reports, without failing: how many cases
+carry each label, as k of n with its exact interval, marked "too few to estimate" under 100;
+cases that are the same as another, exactly or once case, spacing and punctuation are set
+aside (`norm/v1`); and cases the pack's own `train` or `calibration` data already holds, which
+would flatter its figures. The report (`--json`, `mendari.dataset-check/1`) holds ids and
+counts, never a case's text. The packs workflow runs it on every changed pack.
+
 ```bash
 mendari eval refill-router --dataset examples
 ```
