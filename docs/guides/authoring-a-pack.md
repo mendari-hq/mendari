@@ -56,7 +56,10 @@ must decide with at least one of `outcome`, `outcome_in`, `not_outcome`, `recomm
 `priority` and `answers` (a mapping of question to label), and nothing else: a misspelt key, an
 empty `expect`, or a value the pack can never decide (an unknown outcome, label or question) is
 named by `mendari validate` and `test`, which also fails when a pack has no tests (spec §10).
-`mendari validate` reads every dataset `evaluation.datasets` declares as well. No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
+`mendari validate` reads every dataset `evaluation.datasets` declares as well. The community check, a
+registry's publish and an organization's pack store run the same validation, so a pack one of them
+takes the others take; each problem names its file and a place in it (a manifest key, a test's
+number, a record's id), never a case's text. No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
 a lone surrogate escape (`"\ud800"`); `mendari validate` names the file, line and column. If you
 edit a file of a pack a server has loaded, restart the server: until then reads of
 the edited file are refused, since it is no longer what the pack's digest describes.
