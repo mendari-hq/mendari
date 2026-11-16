@@ -3226,7 +3226,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the community check and the registry's publish, which now refuses what the validator
     refuses (decision 1's default). A behaviour test's input problem is worded as a decision's
     reasons are. Validating a reference pack takes under 0.25 s (open point 6).
-  - [ ] **20c** dataset checks and `mendari data check`. **20d** the PHI detector.
+  - [x] **20c** Dataset checks (`mendari.evals.dataset_checks`, pure functions) and
+    `mendari data check PACK [FILE]`: schema and label problems fail it; label counts with
+    their exact intervals ("too few to estimate" under 100), duplicates under both canonical
+    forms and overlap with the pack's `train` and `calibration` data are reported (conflict 2's
+    default). The packs workflow runs it on changed maintained and community packs.
+  - [ ] **20d** the PHI detector.
   - [ ] **20e** The store as a library: tables, versions that never change, the origin `store`
     on the bounded engine, the prerequisites test, the operator's commands. No route.
   - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and

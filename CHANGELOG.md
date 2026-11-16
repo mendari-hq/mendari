@@ -1549,6 +1549,15 @@ The first release (not yet published).
   what `mendari validate` prints:** a behaviour test's input problem names the place in the
   input and the schema's rule (`input message: must be of type object`) as a decision's reasons
   do, never the input's value, where it printed jsonschema's own message, which quotes it.
+- **Dataset checks: `mendari data check PACK [FILE] [--json]`** (LP-20c,
+  `mendari.evals.dataset_checks`, `mendari.dataset-check/1`; nothing existing changes). Every
+  dataset the pack declares, or one file, against the pack: each input the input schema
+  refuses and each label that is not one of its question's declared answers, by case id (exit
+  1); and, reported without failing, each label's count as k of n with its exact interval
+  (marked "too few to estimate" under 100), groups of cases that are the same under the strict
+  form and under `norm/v1` (LP-11's functions), and cases the pack's own `train` or
+  `calibration` data holds. A report holds ids, labels and counts, never an input. The packs
+  workflow runs it on every changed maintained and community pack.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no
