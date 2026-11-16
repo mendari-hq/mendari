@@ -149,6 +149,7 @@ command and, where the command asks for one, why ([The chain](#the-chain)).
 | Review a version | `mendari registry review N/NAME@VERSION --risk-level 0-4 --reason …` (one printable line, at most 300 characters, never case text) |
 | Recall a version, signed by the registry | `mendari registry recall N/NAME@VERSION --severity high --reason …` (needs `MENDARI_REGISTRY_SIGNING_KEY`) |
 | Delete a version that must not be served | `mendari registry delete N/NAME@VERSION --reason …` |
+| Register, verify, key, revoke, close or list sites | `mendari registry site`, `site-verify`, `site-key`, `site-revoke-key`, `site-close`, `sites` ([below](#sites)) |
 
 Every command takes `--db` (a SQLite path or a `postgresql://` URL). `scripts/hub_seed.py`
 does the first steps for the reference packs (claim `mendari`, mint, publish, approve).
@@ -338,6 +339,43 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
   `pack.published` records the organization and whether the version was listed then.
 - Over the registry's own routes nobody reads as a reviewer: reviewers read through the
   engine's routes, and the operator with the commands (`mendari registry claims`).
+
+## Sites
+
+A site is a health system that evaluates packs on its own chart-reviewed data and shares signed
+counts (LP-22, [ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)). It is a
+record owned by an organization, `pending` until it is verified, once, by a registry reviewer or
+by the operator's command with how it was checked; `refused` or `closed` sites stay stored and
+are never served. A site signs with its own Ed25519 keys: at most 5 live at once, never a
+namespace's publisher key nor another site's (one key never signs in two roles). A key is added
+only with its holder's proof, the key's own signature over the site's id and the key's id
+(`mendari site init` makes it), so nobody can register a key they saw but do not hold; and only
+the key is stored, never the text it came in. Rotating is
+adding a key and revoking the old one. A revocation says whether the key is thought
+compromised: if it is, every report it signed leaves the pooled figures and stays listed as
+such; if not, reports received before it stand. Every write is chained with the organization
+(`site.registered`, `site.verified`, `site.refused`, `site.closed`, `site.key_added`,
+`site.key_revoked`).
+
+```bash
+mendari registry site --db var/registry.db --org north-health --name "North Health" \
+  --reason "asked by its CMIO"
+# the site runs `mendari site init` and sends the key file it writes; then:
+mendari registry site-key --db var/registry.db --site ID --key site-key.json --reason "first key"
+mendari registry site-verify --db var/registry.db --site ID --reason "called the CMIO back"
+mendari registry site-revoke-key --db var/registry.db ed25519:… --reason "rotated"
+mendari registry site-revoke-key --db var/registry.db ed25519:… --compromised --reason "laptop lost"
+mendari registry site-close --db var/registry.db --site ID --reason "merged into another"
+mendari registry sites --db var/registry.db [--org ORG] [--status pending]   # read-only
+```
+
+`GET /v1/sites/{id}` serves a verified site to anyone: its name, its status, when it was
+verified, and its keys' ids with their dates and whether each was revoked as compromised (a
+reader can then tell which signed reports leave the pool). A pending, refused or closed site answers as one
+that does not exist. Check who an organization is outside Mendari before verifying its site:
+a site's name is as good as that check. A site whose organization holds a pack's namespace (its
+claim) is the publisher's own site for that pack: its reports are listed and left out of the
+pool.
 
 ## Registry reviewers
 
@@ -612,8 +650,9 @@ last hash) the same way and compare by hand.
   ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); its
   configuration is written ([The hosted shape](#the-hosted-shape)), and turning it on anywhere,
   the registry's signing key, the Hub's project and DNS are the owner's.
-- **Site reports** are served marked `verified: false` until sites sign them (LP-22); the Hub
-  shows none.
+- **Site reports** are served marked `verified: false` until sites sign them (LP-22f); the Hub
+  shows none. Sites and their keys are stored and verified ([Sites](#sites)); nothing reads
+  them yet.
 - **The registry's signing key** has no rotation path; clients pin it at first contact, or trust
   it because it ships with them (the Mendari registry's key ships from 2026-11-15).
 - **`GET /v1/yanks` is not paged.**

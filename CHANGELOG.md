@@ -813,6 +813,14 @@ The first release (not yet published).
     answer when the tables are more than a million. Each takes whole counts only and refuses a
     rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
     chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
+- **The site evaluation network: sites and their keys** (LP-22d, ADR-0017 Proposed; nothing
+  reads them yet). A site is a record in the registry owned by an organization, pending until a
+  registry reviewer or the operator verifies it; it signs with up to five live Ed25519 keys,
+  never a publisher's or another site's, revoked with whether each is thought compromised.
+  The operator's commands: `mendari registry site`, `site-verify`, `site-key`,
+  `site-revoke-key`, `site-close` and `sites`, each chained with who ran it and why.
+  `GET /v1/sites/{id}` serves a verified site's name, status and key ids. A publisher key that
+  is a site's key is refused, and the reverse. The chain covers both new tables.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),

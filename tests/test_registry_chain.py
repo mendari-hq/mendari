@@ -166,6 +166,18 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the claims changed since their chained event",
         ),
         (("DELETE FROM hub_claims", ()), "1 of the claims were removed"),
+        (
+            (
+                "INSERT INTO hub_site_keys (key_id, site, public_pem, created_at, added_by, "
+                "compromised) VALUES (?, ?, ?, ?, ?, 0)",
+                ("ed25519:" + "f" * 16, "0" * 16, "planted", PLANTED, "user:planted"),
+            ),
+            "1 of the site_keys have no chained event",
+        ),
+        (
+            ("UPDATE hub_sites SET status = ?, decided_by = ?", ("verified", "user:planted")),
+            "1 of the sites changed since their chained event",
+        ),
     ],
     ids=[
         "event-deleted",
@@ -182,6 +194,8 @@ PLANTED = "2026-01-01T00:00:00+00:00"
         "claim-planted",
         "claim-approved-past-the-api",
         "claim-removed",
+        "site-key-planted",
+        "site-verified-past-the-api",
     ],
 )
 def test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify(
@@ -194,6 +208,7 @@ def test_a_changed_chain_or_a_row_written_past_the_api_does_not_verify(
     _share(registry)
     with RegistryStore(db_target) as store:  # a pending claim (LP-19c): its row is covered too
         store.claim("acme", org="acme", by="user:3f9a")
+        store.register_site(org="acme", name="Acme (synthetic)", by="user:3f9a")  # LP-22d
     assert _verify(db_target)["ok"]
     _write(db_target, *tamper)
     result = _verify(db_target)

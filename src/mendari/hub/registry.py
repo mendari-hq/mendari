@@ -124,6 +124,7 @@ from mendari.evals.share import (
 )
 from mendari.hub import acceptance, archive, regression, yank
 from mendari.hub import checkpoint as chain_checkpoint
+from mendari.hub import sites as site_store
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
@@ -260,6 +261,7 @@ CREATE TABLE IF NOT EXISTS hub_acceptances (
     PRIMARY KEY (namespace, name, version)
 );
 """
+    + site_store.SCHEMA
     + RATE_SCHEMA
 )
 
@@ -350,6 +352,9 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
         "hub_acceptances",
         lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
     ),
+    # Sites and their keys (LP-22d, hub/sites.py).
+    "sites": ("hub_sites", lambda row: str(row["id"])),
+    "site_keys": ("hub_site_keys", lambda row: str(row["key_id"])),
 }
 
 
@@ -511,7 +516,7 @@ def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
     return str(statement["head"])
 
 
-class RegistryStore(RateBuckets):
+class RegistryStore(RateBuckets, site_store.SiteStore):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
     ):
@@ -759,6 +764,10 @@ class RegistryStore(RateBuckets):
             owner = db.one("SELECT namespace FROM hub_keys WHERE key_id = ?", (key_id,))
             if owner and owner["namespace"] != namespace:
                 raise HubError("that key belongs to another namespace", 409)
+            if db.columns("hub_site_keys") and db.one(
+                "SELECT key_id FROM hub_site_keys WHERE key_id = ?", (key_id,)
+            ):  # one key never signs in two roles (LP-22d)
+                raise HubError("that key is a site's key: a publisher key signs packs only", 409)
             if owner is None:
                 db.all(
                     "INSERT INTO hub_keys (key_id, namespace, public_pem, created_at) "
@@ -1658,6 +1667,13 @@ class RegistryStore(RateBuckets):
                 same = None
             if same != key["key_id"]:
                 return _broken(None, "a key is not the key its id names", events, prev)
+        for key in rows["site_keys"]:  # a site's too (LP-22d)
+            try:
+                same = archive.key_id(archive.load_public_key(str(key["public_pem"]).encode()))
+            except HubError:
+                same = None
+            if same != key["key_id"]:
+                return _broken(None, "a site key is not the key its id names", events, prev)
         return {"ok": True, "seq": None, "problem": None, **_head(events, prev), **since}
 
     def head(self) -> dict[str, Any]:
@@ -2473,6 +2489,12 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             by=actor(request),
             viewer=viewer,
         )
+
+    @app.get("/v1/sites/{site_id}")
+    def site(site_id: str) -> dict[str, Any]:
+        """A verified site (LP-22d): its name, status and key ids with their dates. A pending,
+        refused or closed site answers as one that does not exist."""
+        return store.public_site(site_id)
 
     @app.get("/v1/search")
     def search(
