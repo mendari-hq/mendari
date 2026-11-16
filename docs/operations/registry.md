@@ -154,7 +154,10 @@ Every command takes `--db` (a SQLite path or a `postgresql://` URL). `scripts/hu
 does the first steps for the reference packs (claim `mendari`, mint, publish, approve).
 
 A publisher, with its token, registers its keys (`mendari keys register`), publishes
-(`mendari push`) and recalls its own versions (`mendari yank`, signed with one of its keys). A
+(`mendari push`) and recalls its own versions (`mendari yank`, signed with one of its keys). A publish
+that `mendari validate` would refuse is refused (`422`, naming up to five problems by file and
+place, never a case; nothing is stored): the registry runs the same validation function as the
+command line and the community check. A
 publish whose archive holds cases `mendari improve` added to a pack or `mendari feedback
 export` wrote, or a model built from them, is refused (`422`, naming the files with how many
 times each is marked, never a case): they are a site's cases, which `mendari push` refuses to
