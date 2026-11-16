@@ -3414,8 +3414,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   evidence; which figures are pooled; a compromised key; whether automation should need a site
   report; how many figures the homogeneity test covers; whether the commitment is ever shown.
   - [x] **22a** The plan and ADR-0017 (Proposed).
-  - [ ] **22b** The statistics of pooling: fixed effect from summed counts, random effects, the
-    range, and the homogeneity test (pure Python, checked against scipy and statsmodels).
+  - [x] **22b** The statistics of pooling: fixed effect from summed counts, random effects, the
+    range, and the homogeneity test (pure Python, checked against scipy and statsmodels;
+    `evals/pooling.py`, `tests/test_pooling.py`).
     **22c** in parallel: `mendari.site-report/2` (counts only) and one suppression function.
   - [ ] **22d** Sites and site keys in the registry's store, and the operator's commands (after
     19c).

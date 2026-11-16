@@ -793,6 +793,16 @@ The first release (not yet published).
   attestations) and a set from start to end, and now says that every writing `mendari evalset`
   command refuses a database no server used and that a grading key lives 90 days unless
   `--days` says otherwise. ADR-0011 records what was built and its consequences.
+- **The site evaluation network, being built** (LP-22, ADR-0017 Proposed; nothing changes how
+  a pack decides, what a hidden set grades or how anything ranks):
+  - **Pooled site evidence, the statistics** (LP-22b, `mendari.evals.pooling`; nothing calls
+    them yet): a pooled fixed-effect figure from summed counts with its exact interval, a
+    DerSimonian-Laird random-effects estimate on the logit scale from 3 sites, the range of
+    site rates, and a homogeneity test that is Pearson's chi-square only when every expected
+    count is 5 or more, the exact test otherwise, and a permutation test with its seed in the
+    answer when the tables are more than a million. Each takes whole counts only and refuses a
+    rate. `mendari.evals.stats` gains the regularized incomplete gamma function and the
+    chi-square tail. Pure Python, checked against scipy and statsmodels in tests.
 - **Statistics for the scoreboard** (LP-17b, `mendari.evals.stats`). Three additions, which no
   format uses yet, so every stored result is unchanged: a stratified bootstrap (each case drawn
   from its own stratum, so every stratum keeps its size; one stratum is the plain bootstrap),
