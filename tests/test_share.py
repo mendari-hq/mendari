@@ -599,3 +599,28 @@ def test_the_spec_lists_every_error_code() -> None:
     spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text()
     listed = spec[spec.index("a provider error with one of these") : spec.index("No other code")]
     assert set(re.findall(r"`([a-z_]+)`", listed)) == FAILURE_CODES
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        ("questions", "next_step", "calibration", 9, "wrong"),
+        ("questions", "next_step", "calibration", 9, "right"),
+        ("questions", "next_step", "right"),
+        ("decisions", "outcomes", "HUMAN_REVIEW"),
+    ],
+    ids=lambda w: ".".join(map(str, w)),
+)
+@pytest.mark.parametrize("value", [20, 200, 10_000])
+def test_counts_that_do_not_add_up_are_refused_at_once(where: tuple[Any, ...], value: int) -> None:
+    """The adversarial review of LP-22f: counts that passed the model but could not add up kept
+    `suppress` running for good (inside the registry's write lock, once sites sent them). They
+    are refused, by the model or by `suppress`, in one pass."""
+    changed = _set(SHARED, where, value)
+    try:
+        report = SiteReportV2.model_validate(changed)
+    except ValidationError:
+        return
+    assert not unchanged_by_suppression(report)
+    with pytest.raises(MendariError, match="do not add up"):
+        suppress(changed)

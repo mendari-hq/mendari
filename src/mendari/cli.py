@@ -127,10 +127,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    from mendari.evals.pack_tests import validate_pack
+    from mendari.evals.validation import validate
 
     pack = resolve_pack(args.pack)
-    validate_pack(pack)
+    validate(pack)
     print(f"ok  {pack.ref}  {pack.digest}")
     return 0
 
