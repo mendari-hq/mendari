@@ -70,7 +70,8 @@ PINNED = {
         # approval and its revocation.
         # Moved in LP-20e, before 0.1.0's release: `pack_version.created|held|released|withdrawn`.
         # Moved in LP-20f, before 0.1.0's release: the store's author keys (added, revoked).
-        "CodeSystem/audit-administrative-event": "ce5f8824525bf994",
+        # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
+        "CodeSystem/audit-administrative-event": "7dba2f0353dd15ce",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
