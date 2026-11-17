@@ -1259,6 +1259,9 @@ const ACTIVITY_TEXT = {
   "pack_version.withdrawn": "Pack store version withdrawn",
   "store_key.added": "Pack store author key registered",
   "store_key.revoked": "Pack store author key revoked",
+  "store_dataset.created": "Pack store dataset added",
+  "store_dataset.held": "Pack store dataset held for the operator's review",
+  "store_job.created": "Pack store evaluation job made",
 };
 
 // What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).

@@ -297,7 +297,8 @@ def daily_limits() -> dict[str, int | None]:
 # Decisions, the remote calls they make by provider type, and the remote calls the
 # organization's evaluations make (`eval_jev`, `eval_llm`, LP-21h).
 # `store_uploads`: the versions an organization adds to its pack store a day (LP-20e).
-ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm", "store_uploads")
+# `store_jobs`: the evaluation jobs it makes there a day (LP-20g).
+ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm", "store_uploads", "store_jobs")
 # What one organization's pack store may keep, in bytes of files (LP-20e, owner decision 14).
 DEFAULT_STORE_ORG_BYTES = 256 * 1024 * 1024
 

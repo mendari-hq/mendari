@@ -71,12 +71,36 @@ call, and an LLM's temperature: the pack's own values are dropped. Only a provid
 names it chooses its variants: unscoped `MENDARI_PROVIDERS` settings and the Jev defaults do not
 reach it, as for a community pack.
 
+## Evaluating a draft (LP-20g)
+
+There is no worker: a **job** is a row that runs when an author asks, a slice at a time.
+
+- **Datasets.** An author uploads a labelled dataset (JSON Lines) checked against a version:
+  the PHI detector, the dataset checks (kept and shown; a schema or label problem refuses it) and
+  the hidden-set check, as a version is. It is kept sealed under the deployment's PHI policy
+  (`encrypt`), and `mendari phi rotate` re-seals it with the inputs and notes. A job may also run
+  on a dataset the version declares, by name.
+- **A job** evaluates one store version, or a pack served here (the current one a draft was
+  copied from), on one dataset, with the version's own variants unless others are named. Each
+  `POST /api/store/jobs/{id}/advance` runs as many cases as fit about 20 seconds, claimed in
+  one transaction: two calls at once never decide a case twice, and a slice cut short is run
+  again by the next call. The last slice writes one evaluation report with its ledger
+  (`eval.recorded`), the same bytes a single run would write. A remote variant needs the
+  organization's evaluation quota (`eval_jev`, `eval_llm`) set and runs 200 cases at most; a job
+  runs 5,000 at most, and `store_jobs` bounds the jobs an organization makes a day.
+- **Draft against current.** `GET /api/store/comparisons?draft=…&current=…` pairs two finished
+  jobs on the same dataset: each side's figures as k of n with exact intervals, each difference
+  with the exact McNemar test (Holm-adjusted over the family listed), the Brier difference with
+  a paired bootstrap, and the cases that changed by the dataset's own ids. A figure on too few
+  cases says "insufficient evidence". The statistics are LP-10's (`evals/paired.py`).
+
 ## Limits
 
 | Setting | Default | What it bounds |
 |---|---|---|
 | `MENDARI_STORE_ORG_BYTES` | 256 MiB | The bytes of files one organization's store keeps, each file counted once |
 | `MENDARI_ORG_DAILY_LIMITS` `store_uploads=N` | no limit | The versions an organization adds a day |
+| `MENDARI_ORG_DAILY_LIMITS` `store_jobs=N` | no limit | The evaluation jobs an organization makes a day |
 | `MENDARI_STORE_MAX_ARCHIVE_BYTES` | 32 MiB | An archive, sent in parts each under `MENDARI_MAX_BODY_BYTES` |
 
 A version has at most 2,000 files of at most 50 MB each, an archive's own limits. A withdrawn

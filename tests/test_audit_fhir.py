@@ -289,6 +289,9 @@ NOT_ON_A_DECISION = {
     "pack_version.withdrawn",
     "store_key.added",  # its authors' keys (`store_key:<id>`, LP-20f)
     "store_key.revoked",
+    "store_dataset.created",  # its datasets and jobs (LP-20g)
+    "store_dataset.held",
+    "store_job.created",
 }
 
 

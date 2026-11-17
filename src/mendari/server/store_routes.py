@@ -64,6 +64,22 @@ class EditRequest(BaseModel):
     files: list[EditedFile] = Field(min_length=1, max_length=MAX_EDITED_FILES)
 
 
+class DatasetRequest(BaseModel):
+    name: str = Field(description="its name: lower-case letters, digits and hyphens")
+    version: str = Field(description="the digest of the version it is checked against")
+    content: str | None = Field(default=None, description="the JSON Lines, under the body limit")
+    upload: str | None = Field(default=None, description="or an upload finished in parts")
+
+
+class JobRequest(BaseModel):
+    version: str | None = Field(default=None, description="a store version's digest")
+    pack: str | None = Field(default=None, description="or a pack served here: the current one")
+    dataset: dict[str, str] = Field(
+        description='a dataset the pack declares, `{"name": "test"}`, or yours, `{"id": ...}`'
+    )
+    variants: dict[str, str] | None = Field(default=None, description="slot -> variant")
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(max_length=4096, description="an Ed25519 public key, PEM")
 
@@ -124,6 +140,8 @@ def add_store_routes(
     hidden: Any = None,
     claimed: Callable[[str, str], bool] | None = None,
     deadline_s: float | None = None,
+    jobs: Any = None,
+    limits: Callable[[], Mapping[str, int]] = dict,
 ) -> None:
     """Mount the store's routes. `served`: the packs this deployment serves from disk (what a
     copy is made from); `hidden`: an `EvalsetStore` with the index key, or None (the hidden-set
@@ -401,6 +419,128 @@ def add_store_routes(
             raise _refused(error) from None
         security_log.event("store.version.withdrawn", actor=by, org=org, ids=[digest])
         return moved
+
+    # -- datasets, jobs and the comparison (LP-20g) -------------------------------------------
+
+    @app.get("/api/store/datasets", tags=[TAG], summary="Your organization's datasets")
+    def store_datasets(request: Request) -> list[dict[str, Any]]:
+        """The datasets of the organization you act for, newest first, each with its check
+        report (ids and counts). A held one shows its state and nothing else. Never a case."""
+        _, org = person(request)
+        return store.datasets(org)
+
+    @app.post("/api/store/datasets", status_code=201, tags=[TAG], summary="Upload a dataset")
+    def add_dataset(request: Request, body: DatasetRequest) -> JSONResponse:
+        """A labelled dataset (JSON Lines) for your organization's jobs, as `content` or an
+        upload finished in parts (`upload`), checked against a version: the PHI detector (`422`
+        with kinds, files and lines), the dataset checks (kept and shown; a schema or label
+        problem refuses it) and the hidden-set check (held on any match, and you are told only
+        that). Kept sealed under the deployment's PHI policy."""
+        by, org = person(request)
+        if (body.content is None) == (body.upload is None):
+            raise HTTPException(422, "send the dataset as content or as an upload, not both")
+        try:
+            raw = (
+                body.content.encode("utf-8")
+                if body.content is not None
+                else store.finish_upload(org, str(body.upload))
+            )
+            made = store.add_dataset(
+                org, raw, by=by, name=body.name, digest=body.version, hidden=hidden
+            )
+        except PhiRejected as error:
+            security_log.event(
+                "store.dataset.refused", outcome="refused", reason="phi", actor=by, org=org,
+                count=len(error.report["findings"]),
+            )  # fmt: skip
+            return JSONResponse({"detail": str(error), "phi": error.report}, status_code=422)
+        except StoreError as error:
+            raise _refused(error) from None
+        security_log.event("store.dataset.created", actor=by, org=org, ids=[made["id"]])
+        return JSONResponse(made, status_code=201)
+
+    @app.get("/api/store/datasets/{dataset_id}", tags=[TAG], summary="One dataset")
+    def store_dataset(request: Request, dataset_id: str) -> dict[str, Any]:
+        """One of your organization's datasets and its check report. Never a case."""
+        _, org = person(request)
+        try:
+            return store.dataset(org, dataset_id)
+        except StoreError as error:
+            raise _refused(error) from None
+
+    def with_jobs() -> Any:
+        if jobs is None:
+            raise HTTPException(404, "evaluation jobs are not served here")
+        return jobs
+
+    @app.get("/api/store/jobs", tags=[TAG], summary="Your organization's evaluation jobs")
+    def store_jobs(request: Request) -> list[dict[str, Any]]:
+        """The jobs of the organization you act for, newest first: what each runs, on which
+        dataset (by its SHA-256), its state and progress as counts."""
+        _, org = person(request)
+        return with_jobs().jobs(org)
+
+    @app.post("/api/store/jobs", status_code=201, tags=[TAG], summary="Make an evaluation job")
+    def make_job(request: Request, body: JobRequest) -> dict[str, Any]:
+        """A job evaluating a version of your store (`version`) or a pack served here (`pack`,
+        the current one a draft is compared with) on a dataset. Local variants unless named; a
+        remote one needs your organization's evaluation quota set and runs on 200 cases at
+        most. It runs when `…/advance` is called, a slice at a time. Chained."""
+        by, org = person(request)
+        try:
+            made = with_jobs().create(
+                org,
+                by=by,
+                digest=body.version,
+                pack=body.pack,
+                dataset=body.dataset,
+                variants=body.variants,
+                limits=limits(),
+            )
+        except StoreError as error:
+            raise _refused(error) from None
+        except MendariError as error:
+            raise HTTPException(422, str(error)) from None
+        security_log.event("store.job.created", actor=by, org=org, ids=[made["id"]])
+        return dict(made)
+
+    @app.get("/api/store/jobs/{job_id}", tags=[TAG], summary="One job's progress")
+    def store_job(request: Request, job_id: str) -> dict[str, Any]:
+        """One of your organization's jobs: its state, progress as counts, and its report's id
+        once done."""
+        _, org = person(request)
+        try:
+            return dict(with_jobs().job(org, job_id))
+        except StoreError as error:
+            raise _refused(error) from None
+
+    @app.post("/api/store/jobs/{job_id}/advance", tags=[TAG], summary="Run a job's next slice")
+    def advance_job(request: Request, job_id: str) -> dict[str, Any]:
+        """Run the next slice of a job: as many cases as fit about 20 seconds. Safe to call
+        twice: a slice another call holds is not run again. The last slice writes its report
+        with its ledger (chained `eval.recorded`)."""
+        _, org = person(request)
+        try:
+            return dict(with_jobs().advance(org, job_id))
+        except StoreError as error:
+            raise _refused(error) from None
+
+    @app.get("/api/store/comparisons", tags=[TAG], summary="Draft against current")
+    def store_comparison(request: Request, draft: str, current: str) -> dict[str, Any]:
+        """Two finished jobs of your organization on the same dataset, paired on the same
+        cases: each side's figures as k of n with exact intervals, each difference with the
+        exact McNemar test, Holm-adjusted, the Brier difference with a paired bootstrap, and the
+        cases that changed by your dataset's ids. A figure on too few cases says "insufficient
+        evidence". Nothing is recorded."""
+        from mendari.evals.store_jobs import compare_jobs
+
+        _, org = person(request)
+        try:
+            return compare_jobs(with_jobs(), org, draft, current)
+        except StoreError as error:
+            raise _refused(error) from None
+        except MendariError as error:
+            raise HTTPException(422, str(error)) from None
 
     @app.get("/api/store/keys", tags=[TAG], summary="Your organization's author keys")
     def store_keys(request: Request) -> list[dict[str, Any]]:

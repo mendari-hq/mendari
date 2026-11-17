@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 import threading
@@ -281,6 +282,34 @@ def _reserved(namespace: str) -> bool:
     """A namespace no store pack takes: each of `STORE_RESERVED`, and any name that starts with
     one and a dash, as the registry reserves them (`hub/registry.py`)."""
     return any(namespace == held or namespace.startswith(f"{held}-") for held in STORE_RESERVED)
+
+
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def _said(state: str) -> str:
+    return "held for the operator's review" if state == HELD else state
+
+
+def _dataset_shown(row: Mapping[str, Any]) -> dict[str, Any]:
+    shown = {
+        "id": row["id"],
+        "name": row["name"],
+        "state": row["state"],
+        "created_at": row["created_at"],
+    }
+    if row["state"] == HELD:
+        return {**shown, "message": "held for the operator's review"}
+    return {
+        **shown,
+        "pack_id": row["pack_id"],
+        "digest": row["digest"],
+        "sha256": row["sha256"],
+        "cases": int(row["cases"]),
+        "sealed": bool(int(row["sealed"])),
+        "report": json.loads(row["report"]),
+        "created_by": row["created_by"],
+    }
 
 
 class PhiRejected(StoreError):
@@ -912,6 +941,119 @@ class PackStore:
             raise StoreError("the parts do not join into the archive declared (size or sha256)")
         return data
 
+    # -- datasets (LP-20g) ------------------------------------------------------------------
+
+    def add_dataset(
+        self,
+        org: str,
+        raw: bytes,
+        *,
+        by: str,
+        name: str,
+        digest: str,
+        hidden: Any = None,
+    ) -> dict[str, Any]:
+        """One of `org`'s datasets (JSON Lines), checked exactly as a version is: the PHI
+        detector (`PhiRejected`), the dataset checks against version `digest` (kept and shown;
+        a schema or label problem refuses it) and the hidden-set check (held on any match, for
+        the operator, its uploader told only that). Kept sealed under the PHI policy when the
+        mode is `encrypt`. Chained `store_dataset.created` (and `store_dataset.held`), with
+        counts only."""
+        from mendari.core import phi_detect
+        from mendari.evals import dataset_checks
+        from mendari.evals.harness import load_dataset
+
+        org, by = _org(org), _actor(by)
+        if not NAME_RE.fullmatch(name):
+            raise StoreError("a dataset's name is lower-case letters, digits and hyphens")
+        self._refuse_stopped(org)
+        found = phi_detect.detect_files({f"{name}.jsonl": raw})
+        if phi_detect.rejects(found):
+            raise PhiRejected(found.to_json())
+        row = self.version(org, digest)
+        if row["state"] in (HELD, WITHDRAWN):
+            raise StoreError(f"version {digest} is {row['state']}", 409)
+        pack = self.load(org, digest)
+        try:
+            data = load_dataset(f"{name}.jsonl", name=name, raw=raw, label=f"{name}.jsonl")
+        except MendariError as error:
+            raise StoreError(str(error)) from None
+        report = dataset_checks.check(pack, data, training={})
+        if not report.passed:
+            raise StoreError("the dataset does not fit the pack: schema or label problems", 422)
+        matches = (
+            []
+            if hidden is None
+            else _hidden_matches([record["input"] for record in data.records], hidden)
+        )
+        dataset_id, now = str(uuid.uuid4()), _now()
+        state = HELD if matches else "ready"
+        text = raw.decode("utf-8")
+        kept = (
+            self.store.phi.seal("dataset", text, dataset_id)
+            if self.store.phi.mode == "encrypt"
+            else text
+        )
+        with self.store._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO store_datasets (id, org, name, pack_id, digest, sha256, cases, "
+                "data, sealed, report, created_by, created_at, state) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (dataset_id, org, name, pack.id, digest, data.sha256, len(data.records), kept,
+                 int(self.store.phi.mode == "encrypt"), _canonical(report.data), by, now, state),
+            )  # fmt: skip
+            payload = {"dataset": dataset_id, "sha256": data.sha256,
+                       "cases": len(data.records), "by": by}  # fmt: skip
+            chained = self.store._bound("store_dataset.created", payload, org)
+            self.store._append(db, f"store_dataset:{dataset_id}", "store_dataset.created", chained)
+            if matches:
+                marked = self.store._bound("store_dataset.held", {"dataset": dataset_id}, org)
+                self.store._append(db, f"store_dataset:{dataset_id}", "store_dataset.held", marked)
+                db.all(
+                    "INSERT INTO store_matches (id, org, version_id, digest, matches, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), org, dataset_id, f"dataset:{dataset_id}",
+                     _canonical(matches), now),
+                )  # fmt: skip
+        return self.dataset(org, dataset_id)
+
+    def _dataset_row(self, org: str, dataset_id: str) -> Any:
+        org = _org(org)
+        with self.store._db.session(exclusive=False) as db:
+            found = db.one(
+                "SELECT * FROM store_datasets WHERE id = ? AND org = ?", (dataset_id, org)
+            )
+        if found is None:
+            raise StoreError("no such dataset in this organization's store", 404)
+        return found
+
+    def dataset(self, org: str, dataset_id: str) -> dict[str, Any]:
+        """One of `org`'s datasets as its uploader may see it: its name, SHA-256, how many cases,
+        the version it was checked against and its check report (ids and counts). A held one:
+        its state and nothing else. Never a case."""
+        return _dataset_shown(self._dataset_row(org, dataset_id))
+
+    def datasets(self, org: str) -> list[dict[str, Any]]:
+        org = _org(org)
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT * FROM store_datasets WHERE org = ? ORDER BY created_at DESC, id", (org,)
+            )
+        return [_dataset_shown(row) for row in rows]
+
+    def dataset_bytes(self, org: str, dataset_id: str) -> tuple[bytes, str]:
+        """A ready dataset's JSON Lines and its name, opened under the PHI policy: for a job
+        (`evals/store_jobs.py`), never a route."""
+        row = self._dataset_row(org, dataset_id)
+        if row["state"] != "ready":
+            raise StoreError(f"dataset {dataset_id} is {_said(row['state'])}", 409)
+        text = (
+            self.store.phi.open("dataset", str(row["data"]), dataset_id)[0]
+            if int(row["sealed"])
+            else str(row["data"])
+        )
+        return str(text).encode("utf-8"), str(row["name"])
+
     # -- held versions: the operator's (LP-20f) -------------------------------------------------
 
     def held_count(self, org: str) -> int:
@@ -925,13 +1067,15 @@ class PackStore:
 
     def held(self) -> list[dict[str, Any]]:
         """Every match the hidden-set check recorded that the operator has not cleared, oldest
-        first: the organization, the version's digest and state, and the set and case ids it
-        matched. For the operator's command only: no route answers it."""
+        first: the organization, the version's digest (or `dataset:<id>`) and state, and the set
+        and case ids it matched. For the operator's command only: no route answers it."""
         with self.store._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT m.org, m.digest, m.matches, m.created_at, v.state FROM store_matches m "
-                "JOIN store_versions v ON v.id = m.version_id WHERE m.cleared_at IS NULL "
-                "ORDER BY m.created_at, m.id"
+                "SELECT m.org, m.digest, m.matches, m.created_at, "
+                "COALESCE(v.state, d.state) AS state FROM store_matches m "
+                "LEFT JOIN store_versions v ON v.id = m.version_id "
+                "LEFT JOIN store_datasets d ON d.id = m.version_id "
+                "WHERE m.cleared_at IS NULL ORDER BY m.created_at, m.id"
             )
         return [
             {

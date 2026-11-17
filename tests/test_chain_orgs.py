@@ -403,6 +403,31 @@ def _store_key(store: AuditStore, _: Pack) -> str:
         return f"store_key:{db.one('SELECT id FROM store_keys')['id']}"
 
 
+def _store_dataset(store: AuditStore, _: Pack) -> str:
+    from mendari.core.pack_store import PackStore
+
+    packs = PackStore(store)
+    made = packs.put(CLINIC, _store_files(), by="t", source="upload")
+    raw = (INBOX_DIR / "data" / "test.jsonl").read_bytes().split(b"\n")[0] + b"\n"
+    added = packs.add_dataset(CLINIC, raw, by="t", name="s", digest=made.digest)
+    return f"store_dataset:{added['id']}"
+
+
+def _store_job(store: AuditStore, _: Pack) -> str:
+    from mendari.core.pack_store import PackStore
+    from mendari.evals.store_jobs import JobStore
+
+    packs = PackStore(store)
+    made = packs.put(CLINIC, _store_files(), by="t", source="upload")
+    jobs = JobStore(
+        packs,
+        served=dict,
+        decision_for=lambda p, v: Decision(p, providers=dict(v), origin_cap=False),
+    )
+    job = jobs.create(CLINIC, by="t", digest=made.digest, dataset={"name": "test"})
+    return f"store_job:{job['id']}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -418,6 +443,8 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "evalset_sets": ("evalset_sets", "id", _evalset),
     "store_versions": ("store_versions", "id", _store_version),
     "store_keys": ("store_keys", "id", _store_key),
+    "store_datasets": ("store_datasets", "id", _store_dataset),
+    "store_jobs": ("store_jobs", "id", _store_job),
 }
 
 

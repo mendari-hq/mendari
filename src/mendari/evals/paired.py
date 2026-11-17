@@ -125,12 +125,15 @@ def compare(
     seed: int = 0,
     resamples: int = stats.RESAMPLES,
     alpha: float = ALPHA,
+    lineage: bool = False,
 ) -> dict[str, Any]:
-    """A against B on the cases both ran, from the dataset whose sha256 is given."""
+    """A against B on the cases both ran, from the dataset whose sha256 is given. `lineage`: A
+    and B may be packs of other ids that ask the same questions, a pack store's draft and the
+    pack it was copied from (LP-20g)."""
     for name, ledger in (("A", a), ("B", b)):
         if ledger.header["dataset"]["sha256"] != dataset_sha256:
             raise MendariError(f"{name} was not run on this dataset (its sha256 differs)")
-    if a.header["pack"]["id"] != b.header["pack"]["id"]:
+    if not lineage and a.header["pack"]["id"] != b.header["pack"]["id"]:
         raise MendariError("A and B are evaluations of different packs")
     if (
         a.header["questions"] != b.header["questions"]
