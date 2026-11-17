@@ -68,7 +68,8 @@ PINNED = {
         # labelling's (sampled, assigned, case read, labelled, measured); in LP-11i: their
         # lifecycle's (frozen, activated, graded, retired); and in LP-18d: a pulled pack's
         # approval and its revocation.
-        "CodeSystem/audit-administrative-event": "303726a13ca18e96",
+        # Moved in LP-20e, before 0.1.0's release: `pack_version.created|held|released|withdrawn`.
+        "CodeSystem/audit-administrative-event": "37f88022fffda73a",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }

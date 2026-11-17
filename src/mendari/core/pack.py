@@ -104,6 +104,13 @@ class Pack:
         return is_community(self.id, self.origin)
 
     @property
+    def named_settings_only(self) -> bool:
+        """A pack the deployment's unscoped provider settings and its Jev defaults never reach:
+        only a setting that names it chooses its variants. A community pack, and a pack from a
+        store (LP-20e), whose id is its organization's."""
+        return self.community or self.origin == "store"
+
+    @property
     def bounded(self) -> bool:
         """A pack the deployment does not own, on the community engine: RE2, the caps, the
         input limits and a CPU budget per decision (`core/origin.py` `bounded`, ADR-0009). Read

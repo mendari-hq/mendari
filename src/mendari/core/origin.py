@@ -53,11 +53,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from mendari.core.spec import Outcome, PackManifest, RiskLevel
 
-Origin = Literal["maintained", "community", "hub", "local"]
+Origin = Literal["maintained", "community", "hub", "local", "store"]
 # The origins of packs the deployment does not own, besides community packs: they run on the
-# community engine unless they are a reference pack of this release (`bounded`). LP-20 adds
-# `store`.
-NOT_OWNED: frozenset[Origin] = frozenset({"hub"})
+# community engine unless they are a reference pack of this release (`bounded`). `store`: a
+# version in an organization's pack store (LP-20e, ADR-0016), whose digest is never a reference
+# pack's (its id is its organization's, LP-20f).
+NOT_OWNED: frozenset[Origin] = frozenset({"hub", "store"})
 
 COMMUNITY_NAMESPACE = "community"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
@@ -89,6 +90,12 @@ NOT_OWNED_CAPS: Mapping[str, Mapping[str, int]] = {
     "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
     "jev": {"timeout_ms": 5_000},
 }
+# Variant keys a pack from a store (LP-20e) may set but the deployment decides, beyond those of
+# any pack it does not own: its price per call (the recorded cost is the deployment's), whether
+# it shares a call with the decision's other questions, and an LLM's temperature. Dropped, so the
+# provider's defaults apply. A pack from a registry keeps them (a change would change its
+# decisions).
+STORE_DEPLOYMENT_KEYS = ("cost_per_1k_input_tokens_usd", "batch", "temperature")
 # `reasoning_effort`, lowest first: a value above the most a not-owned pack keeps is dropped, so
 # the model's own default applies.
 EFFORTS = ("none", "low", "medium", "high")
@@ -102,6 +109,7 @@ ORIGIN_LABELS: Mapping[Origin, str] = {
     "community": COMMUNITY_LABEL,
     "hub": "From a registry",
     "local": "Local pack",
+    "store": "From this organization's store",
 }
 # What a community pack does with a decision, wherever it says so.
 COMMUNITY_AUTOMATION = "Never: a community pack recommends, and a person confirms every decision."
@@ -155,8 +163,10 @@ def bounded(pack_id: str, origin: Origin, digest: str) -> bool:
 
 def bounded_reader(pack_id: str, origin: Origin) -> str:
     """What a reason says of a pack on the community engine (`bounded`): "a community pack",
-    or "a pack from a registry"."""
-    return "a community pack" if is_community(pack_id, origin) else "a pack from a registry"
+    "a pack from a store" or "a pack from a registry"."""
+    if is_community(pack_id, origin):
+        return "a community pack"
+    return "a pack from a store" if origin == "store" else "a pack from a registry"
 
 
 def shown_origin(pack_id: str, origin: Origin) -> Origin:
@@ -309,13 +319,15 @@ def is_local(config: Mapping[str, Any]) -> bool:
     )
 
 
-def deployment_config(config: Mapping[str, Any]) -> dict[str, Any]:
+def deployment_config(config: Mapping[str, Any], *, store: bool = False) -> dict[str, Any]:
     """The provider config a pack the deployment does not own (`bounded`) runs with, in the
     variant and each composite member: without the keys the deployment chooses
-    (`DEPLOYMENT_CHOSEN_KEYS`), its `max_tokens` and `timeout_ms` at most `NOT_OWNED_CAPS` (an
-    absent key stays absent), and its `reasoning_effort` kept only up to `MAX_NOT_OWNED_EFFORT`.
-    The pack's own values were checked at load, before this (`providers.config_problems`)."""
-    kept = {key: value for key, value in config.items() if key not in DEPLOYMENT_CHOSEN_KEYS}
+    (`DEPLOYMENT_CHOSEN_KEYS`, and for a pack from a store, `store`, `STORE_DEPLOYMENT_KEYS`),
+    its `max_tokens` and `timeout_ms` at most `NOT_OWNED_CAPS` (an absent key stays absent), and
+    its `reasoning_effort` kept only up to `MAX_NOT_OWNED_EFFORT`. The pack's own values were
+    checked at load, before this (`providers.config_problems`)."""
+    chosen = DEPLOYMENT_CHOSEN_KEYS + (STORE_DEPLOYMENT_KEYS if store else ())
+    kept = {key: value for key, value in config.items() if key not in chosen}
     for key, cap in NOT_OWNED_CAPS.get(str(kept.get("type")), {}).items():
         if key in kept and (number := _config_int(kept[key])) is not None:
             kept[key] = min(number, cap)
@@ -325,7 +337,7 @@ def deployment_config(config: Mapping[str, Any]) -> dict[str, Any]:
     members = kept.get("members")
     if isinstance(members, dict):
         kept["members"] = {
-            name: deployment_config(member) if isinstance(member, dict) else member
+            name: deployment_config(member, store=store) if isinstance(member, dict) else member
             for name, member in members.items()
         }
     return kept

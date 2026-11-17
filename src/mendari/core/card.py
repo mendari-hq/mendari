@@ -73,15 +73,18 @@ def read_benchmark(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
 # (None: none shown). The registry gives none (ADR-0012).
 FROM_PACK: Literal["pack"] = "pack"
 Attested = Mapping[str, Any] | None | Literal["pack"]
-RenderedBy = Literal["mendari card", "registry"]
+RenderedBy = Literal["mendari card", "registry", "store"]
 
 
 def card_of(pack: Pack) -> str:
     """The card Mendari shows for a pack it serves or names: a pack from a registry as the
     registry renders it (its uploaded benchmark and leaderboard are its publisher's, and its
-    text is plain), any other pack with its own attestations."""
+    text is plain), a version from a pack store as the store renders it (LP-20e: nothing uploaded
+    about it is kept, and its text is plain), any other pack with its own attestations."""
     if pack.origin == "hub":
         return render_card(pack, report=None, board=None, rendered_by="registry")
+    if pack.origin == "store":
+        return render_card(pack, report=None, board=None, rendered_by="store")
     return render_card(pack)
 
 
@@ -97,8 +100,9 @@ def render_card(
     (`mendari card`, the engine's own packs); None shows none. Everything else comes from the
     files the digest covers: the manifest, policy, input schema and changelog.
     `rendered_by="registry"` is the registry's card (ADR-0012): the risk level declared by the
-    publisher, and a validation section that says no uploaded figure is shown."""
-    token = _PLAIN.set(rendered_by == "registry")
+    publisher, and a validation section that says no uploaded figure is shown; `"store"` a pack
+    store's card (LP-20e), its text plain too."""
+    token = _PLAIN.set(rendered_by in ("registry", "store"))
     try:
         return _render(pack, report, board, rendered_by)
     finally:
@@ -236,6 +240,12 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         out.append(
             "The registry shows no figure it did not compute itself: the publisher's benchmark "
             "and leaderboard are left out. Validate the pack on your own data."
+        )
+    elif rendered_by == "store":
+        out.append(
+            "The store shows no figure it did not compute itself: a benchmark or leaderboard "
+            "uploaded with the pack is not kept. Its evaluations in this organization's store "
+            "are listed beside it."
         )
     else:
         out.append("No published benchmark.")

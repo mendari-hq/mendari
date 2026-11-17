@@ -1058,7 +1058,7 @@ def create_app(
         f"{key}={variant}"
         for key, variant in overrides.items()
         if not any(
-            applies_to(key, pack.id, pack.manifest.providers, community=pack.community)
+            applies_to(key, pack.id, pack.manifest.providers, community=pack.named_settings_only)
             for pack in packs.values()
         )
     )
@@ -1071,11 +1071,13 @@ def create_app(
     taken: set[str] = set()
     for pack in packs.values():
         pack_slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        chosen = providers_for(pack.id, pack_slots, overrides, community=pack.community)[0]
+        chosen = providers_for(pack.id, pack_slots, overrides, community=pack.named_settings_only)[
+            0
+        ]
         for key, variant in overrides.items():
             slot = key.rpartition(":")[2]
             if chosen.get(slot) == variant and applies_to(
-                key, pack.id, pack_slots, community=pack.community
+                key, pack.id, pack_slots, community=pack.named_settings_only
             ):
                 taken.add(key)
     not_taken = sorted(f"{key}={variant}" for key, variant in overrides.items() if key not in taken)
@@ -1083,10 +1085,12 @@ def create_app(
     def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
         """The variants the deployment chose for this pack's slots (the rest run the pack's
         default), and the settings that name the pack but cannot apply. A community pack takes
-        only settings that name it, never the defaults (it spends only where the owner said)."""
+        only settings that name it, never the defaults (it spends only where the owner said), and
+        so does a pack from a store (`Pack.named_settings_only`)."""
         slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        chosen, skipped = providers_for(pack.id, slots, overrides, community=pack.community)
-        if pack.community:
+        only_named = pack.named_settings_only
+        chosen, skipped = providers_for(pack.id, slots, overrides, community=only_named)
+        if only_named:
             return chosen, skipped
         for slot, variant in fallbacks.get(pack.id, {}).items():
             if slot not in chosen and variant in slots.get(slot, ()):
@@ -1101,7 +1105,7 @@ def create_app(
             pack.id,
             {s: set(v.variants) for s, v in pack.manifest.providers.items()},
             overrides,
-            community=pack.community,
+            community=pack.named_settings_only,
         )[0]
         filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
     if filled:

@@ -1253,6 +1253,10 @@ const ACTIVITY_TEXT = {
   "evalset.activated": "Hidden evaluation set activated",
   "evalset.graded": "Hidden evaluation set read to grade a pack",
   "evalset.retired": "Hidden evaluation set retired",
+  "pack_version.created": "Pack store version added",
+  "pack_version.held": "Pack store version held for the operator's review",
+  "pack_version.released": "Pack store version released",
+  "pack_version.withdrawn": "Pack store version withdrawn",
 };
 
 // What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).

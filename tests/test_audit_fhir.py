@@ -282,6 +282,11 @@ NOT_ON_A_DECISION = {
     "evalset.activated",
     "evalset.graded",
     "evalset.retired",
+    # A pack store's versions (`pack_version:<id>`, LP-20e).
+    "pack_version.created",
+    "pack_version.held",
+    "pack_version.released",
+    "pack_version.withdrawn",
 }
 
 

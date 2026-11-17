@@ -1645,6 +1645,17 @@ The first release (not yet published).
   pattern runs on RE2. No shipped pack file or synthetic dataset holds any of them. `mendari
   data check --phi` reports them and fails on what the store would refuse. The community
   check's warnings are five of its kinds, worded as before.
+- **The pack store, as a library** (LP-20e, `mendari.core.pack_store`, ADR-0016 Proposed; no
+  route reaches it and nothing turns it on). Each organization's versions of packs are kept in
+  the engine's database (`store_files`, `store_versions`, `store_usage`; created empty), keyed by
+  the digest the loader hashed, never changed (each state one chained `pack_version.*` event;
+  `mendari audit verify` fails on a version row changed past the store), each file kept once,
+  without any uploaded card or benchmark, validated, and loaded on the bounded engine (origin
+  `store`, "From this organization's store") from the database alone. A store pack's Jev price,
+  batching switch and LLM temperature are the deployment's, and only settings that name it
+  choose its variants. `MENDARI_STORE_ORG_BYTES` (256 MiB) and the `store_uploads` quota of
+  `MENDARI_ORG_DAILY_LIMITS` bound it. The operator's `mendari store versions`, `verify`,
+  `withdraw` and `purge`; `docs/operations/pack-store.md`.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

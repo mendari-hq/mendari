@@ -388,6 +388,11 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "evalset.activated": ("U", "Hidden evaluation set activated by its first grading read", None),
     "evalset.graded": ("R", "Hidden evaluation set read to grade a pack", None),
     "evalset.retired": ("U", "Hidden evaluation set retired", None),
+    # A pack store's versions (LP-20e): the digest and who acted, never a file.
+    "pack_version.created": ("C", "Pack store version added", None),
+    "pack_version.held": ("U", "Pack store version held for the operator's review", None),
+    "pack_version.released": ("U", "Pack store version released by the operator", None),
+    "pack_version.withdrawn": ("U", "Pack store version withdrawn", None),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (

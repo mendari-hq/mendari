@@ -260,6 +260,7 @@ def not_writable(pack: Pack) -> str | None:
         "maintained": "a reference pack of this release",
         "community": "a community pack of this repository",
         "hub": "a pack pulled from a registry",
+        "store": "a version in a pack store",
     }[sorted(where)[0]]
     return f"{what} is not changed in place: copy it, and improve the copy"
 

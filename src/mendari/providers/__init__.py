@@ -192,7 +192,7 @@ def build_provider(pack: Pack, slot_name: str, variant_name: str | None = None) 
     # A pack the deployment does not own: its model, answer length, timeout and effort are the
     # deployment's (`deployment_config`), its own values checked at load (`config_problems`).
     if pack.bounded:
-        config = deployment_config(config)
+        config = deployment_config(config, store=pack.origin == "store")
     model = config.get("model") if isinstance(config.get("model"), str) else None
     info = ProviderInfo(slot=slot_name, variant=variant_name, type=variant.type, model=model)
     questions = {key: pack.manifest.questions[key] for key in slot.answers}

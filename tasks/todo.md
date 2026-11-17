@@ -3239,8 +3239,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     licence (decision 3's default, with that difference for the owner to confirm). Measured on
     every shipped pack file and synthetic dataset: no finding, so one name finding rejects.
     `mendari data check --phi`; the community check's warnings are unchanged; threat row I21.
-  - [ ] **20e** The store as a library: tables, versions that never change, the origin `store`
-    on the bounded engine, the prerequisites test, the operator's commands. No route.
+  - [x] **20e** The store as a library (`mendari.core.pack_store`): tables, versions that never
+    change (`audit verify` checks each row against its chained hash and newest state), the
+    origin `store` on the bounded engine, the four LP-16 residuals for store packs (cost,
+    batching and temperature are the deployment's; only named settings reach it), the
+    prerequisites run at start, quotas, and `mendari store versions|verify|withdraw|purge`. No
+    route. Open point 1: a hosted function's temporary directory is written once per version
+    and process, bounded at 32 versions and 256 MiB. Threat rows T12, D16.
   - [ ] **20f** The author role, and the upload, copy and edit routes with the PHI and
     hidden-set checks (`MENDARI_PACK_STORE`, off by default). Adversarial security review.
     LP-17l can start once this is merged.
