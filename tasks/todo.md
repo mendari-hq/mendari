@@ -2845,7 +2845,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     declaration names a `local` configuration for (17h's `mendari.declared/1`), each with it
     (`test_a_stored_answer_grades_its_packs_declared_local_configuration`).
   - [ ] **17l** The developer flow: banded answers, a budget, a sealed confirmation split.
-    Blocked on LP-20 (LP-19 is built; owner decisions 4 and 10 decided 2026-11-07).
+    Unblocked: LP-19 and LP-20 are built (owner decisions 4 and 10 decided 2026-11-07).
   - [x] **17m** (#279) Close-out. Gate `a9-scoreboard`'s pending probe replaced by the
     acceptance tests of 17b, 17d, 17e, 17f, 17j and 17k, the no-leak tests (LP-11) and 17m's
     end-to-end test, with two pending lines left: the owner's 17i (its pattern LP-21n's) and 17l
@@ -3270,8 +3270,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **20j** The dashboard: upload, results, comparison, promotion; the browser test in a
     second organization (`dashboard/store.js`, `tests/browser/test_pack_store.py`). The store's
     routes are people-only, so the `/docs` landing links to it instead of a key-run snippet.
-  - [ ] **20k** Close-out: gate `a7-pack-store`, the threat model, ADR-0016 Accepted on the
-    owner's word.
+  - [x] **20k** Close-out: gate `a7-pack-store`'s pending probe replaced by the acceptance tests
+    of 20b to 20j; the threat model's rows S24, S25, T12, T13, R7, I21, I22, I23, D16, D17,
+    E18, E19 each name their tests, and the residuals that spoke of LP-20 as to come are
+    reworded; the review packet's scope names the store's routes and tables; ADR-0008 and
+    ADR-0009 say what is built. **ADR-0016 stays Proposed** until the owner confirms the
+    decisions below; 20k does not accept it.
   Owner decisions open, each with its default (`notes/lp20-plan.md`, "Owner decisions still
   open"): (1) the registry refuses a publish the validator refuses: yes; (2) the store needs
   memberships mode: yes; (3) the name list's source: common given names and surnames from
@@ -3283,7 +3287,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   promote, with no way round; (12) 3 held uploads in 30 days stop an organization's uploads, 20
   uploads a day; (13) remote providers on drafts only with the organization's evaluation quota
   set, 200 cases a job; (14) 256 MiB of files an organization; (15) every store pack is bounded.
-  **Owner steps then:** confirm the name list's licence before 20d merges; set
+  **Owner steps then:** confirm the name list (`core/phi_names.txt`, 1,289 names written for
+  Mendari, not copied from a publication, so decision (3)'s source does not apply as worded);
+  say yes to 20h before it merges (it changes which pack answers a request); set
   `MENDARI_PACK_STORE=on` after 20f to 20h are merged and reviewed; give `pack_author` and make
   sure each organization has a second person who may promote; register author keys; run
   `mendari store recheck` once hidden-set keys are set; read `mendari store held` when a

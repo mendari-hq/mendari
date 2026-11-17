@@ -1521,8 +1521,8 @@ date set, then the price table, the disclosures and the declarations written, th
 replicates run (LP-17i), the hidden sets graded, every new result signed, and the scoreboard
 published. Results are signed only after the effective date, since setting it re-pins the
 method's hash and a signature made before stops verifying. The developer flow, where a pack's
-own author submits to a hidden set (LP-17l), waits for the registry's accounts and the pack
-store (LP-19 and LP-20).
+own author submits to a hidden set (LP-17l), is next: the registry's accounts and the pack store
+it builds on are built (LP-19 and LP-20).
 `tests/test_scoreboard_end_to_end.py` takes a result from `mendari scoreboard run` to a signed,
 verified result and a tampered one that fails, and a hidden set's answer from the grading route
 to the store, with `mendari audit verify --evalsets` after it, on SQLite and Postgres.
