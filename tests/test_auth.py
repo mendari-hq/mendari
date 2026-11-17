@@ -604,8 +604,10 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
     "grading": {"grade"},
     # The pack registry's reviewers (LP-19e): in its one review organization only.
     "registry_reviewer": {"registry_review"},
+    # An organization's pack store (LP-20f): its authors, people only.
+    "pack_author": {"author"},
 }
-PEOPLE_ONLY = {"keys", "curate", "label", "registry_review"}
+PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {

@@ -12,7 +12,10 @@ bootstrap gave it one), so what becomes of such an organization was moot. Gate G
 prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. Amended by
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
 `labeller` grants `label` on a membership (memberships mode only; claims mode knows no such
-role); `pack_author` still grants nothing.
+role); `pack_author` still grants nothing. Amended by
+[ADR-0016](ADR-0016-a-pack-store-per-organization.md) (LP-20f, 2026-11-15): `pack_author` grants
+`author`, a people-only permission over the organization's pack store, mounted only with
+`MENDARI_PACK_STORE=on` in memberships mode.
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in

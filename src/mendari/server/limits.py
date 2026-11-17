@@ -114,6 +114,9 @@ DEFAULT_RATES: dict[str, Rate] = {
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
     "label": Rate(60, 60, 30),
+    # An author's acts on the pack store (LP-20f): an upload's parts, copies, edits, tests;
+    # per person. Each new version also counts against `store_uploads` a day.
+    "store": Rate(240, 3600, 60),
 }
 
 _GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
@@ -344,6 +347,8 @@ class Limiter:
             return "export"
         if permission == "label":  # a labeller's routes: a person's pace, each case read chained
             return "label"
+        if permission == "author" and method != "GET":  # the pack store's writes (LP-20f)
+            return "store"
         if permission == "registry_review" and method != "GET":
             # A registry reviewer's acts (LP-19e): each a chained event, for good, so counted
             # per person at a person's pace, as a labeller's are.

@@ -27,6 +27,15 @@ views.access = async (main, [reason = "none"]) => {
     wireAccount(main);
     return;
   }
+  if (reason === "author") {
+    main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
+      icon: "shield-check",
+      title: "You write packs in your organization's pack store",
+      text: "Where the store is on, its routes are yours to use (docs: the pack store). Its screens here come later.",
+    })}${accountButtons()}`;
+    wireAccount(main);
+    return;
+  }
   if (reason === "nothing") {
     const held = state.memberships.find((m) => m.org === state.me?.org);
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({

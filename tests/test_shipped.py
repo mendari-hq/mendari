@@ -260,6 +260,21 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # A grading run (LP-11l): each read of the set chained before its run receives the cases,
     # and a frozen set's first activates it. The run itself stores nothing.
     (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
+    # An organization's pack store (LP-20f; MENDARI_PACK_STORE=on, memberships mode): each new
+    # version, and held at once when it holds a hidden case; a draft withdrawn; authors' keys.
+    (ENGINE, "POST", "/api/store/versions"): ("pack_version.created", "pack_version.held"),
+    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): (
+        "pack_version.created",
+        "pack_version.held",
+    ),
+    (ENGINE, "POST", "/api/store/copies"): ("pack_version.created", "pack_version.held"),
+    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): (
+        "pack_version.created",
+        "pack_version.held",
+    ),
+    (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("pack_version.withdrawn",),
+    (ENGINE, "POST", "/api/store/keys"): ("store_key.added",),
+    (ENGINE, "DELETE", "/api/store/keys/{key_id}"): ("store_key.revoked",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
@@ -298,6 +313,16 @@ NOT_CHAINED: dict[Route, str] = {
     (ENGINE, "POST", "/fhir/Provenance/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/CodeSystem/_search"): "a read: FHIR search by POST",
     (PAYER, "POST", "/Claim/$submit"): "the sandbox's synthetic payer: no store, writes nothing",
+    (ENGINE, "POST", "/api/store/uploads"): (
+        "an archive begun in parts, kept until it is joined or a day old; the version it makes "
+        "is chained (LP-20f)"
+    ),
+    (ENGINE, "PUT", "/api/store/uploads/{upload_id}/parts/{n}"): (
+        "one part of an archive under way; the version it makes is chained (LP-20f)"
+    ),
+    (ENGINE, "POST", "/api/store/versions/{digest}/tests"): (
+        "a read: runs a draft's behaviour tests, stores nothing"
+    ),
 }
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).
 NOT_CHAINED_YET: dict[Route, str] = {}
@@ -338,6 +363,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
+    monkeypatch.setenv("MENDARI_PACK_STORE", "on")  # organizations' pack stores (LP-20f)
     with encrypted_store(tmp_path / "engine.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
     evalset_on(monkeypatch)

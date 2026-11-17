@@ -1656,6 +1656,19 @@ The first release (not yet published).
   choose its variants. `MENDARI_STORE_ORG_BYTES` (256 MiB) and the `store_uploads` quota of
   `MENDARI_ORG_DAILY_LIMITS` bound it. The operator's `mendari store versions`, `verify`,
   `withdraw` and `purge`; `docs/operations/pack-store.md`.
+- **The pack store's authors' routes** (LP-20f; off unless `MENDARI_PACK_STORE=on`, memberships
+  mode only: the server stops at start-up otherwise, or when a prerequisite is missing). The
+  reserved role `pack_author` now grants `author`, a people-only permission (`admin` does not
+  hold it). Under `/api/store`, acting for the caller's organization only: upload a signed
+  archive (whole, or in parts up to `MENDARI_STORE_MAX_ARCHIVE_BYTES`, 32 MiB), copy a pack served
+  here into `<organization>/<name>`, edit text files into a new draft, run a draft's tests,
+  withdraw a draft, list and read versions with a server-rendered card; administrators register
+  authors' keys. Each new version passes the archive's checks, the PHI detector (`422` with
+  kinds, files and lines, never a value), the bounded engine, the namespace rule, validation
+  and dataset checks, and the hidden-set check: a version holding a hidden evaluation case is
+  stored `held` and its uploader told only that; the match is the operator's (`mendari store
+  held|release|dismiss|recheck`). `/api/auth/me` says `store: true`; an administrator's health
+  counts held versions. No draft is served.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

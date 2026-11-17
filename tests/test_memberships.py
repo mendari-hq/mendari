@@ -448,13 +448,15 @@ def test_a_removed_membership_ends_access_at_the_next_request(
     assert members.get("/api/audit", headers=headers).status_code == 200
 
 
-def test_pack_author_grants_nothing(members: TestClient, store: AuditStore) -> None:
+def test_pack_author_grants_author_only(members: TestClient, store: AuditStore) -> None:
+    """LP-20f: `pack_author` grants `author` (the organization's pack store, mounted only with
+    MENDARI_PACK_STORE=on) and nothing else: no read, no packs."""
     headers = member(store, org="clinic-a", roles=["pack_author"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["org"], principal["roles"], principal["permissions"]) == (
         "clinic-a",
-        [],
-        [],
+        ["pack_author"],
+        ["author"],
     )
     assert members.get("/api/audit", headers=headers).status_code == 403
 
@@ -462,7 +464,7 @@ def test_pack_author_grants_nothing(members: TestClient, store: AuditStore) -> N
 def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> None:
     """LP-11: `labeller` grants `label` (labelling hidden evaluation sets) and nothing else: no
     read, no packs, no review queue; with another role, both roles' permissions."""
-    headers = member(store, org="clinic-a", roles=["labeller", "pack_author"], sub="ada")
+    headers = member(store, org="clinic-a", roles=["labeller"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["roles"], principal["permissions"]) == (["labeller"], ["label"])
     for path in ("/api/audit", "/api/packs", "/api/review", "/api/notice"):
@@ -1283,14 +1285,14 @@ def test_a_key_never_manages_people(members: TestClient, store: AuditStore, db_t
 
 def test_reserved_roles_may_be_given(members: TestClient, store: AuditStore, idp: FakeIdp) -> None:
     """Both reserved roles a membership may hold are given as any role is: `pack_author` grants
-    nothing yet, `labeller` grants `label` only (LP-11)."""
+    `author` only (LP-20f), `labeller` grants `label` only (LP-11)."""
     lead = admin_of(store)
     made = invite(members, lead, roles=("pack_author", "labeller"))
     assert made["roles"] == ["labeller", "pack_author"]
     sign_in(members, idp, sub="ada", email="ada@example.org", email_verified=True)
     accepted = accept(members, token_of(made))
     assert accepted.status_code == 200 and accepted.json()["roles"] == ["labeller", "pack_author"]
-    assert members.get("/api/auth/me").json()["principal"]["permissions"] == ["label"]
+    assert members.get("/api/auth/me").json()["principal"]["permissions"] == ["author", "label"]
     refused = members.get("/api/audit")
     assert refused.status_code == 403 and "may not read" in refused.json()["detail"]
     held = store.membership_in_force(person_id(IDP, "ada"), "clinic-a")

@@ -117,6 +117,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         "evaluate": "6/h",
         "export": "10/h",
         "label": "60/min:30",
+        "store": "240/h:60",
     }
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "log, decide=1200/min:200, evaluate=20/h")
     chosen = limit_settings(sign_in=False)

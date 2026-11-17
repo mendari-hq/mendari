@@ -34,8 +34,9 @@ RESERVED_ORG = DEFAULT_ORG
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
 RESERVED_ROLES = ("pack_author", "labeller", "registry_reviewer", "grading")
 NEVER_ON_A_MEMBERSHIP = frozenset({"grading"})
-# The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`).
-GRANTING_RESERVED = ("labeller",)
+# The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`):
+# `labeller` (LP-11) and, since LP-20f, `pack_author` (an organization's pack store).
+GRANTING_RESERVED = ("labeller", "pack_author")
 # The pack registry's reviewers (LP-19e, ADR-0015): a role that grants `registry_review` in one
 # organization only, the one `MENDARI_REGISTRY_REVIEW_ORG` names, and is refused when given in
 # any other (server/auth.py). Any administrator grants any membership role, so a role that

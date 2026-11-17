@@ -393,6 +393,9 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "pack_version.held": ("U", "Pack store version held for the operator's review", None),
     "pack_version.released": ("U", "Pack store version released by the operator", None),
     "pack_version.withdrawn": ("U", "Pack store version withdrawn", None),
+    # Its authors' keys (LP-20f): the key's id and who acted.
+    "store_key.added": ("C", "Pack store author key registered", None),
+    "store_key.revoked": ("U", "Pack store author key revoked", None),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (
