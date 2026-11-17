@@ -199,6 +199,9 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/store/promotions"),
     ("POST", "/api/store/promotions"),
     ("POST", "/api/store/promotions/{promotion_id}/retire"),
+    ("POST", "/api/store/packs/{namespace}/{name}/improvement"),
+    ("GET", "/api/store/versions/{digest}/proposed-tests"),
+    ("POST", "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -2065,6 +2068,7 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
         expect=200,
     )
     served_store_promotion(world, x, digest, made[0])
+    served_store_improvement(world, x, digest)
 
 
 def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> None:
@@ -2103,6 +2107,57 @@ def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> No
         governance,
         ("POST", "/api/store/promotions/{promotion_id}/retire"),
         f"/api/store/promotions/{made['id']}/retire",
+        expect=200,
+    )
+
+
+def served_store_improvement(world: World, x: Org, digest: str) -> None:
+    """LP-20i: `x`'s administrator (who may read inputs) gives itself the author role, builds the
+    improvement dataset from `x`'s reviewed decisions and accepts a proposed test; the other
+    organization's dataset answers `404` here."""
+    o = world.other(x)
+    sub = f"author-reader-{x.marker}"
+    reader = client_of(
+        world.app,
+        member(world.store, org=x.name, roles=["admin", "pack_author"], sub=sub),
+    )
+    x.made("person", person_id(IDP, sub))
+    for found in o.ids.get("store improvement", []):
+        world.call(
+            x,
+            reader,
+            ("GET", "/api/store/versions/{digest}/proposed-tests"),
+            f"/api/store/versions/{digest}/proposed-tests",
+            params={"dataset": found},
+            expect=404,
+        )
+    made = world.call(
+        x,
+        reader,
+        ("POST", "/api/store/packs/{namespace}/{name}/improvement"),
+        f"/api/store/packs/{x.name}/inbox-copy/improvement",
+        json={"version": digest, "limit": 5},
+        expect=(201, 422),
+    )
+    if made.status_code != 201:
+        return  # no reviewed decision to build from in this world's round
+    dataset = made.json()["id"]
+    x.made("store improvement", dataset)
+    shown = world.call(
+        x,
+        reader,
+        ("GET", "/api/store/versions/{digest}/proposed-tests"),
+        f"/api/store/versions/{digest}/proposed-tests",
+        params={"dataset": dataset},
+        expect=200,
+    ).json()
+    case = shown["cases"][0]["case"]
+    world.call(
+        x,
+        reader,
+        ("POST", "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}"),
+        f"/api/store/versions/{digest}/proposed-tests/{dataset}/{case}",
+        json={"accept": True},
         expect=200,
     )
 

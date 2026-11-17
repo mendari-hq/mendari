@@ -1689,6 +1689,12 @@ The first release (not yet published).
   which they never replace; every decision records the promotion's id. Promotion is not the
   automation approval: levels 2 and 3 still need it to automate. With no promotion, every
   organization is served exactly as before.
+- **Learning from reviewers in the pack store** (LP-20i; with the store on). An author who may
+  read inputs builds an improvement dataset from the organization's reviewed decisions (each
+  label with its decision, reviewer id, time and whether it overrode the system; hashed inputs
+  skipped and counted), sealed and never downloadable. Its cases are offered to a draft as
+  proposed behaviour tests, shown by case id and label only; accepted ones run with the draft's
+  tests, and none is written into a pack's files.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

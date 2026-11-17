@@ -282,6 +282,16 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # Promotion (LP-20h): the version served, and the one it replaced retired with it.
     (ENGINE, "POST", "/api/store/promotions"): ("pack_version.promoted", "pack_version.retired"),
     (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("pack_version.retired",),
+    # The improvement dataset (LP-20i): each input read chained, the dataset with counts only;
+    # a proposed test accepted or dismissed.
+    (ENGINE, "POST", "/api/store/packs/{namespace}/{name}/improvement"): (
+        "store_dataset.created",
+        "input.read",
+    ),
+    (ENGINE, "POST", "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}"): (
+        "store_dataset.proposal_accepted",
+        "store_dataset.proposal_dismissed",
+    ),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py

@@ -1264,6 +1264,8 @@ const ACTIVITY_TEXT = {
   "store_job.created": "Pack store evaluation job made",
   "pack_version.promoted": "Pack store version promoted to be served",
   "pack_version.retired": "Pack store version's promotion retired",
+  "store_dataset.proposal_accepted": "Proposed test accepted for a pack store version",
+  "store_dataset.proposal_dismissed": "Proposed test dismissed for a pack store version",
 };
 
 // What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).
