@@ -3260,9 +3260,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     changed cases by id). Decision 9's default (no worker, no cron); decision 13's (a remote arm
     needs the organization's evaluation quota, 200 cases).
   - [ ] **20i** The improvement dataset and proposed tests.
-  - [ ] **20h** Promotion, and serving the promoted version to its organization only.
-    Adversarial security review; it changes which pack answers a request, so it needs the
-    owner's yes before it merges.
+  - [ ] **20h** Promotion, and serving the promoted version to its organization only. Built:
+    `store_promotions`, `promote` (`governance`, `admin`, people only, never an author on the
+    version's chain), served through `served_here` per organization, built on first use under a
+    lock, the promotion's id on every decision. Adversarial security review; it changes which
+    pack answers a request, so it **waits for the owner's yes** before it merges.
   - [ ] **20j** The dashboard: upload, results, comparison, promotion; the browser test in a
     second organization.
   - [ ] **20k** Close-out: gate `a7-pack-store`, the threat model, ADR-0016 Accepted on the

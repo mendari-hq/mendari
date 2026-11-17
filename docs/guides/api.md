@@ -251,6 +251,7 @@ organization the person acts for; no key or client reaches them.
 | `POST /api/store/jobs`, `GET /api/store/jobs`, `GET …/{job_id}` | Evaluation jobs: a version (or the pack it was copied from) on a dataset |
 | `POST /api/store/jobs/{job_id}/advance` | Run a job's next slice (about 20 s); the last writes its report |
 | `GET /api/store/comparisons?draft=…&current=…` | Two finished jobs, paired on the same cases |
+| `GET`, `POST /api/store/promotions`, `POST …/{promotion_id}/retire` | Promote a version to be served to your organization (`governance`, `admin`; never its author), or stop serving it |
 
 An upload whose files read as a person's details is refused (`422`) with the detector's report:
 kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set

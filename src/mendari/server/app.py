@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -80,6 +81,7 @@ from mendari.errors import (
     MendariError,
     NoAssignment,
     NoEvalset,
+    NoOrganization,
     NoteError,
     NoticeNotAcknowledged,
     PackNotFoundError,
@@ -397,6 +399,8 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
 
 # How long a decision's look-up of automation holds is reused on one instance.
 HOLD_SECONDS = 5.0
+# The promoted store versions' Decisions one process keeps built (LP-20h), oldest dropped first.
+STORE_BUILT_MAX = 64
 # The scheduled jobs' bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
 MIN_CRON_SECRET = 16
 # The longest a quota's alert holds the decision that reached the quota: one try.
@@ -1058,8 +1062,57 @@ def create_app(
     recorded: set[str] = set()
     overrides = dict(providers or {})
 
+    # An organization's promoted pack store versions (LP-20h): read through `promoted_source`,
+    # which the store sets when it is on, per organization and kept `HOLD_SECONDS` (a promotion
+    # or retirement here clears it at once). Never another organization's.
+    promoted_source: list[Callable[[str], dict[str, tuple[Pack, str, bool]]]] = []
+    promoted_cache: dict[str, tuple[float, int, dict[str, tuple[Pack, str, bool]]]] = {}
+    promoted_generation = [0]
+
+    def forget_promoted() -> None:
+        promoted_generation[0] += 1
+        promoted_cache.clear()
+
+    def promoted_here() -> dict[str, tuple[Pack, str, bool]]:
+        """The caller's organization's promoted versions, pack id -> (pack, promotion id,
+        whether it may automate); none
+        without the store, without an organization, or for an id this deployment serves from
+        disk (which a store version never replaces)."""
+        if not promoted_source:
+            return {}
+        try:
+            org = tenancy.current()
+        except NoOrganization:
+            return {}
+        if org is None:
+            return {}
+        now = time.monotonic()
+        cached = promoted_cache.get(org)
+        if cached is not None and now - cached[0] < HOLD_SECONDS:
+            return cached[2]
+        generation = promoted_generation[0]
+        found = {
+            pack_id: served
+            for pack_id, served in promoted_source[0](org).items()
+            if pack_id not in packs
+        }
+        if generation == promoted_generation[0]:
+            promoted_cache[org] = (now, generation, found)
+        return found
+
+    def served_here() -> dict[str, Pack]:
+        """The packs this request may use: those read from disk at start-up, for everyone, and
+        its organization's promoted store versions (LP-20h)."""
+        promoted = promoted_here()
+        if not promoted:
+            return packs
+        return {**{pack_id: served[0] for pack_id, served in promoted.items()}, **packs}
+
     def pack_or_404(pack_id: str) -> Pack:
         pack = packs.get(pack_id)
+        if pack is None:
+            served = promoted_here().get(pack_id)
+            pack = None if served is None else served[0]
         if pack is None:
             raise PackNotFoundError(f"no pack {pack_id!r}")
         return pack
@@ -1151,10 +1204,66 @@ def create_app(
             problem = f"its providers could not be built ({type(error).__name__})"
             raise PackValidationError(pack.id, [problem]) from None
 
+    # A promoted store version's Decision (LP-20h): built on its first use in this process,
+    # under a lock of its own (a request that arrives while it is built waits for that build and
+    # never starts a second), kept by digest and promotion; health never waits on it.
+    store_built: dict[tuple[str, str], Decision] = {}
+    store_building: dict[tuple[str, str], threading.Lock] = {}
+    store_lock = threading.Lock()
+
+    def store_decision(pack: Pack, promotion: str, automate: bool) -> Decision:
+        """A promoted version's Decision. One promoted to recommend only (`automate` false)
+        never automates, as under a hold (policy only lowers automation)."""
+        key = (pack.digest, promotion)
+
+        def held_or_recommending(served: Pack) -> str | None:
+            recommending = None if automate else f"promoted to recommend only ({promotion})"
+            return "; ".join(filter(None, [held(served), recommending])) or None
+
+        found = store_built.get(key)
+        if found is not None:
+            return found
+        with store_lock:
+            building = store_building.setdefault(key, threading.Lock())
+        with building:
+            found = store_built.get(key)
+            if found is None:
+                chosen, _ = variants_for(pack)
+                try:
+                    found = Decision(
+                        pack,
+                        providers=chosen,
+                        store=store,
+                        budget=budget,
+                        fhir_validation=validation,
+                        governance_source=approved_override,
+                        hold_source=held_or_recommending,
+                        deadline_s=deadline_s,
+                        site_codes=site_maps,
+                        promotion=promotion,
+                    )
+                except MendariError:
+                    raise
+                except Exception as error:  # the pack's content: named by type, never a 500
+                    problem = f"its providers could not be built ({type(error).__name__})"
+                    raise PackValidationError(pack.id, [problem]) from None
+                with store_lock:
+                    if len(store_built) >= STORE_BUILT_MAX:
+                        store_built.pop(next(iter(store_built)))
+                    store_built[key] = found
+        with store_lock:
+            store_building.pop(key, None)
+        return found
+
     def decision_for(pack_id: str) -> Decision:
         """A served pack's Decision, built at start-up. Its first use records the deployment, once
         per process (concurrent first uses: `record_deployment` keeps one row), with no lock
-        /api/health could wait on. A pack that could not be built raises why on every use."""
+        /api/health could wait on. A pack that could not be built raises why on every use. An
+        organization's promoted store version is built on its first use (LP-20h)."""
+        if pack_id not in packs:
+            served = promoted_here().get(pack_id)
+            if served is not None:
+                return store_decision(*served)
         pack = pack_or_404(pack_id)
         if pack.id in unbuildable:
             raise _again(unbuildable[pack.id])
@@ -1635,7 +1744,7 @@ def create_app(
         main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
         `local`, with `origin_label` to show; a community pack is not clinically reviewed and
         never automates)."""
-        return [_summary(pack) for pack in sorted(packs.values(), key=lambda p: p.id)]
+        return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
 
     @app.get(
         "/api/packs/{namespace}/{name}",
@@ -1876,6 +1985,14 @@ def create_app(
         pack version (its digest)."""
         pack = pack_or_404(body.pack_id)
         approver = acting_as(request, body.approver, "approver")
+        principal = auth.principal(request)
+        if (
+            pack.origin == "store"
+            and principal is not None
+            and principal.id in app.state.pack_store.authors(org_of(principal), pack.digest)
+        ):
+            # Separation of duties reaches the automation approval too (LP-20h review).
+            raise HTTPException(403, "the author of a store version does not approve it")
         expires = datetime.now(UTC) + timedelta(days=body.days)
         approval = store.approve_automation(
             pack_id=pack.id,
@@ -2663,7 +2780,7 @@ def create_app(
         """The CDS Hooks services this deployment offers (one per pack that declares a hook).
         With sign-in on, a key or token scoped to deciding reads it, and so does a registered CDS
         client's own signed token (`MENDARI_CDS_CLIENTS`), whose `aud` is this URL."""
-        return cds_hooks.discovery(packs.values())
+        return cds_hooks.discovery(served_here().values())
 
     @app.post(
         "/cds-services/{service_id}",
@@ -2691,7 +2808,9 @@ def create_app(
         prefetch key of a type the site declared that `fhirServer` does not offer
         (`MENDARI_EHR_DECLARATIONS`) is not read for a pack that may read its list without it:
         the decision records the declaration, and never automates."""
-        pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
+        pack = next(
+            (p for p in served_here().values() if cds_hooks.service_id(p) == service_id), None
+        )
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
         caller = principal_of(http)
@@ -2772,7 +2891,7 @@ def create_app(
         pack = next(
             (
                 p
-                for p in packs.values()
+                for p in served_here().values()
                 if p.manifest.cds_hooks is not None and cds_hooks.service_id(p) == service_id
             ),
             None,
@@ -3302,6 +3421,24 @@ def create_app(
             )
 
         store_jobs = JobStore(pack_store, served=lambda: packs, decision_for=job_decision)
+
+        def promoted_versions(org: str) -> dict[str, tuple[Pack, str, bool]]:
+            """`org`'s promoted versions, each loaded on its own: one that no longer loads (an
+            engine upgrade, a file gone) is left out and logged, never the request's failure."""
+            found: dict[str, tuple[Pack, str, bool]] = {}
+            for pack_id, (digest, promotion, automate) in pack_store.promoted(org).items():
+                try:
+                    found[pack_id] = (pack_store.load(org, digest), promotion, automate)
+                except MendariError as error:
+                    providers_logger.warning(
+                        "promoted store version %s of %s is not served: %s",
+                        digest,
+                        org,
+                        type(error).__name__,
+                    )
+            return found
+
+        promoted_source.append(promoted_versions)
         add_store_routes(
             app,
             auth,
@@ -3312,6 +3449,7 @@ def create_app(
             deadline_s=deadline_s,
             jobs=store_jobs,
             limits=lambda: org_limits,
+            on_promotion=forget_promoted,
         )
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)

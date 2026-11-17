@@ -1679,6 +1679,16 @@ The first release (not yet published).
   the changed cases by the dataset's own ids. A remote variant needs the organization's
   evaluation quota; `store_jobs` in `MENDARI_ORG_DAILY_LIMITS` bounds jobs a day.
   `paired.compare` gains `lineage=True`, for a draft and the pack it was copied from.
+- **Promotion, and serving a pack store version** (LP-20h; **changes which pack answers a
+  request**, for an organization that promotes, and only for it). `POST /api/store/promotions`,
+  by `governance` or `admin` (a new people-only permission, `promote`), serves a validated
+  version to the promoter's organization on the evaluation reports of that version it names;
+  never by anyone who made the version or a version it was edited from. Promoting retires the
+  version before; `…/retire` stops serving. The decide routes, `/api/packs`, CDS Hooks and the
+  FHIR operation then serve that organization its promoted versions beside the packs on disk,
+  which they never replace; every decision records the promotion's id. Promotion is not the
+  automation approval: levels 2 and 3 still need it to automate. With no promotion, every
+  organization is served exactly as before.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
   most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
   refers back to itself only as a recursive list or tree does, and holds no

@@ -35,7 +35,7 @@ import tempfile
 import threading
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -289,6 +289,24 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 def _said(state: str) -> str:
     return "held for the operator's review" if state == HELD else state
+
+
+def _promotion_shown(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "pack_id": row["pack_id"],
+        "digest": row["digest"],
+        "version": row["version"],
+        "authors": json.loads(row["authors"]),
+        "approver": row["approver"],
+        "reports": json.loads(row["reports"]),
+        "reference": row["reference"],
+        "note": row["note"],
+        "automate": bool(int(row["automate"])),
+        "created_at": row["created_at"],
+        "retired_at": row["retired_at"],
+        "retired_by": row["retired_by"],
+    }
 
 
 def _dataset_shown(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -1053,6 +1071,201 @@ class PackStore:
             else str(row["data"])
         )
         return str(text).encode("utf-8"), str(row["name"])
+
+    # -- promotion (LP-20h) ---------------------------------------------------------------------
+
+    def authors(self, org: str, digest: str) -> list[str]:
+        """Everyone who made a version on the chain from `digest` back to its upload or copy:
+        none of them may promote it (an edit by a second person frees nobody)."""
+        found: list[str] = []
+        seen: set[str] = set()
+        current: str | None = digest
+        with self.store._db.session(exclusive=False) as db:
+            while current is not None and current not in seen:
+                seen.add(current)
+                row = db.one(
+                    "SELECT created_by, parent_digest FROM store_versions WHERE org = ? "
+                    "AND digest = ?",
+                    (org, current),
+                )
+                if row is None:
+                    break
+                if row["created_by"] not in found:
+                    found.append(str(row["created_by"]))
+                current = row["parent_digest"]
+        return found
+
+    def promote(
+        self,
+        org: str,
+        digest: str,
+        *,
+        approver: str,
+        reports: list[str],
+        reference: str,
+        note: str | None = None,
+        automate: bool = False,
+        served_ids: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        """Sign a version off to be served to `org` (LP-20h), chained `pack_version.promoted`
+        with the digest, its authors, the approver and the reports relied on; the promoted
+        version of the same pack before it is retired in the same transaction. Refused when
+        the approver made any version on its chain, no report is named or a named report is not
+        `org`'s evaluation of exactly this digest, the version is not a validated draft (held,
+        withdrawn or with validation problems), the deployment serves its id from disk, or a
+        pack of risk level 4 or above is promoted to automate (it never does, ADR-0002)."""
+        org, approver = _org(org), _actor(approver)
+        reference = " ".join(reference.split())
+        if not reference or len(reference) > MAX_REASON_CHARS:
+            raise StoreError(f"a reference is one line of 1 to {MAX_REASON_CHARS} characters")
+        if note is not None and len(note) > 2000:
+            raise StoreError("a note is 2,000 characters at most")
+        if not reports:
+            raise StoreError("a promotion names the evaluation reports it relied on")
+        row = self.version(org, digest)
+        authors = self.authors(org, digest)
+        if approver in authors:
+            raise StoreError(
+                "the author of a version, or of any version it was made from, cannot promote "
+                "it: someone else signs it off",
+                403,
+            )
+        if row["state"] not in (DRAFT, RETIRED):
+            raise StoreError(f"version {digest} is {_said(row['state'])}", 409)
+        if row["validation"]:
+            raise StoreError("a version that does not validate is not promoted", 409)
+        if row["pack_id"] in set(served_ids):
+            raise StoreError(
+                f"this deployment serves {row['pack_id']} from disk: a store version never "
+                "replaces it",
+                409,
+            )
+        pack = self.load(org, digest)
+        if automate and int(pack.manifest.risk.level) >= 4:
+            raise StoreError("a pack of risk level 4 or above never automates (ADR-0002)")
+        with self.store._db.session(exclusive=True) as db:
+            for report_id in reports:
+                found = db.one(
+                    "SELECT report FROM eval_reports WHERE id = ? AND org = ?", (report_id, org)
+                )
+                named = None if found is None else json.loads(found["report"]).get("pack", {})
+                if named is None or named.get("digest") != digest:
+                    raise StoreError(
+                        f"report {report_id} is not this organization's evaluation of this version",
+                        422,
+                    )
+            current = db.one("SELECT state FROM store_versions WHERE id = ?", (row["id"],))
+            if current is None or current["state"] not in (DRAFT, RETIRED):
+                raise StoreError(f"version {digest} is no longer a draft", 409)
+            now, promotion_id = _now(), str(uuid.uuid4())
+            before = db.one(
+                "SELECT id, version_id, digest FROM store_promotions WHERE org = ? AND pack_id = ? "
+                "AND retired_at IS NULL",
+                (org, row["pack_id"]),
+            )
+            if before is not None:
+                db.all(
+                    "UPDATE store_promotions SET retired_at = ?, retired_by = ? WHERE id = ?",
+                    (now, approver, before["id"]),
+                )
+                db.all(
+                    "UPDATE store_versions SET state = ?, state_at = ? WHERE id = ?",
+                    (RETIRED, now, before["version_id"]),
+                )
+                payload = {"digest": before["digest"], "by": approver, "promotion": before["id"],
+                           "replaced_by": promotion_id}  # fmt: skip
+                chained = self.store._bound("pack_version.retired", payload, org)
+                self.store._append(
+                    db, f"pack_version:{before['version_id']}", "pack_version.retired", chained
+                )
+            db.all(
+                "INSERT INTO store_promotions (id, org, pack_id, digest, version, version_id, "
+                "authors, approver, reports, reference, note, automate, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (promotion_id, org, row["pack_id"], digest, row["version"], row["id"],
+                 _canonical(authors), approver, _canonical(sorted(set(reports))), reference,
+                 note, int(automate), now),
+            )  # fmt: skip
+            db.all(
+                "UPDATE store_versions SET state = ?, state_at = ? WHERE id = ?",
+                (PROMOTED, now, row["id"]),
+            )
+            payload = {
+                "digest": digest,
+                "promotion": promotion_id,
+                "authors": authors,
+                "approver": approver,
+                "reports": sorted(set(reports)),
+                "automate": automate,
+            }
+            chained = self.store._bound("pack_version.promoted", payload, org)
+            self.store._append(db, f"pack_version:{row['id']}", "pack_version.promoted", chained)
+        if before is not None:
+            self._forget(str(before["digest"]))
+        return self.promotion(org, promotion_id)
+
+    def retire(self, org: str, promotion_id: str, *, by: str) -> dict[str, Any]:
+        """Withdraw a promotion: its version is `retired`, and the organization serves no version
+        of that pack until another is promoted. Chained `pack_version.retired`."""
+        org, by = _org(org), _actor(by)
+        with self.store._db.session(exclusive=True) as db:
+            found = db.one(
+                "SELECT id, version_id, digest, retired_at FROM store_promotions WHERE id = ? "
+                "AND org = ?",
+                (promotion_id, org),
+            )
+            if found is None:
+                raise StoreError("no such promotion in this organization", 404)
+            if found["retired_at"] is not None:
+                raise StoreError("this promotion is retired already", 409)
+            now = _now()
+            db.all(
+                "UPDATE store_promotions SET retired_at = ?, retired_by = ? WHERE id = ?",
+                (now, by, promotion_id),
+            )
+            db.all(
+                "UPDATE store_versions SET state = ?, state_at = ? WHERE id = ?",
+                (RETIRED, now, found["version_id"]),
+            )
+            payload = {"digest": found["digest"], "by": by, "promotion": promotion_id}
+            chained = self.store._bound("pack_version.retired", payload, org)
+            self.store._append(
+                db, f"pack_version:{found['version_id']}", "pack_version.retired", chained
+            )
+        self._forget(str(found["digest"]))
+        return self.promotion(org, promotion_id)
+
+    def promotion(self, org: str, promotion_id: str) -> dict[str, Any]:
+        with self.store._db.session(exclusive=False) as db:
+            found = db.one(
+                "SELECT * FROM store_promotions WHERE id = ? AND org = ?", (promotion_id, org)
+            )
+        if found is None:
+            raise StoreError("no such promotion in this organization", 404)
+        return _promotion_shown(found)
+
+    def promotions(self, org: str) -> list[dict[str, Any]]:
+        """`org`'s promotions, newest first, the ones in force and the retired."""
+        org = _org(org)
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT * FROM store_promotions WHERE org = ? ORDER BY created_at DESC, id", (org,)
+            )
+        return [_promotion_shown(row) for row in rows]
+
+    def promoted(self, org: str) -> dict[str, tuple[str, str, bool]]:
+        """What `org` is served from its store: pack id -> (digest, promotion id, whether it was
+        promoted to automate), the promotions in force. One indexed read."""
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT pack_id, digest, id, automate FROM store_promotions WHERE org = ? "
+                "AND retired_at IS NULL",
+                (org,),
+            )
+        return {
+            str(r["pack_id"]): (str(r["digest"]), str(r["id"]), bool(int(r["automate"])))
+            for r in rows
+        }
 
     # -- held versions: the operator's (LP-20f) -------------------------------------------------
 

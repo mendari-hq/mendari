@@ -91,6 +91,9 @@ class DecisionResult:
     # a source so declared (`standards/ehr_declarations.py`): its version, SHA-256, who attested
     # it and where. None otherwise, and on JSON input.
     ehr_declaration: dict[str, str] | None = None
+    # The promotion that let a pack store's version serve here (LP-20h): its id, so the trail
+    # leads from a decision to who signed its version off. Absent for every other pack.
+    promotion: str | None = None
     # Why the input was refused before any provider ran (`$decide` reports these as failure).
     # In memory only: not in `to_dict`, so the audit record keeps its shape.
     rejected: bool = field(default=False, compare=False)
@@ -151,6 +154,7 @@ class DecisionResult:
             "data_coverage": self.data_coverage,
             "site_codes": self.site_codes,
             "ehr_declaration": self.ehr_declaration,
+            **({"promotion": self.promotion} if self.promotion is not None else {}),
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -262,6 +266,7 @@ class Decision:
         fhir_validation: FhirValidation = "warn",
         deadline_s: float | None = None,
         site_codes: SiteCodeMaps | None = None,
+        promotion: str | None = None,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
         for each decision instead (a deployment's recorded approvals, per organization).
@@ -295,6 +300,8 @@ class Decision:
         self.fhir_validation = fhir_validation
         self.deadline_s = deadline_s if deadline_s is not None else decision_deadline_s()
         self.site_codes = site_codes
+        # A pack store's version is served under its promotion (LP-20h), named on each record.
+        self.promotion = promotion
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -636,6 +643,7 @@ class Decision:
             usage=meter.totals(),
             unreadable=unread,
             limitations=tuple(dict.fromkeys(not_offered)),
+            promotion=self.promotion,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

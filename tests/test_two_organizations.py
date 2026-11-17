@@ -196,6 +196,9 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/store/jobs/{job_id}"),
     ("POST", "/api/store/jobs/{job_id}/advance"),
     ("GET", "/api/store/comparisons"),
+    ("GET", "/api/store/promotions"),
+    ("POST", "/api/store/promotions"),
+    ("POST", "/api/store/promotions/{promotion_id}/retire"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -2059,6 +2062,47 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
         ("GET", "/api/store/comparisons"),
         "/api/store/comparisons",
         params={"draft": made[0], "current": made[1]},
+        expect=200,
+    )
+    served_store_promotion(world, x, digest, made[0])
+
+
+def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> None:
+    """LP-20h: `x`'s governance promotes the draft on its job's report; the version is served
+    to `x` (listed and decided) and to no other organization; then retired. The other
+    organization's promotions answer `404` here."""
+    o = world.other(x)
+    governance = x.people["governance"]
+    for found in o.ids.get("store promotion", []):
+        world.call(
+            x,
+            governance,
+            ("POST", "/api/store/promotions/{promotion_id}/retire"),
+            f"/api/store/promotions/{found}/retire",
+            expect=404,
+        )
+    listed = world.call(
+        x, governance, ("GET", "/api/store/promotions"), "/api/store/promotions", expect=200
+    ).json()
+    report = next(v for v in listed["versions"] if v["digest"] == digest)["reports"]
+    assert report, listed
+    made = world.call(
+        x,
+        governance,
+        ("POST", "/api/store/promotions"),
+        "/api/store/promotions",
+        json={"version": digest, "reports": report[:1], "reference": f"cab {x.marker}"},
+        expect=201,
+    ).json()
+    x.made("store promotion", made["id"])
+    pack_id = f"{x.name}/inbox-copy"
+    served = world.call(x, x.people["viewer"], ("GET", "/api/packs"), "/api/packs", expect=200)
+    assert pack_id in {p["id"] for p in served.json()}
+    world.call(
+        x,
+        governance,
+        ("POST", "/api/store/promotions/{promotion_id}/retire"),
+        f"/api/store/promotions/{made['id']}/retire",
         expect=200,
     )
 

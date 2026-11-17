@@ -160,7 +160,9 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read", "discover"}),
     "reviewer": frozenset({"read", "discover", "read_input", "decide", "review", "outcome"}),
     "service": frozenset({"read", "discover", "decide", "outcome"}),
-    "governance": frozenset({"read", "discover", "approve"}),
+    # `promote` (LP-20h): signing off a pack store's version to be served to the organization,
+    # people only; never its author (the store refuses one), and not the automation approval.
+    "governance": frozenset({"read", "discover", "approve", "promote"}),
     "admin": frozenset(
         {
             "read",
@@ -174,6 +176,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "admin",
             "keys",
             "curate",
+            "promote",
         }
     ),
     # Hidden evaluation sets (LP-11, ADR-0011). `labeller` is a reserved role a membership holds
@@ -191,7 +194,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
 # managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
 # and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
-PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review", "author"})
+PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review", "author", "promote"})
 # What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
 # administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
 GRADING_ONLY = frozenset({"grade"})
@@ -199,7 +202,7 @@ GRADING = "grading"
 # What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
 # sets need sign-in (core/evalset_keys.py refuses the keys without it), and so does reviewing
 # the pack registry (a reviewer is a person with a membership).
-NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review", "author"})
+NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review", "author", "promote"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -358,6 +361,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # route of the store its authors' (`pack_author`), people only. Before the reads below:
         # a draft is not served to anyone but its organization's authors.
         ("*", r"^/api/store/keys(/|$)", "keys"),
+        # Promotion (LP-20h): `governance` and `admin`, people only; before the authors' rule.
+        ("*", r"^/api/store/promotions(/|$)", "promote"),
         ("*", r"^/api/store(/|$)", "author"),
         # The whole chain, read or exported, and an organization's administrative events (its
         # keys, clients, people, approvals and holds): administrators only.

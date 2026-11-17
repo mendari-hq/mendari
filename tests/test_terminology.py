@@ -71,7 +71,8 @@ PINNED = {
         # Moved in LP-20e, before 0.1.0's release: `pack_version.created|held|released|withdrawn`.
         # Moved in LP-20f, before 0.1.0's release: the store's author keys (added, revoked).
         # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
-        "CodeSystem/audit-administrative-event": "7dba2f0353dd15ce",
+        # Moved in LP-20h, before 0.1.0's release: a store version's promotion and retirement.
+        "CodeSystem/audit-administrative-event": "2ba5342a7750d15d",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }

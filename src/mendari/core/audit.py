@@ -218,6 +218,10 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "pack_version.held": "pack_version",
     "pack_version.released": "pack_version",
     "pack_version.withdrawn": "pack_version",
+    # Promotion (LP-20h): a version signed off to be served to its organization, by someone who
+    # wrote no version of it, on named evaluation reports; and the promotion it replaced.
+    "pack_version.promoted": "pack_version",
+    "pack_version.retired": "pack_version",
     # An author's public key registered for an organization's store, and revoked (LP-20f).
     "store_key.added": "store_key",
     "store_key.revoked": "store_key",
@@ -235,6 +239,8 @@ STORE_STATES: dict[str, str] = {
     "pack_version.held": "held",
     "pack_version.released": "draft",
     "pack_version.withdrawn": "withdrawn",
+    "pack_version.promoted": "promoted",
+    "pack_version.retired": "retired",
 }
 # A version row's columns that never change once written, in the order their hash reads them.
 STORE_VERSION_COLUMNS = (
@@ -738,6 +744,24 @@ CREATE TABLE IF NOT EXISTS store_jobs (
     finished_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS store_jobs_org ON store_jobs (org, created_at);
+CREATE TABLE IF NOT EXISTS store_promotions (
+    id          TEXT PRIMARY KEY,
+    org         TEXT NOT NULL,
+    pack_id     TEXT NOT NULL,
+    digest      TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    version_id  TEXT NOT NULL,
+    authors     TEXT NOT NULL,
+    approver    TEXT NOT NULL,
+    reports     TEXT NOT NULL,
+    reference   TEXT NOT NULL,
+    note        TEXT,
+    automate    INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    retired_at  TEXT,
+    retired_by  TEXT
+);
+CREATE INDEX IF NOT EXISTS store_promotions_org ON store_promotions (org, pack_id, retired_at);
 CREATE TABLE IF NOT EXISTS store_upload_parts (
     upload_id  TEXT NOT NULL,
     n          INTEGER NOT NULL,
