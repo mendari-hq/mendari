@@ -3267,8 +3267,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     version's chain), served through `served_here` per organization, built on first use under a
     lock, the promotion's id on every decision. Adversarial security review; it changes which
     pack answers a request, so it **waits for the owner's yes** before it merges.
-  - [ ] **20j** The dashboard: upload, results, comparison, promotion; the browser test in a
-    second organization.
+  - [x] **20j** The dashboard: upload, results, comparison, promotion; the browser test in a
+    second organization (`dashboard/store.js`, `tests/browser/test_pack_store.py`). The store's
+    routes are people-only, so the `/docs` landing links to it instead of a key-run snippet.
   - [ ] **20k** Close-out: gate `a7-pack-store`, the threat model, ADR-0016 Accepted on the
     owner's word.
   Owner decisions open, each with its default (`notes/lp20-plan.md`, "Owner decisions still

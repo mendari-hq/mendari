@@ -16,6 +16,7 @@ import "./admin.js";
 import "./registry.js";
 import "./labelling.js";
 import "./evalsets.js";
+import "./store.js";
 import { defaultPack, packOptions } from "./pack.js";
 import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
@@ -53,12 +54,18 @@ async function boot() {
   // ended) chooses one or asks to join one; one whose roles grant nothing is told so. Neither
   // has sections or packs, nor a notice to acknowledge (the server would refuse them all).
   const person = state.accounts === "memberships" && me?.signed_in && me.principal.kind === "user";
+  state.store = Boolean(me?.store); // an organization's pack store is served here (store.js)
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
     // A pack author and nothing else (LP-20f): the store's own screens come with LP-20j; until
     // then, the access page says what the role is for.
-    else if (me.principal.permissions.every((p) => p === "author")) state.noAccess = "author";
+    // A pack author and nothing else (LP-20f): the store's screens where it is served (LP-20j),
+    // else the access page saying what the role is for.
+    else if (me.principal.permissions.every((p) => p === "author")) {
+      if (state.store) state.storeOnly = true;
+      else state.noAccess = "author";
+    }
     // A labeller (LP-11) or a reviewer of the pack registry (LP-19f), or both, and nothing
     // else: no packs to list, no notice, no review queue; just their screens. The review screen
     // where the server serves it (this organization is the registry's review organization), and
@@ -78,25 +85,26 @@ async function boot() {
   if (state.noAccess === "label" && state.labelling) [state.noAccess, state.labelOnly] = [null, true];
   if (state.noAccess === "label" && state.reviewOnly) state.noAccess = null; // no labelling here: reviewing
   // Labelling and reviewing the registry are not notice-gated.
-  if (me?.signed_in && !state.noAccess && !state.labelOnly && !state.reviewOnly) await acknowledgeNotice();
+  if (me?.signed_in && !state.noAccess && !state.labelOnly && !state.reviewOnly && !state.storeOnly) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
   // An EHR launch in a browser whose person may do nothing here (no organization, roles that
   // grant nothing, or labelling alone): the launch's view, and, holding memberships, choosing
   // one of them.
-  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess || state.labelOnly || state.reviewOnly));
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly));
   if (state.launchOnly && state.noAccess !== "choose") state.noAccess = null;
-  if (state.launchOnly) [state.labelOnly, state.reviewOnly] = [false, false];
+  if (state.launchOnly) [state.labelOnly, state.reviewOnly, state.storeOnly] = [false, false, false];
   showLaunch();
   showOrganization();
   showAdministration();
   showEvalsets();
   showLabelling();
   showRegistryReview();
-  if ((state.noAccess || state.labelOnly || state.reviewOnly) && !state.launchOnly) {
+  showStore();
+  if ((state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) && !state.launchOnly) {
     $(".pack-picker").hidden = true;
     // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
     // links.
-    const kept = [state.labelOnly && "labelling", state.reviewOnly && "registry-review"];
+    const kept = [state.labelOnly && "labelling", state.reviewOnly && "registry-review", state.storeOnly && "store"];
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !kept.includes(a.dataset.view)));
     window.addEventListener("hashchange", onHashChange);
     render();
@@ -226,6 +234,12 @@ function showLabelling() {
 // (LP-19f): its review screen (registry.js).
 function showRegistryReview() {
   $('.nav a[data-view="registry-review"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views["registry-review"].available();
+}
+
+// A pack author or someone who may promote, where an organization's pack store is served (LP-20j):
+// the store's screens (store.js).
+function showStore() {
+  $('.nav a[data-view="store"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.store.available();
 }
 
 boot().catch((error) => {

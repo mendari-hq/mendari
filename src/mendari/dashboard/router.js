@@ -24,8 +24,8 @@ export function route() {
   }
   // A labeller (LP-11m), a registry reviewer (LP-19f), or both, and nothing else: their screens,
   // the first of them for any other address.
-  const only = [state.labelOnly && "labelling", state.reviewOnly && "registry-review"].filter(Boolean);
-  if (only.length) return { view: only.includes(name) ? name : only[0], params: [] };
+  const only = [state.labelOnly && "labelling", state.reviewOnly && "registry-review", state.storeOnly && "store"].filter(Boolean);
+  if (only.length) return only.includes(name) ? { view: name, params: named } : { view: only[0], params: [] };
   // A view someone may not use (`available()` says no: the administrators' Access view in open
   // mode, or for anyone but an administrator who signed in) is not there: the overview, with no
   // request.
@@ -109,7 +109,7 @@ export const wire = (root) => {
 };
 
 export async function refreshReviewCount() {
-  if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly) return; // no review queue for these
+  if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) return; // no review queue for these
   try {
     const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
     $("#review-count").textContent = pending.length || "";
