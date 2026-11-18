@@ -53,6 +53,27 @@ def test_the_templates_parse_and_hold_no_secrets() -> None:
         assert example[secret] == "", secret
 
 
+def test_engine_and_daily_job_run_without_cluster_credentials_or_linux_capabilities() -> None:
+    manifests = yaml.safe_load_all((DEPLOY / "kubernetes" / "mendari.yaml").read_text())
+    by_kind = {manifest["kind"]: manifest["spec"] for manifest in manifests if "spec" in manifest}
+    for workload in (by_kind["Deployment"], by_kind["CronJob"]["jobTemplate"]["spec"]):
+        pod = workload["template"]["spec"]
+        assert pod["automountServiceAccountToken"] is False
+        assert pod["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+        for container in pod["containers"]:
+            assert container["securityContext"]["allowPrivilegeEscalation"] is False
+            assert container["securityContext"]["capabilities"]["drop"] == ["ALL"]
+
+
+def test_onprem_database_credentials_are_separate_from_the_command_line_uri() -> None:
+    services = yaml.safe_load((DEPLOY / "onprem" / "docker-compose.yml").read_text())["services"]
+    password = services["postgres"]["environment"]["POSTGRES_PASSWORD"]
+    for name in ("engine", "jobs"):
+        env = services[name]["environment"]
+        assert env["PGPASSWORD"] == password
+        assert env["DATABASE_URL"] == "postgresql://mendari@postgres:5432/mendari"
+
+
 def test_compose_trusts_x_forwarded_for_from_the_gateway_a_proxy_on_the_host_comes_from() -> None:
     """Docker's port publishing connects to the engine from the network's gateway, not from
     127.0.0.1: the network's gateway is fixed, and FORWARDED_ALLOW_IPS defaults to it (in the

@@ -1,13 +1,22 @@
-.git
-.venv
-.claude
-.mypy_cache
-.pytest_cache
-.ruff_cache
+# The engine Dockerfile consumes only these inputs. Keep site configuration, repository
+# metadata, frontend dependencies and operator files outside the build context.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!NOTICE
+!src/
+!packs/
+!datasets/
+!scripts/image_notices.py
+!licenses/image/
+
+# Local files can also sit beside application code or pack data.
+**/.*
+!src/mendari/dashboard/vendor/swagger-ui/.npmrc
 **/__pycache__
-var
-tests
-tasks
-docs
-notes
-*.db
+**/node_modules
+**/*.db
+**/*.db-shm
+**/*.db-wal

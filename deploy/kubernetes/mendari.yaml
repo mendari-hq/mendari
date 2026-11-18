@@ -63,9 +63,11 @@ spec:
     metadata:
       labels: {app: mendari}
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: engine
           image: ghcr.io/mendari-hq/mendari-engine:RELEASE
@@ -119,11 +121,16 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
+            seccompProfile: {type: RuntimeDefault}
           containers:
             - name: jobs
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
               image: ghcr.io/mendari-hq/mendari-engine:RELEASE
               command:
                 - sh

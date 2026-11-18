@@ -494,233 +494,230 @@ texts = [
 # -- the base image's CPython and pip ----------------------------------------------------------
 
 [[component]]
-id = "cpython-3.12.15"
+id = "cpython-3.12.16"
 name = "CPython"
-version = "3.12.15"
+version = "3.12.16"
 licence = "PSF-2.0"
-in = [{ dist = "cpython", version = "3.12.15" }]
-purl = "pkg:generic/python@3.12.15"
+in = [{ dist = "cpython", version = "3.12.16" }]
+purl = "pkg:generic/python@3.12.16"
 how = "the base image's Python, built from source by the official image's Dockerfile (docker-library/python at the commit the base image's index names in its org.opencontainers.image.revision annotation, 3.12/slim-trixie); its licence is /usr/local/lib/python3.12/LICENSE.txt, and the software it incorporates (expat, libmpdec, HACL* and others) is noticed in license.rst here"
-source = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz"
+source = "https://www.python.org/ftp/python/3.12.16/Python-3.12.16.tar.xz"
 # The base image this recipe built (the Dockerfile's FROM; a test keeps them the same): a new
 # base image is reviewed again, its recipe pinned anew (CONTRIBUTING.md).
-base_image = "python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016"
+base_image = "python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b"
 texts = [
-  { file = "license.rst", url = "https://raw.githubusercontent.com/python/cpython/v3.12.15/Doc/license.rst" },
+  { file = "license.rst", url = "https://raw.githubusercontent.com/python/cpython/v3.12.16/Doc/license.rst" },
 ]
 # The readline and _gdbm modules link GNU Readline and GDBM (GPL-3.0): the source of the modules,
 # and the script that compiled them (configure's options), are published beside the image.
 corresponding_source = [
-  { file = "Python-3.12.15.tar.xz", url = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz", sha256 = "c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a" },
-  { file = "docker-library-python-2a3b794c-3.12-slim-trixie.Dockerfile", url = "https://raw.githubusercontent.com/docker-library/python/2a3b794c223ab067d122719541cdd54a068732a5/3.12/slim-trixie/Dockerfile", sha256 = "db36efba269b9ace6b432e5d842549cd9f345c38bb4f9ae5617d26dde485047e" },
+  { file = "Python-3.12.16.tar.xz", url = "https://www.python.org/ftp/python/3.12.16/Python-3.12.16.tar.xz", sha256 = "b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c" },
+  { file = "docker-library-python-3d7e9559-3.12-slim-trixie.Dockerfile", url = "https://raw.githubusercontent.com/docker-library/python/3d7e95597e56a415d9e4abc0f15877e005d2cb2e/3.12/slim-trixie/Dockerfile", sha256 = "2a40fb4db33a3b136ced0600587c66493d27a449d218e1643033bd586982fec4" },
 ]
 
-# pip 25.0.1 (the base image's, and ensurepip's copy of it) vendors these packages without their
-# licence files; each text is pip's copy at its 25.0.1 tag. pip's sdist is their source.
+# pip 26.3 supplies the system installation and ensurepip's offline wheel. Its sdist
+# supplies the corresponding vendored sources. Requests' separate NOTICE comes from its tag.
 [[component]]
-id = "pip-25.0.1-source"
+id = "pip-26.3-source"
 name = "pip"
-version = "25.0.1"
+version = "26.3"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/pip@25.0.1"
-how = "the base image's pip; its sdist holds the vendored packages below, certifi (MPL-2.0) included"
-source = "https://pypi.org/project/pip/25.0.1/"
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/pip@26.3"
+how = "the pinned wheel supplied to CPython's ensurepip and installed system-wide; its sdist includes the vendored sources"
+source = "https://pypi.org/project/pip/26.3/"
 corresponding_source = [
-  { file = "pip-25.0.1.tar.gz", url = "https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz", sha256 = "88f96547ea48b940a3a385494e181e29fb8637898f88d88737c5049780f196ea" },
+  { file = "pip-26.3.tar.gz", url = "https://files.pythonhosted.org/packages/53/c7/f8d9e2e0e7c1ed8a22a10eeb3b5bf7860bc07d8446c7a978a882c5c8214b/pip-26.3.tar.gz", sha256 = "6c36ae7da8695be67e3cd9f7d87919667ced53f57ce2ede75d89b5912ed2bc4c" },
 ]
 
 [[component]]
 id = "pip-vendored-cachecontrol"
 name = "CacheControl (vendored in pip)"
-version = "0.14.1"
+version = "0.14.4"
 licence = "Apache-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/cachecontrol@0.14.1"
-source = "https://pypi.org/project/CacheControl/0.14.1/"
-texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/cachecontrol/LICENSE.txt" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/cachecontrol@0.14.4"
+source = "https://pypi.org/project/CacheControl/0.14.4/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/cachecontrol/LICENSE.txt" }]
 
 [[component]]
 id = "pip-vendored-certifi"
 name = "certifi (vendored in pip)"
-version = "2024.8.30"
+version = "2026.10.23"
 licence = "MPL-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/certifi@2024.8.30"
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/certifi@2026.10.23"
 how = "vendored in pip; MPL-2.0 asks for its source, which is pip's sdist"
-source = "https://pypi.org/project/certifi/2024.8.30/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/certifi/LICENSE" }]
+source = "https://pypi.org/project/certifi/2026.10.23/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/certifi/LICENSE" }]
 corresponding_source = [
-  { file = "pip-25.0.1.tar.gz", url = "https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz", sha256 = "88f96547ea48b940a3a385494e181e29fb8637898f88d88737c5049780f196ea" },
+  { file = "pip-26.3.tar.gz", url = "https://files.pythonhosted.org/packages/53/c7/f8d9e2e0e7c1ed8a22a10eeb3b5bf7860bc07d8446c7a978a882c5c8214b/pip-26.3.tar.gz", sha256 = "6c36ae7da8695be67e3cd9f7d87919667ced53f57ce2ede75d89b5912ed2bc4c" },
 ]
 
 [[component]]
 id = "pip-vendored-distlib"
 name = "distlib (vendored in pip, with its Windows launchers)"
-version = "0.3.9"
+version = "0.4.4"
 licence = "PSF-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/distlib@0.3.9"
-source = "https://pypi.org/project/distlib/0.3.9/"
-texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/distlib/LICENSE.txt" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/distlib@0.4.4"
+source = "https://pypi.org/project/distlib/0.4.4/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/distlib/LICENSE.txt" }]
 
 [[component]]
 id = "pip-vendored-distro"
 name = "distro (vendored in pip)"
 version = "1.9.0"
 licence = "Apache-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
+in = [{ dist = "pip", version = "26.3" }]
 purl = "pkg:pypi/distro@1.9.0"
 source = "https://pypi.org/project/distro/1.9.0/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/distro/LICENSE" }]
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/distro/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-idna"
 name = "idna (vendored in pip)"
-version = "3.10"
+version = "3.20"
 licence = "BSD-3-Clause"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/idna@3.10"
-source = "https://pypi.org/project/idna/3.10/"
-texts = [{ file = "LICENSE.md", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/idna/LICENSE.md" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/idna@3.20"
+source = "https://pypi.org/project/idna/3.20/"
+texts = [{ file = "LICENSE.md", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/idna/LICENSE.md" }]
 
 [[component]]
 id = "pip-vendored-msgpack"
 name = "msgpack (vendored in pip)"
-version = "1.1.0"
+version = "1.2.4"
 licence = "Apache-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/msgpack@1.1.0"
-source = "https://pypi.org/project/msgpack/1.1.0/"
-texts = [{ file = "COPYING", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/msgpack/COPYING" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/msgpack@1.2.4"
+source = "https://pypi.org/project/msgpack/1.2.4/"
+texts = [{ file = "COPYING", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/msgpack/COPYING" }]
 
 [[component]]
 id = "pip-vendored-packaging"
 name = "packaging (vendored in pip)"
-version = "24.2"
+version = "26.3"
 licence = "Apache-2.0 OR BSD-2-Clause"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/packaging@24.2"
-source = "https://pypi.org/project/packaging/24.2/"
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/packaging@26.3"
+source = "https://pypi.org/project/packaging/26.3/"
 texts = [
-  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE" },
-  { file = "LICENSE.APACHE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE.APACHE" },
-  { file = "LICENSE.BSD", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE.BSD" },
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/packaging/LICENSE" },
+  { file = "LICENSE.APACHE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/packaging/LICENSE.APACHE" },
+  { file = "LICENSE.BSD", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/packaging/LICENSE.BSD" },
 ]
 
 [[component]]
 id = "pip-vendored-platformdirs"
 name = "platformdirs (vendored in pip)"
-version = "4.3.6"
+version = "4.12.4"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/platformdirs@4.3.6"
-source = "https://pypi.org/project/platformdirs/4.3.6/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/platformdirs/LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/platformdirs@4.12.4"
+source = "https://pypi.org/project/platformdirs/4.12.4/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/platformdirs/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-pygments"
 name = "Pygments (vendored in pip)"
-version = "2.18.0"
+version = "2.21.0"
 licence = "BSD-2-Clause"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/pygments@2.18.0"
-source = "https://pypi.org/project/Pygments/2.18.0/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pygments/LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/pygments@2.21.0"
+source = "https://pypi.org/project/Pygments/2.21.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/pygments/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-pyproject-hooks"
 name = "pyproject-hooks (vendored in pip)"
-version = "1.2.0"
+version = "1.3.3"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/pyproject-hooks@1.2.0"
-source = "https://pypi.org/project/pyproject-hooks/1.2.0/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pyproject_hooks/LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/pyproject-hooks@1.3.3"
+source = "https://pypi.org/project/pyproject-hooks/1.3.3/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/pyproject_hooks/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-requests"
 name = "Requests (vendored in pip)"
-version = "2.32.3"
+version = "2.34.2"
 licence = "Apache-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/requests@2.32.3"
-source = "https://pypi.org/project/requests/2.32.3/"
-how = "vendored in pip without its NOTICE file, which Apache-2.0 asks to carry: here from Requests' own v2.32.3 tag"
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/requests@2.34.2"
+source = "https://pypi.org/project/requests/2.34.2/"
+how = "vendored in pip without its NOTICE file, which Apache-2.0 asks to carry: here from Requests' own v2.34.2 tag"
 texts = [
-  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/requests/LICENSE" },
-  { file = "NOTICE", url = "https://raw.githubusercontent.com/psf/requests/v2.32.3/NOTICE" },
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/requests/LICENSE" },
+  { file = "NOTICE", url = "https://raw.githubusercontent.com/psf/requests/v2.34.2/NOTICE" },
 ]
 
 [[component]]
 id = "pip-vendored-resolvelib"
 name = "resolvelib (vendored in pip)"
-version = "1.0.1"
+version = "1.2.1"
 licence = "ISC"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/resolvelib@1.0.1"
-source = "https://pypi.org/project/resolvelib/1.0.1/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/resolvelib/LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/resolvelib@1.2.1"
+source = "https://pypi.org/project/resolvelib/1.2.1/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/resolvelib/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-rich"
 name = "Rich (vendored in pip)"
-version = "13.9.4"
+version = "15.0.0"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/rich@13.9.4"
-source = "https://pypi.org/project/rich/13.9.4/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/rich/LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/rich@15.0.0"
+source = "https://pypi.org/project/rich/15.0.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/rich/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-setuptools"
 name = "setuptools' pkg_resources (vendored in pip)"
 version = "70.3.0"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
+in = [{ dist = "pip", version = "26.3" }]
 purl = "pkg:pypi/setuptools@70.3.0"
 source = "https://pypi.org/project/setuptools/70.3.0/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pkg_resources/LICENSE" }]
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/pkg_resources/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-tomli"
 name = "tomli (vendored in pip)"
-version = "2.2.1"
+version = "2.3.2"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/tomli@2.2.1"
-source = "https://pypi.org/project/tomli/2.2.1/"
-texts = [
-  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/tomli/LICENSE" },
-  { file = "LICENSE-HEADER", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/tomli/LICENSE-HEADER" },
-]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/tomli@2.3.2"
+source = "https://pypi.org/project/tomli/2.3.2/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/tomli/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-tomli-w"
+name = "Tomli-W (vendored in pip)"
+version = "1.2.0"
+licence = "MIT"
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/tomli-w@1.2.0"
+source = "https://pypi.org/project/tomli-w/1.2.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/tomli_w/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-truststore"
 name = "truststore (vendored in pip)"
-version = "0.10.0"
+version = "0.10.5"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/truststore@0.10.0"
-source = "https://pypi.org/project/truststore/0.10.0/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/truststore/LICENSE" }]
-
-[[component]]
-id = "pip-vendored-typing-extensions"
-name = "typing_extensions (vendored in pip)"
-version = "4.12.2"
-licence = "PSF-2.0"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/typing-extensions@4.12.2"
-source = "https://pypi.org/project/typing-extensions/4.12.2/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/typing_extensions.LICENSE" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/truststore@0.10.5"
+source = "https://pypi.org/project/truststore/0.10.5/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/truststore/LICENSE" }]
 
 [[component]]
 id = "pip-vendored-urllib3"
 name = "urllib3 (vendored in pip)"
-version = "1.26.20"
+version = "2.8.0"
 licence = "MIT"
-in = [{ dist = "pip", version = "25.0.1" }]
-purl = "pkg:pypi/urllib3@1.26.20"
-source = "https://pypi.org/project/urllib3/1.26.20/"
-texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/urllib3/LICENSE.txt" }]
+in = [{ dist = "pip", version = "26.3" }]
+purl = "pkg:pypi/urllib3@2.8.0"
+source = "https://pypi.org/project/urllib3/2.8.0/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/26.3/src/pip/_vendor/urllib3/LICENSE.txt" }]

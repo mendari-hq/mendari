@@ -25,6 +25,8 @@ import argparse
 import concurrent.futures
 import hashlib
 import json
+import os
+import re
 import shutil
 import sys
 import time
@@ -32,6 +34,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +69,13 @@ def fetch(url: str, attempts: int = 4) -> bytes | None:
     return None
 
 
+def source_name(value: str) -> str:
+    """Names in Debian metadata and the component manifest are single filename components."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_~:-]*", value):
+        raise SystemExit("invalid source filename")
+    return value
+
+
 def pool_prefix(package: str) -> str:
     return package[:4] if package.startswith("lib") else package[0]
 
@@ -84,7 +94,7 @@ def dsc_files(dsc: str) -> list[tuple[str, str]]:
             continue
         if inside and line.startswith(" "):
             digest, _size, name = line.split()
-            found.append((digest, name))
+            found.append((digest, source_name(name)))
         elif inside:
             break
     if not found:
@@ -109,6 +119,8 @@ def _snapshot_files(package: str, version: str, get: Fetch) -> dict[str, tuple[s
 
 def debian_source(package: str, version: str, out: Path, get: Fetch = fetch) -> list[Path]:
     """Fetch one Debian source package into out/<package>/, every file checked."""
+    source_name(package)
+    source_name(version)
     dsc_name = f"{package}_{without_epoch(version)}.dsc"
     base = None
     dsc = None
@@ -145,10 +157,10 @@ def debian_source(package: str, version: str, out: Path, get: Fetch = fetch) -> 
 
 
 def component_file(item: dict[str, str], out: Path, get: Fetch = fetch) -> Path:
+    path = out / source_name(item["file"])
     data = get(item["url"])
     if data is None or hashlib.sha256(data).hexdigest() != item["sha256"]:
         raise SystemExit(f"{item['file']}: missing at {item['url']}, or not its pinned SHA-256")
-    path = out / item["file"]
     path.write_bytes(data)
     return path
 
@@ -191,33 +203,61 @@ def readme(out: Path, debian: list[tuple[str, str]], lists: list[dict[str, Any]]
         "|---|---|",
     ]
     for path in sorted(p for p in out.rglob("*") if p.is_file() and p.name != "README.md"):
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with path.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
         lines.append(f"| {path.relative_to(out).as_posix()} | {digest} |")
     return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", type=Path, required=True, help="the directory to fill")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="a new or empty directory for the verified sources"
+    )
     parser.add_argument("--sboms", type=Path, help="a directory whose *.spdx.json to add")
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("lists", type=Path, nargs="+", help="check_image_licences --sources-out")
     args = parser.parse_args(argv)
     lists = [json.loads(path.read_text()) for path in args.lists]
     debian, files = merged(lists)
-    if args.out.exists():
-        shutil.rmtree(args.out)
-    for folder in ("debian", "components", "sbom"):
-        (args.out / folder).mkdir(parents=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        jobs = [pool.submit(debian_source, p, v, args.out / "debian") for p, v in debian]
-        jobs += [pool.submit(component_file, item, args.out / "components") for item in files]
-        for job in concurrent.futures.as_completed(jobs):
-            job.result()
+    if args.out.resolve() == Path.cwd().resolve():
+        raise SystemExit("--out must be a directory other than the working directory")
+    if args.out.is_symlink() or (
+        args.out.exists() and (not args.out.is_dir() or any(args.out.iterdir()))
+    ):
+        raise SystemExit("--out needs a new or empty directory")
+    args.out.mkdir(parents=True, exist_ok=True)
     sboms = sorted(args.sboms.glob("*.spdx.json")) if args.sboms else []
-    for sbom in sboms:
-        shutil.copyfile(sbom, args.out / "sbom" / sbom.name)
-    (args.out / "README.md").write_text(readme(args.out, debian, lists))
+    stage = args.out / ".mendari-sources"
+    try:
+        stage.mkdir(mode=0o700)
+    except FileExistsError:
+        raise SystemExit("--out needs a new or empty directory") from None
+    with ExitStack() as cleanup:
+        cleanup.callback(shutil.rmtree, stage)
+        if any(path != stage for path in args.out.iterdir()):
+            raise SystemExit("--out needs a new or empty directory")
+        for folder in ("debian", "components", "sbom"):
+            (stage / folder).mkdir(parents=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            jobs: list[concurrent.futures.Future[Any]] = [
+                pool.submit(debian_source, p, v, stage / "debian") for p, v in debian
+            ]
+            jobs += [pool.submit(component_file, item, stage / "components") for item in files]
+            for job in concurrent.futures.as_completed(jobs):
+                job.result()
+        for sbom in sboms:
+            shutil.copyfile(sbom, stage / "sbom" / sbom.name)
+        (stage / "README.md").write_text(readme(stage, debian, lists))
+        # Keep an existing output directory and publish its inventory after every file.
+        with ExitStack() as rollback:
+            for entry in sorted(stage.iterdir(), key=lambda path: path.name == "README.md"):
+                final = args.out / entry.name
+                if os.path.lexists(final):
+                    raise SystemExit(f"--out already contains {entry.name}")
+                entry.rename(final)
+                rollback.callback(final.rename, entry)
+            rollback.pop_all()
     size = sum(p.stat().st_size for p in args.out.rglob("*") if p.is_file())
     print(
         f"ok  {args.out}: {len(debian)} Debian source packages, {len(files)} other files, "

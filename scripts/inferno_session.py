@@ -42,6 +42,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -165,8 +166,10 @@ def bulk_export(
     export deleted after; then the test's resume URL (`<suite>/resume_pass?id=<client id>`)."""
     client_id = inputs["client_id"]
     base = f"{INFERNO_HOST}/custom/{session.suite}"
+    # Each attempt keeps its own cohort until the ephemeral engine is torn down.
+    out = f"/tmp/inferno-bulk-{uuid.uuid4().hex}"
     args = [
-        "mendari", "bulk", "export", "--fhir", f"{base}/fhir", "--out", "/tmp/inferno-bulk-export",
+        "mendari", "bulk", "export", "--fhir", f"{base}/fhir", "--out", out,
         "--client-id", client_id, "--key-id", session.bulk_key.kid, "--scope", "system/*.rs",
     ]  # fmt: skip
     if session.engine.run(args, {BULK_ENV: session.bulk_key.pem()}) != 0:

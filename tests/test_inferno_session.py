@@ -198,6 +198,16 @@ def test_a_bulk_export_signs_in_with_the_runs_key_given_by_environment_only(
     assert check.main([str(tmp_path / "results.json"), "--expected", str(golden)]) == 0
 
 
+def test_repeated_bulk_runs_have_separate_export_directories() -> None:
+    engine = FakeEngine()
+    session = _session(BULK, Replay(_recorded(BULK)), engine)
+    for _ in range(2):
+        driver.bulk_export(session, {}, {"client_id": "mendari-bulk-sandbox"})
+    destinations = {cmd[cmd.index("--out") + 1] for cmd, _env in engine.ran}
+    assert len(destinations) == 2
+    assert all(path.startswith("/tmp/inferno-bulk-") for path in destinations)
+
+
 def test_the_engine_command_names_its_variables_and_never_their_values() -> None:
     engine = driver.Engine(compose_file="x.yml")
     assert engine.command(["mendari", "--version"], ["A_KEY"]) == [

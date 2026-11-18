@@ -25,7 +25,8 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://mendari:${POSTGRES_PASSWORD}@postgres:5432/mendari
+      DATABASE_URL: postgresql://mendari@postgres:5432/mendari
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       # A proxy on the host reaches the engine from the network's gateway (below), so that is
       # where X-Forwarded-For is trusted from; a proxy elsewhere: set it in .env.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.0.1}
@@ -42,7 +43,8 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://mendari:${POSTGRES_PASSWORD}@postgres:5432/mendari
+      DATABASE_URL: postgresql://mendari@postgres:5432/mendari
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     command:
       - sh
       - -c

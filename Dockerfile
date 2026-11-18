@@ -5,7 +5,7 @@
 # ("Pinned actions and images").
 FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
 
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS build
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
 COPY --from=uv /uv /usr/local/bin/uv
 # The venv uses the base image's Python (never a downloaded one), so it runs unchanged in the
 # runtime stage, which has the same base.
@@ -24,7 +24,29 @@ COPY packs ./packs
 COPY datasets ./datasets
 RUN uv sync --frozen --no-dev --extra server --no-editable
 
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS runtime
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS runtime
+
+# DSA-6613-1 landed after this base image. Use the signed, dated security archive so
+# future rebuilds get the reviewed package. Drop this layer when the next base includes it.
+RUN printf '%s\n' 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261118T000000Z/ trixie-security main' > /tmp/mendari-security.list \
+    && apt-get -o Dir::Etc::sourcelist=/tmp/mendari-security.list -o Dir::Etc::sourceparts=- -o Acquire::Languages=none update \
+    && apt-get -o Dir::Etc::sourcelist=/tmp/mendari-security.list -o Dir::Etc::sourceparts=- install -y --no-install-recommends --only-upgrade 'zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1' \
+    && rm -rf /var/lib/apt/lists/* /tmp/mendari-security.list
+
+# Ship the patched pip in both the base interpreter and the offline bootstrap used by venv.
+ARG PIP_VERSION=26.3
+ARG PIP_WHEEL_SHA256=f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13
+RUN set -eu; \
+    ensure_dir="$(python -c 'from pathlib import Path; import ensurepip; print(Path(ensurepip.__file__).parent)')"; \
+    old_version="$(python -c 'import ensurepip; print(ensurepip.version())')"; \
+    wheel="$ensure_dir/_bundled/pip-${PIP_VERSION}-py3-none-any.whl"; \
+    python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+        "https://files.pythonhosted.org/packages/07/25/ee8c38ae72d66b844ce8eb9711ba905dba21ca1a8a0c960057c41cd23337/pip-${PIP_VERSION}-py3-none-any.whl" "$wheel"; \
+    echo "${PIP_WHEEL_SHA256}  $wheel" | sha256sum -c -; \
+    sed -i "s/^_PIP_VERSION = .*/_PIP_VERSION = \"$PIP_VERSION\"/" "$ensure_dir/__init__.py"; \
+    if [ "$old_version" != "$PIP_VERSION" ]; then rm "$ensure_dir/_bundled/pip-${old_version}-py3-none-any.whl"; fi; \
+    python -m ensurepip --upgrade --default-pip; \
+    python -c 'import ensurepip, pip, sys; assert ensurepip.version() == pip.__version__ == sys.argv[1]' "$PIP_VERSION"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

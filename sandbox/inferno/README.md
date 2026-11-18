@@ -18,6 +18,21 @@ a suite needs from packages.fhir.org, which takes minutes, and fails when that s
 offline `fhir-conformance` job in `ci.yml` stays the required gate for the resources Mendari
 produces.
 
+## Ruby dependency review
+
+Both conformance images use Inferno Core 1.6.0. The November 18, 2026 lockfiles include
+Addressable 2.9.2, Nokogiri 1.19.7, Rack 2.2.25, and rubyzip 3.7.0. OSV still reports four
+advisories in two gems used by these test images.
+
+| Gem in both images | Required by Inferno Core | Patched line |
+|---|---|---|
+| Active Support 7.2.3.2 | `~> 7.2.3.1` | Rails lists 8.0.5.2 and 8.1.4.1. [Rails advisory](https://github.com/rails/rails/security/advisories/GHSA-8474-xrp6-wh69) |
+| sqlite3 1.7.3 | `~> 1.4` | Version 2.10.2 covers the three reported ranges. [First advisory](https://github.com/advisories/GHSA-28hh-pr2h-2w89), [second advisory](https://github.com/advisories/GHSA-mwm8-39rw-8826), [third advisory](https://github.com/sparklemotion/sqlite3-ruby/security/advisories/GHSA-4fqr-96q8-xrfx) |
+
+The patched versions require a compatible Inferno Core release. On the next kit update,
+regenerate both lockfiles, run the suites, and query OSV for the resolved versions again.
+[Published Inferno Core 1.6.0 dependencies](https://rubygems.org/api/v2/rubygems/inferno_core/versions/1.6.0.json)
+
 ## The DTR suite
 
 The **Da Vinci DTR test kit v0.18.0** (commit `1b76dd3f565433a3157808da2d6d0c08a797b2f0`),

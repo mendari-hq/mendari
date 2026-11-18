@@ -752,6 +752,12 @@ def test_the_dockerfile_writes_licences_and_keeps_debians() -> None:
     for line in dockerfile.splitlines():
         if line.lstrip().startswith("#"):
             continue
+        # A pinned Debian security update discards just its downloaded package lists and source
+        # selection. Any other deletion or attempt to exclude licence paths still fails.
+        # The superseded ensurepip wheel is replaced by a hash-verified, noticed wheel.
+        line = line.replace('rm "$ensure_dir/_bundled/pip-${old_version}-py3-none-any.whl"', "")
+        if line.strip() == "&& rm -rf /var/lib/apt/lists/* /tmp/mendari-security.list":
+            continue
         assert not re.search(r"\brm\b|path-exclude|/usr/share/doc|common-licenses", line), line
     assert (
         "usr/share/doc/{package['name']}/copyright"
@@ -795,6 +801,17 @@ def test_cpythons_build_recipe_is_the_base_images() -> None:
         r"slim-[a-z]+/Dockerfile",
         recipe,
     )
+
+
+def test_runtime_pip_and_its_vendored_components_share_the_reviewed_version() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    (version,) = re.findall(r"^ARG PIP_VERSION=([\d.]+)$", dockerfile, re.M)
+    pip = next(c for c in COMPONENTS["component"] if c["name"] == "pip")
+    assert pip["version"] == version
+    assert pip["corresponding_source"][0]["file"] == f"pip-{version}.tar.gz"
+    for component in COMPONENTS["component"]:
+        if component["id"].startswith("pip-vendored-"):
+            assert component["in"] == [{"dist": "pip", "version": version}]
 
 
 def test_requests_in_pip_carries_its_notice_file() -> None:
@@ -902,3 +919,58 @@ def test_a_component_file_must_match_its_pin(tmp_path: Path) -> None:
     assert sources.component_file(item, tmp_path, {item["url"]: b"x"}.get).read_bytes() == b"x"
     with pytest.raises(SystemExit, match="pinned SHA-256"):
         sources.component_file(item, tmp_path, {item["url"]: b"y"}.get)
+
+
+def test_source_collection_preserves_existing_output_and_publishes_only_complete_sets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    listing = tmp_path / "sources.json"
+    listing.write_text(json.dumps({"image": "example", "arch": "arm64", "sources": []}))
+    out = tmp_path / "release"
+    out.mkdir()
+    inode = out.stat().st_ino
+    saved = out / "previous"
+    saved.write_text("keep")
+    command = ["--out", str(out), str(listing)]
+    with pytest.raises(SystemExit, match="empty directory"):
+        sources.main(command)
+    assert saved.read_text() == "keep"
+    saved.unlink()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sources, "readme", lambda *_: pytest.fail("interrupted"))
+        with pytest.raises(pytest.fail.Exception, match="interrupted"):
+            sources.main(command)
+    assert list(out.iterdir()) == []
+    rename = Path.rename
+
+    def interrupt_publication(entry: Path, destination: Path) -> Path:
+        if entry.name == "README.md":
+            # A second creator cannot write over the first one's in-flight files.
+            with pytest.raises(SystemExit, match="empty directory"):
+                sources.main(command)
+            raise OSError("interrupted before the inventory was published")
+        return rename(entry, destination)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "rename", interrupt_publication)
+        with pytest.raises(OSError, match="before the inventory"):
+            sources.main(command)
+    assert list(out.iterdir()) == []
+    assert sources.main(command) == 0
+    assert out.stat().st_ino == inode
+    assert (out / "README.md").is_file()
+
+    fresh = tmp_path / "new-output"
+    assert sources.main(["--out", str(fresh), str(listing)]) == 0
+    assert (fresh / "README.md").read_bytes() == (out / "README.md").read_bytes()
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="working directory"):
+        sources.main(["--out", ".", str(listing)])
+
+
+def test_source_filenames_are_single_components() -> None:
+    assert sources.source_name("libfoo_2.1~rc1.orig.tar.xz") == "libfoo_2.1~rc1.orig.tar.xz"
+    with pytest.raises(SystemExit, match="invalid source filename"):
+        sources.source_name("folder/file.tar.gz")
