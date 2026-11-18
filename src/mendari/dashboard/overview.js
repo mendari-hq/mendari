@@ -186,7 +186,7 @@ function packHeader(d, holds) {
 // Slots on the pack's offline floor although it offers a model there (e.g. no Jev set up).
 function withoutModel(slots) {
   if (!slots.length) return "";
-  return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.</div>`;
+  return `<div class="callout neutral" role="note"><b>Running without Jev or an LLM:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.</div>`;
 }
 
 // Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without
