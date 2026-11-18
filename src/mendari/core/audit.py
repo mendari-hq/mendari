@@ -229,6 +229,8 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # (LP-20g): ids, its SHA-256 and how many cases, never a case.
     "store_dataset.created": "store_dataset",
     "store_dataset.held": "store_dataset",
+    "store_dataset.released": "store_dataset",
+    "store_dataset.withdrawn": "store_dataset",
     # An evaluation job (LP-20g): what it runs, on which dataset (its SHA-256), who asked.
     "store_job.created": "store_job",
     # The improvement dataset's proposed behaviour tests, accepted or dismissed for a draft
@@ -5060,6 +5062,16 @@ class AuditStore(RateBuckets):
         """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`."""
         items = self.query(pack_id=pack_id, review_status="pending", limit=limit)
         return self.reveal_inputs(items, reader)
+
+    def pending_review_count(self, pack_id: str | None = None) -> int:
+        """Count the caller's waiting decisions without opening any case inputs."""
+        scope, params = _scope()
+        sql = f"SELECT COUNT(*) AS n FROM decisions d WHERE {scope} AND d.review_status = 'pending'"
+        if pack_id is not None:
+            sql += " AND d.pack_id = ?"
+            params = (*params, pack_id)
+        with self._db.session(exclusive=False) as db:
+            return _total(db, sql, params)
 
     def stats(self, pack_id: str | None = None) -> dict[str, Any]:
         scope, scoped = _scope()

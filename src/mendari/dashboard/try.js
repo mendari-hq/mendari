@@ -82,9 +82,9 @@ function decideFhir(button) {
   return whileBusy(button, "Deciding…", async () => {
     try {
       const answer = await api(`${packPath()}/fhir/decide`, { method: "POST", body: JSON.stringify(input) });
-      showResult(answer.decision, { task: answer.task, fhir: input });
+      if (button.isConnected && !$("#view").inert) showResult(answer.decision, { task: answer.task, fhir: input });
     } catch (error) {
-      fhirError(error.message);
+      if (button.isConnected && !$("#view").inert) fhirError(error.message);
     }
   });
 }
@@ -93,11 +93,12 @@ function decideFhir(button) {
 function send(button, input, guard = false) {
   return whileBusy(button, guard ? "Checking…" : "Deciding…", async () => {
     try {
-      if (!guard) return showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
-      const checked = await api(`${packPath()}/guard`, { method: "POST", body: JSON.stringify(input) });
-      showResult(checked.decision, { guard: checked });
+      const answer = await api(`${packPath()}/${guard ? "guard" : "decide"}`, { method: "POST", body: JSON.stringify(input) });
+      if (!button.isConnected || $("#view").inert) return;
+      if (guard) showResult(answer.decision, { guard: answer });
+      else showResult(answer);
     } catch (error) {
-      toastError(error.message);
+      if (button.isConnected && !$("#view").inert) toastError(error.message);
     }
   });
 }

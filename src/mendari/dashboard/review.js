@@ -2,15 +2,16 @@
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
 import { communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
-import { refreshReviewCount, views } from "./router.js";
+import { refreshReviewCount, render, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
 const PRIORITIES = ["stat", "asap", "urgent", "routine"];
+const PAGE_SIZE = 100;
 
 views.review = async (main) => {
-  const [items, stats] = await Promise.all([
-    api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+  const [items, pending] = await Promise.all([
+    api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=${PAGE_SIZE}`),
+    refreshReviewCount(),
   ]);
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
   main.innerHTML = `
@@ -26,8 +27,8 @@ views.review = async (main) => {
       <span class="grow"></span>
       <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items)}</span>
     </div>
-    ${items.length < stats.pending_reviews ? `<p class="muted">Showing the first ${items.length} of ${stats.pending_reviews}, most urgent first.</p>` : ""}
-    <div id="queue">
+    ${items.length < pending ? `<p class="muted" id="queue-window">Showing the first ${items.length} of ${pending}, most urgent first.</p>` : ""}
+    <div id="queue" data-full-page="${items.length === PAGE_SIZE}">
       ${groups.map(([priority, group]) => `<section class="review-group" data-priority="${priority}" aria-labelledby="group-${priority}">
         <h2 id="group-${priority}">${esc(PRIORITY_TEXT[priority])} <span class="count-plain">${group.length}</span></h2>
         ${group.map(reviewCard).join("")}
@@ -139,15 +140,20 @@ async function sendResolution(card, label, reviewer, { keepalive = false } = {})
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
     // unless they have already moved on to another.
     const cards = [...document.querySelectorAll(".review-card")];
-    const next = cards[cards.indexOf(card) + 1] ?? cards[cards.indexOf(card) - 1];
+    const index = cards.indexOf(card);
     const group = card.closest(".review-group");
     await collapse(card);
+    if (!group.isConnected) return; // the view changed during the exit animation
+    $("#queue-window")?.remove();
     if (!group.querySelector(".review-card")) group.remove();
     else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
-    const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
-    $("#queue-counts").innerHTML = queueCounts(left);
+    const left = [...document.querySelectorAll(".review-card")];
+    $("#queue-counts").innerHTML = queueCounts(left.map((c) => c.dataset));
+    const next = left[index] ?? left.at(-1);
     if (next) {
       if (hadFocus) focusHeading(next);
+    } else if ($("#queue").dataset.fullPage === "true") {
+      await render({ navigated: hadFocus }); // check for waiting decisions beyond the loaded page
     } else {
       $("#queue").innerHTML = emptyQueue();
       if (hadFocus) focusHeading($("main h1"));

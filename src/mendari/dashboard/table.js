@@ -25,43 +25,45 @@
 
 import { esc, icon } from "./ui.js";
 
-export const TABLES = new Map(); // id -> { spec, sort: { key, dir } | null }
+const unwired = new Map(); // specs waiting for their HTML to be attached
+const bound = new WeakMap(); // row data lives as long as its table
+export const tableRows = (container) => bound.get(container)?.spec.rows;
 
 export function tableHtml(spec) {
-  TABLES.set(spec.id, { spec, sort: null });
+  const entry = { spec, sort: null };
+  unwired.set(spec.id, entry);
   const classes = ["table-scroll", spec.stickyFirst ? "sticky-first" : "", spec.limitHeight ? "limit" : ""].filter(Boolean).join(" ");
-  return `<div class="${classes}" data-table="${esc(spec.id)}">${tableInner(spec.id)}</div>`;
+  return `<div class="${classes}" data-table="${esc(spec.id)}">${tableInner(entry)}</div>`;
 }
 
-function sortedRows(entry) {
+function sortedIndices(entry) {
   const { spec, sort } = entry;
-  const rows = [...spec.rows];
-  if (!sort) return spec.defaultCompare ? rows.sort(spec.defaultCompare) : rows;
+  const indices = spec.rows.map((_, i) => i);
+  if (!sort) return spec.defaultCompare ? indices.sort((a, b) => spec.defaultCompare(spec.rows[a], spec.rows[b])) : indices;
   const column = spec.columns.find((c) => c.key === sort.key);
   const sign = sort.dir === "ascending" ? 1 : -1;
-  const value = (row) => column.sort(row);
-  return rows.sort((a, b) => {
-    const [x, y] = [value(a), value(b)];
-    if (x === y) return spec.defaultCompare ? spec.defaultCompare(a, b) : 0;
+  const values = spec.rows.map((row) => column.sort(row));
+  return indices.sort((a, b) => {
+    const [x, y] = [values[a], values[b]];
+    if (x === y) return spec.defaultCompare ? spec.defaultCompare(spec.rows[a], spec.rows[b]) : 0;
     if (x === null || x === undefined) return 1; // missing values last, either direction
     if (y === null || y === undefined) return -1;
     return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * sign;
   });
 }
 
-function tableInner(id) {
-  const entry = TABLES.get(id);
+function tableInner(entry) {
   const { spec, sort } = entry;
-  const rows = sortedRows(entry);
   const cls = (c) => [c.numeric ? "num" : "", c.className ?? ""].filter(Boolean).join(" ");
   const header = spec.columns.map((c) => {
     const ariaSort = sort && sort.key === c.key ? sort.dir : "none";
     const label = c.sort ? `<button type="button" class="sort" data-sort="${esc(c.key)}">${c.label}${sortIcon(ariaSort)}</button>` : c.label;
     return `<th scope="col" class="${cls(c)}"${c.sort ? ` aria-sort="${ariaSort}"` : ""}>${label}</th>`;
   }).join("");
-  const body = rows.map((row) => {
+  const body = sortedIndices(entry).map((index) => {
+    const row = spec.rows[index];
     const cells = spec.columns.map((c) => `<td class="${cls(c)}">${c.cell(row)}</td>`).join("");
-    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${cells}</tr>`;
+    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${index}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${cells}</tr>`;
   }).join("");
   const caption = spec.caption ? `<caption>${spec.caption}</caption>` : "";
   return `<table class="data">${caption}<thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
@@ -74,7 +76,7 @@ const sortIcon = (ariaSort) => icon(ariaSort === "ascending" ? "chevron-up" : ar
 function applySort(container, entry) {
   const tbody = container.querySelector("tbody");
   const rowElements = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.row), tr]));
-  sortedRows(entry).forEach((row) => tbody.append(rowElements.get(entry.spec.rows.indexOf(row))));
+  sortedIndices(entry).forEach((index) => tbody.append(rowElements.get(index)));
   container.querySelectorAll("th[aria-sort]").forEach((th) => {
     const button = th.querySelector("button[data-sort]");
     const ariaSort = entry.sort?.key === button.dataset.sort ? entry.sort.dir : "none";
@@ -84,14 +86,27 @@ function applySort(container, entry) {
 }
 
 export function wireTables(root) {
+  // Arrow keys scroll a wide criteria table on narrow screens. At full width there is
+  // nothing to scroll, so Tab goes directly to the next action.
+  root.querySelectorAll(".table-wrap:has(> table.criteria)").forEach((region) => {
+    if (region.dataset.scrollWired) return;
+    region.dataset.scrollWired = "1";
+    const fit = () => { region.tabIndex = region.scrollWidth > region.clientWidth ? 0 : -1; };
+    const observer = new ResizeObserver(() => region.isConnected ? fit() : observer.disconnect());
+    observer.observe(region);
+    observer.observe(region.firstElementChild);
+    fit();
+  });
   root.querySelectorAll("[data-table]").forEach((container) => {
-    if (container.dataset.wired) return;
-    container.dataset.wired = "1";
+    const id = container.dataset.table;
+    if (bound.has(container) || !unwired.has(id)) return;
+    const entry = unwired.get(id);
+    unwired.delete(id);
+    bound.set(container, entry);
     container.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-sort]");
       if (!button) return;
       event.stopPropagation();
-      const entry = TABLES.get(container.dataset.table);
       const key = button.dataset.sort;
       const column = entry.spec.columns.find((c) => c.key === key);
       const first = column.firstDir ?? (column.numeric ? "descending" : "ascending");

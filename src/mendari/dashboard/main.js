@@ -124,8 +124,9 @@ async function boot() {
   const saved = storageGet("oh.pack", first);
   switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
   select.addEventListener("change", async () => {
-    await switchPack(select.value).catch(() => null); // the view says it (router.js), with Try again
-    render();
+    const wanted = select.value;
+    await switchPack(wanted).catch(() => null); // the view says it (router.js), with Try again
+    if (wanted === state.packId) render();
   });
   // Back and Forward can cross a pack change. The address then names another pack than the one
   // shown, and the browser fires only popstate (hashchange needs everything but the hash to match).
@@ -133,7 +134,7 @@ async function boot() {
     const wanted = packInAddress();
     if (wanted === state.packId || !known(wanted)) return;
     await switchPack(wanted).catch(() => null);
-    render({ navigated: true });
+    if (wanted === state.packId) render({ navigated: true });
   });
   window.addEventListener("hashchange", onHashChange);
   render();
@@ -145,6 +146,15 @@ async function boot() {
 const packInAddress = () => new URLSearchParams(location.search).get("pack");
 
 function switchPack(packId) {
+  if (packId !== state.packId) {
+    $("#review-count").textContent = "";
+    if (state.view && !views[state.view].packless) {
+      // The picker's new value and URL apply immediately. Retire the old pack's controls
+      // while its replacement loads, including when a request for the old view is finishing.
+      $("#view").inert = true;
+      $("#view").setAttribute("aria-busy", "true");
+    }
+  }
   $("#pack-select").value = packId;
   storageSet("oh.pack", packId);
   history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);

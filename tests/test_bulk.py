@@ -192,10 +192,78 @@ def test_a_group_export_uses_the_group_endpoint(tmp_path: Path) -> None:
 
 
 def test_a_file_that_does_not_match_the_manifest_fails(tmp_path: Path) -> None:
-    fake = FakeBulk({"Patient": [{"resourceType": "Patient", "id": "p1"}]}, pending=0)
+    fake = FakeBulk(
+        {
+            "Observation": [{"resourceType": "Observation"}],
+            "Patient": [{"resourceType": "Patient"}],
+        },
+        pending=0,
+    )
     fake.counts = {"Patient": 5}
     with pytest.raises(BulkError, match="says 5 lines, got 1"):
         run(fake, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+    assert not any(request.method == "DELETE" for request in fake.requests)
+    fake.counts.clear()
+    run(fake, tmp_path)
+    assert len(list(tmp_path.glob("*.ndjson"))) == 2
+
+
+def test_an_export_cannot_replace_the_calling_shells_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    fake = FakeBulk({})
+    with pytest.raises(BulkError, match="working directory"):
+        run(fake, Path("."))
+    assert not fake.requests and Path.cwd().samefile(tmp_path)
+
+
+def test_reusing_a_completed_export_preserves_the_first_cohort(tmp_path: Path) -> None:
+    run(FakeBulk({"Patient": [{"resourceType": "Patient", "id": "synthetic"}]}), tmp_path)
+    fresh = FakeBulk({"Observation": [{"resourceType": "Observation"}]})
+    with pytest.raises(BulkError, match="new or empty"):
+        run(fresh, tmp_path)
+    assert fresh.requests == []
+    assert [r["id"] for r in bulk.read_ndjson(tmp_path)] == ["synthetic"]
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        None,
+        [],
+        {},
+        {"output": {}},
+        {"output": [None]},
+        {"output": [{"type": "Patient"}]},
+        {"output": [{"type": [], "url": "unused"}]},
+        {"output": [{"type": "Patient", "url": "unused", "count": False}]},
+        {"output": [], "requiresAccessToken": "false"},
+        {"output": [], "error": 1},
+    ],
+)
+def test_an_invalid_manifest_never_completes_an_export(tmp_path: Path, manifest: Any) -> None:
+    requests = []
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if str(request.url) == STATUS:
+            return httpx.Response(200, content=json.dumps(manifest))
+        return httpx.Response(202, headers={"content-location": STATUS})
+
+    with http_for(reply) as http, pytest.raises(BulkError):
+        bulk.export(FHIR, tmp_path / "cohort", http=http)
+    assert len(requests) == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_export_checks_the_resource_on_every_line_before_deleting(tmp_path: Path) -> None:
+    fake = FakeBulk({"Patient": [{"resourceType": "Patient"}, {"resourceType": "Observation"}]})
+    with pytest.raises(BulkError, match=r"Patient\.001\.ndjson:2: expected a Patient"):
+        run(fake, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+    assert not any(request.method == "DELETE" for request in fake.requests)
 
 
 def test_an_export_that_reports_errors_fails(tmp_path: Path) -> None:
@@ -214,7 +282,8 @@ def test_a_refused_kickoff_names_the_issue_codes_only(tmp_path: Path) -> None:
         json={
             "resourceType": "OperationOutcome",
             "issue": [
-                {"severity": "error", "code": "forbidden", "diagnostics": "patient 123 secret"}
+                {"severity": "error", "code": "forbidden", "diagnostics": "patient 123 secret"},
+                {"code": "patient 123 secret"},
             ],
         },
     )
@@ -254,9 +323,12 @@ def test_retry_after_is_kept_sensible(value: str | None, seconds: float | None) 
 # -- SMART Backend Services -------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "encoding", [serialization.PrivateFormat.TraditionalOpenSSL, serialization.PrivateFormat.PKCS8]
+)
 @pytest.mark.parametrize(("curve", "algorithm"), [(False, "RS384"), (True, "ES384")])
 def test_backend_services_signs_an_assertion_for_the_token_endpoint(
-    curve: bool, algorithm: str
+    curve: bool, algorithm: str, encoding: serialization.PrivateFormat
 ) -> None:
     key: Any = (
         ec.generate_private_key(ec.SECP384R1())
@@ -265,7 +337,7 @@ def test_backend_services_signs_an_assertion_for_the_token_endpoint(
     )
     pem = key.private_bytes(
         serialization.Encoding.PEM,
-        serialization.PrivateFormat.TraditionalOpenSSL,
+        encoding,
         serialization.NoEncryption(),
     ).decode()
     seen: dict[str, Any] = {}
@@ -344,6 +416,83 @@ def test_an_export_becomes_the_packs_dataset_with_the_sites_labels(tmp_path: Pat
         cases[0]["input"]["documents"]
     )  # the patient's record came along
     assert records[0]["labels"] == cases[0]["labels"]
+
+
+def test_a_saved_export_resolves_relative_and_same_source_absolute_patient_links(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    cases = [json.loads(line) for line in LABELS.read_text().splitlines()[:2]]
+    resources = list(bulk.read_ndjson(referral_export(plain, cases)))
+
+    def make_dataset(folder: Path, out: Path, *options: str) -> int:
+        return main(
+            [
+                "bulk",
+                "dataset",
+                "--pack",
+                "mendari/referral-router",
+                "--ndjson",
+                str(folder),
+                "--labels",
+                str(LABELS),
+                "--out",
+                str(out),
+                *options,
+            ]
+        )
+
+    expected = tmp_path / "relative.jsonl"
+    assert make_dataset(plain, expected) == 0
+    files: dict[str, list[dict[str, Any]]] = {}
+    for row in resources:
+        if "subject" in row:
+            relative = row["subject"]["reference"]
+            # Absolute on the same host/base, with default port and version, or relative/versioned.
+            prefix = (
+                "https://EHR.Example.org:443/fhir/"
+                if row["resourceType"] == "ServiceRequest"
+                else ""
+            )
+            row["subject"]["reference"] = f"{prefix}{relative}/_history/v1"
+        files.setdefault(row["resourceType"], []).append(row)
+    directory = tmp_path / "export"
+    run(FakeBulk(files), directory)
+    result = tmp_path / "absolute.jsonl"
+    assert make_dataset(directory, result) == 0
+    assert expected.read_bytes() == result.read_bytes()
+    assert make_dataset(directory, result, "--fhir-base", "https://other.example/fhir") == 1
+    assert "differs from the source recorded" in capsys.readouterr().err
+    # Raw NDJSON imported from a legacy or third-party exporter needs its declared source.
+    external = tmp_path / "external"
+    external.mkdir()
+    for path in directory.glob("*.ndjson"):
+        (external / path.name).write_bytes(path.read_bytes())
+    assert make_dataset(external, result) == 1
+    assert "absolute Patient references need" in capsys.readouterr().err
+    assert make_dataset(external, result, "--fhir-base", FHIR) == 0
+    assert expected.read_bytes() == result.read_bytes()
+
+
+@pytest.mark.parametrize("foreign", ["https://other.example/fhir", "https://ehr.example.org/other"])
+def test_another_fhir_base_cannot_contribute_to_a_patient_by_matching_local_id(
+    foreign: str,
+) -> None:
+    adapter = FhirAdapter.for_pack(resolve_pack("mendari/referral-router"))
+    rows: list[dict[str, Any]] = [
+        {"resourceType": "Patient", "id": "p1"},
+        {"resourceType": "Observation", "subject": {"reference": f"{foreign}/Patient/p1"}},
+    ]
+    with pytest.raises(BulkError, match="different FHIR base"):
+        bulk.dataset(adapter, rows, {}, key_system=CASE_SYSTEM, fhir_base=FHIR)
+
+
+def test_conflicting_patient_rows_are_never_silently_resolved_by_file_order() -> None:
+    adapter = FhirAdapter.for_pack(resolve_pack("mendari/referral-router"))
+    rows = [{"resourceType": "Patient", "id": "p1", "active": value} for value in (True, False)]
+    with pytest.raises(BulkError, match="conflicting records for one Patient id"):
+        bulk.dataset(adapter, rows, {}, key_system=CASE_SYSTEM)
 
 
 def test_the_cli_builds_a_dataset_that_mendari_eval_reads(

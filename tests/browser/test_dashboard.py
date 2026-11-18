@@ -246,10 +246,10 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
     expect(table).to_contain_text("medications ← MedicationRequest")
     assert "undefined" not in table.inner_text() and "n/a" not in table.inner_text()
     assert axe_page.evaluate(BARE_PERCENT_IN, ".drawer section.coverage") == []
-    # The criteria table above the panel (`pack.js` `criteriaTable`, a derived primary's) is a
-    # scrollable region with nothing focusable in it, which axe reports for this drawer since
-    # before this panel's rows: left out here, and noted in tasks/todo.md to fix on its own.
-    assert violations(axe_page, exclude=(".drawer-body > .table-wrap",)) == []
+    criteria = axe_page.get_by_role("group", name="Decision criteria")
+    criteria.focus()
+    expect(criteria).to_be_focused()
+    assert violations(axe_page) == []
 
 
 def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
@@ -368,6 +368,29 @@ def test_decide_shows_progress_and_blocks_a_second_submit(page: Page) -> None:
     expect(decide).to_be_enabled()
     expect(decide).not_to_have_attribute("aria-busy", "true")
     expect(page.locator("#result")).to_contain_text("nurse")
+
+
+def test_a_pack_switch_retires_its_form_and_any_late_decision(page: Page) -> None:
+    open_pack(page, INBOX, "try")
+    decisions: list[Route] = []
+    details: list[Route] = []
+    page.route("**/decide", lambda route: decisions.append(route))
+    page.route(f"**/api/packs/{GUARD}", lambda route: details.append(route))
+    page.get_by_role("button", name="Chest pain").click()
+    page.evaluate("window.submitted = document.querySelector('#decide')")
+    with page.expect_request("**/decide"):
+        page.locator("#decide").click()
+    with page.expect_request(f"**/api/packs/{GUARD}"):
+        page.select_option("#pack-select", GUARD)
+    expect(page.locator("main")).to_have_attribute("inert", "")
+    retired = page.get_by_role("button", name="Chest pain")
+    retired.focus()
+    expect(retired).not_to_be_focused()
+    details[0].continue_()
+    expect(page.locator("#example")).to_be_visible()  # the newly selected pack's form
+    decisions[0].continue_()
+    page.wait_for_function("() => !window.submitted.disabled")
+    expect(page.locator("#result")).to_be_empty()
 
 
 def test_the_record_example_picker_matches_the_input(page: Page) -> None:
@@ -1059,7 +1082,13 @@ def decide_inbox(base: str, body: str) -> dict[str, Any]:
 
 def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
     open_pack(page, INBOX)
+    expect(page.get_by_role("heading", name="Decision activity")).to_be_visible()
+    details = page.locator(".deployment-details")
+    expect(details.locator(".deployed")).to_be_hidden()
+    details.locator("summary").focus()
+    page.keyboard.press("Enter")
     deployed = page.locator(".pack-header .deployed")
+    expect(deployed).to_be_visible()
     expect(deployed).to_contain_text("Safety screen: Rules")  # words first...
     expect(deployed).to_contain_text("Router: Naive Bayes")
     expect(page.locator(".pack-header .mono")).to_contain_text("router=naive_bayes")  # codes below
@@ -1070,6 +1099,34 @@ def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
     expect(waiting).to_have_class(re.compile("tone-warning"))  # the seeded chest pain waits
     waiting.get_by_role("link", name=re.compile("review queue")).click()
     expect(page).to_have_url(re.compile("#review$"))
+
+
+def test_navigation_counts_reviews_without_reading_cases_or_verifying_the_chain(page: Page) -> None:
+    requested: list[str] = []
+    page.on("request", lambda r: requested.append(urllib.parse.urlsplit(r.url).path))
+    page.route("**/api/review/count?*", lambda route: route.fulfill(json={"pending": 703}))
+    open_pack(page, INBOX)
+    expect(page.locator("#review-count")).to_have_text("703")
+    page.locator(".stats-secondary").get_by_role("link", name="Audit trail").click()
+    verify = page.get_by_role("button", name="Verify chain")
+    expect(verify).to_be_visible()
+    assert "/api/review" not in requested and "/api/audit/verify" not in requested
+    page.route(
+        "**/api/audit/verify",
+        lambda route: route.fulfill(status=503, json={"detail": "Temporarily unavailable"}),
+        times=1,
+    )
+    verify.click()
+    expect(page.locator("#verify-result")).to_contain_text("Verification failed.")
+    verify.click()
+    expect(page.locator("#verify-result")).to_contain_text("Verified")
+
+
+def test_an_unrecognized_or_damaged_link_keeps_the_dashboard_usable(page: Page) -> None:
+    page.goto(f"/?pack={INBOX}#constructor/%XX")
+    expect(page.get_by_role("heading", name="Patient Inbox Router")).to_be_visible()
+    page.locator('.nav a[data-view="review"]').click()
+    expect(page.get_by_role("heading", name="Review queue")).to_be_visible()
 
 
 def test_only_administrators_are_offered_the_chain_verification(page: Page) -> None:

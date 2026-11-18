@@ -53,7 +53,9 @@ def run(fhir: str, pack_id: str) -> dict[str, Any]:
         resources = list(bulk.read_ndjson(folder / "export"))
         labels = bulk.load_labels(labels_path)
         adapter = FhirAdapter.for_pack(decision.pack)
-        records, skipped = bulk.dataset(adapter, resources, labels, key_system=CASE_SYSTEM)
+        records, skipped = bulk.dataset(
+            adapter, resources, labels, key_system=CASE_SYSTEM, fhir_base=fhir
+        )
         if not records:
             raise MendariError(f"the export holds no labelled {pack_id} cases ({skipped})")
         exported = {r["id"] for r in records}

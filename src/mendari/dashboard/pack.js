@@ -195,7 +195,7 @@ export function criteriaTable(answers, { evidence = true, plain = false } = {}) 
         <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${named(labelName(primary, effect), effect)}</span>` : ""}</td>
       </tr>`;
     }).join("");
-    return `<div class="table-wrap"><table class="compact criteria">
+    return `<div class="table-wrap" tabindex="0" role="group" aria-label="Decision criteria"><table class="compact criteria">
       <tr><th>Criterion</th><th>Answer</th><th>Sure</th><th>Effect</th></tr>${rows}</table></div>`;
   }
   const rows = derive.from.map((member) => {
@@ -211,7 +211,7 @@ export function criteriaTable(answers, { evidence = true, plain = false } = {}) 
       ${evidence ? `<td class="evidence">${a && a.evidence.length ? esc(a.evidence.join("; ")) : ""}</td>` : ""}
     </tr>`;
   }).join("");
-  return `<div class="table-wrap"><table class="compact criteria">
+  return `<div class="table-wrap" tabindex="0" role="group" aria-label="Decision criteria"><table class="compact criteria">
     <tr><th>Criterion</th><th>Answer</th><th>Conf.</th><th>Effect</th><th>Source</th>${evidence ? "<th>Evidence</th>" : ""}</tr>${rows}</table></div>`;
 }
 

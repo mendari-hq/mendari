@@ -29,6 +29,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -174,7 +175,6 @@ def add_store_routes(
         return principal.id, org_of(principal)
 
     def admitted(
-        request: Request,
         org: str,
         by: str,
         files: Mapping[str, bytes],
@@ -298,9 +298,9 @@ def add_store_routes(
         organization's author keys. Answers the new version (`201`), `held` (for the operator's
         review) if it holds a hidden evaluation case, or a refusal naming the check."""
         by, org = person(request)
-        return checked_archive(request, org, by, await request.body())
+        return await run_in_threadpool(checked_archive, org, by, await request.body())
 
-    def checked_archive(request: Request, org: str, by: str, data: bytes) -> JSONResponse:
+    def checked_archive(org: str, by: str, data: bytes) -> JSONResponse:
         from mendari import settings
         from mendari.hub import archive
 
@@ -321,7 +321,6 @@ def add_store_routes(
             )
             raise _refused(error) from None
         return admitted(
-            request,
             org,
             by,
             verified.files,
@@ -345,7 +344,7 @@ def add_store_routes(
         sent again replaces it; parts past the declared size are refused."""
         _, org = person(request)
         try:
-            return store.add_part(org, upload_id, n, await request.body())
+            return await run_in_threadpool(store.add_part, org, upload_id, n, await request.body())
         except StoreError as error:
             raise _refused(error) from None
 
@@ -363,7 +362,7 @@ def add_store_routes(
             data = store.finish_upload(org, upload_id)
         except StoreError as error:
             raise _refused(error) from None
-        return checked_archive(request, org, by, data)
+        return checked_archive(org, by, data)
 
     @app.post("/api/store/copies", status_code=201, tags=[TAG], summary="Copy a pack into a draft")
     def copy_pack(request: Request, body: CopyRequest) -> JSONResponse:
@@ -385,7 +384,7 @@ def add_store_routes(
         }
         files["pack.yaml"] = _renamed(files["pack.yaml"], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
-        return admitted(request, org, by, files, source="copy", copied_from=copied)
+        return admitted(org, by, files, source="copy", copied_from=copied)
 
     @app.post(
         "/api/store/versions/{digest}/edits",
@@ -418,7 +417,7 @@ def add_store_routes(
             files[edited.path] = edited.content.encode("utf-8")
         if _trained_paths(files.get("pack.yaml", b"")) != trained:
             raise HTTPException(422, "an edit does not change which files are trained")
-        return admitted(request, org, by, files, source="edit", parent=digest)
+        return admitted(org, by, files, source="edit", parent=digest)
 
     @app.post("/api/store/versions/{digest}/tests", tags=[TAG], summary="Run a draft's tests")
     def test_version(request: Request, digest: str) -> dict[str, Any]:
@@ -572,7 +571,7 @@ def add_store_routes(
         with its ledger (chained `eval.recorded`)."""
         _, org = person(request)
         try:
-            return dict(with_jobs().advance(org, job_id))
+            return dict(with_jobs().advance(org, job_id, limits=limits()))
         except StoreError as error:
             raise _refused(error) from None
 

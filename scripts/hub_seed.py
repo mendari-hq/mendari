@@ -5,9 +5,10 @@ As the registry's operator, on its database (`--db`, as `mendari registry ...` a
 shared administrator token since LP-19g): claims the `mendari` namespace for the `mendari`
 organization and mints an owned publisher token. Then, over HTTP as that publisher, registers a
 signing key and signs and pushes every bundled pack; then approves the claim, which lists the
-namespace, and records it as a verified publisher. Prints the token and key id; with `--key-out`
-it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
-community publisher, a pack whose text tries to run a script and a `javascript:` link (the
+namespace, and records it as a verified publisher. Prints the public key id and revokes the
+seed token. For later pushes, use `--key-out` for the keys and `--token-out` for the credential.
+With `--hostile-example` it also publishes, as a community publisher,
+a pack whose text tries to run a script and a `javascript:` link (the
 Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
 (LP-22) evaluate the Referral Router on its synthetic test cases and share signed counts, so
 the Hub's Site evidence section has something to show.
@@ -22,6 +23,8 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -48,9 +51,12 @@ HOSTILE_MARKDOWN = (
 )
 
 
-def namespace(store: RegistryStore, name: str, display_name: str) -> str:
+@contextmanager
+def publisher_token(
+    store: RegistryStore, name: str, display_name: str, *, keep: Path | None = None
+) -> Iterator[str]:
     """Claim a namespace for the organization of the same name, as the operator (a reserved name
-    too), unless it exists; return a new owned token for it."""
+    too), unless it exists; revoke the seed token when its work finishes."""
     if not _exists(store, name):
         store.claim(
             name,
@@ -64,13 +70,25 @@ def namespace(store: RegistryStore, name: str, display_name: str) -> str:
         name, org=name, owner="operator", name="hub_seed", days=30, by=OPERATOR,
         reason="seeded by scripts/hub_seed.py",
     )  # fmt: skip
-    return str(minted["token"])
+    retained = False
+    try:
+        yield str(minted["token"])
+        if keep is not None:
+            descriptor = os.open(keep, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(str(minted["token"]) + "\n")
+            retained = True
+    finally:
+        if not retained:
+            store.revoke_token(str(minted["id"]), org=name, by=OPERATOR, reason="seed finished")
 
 
 def _exists(store: RegistryStore, name: str) -> bool:
     try:
         store.namespace(name, REVIEWER)
-    except HubError:
+    except HubError as error:
+        if error.status != 404:
+            raise
         return False
     return True
 
@@ -187,6 +205,9 @@ def main() -> int:
         "--db", required=True, help="the registry's database (SQLite path or postgresql:// URL)"
     )
     parser.add_argument("--namespace", default="mendari")
+    parser.add_argument(
+        "--token-out", type=Path, help="save the publisher token to a new private file"
+    )
     parser.add_argument("--key-out", help="directory to keep the key pair in")
     parser.add_argument(
         "--hostile-example",
@@ -205,34 +226,32 @@ def main() -> int:
 
 
 def seed(args: argparse.Namespace, store: RegistryStore) -> None:
-    token = namespace(store, args.namespace, "Mendari reference packs")
-    hostile = (
-        namespace(store, HOSTILE_ID.split("/")[0], "Hub test publisher")
-        if args.hostile_example
-        else None
-    )
     private, public = archive.generate_key()
     if args.key_out:
         out = Path(args.key_out)
         out.mkdir(parents=True, exist_ok=True)
-        (out / "publisher.pub").write_bytes(public)
-        descriptor = os.open(out / "publisher.key", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        descriptor = os.open(out / "publisher.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(private)
+        (out / "publisher.pub").write_bytes(public)
     key = archive.load_private_key(private)
-    with RegistryClient(args.registry, token) as registry:
-        key_id = registry.add_key(args.namespace, public)
-        for pack in sorted(discover().packs, key=lambda p: p.id):
-            if pack.id.split("/")[0] != args.namespace:
-                continue
-            published = registry.push(pack, key)
-            print(f"published {published['id']}@{published['version']}")
-    listed(store, args.namespace, "verified")
-    if hostile is not None:
-        hostile_example(args.registry, hostile, store)
+    with publisher_token(
+        store, args.namespace, "Mendari reference packs", keep=args.token_out
+    ) as token:
+        with RegistryClient(args.registry, token) as registry:
+            key_id = registry.add_key(args.namespace, public)
+            for pack in sorted(discover().packs, key=lambda p: p.id):
+                if pack.id.split("/")[0] != args.namespace:
+                    continue
+                published = registry.push(pack, key)
+                print(f"published {published['id']}@{published['version']}")
+        listed(store, args.namespace, "verified")
+    if args.hostile_example:
+        with publisher_token(store, HOSTILE_ID.split("/")[0], "Hub test publisher") as sample_token:
+            hostile_example(args.registry, sample_token, store)
     if args.sites:
         sites_example(args.registry, store)
-    print(f"token {token}\nkey {key_id}")
+    print(f"key {key_id}")
 
 
 if __name__ == "__main__":

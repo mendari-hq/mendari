@@ -7,26 +7,22 @@ import { views, wire } from "./router.js";
 import { $, api, emptyState, esc, figureHtml, icon, may, money, num, OUTCOMES, outcomeText, shown, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
-  const [stats, chain, holds] = await Promise.all([
+  const [stats, holds] = await Promise.all([
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
-    // Verifying the chain reads every event: administrators only (the server says the same),
-    // and in memberships mode the operator's alone (ADR-0008).
-    may("admin") && state.accounts !== "memberships" ? api("/api/audit/verify") : null,
-    api("/api/holds").catch(() => []),
+    api("/api/holds").catch(() => null),
   ]);
   const d = state.detail;
   const total = stats.decisions;
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   main.innerHTML = `
-    <h1>${esc(d.name)}</h1>
     ${packHeader(d, holds)}
     ${total ? `
       <div class="period-row">
-        <span class="muted" id="period-name">Period</span>
-        <div class="segmented compact" role="group" aria-labelledby="period-name">${PERIODS.map(([key, label]) =>
+        <h2>Decision activity</h2>
+        <div class="segmented compact" role="group" aria-label="Reporting period">${PERIODS.map(([key, label]) =>
           `<button type="button" data-period="${key}" aria-pressed="${key === period}">${label}</button>`).join("")}</div>
       </div>
-      <div id="period-figures">${periodFigures(stats, chain, period)}</div>
+      <div id="period-figures">${periodFigures(stats, period)}</div>
       <div class="panel">
         <h2>Decisions per day <span class="muted">· days in ${esc(zoneName())}</span></h2>
         ${dailyView(stats.daily)}
@@ -41,7 +37,7 @@ views.overview = async (main) => {
     if (!button) return;
     storageSet("oh.period", button.dataset.period);
     main.querySelectorAll("[data-period]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
-    $("#period-figures").innerHTML = periodFigures(stats, chain, button.dataset.period);
+    $("#period-figures").innerHTML = periodFigures(stats, button.dataset.period);
     wireStack(main);
   });
   wire(main);
@@ -51,33 +47,24 @@ views.overview = async (main) => {
 // ---- the period: 7 days, 30 days or everything, each compared with the one before it ------------
 
 const PERIODS = [["7", "7 days"], ["30", "30 days"], ["all", "All"]];
-const REVIEW_COUNTS = ["reviewed", "overridden", "labelled", "agreed"];
-
-// Totals over the days from `from` to `to` (inclusive; null for no bound), from stats.daily.
-function totalsBetween(daily, from, to) {
-  const sums = Object.fromEntries([...OUTCOMES, ...REVIEW_COUNTS].map((k) => [k, 0]));
-  for (const day of daily) {
-    if ((from && day.date < from) || (to && day.date > to)) continue;
-    for (const key of Object.keys(sums)) sums[key] += day[key] ?? 0;
-  }
-  sums.decisions = OUTCOMES.reduce((sum, o) => sum + sums[o], 0);
-  return sums;
-}
-
 const ratio = (part, whole) => (whole ? part / whole : null);
 
-function periodFigures(stats, chain, period) {
+function periodFigures(stats, period) {
   // The period's figures come from the server (stats.periods: the same local days as below);
   // the trend lines are drawn from the daily counts.
   const { days, from, now, before } = stats.periods[period];
   const today = localToday();
   const scope = days ? `last ${days} days` : "all time";
   // The trend lines run over the period (at most the last 30 days), from the first decision on.
-  const trendFrom = [stats.daily[0].date, from ?? addDays(today, -29)].sort().pop();
+  const trendFrom = [stats.daily[0]?.date ?? today, from ?? addDays(today, -29)].sort().pop();
+  const byDate = new Map(stats.daily.filter((d) => d.date >= trendFrom).map((d) => [d.date, d]));
   const trendDays = [];
-  for (let day = trendFrom; day <= today; day = addDays(day, 1)) trendDays.push(totalsBetween(stats.daily, day, day));
+  for (let day = trendFrom; day <= today; day = addDays(day, 1)) {
+    const counts = byDate.get(day);
+    trendDays.push({ AUTO: counts?.AUTO ?? 0, decisions: OUTCOMES.reduce((n, o) => n + (counts?.[o] ?? 0), 0) });
+  }
   return `${primaryStats(stats, now, before, scope, days, trendDays)}
-    ${secondaryStats(stats, chain, now, before, days, trendDays)}
+    ${secondaryStats(stats, now, before, days, trendDays)}
     <div class="panel">
       <h2>Outcome mix <span class="muted">· ${esc(scope)}</span></h2>
       ${now.decisions ? stackBar(now) : `<p class="muted">No decisions in the ${esc(scope)}.</p>`}
@@ -122,7 +109,7 @@ function primaryStats(stats, now, before, scope, days, trendDays) {
 }
 
 // Operational context, one row: volume (for the period), speed, cost, the audit chain and feedback.
-function secondaryStats(stats, chain, now, before, days, trendDays) {
+function secondaryStats(stats, now, before, days, trendDays) {
   const f = stats.feedback;
   return `<div class="stats-secondary">
     ${stat({
@@ -132,10 +119,10 @@ function secondaryStats(stats, chain, now, before, days, trendDays) {
     })}
     ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`, foot: "all time" })}
     ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision), foot: "all time" })}
-    ${chain ? stat({
-      size: "small", label: "Audit chain", html: true, tone: chain.ok ? "" : "danger",
-      value: chain.ok ? `${icon("shield-check")} Verified` : `${icon("shield-x")} Broken at event ${esc(chain.broken_at)}`,
-      foot: `${chain.events.toLocaleString()} events`,
+    ${may("admin") && state.accounts !== "memberships" ? stat({
+      size: "small", label: "Audit chain", html: true,
+      value: `<a href="#audit" class="action-link">Audit trail ${icon("arrow-right")}</a>`,
+      foot: "Open to verify integrity",
     }) : ""}
     ${stat({
       size: "small", label: "Feedback", html: true,
@@ -177,22 +164,29 @@ function wireStack(root) {
 
 function packHeader(d, holds) {
   const deployed = Object.entries(d.active_providers);
-  return `<div class="pack-header">
+  return `<header class="pack-header">
+    <div class="pack-identity">
+      <div><h1>${esc(d.name)}</h1>
+        <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${esc(d.risk.level)}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+      </div>
+      <a href="#card" class="button">Decision Card ${icon("arrow-right")}</a>
+    </div>
     ${statusNotice(d)}
-    ${holdNotice(holds, d)}
-    <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
-    <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
-      `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
-    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+    ${holds === null ? '<p class="callout warning" role="status">Could not check automation holds.</p>' : holdNotice(holds, d)}
     ${withoutModel(d.without_model ?? [])}
-  </div>`;
+    <details class="deployment-details">
+      <summary>Deployment details <span class="muted">v${esc(d.version)}</span></summary>
+      <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
+      `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
+      <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+    </details>
+  </header>`;
 }
 
 // Slots on the pack's offline floor although it offers a model there (e.g. no Jev set up).
 function withoutModel(slots) {
   if (!slots.length) return "";
-  return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.
-    This deployment uses the pack's offline readers there; the Decision Card compares them with the model readers.</div>`;
+  return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.</div>`;
 }
 
 // Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without

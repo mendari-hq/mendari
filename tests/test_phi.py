@@ -169,6 +169,16 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
         f"/api/audit/{decided['id']}/feedback", json={"rating": "up"}, headers=keys["reviewer"]
     )
 
+    count = "/api/review/count"
+    assert client.get(count).status_code == 401
+    for headers in keys.values():
+        assert client.get(count, headers=headers).json() == {"pending": 1}
+    other = signed_in(encrypting(tmp_path), role="reviewer", org="other")
+    assert client.get(count, headers=other).json() == {"pending": 0}
+    assert client.get(count, params={"pack_id": "other/pack"}, headers=keys["reviewer"]).json() == {
+        "pending": 0
+    }
+
     for url in (f"/api/audit/{decided['id']}", "/api/review", "/api/feedback"):
         seen = client.get(url, headers=keys["viewer"]).json()
         assert "Rosalind" not in str(seen), url

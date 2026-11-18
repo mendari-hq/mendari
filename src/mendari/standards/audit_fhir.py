@@ -399,6 +399,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     # Its datasets and evaluation jobs (LP-20g): ids, a SHA-256 and counts, never a case.
     "store_dataset.created": ("C", "Pack store dataset added", None),
     "store_dataset.held": ("U", "Pack store dataset held for the operator's review", None),
+    "store_dataset.released": ("U", "Pack store dataset released by the operator", None),
+    "store_dataset.withdrawn": ("U", "Pack store dataset withdrawn by the operator", None),
     "store_job.created": ("C", "Pack store evaluation job made", None),
     # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
     "pack_version.promoted": ("U", "Pack store version promoted to be served", None),

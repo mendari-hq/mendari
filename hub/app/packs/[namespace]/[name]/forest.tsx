@@ -33,7 +33,7 @@ export function randomWords(figure: EvidenceFigure): string {
 
 export function Forest({ figure }: { figure: EvidenceFigure }) {
   const rows = figure.sites.length + 2;
-  const height = rows * ROW + 2 * PAD + 16;
+  const height = rows * ROW + 2 * PAD + 32;
   const pooled = figure.pooled;
   const re = figure.random_effects;
   const label = `${figure.label}: ${figure.sites.length} sites; pooled ${pooledWords(figure)}`;
@@ -41,8 +41,8 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
     <svg className="forest" viewBox={`0 0 ${WIDTH} ${height}`} role="img" aria-label={label} width="100%">
       {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
         <g key={tick}>
-          <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={height - PAD - 14} />
-          <text className="forest-axis" x={x(tick)} y={height - PAD} textAnchor="middle">
+          <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={height - PAD - 30} />
+          <text className="forest-axis" x={x(tick)} y={height - PAD - 16} textAnchor={tick === 1 ? "end" : "middle"}>
             {tick * 100}
           </text>
         </g>
@@ -52,7 +52,7 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
       </text>
       {figure.sites.map((site, i) => {
         const y = PAD + i * ROW + ROW / 2;
-        const share = site.n ? site.k / site.n : 0;
+        const share = site.n > 0 ? site.k / site.n : null;
         return (
           <g key={site.report}>
             <text className="forest-label" x={0} y={y + 4}>
@@ -61,7 +61,7 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
             {site.low !== null && site.high !== null ? (
               <line className="forest-interval" x1={x(site.low)} x2={x(site.high)} y1={y} y2={y} />
             ) : null}
-            <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} />
+            {share !== null && <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} />}
           </g>
         );
       })}
@@ -104,7 +104,7 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
 
 export function EvidenceTable({ figure }: { figure: EvidenceFigure }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" role="region" aria-label={`${figure.label} by site`} tabIndex={0}>
       <table>
         <caption className="muted">{figure.label}</caption>
         <thead>

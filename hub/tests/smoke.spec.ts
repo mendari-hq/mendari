@@ -36,7 +36,10 @@ test("the home page lists every published pack, with no uploaded figure", async 
   const errors = watchConsole(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision Packs");
-  await expect(page.getByRole("list", { name: "Packs" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
+  await expect(page.getByRole("list", { name: "Packs" }).getByRole("heading", { level: 3 }).getByRole("link")).toHaveCount(PACKS.length);
+  for (const [index, name] of PACKS.entries()) {
+    await expect(page.locator(".results h3 a").nth(index)).toHaveAccessibleName(name);
+  }
   await expect(page.locator(".badge.verified")).toHaveCount(5);
   // The risk level is the publisher's own word, and nothing the publisher uploaded is a figure here.
   await expect(page.getByText(/^Risk \d \(declared\)$/)).toHaveCount(PACKS.length);
@@ -46,11 +49,15 @@ test("the home page lists every published pack, with no uploaded figure", async 
 
 test("search narrows by words, risk level and standard", async ({ page }) => {
   await page.goto("/?q=referral+specialty");
-  await expect(page.locator(".results h3")).toHaveText(["Referral Router"]);
+  await expect(page.locator(".results h3 a")).toHaveCount(1);
+  await expect(page.locator(".results h3 a")).toHaveAccessibleName("Referral Router");
   await page.goto("/?risk=2");
-  await expect(page.locator(".results h3")).toHaveText(["AI Guard", "Clinical Trial Prescreener"]);
+  await expect(page.locator(".results h3 a")).toHaveCount(2);
+  await expect(page.locator(".results h3 a").first()).toHaveAccessibleName("AI Guard");
+  await expect(page.locator(".results h3 a").last()).toHaveAccessibleName("Clinical Trial Prescreener");
   await page.goto("/?standard=CDS+Hooks&q=authorization");
-  await expect(page.locator(".results h3")).toHaveText(["Prior Authorization Preflight"]);
+  await expect(page.locator(".results h3 a")).toHaveCount(1);
+  await expect(page.locator(".results h3 a")).toHaveAccessibleName("Prior Authorization Preflight");
   await page.goto("/?q=nothing-matches-this");
   await expect(page.getByText("No pack matches these filters.")).toBeVisible();
 });
@@ -61,7 +68,7 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await page.getByRole("link", { name: "Referral Router" }).click();
   await expect(page).toHaveURL(/\/packs\/mendari\/referral-router$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral Router");
-  await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
+  await expect(page.locator(".pull")).toHaveText(`mendari pull mendari/referral-router@${shippedVersion("referral-router")}`);
   await expect(page.locator(".fact").first()).toContainText(shippedVersion("referral-router"));
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
@@ -193,4 +200,17 @@ test("a pack no site has evaluated says so in words", async ({ page }) => {
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence");
   await expect(section).toContainText("No site has shared signed counts for version");
   await expect(section.getByRole("img")).toHaveCount(0);
+});
+
+test("a shared search restores its filters and recovers from an invalid risk level", async ({ page }) => {
+  await page.goto("/?risk=unknown&q=referral&q=ignored");
+  await expect(page.getByRole("searchbox")).toHaveValue("referral");
+  await expect(page.getByLabel("Risk level")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("Choose a risk level from 0 to 4, or any risk level.")).toBeVisible();
+  await page.getByLabel("Risk level").selectOption("");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("link", { name: "Referral Router" })).toBeVisible();
+  await page.getByRole("link", { name: "Clear filters" }).click();
+  await expect(page.getByRole("searchbox")).toHaveValue("");
+  await expect(page.locator(".results h3")).toHaveCount(PACKS.length);
 });

@@ -158,6 +158,9 @@ def test_a_fetch_failure_gives_abstain_with_a_reason_and_a_recorded_decision(
 MALFORMED_PAGES: list[tuple[dict[str, Any], str]] = [
     ({"link": "oops"}, "not_r4"),
     ({"link": ["oops"]}, "not_r4"),
+    ({"link": False}, "not_r4"),
+    ({"entry": {}}, "not_r4"),
+    ({"link": [{"relation": "next"}]}, "not_r4"),
     ({"link": [{"relation": "next", "url": 5}]}, "not_r4"),
     ({"link": [{"relation": "next", "url": f"{EHR}/Observation?page=\x01"}]}, "not_r4"),
     ({"link": [{"relation": "next", "url": "https://[ehr.example.org/fhir/x"}]}, "off_server"),

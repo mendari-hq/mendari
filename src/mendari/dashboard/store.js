@@ -47,6 +47,7 @@ const TABS = [
 // A part of an archive: under the engine's body limit (4 MiB by default).
 const PART_BYTES = 3 * 1024 * 1024;
 const STATE_WORDS = {
+  ready: ["Ready", "s-ok"],
   draft: ["Draft", ""],
   held: ["Held for the operator's review", "s-warning"],
   promoted: ["Serving", "s-ok"],
@@ -289,9 +290,10 @@ async function showResults(body) {
   const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "held" && v.state !== "withdrawn"));
   const datasetRows = datasets.map((d) => [
     { html: esc(d.name) },
-    { html: d.state === "held" ? stateBadge("held") : esc(d.kind ?? "upload") },
-    { html: esc(d.cases ?? "") },
-    { html: d.report ? esc(d.report.schema_problems.count + d.report.label_problems.count) : "" },
+    { html: stateBadge(d.state) },
+    { html: esc(d.kind ?? "—") },
+    { html: esc(d.cases ?? "—") },
+    { html: d.report ? esc(d.report.schema_problems.count + d.report.label_problems.count) : "—" },
     { html: esc(time(d.created_at)), sort: d.created_at },
   ]);
   const jobRows = jobs.map((j) => [
@@ -301,7 +303,7 @@ async function showResults(body) {
     { html: j.state === "queued" || j.state === "running" ? `<button type="button" data-advance="${esc(j.id)}">Run</button>` : "" },
   ]);
   body.innerHTML = `<section class="panel"><h2>Datasets</h2>${datasetRows.length
-    ? cellTable({ id: "store-datasets", columns: ["Name", "Kind", "Cases", "Schema and label problems", "Added"], rows: datasetRows })
+    ? cellTable({ id: "store-datasets", columns: ["Name", "State", "Kind", "Cases", "Schema and label problems", "Added"], rows: datasetRows })
     : emptyState({ icon: "database", title: "No dataset yet", text: "Upload a labelled dataset, or run a job on a dataset a version declares.", level: 3 })}</section>
     <form class="panel admin-form" id="job-form" novalidate>
       <h2>Make an evaluation job</h2>
@@ -311,7 +313,7 @@ async function showResults(body) {
       <label for="job-pack">Or a pack served here (the current one)</label>
       <input id="job-pack" name="pack" placeholder="mendari/patient-inbox-router">
       <label for="job-dataset">Dataset</label>
-      <select id="job-dataset" name="source">${datasets.filter((d) => d.state !== "held").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
+      <select id="job-dataset" name="source">${datasets.filter((d) => d.state === "ready").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
         <option value="name:test">The version's own test set</option></select>
       <button type="submit" class="primary">Make the job</button>
     </form>

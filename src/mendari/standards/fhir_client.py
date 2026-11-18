@@ -23,6 +23,7 @@ import json
 import os
 import posixpath
 import re
+import tempfile
 from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
@@ -166,9 +167,10 @@ class GuardedHttp:
     def download(
         self, url: str, path: Path, *, headers: Mapping[str, str] | None, max_bytes: int
     ) -> int:
-        """Stream a file (Bulk NDJSON) to `path`, up to `max_bytes`; return its size."""
+        """Publish a complete download to `path` with owner-only permissions; return its size."""
         self.check(url)
         size = 0
+        staged: Path | None = None
         try:
             with self._client.stream("GET", url, headers=headers) as response:
                 if response.is_redirect or not response.is_success:
@@ -176,7 +178,8 @@ class GuardedHttp:
                     raise FhirError(
                         f"the download answered HTTP {status}", reason=_status_reason(status)
                     )
-                with path.open("wb") as out:
+                with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as out:
+                    staged = Path(out.name)
                     for chunk in response.iter_bytes():
                         size += len(chunk)
                         if size > max_bytes:
@@ -185,14 +188,15 @@ class GuardedHttp:
                                 reason="too_large",
                             )
                         out.write(chunk)
+            staged.replace(path)
+            staged = None
         except httpx.HTTPError as error:
-            path.unlink(missing_ok=True)
             raise FhirError(
                 f"the download failed ({type(error).__name__})", reason=_network_reason(error)
             ) from None
-        except FhirError:
-            path.unlink(missing_ok=True)
-            raise
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         return size
 
     def _send(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -268,7 +272,8 @@ class FhirClient:
         page that is not a Bundle (`operation_outcome`, `not_r4`): a record cut short is not
         read. A page whose `entry` or `link` is not R4's shape, or whose `next` link is not a
         URL, is a `FhirError` (`not_r4`) in every mode, never a crash."""
-        result = self._http.get_json(self.url_of(relative), self._headers)
+        page_url = self.url_of(relative)
+        result = self._http.get_json(page_url, self._headers)
         if result.get("resourceType") != "Bundle":
             return result
         entries = _entries(result)
@@ -276,7 +281,8 @@ class FhirClient:
             following = _next(result)
             if not following:
                 break
-            result = self._http.get_json(self.url_of(following), self._headers)
+            page_url = self.url_of(following, relative_to=page_url)
+            result = self._http.get_json(page_url, self._headers)
             if complete and result.get("resourceType") != "Bundle":
                 kind: ReadReason = (
                     "operation_outcome"
@@ -306,12 +312,13 @@ class FhirClient:
             self.url_of(relative), self._headers, max_bytes=max_bytes, timeout=timeout, stop=stop
         )
 
-    def url_of(self, relative: str) -> str:
+    def url_of(self, relative: str, *, relative_to: str | None = None) -> str:
         """`relative` (a path, or an absolute URL) as an absolute URL under the base URL, or a
         FhirError (`off_server`) for anything that escapes it (a URL that does not parse cannot
-        be shown to stay under it). Nothing is sent."""
+        be shown to stay under it). A pagination link is relative to the page that supplied it.
+        Nothing is sent."""
         try:
-            parts = urlsplit(urljoin(self.base, relative))
+            parts = urlsplit(urljoin(relative_to or self.base, relative))
         except ValueError:  # e.g. a malformed IPv6 host
             raise FhirError("a FHIR request is not a URL", reason="off_server") from None
         base = urlsplit(self.base)
@@ -326,25 +333,26 @@ class FhirClient:
 def _entries(bundle: Mapping[str, Any]) -> list[Any]:
     """A Bundle page's entries (none when `entry` is absent or empty); any other `entry` that is
     not a list is not R4."""
-    entries = bundle.get("entry") or []
+    entries = bundle.get("entry", [])
     if not isinstance(entries, list):
         raise FhirError("a page of the search has an entry that is not a list", reason="not_r4")
     return list(entries)
 
 
 def _next(bundle: Mapping[str, Any]) -> str | None:
-    """A Bundle page's `next` link, if it has one (none when `link` or its URL is absent or
-    empty). A `link` that is not a list of objects, or a `next` URL that is not printable text,
-    is not R4, and could not be sent."""
-    links = bundle.get("link") or []
+    """The next page, when declared. A malformed link cannot establish a complete search."""
+    links = bundle.get("link", [])
     if not isinstance(links, list) or not all(isinstance(x, Mapping) for x in links):
         raise FhirError("a page of the search has a link that is not R4", reason="not_r4")
-    url = next((x.get("url") for x in links if x.get("relation") == "next"), None)
-    if not url:
-        return None
-    if not isinstance(url, str) or not url.isprintable():
-        raise FhirError("a page of the search has a next link that is not a URL", reason="not_r4")
-    return url
+    for link in links:
+        if link.get("relation") == "next":
+            url = link.get("url")
+            if not isinstance(url, str) or not url.strip() or not url.isprintable():
+                raise FhirError(
+                    "a page of the search has a next link without a URL", reason="not_r4"
+                )
+            return url
+    return None
 
 
 def _status_reason(status: int) -> ReadReason:

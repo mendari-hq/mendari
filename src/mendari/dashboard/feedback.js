@@ -4,7 +4,7 @@
 import { ratingCell } from "./audit.js";
 import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
 import { render, views } from "./router.js";
-import { TABLES } from "./table.js";
+import { tableRows } from "./table.js";
 import { $, api, download, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
@@ -147,7 +147,8 @@ async function sendRating(box, body) {
 // The audit table behind the drawer shows current ratings: this person's change moves one count.
 // Only that cell is redrawn, so the row's button (where focus returns) stays in place.
 function updateAuditRow(id, before, after) {
-  const row = TABLES.get("audit")?.spec.rows.find((r) => r.id === id);
+  const table = document.querySelector('#audit-table [data-table="audit"]');
+  const row = tableRows(table)?.find((r) => r.id === id);
   if (!row || before === after) return;
   if (before) row[`feedback_${before}`] -= 1;
   row[`feedback_${after}`] += 1;

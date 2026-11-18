@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS hub_sites (
     closed_at   TEXT,
     closed_by   TEXT
 );
+CREATE INDEX IF NOT EXISTS hub_sites_org ON hub_sites (org);
 CREATE TABLE IF NOT EXISTS hub_site_keys (
     key_id      TEXT PRIMARY KEY,
     site        TEXT NOT NULL,
@@ -312,7 +313,13 @@ class SiteStore:
         return row
 
     def register_site(
-        self, *, org: str, name: str, by: str, reason: str | None = None
+        self,
+        *,
+        org: str,
+        name: str,
+        by: str,
+        reason: str | None = None,
+        max_sites: int | None = None,
     ) -> dict[str, Any]:
         """Register a site for an organization: `pending` until a reviewer or the operator
         verifies it. Chained `site.registered` with the organization (and why, when the
@@ -326,6 +333,10 @@ class SiteStore:
             payload["reason"] = _label(reason, "the reason", 200)
         site_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
+            if max_sites is not None:
+                count = db.one("SELECT COUNT(*) AS n FROM hub_sites WHERE org = ?", (org,))
+                if int(count["n"]) >= max_sites:
+                    raise HubError(f"an organization has {max_sites} sites at most", 409)
             db.all(
                 "INSERT INTO hub_sites (id, org, name, status, created_at, created_by) "
                 "VALUES (?, ?, ?, 'pending', ?, ?)",

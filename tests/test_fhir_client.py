@@ -117,6 +117,22 @@ def test_a_search_follows_next_links_on_the_same_server() -> None:
     assert [e["resource"]["id"] for e in bundle["entry"]] == ["1", "2"]
 
 
+def test_query_only_next_link_reads_the_next_page_of_the_same_search() -> None:
+    pages = {
+        f"{EHR}/Observation?patient=p1": {
+            "resourceType": "Bundle",
+            "link": [{"relation": "next", "url": "?cursor=next"}],
+        },
+        f"{EHR}/Observation?cursor=next": {
+            "resourceType": "Bundle",
+            "entry": [{"resource": {"id": "2"}}],
+        },
+    }
+    with client(lambda r: fhir_json(pages[str(r.url)])) as fhir:
+        found = fhir.read("Observation?patient=p1", complete=True)
+    assert found["entry"] == [{"resource": {"id": "2"}}]
+
+
 def test_paging_stops_after_the_page_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fhir_client, "MAX_PAGES", 2)
     again = [{"relation": "next", "url": f"{EHR}/Observation?again"}]
@@ -262,6 +278,28 @@ def test_a_network_error_says_what_failed() -> None:
 
     with client(fail) as fhir, pytest.raises(FhirError, match="could not reach the server"):
         fhir.read("Patient/p1")
+
+
+def test_failed_downloads_preserve_the_last_complete_file(tmp_path: Path) -> None:
+    path = tmp_path / "Patient.ndjson"
+    path.write_bytes(b"previous")
+    allowed = {"https://ehr.example.org"}
+    replies = iter(
+        (
+            httpx.Response(503),
+            httpx.Response(200, content=b"too big"),
+            httpx.Response(200, content=b"new"),
+        )
+    )
+    transport = httpx.MockTransport(lambda _r: next(replies))
+    with fhir_client.GuardedHttp(allowed=allowed, transport=transport) as http:
+        for reason in ("http_status", "too_large"):
+            with pytest.raises(FhirError) as error:
+                http.download(EHR, path, headers=None, max_bytes=3)
+            assert error.value.reason == reason
+            assert path.read_bytes() == b"previous" and list(tmp_path.iterdir()) == [path]
+        assert http.download(EHR, path, headers=None, max_bytes=3) == 3
+    assert path.read_bytes() == b"new"
 
 
 # -- CDS Hooks fetch ---------------------------------------------------------------------------

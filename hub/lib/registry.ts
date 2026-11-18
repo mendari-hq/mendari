@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The registry API (src/mendari/hub/registry.py), read on the server at request time.
 
+import { z } from "zod";
+
 const BASE = (process.env.REGISTRY_URL ?? "http://127.0.0.1:8100").replace(/\/$/, "");
 
 export type Risk = { level: number; category: string };
@@ -134,15 +136,18 @@ export type Namespace = {
 export class RegistryUnavailable extends Error {}
 
 async function get<T>(path: string): Promise<T | null> {
-  let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, { cache: "no-store" });
-  } catch {
+    const response = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new RegistryUnavailable(`The registry answered HTTP ${response.status}.`);
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof RegistryUnavailable) throw error;
     throw new RegistryUnavailable("The registry cannot be reached right now.");
   }
-  if (response.status === 404) return null;
-  if (!response.ok) throw new RegistryUnavailable(`The registry answered HTTP ${response.status}.`);
-  return (await response.json()) as T;
 }
 
 export type SearchFilters = { q?: string; risk?: string; standard?: string; publisher_type?: string };
@@ -151,16 +156,13 @@ export async function search(filters: SearchFilters): Promise<PackSummary[]> {
   const params = new URLSearchParams(
     Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
-  return (await get<PackSummary[]>(`/v1/search?${params}`)) ?? [];
+  const packs = await get<PackSummary[]>(`/v1/search?${params}`);
+  if (!Array.isArray(packs)) throw new RegistryUnavailable("The registry search is unavailable.");
+  return packs;
 }
 
 export const pack = (namespace: string, name: string) =>
   get<PackDetail>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-
-export const packVersion = (namespace: string, name: string, version: string) =>
-  get<PackVersion>(
-    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
-  );
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
 
@@ -201,36 +203,74 @@ export function riskWords(risk: Claimed["risk"], review: Checked["review"]): str
 
 // Site evidence (mendari.site-evidence/1, LP-22g): sites' signed counts of a pack, worked out by
 // the registry from counts it verified. Shown apart from everything else on a pack's page.
-export type SiteFigure = Figure & { report: string; site: string; site_name: string; insufficient_evidence: boolean };
-export type Pooled = Partial<Figure> & { method: string; status: string; needs_sites?: number };
-export type RandomEffects = { method: string; status: string; estimate?: number; low?: number; high?: number; needs_sites?: number };
-export type Homogeneity = { method?: string; status: string; p?: number; differ?: boolean; seed?: number; needs_sites?: number };
-export type EvidenceFigure = {
-  figure: string;
-  label: string;
-  sites: SiteFigure[];
-  sites_pooled: number;
-  cases_pooled: number;
-  pooled: Pooled;
-  random_effects: RandomEffects;
-  homogeneity: Homogeneity;
-  warning: string | null;
-};
-export type EvidenceGroup = {
-  version: string;
-  digest: string;
-  configuration: Record<string, string>;
-  remote_consent: boolean;
-  sites: number;
-  cases: number;
-  left_out: { report: string; site: string; site_name: string; reason: string }[];
-  unreported_tickets: number;
-  withdrawn_tickets: number;
-  superseded_reports: number;
-  figures: EvidenceFigure[];
-  tests_run: number;
-};
-export type SiteEvidence = { format: string; pack: string; note: string; alpha: number; groups: EvidenceGroup[] };
+const count = z.int().nonnegative();
+const share = z.number().min(0).max(1);
+const reportedSite = z.object({ report: z.string(), site: z.string(), site_name: z.string() });
+const counts = z.object({ k: count, n: count, low: share.nullable(), high: share.nullable() });
 
-export const siteEvidence = (namespace: string, name: string) =>
-  get<SiteEvidence>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);
+function validCounts(value: Figure): boolean {
+  if (value.k > value.n) return false;
+  if (value.n === 0) return value.low === null && value.high === null;
+  return value.low !== null && value.high !== null && value.low <= value.high;
+}
+
+const siteFigure = reportedSite.extend({
+  ...counts.shape,
+  insufficient_evidence: z.boolean(),
+}).refine(validCounts);
+
+// An insufficient result has no estimate. An "ok" result must supply the numbers the
+// chart plots and the table prints. Extra fields from the registry may be added freely.
+const estimateStatus = z.object({ status: z.string(), method: z.string(), needs_sites: count.optional() });
+const pooled = estimateStatus.extend(counts.partial().shape).refine((p) =>
+  p.status !== "ok" || (
+    p.k !== undefined && p.n !== undefined && p.n > 0 && p.low != null && p.high != null
+    && validCounts({ k: p.k, n: p.n, low: p.low, high: p.high })
+  )
+);
+const randomEffects = estimateStatus.extend({
+  estimate: share.optional(), low: share.optional(), high: share.optional(),
+}).refine((p) => p.status !== "ok" || (
+  p.estimate !== undefined && p.low !== undefined && p.high !== undefined
+  && p.low <= p.estimate && p.estimate <= p.high
+));
+const homogeneity = z.object({
+  method: z.string().optional(), status: z.string(), p: share.optional(),
+  differ: z.boolean().optional(), seed: z.number().optional(), needs_sites: count.optional(),
+});
+const evidenceFigure = z.object({
+  figure: z.string(), label: z.string(), sites: z.array(siteFigure),
+  sites_pooled: count, cases_pooled: count, pooled, random_effects: randomEffects,
+  homogeneity, warning: z.string().nullable(),
+});
+const evidenceGroup = z.object({
+  version: z.string(), digest: z.string(), configuration: z.record(z.string(), z.string()),
+  remote_consent: z.boolean(), sites: count, cases: count,
+  left_out: z.array(reportedSite.extend({ reason: z.string() })),
+  unreported_tickets: count, withdrawn_tickets: count, superseded_reports: count,
+  figures: z.array(evidenceFigure), tests_run: count,
+});
+const siteEvidenceResponse = z.object({
+  format: z.literal("mendari.site-evidence/1"), pack: z.string(), note: z.string(), alpha: share,
+  groups: z.array(evidenceGroup),
+});
+
+export type SiteFigure = z.infer<typeof siteFigure>;
+export type Pooled = z.infer<typeof pooled>;
+export type RandomEffects = z.infer<typeof randomEffects>;
+export type Homogeneity = z.infer<typeof homogeneity>;
+export type EvidenceFigure = z.infer<typeof evidenceFigure>;
+export type EvidenceGroup = z.infer<typeof evidenceGroup>;
+export type SiteEvidence = z.infer<typeof siteEvidenceResponse>;
+
+export async function siteEvidence(namespace: string, name: string): Promise<SiteEvidence | null> {
+  const response = await get<unknown>(
+    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`,
+  );
+  if (response === null) return null;
+  const parsed = siteEvidenceResponse.safeParse(response);
+  if (!parsed.success || parsed.data.pack !== `${namespace}/${name}`) {
+    throw new RegistryUnavailable("Site evidence is unavailable.");
+  }
+  return parsed.data;
+}

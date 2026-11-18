@@ -146,6 +146,21 @@ def _actor(by: str) -> str:
     return by
 
 
+def _reason(reason: str) -> str:
+    reason = " ".join(reason.split())
+    if not reason or len(reason) > MAX_REASON_CHARS:
+        raise StoreError(f"a reason is one line of 1 to {MAX_REASON_CHARS} characters")
+    return reason
+
+
+def _clear_matches(db: Any, org: str, item_id: str, by: str) -> None:
+    db.all(
+        "UPDATE store_matches SET cleared_at = ?, cleared_by = ? WHERE org = ? "
+        "AND version_id = ? AND cleared_at IS NULL",
+        (_now(), by, org, item_id),
+    )
+
+
 def _org(org: str) -> str:
     try:
         return accounts.check_org_id(org)
@@ -309,6 +324,11 @@ def _promotion_shown(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_DATASET_METADATA = (
+    "id, name, state, created_at, kind, pack_id, digest, sha256, cases, sealed, report, created_by"
+)
+
+
 def _dataset_shown(row: Mapping[str, Any]) -> dict[str, Any]:
     shown = {
         "id": row["id"],
@@ -316,8 +336,8 @@ def _dataset_shown(row: Mapping[str, Any]) -> dict[str, Any]:
         "state": row["state"],
         "created_at": row["created_at"],
     }
-    if row["state"] == HELD:
-        return {**shown, "message": "held for the operator's review"}
+    if row["state"] != "ready":
+        return {**shown, "message": _said(row["state"])}
     return {
         **shown,
         "kind": row["kind"],
@@ -470,8 +490,7 @@ class PackStore:
             held = db.one(query, (org, since))
         if held is not None and int(held["n"]) >= HELD_STOP:
             raise StoreError(
-                "this organization's uploads are stopped until the operator reviews its held "
-                "versions",
+                "uploads are stopped until the operator reviews this organization's held uploads",
                 429,
             )
 
@@ -611,9 +630,7 @@ class PackStore:
         transaction (a match recorded or cleared with it)."""
         org, by = _org(org), _actor(by)
         if reason is not None:
-            reason = " ".join(reason.split())
-            if not reason or len(reason) > MAX_REASON_CHARS:
-                raise StoreError(f"a reason is one line of 1 to {MAX_REASON_CHARS} characters")
+            reason = _reason(reason)
         with self.store._db.session(exclusive=True) as db:
             found = db.one(
                 "SELECT id, state FROM store_versions WHERE org = ? AND digest = ?", (org, digest)
@@ -638,6 +655,8 @@ class PackStore:
                 self.store._append(db, chain, "pack_version.released", chained)
             else:
                 self.store._append(db, chain, "pack_version.withdrawn", chained)
+            if found["state"] == HELD:
+                _clear_matches(db, org, str(found["id"]), by)
             if also is not None:
                 also(db, str(found["id"]))
         if state != DRAFT:
@@ -1021,6 +1040,8 @@ class PackStore:
             else text
         )
         with self.store._db.session(exclusive=True) as db:
+            if kind == "upload":
+                self._refuse_stopped(org, db)
             db.all(
                 "INSERT INTO store_datasets (id, org, name, pack_id, digest, sha256, cases, "
                 "data, sealed, report, created_by, created_at, state, kind) "
@@ -1044,11 +1065,12 @@ class PackStore:
                 )  # fmt: skip
         return self.dataset(org, dataset_id)
 
-    def _dataset_row(self, org: str, dataset_id: str) -> Any:
+    def _dataset_row(self, org: str, dataset_id: str, *, with_data: bool = False) -> Any:
         org = _org(org)
+        columns = "name, state, sealed, data" if with_data else _DATASET_METADATA
         with self.store._db.session(exclusive=False) as db:
             found = db.one(
-                "SELECT * FROM store_datasets WHERE id = ? AND org = ?", (dataset_id, org)
+                f"SELECT {columns} FROM store_datasets WHERE id = ? AND org = ?", (dataset_id, org)
             )
         if found is None:
             raise StoreError("no such dataset in this organization's store", 404)
@@ -1064,14 +1086,16 @@ class PackStore:
         org = _org(org)
         with self.store._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT * FROM store_datasets WHERE org = ? ORDER BY created_at DESC, id", (org,)
+                f"SELECT {_DATASET_METADATA} FROM store_datasets WHERE org = ? "
+                "ORDER BY created_at DESC, id",
+                (org,),
             )
         return [_dataset_shown(row) for row in rows]
 
     def dataset_bytes(self, org: str, dataset_id: str) -> tuple[bytes, str]:
         """A ready dataset's JSON Lines and its name, opened under the PHI policy: for a job
         (`evals/store_jobs.py`), never a route."""
-        row = self._dataset_row(org, dataset_id)
+        row = self._dataset_row(org, dataset_id, with_data=True)
         if row["state"] != "ready":
             raise StoreError(f"dataset {dataset_id} is {_said(row['state'])}", 409)
         text = (
@@ -1367,20 +1391,34 @@ class PackStore:
     def clear(
         self, org: str, digest: str, *, by: str, release: bool, reason: str
     ) -> dict[str, Any]:
-        """The operator's answer to a held version: release it (a draft again) or withdraw it,
-        with a reason on the chain; its match is cleared, so it no longer counts towards
-        stopping the organization's uploads."""
-        cleared_by = _actor(by)
+        """Resolve a held version or dataset as identified by the operator's held list."""
+        if not digest.startswith("dataset:"):
+            kind = "pack_version.released" if release else "pack_version.withdrawn"
+            return self._move(org, digest, kind, (HELD,), by=by, reason=reason)
 
-        def cleared(db: Any, version_id: str) -> None:
-            db.all(
-                "UPDATE store_matches SET cleared_at = ?, cleared_by = ? WHERE org = ? "
-                "AND version_id = ? AND cleared_at IS NULL",
-                (_now(), cleared_by, org, version_id),
+        org, by, reason = _org(org), _actor(by), _reason(reason)
+        dataset_id = digest.removeprefix("dataset:")
+        state = "ready" if release else WITHDRAWN
+        with self.store._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT state FROM store_datasets WHERE id = ? AND org = ?", (dataset_id, org)
             )
-
-        kind = "pack_version.released" if release else "pack_version.withdrawn"
-        return self._move(org, digest, kind, (HELD,), by=by, reason=reason, also=cleared)
+            if row is None:
+                raise StoreError("no such dataset in this organization's store", 404)
+            if row["state"] != HELD:
+                raise StoreError(f"dataset {dataset_id} is {row['state']}", 409)
+            db.all("UPDATE store_datasets SET state = ? WHERE id = ?", (state, dataset_id))
+            _clear_matches(db, org, dataset_id, by)
+            chain = f"store_dataset:{dataset_id}"
+            kind = "store_dataset.released" if release else "store_dataset.withdrawn"
+            payload = self.store._bound(
+                kind, {"dataset": dataset_id, "by": by, "reason": reason}, org
+            )
+            if release:
+                self.store._append(db, chain, "store_dataset.released", payload)
+            else:
+                self.store._append(db, chain, "store_dataset.withdrawn", payload)
+        return {"org": org, "digest": digest, "state": state}
 
     def recheck(self, hidden: Any) -> list[dict[str, Any]]:
         """The hidden-set check again over every draft of every store (once hidden sets are

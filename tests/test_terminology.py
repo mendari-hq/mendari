@@ -73,7 +73,8 @@ PINNED = {
         # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
         # Moved in LP-20h, before 0.1.0's release: a store version's promotion and retirement.
         # Moved in LP-20i, before 0.1.0's release: the improvement dataset and its proposed tests.
-        "CodeSystem/audit-administrative-event": "c53d8e0aa65b0445",
+        # Operator release and withdrawal of held datasets.
+        "CodeSystem/audit-administrative-event": "5a7649ecb7f41df4",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }

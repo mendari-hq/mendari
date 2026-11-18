@@ -33,7 +33,7 @@ carries (each JSON Lines record's input and each behaviour test's) is looked up 
 hidden-case index, exactly and under `norm/v1`. On any match the version is stored `held`: it
 is not tested, edited from or served, and its uploader is told only that it is held for the
 operator's review. The match (set and case ids) is kept for the operator only. After three
-held versions in 30 days an organization's uploads stop until the operator answers them.
+held versions or datasets in 30 days an organization's uploads stop until the operator answers them.
 Without the keys the check is "not applicable": the deployment holds no hidden case.
 Once keys are set, `mendari store recheck` runs it over every draft kept before.
 
@@ -86,8 +86,10 @@ There is no worker: a **job** is a row that runs when an author asks, a slice at
   one transaction: two calls at once never decide a case twice, and a slice cut short is run
   again by the next call. The last slice writes one evaluation report with its ledger
   (`eval.recorded`), the same bytes a single run would write. A remote variant needs the
-  organization's evaluation quota (`eval_jev`, `eval_llm`) set and runs 200 cases at most; a job
-  runs 5,000 at most, and `store_jobs` bounds the jobs an organization makes a day.
+  organization's evaluation quota (`eval_jev`, `eval_llm`) for each remote provider it can call,
+  including members of a composite. Each slice checks the current quotas and uses the variants
+  selected when the job was created. Remote jobs run up to 200 cases, local jobs up to 5,000.
+  The `store_jobs` quota bounds the jobs an organization makes a day.
 - **Draft against current.** `GET /api/store/comparisons?draft=…&current=…` pairs two finished
   jobs on the same dataset: each side's figures as k of n with exact intervals, each difference
   with the exact McNemar test (Holm-adjusted over the family listed), the Brier difference with
@@ -155,8 +157,12 @@ events stay.
 | Withdraw a draft or held version, with a reason on the chain | `mendari store withdraw DIGEST --db … --org ORG --reason …` |
 | Free the files of versions withdrawn more than 30 days ago | `mendari store purge --db …` |
 | Read the held versions, with the hidden sets and cases each matched | `mendari store held --db …` |
-| Release a held version (a draft again), or withdraw it | `mendari store release` or `dismiss DIGEST --db … --org ORG --reason …` |
+| Release a held version or dataset, or withdraw it | `mendari store release` or `dismiss DIGEST --db … --org ORG --reason …` |
 | Run the hidden-set check again over every draft | `mendari store recheck --db …` (needs the evaluation-set keys) |
+
+For a dataset, pass the `dataset:<id>` shown by `store held` to `release` or `dismiss`.
+A released dataset can be evaluated. A withdrawn one stays unavailable. Both actions record the
+operator’s reason and remove the item from the upload hold count.
 
 Every command takes `--db` (a SQLite path or a `postgresql://` URL) or reads `DATABASE_URL`; the
 reads open the database read-only.

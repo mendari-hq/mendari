@@ -275,6 +275,12 @@ def test_open_mode_names_are_identifiers(tmp_path: Path, monkeypatch: pytest.Mon
     assert client.get(f"/api/audit/{decided['id']}").json()["reviewer"] == "sandbox-nurse"
 
 
+@pytest.mark.parametrize("claim", [{"clinicians": False}, 42, True, None])
+def test_malformed_role_claims_refuse_signin(app: TestClient, idp: FakeIdp, claim: Any) -> None:
+    assert sign_in(app, idp, roles=claim).status_code == 403
+    assert not app.get("/api/auth/me").json()["signed_in"]
+
+
 def test_an_account_without_a_role_is_refused(app: TestClient, idp: FakeIdp) -> None:
     done = sign_in(app, idp, roles=["marketing"])
     assert done.status_code == 403 and "no Mendari role" in done.text

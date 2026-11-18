@@ -33,7 +33,6 @@ Imported inside `create_app` only: `mendari.hub.registry` imports from `server/a
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypeVar
 
 from fastapi import FastAPI, HTTPException, Request
@@ -169,16 +168,6 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
             raise HTTPException(403, "only a person who signed in may do this")
         return principal, org_of(principal)
 
-    def held(org: str, namespace: str) -> dict[str, Any]:
-        """`org`'s claim on `namespace`, one that was not refused. A namespace that does not
-        exist, has no claim or is another organization's: one answer."""
-        found = registry.claims(org=org, namespace=namespace)
-        if not found:
-            raise HTTPException(404, f"no namespace {namespace!r}")
-        if found[0]["status"] == "refused":
-            raise HTTPException(409, f"the claim on {namespace!r} was refused")
-        return found[0]
-
     def shown(claim: dict[str, Any]) -> dict[str, Any]:
         space = registry.namespace(claim["namespace"], REVIEWER)
         return {
@@ -232,10 +221,11 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
         a namespace this organization claimed (another's, or none: `404`). A key belongs to one
         namespace (`409` otherwise). Chained `key.added`."""
         principal, org = person(request)
-        held(org, namespace)
-        if len(registry.namespace(namespace, REVIEWER)["keys"]) >= MAX_KEYS:
-            raise HTTPException(409, f"a namespace has {MAX_KEYS} publisher keys at most")
-        key_id = _asked(lambda: registry.add_key(namespace, body.public_pem, by=principal.id))
+        key_id = _asked(
+            lambda: registry.add_key(
+                namespace, body.public_pem, by=principal.id, claim_org=org, max_keys=MAX_KEYS
+            )
+        )
         security_log.event("admin.registry_key.added", actor=principal.id, org=org, ids=[key_id])
         return {"namespace": namespace, "key_id": key_id}
 
@@ -260,29 +250,6 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
         in this response only; the registry keeps its SHA-256. Chained `token.issued` with the
         organization, the owner's id and the expiry, never the token."""
         principal, org = person(request)
-        held(org, body.namespace)
-        now = datetime.now(UTC)
-        made = registry.tokens(org=org)
-        live = [
-            token
-            for token in made
-            if token["namespace"] == body.namespace
-            and token["revoked_at"] is None
-            and datetime.fromisoformat(token["expires_at"]) > now
-        ]
-        if len(live) >= MAX_LIVE_TOKENS:
-            raise HTTPException(
-                409, f"a namespace has {MAX_LIVE_TOKENS} working tokens at most: revoke one first"
-            )
-        today = [
-            token
-            for token in made
-            if now - datetime.fromisoformat(token["created_at"]) < timedelta(days=1)
-        ]
-        if len(today) >= MAX_TOKENS_A_DAY:
-            raise HTTPException(
-                429, f"an organization mints {MAX_TOKENS_A_DAY} tokens a day at most"
-            )
         minted = _asked(
             lambda: registry.mint_token(
                 body.namespace,
@@ -291,6 +258,7 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
                 name=body.name,
                 days=body.days,
                 by=principal.id,
+                claim_limits=(MAX_LIVE_TOKENS, MAX_TOKENS_A_DAY),
             )
         )
         security_log.event(
@@ -330,9 +298,11 @@ def add_registry_routes(app: FastAPI, auth: Auth, registry: RegistryStore) -> No
         and shares nothing until a registry reviewer verifies it. Chained `site.registered`
         with the organization and your id."""
         principal, org = person(request)
-        if len(registry.sites(org=org)) >= MAX_SITES:
-            raise HTTPException(409, f"an organization has {MAX_SITES} sites at most")
-        made = _asked(lambda: registry.register_site(org=org, name=body.name, by=principal.id))
+        made = _asked(
+            lambda: registry.register_site(
+                org=org, name=body.name, by=principal.id, max_sites=MAX_SITES
+            )
+        )
         security_log.event(
             "admin.registry_site.registered", actor=principal.id, org=org, ids=[made["id"]]
         )

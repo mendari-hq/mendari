@@ -55,7 +55,15 @@ def copy(page: Page, name: str = "inbox-router") -> str:
     store_tab(page, "packs")
     page.get_by_label("Pack", exact=True).fill(INBOX)
     page.get_by_label("Name of the copy").fill(name)
-    page.get_by_role("button", name="Copy", exact=True).click()
+    # Copying validates the complete pack before the server returns its digest.
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "POST" and response.url.endswith("/api/store/copies")
+        ),
+        timeout=30_000,
+    ) as created:
+        page.get_by_role("button", name="Copy", exact=True).click()
+    assert created.value.status == 201
     expect(page).to_have_url(re.compile(r"#store/version/sha256"))
     expect(page.locator("main h1")).to_contain_text(name)
     return digest_of(page)
@@ -144,6 +152,27 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     assert decide(site, a, INBOX)["pack"]["digest"] == resolve_pack(INBOX).digest  # type: ignore[index]
     with httpx.Client(base_url=site.base, headers={**a, **OWN}) as client:
         assert client.post(f"/api/packs/{CLINIC_B}/inbox-router/decide", json={}).status_code == 404
+
+
+def test_only_ready_datasets_are_available_for_jobs(site: Site) -> None:
+    page = site.window(
+        person(site, sub="author", email="author@example.org", org=CLINIC_B, roles=["pack_author"])
+    )
+    rows: list[dict[str, object]] = [
+        {"id": state, "name": name, "state": state, "created_at": "2026-01-01T00:00:00Z"}
+        for state, name in (("ready", "Usable"), ("held", "On hold"), ("withdrawn", "Archived"))
+    ]
+    rows[0].update(kind="upload", cases=7)
+    page.route("**/api/store/datasets", lambda route: route.fulfill(json=rows))
+    store_tab(page, "results")
+    table = page.locator('[data-table="store-datasets"]')
+    expect(table.get_by_role("row", name=re.compile("Archived"))).to_contain_text("Withdrawn")
+    expect(table.get_by_role("row", name=re.compile("On hold"))).to_contain_text(
+        "operator's review"
+    )
+    expect(page.locator("#job-dataset option")).to_have_text(
+        ["Usable (7 cases)", "The version's own test set"]
+    )
 
 
 def test_the_author_sees_no_promote_control_and_why(site: Site) -> None:

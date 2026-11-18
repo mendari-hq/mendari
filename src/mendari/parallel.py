@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import contextvars
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from itertools import islice
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -23,15 +24,26 @@ def parallel_map(fn: Callable[[T], R], items: Iterable[T], workers: int) -> list
     """`[fn(item) for item in items]`, on up to `workers` threads, results in input order. An
     error or Ctrl-C while waiting cancels what has not started (a remote provider is not called
     for the rest of a dataset) and waits only for what is running."""
-    items = list(items)
     if workers <= 1:
         return [fn(item) for item in items]
     pool = ThreadPoolExecutor(max_workers=workers)
+    indexed = enumerate(items)
+    pending: dict[Future[R], int] = {}
+    results: dict[int, R] = {}
     try:
-        futures = [pool.submit(contextvars.copy_context().run, fn, item) for item in items]
-        results = [future.result() for future in futures]
+        while True:
+            # Only consume input when a worker is available. A failed case stops dispatch
+            # even when a lower-numbered case is still waiting on its provider.
+            for index, item in islice(indexed, workers - len(pending)):
+                future = pool.submit(contextvars.copy_context().run, fn, item)
+                pending[future] = index
+            if not pending:
+                break
+            finished, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in finished:
+                results[pending.pop(future)] = future.result()
     except BaseException:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     pool.shutdown()
-    return results
+    return [results[index] for index in range(len(results))]

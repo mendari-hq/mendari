@@ -44,7 +44,7 @@ views.audit = async (main, params) => {
       <span class="grow"></span>
       ${may("admin") ? `<button type="button" id="export-fhir">${icon("download")} Export as FHIR</button>` : ""}
       ${may("admin") && state.accounts !== "memberships" ? `<button id="verify">Verify chain</button>
-      <span id="verify-result"></span>` : ""}
+      <span id="verify-result" role="status"></span>` : ""}
     </div>
     <p class="muted checkpoint" id="checkpoint"></p>
     <div class="panel" id="audit-table"></div>`;
@@ -64,12 +64,18 @@ views.audit = async (main, params) => {
     if (row) location.hash = `#audit/${encodeURIComponent(row.dataset.id)}`;
   });
   $("#outcome-filter").addEventListener("change", load);
-  $("#verify")?.addEventListener("click", async () => {
-    const result = await api("/api/audit/verify");
-    $("#verify-result").innerHTML = result.ok
-      ? `<span class="badge s-ok">verified · ${result.events} events</span>`
-      : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
-  });
+  $("#verify")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Verifying…", async () => {
+    const output = $("#verify-result"); // keep the result with the view that requested it
+    output.replaceChildren();
+    try {
+      const result = await api("/api/audit/verify");
+      output.innerHTML = result.ok
+        ? `<span class="badge s-ok">Verified · ${esc(result.events)} events</span>`
+        : `<span class="badge s-degraded">Broken at event ${esc(result.broken_at)}</span>`;
+    } catch (error) {
+      output.textContent = `Verification failed. ${error.message}`;
+    }
+  }));
   // Fetched, not linked, so the request carries the window's organization (`download`, ui.js).
   $("#export-fhir")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Exporting…", () => download(
     `/api/audit/export/fhir?pack_id=${encodeURIComponent(state.packId)}`,

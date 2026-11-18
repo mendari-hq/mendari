@@ -660,3 +660,75 @@ def test_a_publish_that_shadows_a_reference_pack_is_refused(
     assert (
         registry.publish(_at_version(tmp_path / "new", load_pack(root), "9.9.9")).status_code == 201
     )
+
+
+def test_catalog_counts_and_publisher_listing_do_not_render_cards(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert registry.publish().status_code == 201
+
+    def unexpected_render(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("an identifier-only read rendered a version")
+
+    monkeypatch.setattr(registry_module, "_version_row", unexpected_render)
+    assert registry.client.get("/v1/health").json()["packs"] == 1
+    assert registry.client.get("/v1/namespaces/mendari").json()["packs"] == [REFERRAL.id]
+
+
+def test_latest_loads_only_winning_cards_across_batches_and_preserves_version_ties(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert registry.publish().status_code == 201
+    store = registry.operator
+    with store._db.session(exclusive=True) as db:
+        for name in ("first", "second", "third"):
+            # The first two have equal version_key rank. The deliberately earlier publication
+            # sorts after the second one as text. The third is older despite being added last.
+            for version in ("2.0.0-z", "2.0.0-a", "1.9.0"):
+                db.all(
+                    "INSERT INTO hub_versions (namespace, name, version, created_at, "
+                    "archive_sha256, metadata) SELECT namespace, ?, ?, created_at, "
+                    "archive_sha256, metadata FROM hub_versions WHERE namespace = ? AND name = ?",
+                    (name, version, "mendari", "referral-router"),
+                )
+        session = type(db)
+    all_rows = session.all
+    loaded: list[tuple[str, str]] = []
+
+    def read(db: Any, sql: str, params: Any = ()) -> Any:
+        rows = all_rows(db, sql, params)
+        loaded.extend((r["name"], r["version"]) for r in rows if "metadata" in r)
+        return rows
+
+    monkeypatch.setattr(session, "all", read)
+    monkeypatch.setattr(registry_module, "_CATALOG_BATCH", 2)
+    latest = [(v["name"], v["version"]) for v in store.latest()]
+    assert latest == [
+        ("referral-router", REFERRAL.version),
+        ("first", "2.0.0-z"),
+        ("second", "2.0.0-z"),
+        ("third", "2.0.0-z"),
+    ]
+    assert sorted(loaded) == sorted(latest)
+
+
+def test_seed_tokens_are_revoked_except_when_saved_privately(tmp_path: Path) -> None:
+    from scripts.hub_seed import publisher_token
+
+    with RegistryStore(tmp_path / "seed.db") as store:
+        with publisher_token(store, "seed-site", "Seed site") as temporary:
+            assert store.publisher(temporary)
+        assert store.publisher(temporary) is None
+        saved = tmp_path / "publisher.token"
+        with publisher_token(store, "seed-site", "Seed site", keep=saved) as kept:
+            assert store.publisher(kept)
+        assert saved.stat().st_mode & 0o777 == 0o600
+        assert saved.read_text().strip() == kept
+        assert store.publisher(kept)
+        with (
+            pytest.raises(FileExistsError),
+            publisher_token(store, "seed-site", "Seed site", keep=saved) as failed,
+        ):
+            assert store.publisher(failed)
+        assert store.publisher(failed) is None
+        assert saved.read_text().strip() == kept

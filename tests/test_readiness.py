@@ -7,21 +7,25 @@ database work."""
 from __future__ import annotations
 
 import logging
+import select
 import shutil
 import socket
+import socketserver
 import sqlite3
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, suppress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from unittest.mock import patch
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mendari.core import db as db_module
+from mendari.core.audit import AuditStore
 from mendari.core.registry import SearchPath
 from mendari.server import readiness
 from mendari.server.app import create_app
@@ -93,86 +97,139 @@ def drop_schema_tables(target: str) -> None:
 
 
 class Relay:
-    """A TCP relay to the test Postgres that can be cut, as a network outage would: the server
-    starts through it; cut, every connection, open or new, is dropped; restored, it reconnects
-    (so its pool is left as healthy as any other test's)."""
+    """A loopback relay to the actual peer chosen by libpq for this test database."""
 
-    def __init__(self, host: str, port: int):
-        self.upstream = (host, port)
-        self.listener = socket.create_server(("127.0.0.1", 0))
-        self.port = self.listener.getsockname()[1]
-        self.sockets: list[socket.socket] = []
+    def __init__(self, target: str):
+        import psycopg
+
+        with psycopg.connect(target) as connection:
+            # libpq understands query overrides, service settings, multiple hosts and Unix
+            # sockets. Capture the peer it actually reached, never an assumed localhost:5432.
+            borrowed = socket.socket(fileno=connection.fileno())
+            try:
+                self.family = borrowed.family
+                self.peer = borrowed.getpeername()
+            finally:
+                borrowed.detach()  # psycopg owns the socket
+            hostname = (
+                connection.info.host
+                if self.family in (socket.AF_INET, socket.AF_INET6)
+                else "127.0.0.1"
+            )
+
+        self.sockets: set[socket.socket] = set()
         self.down = False
-        self.flowing = threading.Event()  # cleared: frozen, bytes held and sockets kept open
+        self.flowing = threading.Event()
         self.flowing.set()
         self.lock = threading.Lock()
-        threading.Thread(target=self._accept, daemon=True).start()
 
-    def _accept(self) -> None:
-        while True:
-            try:
-                client, _ = self.listener.accept()
-            except OSError:
-                return  # closed
-            if self.down:
-                client.close()
-                continue
-            server = socket.create_connection(self.upstream)
-            with self.lock:
-                self.sockets += [client, server]
-            for source, sink in ((client, server), (server, client)):
-                threading.Thread(target=self._pump, args=(source, sink), daemon=True).start()
+        forward = self._forward
 
-    def _pump(self, source: socket.socket, sink: socket.socket) -> None:
-        try:
-            while data := source.recv(65536):
-                self.flowing.wait()
-                sink.sendall(data)
-        except OSError:
-            pass
-        finally:
-            for end in (source, sink):
-                end.close()
+        class Handler(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                forward(self.request)
 
-    def url(self, target: str) -> str:
+        self.server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        port = self.server.server_address[1]
         parts = urlsplit(target)
         user = parts.netloc.rpartition("@")[0]
-        netloc = f"{user}@127.0.0.1:{self.port}" if user else f"127.0.0.1:{self.port}"
-        return urlunsplit(parts._replace(netloc=netloc))
+        authority = f"{user}@" if user else ""
+        query = [
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if k not in {"host", "hostaddr", "port"}
+        ]
+        # Preserve the hostname for TLS verification on TCP, but connect only to the relay.
+        query.extend([("host", hostname), ("hostaddr", "127.0.0.1")])
+        self.url = urlunsplit(
+            parts._replace(netloc=f"{authority}127.0.0.1:{port}", query=urlencode(query))
+        )
+        self.accepting = threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.05}
+        )
+        self.accepting.start()
+
+    def _forward(self, client: socket.socket) -> None:
+        with self.lock:
+            if self.down:
+                return
+        with socket.socket(self.family, socket.SOCK_STREAM) as upstream, suppress(OSError):
+            upstream.settimeout(3)
+            upstream.connect(self.peer)
+            upstream.settimeout(None)
+            with self.lock:
+                if self.down:
+                    return
+                self.sockets.update((client, upstream))
+            try:
+                while True:
+                    readable, _, _ = select.select([client, upstream], [], [])
+                    for source in readable:
+                        data = source.recv(65536)
+                        if not data:
+                            return
+                        self.flowing.wait()
+                        sink = upstream if source is client else client
+                        sink.sendall(data)
+            finally:
+                with self.lock:
+                    self.sockets.difference_update((client, upstream))
 
     def cut(self) -> None:
         with self.lock:
             self.down = True
             for end in self.sockets:
-                end.close()
-            self.sockets.clear()
+                with suppress(OSError):
+                    end.shutdown(socket.SHUT_RDWR)
 
     def freeze(self) -> None:
         """A network black hole: nothing gets through, and no connection is closed."""
         self.flowing.clear()
 
     def restore(self) -> None:
-        self.down = False
+        with self.lock:
+            self.down = False
         self.flowing.set()
+
+    def close(self) -> None:
+        self.cut()
+        self.flowing.set()
+        self.server.shutdown()
+        self.server.server_close()  # joins the forwarding threads
+        self.accepting.join()
+
+
+@contextmanager
+def relayed_client(target: str) -> Iterator[tuple[TestClient, Relay]]:
+    # create_app owns its store internally. Close its real connection pool before taking
+    # away the test listener, so its reconnect workers never outlive that listener.
+    with closing(Relay(target)) as relay, ExitStack() as resources:
+
+        def own_store(*args: Any, **kwargs: Any) -> AuditStore:
+            return resources.enter_context(AuditStore(*args, **kwargs))
+
+        with patch("mendari.server.app.AuditStore", own_store):
+            app = create_app(db_path=relay.url)
+        with TestClient(app) as client:
+            try:
+                yield client, relay
+            finally:
+                relay.restore()
 
 
 @contextmanager
 def server_on(db_target: str, tmp_path: Path) -> Iterator[tuple[TestClient, Any]]:
     """A server on `db_target`, and how to take its database away (`break_db(how)`)."""
     if db_target.startswith("postgresql"):
-        parts = urlsplit(db_target)
-        relay = Relay(parts.hostname or "localhost", parts.port or 5432)
+        with relayed_client(db_target) as (client, relay):
 
-        def break_postgres(how: str) -> None:
-            if how in ("empty", "foreign"):
-                drop_schema_tables(db_target)
-            else:
-                relay.cut()
+            def break_postgres(how: str) -> None:
+                if how in ("empty", "foreign"):
+                    drop_schema_tables(db_target)
+                else:
+                    relay.cut()
 
-        try:
-            yield TestClient(create_app(db_path=relay.url(db_target))), break_postgres
-        finally:
-            relay.restore()
+            yield client, break_postgres
         return
     path = Path(db_target)
     yield TestClient(create_app(db_path=path)), lambda how: break_sqlite(path, how)
@@ -362,10 +419,7 @@ def test_a_frozen_postgres_is_unreachable_within_the_bound(
     of a connection has no client-side limit, so readiness bounds its wait itself."""
     monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
     monkeypatch.setattr(readiness, "READY_TIMEOUT_S", 1.0)
-    parts = urlsplit(db_target)
-    relay = Relay(parts.hostname or "localhost", parts.port or 5432)
-    try:
-        client = TestClient(create_app(db_path=relay.url(db_target)))
+    with relayed_client(db_target) as (client, relay):
         assert client.get(READY).status_code == 200
         relay.freeze()
         started = time.monotonic()
@@ -374,8 +428,6 @@ def test_a_frozen_postgres_is_unreachable_within_the_bound(
         assert frozen.json()["checks"]["database"] == "unreachable"
         assert time.monotonic() - started < 3
         assert client.get(READY).status_code == 503  # still out: no second read joins it
-    finally:
-        relay.restore()
 
 
 # -- what it says, and what it never says -----------------------------------------------------

@@ -2229,6 +2229,15 @@ def create_app(
         logged_reads(request, queue)
         return queue
 
+    @app.get(
+        "/api/review/count",
+        tags=["Review and feedback"],
+        summary="Count decisions waiting for review",
+    )
+    def review_count(pack_id: str | None = None) -> dict[str, int]:
+        """The full queue count for the caller's organization, optionally filtered by pack."""
+        return {"pending": store.pending_review_count(pack_id)}
+
     @app.post(
         "/api/review/{decision_id}",
         tags=["Review and feedback"],

@@ -22,6 +22,8 @@ review, not in the EHR, so the export supplies the inputs and the site supplies 
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
 import uuid
 from collections import defaultdict
@@ -31,14 +33,20 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 import jwt
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.errors import FhirError, MendariError
-from mendari.standards.fhir import FhirAdapter
+from mendari.standards import fhir_structure
+from mendari.standards.fhir import FhirAdapter, is_absolute, link_target
 from mendari.standards.fhir_client import GuardedHttp
 
 MAX_FILE_BYTES = 1024 * 1024 * 1024  # one NDJSON file
 MAX_WAIT_SECONDS = 3600
+_SOURCE = "mendari-export-source.json"
 _ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 # What became of the request to delete a finished export (`export`'s `delete`): the server
 # accepted it (any 2xx), answered anything else (a 4xx, a 5xx, a redirect), did not answer in
@@ -66,12 +74,23 @@ def backend_token(
     endpoint = config.get("token_endpoint")
     if not isinstance(endpoint, str):
         raise BulkError("the server's SMART configuration has no token_endpoint")
-    algorithm = "ES384" if "BEGIN EC PRIVATE KEY" in private_key else "RS384"
+    try:
+        key = serialization.load_pem_private_key(private_key.encode(), password=None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        raise BulkError(
+            "backend services need an unencrypted RSA or P-384 EC private key"
+        ) from None
+    if isinstance(key, rsa.RSAPrivateKey):
+        algorithm = "RS384"
+    elif isinstance(key, ec.EllipticCurvePrivateKey) and isinstance(key.curve, ec.SECP384R1):
+        algorithm = "ES384"
+    else:
+        raise BulkError("backend services need an RSA or P-384 EC private key")
     issued = int(now())
     claims: dict[str, Any] = {"iss": client_id, "sub": client_id, "aud": endpoint}
     claims |= {"exp": issued + 300, "iat": issued, "jti": str(uuid.uuid4())}
     try:
-        assertion = jwt.encode(claims, private_key, algorithm=algorithm, headers={"kid": key_id})
+        assertion = jwt.encode(claims, key, algorithm=algorithm, headers={"kid": key_id})
     except (ValueError, TypeError, jwt.PyJWTError):
         raise BulkError(f"the private key cannot sign {algorithm}") from None
     form = {
@@ -84,9 +103,10 @@ def backend_token(
         token = http.post_form(endpoint, form, {"accept": "application/json"})
     except FhirError as error:
         raise BulkError(f"the backend-services token request failed: {error}") from None
-    if not token.get("access_token"):
+    access_token = token.get("access_token")
+    if not isinstance(access_token, str) or not access_token.strip():
         raise BulkError("the token response has no access_token")
-    return str(token["access_token"])
+    return access_token
 
 
 def export(
@@ -104,9 +124,16 @@ def export(
     """Run an export to completion; the files land in `out`. Returns the server's manifest, with
     each output's local `file` and line `count`, and what became of the request to delete the
     export on the server (`delete`, one of `DELETE_OUTCOMES`)."""
-    base = fhir.rstrip("/")
-    if group is not None and not set(group) <= _ID_CHARS:
+    base = _canonical_base(fhir)
+    if group is not None and (
+        not 1 <= len(group) <= 64 or group in (".", "..") or not set(group) <= _ID_CHARS
+    ):
         raise BulkError("the group id is not a FHIR id")
+    out = out.absolute()
+    if out == Path.cwd() or (out.is_dir() and out.samefile(Path.cwd())):
+        raise BulkError("choose an export directory other than the current working directory")
+    if out.is_symlink() or (out.exists() and (not out.is_dir() or any(out.iterdir()))):
+        raise BulkError("choose a new or empty directory for the export")
     url = f"{base}/Group/{group}/$export" if group else f"{base}/Patient/$export"
     params = {"_outputFormat": "application/fhir+ndjson"}
     if types:
@@ -120,22 +147,41 @@ def export(
         raise BulkError(f"the server did not start an export (HTTP {status}){_diagnostics(body)}")
     status_url = answer["content-location"]
     manifest = _wait(status_url, http=http, auth=auth, sleep=sleep, limit=max_wait)
-    out.mkdir(parents=True, exist_ok=True)
-    counts: dict[str, int] = defaultdict(int)
-    for output in manifest.get("output", []):
-        kind = str(output.get("type", "Resource"))
-        if not kind.isalnum():
-            raise BulkError(f"the manifest names an odd resource type {kind!r}")
-        counts[kind] += 1
-        path = out / f"{kind}.{counts[kind]:03d}.ndjson"
-        needs_token = manifest.get("requiresAccessToken", False)
-        http.download(
-            output["url"], path, headers=auth if needs_token else {}, max_bytes=MAX_FILE_BYTES
-        )
-        lines = sum(1 for line in path.read_bytes().splitlines() if line.strip())
-        if isinstance(output.get("count"), int) and output["count"] != lines:
-            raise BulkError(f"{path.name}: the manifest says {output['count']} lines, got {lines}")
-        output["file"], output["count"] = path.name, lines
+    # Publish a single complete cohort, including when two jobs target the same directory.
+    # POSIX rename can replace an empty directory but never one containing a completed export.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=out.parent, prefix=".mendari-export-") as scratch:
+        stage = Path(scratch) / "cohort"
+        stage.mkdir(mode=0o700)
+        counts: dict[str, int] = defaultdict(int)
+        for output in manifest["output"]:
+            kind = output["type"]
+            counts[kind] += 1
+            path = stage / f"{kind}.{counts[kind]:03d}.ndjson"
+            http.download(
+                output["url"],
+                path,
+                headers=auth if manifest.get("requiresAccessToken") else {},
+                max_bytes=MAX_FILE_BYTES,
+            )
+            lines = 0
+            for number, resource in _json_lines(path):
+                if not isinstance(resource, dict) or resource.get("resourceType") != kind:
+                    raise BulkError(f"{path.name}:{number}: expected a {kind} resource")
+                lines += 1
+            if "count" in output and output["count"] != lines:
+                raise BulkError(
+                    f"{path.name}: the manifest says {output['count']} lines, got {lines}"
+                )
+            output["file"], output["count"] = path.name, lines
+        # NDJSON resources have logical ids but no Bundle fullUrl. Keep their issuing base
+        # so an absolute Patient reference can only join a patient from this source.
+        (stage / _SOURCE).write_text(json.dumps({"fhir_base": base}) + "\n", encoding="utf-8")
+        if os.name == "nt" and out.is_dir():
+            # Windows rename only accepts an absent destination. rmdir refuses a concurrent
+            # writer's completed cohort, just as POSIX rename does.
+            out.rmdir()
+        stage.replace(out)
     manifest["delete"] = _delete(status_url, http=http, auth=auth)
     return manifest
 
@@ -169,11 +215,30 @@ def _wait(
         status, answer, body = http.raw("GET", status_url, headers=headers)
         if status == 200:
             try:
-                manifest: dict[str, Any] = json.loads(body)
-            except ValueError:
+                manifest = json.loads(body)
+            except (ValueError, RecursionError):
                 raise BulkError("the export's manifest is not JSON") from None
-            if manifest.get("error"):
-                raise BulkError(f"the export reported {len(manifest['error'])} error file(s)")
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("output"), list):
+                raise BulkError("the export's manifest needs an output list")
+            errors = manifest.get("error", [])
+            if not isinstance(errors, list):
+                raise BulkError("the manifest's error field must be a list")
+            if errors:
+                raise BulkError(f"the export reported {len(errors)} error file(s)")
+            if not isinstance(manifest.get("requiresAccessToken", False), bool):
+                raise BulkError("the manifest's requiresAccessToken field must be a boolean")
+            for item in manifest["output"]:
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("url"), str)
+                    or not item["url"]
+                ):
+                    raise BulkError("each manifest output needs a download URL")
+                kind = item.get("type")
+                if not isinstance(kind, str) or kind not in fhir_structure.rules().resource_types:
+                    raise BulkError("each manifest output needs an R4 resource type")
+                if "count" in item and (type(item["count"]) is not int or item["count"] < 0):
+                    raise BulkError("the manifest's output count must be a nonnegative integer")
             return manifest
         if status != 202:
             raise BulkError(f"the export failed (HTTP {status}){_diagnostics(body)}")
@@ -202,26 +267,73 @@ def _diagnostics(body: bytes) -> str:
     """The issue codes of an OperationOutcome body (codes only, never free text)."""
     try:
         issues = json.loads(body).get("issue", [])
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, RecursionError):
         return ""
-    codes = sorted({str(i.get("code")) for i in issues if isinstance(i, dict) and i.get("code")})
+    if not isinstance(issues, list):
+        return ""
+    valid = fhir_structure.rules().definitions["OperationOutcome_Issue"]["properties"]["code"][
+        "enum"
+    ]
+    codes = sorted({i["code"] for i in issues if isinstance(i, dict) and i.get("code") in valid})
     return f" ({', '.join(codes)})" if codes else ""
 
 
 # -- export -> dataset --------------------------------------------------------------------------
 
 
-def read_ndjson(directory: Path) -> Iterator[dict[str, Any]]:
-    for path in sorted(directory.glob("*.ndjson")):
-        for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), start=1):
+def _canonical_base(value: str) -> str:
+    try:
+        url = httpx.URL(value)
+    except httpx.InvalidURL:
+        raise BulkError("the FHIR base must be an absolute HTTP(S) URL") from None
+    if (
+        url.scheme not in {"http", "https"}
+        or not url.host
+        or url.userinfo
+        or url.query
+        or url.fragment
+    ):
+        raise BulkError("the FHIR base needs an HTTP(S) host and no credentials, query or fragment")
+    return str(url).rstrip("/")
+
+
+def export_base(directory: Path, supplied: str | None = None) -> str | None:
+    """The issuing server for a cohort, checked against any explicit --fhir-base."""
+    supplied = _canonical_base(supplied) if supplied is not None else None
+    marker = directory / _SOURCE
+    if not marker.exists():
+        return supplied
+    try:
+        record = json.loads(marker.read_text(encoding="utf-8"))
+    except (ValueError, RecursionError):
+        raise BulkError("the export source record is not valid JSON") from None
+    if not isinstance(record, dict) or not isinstance(record.get("fhir_base"), str):
+        raise BulkError("the export source record needs its FHIR base")
+    recorded = _canonical_base(record["fhir_base"])
+    if supplied is not None and supplied != recorded:
+        raise BulkError("--fhir-base differs from the source recorded for this export")
+    return recorded
+
+
+def _json_lines(path: Path) -> Iterator[tuple[int, Any]]:
+    """Read one UTF-8 JSON record at a time. Errors identify its line, without the contents."""
+    with path.open("rb") as source:
+        for number, line in enumerate(source, start=1):
             if not line.strip():
                 continue
             try:
-                resource = json.loads(line)
-            except json.JSONDecodeError:
+                value = json.loads(line.decode("utf-8"))
+            except (ValueError, RecursionError):
                 raise BulkError(f"{path.name}:{number}: not JSON") from None
-            if isinstance(resource, dict) and resource.get("resourceType"):
-                yield resource
+            yield number, value
+
+
+def read_ndjson(directory: Path) -> Iterator[dict[str, Any]]:
+    for path in sorted(directory.glob("*.ndjson")):
+        for number, resource in _json_lines(path):
+            if not isinstance(resource, dict) or not isinstance(resource.get("resourceType"), str):
+                raise BulkError(f"{path.name}:{number}: expected a FHIR resource")
+            yield resource
 
 
 def dataset(
@@ -230,19 +342,33 @@ def dataset(
     labels: Mapping[str, Mapping[str, str]],
     *,
     key_system: str,
+    fhir_base: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Cases for the pack: each focus resource with its patient's record, labelled by the
     identifier (in `key_system`) of the focus or, failing that, of its patient. Returns the
     labelled cases and counts of what was left out."""
-    patients = {r["id"]: r for r in resources if r["resourceType"] == "Patient" and r.get("id")}
+    base = _canonical_base(fhir_base) if fhir_base is not None else None
+    patients: dict[str, Mapping[str, Any]] = {}
     by_patient: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    focuses = []
     for resource in resources:
-        owner = _patient_of(resource)
+        owner = _patient_of(resource, base)
         if owner is not None:
             by_patient[owner].append(resource)
+        if resource["resourceType"] == "Patient":
+            owner = resource.get("id")
+            if owner is not None and not isinstance(owner, str):
+                raise BulkError("an exported Patient has a non-text id")
+            if owner:
+                if owner in patients:
+                    if patients[owner] != resource:
+                        raise BulkError("the export has conflicting records for one Patient id")
+                    continue
+                patients[owner] = resource
+        if adapter.is_focus(resource):
+            focuses.append((resource, owner))
     records, skipped = [], {"unlabelled": 0, "no_key": 0}
-    for focus in (r for r in resources if adapter.is_focus(r)):
-        owner = focus.get("id") if focus["resourceType"] == "Patient" else _patient_of(focus)
+    for focus, owner in focuses:
         patient = patients.get(owner or "")
         key = _identifier(focus, key_system) or (patient and _identifier(patient, key_system))
         if not key:
@@ -252,7 +378,11 @@ def dataset(
             skipped["unlabelled"] += 1
             continue
         record = [r for r in by_patient.get(owner or "", []) if r is not focus]
-        case = [focus, *record, *([patient] if patient else [])]
+        case = [
+            focus,
+            *record,
+            *([patient] if patient is not None and patient is not focus else []),
+        ]
         bundle = {"resourceType": "Bundle", "entry": [{"resource": r} for r in case]}
         indexed = adapter.index(bundle, focus=focus)
         records.append({"id": key, "input": adapter.to_input(indexed), "labels": dict(labels[key])})
@@ -263,23 +393,27 @@ def load_labels(path: Path) -> dict[str, dict[str, str]]:
     """Labels by case id from a JSONL file of `{"id": ..., "labels": {...}}` (an evaluation dataset
     works as it is; its inputs are ignored)."""
     labels = {}
-    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), start=1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            raise BulkError(f"{path.name}:{number}: not JSON") from None
+    for _, record in _json_lines(path):
         if isinstance(record, dict) and isinstance(record.get("labels"), dict) and record.get("id"):
             labels[str(record["id"])] = {str(k): str(v) for k, v in record["labels"].items()}
     return labels
 
 
-def _patient_of(resource: Mapping[str, Any]) -> str | None:
+def _patient_of(resource: Mapping[str, Any], base: str | None) -> str | None:
     for field in ("subject", "patient", "beneficiary"):
-        reference = str((resource.get(field) or {}).get("reference") or "")
-        if "Patient/" in reference:
-            return reference.rsplit("Patient/", 1)[-1]
+        ref = resource.get(field)
+        text = ref.get("reference") if isinstance(ref, Mapping) else None
+        if not isinstance(text, str):
+            continue
+        target = link_target(text)
+        if target is None or target[0] != "Patient":
+            continue
+        if is_absolute(text):
+            if base is None:
+                raise BulkError("absolute Patient references need the export source or --fhir-base")
+            if _canonical_base(text.rsplit("/Patient/", 1)[0]) != base:
+                raise BulkError("an absolute Patient reference belongs to a different FHIR base")
+        return target[1]
     return None
 
 

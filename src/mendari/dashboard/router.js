@@ -7,7 +7,7 @@ import { skeleton } from "./skeleton.js";
 import { wireTables } from "./table.js";
 import { $, api, esc, focusHeading, packLoaded, state } from "./ui.js";
 
-export const views = {};
+export const views = Object.create(null);
 
 // Routes are "#view" or "#view/param": "#audit/<decision id>" opens a record, "#evals/compare"
 // picks an evaluation view, "#patient/<launch id>" the patient of that EHR launch. A browser that
@@ -15,7 +15,10 @@ export const views = {};
 // window's own launch when the address no longer names it.
 export function route() {
   const [name = "overview", ...params] = (location.hash || "#overview").slice(1).split("/");
-  const named = params.filter(Boolean).map(decodeURIComponent);
+  const named = params.filter(Boolean).map((part) => {
+    try { return decodeURIComponent(part); }
+    catch { return part; } // retain an invalid identifier; a launch must keep its original pin
+  });
   // Memberships mode, a person acting for no organization: the access page (access.js) and
   // nothing else, beside a launch's patient if the browser holds one; reached no other way.
   if (state.noAccess && (!state.launchOnly || name === "access")) return { view: "access", params: [state.noAccess] };
@@ -68,6 +71,7 @@ async function paint({ navigated = false } = {}) {
   main.setAttribute("aria-busy", "true");
   main.classList.remove("view-enter");
   main.innerHTML = skeleton(view);
+  main.inert = false; // the previous pack's controls have been replaced
   let target = null;
   try {
     if (!views[view].packless) await packLoaded(); // the skeleton shows meanwhile
@@ -79,6 +83,7 @@ async function paint({ navigated = false } = {}) {
   } finally {
     main.removeAttribute("aria-busy");
   }
+  wireTables(main);
   // The content fades in where the skeleton was, rather than cutting over it. The reflow restarts
   // the animation when the class comes straight back (the same view rendered again).
   void main.offsetWidth;
@@ -88,7 +93,7 @@ async function paint({ navigated = false } = {}) {
     window.scrollTo(0, 0);
     focusHeading(main.querySelector("h1"), { scroll: false });
   }
-  refreshReviewCount();
+  if (view !== "review") refreshReviewCount(); // the queue already reads its total
 }
 
 // On a phone the section list scrolls sideways: the current section is scrolled into it, and edge
@@ -108,11 +113,21 @@ export const wire = (root) => {
   wireCharts(root);
 };
 
+let countRequest = 0;
 export async function refreshReviewCount() {
   if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) return; // no review queue for these
+  const pack = state.packId;
+  const request = ++countRequest;
+  const badge = $("#review-count");
+  if (badge.dataset.pack !== pack) badge.textContent = "";
+  badge.dataset.pack = pack;
   try {
-    const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
-    $("#review-count").textContent = pending.length || "";
+    const { pending } = await api(`/api/review/count?pack_id=${encodeURIComponent(pack)}`);
+    if (request !== countRequest || pack !== state.packId) return;
+    badge.textContent = pending || "";
     keepActiveSectionInView(); // the count changes the strip's width
-  } catch { /* the badge is optional */ }
+    return pending;
+  } catch {
+    if (request === countRequest && pack === state.packId) badge.textContent = "";
+  }
 }

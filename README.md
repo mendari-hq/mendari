@@ -456,6 +456,12 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
 
+Choose a new or empty export directory for each cohort. Mendari makes the files available
+together after checking their resource types and counts. A failed export can be retried with
+the same destination. Each export records its FHIR base so absolute patient links resolve within
+that source. For an older or externally produced export with absolute patient links, provide the
+issuing server with `mendari bulk dataset --fhir-base https://ehr.example.org/fhir`.
+
 The Referral Router tells a referral from other ServiceRequests by its FHIR mapping's code set
 `referral_category` (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its
 synthetic data, since no package carries SNOMED CT, wherever it sits among the category's

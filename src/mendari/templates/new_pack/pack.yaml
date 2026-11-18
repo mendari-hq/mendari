@@ -1,15 +1,15 @@
-# {{name}}: a Decision Pack written in YAML. Change anything; `mendari validate` checks it.
+# A Decision Pack written in YAML. Change anything; `mendari validate` checks it.
 # The authoring guide walks through every section:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
 spec_version: "0.2"
-id: {{id}}
+id: "{{id}}"
 version: 0.1.0
-name: {{name}}
+name: "{{name}}"
 summary: >-
   Routes a patient portal message: a medication refill, an appointment request, or something
   else for the front desk. Messages that describe same-day symptoms go to a nurse.
 publisher:
-  name: {{publisher}}
+  name: "{{publisher}}"
   type: community
 license: Apache-2.0
 

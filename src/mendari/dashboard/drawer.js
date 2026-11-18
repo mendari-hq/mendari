@@ -71,7 +71,7 @@ function leave(root, { animate }) {
 }
 
 function keepFocusInside(event, container) {
-  const focusable = [...container.querySelectorAll("a[href], button:not([disabled]), input, select, textarea, summary")]
+  const focusable = [...container.querySelectorAll('a[href], button:not([disabled]), input, select, textarea, summary, [tabindex="0"]')]
     .filter((el) => el.getClientRects().length);
   if (!focusable.length) return;
   const [first, last] = [focusable[0], focusable[focusable.length - 1]];

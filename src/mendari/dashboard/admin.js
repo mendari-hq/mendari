@@ -1261,6 +1261,8 @@ const ACTIVITY_TEXT = {
   "store_key.revoked": "Pack store author key revoked",
   "store_dataset.created": "Pack store dataset added",
   "store_dataset.held": "Pack store dataset held for the operator's review",
+  "store_dataset.released": "Pack store dataset released by the operator",
+  "store_dataset.withdrawn": "Pack store dataset withdrawn by the operator",
   "store_job.created": "Pack store evaluation job made",
   "pack_version.promoted": "Pack store version promoted to be served",
   "pack_version.retired": "Pack store version's promotion retired",

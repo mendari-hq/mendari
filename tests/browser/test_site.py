@@ -61,6 +61,29 @@ def test_the_page_never_scrolls_sideways_on_a_phone(site: Page, width: int) -> N
     assert site.evaluate("window.scrollX") == 0
 
 
+@pytest.mark.parametrize("width", [320, 390, 1440])
+def test_the_header_reaches_each_section_at_every_width(site: Page, width: int) -> None:
+    site.set_viewport_size({"width": width, "height": 800})
+    site.emulate_media(reduced_motion="reduce")
+    site.goto(f"{ORIGIN}/")
+    navigation = site.get_by_role("navigation", name="Main")
+    for name, target in (
+        ("How it works", "how"),
+        ("Scores", "scores"),
+        ("Packs", "packs"),
+        ("For teams", "teams"),
+        ("Get started", "start"),
+    ):
+        link = navigation.get_by_role("link", name=name, exact=True)
+        assert link.is_visible()
+        link.focus()
+        site.keyboard.press("Enter")
+        assert site.url.endswith(f"#{target}")
+        assert site.locator(f"#{target} h2").evaluate(
+            "(e) => e.getBoundingClientRect().top < window.innerHeight"
+        )
+
+
 def test_each_scores_row_header_stays_in_view_as_its_figures_scroll(site: Page) -> None:
     """On a phone the figures do not all fit, so they scroll sideways in their region; each row's
     header (its arm and configuration) stays at the region's left edge, and the last column, a

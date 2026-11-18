@@ -291,6 +291,8 @@ NOT_ON_A_DECISION = {
     "store_key.revoked",
     "store_dataset.created",  # its datasets and jobs (LP-20g)
     "store_dataset.held",
+    "store_dataset.released",
+    "store_dataset.withdrawn",
     "store_job.created",
     "pack_version.promoted",  # promotion (LP-20h)
     "pack_version.retired",

@@ -5,6 +5,8 @@ import base64
 import contextvars
 import json
 import time
+from collections.abc import Iterator
+from threading import Event
 
 import pytest
 
@@ -66,3 +68,24 @@ def test_an_interrupt_cancels_what_has_not_started() -> None:
         parallel_map(slow, range(200), workers=4)
     time.sleep(0.2)  # what was running finishes; nothing queued starts
     assert len(started) < 20
+
+
+def test_a_later_failure_stops_dispatch_while_the_first_case_is_pending() -> None:
+    release = Event()
+
+    def cases() -> Iterator[int]:
+        yield 0
+        yield 1
+        pytest.fail("read the next case while both worker slots were occupied")
+
+    def run(case: int) -> int:
+        if case == 1:
+            raise ValueError("evaluation stopped")
+        assert release.wait(timeout=5)
+        return case
+
+    try:
+        with pytest.raises(ValueError, match="evaluation stopped"):
+            parallel_map(run, cases(), workers=2)
+    finally:
+        release.set()

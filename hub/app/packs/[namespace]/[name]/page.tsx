@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { shown } from "@/lib/figures";
 import {
+  RegistryUnavailable,
   acceptanceWords,
   ENGINE_WORDS,
   pack,
@@ -50,7 +51,14 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </>
     );
   }
-  const evidence = await siteEvidence(namespace, name);
+  // A failure in site reporting should still leave recalls and the registry's checks visible.
+  let evidence: SiteEvidence | null;
+  try {
+    evidence = await siteEvidence(namespace, name);
+  } catch (error) {
+    if (!(error instanceof RegistryUnavailable)) throw error;
+    evidence = null;
+  }
   const { checked, claimed } = latest;
   const risk = claimed.risk;
   return (
@@ -69,6 +77,13 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <Fact label="Decides" value={latest.primary} foot={`${latest.questions.length} questions`} />
       </section>
 
+      <nav className="jump-links" aria-label="Pack sections">
+        <a href="#checked-heading">Registry checks</a>
+        <a href="#claimed-heading">Publisher claims</a>
+        <a href="#use-pack">Use this version</a>
+        <a href="#evidence-heading">Site evidence</a>
+        {latest.card_markdown && <a href="#decision-card">Decision Card</a>}
+      </nav>
       <section className="group checked" aria-labelledby="checked-heading">
         <h2 id="checked-heading">Checked by the registry</h2>
         <dl>
@@ -115,12 +130,13 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         </dl>
       </section>
 
-      <h2>Use it</h2>
-      <code className="pull">pip install mendari &amp;&amp; mendari pull {detail.id}</code>
+      <h2 id="use-pack">Use this version</h2>
+      <p>With Mendari installed and your CLI connected to this registry, run</p>
+      <code className="pull">mendari pull {detail.id}@{latest.version}</code>
       <p className="muted">
         Pulls verify the archive against its signature ({checked.signature.key_id}) and the pack digest{" "}
         <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for{" "}
-        <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
+        <code>mendari eval {detail.id}@{latest.version} --dataset your-cases.jsonl</code>.
       </p>
       <SiteEvidenceSection evidence={evidence} version={latest.version} packId={detail.id} />
       <h2>Versions</h2>
@@ -128,7 +144,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       <Recalls recalled={recalled} />
       {latest.card_markdown ? (
         <>
-          <h2>Decision Card</h2>
+          <h2 id="decision-card">Decision Card</h2>
           <p className="muted">Rendered by the registry from the pack&apos;s own files. What it says is the publisher&apos;s.</p>
           <article className="markdown">
             {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
@@ -146,23 +162,23 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
 // own section, apart from what the registry checked and from any rank (ADR-0017).
 function SiteEvidenceSection({ evidence, version, packId }: { evidence: SiteEvidence | null; version: string; packId: string }) {
   const groups = (evidence?.groups ?? []).filter((group) => group.version === version);
-  const sites = groups.reduce((total, group) => total + group.sites, 0);
-  const cases = groups.reduce((total, group) => total + group.cases, 0);
+  // Multiple configurations can include the same site and cases.
+  const single = groups.length === 1 ? groups[0] : null;
   return (
     <section className="group evidence" aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">
-        Site evidence{groups.length ? `: ${sites} ${sites === 1 ? "site" : "sites"}, ${cases} cases` : ""}
+        Site evidence{single ? `: ${single.sites} ${single.sites === 1 ? "site" : "sites"}, ${single.cases} cases` : groups.length ? `: ${groups.length} configurations` : ""}
       </h2>
       <p className="muted">
         These are sites&apos; own data, shared as signed counts. They are not part of any hidden-set result or
         rank. A ticket binds a dataset before its run, not how its cases were chosen.
       </p>
-      {groups.length ? (
+      {!evidence ? <p>Site evidence is currently unavailable. Reload this page to check again.</p> : groups.length ? (
         groups.map((group) => <EvidenceGroupView key={`${group.digest}:${JSON.stringify(group.configuration)}:${group.remote_consent}`} group={group} />)
       ) : (
         <p>
           No site has shared signed counts for version {version} yet. A verified site shares how this pack did on its
-          own data with <code>mendari eval {packId} --dataset … --share</code>; no case leaves the site.
+          own data with <code>mendari eval {packId}@{version} --dataset … --share</code>; no case leaves the site.
         </p>
       )}
     </section>

@@ -20,7 +20,7 @@ newest is served).
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -116,6 +116,17 @@ def _inside(path: Path, directory: Path) -> bool:
     return False
 
 
+def _manifests(base: Path) -> Iterator[Path]:
+    """Prune the search at its declared depth before entering unrelated project trees."""
+    for parent, children, _ in os.walk(base):
+        folder = Path(parent)
+        if len(folder.relative_to(base).parts) + 1 >= MAX_DEPTH:
+            children.clear()
+        manifest = folder / MANIFEST
+        if os.path.lexists(manifest):
+            yield manifest
+
+
 def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     """Every pack on the search path (or `paths`; a plain path's origin is `origin_of` it),
     and why each other `pack.yaml` found is not served, by directory. A pack never stops a
@@ -130,10 +141,10 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     seen: set[Path] = set()
     community_on: bool | None = None
     for order, (base, base_origin) in enumerate(bases):
-        for manifest in sorted(Path(base).glob(f"**/{MANIFEST}")):
+        for manifest in sorted(_manifests(base)):
             root = manifest.parent.resolve()
             depth = len(manifest.relative_to(base).parts)
-            if root in seen or depth > MAX_DEPTH:
+            if root in seen:
                 continue
             origin = base_origin
             if base_origin == "local":

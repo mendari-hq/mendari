@@ -47,6 +47,27 @@ SLICE_SECONDS = 20.0  # well under a function's limit (vercel.json: 300 s)
 CLAIM_SECONDS = 120  # a slice not finished by then is repeated by the next call
 REMOTE_LIMIT = 200  # a remote arm's cases, as the evaluation route caps them
 MAX_CASES = 5000
+_JOB_METADATA = (
+    "id, target, dataset, dataset_sha256, config, state, done, total, report_id, error, "
+    "created_by, created_at, finished_at"
+)
+
+
+def _case_limit(decision: Decision, limits: Mapping[str, int]) -> int:
+    """Check the quotas for every remote provider the selected variants can call."""
+    remote = {
+        leaf.type
+        for provider in decision.providers.values()
+        for leaf in provider.leaves()
+        if leaf.remote
+    }
+    missing = sorted(f"eval_{kind}" for kind in remote if f"eval_{kind}" not in limits)
+    if missing:
+        raise StoreError(
+            "a remote variant needs this organization's evaluation quota "
+            f"({', '.join(missing)} in MENDARI_ORG_DAILY_LIMITS)"
+        )
+    return REMOTE_LIMIT if remote else MAX_CASES
 
 
 def _lines(built: ledgers.Ledger) -> list[dict[str, Any]]:
@@ -152,6 +173,8 @@ class JobStore:
         `variants` (default: the version's own). A remote variant needs the organization's
         evaluation quota for its provider type (`eval_jev`, `eval_llm`) to be set, and runs on
         `REMOTE_LIMIT` cases at most. Chained `store_job.created`."""
+        if dataset.keys() not in ({"name"}, {"id"}):
+            raise StoreError("the dataset reference must contain exactly one name or id")
         target, named = self._target(org, digest, pack)
         data = self._dataset(org, target, dataset)
         problems = record_problems(target.manifest, data)
@@ -162,18 +185,13 @@ class JobStore:
             if slot not in slots or variant not in slots[slot].variants:
                 raise StoreError(f"{target.id} has no variant {variant!r} in slot {slot!r}")
         decision = self.decision_for(target, variants or {})
-        total = min(len(data.records), MAX_CASES)
-        if decision.is_remote:
-            types = {info.type for info in decision.provider_info.values()} & {"jev", "llm"}
-            unset = sorted(t for t in types if f"eval_{t}" not in (limits or {}))
-            if unset:
-                raise StoreError(
-                    "a remote variant needs this organization's evaluation quota "
-                    f"({', '.join('eval_' + t for t in unset)} in MENDARI_ORG_DAILY_LIMITS)"
-                )
-            total = min(total, REMOTE_LIMIT)
+        total = min(len(data.records), _case_limit(decision, limits or {}))
         job_id, now = str(uuid.uuid4()), _now()
-        config = {"variants": dict(sorted((variants or {}).items()))}
+        providers = decision.provider_info
+        config = {
+            "variants": {slot: info.variant for slot, info in providers.items()},
+            "models": {slot: info.model for slot, info in providers.items()},
+        }
         quota = (limits or {}).get("store_jobs")
         day = clock.today().isoformat()
         with self.store._db.session(exclusive=True) as db:
@@ -197,7 +215,9 @@ class JobStore:
             self.store._append(db, f"store_job:{job_id}", "store_job.created", chained)
         return self.job(org, job_id)
 
-    def advance(self, org: str, job_id: str) -> dict[str, Any]:
+    def advance(
+        self, org: str, job_id: str, *, limits: Mapping[str, int] | None = None
+    ) -> dict[str, Any]:
         """Run the job's next slice, if no other call holds it: claim it in one transaction,
         decide as many cases as fit `SLICE_SECONDS`, keep their ledger lines, and, on the last
         slice, write the report with its ledger (`save_report`, chained `eval.recorded`). Called
@@ -216,7 +236,10 @@ class JobStore:
             )
             done, total = int(row["done"]), int(row["total"])
         try:
-            lines, header, latencies = self._slice(org, row, done, total)
+            if done == total and row["header"] is not None:
+                return self._finish(org, job_id)  # resume after the last slice was committed
+            with tenancy.acting_for(org):
+                lines, header, latencies = self._slice(org, row, done, total, limits or {})
         except (MendariError, StoreError) as error:
             return self._fail(org, job_id, claim, str(error))
         with self.store._db.session(exclusive=True) as db:
@@ -236,7 +259,7 @@ class JobStore:
         return self.job(org, job_id)
 
     def _slice(
-        self, org: str, row: Mapping[str, Any], done: int, total: int
+        self, org: str, row: Mapping[str, Any], done: int, total: int, limits: Mapping[str, int]
     ) -> tuple[list[dict[str, Any]], dict[str, Any], list[int]]:
         """Decide the next cases (one at least) within `SLICE_SECONDS`: their ledger lines (models
         named), the ledger's header, and each decision's latency."""
@@ -247,7 +270,20 @@ class JobStore:
         data = self._dataset(org, target, json.loads(row["dataset"]))
         if data.sha256 != row["dataset_sha256"]:
             raise StoreError("the job's dataset changed since it was created")
-        decision = self.decision_for(target, json.loads(row["config"])["variants"])
+        config = json.loads(row["config"])
+        variants, models = config["variants"], config.get("models")
+        if models is None and row["header"] is not None:
+            # Legacy jobs kept only overrides. Their first slice recorded the resolved providers.
+            prior = json.loads(row["header"])["providers"]
+            variants = {slot: info["variant"] for slot, info in prior.items()}
+            models = {slot: info["model"] for slot, info in prior.items()}
+        decision = self.decision_for(target, variants)
+        if models is not None and models != {
+            slot: info.model for slot, info in decision.provider_info.items()
+        }:
+            raise StoreError("the configured provider model changed since the job was recorded")
+        if total > _case_limit(decision, limits):
+            raise StoreError("the job exceeds the current case limit for its providers")
         started = self.clock()
         results: list[DecisionResult] = []
         for record in data.records[done:total]:
@@ -305,17 +341,21 @@ class JobStore:
 
     # -- reads -------------------------------------------------------------------------------
 
-    def _row(self, db: Any, org: str, job_id: str) -> Any:
-        found = db.one("SELECT * FROM store_jobs WHERE id = ? AND org = ?", (job_id, org))
+    def _row(self, db: Any, org: str, job_id: str, *, metadata_only: bool = False) -> Any:
+        columns = _JOB_METADATA if metadata_only else "*"
+        found = db.one(f"SELECT {columns} FROM store_jobs WHERE id = ? AND org = ?", (job_id, org))
         if found is None:
             raise StoreError("no such job in this organization", 404)
         return found
 
     def _shown(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        # Early job requests could include unrelated fields. Only show the reference actually used.
+        dataset = json.loads(row["dataset"])
+        key = "name" if "name" in dataset else "id"
         return {
             "id": row["id"],
             **json.loads(row["target"]),
-            "dataset": json.loads(row["dataset"]),
+            "dataset": {key: dataset[key]},
             "dataset_sha256": row["dataset_sha256"],
             "config": json.loads(row["config"]),
             "state": row["state"],
@@ -331,12 +371,14 @@ class JobStore:
     def job(self, org: str, job_id: str) -> dict[str, Any]:
         """One of `org`'s jobs: its state and progress as counts; never a case."""
         with self.store._db.session(exclusive=False) as db:
-            return self._shown(self._row(db, org, job_id))
+            return self._shown(self._row(db, org, job_id, metadata_only=True))
 
     def jobs(self, org: str) -> list[dict[str, Any]]:
         with self.store._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT * FROM store_jobs WHERE org = ? ORDER BY created_at DESC, id", (org,)
+                f"SELECT {_JOB_METADATA} FROM store_jobs WHERE org = ? "
+                "ORDER BY created_at DESC, id",
+                (org,),
             )
         return [self._shown(row) for row in rows]
 

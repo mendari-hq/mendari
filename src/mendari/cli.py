@@ -1742,9 +1742,13 @@ def cmd_bulk_dataset(args: argparse.Namespace) -> int:
     from mendari.standards.fhir import FhirAdapter
 
     adapter = FhirAdapter.for_pack(resolve_pack(args.pack))
-    resources = list(bulk.read_ndjson(Path(args.ndjson)))
+    directory = Path(args.ndjson)
+    base = bulk.export_base(directory, args.fhir_base)
+    resources = list(bulk.read_ndjson(directory))
     labels = bulk.load_labels(Path(args.labels))
-    records, skipped = bulk.dataset(adapter, resources, labels, key_system=args.key_system)
+    records, skipped = bulk.dataset(
+        adapter, resources, labels, key_system=args.key_system, fhir_base=base
+    )
     if not records:
         raise MendariError(f"no labelled cases for {args.pack} in {args.ndjson} ({skipped})")
     _write_jsonl(Path(args.out), records)
@@ -3042,8 +3046,7 @@ def cmd_store_withdraw(args: argparse.Namespace) -> int:
 
 
 def cmd_store_held(args: argparse.Namespace) -> int:
-    """The versions the hidden-set check held, not yet cleared, with the hidden sets and cases
-    each matched (LP-20f): the operator's only, no route answers it. Read-only."""
+    """List the unresolved versions and datasets with the hidden sets and cases they matched."""
     store, _ = _pack_store(args.db, writes=False)
     with store.store:
         _print_json(store.held())
@@ -3051,8 +3054,7 @@ def cmd_store_held(args: argparse.Namespace) -> int:
 
 
 def cmd_store_clear(args: argparse.Namespace) -> int:
-    """The operator releases a held version (a draft again) or withdraws it, with a reason on
-    the chain; its match no longer counts towards stopping the organization's uploads."""
+    """Release or withdraw a held version or dataset and record the operator's reason."""
     store, shown = _pack_store(args.db, writes=True)
     release = args.store_command == "release"
     with store.store:
@@ -3435,11 +3437,15 @@ def cmd_new(args: argparse.Namespace) -> int:
     """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
     With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
     also passes `mendari community-check`, its benchmark and card written."""
+    import shutil
+
+    import yaml
+
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
 
     target = Path(args.dir)
-    if target.exists() and any(target.iterdir()):
+    if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise MendariError(f"{target} exists and is not empty")
     pack_id = args.id
     if args.community:
@@ -3458,20 +3464,47 @@ def cmd_new(args: argparse.Namespace) -> int:
     if not _PACK_ID.match(pack_id):
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
     name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
-    values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    # Each placeholder is a whole YAML string scalar. Substitute once, so punctuation, quotes
+    # and placeholder-looking text in publisher names stay data.
+    values = {
+        key: yaml.safe_dump(value, default_style='"', width=sys.maxsize).rstrip()
+        for key, value in {"id": pack_id, "name": name, "publisher": args.publisher}.items()
+    }
     templates = [TEMPLATE, COMMUNITY_TEMPLATE] if args.community else [TEMPLATE]
-    for template in templates:
-        for source in sorted(template.rglob("*")):
-            if not source.is_file():
-                continue
-            text = source.read_text(encoding="utf-8")
-            for placeholder, value in values.items():
-                text = text.replace(placeholder, value)
-            destination = target / source.relative_to(template)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(text, encoding="utf-8")
-    if args.community:
-        _publish_benchmark(target)
+    target.mkdir(parents=True, exist_ok=True)
+    stage = target / ".mendari-new"
+    try:
+        stage.mkdir(mode=0o700)  # only one creator may publish into this directory
+    except FileExistsError:
+        raise MendariError(f"{target} exists and is not empty") from None
+    with contextlib.ExitStack() as cleanup:
+        cleanup.callback(shutil.rmtree, stage)
+        if any(path != stage for path in target.iterdir()):
+            raise MendariError(f"{target} exists and is not empty")
+        for template in templates:
+            for source in sorted(template.rglob("*")):
+                if not source.is_file():
+                    continue
+                text = source.read_text(encoding="utf-8")
+                if source.suffix == ".yaml":
+                    text = re.sub(r'"\{\{(id|name|publisher)\}\}"', lambda m: values[m[1]], text)
+                else:
+                    text = text.replace("{{id}}", pack_id)
+                destination = stage / source.relative_to(template)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(text, encoding="utf-8")
+        if args.community:
+            _publish_benchmark(stage)
+        # Keep the target itself, including when it is the invoking shell's working directory.
+        # Publish the manifest last. Undo earlier moves if a later entry cannot be installed.
+        with contextlib.ExitStack() as rollback:
+            for entry in sorted(stage.iterdir(), key=lambda path: path.name == "pack.yaml"):
+                final = target / entry.name
+                if os.path.lexists(final):
+                    raise MendariError(f"{final} already exists")
+                entry.rename(final)
+                rollback.callback(final.rename, entry)
+            rollback.pop_all()
     print(f"{pack_id} created in {target}. Next:")
     steps = [f"mendari validate {target}", f"mendari test {target}"]
     if args.community:
@@ -4356,7 +4389,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_bulk = bulk.add_parser("export", help="run a Bulk FHIR $export and download the files")
     export_bulk.add_argument("--fhir", required=True, help="FHIR R4 base URL (on the allow-list)")
-    export_bulk.add_argument("--out", required=True, help="directory for the NDJSON files")
+    export_bulk.add_argument(
+        "--out", required=True, help="new or empty directory for the NDJSON files"
+    )
     export_bulk.add_argument("--group", help="export this Group (default: all patients)")
     export_bulk.add_argument("--type", help="resource types, comma-separated")
     export_bulk.add_argument("--since", help="only resources changed since (FHIR instant)")
@@ -4368,6 +4403,9 @@ def build_parser() -> argparse.ArgumentParser:
     dataset_bulk = bulk.add_parser("dataset", help="turn an export into a pack's local dataset")
     dataset_bulk.add_argument("--pack", required=True, help="namespace/name")
     dataset_bulk.add_argument("--ndjson", required=True, help="directory of NDJSON files")
+    dataset_bulk.add_argument(
+        "--fhir-base", help="issuing FHIR base for external exports with absolute Patient links"
+    )
     dataset_bulk.add_argument(
         "--labels", required=True, help='JSONL of {"id", "labels"} (a dataset file works)'
     )
@@ -4830,14 +4868,16 @@ def build_parser() -> argparse.ArgumentParser:
     store_withdraw.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_withdraw.set_defaults(handler=cmd_store_withdraw)
     store_held = store.add_parser(
-        "held", help="versions the hidden-set check held, with what each matched (operator's)"
+        "held", help="versions and datasets held by the hidden-set check (operator's)"
     )
     store_held.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_held.set_defaults(handler=cmd_store_held)
-    for verb, what in (("release", "release a held version: a draft again"),
-                       ("dismiss", "withdraw a held version")):  # fmt: skip
+    for verb, what in (
+        ("release", "release a held version or dataset"),
+        ("dismiss", "withdraw a held version or dataset"),
+    ):
         cleared = store.add_parser(verb, help=what)
-        cleared.add_argument("digest", help="the version's digest (sha256:...)")
+        cleared.add_argument("digest", help="the version digest or dataset:<id> from store held")
         cleared.add_argument("--org", required=True, help="the organization")
         cleared.add_argument("--reason", required=True, help="why, kept on the chain")
         cleared.add_argument("--db", help="the server's database (default: $DATABASE_URL)")

@@ -28,6 +28,10 @@
   <button type="button" class="skip-link" id="skip-link">Skip to content</button>
   <!-- Icons from Lucide (https://lucide.dev), ISC License; see /static/LICENSE-lucide.txt. -->
   <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M8 16v-5m5 5V7m5 9v-8"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h5l3-9 4 18 3-9h5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9Z"/></symbol>
     <symbol id="i-thumbs-up" viewBox="0 0 24 24"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></symbol>
     <symbol id="i-thumbs-down" viewBox="0 0 24 24"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
@@ -106,30 +110,30 @@
   <div class="shell">
     <nav class="nav" aria-label="Sections">
       <!-- Shown after a SMART launch from the EHR (patient.js). -->
-      <a href="#patient" data-view="patient" hidden>This patient</a>
+      <a href="#patient" data-view="patient" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-user"/></svg>This patient</a>
       <!-- Memberships mode: a launch in a browser whose person has chosen no organization yet. -->
-      <a href="#access" data-view="access" hidden>Choose an organization</a>
-      <a href="#overview" data-view="overview">Overview</a>
-      <a href="#review" data-view="review">Review queue <span class="count" id="review-count"></span></a>
-      <a href="#audit" data-view="audit">Audit trail</a>
-      <a href="#evals" data-view="evals">Evaluations</a>
-      <a href="#monitoring" data-view="monitoring">Monitoring</a>
-      <a href="#feedback" data-view="feedback">Feedback</a>
-      <a href="#card" data-view="card">Decision Card</a>
-      <a href="#try" data-view="try">Try it</a>
+      <a href="#access" data-view="access" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-settings"/></svg>Choose an organization</a>
+      <a href="#overview" data-view="overview"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-layout"/></svg>Overview</a>
+      <a href="#review" data-view="review"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-inbox"/></svg>Review queue <span class="count" id="review-count"></span></a>
+      <a href="#audit" data-view="audit"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-history"/></svg>Audit trail</a>
+      <a href="#evals" data-view="evals"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-chart"/></svg>Evaluations</a>
+      <a href="#monitoring" data-view="monitoring"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitoring</a>
+      <a href="#feedback" data-view="feedback"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-message"/></svg>Feedback</a>
+      <a href="#card" data-view="card"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Decision Card</a>
+      <a href="#try" data-view="try"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Try it</a>
       <!-- An administrator who signed in (admin.js): API keys and clients; people in memberships mode. -->
-      <a href="#admin" data-view="admin" hidden>Access</a>
+      <a href="#admin" data-view="admin" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-settings"/></svg>Access</a>
       <!-- An administrator who signed in, in memberships mode where hidden evaluation sets are on
            (evalsets.js): their organization's sets, drawn, assigned and followed. -->
-      <a href="#evalsets" data-view="evalsets" hidden>Hidden sets</a>
+      <a href="#evalsets" data-view="evalsets" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-inbox"/></svg>Hidden sets</a>
       <!-- Someone holding `label` where the labelling routes are served (labelling.js). -->
-      <a href="#labelling" data-view="labelling" hidden>Labelling</a>
+      <a href="#labelling" data-view="labelling" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-check"/></svg>Labelling</a>
       <!-- A reviewer of the pack registry, in its review organization, where the registry is served
            here (registry.js): the namespace claims waiting. -->
-      <a href="#registry-review" data-view="registry-review" hidden>Registry review</a>
+      <a href="#registry-review" data-view="registry-review" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Registry review</a>
       <!-- A pack author or someone who may promote, where the organization's pack store is served
            (store.js, LP-20j). -->
-      <a href="#store" data-view="store" hidden>Pack store</a>
+      <a href="#store" data-view="store" hidden><svg class="icon nav-icon" aria-hidden="true"><use href="#i-inbox"/></svg>Pack store</a>
       <a href="/docs" class="external">API docs <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a>
     </nav>
     <main id="view" tabindex="-1"></main>

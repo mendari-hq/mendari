@@ -1096,12 +1096,38 @@ td .interval {
   }
 }
 
-/* Phones: the in-page links give way to the one action. The score table's figures scroll
-   sideways in their region, each row's header held at its left edge. */
+/* Phones: retain the section links below the brand and the primary action. The scores
+   scroll in their region, with each row's header held at its left edge. */
 
 @media (max-width: 36rem) {
+  .top {
+    position: relative;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+    padding-block: 1rem 0;
+  }
+
+  .top .brand {
+    align-self: flex-start;
+  }
+
+  .nav {
+    justify-content: space-between;
+    gap: 0 0.625rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .nav .button {
+    position: absolute;
+    inset-block-start: 1rem;
+    inset-inline-end: 1.5rem;
+  }
+
   .nav a:not(.button) {
-    display: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
   }
 
   table {

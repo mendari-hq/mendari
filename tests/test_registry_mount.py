@@ -633,6 +633,36 @@ def test_an_organization_makes_a_bounded_number_of_tokens_and_keys(
     assert third.status_code == 409 and "2 publisher keys" in third.json()["detail"]
 
 
+def test_two_concurrent_requests_share_the_last_publisher_token(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    monkeypatch.setattr(registry_routes, "MAX_LIVE_TOKENS", 1)
+    admin = world.person()
+    world.claim()
+    store = world.registry
+    mint_token = store.mint_token
+    both_at_store = Barrier(2)
+
+    def together(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        both_at_store.wait(timeout=30)
+        return mint_token(*args, **kwargs)
+
+    monkeypatch.setattr(store, "mint_token", together)
+
+    def mint(name: str) -> int:
+        response = world.http.post(
+            "/api/registry/tokens", json={"namespace": "acme", "name": name}, headers=admin
+        )
+        return response.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(mint, ("first", "second"))) == [201, 409]
+    assert len(store.tokens()) == 1
+
+
 def test_a_namespaces_tokens_share_one_write_budget(
     db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -63,6 +63,27 @@ def _copy(
     return root
 
 
+def test_discovery_never_scans_past_its_manifest_depth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deepest = tmp_path / "a" / "b" / "c"
+    deeper = deepest / "vendor"
+    deeper.mkdir(parents=True)
+    visible = deepest.parent / "pack"
+    visible.mkdir()
+    (visible / "pack.yaml").write_text("not a manifest")
+    (deeper / "pack.yaml").write_text("outside the search")
+    scandir = registry.os.scandir
+
+    def scan(path: Any) -> Any:
+        assert path != str(deeper) and path != deeper
+        return scandir(path)
+
+    monkeypatch.setattr(registry.os, "scandir", scan)
+    found = discover([tmp_path])
+    assert set(found.problems) == {str(visible)}
+
+
 def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
     def edit(manifest: dict[str, Any]) -> None:
         for dotted, value in changes.items():

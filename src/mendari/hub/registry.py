@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS hub_keys (
     public_pem  TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS hub_keys_namespace ON hub_keys (namespace);
 CREATE TABLE IF NOT EXISTS hub_tokens (
     token_sha256  TEXT PRIMARY KEY,
     namespace     TEXT NOT NULL,
@@ -203,6 +204,7 @@ CREATE TABLE IF NOT EXISTS hub_reviews (
     created_at  TEXT NOT NULL,
     ordinal     INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS hub_reviews_version ON hub_reviews (namespace, name, version, ordinal);
 CREATE TABLE IF NOT EXISTS hub_yanks (
     namespace   TEXT NOT NULL,
     name        TEXT NOT NULL,
@@ -236,6 +238,9 @@ CREATE TABLE IF NOT EXISTS hub_publisher_tokens (
     revoked_at    TEXT,
     revoked_by    TEXT
 );
+CREATE INDEX IF NOT EXISTS hub_publisher_org_created ON hub_publisher_tokens (org, created_at);
+CREATE INDEX IF NOT EXISTS hub_publisher_live ON hub_publisher_tokens (org, namespace, expires_at)
+    WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS hub_token_use (
     token_id       TEXT PRIMARY KEY,
     last_used_day  TEXT NOT NULL
@@ -518,6 +523,18 @@ def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
     return str(statement["head"])
 
 
+# Reads that list packs share the same rule for which versions are usable. Both recall tables
+# have a primary key on this tuple, so listing names never needs the record or the archive.
+_AVAILABLE_VERSIONS = """
+    FROM hub_versions v
+    LEFT JOIN hub_yanks y USING (namespace, name, version)
+    LEFT JOIN hub_deletions d USING (namespace, name, version)
+    WHERE y.version IS NULL AND d.version IS NULL
+"""
+# Three bound values per version, below SQLite's historical 999-parameter limit.
+_CATALOG_BATCH = 250
+
+
 class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteReportStore):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
@@ -589,7 +606,9 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
             )
         return self.namespace(name, REVIEWER)
 
-    def namespace(self, name: str, viewer: Viewer = PUBLIC) -> dict[str, Any]:
+    def namespace(
+        self, name: str, viewer: Viewer = PUBLIC, *, include_packs: bool = False
+    ) -> dict[str, Any]:
         """A namespace and its keys, with whether it is `listed`. Its `claim` is shown to its own
         token and to a reviewer only (None to the public, and for a namespace with none)."""
         with self._db.session(exclusive=False) as db:
@@ -605,7 +624,15 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
             claim = None
             if (viewer.reviewer or viewer.namespace == name) and self._has_claims(db):
                 claim = db.one("SELECT * FROM hub_claims WHERE namespace = ?", (name,))
-        return {**row, "keys": keys, "listed": name not in unlisted, "claim": claim}
+            result = {**row, "keys": keys, "listed": name not in unlisted, "claim": claim}
+            if include_packs:
+                names = db.all(
+                    f"SELECT DISTINCT v.name {_AVAILABLE_VERSIONS} AND v.namespace = ? "
+                    "ORDER BY v.name",
+                    (name,),
+                )
+                result["packs"] = [f"{name}/{item['name']}" for item in names]
+            return result
 
     # -- claims -------------------------------------------------------------------------------
 
@@ -758,11 +785,33 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
                 f"SELECT * FROM hub_claims{where} ORDER BY created_at, namespace", tuple(params)
             )
 
-    def add_key(self, namespace: str, public_pem: str, *, by: str = "operator") -> str:
-        key = archive.load_public_key(public_pem.encode())
-        key_id = archive.key_id(key)
-        self.namespace(namespace, REVIEWER)
+    @staticmethod
+    def _require_namespace(db: Session, namespace: str, claim_org: str | None) -> None:
+        if claim_org is None:
+            found = db.one("SELECT name FROM hub_namespaces WHERE name = ?", (namespace,))
+        else:
+            found = db.one(
+                "SELECT status FROM hub_claims WHERE namespace = ? AND org = ?",
+                (namespace, claim_org),
+            )
+            if found is not None and found["status"] == "refused":
+                raise HubError(f"the claim on {namespace!r} was refused", 409)
+        if found is None:
+            raise HubError(f"no namespace {namespace!r}", 404)
+
+    def add_key(
+        self,
+        namespace: str,
+        public_pem: str,
+        *,
+        by: str = "operator",
+        claim_org: str | None = None,
+        max_keys: int | None = None,
+    ) -> str:
         with self._db.session(exclusive=True) as db:
+            self._require_namespace(db, namespace, claim_org)
+            key = archive.load_public_key(public_pem.encode())
+            key_id = archive.key_id(key)
             owner = db.one("SELECT namespace FROM hub_keys WHERE key_id = ?", (key_id,))
             if owner and owner["namespace"] != namespace:
                 raise HubError("that key belongs to another namespace", 409)
@@ -771,6 +820,12 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
             ):  # one key never signs in two roles (LP-22d)
                 raise HubError("that key is a site's key: a publisher key signs packs only", 409)
             if owner is None:
+                if max_keys is not None:
+                    count = db.one(
+                        "SELECT COUNT(*) AS n FROM hub_keys WHERE namespace = ?", (namespace,)
+                    )
+                    if int(count["n"]) >= max_keys:
+                        raise HubError(f"a namespace has {max_keys} publisher keys at most", 409)
                 db.all(
                     "INSERT INTO hub_keys (key_id, namespace, public_pem, created_at) "
                     "VALUES (?, ?, ?, ?)",
@@ -795,12 +850,12 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
         days: int,
         by: str,
         reason: str | None = None,
+        claim_limits: tuple[int, int] | None = None,
     ) -> dict[str, Any]:
         """A publisher token for `namespace` that belongs to `owner` in `org`, lives `days`
         (1 to `MAX_TOKEN_DAYS`) and can be revoked (LP-19b). The answer holds the token, the one
         time it is shown: the store keeps its SHA-256. Chained `token.issued` with the
         organization, the owner and the expiry (and why, when an operator minted it)."""
-        self.namespace(namespace, REVIEWER)
         if isinstance(days, bool) or not 1 <= days <= MAX_TOKEN_DAYS:
             raise HubError(f"a token lives 1 to {MAX_TOKEN_DAYS} days")
         org, owner = _label(org, "the organization", 200), _label(owner, "the owner", 200)
@@ -814,6 +869,26 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
             timespec="seconds"
         )
         with self._db.session(exclusive=True) as db:
+            self._require_namespace(db, namespace, org if claim_limits is not None else None)
+            if claim_limits is not None:
+                max_live, max_daily = claim_limits
+                since = (datetime.fromisoformat(created) - timedelta(days=1)).isoformat()
+                live = db.one(
+                    "SELECT COUNT(*) AS n FROM hub_publisher_tokens WHERE org = ? "
+                    "AND namespace = ? AND revoked_at IS NULL AND expires_at > ?",
+                    (org, namespace, created),
+                )
+                if int(live["n"]) >= max_live:
+                    raise HubError(
+                        f"a namespace has {max_live} working tokens at most: revoke one first", 409
+                    )
+                daily = db.one(
+                    "SELECT COUNT(*) AS n FROM hub_publisher_tokens "
+                    "WHERE org = ? AND created_at > ?",
+                    (org, since),
+                )
+                if int(daily["n"]) >= max_daily:
+                    raise HubError(f"an organization mints {max_daily} tokens a day at most", 429)
             db.all(
                 "INSERT INTO hub_publisher_tokens (id, token_sha256, namespace, org, owner, "
                 "name, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1591,39 +1666,68 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
             "head": last["hash"] if last else GENESIS,
         }
 
-    def latest(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
-        """The newest version of every pack the viewer reads that is not recalled (yanked or
-        deleted), with its namespace's publisher type."""
+    def public_pack_count(self) -> int:
+        """The health endpoint needs the public count, including a pack with any usable version."""
         with self._db.session(exclusive=False) as db:
-            rows = db.all("SELECT * FROM hub_versions")
-            unlisted = self._unlisted(db)
-            reviews = _reviews(db, "", ())
-            recalls = _recalls(db, "", ())
-            accepted = self._accepted(db, "", ())
-            types = {
-                r["name"]: r["publisher_type"]
-                for r in db.all("SELECT name, publisher_type FROM hub_namespaces")
-            }
-        newest: dict[tuple[str, str], dict[str, Any]] = {}
-        for row in rows:
-            if _key(row) in recalls:  # a yanked or deleted version is never the latest
-                continue
-            if not viewer.reads(row["namespace"], unlisted):
-                continue
-            item = _version_row(
-                row,
-                reviews.get(_key(row)),
-                listed=row["namespace"] not in unlisted,
-                accepted=accepted.get(_key(row)),
+            listed = (
+                "AND NOT EXISTS (SELECT 1 FROM hub_claims c WHERE c.namespace = v.namespace "
+                "AND c.status <> 'approved')"
+                if self._has_claims(db)
+                else ""
             )
-            key = (row["namespace"], row["name"])
-            if key not in newest or version_key(item["version"]) > version_key(
-                newest[key]["version"]
-            ):
-                newest[key] = item
-        return [
-            {**item, "publisher_type": types.get(item["namespace"])} for item in newest.values()
-        ]
+            row = db.one(
+                f"SELECT COUNT(*) AS n FROM (SELECT DISTINCT v.namespace, v.name "
+                f"{_AVAILABLE_VERSIONS} {listed}) AS packs"
+            )
+            return int(row["n"]) if row else 0
+
+    def latest(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
+        """The newest usable version of each visible pack, with its namespace's publisher type."""
+        with self._db.session(exclusive=False) as db:
+            unlisted = self._unlisted(db)
+            # The original table scan kept the first row on a version_key tie. Keep its
+            # storage order explicitly: an index-only key scan can otherwise reverse that tie.
+            columns = "v.namespace, v.name, v.version"
+            if self.backend == "sqlite":
+                # The primary-key index also holds rowid. Sorting these small keys here lets
+                # SQLite scan that covering index without walking the historical card pages.
+                candidates = db.all(f"SELECT {columns}, v.rowid AS position {_AVAILABLE_VERSIONS}")
+                candidates.sort(key=lambda row: row["position"])
+            else:
+                candidates = db.all(f"SELECT {columns} {_AVAILABLE_VERSIONS} ORDER BY v.ctid")
+            newest: dict[tuple[str, str], str] = {}
+            for row in candidates:
+                namespace, name, version = _key(row)
+                if not viewer.reads(namespace, unlisted):
+                    continue
+                pack = (namespace, name)
+                if pack not in newest or version_key(version) > version_key(newest[pack]):
+                    newest[pack] = version
+
+            keys = [(*pack, version) for pack, version in newest.items()]
+            found = {}
+            for offset in range(0, len(keys), _CATALOG_BATCH):
+                batch = keys[offset : offset + _CATALOG_BATCH]
+                placeholders = ", ".join(["(?, ?, ?)"] * len(batch))
+                where = f"WHERE (namespace, name, version) IN (VALUES {placeholders})"
+                params = tuple(value for key in batch for value in key)
+                reviews = _reviews(db, where, params)
+                accepted = self._accepted(db, where, params)
+                rows = db.all(
+                    "SELECT v.*, (SELECT n.publisher_type FROM hub_namespaces n "
+                    f"WHERE n.name = v.namespace) AS publisher_type FROM hub_versions v {where}",
+                    params,
+                )
+                for row in rows:
+                    key = _key(row)
+                    item = _version_row(
+                        row,
+                        reviews.get(key),
+                        listed=key[0] not in unlisted,
+                        accepted=accepted.get(key),
+                    )
+                    found[key] = {**item, "publisher_type": row["publisher_type"]}
+        return [found[key] for key in keys]
 
 
 def _migrate(db: Session) -> None:
@@ -2224,7 +2328,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "status": "ok",
             "version": __version__,
             "storage": store.backend,
-            "packs": len(store.latest()),
+            "packs": store.public_pack_count(),
         }
 
     @app.post("/v1/namespaces/{namespace}/keys", status_code=201)
@@ -2236,13 +2340,11 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     @app.get("/v1/namespaces/{namespace}")
     def namespace(request: Request, namespace: str) -> dict[str, Any]:
         viewer = viewer_of(request)
-        found = store.namespace(namespace, viewer)
-        packs = sorted(p["id"] for p in store.latest(viewer) if p["namespace"] == namespace)
-        return {**found, "packs": packs}
+        return store.namespace(namespace, viewer, include_packs=True)
 
     @app.put("/v1/packs/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         if not _NAME.match(name) or not _VERSION.match(version):
             raise HubError("not a pack name and version")
         body = bytearray()
@@ -2283,15 +2385,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         with one of the namespace's keys (`mendari yank`). Chained `pack.yanked`; a version is
         recalled once. The registry's own recall, signed with its key, is a reviewer's (under
         the engine) or the operator's (`mendari registry recall`)."""
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         body = await small_body(request, YankRequest)
         if body.record is None:
             raise HubError("a publisher's recall is a record signed with a namespace key")
         if body.record.get("signer") != "publisher":
             raise HubError("a publisher's recall is signed by the publisher")
         # Checked above: the namespace's own publisher.
-        recalled = store.recall(namespace, name, version, body.record, by=actor(request))
-        return served(recalled, REVIEWER)
+        recalled = await run_in_threadpool(
+            store.recall, namespace, name, version, body.record, by=actor(request)
+        )
+        return await run_in_threadpool(served, recalled, REVIEWER)
 
     @app.get("/v1/registry-key")
     def registry_key() -> dict[str, str]:

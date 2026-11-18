@@ -4,6 +4,9 @@ the authoring guide (docs/guides/authoring-a-pack.md) says."""
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,3 +65,54 @@ def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:
     assert (tmp_path / "taken" / "notes.txt").read_text() == "mine"
     assert main(["new", str(tmp_path / "fresh"), "--id", "Not An Id"]) == 1
     assert not (tmp_path / "fresh").exists()
+
+
+@pytest.mark.parametrize("community", [False, True])
+def test_new_keeps_publisher_text_as_yaml_strings(tmp_path: Path, community: bool) -> None:
+    target = tmp_path / "new-pack"
+    args = ["--community"] if community else ["--id", "my-clinic/new-pack"]
+    name = 'Operations: "A" #1 {{publisher}}'
+    assert main(["new", str(target), *args, "--name", name, "--publisher", "On"]) == 0
+    pack = resolve_pack(str(target))
+    assert pack.manifest.name == name
+    assert pack.manifest.publisher.name == "On"
+
+
+def test_scaffolding_the_working_directory_preserves_it_and_retries_a_failed_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    before = tmp_path.stat()
+    rename = Path.rename
+
+    def fail_manifest(source: Path, destination: Path) -> Path:
+        if source.name == "pack.yaml":
+            raise OSError("interrupted")
+        return rename(source, destination)
+
+    args = ["new", ".", "--id", "clinic/example"]
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "rename", fail_manifest)
+        assert main(args) == 1
+    assert list(tmp_path.iterdir()) == []
+    assert main(args) == 0
+    assert Path.cwd().samefile(tmp_path)
+    assert tmp_path.stat().st_ino == before.st_ino
+    assert resolve_pack(".").id == "clinic/example"
+
+
+def test_concurrent_scaffolds_leave_one_complete_pack(tmp_path: Path) -> None:
+    target = tmp_path / "new"
+    cli = shutil.which("mendari", path=str(Path(sys.executable).parent))
+    assert cli is not None
+    creators = [
+        subprocess.Popen(
+            [cli, "new", str(target), "--id", f"clinic/{name}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for name in ("alpha", "beta")
+    ]
+    exits = [creator.wait(timeout=30) for creator in creators]
+    assert sorted(exits) == [0, 1]
+    assert resolve_pack(str(target)).id == ("clinic/alpha" if exits[0] == 0 else "clinic/beta")

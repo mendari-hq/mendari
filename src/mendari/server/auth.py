@@ -739,10 +739,17 @@ def permission_for(method: str, path: str, *, registry: bool = True) -> str:
 
 
 def roles_from(claims: Mapping[str, Any], settings: AuthSettings) -> frozenset[str]:
-    if settings.role_claim == "email" and claims.get("email_verified") is not True:
-        return frozenset()  # anyone can claim an address they have not proven
-    raw = claims.get(settings.role_claim) or []
-    values = [raw] if isinstance(raw, str) else [str(v) for v in raw if isinstance(v, str | int)]
+    raw = claims.get(settings.role_claim)
+    if settings.role_claim == "email" and (
+        claims.get("email_verified") is not True or not isinstance(raw, str)
+    ):
+        return frozenset()
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, list):
+        values = [str(v) for v in raw if isinstance(v, str | int) and not isinstance(v, bool)]
+    else:
+        return frozenset()
     mapped = {settings.role_map.get(v, v) for v in values}
     return frozenset(role for role in mapped if role in ROLES)
 

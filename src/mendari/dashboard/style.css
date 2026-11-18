@@ -254,18 +254,21 @@ code.wrap { overflow-wrap: anywhere; }
 .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: calc(100vh - 53px); }
 .nav {
   display: flex; flex-direction: column; gap: var(--space-0-5); padding: var(--space-4) var(--space-3);
-  border-right: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border); background: var(--color-surface);
 }
 .nav a {
-  display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); color: var(--color-text); text-decoration: none;
 }
 .nav a:hover { background: var(--color-surface-sunken); }
 .nav a.active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
+.nav a:not(.active) .nav-icon { color: var(--color-text-muted); }
+.nav .count { margin-left: auto; }
 .nav a.external { color: var(--color-text-muted); margin-top: var(--space-3); justify-content: flex-start; }
 /* Content grows with the screen up to 1,440 px and then centres, instead of stopping at 1,180 px
    and leaving the right of a wide screen empty. */
 main { padding: var(--space-6) var(--space-7) var(--space-10); width: 100%; max-width: 1440px; margin-inline: auto; outline: none; }
+#view[inert] { opacity: 0.55; }
 
 .row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .row > h3 { margin: 0; }
@@ -378,7 +381,8 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 .stat-value .sparkline { margin-left: auto; flex: none; }
 .sparkline path { fill: none; stroke: var(--chart-1); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .sparkline circle { fill: var(--chart-1); }
-.period-row { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
+.period-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-6); }
+.period-row h2 { margin: 0; font-size: var(--text-xl); line-height: var(--leading-xl); }
 /* Under a week of history: a line per day instead of a mostly empty chart. */
 .day-summary { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .day-summary li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
@@ -390,11 +394,23 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
   display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin-top: var(--space-3); padding: var(--space-3) var(--space-5);
 }
 .stats-secondary .stat { background: none; border: 0; box-shadow: none; padding: 0; }
+#period-figures > .stats-secondary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); }
 .stat.small .stat-value { font-size: var(--text-kpi-sm); line-height: var(--leading-kpi-sm); font-weight: var(--weight-semibold); }
 .stat.small .stat-value .icon { width: 18px; height: 18px; }
 
 /* The pack header: risk, and what is deployed in words, with the exact identifiers below. */
-.pack-header p { margin: 0 0 var(--space-1); }
+.pack-header {
+  padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.pack-identity { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.pack-identity h1 { overflow-wrap: anywhere; }
+.pack-risk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; }
+.pack-header .callout { margin: var(--space-3) 0 0; }
+.deployment-details { padding-top: var(--space-2); margin-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.deployment-details summary { width: fit-content; font-weight: var(--weight-medium); }
+.deployment-details summary span { margin-left: var(--space-2); font-weight: var(--weight-regular); }
+.deployment-details p { margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
 .pack-header .deployed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
 /* Where the pack comes from (pack.js originBadge; the docs landing labels community packs too). */
@@ -1073,6 +1089,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); padding: var(--space-2); }
   .nav a { white-space: nowrap; }
+  .nav .nav-icon { display: none; }
   /* The section list scrolls sideways: edge shadows say there is more. */
   .nav.more-right { box-shadow: inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
@@ -1115,6 +1132,7 @@ ol.rules p { margin: var(--space-1) 0; }
     padding-top: var(--space-3); border-top: 1px solid var(--color-border);
   }
   main { padding: var(--space-4); }
+  .pack-header { padding: var(--space-4); }
   h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .stats-primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

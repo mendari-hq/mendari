@@ -14,7 +14,9 @@ from typing import Any
 import pytest
 from scipy.stats import beta, binomtest
 
+from mendari.cli import main
 from mendari.core.decision import Decision
+from mendari.core.pack_store import StoreError
 from mendari.core.registry import resolve_pack
 from mendari.evals import store_jobs
 from mendari.evals.harness import evaluation, load_dataset
@@ -145,6 +147,20 @@ def test_a_slice_called_twice_evaluates_each_case_once(world: Store) -> None:
     assert len({case["c"] for case in ledger.cases}) == len(ledger.cases) == 8
 
 
+def test_jobs_keep_and_return_only_the_dataset_reference(world: Store) -> None:
+    digest = _copy(world)
+    reference = {"name": "test", "annotation": "local annotation"}
+    refused = world.client.post(
+        "/api/store/jobs", json={"version": digest, "dataset": reference}, headers=_author(world)
+    )
+    assert refused.status_code == 422 and "local annotation" not in refused.text
+    job = _job(world, version=digest, dataset={"name": "test"})
+    with world.db._db.session(exclusive=True) as db:
+        db.all("UPDATE store_jobs SET dataset = ? WHERE id = ?", (json.dumps(reference), job["id"]))
+    shown = world.client.get(f"/api/store/jobs/{job['id']}", headers=_author(world)).json()
+    assert shown["dataset"] == {"name": "test"}
+
+
 def test_a_job_stopped_half_way_continues_from_its_ledger(
     world: Store, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -169,6 +185,28 @@ def test_a_job_stopped_half_way_continues_from_its_ledger(
     while state["state"] != "done":
         state = fresh.advance(ORG_A, job["id"])
     assert _ledger(world, state["report_id"]) == _ledger(world, whole["report_id"])
+
+
+def test_resume_after_last_slice_finalizes_the_recorded_cases(
+    world: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    served = {INBOX: resolve_pack(INBOX)}
+    jobs = JobStore(
+        world.client.app.state.pack_store,  # type: ignore[attr-defined]
+        served=lambda: served,
+        decision_for=lambda pack, variants: Decision(pack, providers=variants, origin_cap=False),
+    )
+    job = jobs.create(ORG_A, by="author", pack=INBOX, dataset={"name": "red_flags"})
+    with monkeypatch.context() as interrupted:
+        # The last slice committed, but the process ended before recording the report.
+        interrupted.setattr(jobs, "_finish", jobs.job)
+        state = jobs.advance(ORG_A, job["id"])
+        assert state["state"] == "running" and state["done"] == state["total"]
+    served.clear()
+    finished = jobs.advance(ORG_A, job["id"])
+    assert finished["state"] == "done"
+    assert jobs.advance(ORG_A, job["id"])["report_id"] == finished["report_id"]
+    assert len(Ledger.loads(_ledger(world, finished["report_id"])).cases) == state["total"]
 
 
 def _compared(world: Store) -> tuple[dict[str, Any], dict[str, Any], str]:
@@ -280,6 +318,89 @@ def test_a_draft_runs_under_the_budget_and_a_slow_rule_ends_as_a_persons_decisio
     assert "time_budget" in json.dumps(case["q"])
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_resumed_job_keeps_its_selected_variants(
+    world: Store, monkeypatch: pytest.MonkeyPatch, legacy: bool
+) -> None:
+    monkeypatch.setattr(store_jobs, "SLICE_SECONDS", 0.0)
+    digest = _copy(world)
+    dataset_id = _dataset(world, digest, n=2).json()["id"]
+    defaults = {"router": "rules"}
+    jobs = JobStore(
+        world.client.app.state.pack_store,  # type: ignore[attr-defined]
+        served=dict,
+        decision_for=lambda pack, variants: Decision(
+            pack, providers={**defaults, **variants}, origin_cap=False
+        ),
+    )
+    job = jobs.create(ORG_A, by="author", digest=digest, dataset={"id": dataset_id})
+    assert job["config"]["variants"]["router"] == "rules"
+    if legacy:
+        # Earlier versions persisted only the caller's overrides, including after a slice.
+        with world.db._db.session(exclusive=True) as db:
+            db.all("UPDATE store_jobs SET config = ? WHERE id = ?", ('{"variants":{}}', job["id"]))
+        assert jobs.advance(ORG_A, job["id"])["done"] == 1
+    defaults["router"] = "naive_bayes"
+    while job["state"] in ("queued", "running"):
+        job = jobs.advance(ORG_A, job["id"])
+    assert job["state"] == "done"
+    recorded = Ledger.loads(_ledger(world, job["report_id"]))
+    assert recorded.header["providers"]["router"]["variant"] == "rules"
+    pack = jobs.packs.load(ORG_A, digest)
+    data = jobs._dataset(ORG_A, pack, {"id": dataset_id})
+    expected = evaluation(Decision(pack, providers={"router": "rules"}, origin_cap=False), data)
+    assert expected.ledger.dumps() == recorded.dumps()
+
+
+def test_composite_jobs_check_member_quotas_on_creation_and_resume(world: Store) -> None:
+    digest = _copy(world)
+    spec = {"version": digest, "dataset": {"name": "test"}, "variants": {"router": "cascade"}}
+    refused = world.client.post("/api/store/jobs", json=spec, headers=_author(world))
+    assert refused.status_code == 422 and "eval_jev" in refused.text
+    jobs = JobStore(
+        world.client.app.state.pack_store,  # type: ignore[attr-defined]
+        served=dict,
+        decision_for=lambda pack, variants: Decision(pack, providers=variants, origin_cap=False),
+    )
+    job = jobs.create(
+        ORG_A,
+        by="author",
+        digest=digest,
+        dataset={"name": "test"},
+        variants={"router": "cascade"},
+        limits={"eval_jev": 10},
+    )
+    assert job["total"] == store_jobs.REMOTE_LIMIT
+    # The deployment no longer sets that quota. The HTTP route supplies the current limits.
+    stopped = _run(world, job["id"])
+    assert stopped["state"] == "failed" and stopped["done"] == 0
+    assert "eval_jev" in stopped["error"]
+
+
+def test_job_stops_before_running_under_a_changed_model(
+    world: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JEV_MODEL", "configured-at-creation")
+    jobs = JobStore(
+        world.client.app.state.pack_store,  # type: ignore[attr-defined]
+        served=dict,
+        decision_for=lambda pack, variants: Decision(pack, providers=variants, origin_cap=False),
+    )
+    limits = {"eval_jev": 10}
+    job = jobs.create(
+        ORG_A,
+        by="author",
+        digest=_copy(world),
+        dataset={"name": "test"},
+        variants={"safety_screen": "rules_and_jev"},
+        limits=limits,
+    )
+    monkeypatch.setenv("JEV_MODEL", "configured-after-restart")
+    stopped = jobs.advance(ORG_A, job["id"], limits=limits)
+    assert stopped["state"] == "failed" and stopped["done"] == 0
+    assert "model changed" in stopped["error"]
+
+
 def test_a_remote_arm_needs_the_organizations_quota_and_stops_at_it(world: Store) -> None:
     digest = _copy(world)
     dataset = _dataset(world, digest).json()
@@ -340,6 +461,58 @@ def test_a_dataset_with_a_hidden_case_or_phi_like_content_is_held_or_refused(
     )
     assert rejected.status_code == 422 and SECRET_PHONE not in rejected.text
     assert rejected.json()["phi"]["counts"] == {"phone": 1}
+
+
+def test_operator_resolves_held_datasets_and_restores_uploads(
+    world: Store, db_target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    digest = _copy(world)
+    _hidden(world)
+    record = {
+        "id": "h1",
+        "input": {"message": {"body": HIDDEN_BODY, "channel": "portal"}},
+        "labels": {},
+    }
+    ids = [
+        _dataset(world, digest, name=f"held-{n}", content=json.dumps(record) + "\n").json()["id"]
+        for n in range(3)
+    ]
+    assert _dataset(world, digest).status_code == 429
+    packs = world.client.app.state.pack_store  # type: ignore[attr-defined]
+    ref = f"dataset:{ids[0]}"
+    with pytest.raises(StoreError) as other:
+        packs.clear(ORG_B, ref, by="operator", release=True, reason="reviewed")
+    assert other.value.status == 404
+    capsys.readouterr()
+    for index, verb in enumerate(("release", "dismiss")):
+        assert (
+            main(
+                [
+                    "store",
+                    verb,
+                    f"dataset:{ids[index]}",
+                    "--org",
+                    ORG_A,
+                    "--db",
+                    db_target,
+                    "--reason",
+                    "operator reviewed the match",
+                ]
+            )
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out)["state"] == (
+            "ready" if index == 0 else "withdrawn"
+        )
+    assert [item["digest"] for item in packs.held()] == [f"dataset:{ids[2]}"]
+    assert _dataset(world, digest).status_code == 201
+    assert packs.dataset_bytes(ORG_A, ids[0])[0] == (json.dumps(record) + "\n").encode()
+    with pytest.raises(StoreError, match="withdrawn"):
+        packs.dataset_bytes(ORG_A, ids[1])
+    with pytest.raises(StoreError) as again:
+        packs.clear(ORG_A, ref, by="operator", release=False, reason="repeat")
+    assert again.value.status == 409
+    assert world.db.verify()["ok"]
 
 
 def test_another_organization_reads_no_job_report_dataset_or_comparison(world: Store) -> None:
