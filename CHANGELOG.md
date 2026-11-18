@@ -9,6 +9,17 @@ no section, or whose section is not the newest. Changes to a pack are in the pac
 
 The first release (not yet published).
 
+- Dashboard review counts now respect the active organization and pack without opening case
+  records. The review queue works beyond its first page, and switching packs disables the
+  previous form while the new one loads.
+- The Hub catalog restores shared searches and links to version-specific pull and evaluation
+  commands. A site-evidence outage leaves recall information and registry checks available.
+- Bulk FHIR export publishes complete, validated cohorts. Dataset import checks the source of
+  patient references. A stored evaluation retains its provider selection when it resumes.
+- Registry quotas are enforced with the write they govern. Temporary registry seed credentials
+  are revoked by default. The engine image has a restricted build context and updated runtime
+  dependencies.
+
 - **Decision Packs:** the specification (0.2, and 0.3 for the FHIR mapping; 0.1 still loads),
   and the runtime that runs a
   pack's providers (rules, naive Bayes, Jev, LLMs, criteria, CQL, dosing) under a risk policy

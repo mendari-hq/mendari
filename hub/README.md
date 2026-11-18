@@ -9,14 +9,15 @@ itself, and renders publisher text without raw HTML or unsafe links. Every page 
 registry API (`src/mendari/hub/registry.py`) at request time, from `REGISTRY_URL`.
 
 ```bash
-# a registry with the five reference packs, and the test pack whose text tries to run a script
-uv run mendari registry serve --db var/registry.db &
-uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db --hostile-example
+# From the repository root, start a local registry for the Hub browser suite.
+uv sync --locked
+.venv/bin/mendari registry serve --db var/registry.db &
+uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db --hostile-example --sites
 
 cd hub && npm ci
 REGISTRY_URL=http://127.0.0.1:8100 npm run dev        # http://localhost:3100
 npm run lint && npm run typecheck && npm run build && npm test   # what CI runs
 ```
 
-Next.js (App Router, TypeScript), no client state: search is a plain GET form. Styles use
+The seed includes the reference packs, a publisher-text test case and signed counts from two synthetic sites. The Hub uses Next.js App Router and TypeScript. Search is a plain GET form. Styles use
 tokens (`app/globals.css`), with light and dark from the system setting.
