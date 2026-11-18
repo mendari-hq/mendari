@@ -3419,11 +3419,11 @@ def create_app(
         app.state.pack_store = pack_store
 
         def job_decision(pack: Pack, variants: Mapping[str, str]) -> Decision:
-            """A store job's Decision: the deployment's choice for the pack, then the job's,
-            each decision under the deadline and the evaluation quotas (LP-20g)."""
+            """Run the job's selected variants over the pack's own defaults, under the
+            deployment's evaluation quotas and deadline."""
             return Decision(
                 pack,
-                providers={**variants_for(pack)[0], **variants},
+                providers=variants,
                 budget=None if budget is None else budget.for_evaluation(),
                 deadline_s=deadline_s,
                 origin_cap=False,  # an evaluation measures the pack's own policy

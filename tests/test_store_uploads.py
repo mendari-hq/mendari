@@ -26,6 +26,7 @@ from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.hub import archive
 from mendari.server.app import create_app
+from mendari.settings import default_providers
 from tests.conftest import (
     DASHBOARD,
     INBOX_DIR,
@@ -80,7 +81,7 @@ def store_world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     author key registered by its administrator."""
     _env(monkeypatch)
     keys = EvalsetKeys(*evalset_on(monkeypatch))
-    app = create_app(db_path=db_target)
+    app = create_app(db_path=db_target, default_providers=default_providers())
     with (
         TestClient(app, base_url=HTTPS, headers=DASHBOARD) as client,
         encrypted_store(db_target) as db,

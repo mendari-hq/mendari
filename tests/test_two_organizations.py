@@ -1474,6 +1474,8 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "limit": 2, "offset": 2}),
         (viewer, ("GET", "/api/review"), "/api/review", pack),
         (viewer, ("GET", "/api/review"), "/api/review", {}),
+        (viewer, ("GET", "/api/review/count"), "/api/review/count", pack),
+        (viewer, ("GET", "/api/review/count"), "/api/review/count", {}),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),

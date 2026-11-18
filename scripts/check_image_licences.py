@@ -352,6 +352,46 @@ def _name(package: dict[str, Any]) -> str:
     return key(_purl(package)) or f"name:{package['name']}"
 
 
+def identify_pip_vendor_bom(sbom: dict[str, Any], found: dict[str, Any]) -> None:
+    """Syft reads pip's bundled vendor BOM as another package named pip, with no version.
+    Bind that specific root to the installed pip only when Syft also saw its package metadata.
+    Other unnamed components still go through the ordinary licence and source checks."""
+    base_pip = next(
+        (d for d in found["dists"] if d.get("env") == "base" and d["name"] == "pip"), None
+    )
+    if base_pip is None:
+        return
+    version = base_pip["version"]
+    python = ".".join(found["python"]["version"].split(".")[:2])
+    site = f"/usr/local/lib/python{python}/site-packages"
+    purl = f"pkg:pypi/pip@{version}"
+    metadata = (
+        "acquired package info from installed python package manifest file: "
+        f"{site}/pip-{version}.dist-info/METADATA"
+    )
+    if not any(
+        _purl(p) == purl and p.get("sourceInfo", "").split(", ", 1)[0] == metadata
+        for p in sbom["packages"]
+    ):
+        return
+    origin = f"acquired package info from SBOM: {site}/pip/_vendor/bom.cdx.json"
+    for package in sbom["packages"]:
+        if (
+            package["name"] == "pip"
+            and package.get("versionInfo") == "UNKNOWN"
+            and package.get("sourceInfo") == origin
+            and not _purl(package)
+        ):
+            package["versionInfo"] = version
+            package.setdefault("externalRefs", []).append(
+                {
+                    "referenceCategory": "PACKAGE-MANAGER",
+                    "referenceType": "purl",
+                    "referenceLocator": purl,
+                }
+            )
+
+
 def scan(sbom: dict[str, Any], found: dict[str, Any]) -> list[str]:
     """The packages in the SBOM whose licence is unknown or not allowed, and what the image holds
     that the SBOM does not list."""
@@ -542,6 +582,7 @@ def main(argv: list[str]) -> int:
     problems = image_problems(report, labels(args.image))
     if args.sbom:
         sbom = json.loads(args.sbom.read_text())
+        identify_pip_vendor_bom(sbom, found)
         problems += scan(sbom, found)
         problems += enrich(sbom, found)
         if args.sbom_out:

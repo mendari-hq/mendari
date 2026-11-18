@@ -974,3 +974,30 @@ def test_source_filenames_are_single_components() -> None:
     assert sources.source_name("libfoo_2.1~rc1.orig.tar.xz") == "libfoo_2.1~rc1.orig.tar.xz"
     with pytest.raises(SystemExit, match="invalid source filename"):
         sources.source_name("folder/file.tar.gz")
+
+
+def test_embedded_pip_bom_takes_its_identity_from_matching_installed_metadata() -> None:
+    site = "/usr/local/lib/python3.12/site-packages"
+    purl = "pkg:pypi/pip@26.3"
+    found = {
+        "python": {"version": "3.12.16"},
+        "dists": [{"name": "pip", "version": "26.3", "env": "base"}],
+    }
+    installed = _package(
+        "pip",
+        purl,
+        "MIT",
+        sourceInfo=(
+            "acquired package info from installed python package manifest file: "
+            f"{site}/pip-26.3.dist-info/METADATA"
+        ),
+    )
+    origin = f"acquired package info from SBOM: {site}/pip/_vendor/bom.cdx.json"
+    embedded = {"name": "pip", "versionInfo": "UNKNOWN", "sourceInfo": origin}
+    other = {**embedded, "sourceInfo": "acquired package info from SBOM: /other/bom.cdx.json"}
+    check.identify_pip_vendor_bom(_sbom(embedded), found)
+    assert embedded["versionInfo"] == "UNKNOWN"
+    check.identify_pip_vendor_bom(_sbom(installed, embedded, other), found)
+    assert embedded["versionInfo"] == "26.3"
+    assert check._purl(embedded) == purl
+    assert "externalRefs" not in other

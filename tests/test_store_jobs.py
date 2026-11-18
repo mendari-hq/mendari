@@ -22,7 +22,7 @@ from mendari.evals import store_jobs
 from mendari.evals.harness import evaluation, load_dataset
 from mendari.evals.ledger import Ledger
 from mendari.evals.store_jobs import JobStore
-from tests.conftest import INBOX_DIR
+from tests.conftest import INBOX_DIR, calm_jev
 from tests.test_store_uploads import (
     HIDDEN_BODY,
     ORG_A,
@@ -350,6 +350,32 @@ def test_resumed_job_keeps_its_selected_variants(
     data = jobs._dataset(ORG_A, pack, {"id": dataset_id})
     expected = evaluation(Decision(pack, providers={"router": "rules"}, origin_cap=False), data)
     assert expected.ledger.dumps() == recorded.dumps()
+
+
+@pytest.fixture
+def live_jev(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
+    calm_jev(monkeypatch)
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_jev=10")
+    yield from store_world(db_target, tmp_path, monkeypatch)
+
+
+def test_served_pack_job_uses_remote_providers_only_when_selected(live_jev: Store) -> None:
+    world = live_jev
+    health = world.client.get("/api/health", headers=world.as_(ORG_A, "admin")).json()
+    assert health["providers"][INBOX] == {"safety_screen": "rules_and_jev", "router": "cascade"}
+    dataset = {"id": _dataset(world, _copy(world), n=1).json()["id"]}
+    local = _job(world, pack=INBOX, dataset=dataset)
+    assert local["config"]["variants"] == {"safety_screen": "rules", "router": "naive_bayes"}
+    assert _run(world, local["id"])["state"] == "done"
+    assert world.db.org_usage(ORG_A).get("eval_jev", 0) == 0
+
+    chosen = _job(world, pack=INBOX, dataset=dataset, variants={"safety_screen": "rules_and_jev"})
+    assert chosen["config"]["variants"] == {
+        "safety_screen": "rules_and_jev",
+        "router": "naive_bayes",
+    }
+    assert _run(world, chosen["id"])["state"] == "done"
+    assert world.db.org_usage(ORG_A)["eval_jev"] == 1
 
 
 def test_composite_jobs_check_member_quotas_on_creation_and_resume(world: Store) -> None:
