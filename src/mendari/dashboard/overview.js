@@ -22,8 +22,20 @@ views.overview = async (main) => {
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   const lens = LENSES.some(([key]) => key === storageGet("oh.lens")) ? storageGet("oh.lens") : "governance";
   main.innerHTML = `
-    <h1>${esc(d.name)}</h1>
-    ${packHeader(d, holds)}
+    <section class="pack-hero pack-header" aria-label="Pack overview">
+      <div class="pack-hero-top">
+        <div class="pack-hero-title">
+          <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+          <h1>${esc(d.name)}</h1>
+        </div>
+        <div class="pack-hero-actions">
+          ${may("decide") ? `<a class="button primary" href="#try">${icon("play")} Try it</a>` : ""}
+          ${may("review") ? `<a class="button" href="#review">${icon("clipboard-check")} Review queue${stats.pending_reviews ? ` (${stats.pending_reviews})` : ""}</a>` : ""}
+          <a class="button" href="#card">${icon("file-text")} Decision Card</a>
+        </div>
+      </div>
+      ${packHeader(d, holds)}
+    </section>
     ${total ? `
       <div class="period-row">
         <span class="muted" id="period-name">Period</span>
@@ -185,10 +197,9 @@ function wireStack(root) {
 
 function packHeader(d, holds) {
   const deployed = Object.entries(d.active_providers);
-  return `<div class="pack-header">
+  return `<div class="pack-header-meta">
     ${statusNotice(d)}
     ${holdNotice(holds, d)}
-    <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span> <a class="action-link" href="#card">Decision Card ${icon("arrow-right")}</a></p>
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
     <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>

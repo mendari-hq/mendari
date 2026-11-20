@@ -72,8 +72,8 @@ export function guardrailTrace(record) {
   if (!record) return "";
   const stages = stagesOf(record);
   return `<ol class="trace" aria-label="Decision guardrail trace">
-    ${stages.map((s) => `<li class="trace-step tone-${esc(s.tone)}">
-      <span class="trace-k">${icon(s.icon)}<span>${esc(s.label)}</span></span>
+    ${stages.map((s, i) => `<li class="trace-step tone-${esc(s.tone)}">
+      <span class="trace-k"><span class="trace-num" aria-hidden="true">0${i + 1}</span>${icon(s.icon)}<span>${esc(s.label)}</span></span>
       <span class="trace-v">${esc(s.value)}</span>
     </li>`).join("")}
   </ol>`;

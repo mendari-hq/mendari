@@ -10,36 +10,36 @@
 /* 1. Tokens ------------------------------------------------------------------------------------ */
 
 :root {
-  --color-bg: #f5f6f8;
+  --color-bg: #f4f6fa;
   --color-surface: #ffffff;
-  --color-surface-sunken: #eef0f3;
-  --color-skeleton-sheen: rgba(255, 255, 255, 0.6);
-  --color-border: #dde1e7;  /* decorative dividers only */
-  --color-border-strong: #7d8797;  /* form fields: >= 3:1 on every surface (WCAG 1.4.11) */
-  --color-text: #17202c;
-  --color-text-muted: #566172;
-  --color-accent: #1f4fc9;
+  --color-surface-sunken: #edf0f6;
+  --color-skeleton-sheen: rgba(255, 255, 255, 0.72);
+  --color-border: #dce2ec;  /* decorative dividers only */
+  --color-border-strong: #738096;  /* form fields: >= 3:1 on every surface (WCAG 1.4.11) */
+  --color-text: #0f172a;
+  --color-text-muted: #4e5d73;
+  --color-accent: #1d4ed8;
   --color-on-accent: #ffffff;
-  --color-accent-soft: #e7edfc;
+  --color-accent-soft: #e8efff;
   --color-success: #136c3e;
   --color-success-soft: #e2f3e9;
   --color-warning: #8a4f00;
   --color-warning-soft: #fcefd8;
-  --color-neutral: #4a576c;
-  --color-neutral-soft: #e8ecf2;
+  --color-neutral: #475569;
+  --color-neutral-soft: #e8edf5;
   --color-danger: #b3261e;
   --color-danger-soft: #fbe5e3;
   --color-danger-solid: #b3261e;
   --color-on-solid: #ffffff;
   --color-on-outcome: #ffffff;  /* text inside an outcome-coloured segment */
-  --chart-1: #1f4fc9;
+  --chart-1: #1d4ed8;
   --chart-2: #0f7a6c;
   --chart-3: #8a4f00;
   --chart-4: #7a3fb0;
   --chart-5: #b3261e;
-  --chart-6: #4a576c;
-  --shadow-1: 0 1px 2px rgba(20, 30, 50, 0.06), 0 2px 8px rgba(20, 30, 50, 0.04);
-  --shadow-2: 0 8px 24px rgba(20, 30, 50, 0.14);
+  --chart-6: #475569;
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 6px 18px -6px rgba(15, 23, 42, 0.08);
+  --shadow-2: 0 12px 32px -4px rgba(15, 23, 42, 0.18);
   color-scheme: light;
 
   /* Meaning: outcomes and priorities map onto the status palette, so red always means stop. */
@@ -71,12 +71,12 @@
   --leading-lg: 24px;
   --text-xl: 20px;
   --leading-xl: 28px;
-  --text-title: 28px;
-  --leading-title: 34px;
+  --text-title: 30px;
+  --leading-title: 36px;
   --text-title-compact: 24px;  /* phones */
   --leading-title-compact: 30px;
-  --text-kpi: 28px;
-  --leading-kpi: 32px;
+  --text-kpi: 30px;
+  --leading-kpi: 34px;
   --text-kpi-sm: 18px;
   --leading-kpi-sm: 24px;
   --weight-regular: 400;
@@ -98,8 +98,8 @@
   --space-9: 48px;
   --space-10: 64px;
   --control-pad-block: 7px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
   --radius-pill: 999px;
   --duration-fast: 120ms;
   --duration-base: 200ms;
@@ -119,36 +119,36 @@
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #0e131a;
-  --color-surface: #151c26;
-  --color-surface-sunken: #1b2430;
-  --color-skeleton-sheen: rgba(255, 255, 255, 0.05);
-  --color-border: #2a3544;
-  --color-border-strong: #6b7a8f;
-  --color-text: #e6ebf2;
-  --color-text-muted: #9aa6b8;
-  --color-accent: #7ea2ff;
-  --color-on-accent: #0b1220;  /* dark text: white on this light blue would be 2.5:1 */
-  --color-accent-soft: #1c2a4b;
+  --color-bg: #090d16;
+  --color-surface: #111827;
+  --color-surface-sunken: #182234;
+  --color-skeleton-sheen: rgba(255, 255, 255, 0.06);
+  --color-border: #233046;
+  --color-border-strong: #6d7f99;
+  --color-text: #edf2fb;
+  --color-text-muted: #98a8c0;
+  --color-accent: #82a6ff;
+  --color-on-accent: #081022;  /* dark text: white on this light blue would be 2.5:1 */
+  --color-accent-soft: #172546;
   --color-success: #5fcf92;
   --color-success-soft: #12301f;
   --color-warning: #f0b152;
   --color-warning-soft: #35260c;
   --color-neutral: #a7b3c6;
-  --color-neutral-soft: #232d3b;
+  --color-neutral-soft: #202b3d;
   --color-danger: #ff8a82;
   --color-danger-soft: #3a1817;
   --color-danger-solid: #c93b3f;
   --color-on-solid: #ffffff;
-  --color-on-outcome: #0b1220;  /* the dark theme's outcome colours are light */
-  --chart-1: #7ea2ff;
+  --color-on-outcome: #081022;  /* the dark theme's outcome colours are light */
+  --chart-1: #82a6ff;
   --chart-2: #4fd1bd;
   --chart-3: #f0b152;
   --chart-4: #c49bff;
   --chart-5: #ff8a82;
   --chart-6: #a7b3c6;
-  --shadow-1: none;  /* borders carry elevation in the dark theme */
-  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 16px 40px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
 
@@ -162,8 +162,8 @@ body {
   color: var(--color-text);
 }
 a { color: var(--color-accent); }
-h1 { font-size: var(--text-title); line-height: var(--leading-title); font-weight: var(--weight-semibold); letter-spacing: -0.01em; margin: 0 0 var(--space-2); }
-h2 { font-size: var(--text-lg); line-height: var(--leading-lg); font-weight: var(--weight-semibold); margin: var(--space-7) 0 var(--space-3); }
+h1 { font-size: var(--text-title); line-height: var(--leading-title); font-weight: var(--weight-semibold); letter-spacing: -0.025em; margin: 0 0 var(--space-2); }
+h2 { font-size: var(--text-lg); line-height: var(--leading-lg); font-weight: var(--weight-semibold); letter-spacing: -0.015em; margin: var(--space-7) 0 var(--space-3); }
 h3 { font-size: var(--text-md); line-height: var(--leading-md); font-weight: var(--weight-semibold); margin: var(--space-5) 0 var(--space-2); }
 p { margin: 0 0 var(--space-3); }
 code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never under 12 px */
@@ -193,10 +193,11 @@ code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never 
   position: sticky; top: 0; z-index: var(--z-sticky);
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3);
   padding: var(--space-2) var(--space-5); background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-1);
 }
 .brand {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3);
-  font-weight: var(--weight-semibold); font-size: var(--text-lg);
+  font-weight: var(--weight-semibold); font-size: var(--text-lg); letter-spacing: -0.02em;
 }
 /* The brand mark (the favicon's): the accent square with the four-outcome tessellated diamonds. */
 .logo { width: 20px; height: 20px; flex: none; }
@@ -280,8 +281,8 @@ code.wrap { overflow-wrap: anywhere; }
 
 .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: calc(100vh - 53px); }
 .nav {
-  display: flex; flex-direction: column; gap: var(--space-0-5); padding: var(--space-4) var(--space-3);
-  border-right: 1px solid var(--color-border);
+  display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4) var(--space-3);
+  background: var(--color-surface); border-right: 1px solid var(--color-border);
 }
 .nav a {
   display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
@@ -406,7 +407,7 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 .stat-value {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1);
   font-size: var(--text-kpi); line-height: var(--leading-kpi); font-weight: var(--weight-semibold);
-  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  letter-spacing: -0.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
 }
 .stat-foot { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: var(--space-1); }
 /* A link that is an action of its own (not part of a sentence) gets a 24 px target (WCAG 2.5.8). */
@@ -432,9 +433,23 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 .stat.small .stat-value { font-size: var(--text-kpi-sm); line-height: var(--leading-kpi-sm); font-weight: var(--weight-semibold); }
 .stat.small .stat-value .icon { width: 18px; height: 18px; }
 
-/* The pack header: risk, and what is deployed in words, with the exact identifiers below. */
+/* The pack hero card: elevated header with quick actions, risk, and deployed provider pipeline. */
+.pack-hero {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid var(--color-accent);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-1); padding: var(--space-5);
+}
+.pack-hero-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3) var(--space-4); }
+.pack-hero-title { min-width: 0; }
+.pack-hero-title h1 { margin: var(--space-2) 0 0; }
+.pack-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.pack-header-meta { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .pack-header p { margin: 0 0 var(--space-1); }
 .pack-header .deployed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.command-center { border-top: 3px solid var(--color-accent); }
+.trace-num {
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: var(--weight-semibold);
+  color: var(--color-text); margin-right: var(--space-0-5);
+}
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
 /* Where the pack comes from (pack.js originBadge; the docs landing labels community packs too). */
 .badge.origin { color: var(--origin-other); background: var(--origin-other-soft); }
