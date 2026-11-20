@@ -1474,6 +1474,13 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "limit": 2, "offset": 2}),
         (viewer, ("GET", "/api/review"), "/api/review", pack),
         (viewer, ("GET", "/api/review"), "/api/review", {}),
+        (viewer, ("GET", "/api/review/summary"), "/api/review/summary", {}),
+        (
+            viewer,
+            ("GET", "/api/packs/{namespace}/{name}/validation-brief"),
+            f"/api/packs/{INBOX}/validation-brief",
+            {},
+        ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
@@ -1557,6 +1564,7 @@ def steady(text: str) -> str:
     text = re.sub(r'"request_id":\s*"[^"]*"', "", text)
     text = re.sub(r'"calls_today":\s*\d+', "", text)  # FIELDS["calls_today"]
     text = re.sub(r'"timestamp":\s*"[^"]*"', "", text)
+    text = re.sub(r'"generated_at":\s*"[^"]*"', "", text)
     return re.sub(r'"resourceType":"Bundle","id":"[^"]*"', '"resourceType":"Bundle"', text)
 
 

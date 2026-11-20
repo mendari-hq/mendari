@@ -282,10 +282,9 @@ class CqlProvider(Provider):
                         stop=deadline.past,
                     )
         except FhirError as failure:
-            # Past the deadline, or the engine itself timed out.
-            code: ProviderErrorCode = (
-                "timeout" if deadline.past() or failure.reason == "timeout" else "unavailable"
-            )
+            # Past the deadline, the engine was cut off by it (the clamped timeout, or an
+            # answer still arriving). Outside a decision, the same failure is `unavailable`.
+            code: ProviderErrorCode = "timeout" if deadline.past() else "unavailable"
             raise ProviderError(code, f"the CQL engine: {failure}") from None
         except MendariError as failure:
             raise ProviderError("invalid_endpoint", f"the CQL engine: {failure}") from None

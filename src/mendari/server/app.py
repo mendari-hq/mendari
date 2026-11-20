@@ -2845,7 +2845,8 @@ def create_app(
                 reader=input_reader(request),
                 only_overrides=(source == "overrides"),
             )
-            filename = f"{name}-{source}.jsonl"
+            stem = "overrides" if source == "overrides" else "reviewed"
+            filename = f"{name}-{stem}.jsonl"
         else:
             rating = rating or "down"
             records, skipped = feedback_dataset(
