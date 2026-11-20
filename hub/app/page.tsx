@@ -55,9 +55,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
         </div>
       </form>
       {packs.length ? (
-        <ul className="results" aria-label="Packs">
-          {packs.map((item) => <PackCard key={item.id} item={item} />)}
-        </ul>
+        <>
+          <h2 className="sr-only">Published packs</h2>
+          <ul className="results" aria-label="Packs">
+            {packs.map((item) => <PackCard key={item.id} item={item} />)}
+          </ul>
+        </>
       ) : (
         <p className="empty">
           {filtered ? (
@@ -84,7 +87,7 @@ function PackCard({ item }: { item: PackSummary }) {
   return (
     <li className="card">
       <div className="row">
-        <h2><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h2>
+        <h3><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h3>
         <span className="mono muted">{item.id}@{item.version}</span>
         <span className="grow" />
         {item.checked.publisher_type ? <span className={`badge ${item.checked.publisher_type}`}>{item.checked.publisher_type}</span> : null}
