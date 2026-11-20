@@ -100,13 +100,14 @@ async function showRunTab(body, empty) {
     // these elements are gone from the page (the History tab still lists the report).
     const box = $("#run-report");
     const picker = $("#dataset");
+    const runPackId = state.packId;
     const stopProgress = runProgress(box, dataset);
     picker.disabled = true;
     await whileBusy(button, "Running…", async () => {
       try {
         const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
-        evalsState.reports.unshift(report);
-        if (!box.isConnected) return;
+        if (state.packId === runPackId) evalsState.reports.unshift(report);
+        if (!box.isConnected || state.packId !== runPackId) return;
         box.innerHTML = reportView(report);
         wire(box);
       } catch (error) {

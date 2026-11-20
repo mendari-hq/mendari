@@ -29,6 +29,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -298,7 +299,8 @@ def add_store_routes(
         organization's author keys. Answers the new version (`201`), `held` (for the operator's
         review) if it holds a hidden evaluation case, or a refusal naming the check."""
         by, org = person(request)
-        return checked_archive(request, org, by, await request.body())
+        body = await request.body()
+        return await run_in_threadpool(checked_archive, request, org, by, body)
 
     def checked_archive(request: Request, org: str, by: str, data: bytes) -> JSONResponse:
         from mendari import settings
@@ -344,8 +346,9 @@ def add_store_routes(
         """Part `n` (from 0) of an archive under way, the raw bytes, under the body limit. A part
         sent again replaces it; parts past the declared size are refused."""
         _, org = person(request)
+        body = await request.body()
         try:
-            return store.add_part(org, upload_id, n, await request.body())
+            return await run_in_threadpool(store.add_part, org, upload_id, n, body)
         except StoreError as error:
             raise _refused(error) from None
 

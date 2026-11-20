@@ -715,7 +715,9 @@ async def read_body(request: Request, limit: int) -> bytes | None:
     Only routes read bodies, after the sign-in check, so a caller without a credential never
     makes Mendari read one."""
     declared = request.headers.get("content-length")
-    if declared is not None and (not declared.isdigit() or int(declared) > limit):
+    if declared is not None and (
+        not (declared.isascii() and declared.isdigit()) or int(declared) > limit
+    ):
         return None
     body = bytearray()
     async for chunk in request.stream():
@@ -1223,6 +1225,7 @@ class Auth:
                 target = f"/auth/login?next={quote(request.url.path)}"
                 return RedirectResponse(target, status_code=302)
             _within_scope(principal, request.method, request.url.path)
+            request.state.principal = principal
             return None
         if principal is None:
             if permission in EHR_ONLY:

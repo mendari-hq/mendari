@@ -41,6 +41,7 @@ async function refresh(main) {
 
 function showSets(main, counts) {
   const box = main.querySelector("#label-sets");
+  if (!box) return;
   const heading = `<h2 id="label-sets-title">Your sets</h2>`;
   if (!counts.sets.length) {
     box.innerHTML = `${heading}<p class="muted">No set has cases for you yet.</p>`;
@@ -63,6 +64,7 @@ const waiting = (n) => `${n} ${n === 1 ? "case waits" : "cases wait"} for you`;
 // One case: its input, then a form with one group per question. Nothing waiting (a 204): said so.
 function showCase(main, shown, remaining) {
   const box = main.querySelector("#label-case");
+  if (!box) return;
   if (!shown) {
     box.innerHTML = `${emptyState({
       icon: "check",
@@ -151,7 +153,7 @@ async function send(main, form, shown, questions) {
 async function again(main) {
   await refresh(main);
   const box = main.querySelector("#label-case");
-  focusHeading(box.querySelector("h2"));
+  if (box?.isConnected) focusHeading(box.querySelector("h2"));
 }
 
 // The questions a 422 names (the server names questions, never a value: core/evalsets.py

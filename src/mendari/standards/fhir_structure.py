@@ -87,8 +87,17 @@ def rules() -> Rules:
     )
 
 
+_B64_REDOS = r"^(\s*([0-9a-zA-Z\+/=]){4}\s*)+$"
+_B64_LINEAR = r"^\s*(?:[0-9a-zA-Z+/=]{4}\s*)+\Z"
+
+
 @cache
 def _pattern(text: str) -> re.Pattern[str]:
+    if text == _B64_REDOS:
+        return re.compile(_B64_LINEAR)
+    # Anchor trailing `$` with `\Z` so a trailing newline never satisfies an R4 primitive pattern.
+    if text.endswith("$") and not text.endswith(r"\$"):
+        text = text[:-1] + r"\Z"
     return re.compile(text)
 
 

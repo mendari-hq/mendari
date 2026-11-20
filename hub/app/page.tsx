@@ -10,6 +10,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
   const filters = await searchParams;
   const packs = await search(filters);
   const filtered = Boolean(filters.q || filters.risk || filters.standard || filters.publisher_type);
+  const filterKey = `${filters.q ?? ""}|${filters.risk ?? ""}|${filters.standard ?? ""}|${filters.publisher_type ?? ""}`;
   return (
     <>
       <h1>Decision Packs</h1>
@@ -17,7 +18,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
         Healthcare decisions packaged as signed archives, each with a Decision Card the registry
         rendered from the pack&apos;s own files. Validate a pack on your own data before you rely on it.
       </p>
-      <form className="search" role="search" action="/">
+      <form key={filterKey} className="search" role="search" action="/">
         <label>
           Search
           <input name="q" type="search" defaultValue={filters.q ?? ""} placeholder="referral, prior authorization…" />
@@ -48,15 +49,33 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
             <option value="community">Community</option>
           </select>
         </label>
-        <button type="submit">Search</button>
+        <div className="search-actions">
+          <button type="submit">Search</button>
+          {filtered ? <Link href="/" className="clear-filters">Clear</Link> : null}
+        </div>
       </form>
       {packs.length ? (
         <ul className="results" aria-label="Packs">
           {packs.map((item) => <PackCard key={item.id} item={item} />)}
         </ul>
       ) : (
-        <p className="empty">{filtered ? "No pack matches these filters." : "No packs are published yet."}</p>
+        <p className="empty">
+          {filtered ? (
+            <>No pack matches these filters. <Link href="/">Clear filters</Link></>
+          ) : (
+            "No packs are published yet."
+          )}
+        </p>
       )}
+      <section className="federated-banner" aria-labelledby="federated-heading">
+        <h2 id="federated-heading">Independent multi-site validation, without sharing PHI</h2>
+        <p className="muted">
+          Verified health systems evaluate packs on their own chart-reviewed cases and publish
+          cryptographically signed counts (never patient records) with{" "}
+          <code>mendari eval &lt;pack&gt; --dataset your-cases.jsonl --share</code>.
+          Open any pack to inspect its multi-site forest plot and homogeneity tests.
+        </p>
+      </section>
     </>
   );
 }
@@ -65,7 +84,7 @@ function PackCard({ item }: { item: PackSummary }) {
   return (
     <li className="card">
       <div className="row">
-        <h3><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h3>
+        <h2><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h2>
         <span className="mono muted">{item.id}@{item.version}</span>
         <span className="grow" />
         {item.checked.publisher_type ? <span className={`badge ${item.checked.publisher_type}`}>{item.checked.publisher_type}</span> : null}

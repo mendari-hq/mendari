@@ -53,7 +53,8 @@ MAX_TOKEN_BYTES = 16 * 1024
 _TOKEN = re.compile(r"[\x21-\x7e]+")  # RFC 6749 VSCHAR without the space: safe in a header
 LEVELS = ("view", "decide")  # what a registered EHR's launch may do (server/auth.py)
 # A clinician's fhirUser, relative or absolute: a patient portal's (Patient, RelatedPerson) is not.
-_CLINICIAN = re.compile(r"(?:^|/)(?:Practitioner|PractitionerRole)/[A-Za-z0-9\-.]{1,64}$")
+_CLINICIAN = re.compile(r"(?:^|/)(?:Practitioner|PractitionerRole)/[A-Za-z0-9\-.]{1,64}\Z")
+_FHIR_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}\Z")
 _ORG = re.compile(r"[^\s,=]{1,100}")  # an organization id (it may hold a colon)
 
 
@@ -237,8 +238,11 @@ def complete(
     access = token["access_token"]
     if not isinstance(access, str) or len(access) > MAX_TOKEN_BYTES or not _TOKEN.fullmatch(access):
         raise SmartError("the access token is not a valid OAuth token", reason="token")
-    if not isinstance(token.get("patient"), str):
+    patient = token.get("patient")
+    if not isinstance(patient, str):
         raise SmartError("the EHR did not send a patient with the launch", reason="no_patient")
+    if not _FHIR_ID.fullmatch(patient):
+        raise SmartError("the EHR sent an invalid patient id with the launch", reason="no_patient")
     user = None
     identity = None
     if "openid" in str(pending["scopes"]).split():

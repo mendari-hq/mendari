@@ -23,6 +23,8 @@ FLOOR = 1e-12
 
 
 def temperature_grid(low: float = 0.25, high: float = 200.0, steps: int = 400) -> list[float]:
+    if steps < 2:
+        raise ValueError("steps must be at least 2")
     return [
         math.exp(math.log(low) + (math.log(high) - math.log(low)) * i / (steps - 1))
         for i in range(steps)
@@ -31,6 +33,8 @@ def temperature_grid(low: float = 0.25, high: float = 200.0, steps: int = 400) -
 
 def nll(scored: Scored, temperature: float) -> float:
     """Mean negative log-likelihood of the true labels at this temperature."""
+    if not scored:
+        raise ValueError("nll needs at least one labelled example")
     total = 0.0
     for scores, truth in scored:
         total -= math.log(max(softmax(scores, temperature)[truth], FLOOR))

@@ -238,6 +238,10 @@ class Provider(ABC):
         """The providers that make calls: this one, or a composite's members."""
         yield self
 
+    def eager_leaves(self) -> Iterator[Provider]:
+        """Leaves guaranteed to run on every decision (used to group eager batch calls)."""
+        yield from self.leaves()
+
     def batch_key(self) -> Hashable | None:
         """A key shared by providers that can be asked in one call, or None (never batched)."""
         return None
@@ -338,8 +342,12 @@ def fingerprint(pack: Pack, relative: str) -> str:
 
 
 def softmax(scores: Mapping[str, float], temperature: float = 1.0) -> dict[str, float]:
-    if temperature <= 0:
-        raise ValueError("temperature must be positive")
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be positive and finite")
+    if not scores:
+        raise ValueError("scores must not be empty")
+    if not all(math.isfinite(score) for score in scores.values()):
+        raise ValueError("scores must be finite")
     top = max(scores.values())
     exps = {label: math.exp((score - top) / temperature) for label, score in scores.items()}
     total = sum(exps.values())

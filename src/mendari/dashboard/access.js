@@ -31,7 +31,7 @@ views.access = async (main, [reason = "none"]) => {
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
       icon: "shield-check",
       title: "You write packs in your organization's pack store",
-      text: "Where the store is on, its routes are yours to use (docs: the pack store). Its screens here come later.",
+      text: "The pack store is not switched on on this deployment yet. Once it is, its screens appear here.",
     })}${accountButtons()}`;
     wireAccount(main);
     return;

@@ -5,9 +5,9 @@
 // by week, operational health included (provider errors, abstentions, how long 95% of decisions
 // took). Computed by the server (evals/monitoring.py) for this organization.
 
-import { chartHtml, wireCharts } from "./charts.js";
+import { chartHtml } from "./charts.js";
 import { communityNotice } from "./pack.js";
-import { render, views } from "./router.js";
+import { render, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, api, emptyState, esc, figureHtml, icon, money, share, shown, stat, state, storageGet, storageSet } from "./ui.js";
 
@@ -41,9 +41,14 @@ const took = (ms) => {
 
 views.monitoring = async (main) => {
   const days = Number(storageGet("oh.monitoring.days", "30"));
-  const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(state.packId)}&days=${days}`);
+  const packId = state.packId;
+  const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(packId)}&days=${days}`);
+  if (state.packId !== packId) return;
   const week = report.last_7_days;
   const bench = report.benchmark;
+  const psi = week.drift_psi;
+  const psiPct = psi === null ? 0 : Math.min(100, Math.max(0, (psi / 0.5) * 100));
+  const psiGauge = psi === null ? "" : `<span class="psi-gauge${psi >= 0.25 ? " is-high" : ""}" aria-hidden="true"><span class="psi-fill" style="width:${psiPct.toFixed(1)}%"></span><span class="psi-mark"></span></span>`;
   main.innerHTML = `
     <h1>Monitoring</h1>
     <p class="muted">${esc(state.detail.manifest.name)} in use${bench.comparable ? ", against its benchmark" : ""}. Alerts need enough evidence to fire.</p>
@@ -65,7 +70,7 @@ views.monitoring = async (main) => {
         foot: `outcomes recorded downstream · benchmark ${esc(shown(bench.figures.automated_accuracy))}`,
         tone: alerted(report, "automated_accuracy") ? "danger" : "" }) : ""}
       ${stat({ label: "Human overrides, 7 days", value: figureHtml(week.figures.overrides), html: true, foot: "of the reviewed decisions" })}
-      ${stat({ label: "Confidence drift (PSI)", value: week.drift_psi === null ? "n/a" : week.drift_psi.toFixed(2),
+      ${stat({ label: "Confidence drift (PSI)", value: psi === null ? "n/a" : `${psi.toFixed(2)}${psiGauge}`, html: true,
         foot: bench.comparable ? "0.25 or more is a real shift" : "needs a comparable benchmark",
         tone: report.alerts.some((a) => a.kind === "drift") ? "warning" : "" })}
       ${stat({ label: "Automated, rated wrong", value: String(week.automated_rated_wrong), foot: "last 7 days",
@@ -77,7 +82,7 @@ views.monitoring = async (main) => {
       text: "Monitoring fills in as the pack decides and people review, record outcomes or rate its answers.",
       action: { href: "#try", label: "Try it" },
     })}`;
-  wireCharts(main);
+  wire(main);
   $("#monitoring-days").addEventListener("change", (event) => {
     storageSet("oh.monitoring.days", event.target.value);
     render();

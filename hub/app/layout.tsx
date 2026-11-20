@@ -18,7 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="brand">
               <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
                 <rect width="32" height="32" rx="7" />
-                <path d="M16 6.5 25.5 16 16 25.5 6.5 16Z" />
+                <path d="M16 7.25 20 11.25 16 15.25 12 11.25Z" />
+                <path className="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z" />
+                <path className="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z" />
+                <path className="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z" />
               </svg>
               Mendari Hub
             </Link>

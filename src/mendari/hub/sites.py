@@ -287,8 +287,9 @@ def live_result(
         superseded = {
             str(row["ticket"])
             for row in db.all(
-                "SELECT r.ticket FROM hub_site_reports r WHERE r.id IN "
-                "(SELECT supersedes FROM hub_site_reports WHERE supersedes IS NOT NULL)"
+                "SELECT r.ticket FROM hub_site_reports r WHERE r.site = ? AND r.id IN "
+                "(SELECT supersedes FROM hub_site_reports WHERE supersedes IS NOT NULL)",
+                (site,),
             )
         }
     return any(

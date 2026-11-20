@@ -3,20 +3,24 @@
 
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
-import { views, wire } from "./router.js";
-import { $, api, emptyState, esc, figureHtml, icon, may, money, num, OUTCOMES, outcomeText, shown, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
+import { render, views, wire } from "./router.js";
+import { $, api, copyText, download, emptyState, esc, figureHtml, fileSlug, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
-  const [stats, chain, holds] = await Promise.all([
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+  const packId = state.packId;
+  const [stats, chain, holds, brief] = await Promise.all([
+    api(`/api/stats?pack_id=${encodeURIComponent(packId)}`),
     // Verifying the chain reads every event: administrators only (the server says the same),
     // and in memberships mode the operator's alone (ADR-0008).
     may("admin") && state.accounts !== "memberships" ? api("/api/audit/verify") : null,
     api("/api/holds").catch(() => []),
+    api(`${packPath()}/validation-brief?days=30`).catch(() => null),
   ]);
+  if (state.packId !== packId) return;
   const d = state.detail;
   const total = stats.decisions;
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
+  const lens = LENSES.some(([key]) => key === storageGet("oh.lens")) ? storageGet("oh.lens") : "governance";
   main.innerHTML = `
     <h1>${esc(d.name)}</h1>
     ${packHeader(d, holds)}
@@ -35,7 +39,8 @@ views.overview = async (main) => {
         icon: "inbox", title: "No decisions yet",
         text: `Decisions appear here as soon as this pack makes one: from Try it, <a href="/docs">the API</a>, a CDS Hooks call or the sandbox worker.`,
         action: { href: "#try", label: "Try it" },
-      })}`}`;
+      })}`}
+    ${brief ? commandCenter(brief, d, lens) : ""}`;
   main.querySelector(".period-row")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-period]");
     if (!button) return;
@@ -44,6 +49,7 @@ views.overview = async (main) => {
     $("#period-figures").innerHTML = periodFigures(stats, chain, button.dataset.period);
     wireStack(main);
   });
+  if (brief) wireCommandCenter(main, brief, d);
   wire(main);
   wireStack(main);
 };
@@ -70,12 +76,14 @@ function periodFigures(stats, chain, period) {
   // The period's figures come from the server (stats.periods: the same local days as below);
   // the trend lines are drawn from the daily counts.
   const { days, from, now, before } = stats.periods[period];
-  const today = localToday();
+  const currentDay = today();
   const scope = days ? `last ${days} days` : "all time";
   // The trend lines run over the period (at most the last 30 days), from the first decision on.
-  const trendFrom = [stats.daily[0].date, from ?? addDays(today, -29)].sort().pop();
   const trendDays = [];
-  for (let day = trendFrom; day <= today; day = addDays(day, 1)) trendDays.push(totalsBetween(stats.daily, day, day));
+  if (stats.daily.length) {
+    const trendFrom = [stats.daily[0].date, from ?? addDays(currentDay, -29)].sort().pop();
+    for (let day = trendFrom; day <= currentDay; day = addDays(day, 1)) trendDays.push(totalsBetween(stats.daily, day, day));
+  }
   return `${primaryStats(stats, now, before, scope, days, trendDays)}
     ${secondaryStats(stats, chain, now, before, days, trendDays)}
     <div class="panel">
@@ -180,7 +188,7 @@ function packHeader(d, holds) {
   return `<div class="pack-header">
     ${statusNotice(d)}
     ${holdNotice(holds, d)}
-    <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+    <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span> <a class="action-link" href="#card">Decision Card ${icon("arrow-right")}</a></p>
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
     <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
@@ -209,18 +217,13 @@ const dayLabel = (day, long = false) => new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC", month: "short", day: "numeric", ...(long ? { weekday: "short", year: "numeric" } : {}),
 }).format(new Date(`${day}T00:00:00Z`));
 
-function localToday() {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, year: "numeric", month: "2-digit", day: "2-digit" })
-    .formatToParts(new Date()).map((p) => [p.type, p.value]));
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
 // Under a week of history a chart is mostly empty space (one day was a lone 36 px column in an
 // 1,100 px panel), so each day with decisions gets a line instead.
 const MIN_CHART_DAYS = 7;
 
 function dailyView(daily) {
-  const span = daily.length ? (Date.parse(localToday()) - Date.parse(daily[0].date)) / 86_400_000 + 1 : 0;
+  if (!daily.length) return `<p class="muted">No daily counts yet.</p>`;
+  const span = (Date.parse(today()) - Date.parse(daily[0].date)) / 86_400_000 + 1;
   if (span >= MIN_CHART_DAYS) return dailyChart(daily);
   const line = (day) => {
     const total = OUTCOMES.reduce((sum, o) => sum + day[o], 0);
@@ -234,7 +237,7 @@ function dailyView(daily) {
 
 function dailyChart(daily) {
   const byDay = new Map(daily.map((d) => [d.date, d]));
-  const last = [localToday(), daily[daily.length - 1].date].sort().pop();
+  const last = [today(), daily[daily.length - 1].date].sort().pop();
   const first = [daily[0].date, addDays(last, 1 - CHART_DAYS)].sort().pop();
   const categories = [];
   for (let day = first; day <= last; day = addDays(day, 1)) {
@@ -263,4 +266,180 @@ function dailyChart(daily) {
       ],
     },
   });
+}
+
+// ---- Command center: shadow pilot & validation brief, closed-loop overrides, EHR integration ----
+
+const LENSES = [
+  ["governance", "Governance & ROI"],
+  ["improvement", "Closed-loop improvement"],
+  ["ehr", "EHR integration"],
+];
+
+const GATE_TONE = { pass: "s-ok", warn: "s-warning", fail: "s-degraded" };
+const GATE_LABEL = { pass: "Pass", warn: "Review", fail: "Action needed" };
+
+function commandCenter(brief, detail, lens) {
+  return `<section class="panel command-center" aria-labelledby="cc-title">
+    <div class="row cc-head">
+      <h2 id="cc-title">Deployment readiness &amp; operations</h2>
+      <span class="grow"></span>
+      <div class="segmented compact" role="group" aria-label="Workspace lens">${LENSES.map(([key, label]) =>
+        `<button type="button" data-lens="${key}" aria-pressed="${key === lens}">${esc(label)}</button>`).join("")}</div>
+    </div>
+    <div id="cc-body">${lensBody(brief, detail, lens)}</div>
+  </section>`;
+}
+
+function lensBody(brief, detail, lens) {
+  if (lens === "improvement") return improvementLens(brief, detail);
+  if (lens === "ehr") return ehrLens(detail);
+  return governanceLens(brief);
+}
+
+function governanceLens(brief) {
+  const sp = brief.shadow_pilot;
+  const vol = brief.volume;
+  const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
+  const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);
+  const shadowBar = sp.active
+    ? `<div class="callout ok cc-shadow"><div class="row"><span>${icon("eye")} <b>Shadow pilot active.</b> Automation is held for clinician comparison while tracking what would automate (${vol.would_automate} of ${vol.total} cases so far).</span><span class="grow"></span>
+        ${may("approve") ? `<button type="button" id="shadow-stop" data-hold="${esc(sp.hold_id)}">End shadow pilot</button>` : ""}</div></div>`
+    : `<div class="callout neutral cc-shadow"><div class="row"><span>${icon("eye")} <b>7-day shadow mode pilot:</b> score live traffic alongside clinicians with zero automation, then export a signed readiness brief.</span><span class="grow"></span>
+        ${may("approve") ? `<button type="button" class="primary" id="shadow-start">Start shadow pilot</button>` : ""}</div></div>`;
+  const gates = `<ul class="gate-list">${brief.gates.map((g) => `<li class="gate-row">
+      <span class="badge ${GATE_TONE[g.status] ?? "o-ABSTAIN"}">${esc(GATE_LABEL[g.status] ?? g.status)}</span>
+      <span class="gate-label"><b>${esc(g.label)}</b></span>
+      <span class="muted">${esc(g.detail)}</span>
+    </li>`).join("")}</ul>`;
+  return `${shadowBar}
+    <div class="cc-roi-row">
+      <div class="cc-metric"><span class="muted">Automation-ready</span><b>${figureHtml(brief.figures.automation_readiness)}</b></div>
+      <div class="cc-metric"><span class="muted">Clinician agreement</span><b>${figureHtml(brief.figures.agreement)}</b></div>
+      <div class="cc-metric"><span class="muted">Projected time reclaimed</span><b id="roi-hours">${esc(hours)} hrs / week</b>
+        <label class="cc-mins muted">at <select id="roi-mins" aria-label="Minutes per case">${[2, 3.5, 5, 8].map((m) => `<option value="${m}" ${m === mins ? "selected" : ""}>${m} min/case</option>`).join("")}</select></label></div>
+    </div>
+    ${gates}
+    <div class="row mt-3">
+      <button type="button" id="brief-download">${icon("download")} Download Validation Brief (.md)</button>
+      <button type="button" id="brief-copy">${icon("copy")} Copy executive summary</button>
+      <span class="grow"></span>
+      <a class="action-link" href="#card/approval">Governance &amp; holds ${icon("arrow-right")}</a>
+    </div>`;
+}
+
+function improvementLens(brief, detail) {
+  const clusters = brief.override_clusters ?? [];
+  const name = detail.id.split("/").pop();
+  const cli = `mendari eval ${detail.id} --dataset ${name}-overrides.jsonl`;
+  const table = clusters.length
+    ? `<div class="table-wrap mt-3"><table class="compact">
+        <thead><tr><th scope="col">Pack recommended</th><th scope="col">Clinician chose</th><th scope="col" class="num">Overrides</th><th scope="col" class="num">Share</th></tr></thead>
+        <tbody>${clusters.map((c) => `<tr><td><code>${esc(c.recommended)}</code></td><td><code>${esc(c.chosen)}</code></td><td class="num">${c.count}</td><td class="num">${(c.share * 100).toFixed(1)}%</td></tr>`).join("")}</tbody>
+      </table></div>`
+    : `<p class="muted mt-3">No human overrides recorded in the last ${brief.window_days} days. As clinicians override decisions in the Review queue, recurring disagreement patterns cluster here for targeted recalibration.</p>`;
+  return `<p class="muted mt-2">Close the loop from clinician overrides to measurable pack improvements: export overridden cases as a local validation set, test a recalibrated threshold or stronger provider, and compare before promotion.</p>
+    ${table}
+    <div class="row mt-3">
+      ${may("admin") ? `<button type="button" class="primary" id="export-overrides">${icon("download")} Export overrides (JSONL)</button>` : ""}
+      <button type="button" id="copy-recal">${icon("copy")} Copy eval CLI</button>
+      <a class="action-link" href="#evals">Open Evaluations ${icon("arrow-right")}</a>
+    </div>
+    <pre class="json mt-2">${esc(cli)}</pre>`;
+}
+
+function ehrLens(detail) {
+  const origin = location.origin;
+  const rows = [
+    ["REST decide (live)", `POST ${origin}${packPath()}/decide`],
+    ["Shadow mode header", `X-Mendari-Shadow: 1`],
+    ["FHIR R4 $decide", `POST ${origin}/fhir/$decide`],
+    ...(detail.cds_service ? [["CDS Hooks 2.0 service", `POST ${origin}/cds-services/${detail.cds_service}`]] : []),
+    ["CDS Hooks discovery", `GET ${origin}/cds-services`],
+    ["SMART App Launch", `${origin}/smart/launch`],
+  ];
+  return `<p class="muted mt-2">Connect an EHR workqueue, CDS Hooks service, or SMART App Launch directly to this deployment. Send <code>X-Mendari-Shadow: 1</code> during a pilot to hold automation while recording full comparison metrics.</p>
+    <div class="ehr-list mt-3">${rows.map(([label, value], idx) => `<div class="ehr-row">
+      <span class="ehr-label muted">${esc(label)}</span>
+      <code class="break-anywhere">${esc(value)}</code>
+      <button type="button" class="icon-button" data-copy-ehr="${idx}" aria-label="Copy ${esc(label)}" title="Copy">${icon("copy")}</button>
+    </div>`).join("")}</div>`;
+}
+
+function wireCommandCenter(main, brief, detail) {
+  const section = main.querySelector(".command-center");
+  if (!section) return;
+  const bindBody = () => {
+    section.querySelector("#shadow-start")?.addEventListener("click", (event) =>
+      whileBusy(event.currentTarget, "Starting…", async () => {
+        try {
+          await api("/api/holds", {
+            method: "POST",
+            body: JSON.stringify({ pack_id: state.packId, reason: "shadow pilot: 7-day validation against clinicians" }),
+          });
+          toast("Shadow pilot started: automation held for clinician comparison");
+          if (main.isConnected) render();
+        } catch (error) {
+          toastError(error.message);
+        }
+      }));
+    section.querySelector("#shadow-stop")?.addEventListener("click", (event) => {
+      const holdId = event.currentTarget.dataset.hold;
+      whileBusy(event.currentTarget, "Ending…", async () => {
+        try {
+          await api(`/api/holds/${encodeURIComponent(holdId)}`, { method: "DELETE" });
+          toast("Shadow pilot ended");
+          if (main.isConnected) render();
+        } catch (error) {
+          toastError(error.message);
+        }
+      });
+    });
+    section.querySelector("#roi-mins")?.addEventListener("change", (event) => {
+      const m = Number(event.target.value) || 3.5;
+      storageSet("oh.roi.mins", String(m));
+      const out = section.querySelector("#roi-hours");
+      if (out) out.textContent = `${((brief.roi.weekly_auto_cases_projected * m) / 60).toFixed(1)} hrs / week`;
+    });
+    section.querySelector("#brief-download")?.addEventListener("click", (event) => {
+      const m = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
+      whileBusy(event.currentTarget, "Building…", () =>
+        download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`)
+          .catch((err) => toastError(err.message)));
+    });
+    section.querySelector("#brief-copy")?.addEventListener("click", () => {
+      const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
+      const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);
+      const summary = `${brief.pack.name} (${brief.pack.id} v${brief.pack.version}) — ${brief.volume.total} local cases (last ${brief.window_days}d), agreement ${shown(brief.figures.agreement)}, automation-ready ${shown(brief.figures.automation_readiness)}, ${brief.volume.down_on_auto} automated errors, ~${hours} clinician hrs/wk reclaimable.`;
+      copyText(summary, "Executive summary copied");
+    });
+    section.querySelector("#export-overrides")?.addEventListener("click", (event) =>
+      whileBusy(event.currentTarget, "Exporting…", () =>
+        download(`${packPath()}/feedback/export?source=overrides`, `${fileSlug(state.packId)}-overrides.jsonl`)
+          .catch((err) => toastError(err.message))));
+    section.querySelector("#copy-recal")?.addEventListener("click", () => {
+      const name = detail.id.split("/").pop();
+      copyText(`mendari eval ${detail.id} --dataset ${name}-overrides.jsonl`, "Command copied");
+    });
+    const ehrValues = [
+      `POST ${location.origin}${packPath()}/decide`,
+      "X-Mendari-Shadow: 1",
+      `POST ${location.origin}/fhir/$decide`,
+      ...(detail.cds_service ? [`POST ${location.origin}/cds-services/${detail.cds_service}`] : []),
+      `GET ${location.origin}/cds-services`,
+      `${location.origin}/smart/launch`,
+    ];
+    section.querySelectorAll("[data-copy-ehr]").forEach((btn) =>
+      btn.addEventListener("click", () => copyText(ehrValues[Number(btn.dataset.copyEhr)], "Copied")));
+  };
+
+  section.querySelectorAll("[data-lens]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const next = button.dataset.lens;
+      storageSet("oh.lens", next);
+      section.querySelectorAll("[data-lens]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+      $("#cc-body", section).innerHTML = lensBody(brief, detail, next);
+      bindBody();
+    }));
+  bindBody();
 }

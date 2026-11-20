@@ -23,9 +23,9 @@ def today() -> date:
     return datetime.now(zone()).date()
 
 
-def local_date(timestamp: str) -> str:
+def local_date(timestamp: str, tz: ZoneInfo | None = None) -> str:
     """The local calendar day (YYYY-MM-DD) of a stored ISO-8601 timestamp with an offset."""
-    return datetime.fromisoformat(timestamp).astimezone(zone()).date().isoformat()
+    return datetime.fromisoformat(timestamp).astimezone(tz or zone()).date().isoformat()
 
 
 def seconds_until_tomorrow() -> int:

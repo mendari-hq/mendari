@@ -80,10 +80,17 @@ def feedback_dataset(
 
 
 def reviewed_dataset(
-    store: AuditStore, *, pack_id: str, limit: int = 1000, reader: str | None = None
+    store: AuditStore,
+    *,
+    pack_id: str,
+    limit: int = 1000,
+    reader: str | None = None,
+    only_overrides: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """(records, skipped): one record per decision of the pack that a reviewer resolved or a
     downstream system recorded an outcome for (`AuditStore.labelled`), the newest `limit`.
+    When `only_overrides` is true, keeps only cases where a clinician overrode the pack's
+    recommendation (for closed-loop regression testing and recalibration).
     `labels` holds its primary question's label (`truth_label`: the outcome when there is one,
     else the reviewer's), `attributes.source` says which (`outcome` or `review`), and `review`
     and `outcome` what each said. A decision whose input was stored only as a hash is counted in
@@ -93,6 +100,8 @@ def reviewed_dataset(
     records = []
     skipped = 0
     for item in store.labelled(pack_id=pack_id, limit=limit, reader=reader):
+        if only_overrides and not item.get("human_override"):
+            continue
         record = item["record"]
         primary = record.get("primary")
         if record.get("input") is None or not isinstance(primary, str):

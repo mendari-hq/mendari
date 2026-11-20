@@ -91,7 +91,7 @@ def fetch_yanks(registry: str, *, deadline_s: float = DEADLINE_S) -> list[dict[s
         if response.status_code != 200:
             raise MendariError(f"the registry answered HTTP {response.status_code}")
         declared = response.headers.get("content-length", "")
-        if declared.isdigit() and int(declared) > MAX_YANKS_BYTES:
+        if declared.isascii() and declared.isdigit() and int(declared) > MAX_YANKS_BYTES:
             raise MendariError("the registry's recalls are too large")
         for chunk in response.iter_bytes():
             body += chunk
@@ -124,6 +124,7 @@ class _Registry:
     checked_at: float | None = None  # the last read that worked (monotonic)
     recalled: dict[tuple[str, str], str] = field(default_factory=dict)  # (pack, version) -> why
     reading_since: float | None = None  # a read in flight, since
+    failed_at: float | None = None  # the last failed read, for backoff on outage
     failing: str | None = None  # the last read's error type, while reads fail
     signs: bool = False  # it published a signing key at the last read that worked
 
@@ -169,6 +170,7 @@ class RecallWatch:
             kind = type(error).__name__
             with self._lock:
                 state.reading_since = None
+                state.failed_at = self._clock()
                 changed, state.failing = state.failing != kind, kind
             if changed:  # once a change of state, never the registry's own words
                 log.warning("a registry's recalls could not be read (%s)", kind)
@@ -185,7 +187,7 @@ class RecallWatch:
             recalled[(pack, version)] = why
         with self._lock:
             state.recalled, state.checked_at, state.signs = recalled, self._clock(), signs
-            state.reading_since, state.failing = None, None
+            state.reading_since, state.failed_at, state.failing = None, None, None
 
     def _due(self, registry: str) -> None:
         """Start a background read if this registry's is due and none is running (never, for
@@ -196,7 +198,10 @@ class RecallWatch:
         with self._lock:
             now = self._clock()
             reading = state.reading_since is not None and now - state.reading_since < ABANDONED_S
-            if reading or (state.checked_at is not None and now - state.checked_at < self.check_s):
+            cooldown = min(self.check_s, 30.0)
+            cooling = state.failed_at is not None and now - state.failed_at < cooldown
+            fresh = state.checked_at is not None and now - state.checked_at < self.check_s
+            if reading or cooling or fresh:
                 return
             state.reading_since = now
         try:

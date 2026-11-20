@@ -13,20 +13,23 @@ const noticeLine = () => {
   return text ? `<p class="preview-notice drawer-notice" role="note">${esc(text)}</p>` : "";
 };
 
-export function showDrawer({ title, body, opener, onClose }) {
+const INERT_SELECTORS = ".topbar, .shell, .session-ended";
+
+export function showDrawer({ title, body, opener, onClose, headActions = "", onKeydown = null, busy = false }) {
   closeDrawer({ restoreFocus: false, closedByUser: false });
   const root = document.createElement("div");
   root.className = "drawer-root";
   root.innerHTML = `<div class="drawer-backdrop" data-close></div>
     <section class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <header class="drawer-head"><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>
+        ${headActions ? `<div class="drawer-actions">${headActions}</div>` : ""}
         <button type="button" class="icon-button" data-close aria-label="Close">${icon("x")}</button></header>
-      <div class="drawer-body">${noticeLine()}${body}</div>
+      <div class="drawer-body"${busy ? ' aria-busy="true"' : ""}>${noticeLine()}${body}</div>
     </section>`;
   document.body.append(root);
-  document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = true));
+  document.querySelectorAll(INERT_SELECTORS).forEach((el) => (el.inert = true));
   document.body.classList.add("drawer-open");
-  drawer = { root, opener, onClose };
+  drawer = { root, opener, onClose, onKeydown };
   root.addEventListener("click", (event) => {
     if (event.target.closest("[data-close]")) closeDrawer();
   });
@@ -36,9 +39,38 @@ export function showDrawer({ title, body, opener, onClose }) {
       closeDrawer();
     } else if (event.key === "Tab") {
       keepFocusInside(event, root.querySelector(".drawer"));
+    } else if (drawer?.onKeydown) {
+      drawer.onKeydown(event);
     }
   });
   root.querySelector("#drawer-title").focus();
+  return root;
+}
+
+export function updateDrawer({ title, body, headActions = "", onKeydown = null, busy = false }) {
+  if (!drawer) return null;
+  const { root } = drawer;
+  const titleEl = root.querySelector("#drawer-title");
+  if (titleEl && title !== undefined) titleEl.textContent = title;
+  const head = root.querySelector(".drawer-head");
+  let actions = head?.querySelector(".drawer-actions");
+  if (headActions) {
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.className = "drawer-actions";
+      head?.querySelector("[data-close]")?.before(actions);
+    }
+    actions.innerHTML = headActions;
+  } else if (actions) {
+    actions.remove();
+  }
+  const bodyEl = root.querySelector(".drawer-body");
+  if (bodyEl) {
+    if (busy) bodyEl.setAttribute("aria-busy", "true");
+    else bodyEl.removeAttribute("aria-busy");
+    bodyEl.innerHTML = `${noticeLine()}${body}`;
+  }
+  drawer.onKeydown = onKeydown;
   return root;
 }
 
@@ -49,12 +81,14 @@ export function closeDrawer({ restoreFocus = true, closedByUser = true } = {}) {
   if (!drawer) return;
   const { root, opener, onClose } = drawer;
   drawer = null;
-  document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = false));
+  document.querySelectorAll(INERT_SELECTORS).forEach((el) => (el.inert = false));
   document.body.classList.remove("drawer-open");
   if (restoreFocus && opener?.isConnected) opener.focus();
   leave(root, { animate: closedByUser });
   if (closedByUser) onClose?.();
 }
+
+export const drawerOpen = () => Boolean(drawer);
 
 // Closed by a person, it slides back out (the page is already usable again: the drawer is inert and
 // no longer a dialog while it goes). Replaced or dropped by a view change, it goes at once.
@@ -71,8 +105,11 @@ function leave(root, { animate }) {
 }
 
 function keepFocusInside(event, container) {
-  const focusable = [...container.querySelectorAll("a[href], button:not([disabled]), input, select, textarea, summary")]
-    .filter((el) => el.getClientRects().length);
+  const focusable = [
+    ...container.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((el) => el.getClientRects().length);
   if (!focusable.length) return;
   const [first, last] = [focusable[0], focusable[focusable.length - 1]];
   const inside = container.contains(document.activeElement) && document.activeElement.id !== "drawer-title";

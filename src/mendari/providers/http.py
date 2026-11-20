@@ -49,10 +49,16 @@ def require_secure(endpoint: str, service: str) -> None:
 
 def require_https(endpoint: str, service: str) -> None:
     """https, or plain http to this machine only (local model servers)."""
-    parsed = urlparse(endpoint)
-    if parsed.scheme == "https" or (
-        parsed.scheme == "http" and _LOCAL_HOST.match(parsed.hostname or "")
-    ):
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or ""
+    except ValueError:
+        raise ProviderError("invalid_endpoint", f"{service} endpoint is not a valid URL") from None
+    if parsed.username or parsed.password:
+        raise ProviderError(
+            "invalid_endpoint", f"{service} endpoint must not carry credentials in its address"
+        )
+    if (parsed.scheme == "https" and host) or (parsed.scheme == "http" and _LOCAL_HOST.match(host)):
         return
     raise ProviderError(
         "invalid_endpoint", f"{service} endpoints must use https (http only for localhost)"
@@ -92,7 +98,10 @@ def require_listed(variable: str, allowed: frozenset[str]) -> None:
 
 
 def is_local(endpoint: str) -> bool:
-    return bool(_LOCAL_HOST.match(urlparse(endpoint).hostname or ""))
+    try:
+        return bool(_LOCAL_HOST.match(urlparse(endpoint).hostname or ""))
+    except ValueError:
+        return False
 
 
 def post_json(
@@ -151,11 +160,15 @@ class _Retryable(Exception):
 
 
 def _retry_after(headers: httpx.Headers) -> float | None:
+    import math
+
     for name, scale in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
         try:
-            return max(0.0, float(headers[name]) * scale)
+            value = float(headers[name]) * scale
         except (KeyError, ValueError):
             continue
+        if math.isfinite(value):
+            return max(0.0, value)
     return None
 
 
@@ -194,5 +207,5 @@ def _post_once(
         raise ProviderError("provider_unavailable", type(error).__name__) from None
     try:
         return json.loads(b"".join(chunks))
-    except ValueError:
+    except (ValueError, RecursionError):
         raise ProviderError("invalid_response", "body is not JSON") from None

@@ -40,7 +40,13 @@ FETCH_TIMEOUT_S = 10.0
 
 def vercel_oidc_token() -> str:
     """The deployment's OIDC token (on Vercel), or the one `vercel env pull` wrote locally."""
-    from vercel.oidc import VercelOidcTokenError, get_vercel_oidc_token_sync
+    try:
+        from vercel.oidc import VercelOidcTokenError, get_vercel_oidc_token_sync
+    except ImportError:
+        raise ProviderError(
+            "credential_unavailable",
+            "vercel-oidc is not installed: set AI_GATEWAY_API_KEY or install vercel-oidc",
+        ) from None
 
     try:
         token = get_vercel_oidc_token_sync()
@@ -97,7 +103,9 @@ class ConnectorToken:
         headers = {"authorization": f"Bearer {self._oidc()}"}
         client = self._client or httpx.Client(timeout=timeout, follow_redirects=False)
         try:
-            response = client.post(url, json={"subject": {"type": "app"}}, headers=headers)
+            response = client.post(
+                url, json={"subject": {"type": "app"}}, headers=headers, timeout=timeout
+            )
         except httpx.HTTPError as error:
             cut = isinstance(error, httpx.TimeoutException) and deadline.past()
             raise ProviderError(
@@ -114,7 +122,7 @@ class ConnectorToken:
             )
         try:
             body = response.json()
-        except ValueError:
+        except (ValueError, RecursionError):
             body = None
         token = body.get("token") if isinstance(body, dict) else None
         if not isinstance(token, str) or not token:
@@ -122,7 +130,13 @@ class ConnectorToken:
         return token, self._expiry(body.get("expiresAt"))
 
     def _expiry(self, expires_at: object) -> float:
-        if isinstance(expires_at, int | float) and not isinstance(expires_at, bool):
+        import math
+
+        if (
+            isinstance(expires_at, int | float)
+            and not isinstance(expires_at, bool)
+            and math.isfinite(expires_at)
+        ):
             # Vercel reports epoch milliseconds; accept seconds too.
             return expires_at / 1000 if expires_at > 1e11 else float(expires_at)
         return self._clock() + DEFAULT_TTL_S

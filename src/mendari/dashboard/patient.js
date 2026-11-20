@@ -126,6 +126,7 @@ async function decide(button, pinned) {
         method: "POST",
         body: JSON.stringify({ pack_id: state.packId, focus: button.dataset.decide }),
       }));
+      if (!result.isConnected) return;
       result.innerHTML = decided(decision);
     } catch (error) {
       if (error.launchReplaced) render(); // replaced since the check above: the view says so

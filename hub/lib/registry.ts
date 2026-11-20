@@ -136,13 +136,21 @@ export class RegistryUnavailable extends Error {}
 async function get<T>(path: string): Promise<T | null> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, { cache: "no-store" });
+    response = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
   } catch {
     throw new RegistryUnavailable("The registry cannot be reached right now.");
   }
   if (response.status === 404) return null;
   if (!response.ok) throw new RegistryUnavailable(`The registry answered HTTP ${response.status}.`);
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new RegistryUnavailable("The registry returned an unreadable response.");
+  }
 }
 
 export type SearchFilters = { q?: string; risk?: string; standard?: string; publisher_type?: string };

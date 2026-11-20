@@ -237,6 +237,19 @@ def shape_problem(value: Any, reader: str = "a community pack") -> str | None:
     return None
 
 
+_SAFE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")
+_MAX_WHERE_LEN = 200
+
+
+def _child_where(where: str, segment: str) -> str:
+    """Append a sanitized path segment, capping total length so client keys never leak."""
+    if len(where) >= _MAX_WHERE_LEN:
+        return where
+    safe = segment if _SAFE_KEY.match(segment) else "*"
+    joined = f"{where}.{safe}" if where else safe
+    return joined if len(joined) <= _MAX_WHERE_LEN else f"{joined[: _MAX_WHERE_LEN - 1]}…"
+
+
 def long_text(
     value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS, *, count_keys: bool = True
 ) -> str | None:
@@ -267,9 +280,12 @@ def long_text(
                         total += len(key) + 1
                         if total > limit:
                             return "the input's texts together"
-                stack.append((f"{where}.{key}" if where else str(key), child))
+                stack.append((_child_where(where, str(key)), child))
         elif isinstance(item, list | tuple):
-            stack += [(f"{where}[{i}]", child) for i, child in reversed(list(enumerate(item)))]
+            stack += [
+                (f"{where}[{i}]" if len(where) < _MAX_WHERE_LEN else where, child)
+                for i, child in reversed(list(enumerate(item)))
+            ]
     return None
 
 

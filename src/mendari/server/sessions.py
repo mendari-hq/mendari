@@ -100,7 +100,7 @@ def _bounded(name: str, default: int, low: int, high: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
-    if not raw.isdigit() or not low <= int(raw) <= high:
+    if not (raw.isascii() and raw.isdigit()) or not low <= int(raw) <= high:
         raise MendariError(f"{name} must be a whole number from {low} to {high}, not {raw!r}")
     return int(raw)
 

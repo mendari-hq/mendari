@@ -20,13 +20,13 @@ too, the most confident answer obtained so far is used; if every member fails, t
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
 from pydantic import Field
 
 from mendari.errors import ProviderError, ProviderErrorCode
-from mendari.providers.base import ProviderOutput
+from mendari.providers.base import Provider, ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
 
 
@@ -38,6 +38,13 @@ class CascadeProvider(CompositeProvider):
     type = "cascade"
     settings_model = CascadeConfig
     joiner = " → "
+
+    def eager_leaves(self) -> Iterator[Provider]:
+        """Only the first member runs eagerly; fallback members are invoked only when earlier
+        members are below `accept_at` or fail, so they must not be eagerly batched up front."""
+        first = next(iter(self.members.values()), None)
+        if first is not None:
+            yield from first.eager_leaves()
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         accept_at = cast(CascadeConfig, self.settings).accept_at

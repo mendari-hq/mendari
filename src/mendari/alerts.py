@@ -118,13 +118,21 @@ def check_webhook(url: str) -> None:
     """Alerts may leave only over https (or http to this machine or a compose service), never
     with credentials in the address, and only to an address the client can parse (a mistyped
     port fails here, never when an alert is due). The URL is never repeated: it holds a token."""
+    import re
+
+    from mendari.core.https_only import is_local_host
+
     try:
         httpx.URL(url)
     except httpx.InvalidURL:
         raise MendariError("the alert webhook is not a valid URL") from None
     parts = urlsplit(url)
-    host = parts.hostname or ""
-    local = host in ("localhost", "127.0.0.1") or (bool(host) and "." not in host)
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise MendariError("the alert webhook is not a valid URL")
+    # Plaintext http is only for loopback or a compose service DNS label (never decimal IPv4/IPv6).
+    compose_service = bool(re.fullmatch(r"[a-z][a-z0-9-]{0,62}", host))
+    local = is_local_host(host) or compose_service
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
         raise MendariError("the alert webhook must use https")
     if parts.username or parts.password:
@@ -201,6 +209,8 @@ def send(
     store: AuditStore | None = None,
 ) -> Delivery:
     """`deliver`, saying what the send came to rather than only whether it was delivered."""
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
     delivery = uuid.uuid4().hex
     body = render(
         settings.format, delivery=delivery, event=event, org=org, alerts=alerts, lines=lines

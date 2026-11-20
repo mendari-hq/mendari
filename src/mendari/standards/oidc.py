@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
+import threading
 import time
 from typing import Any
 
@@ -21,6 +22,7 @@ from mendari.errors import AuthError
 from mendari.standards.fhir_client import GuardedHttp
 
 ALGORITHMS = ["RS256", "ES384"]
+MAX_CANDIDATE_KEYS = 16
 
 
 def pkce() -> tuple[str, str]:
@@ -50,16 +52,19 @@ class Discovery:
 
     def __init__(self, ttl: float = 3600) -> None:
         self.ttl = ttl
+        self._lock = threading.Lock()
         self._found: dict[str, tuple[float, dict[str, Any]]] = {}
 
     def get(self, issuer: str, http: GuardedHttp) -> dict[str, Any]:
-        found = self._found.get(issuer)
+        with self._lock:
+            found = self._found.get(issuer)
         if found is not None and time.monotonic() - found[0] < self.ttl:
             for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
                 http.check(found[1][key])
             return found[1]
         config = discover(issuer, http)
-        self._found[issuer] = (time.monotonic(), config)
+        with self._lock:
+            self._found[issuer] = (time.monotonic(), config)
         return config
 
 
@@ -72,11 +77,13 @@ def verify_id_token(
         raise AuthError("the id_token is not a JWT") from None
     if header.get("alg") not in ALGORITHMS:
         raise AuthError(f"the id_token is signed with {header.get('alg')!r}, not {ALGORITHMS}")
-    keys = [k for k in http.get_json(jwks_uri).get("keys", []) if isinstance(k, dict)]
+    raw_keys = http.get_json(jwks_uri).get("keys", [])
+    keys = [k for k in raw_keys if isinstance(k, dict)] if isinstance(raw_keys, list) else []
     matching = [k for k in keys if k.get("kid") == header.get("kid")] if header.get("kid") else keys
+    matching = matching[:MAX_CANDIDATE_KEYS]
     if not matching:
         raise AuthError("no key in the issuer's JWKS matches the id_token")
-    last: jwt.PyJWTError | None = None
+    last: Exception | None = None
     for jwk in matching:
         try:
             claims: dict[str, Any] = jwt.decode(
@@ -89,10 +96,13 @@ def verify_id_token(
                 leeway=60,
             )
             break
-        except jwt.PyJWTError as error:
+        except (jwt.PyJWTError, ValueError, TypeError, KeyError) as error:
             last = error
     else:
         raise AuthError(f"the id_token is not valid: {type(last).__name__}")
+    aud = claims.get("aud")
+    if isinstance(aud, list) and len(aud) > 1 and claims.get("azp") != audience:
+        raise AuthError("the id_token's azp does not match this client")
     if claims.get("nonce") != nonce:
         raise AuthError("the id_token's nonce does not match this sign-in")
     return claims

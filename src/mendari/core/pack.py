@@ -691,6 +691,8 @@ class _PackLoader(yaml.SafeLoader):
     def construct_yaml_float(self, node: yaml.ScalarNode) -> float:
         _check_number(node)
         value: float = super().construct_yaml_float(node)
+        if not math.isfinite(value):
+            _refuse("a non-finite float (NaN or Infinity), which JSON cannot hold", node)
         return value
 
     def construct_yaml_str(self, node: yaml.ScalarNode) -> str:

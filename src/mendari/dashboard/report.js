@@ -4,7 +4,7 @@
 import { chartHtml } from "./charts.js";
 import { criticalText } from "./pack.js";
 import { tableHtml } from "./table.js";
-import { esc, evidenceMark, figureHtml, money, num, share, shown, slotText, stat, time } from "./ui.js";
+import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, time } from "./ui.js";
 
 // A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
 export const runOf = (r) => r.run ?? r;
@@ -56,7 +56,7 @@ export function reportView(r) {
     </div>
     <div class="grid-2">
       <div class="panel"><h2>Reliability</h2>${reliabilityChart(q.calibration, f.calibration ?? [], id)}</div>
-      <div class="panel"><h2>Threshold sweep</h2>${sweepChart(r.threshold_sweep, f.sweep ?? [], r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}</div>
+      <div class="panel"><h2>Threshold sweep</h2>${sweepChart(r.threshold_sweep, f.sweep ?? [], r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}${thresholdSimulator(r.threshold_sweep, f.sweep ?? [], r.policy?.thresholds?.auto, id)}</div>
     </div>
     <div class="panel"><h2>Per label</h2>${tableHtml({
       id: `labels-${id}`, caption: "",
@@ -197,6 +197,83 @@ function sweepChart(sweep, figures, autoThreshold, nothingAutomated, id) {
         { key: "correct", label: "Of those, correct", numeric: true, cell: (t) => figureHtml(t.correct) },
       ],
     },
+  });
+}
+
+// Interactive Policy Threshold "What-If" Simulator: lets clinicians and governance leads slide
+// across the server's precomputed sweep points (with exact Clopper-Pearson intervals) to see
+// projected automation, human review load, accuracy, and copyable YAML policy config.
+const SIMULATORS = new Map();
+
+function thresholdSimulator(sweep, figures, autoThreshold, id) {
+  if (!sweep?.length || sweep.length < 2) return "";
+  const rows = sweep.map((t, i) => ({
+    threshold: t.threshold,
+    automated: figures[i]?.automated ?? null,
+    correct: figures[i]?.correct ?? null,
+  }));
+  const current = typeof autoThreshold === "number" ? autoThreshold : null;
+  let initial = 0;
+  if (current !== null) {
+    let bestDiff = Infinity;
+    rows.forEach((row, idx) => {
+      const diff = Math.abs(row.threshold - current);
+      if (diff < bestDiff) { bestDiff = diff; initial = idx; }
+    });
+  }
+  const simId = `sim-${id}`;
+  SIMULATORS.set(simId, { rows, current });
+  return `<section class="simulator" data-simulator="${esc(simId)}" aria-labelledby="${esc(simId)}-title">
+    <div class="row sim-head">
+      <h3 id="${esc(simId)}-title">${icon("sliders")} Policy threshold simulator</h3>
+      <span class="grow"></span>
+      <button type="button" class="link-button" data-sim-copy>${icon("copy")} Copy policy YAML</button>
+    </div>
+    <div class="sim-control">
+      <label for="${esc(simId)}-range">Automate when confidence is at least</label>
+      <input type="range" id="${esc(simId)}-range" min="0" max="${rows.length - 1}" step="1" value="${initial}">
+      <output for="${esc(simId)}-range" class="sim-value mono" data-sim-threshold>${rows[initial].threshold.toFixed(2)}</output>
+    </div>
+    <div class="sim-metrics" data-sim-metrics aria-live="polite"></div>
+  </section>`;
+}
+
+export function wireSimulators(root) {
+  root.querySelectorAll("[data-simulator]").forEach((section) => {
+    if (section.dataset.wired) return;
+    section.dataset.wired = "1";
+    const entry = SIMULATORS.get(section.dataset.simulator);
+    if (!entry) return;
+    const range = section.querySelector('input[type="range"]');
+    const out = section.querySelector("[data-sim-threshold]");
+    const metrics = section.querySelector("[data-sim-metrics]");
+    const copyBtn = section.querySelector("[data-sim-copy]");
+    const paint = () => {
+      const row = entry.rows[Number(range.value)] ?? entry.rows[0];
+      const th = row.threshold.toFixed(2);
+      const delta = entry.current !== null ? row.threshold - entry.current : null;
+      const deltaText = delta === null ? ""
+        : Math.abs(delta) < 0.001 ? " (pack default)"
+          : ` (${delta > 0 ? "+" : ""}${delta.toFixed(2)} vs default)`;
+      out.textContent = `${th}${deltaText}`;
+      const autoN = row.automated?.n ?? 0;
+      const autoK = row.automated?.k ?? 0;
+      const reviewK = Math.max(0, autoN - autoK);
+      const autoShare = share(row.automated);
+      const hrsPer1k = autoShare !== null ? ((autoShare * 1000 * 3.5) / 60).toFixed(1) : "n/a";
+      const wrongAuto = row.correct && row.correct.n ? row.correct.n - row.correct.k : 0;
+      metrics.innerHTML = `
+        <div class="sim-metric"><span class="muted">Would automate</span><b>${figureHtml(row.automated)}</b></div>
+        <div class="sim-metric"><span class="muted">Sent to review</span><b>${reviewK} of ${autoN}</b></div>
+        <div class="sim-metric"><span class="muted">Automated correct</span><b>${figureHtml(row.correct)}</b></div>
+        <div class="sim-metric"><span class="muted">Est. clinician time</span><b>${hrsPer1k === "n/a" ? "n/a" : `${hrsPer1k} hrs / 1k cases`}</b>${wrongAuto ? `<span class="sim-warn">${wrongAuto} wrong in sweep</span>` : ""}</div>`;
+    };
+    range.addEventListener("input", paint);
+    copyBtn?.addEventListener("click", () => {
+      const row = entry.rows[Number(range.value)] ?? entry.rows[0];
+      copyText(`policy:\n  thresholds:\n    auto: ${row.threshold.toFixed(2)}\n`, "Policy YAML copied");
+    });
+    paint();
   });
 }
 

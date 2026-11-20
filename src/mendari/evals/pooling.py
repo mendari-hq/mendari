@@ -199,16 +199,19 @@ def _log_choose(n: int, k: int) -> float:
 
 def _table_count(sizes: Sequence[int], total: int) -> int:
     """How many tables have these row sizes and this many hits: ways to write `total` as
-    k_1 + ... + k_K with 0 <= k_i <= n_i. Stops counting past MAX_TABLES."""
-    ways = [1] + [0] * total
+    k_1 + ... + k_K with 0 <= k_i <= n_i. Uses the smaller column (`min(total, N - total)`) by
+    symmetry, and stops counting past MAX_TABLES."""
+    smaller = min(total, sum(sizes) - total)
+    ways = [1] + [0] * smaller
     for size in sizes:
-        prefix = [0] * (total + 2)
-        for s in range(total + 1):
+        prefix = [0] * (smaller + 2)
+        for s in range(smaller + 1):
             prefix[s + 1] = prefix[s] + ways[s]
         ways = [
-            min(prefix[s + 1] - prefix[max(0, s - size)], MAX_TABLES + 1) for s in range(total + 1)
+            min(prefix[s + 1] - prefix[max(0, s - size)], MAX_TABLES + 1)
+            for s in range(smaller + 1)
         ]
-    return ways[total]
+    return ways[smaller]
 
 
 def _seed(sites: Sequence[Site]) -> int:
@@ -221,27 +224,32 @@ def _seed(sites: Sequence[Site]) -> int:
 def _exact_p(sizes: Sequence[int], total: int, observed: float) -> float:
     """The exact test (Freeman and Halton 1951; Fisher's for two sites): the probability, under
     the hypergeometric distribution with these margins, of every table no more likely than the
-    observed one. A table's probability is prod C(n_i, k_i) / C(N, total)."""
-    logs = [[_log_choose(size, k) for k in range(size + 1)] for size in sizes]
-    log_all = _log_choose(sum(sizes), total)
+    observed one. A table's probability is prod C(n_i, k_i) / C(N, total). Uses the smaller
+    column by symmetry (`C(n_i, k) == C(n_i, n_i - k)`), on-demand log-choose, and an explicit
+    stack so large `n` or many sites never exhaust memory or recursion depth."""
+    n_total = sum(sizes)
+    smaller = min(total, n_total - total)
+    log_all = _log_choose(n_total, smaller)
     bound = observed + math.log1p(TIE)
     # The largest number of hits the sites after i can take, so no branch is a dead end.
     room = [0] * (len(sizes) + 1)
     for i in range(len(sizes) - 1, -1, -1):
         room[i] = room[i + 1] + sizes[i]
     terms: list[float] = []
-
-    def walk(i: int, left: int, partial: float) -> None:
-        if i == len(sizes) - 1:
-            value = partial + logs[i][left]
+    last = len(sizes) - 1
+    stack: list[tuple[int, int, float]] = [(0, smaller, 0.0)]
+    while stack:
+        i, left, partial = stack.pop()
+        if i == last:
+            value = partial + _log_choose(sizes[i], left)
             if value <= bound:
                 terms.append(math.exp(value - log_all))
-            return
-        row = logs[i]
-        for k in range(max(0, left - room[i + 1]), min(sizes[i], left) + 1):
-            walk(i + 1, left - k, partial + row[k])
-
-    walk(0, total, 0.0)
+            continue
+        size = sizes[i]
+        lo = max(0, left - room[i + 1])
+        hi = min(size, left)
+        for k in range(hi, lo - 1, -1):
+            stack.append((i + 1, left - k, partial + _log_choose(size, k)))
     return min(1.0, math.fsum(terms))
 
 
@@ -254,13 +262,11 @@ def _permutation_p(
     probability is no larger. p = (1 + as extreme) / (1 + resamples)."""
     n_total = sum(sizes)
     smaller = min(total, n_total - total)
-    flip = smaller != total  # dealt the misses: a site's hits are its size minus them
     edges = []
     running = 0
     for size in sizes:
         running += size
         edges.append(running)
-    logs = [[_log_choose(size, k) for k in range(size + 1)] for size in sizes]
     bound = observed + math.log1p(TIE)
     draw = random.Random(seed).random
     extreme = 0
@@ -272,9 +278,8 @@ def _permutation_p(
         dealt = [0] * len(sizes)
         for case in chosen:
             dealt[bisect.bisect_right(edges, case)] += 1
-        value = math.fsum(
-            logs[i][(sizes[i] - dealt[i]) if flip else dealt[i]] for i in range(len(sizes))
-        )
+        # C(n_i, n_i - k) == C(n_i, k), so no flip needed for the log-binomial sum.
+        value = math.fsum(_log_choose(sizes[i], dealt[i]) for i in range(len(sizes)))
         if value <= bound:
             extreme += 1
     return (1 + extreme) / (1 + resamples)

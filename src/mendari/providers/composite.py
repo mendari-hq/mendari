@@ -128,6 +128,10 @@ class CompositeProvider(Provider):
         for member in self.members.values():
             yield from member.leaves()
 
+    def eager_leaves(self) -> Iterator[Provider]:
+        for member in self.members.values():
+            yield from member.eager_leaves()
+
     def ask(self, name: str, inputs: Mapping[str, Any]) -> ProviderOutput:
         member = self.members[name]
         member.preflight()

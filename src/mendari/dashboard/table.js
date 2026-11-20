@@ -53,6 +53,7 @@ function tableInner(id) {
   const entry = TABLES.get(id);
   const { spec, sort } = entry;
   const rows = sortedRows(entry);
+  const indexOf = new Map(spec.rows.map((r, i) => [r, i]));
   const cls = (c) => [c.numeric ? "num" : "", c.className ?? ""].filter(Boolean).join(" ");
   const header = spec.columns.map((c) => {
     const ariaSort = sort && sort.key === c.key ? sort.dir : "none";
@@ -61,7 +62,7 @@ function tableInner(id) {
   }).join("");
   const body = rows.map((row) => {
     const cells = spec.columns.map((c) => `<td class="${cls(c)}">${c.cell(row)}</td>`).join("");
-    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${cells}</tr>`;
+    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${indexOf.get(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${cells}</tr>`;
   }).join("");
   const caption = spec.caption ? `<caption>${spec.caption}</caption>` : "";
   return `<table class="data">${caption}<thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
@@ -74,7 +75,8 @@ const sortIcon = (ariaSort) => icon(ariaSort === "ascending" ? "chevron-up" : ar
 function applySort(container, entry) {
   const tbody = container.querySelector("tbody");
   const rowElements = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.row), tr]));
-  sortedRows(entry).forEach((row) => tbody.append(rowElements.get(entry.spec.rows.indexOf(row))));
+  const indexOf = new Map(entry.spec.rows.map((r, i) => [r, i]));
+  sortedRows(entry).forEach((row) => tbody.append(rowElements.get(indexOf.get(row))));
   container.querySelectorAll("th[aria-sort]").forEach((th) => {
     const button = th.querySelector("button[data-sort]");
     const ariaSort = entry.sort?.key === button.dataset.sort ? entry.sort.dir : "none";
@@ -87,11 +89,14 @@ export function wireTables(root) {
   root.querySelectorAll("[data-table]").forEach((container) => {
     if (container.dataset.wired) return;
     container.dataset.wired = "1";
+    const id = container.dataset.table;
+    const wiredEntry = TABLES.get(id);
     container.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-sort]");
       if (!button) return;
       event.stopPropagation();
-      const entry = TABLES.get(container.dataset.table);
+      const entry = TABLES.get(id);
+      if (!entry) return;
       const key = button.dataset.sort;
       const column = entry.spec.columns.find((c) => c.key === key);
       const first = column.firstDir ?? (column.numeric ? "descending" : "ascending");
@@ -101,12 +106,19 @@ export function wireTables(root) {
       applySort(container, entry);
     });
     // Edge shadows show that the table scrolls sideways, and under the sticky first column.
+    // Disconnect and free the TABLES entry once this table leaves the page.
     const edges = () => {
+      if (!container.isConnected) {
+        observer.disconnect();
+        if (TABLES.get(id) === wiredEntry) TABLES.delete(id);
+        return;
+      }
       container.classList.toggle("scrolled", container.scrollLeft > 0);
       container.classList.toggle("more-right", container.scrollLeft + container.clientWidth < container.scrollWidth - 1);
     };
     container.addEventListener("scroll", edges, { passive: true });
-    new ResizeObserver(edges).observe(container);
+    const observer = new ResizeObserver(edges);
+    observer.observe(container);
     edges();
   });
 }

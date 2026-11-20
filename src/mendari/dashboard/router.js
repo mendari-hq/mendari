@@ -3,6 +3,7 @@
 
 import { wireCharts } from "./charts.js";
 import { closeDrawer } from "./drawer.js";
+import { wireSimulators } from "./report.js";
 import { skeleton } from "./skeleton.js";
 import { wireTables } from "./table.js";
 import { $, api, esc, focusHeading, packLoaded, state } from "./ui.js";
@@ -44,16 +45,20 @@ export function onHashChange() {
 // `navigated`: the user moved to another view, so it starts at the top with its heading focused
 // (screen readers then announce the new view once, instead of reading the whole page). A view that
 // opens at a section (e.g. "#card/policy") returns that section's heading instead.
-// Renders run one after another, so the last one asked for is the one left on the page (a view
-// that loads slowly can't paint over the view that was asked for after it).
+// Renders are sequenced and superseded: if a newer render is requested while an earlier one is
+// waiting on the network, intermediate renders are skipped so rapid clicks land on the final view
+// immediately and a slow response never paints over a newer route.
+let renderSeq = 0;
 let rendering = Promise.resolve();
 
 export function render(options) {
-  rendering = rendering.then(() => paint(options), () => paint(options));
+  const seq = ++renderSeq;
+  rendering = rendering.then(() => paint(options, seq), () => paint(options, seq));
   return rendering;
 }
 
-async function paint({ navigated = false } = {}) {
+async function paint({ navigated = false } = {}, seq = renderSeq) {
+  if (seq !== renderSeq) return; // superseded before starting
   const { view, params } = route();
   views[state.view]?.leave?.(); // e.g. the review queue sends overrides still in their undo window
   state.view = view;
@@ -71,14 +76,17 @@ async function paint({ navigated = false } = {}) {
   let target = null;
   try {
     if (!views[view].packless) await packLoaded(); // the skeleton shows meanwhile
+    if (seq !== renderSeq) return;
     target = await views[view](main, params);
   } catch (error) {
+    if (seq !== renderSeq) return;
     main.innerHTML = `<div class="panel error-state" role="alert"><h1>Could not load this view</h1>
       <p class="muted">${esc(error.message)}</p><button type="button" class="primary" id="retry">Try again</button></div>`;
     $("#retry").addEventListener("click", () => render({ navigated: true }));
   } finally {
-    main.removeAttribute("aria-busy");
+    if (seq === renderSeq) main.removeAttribute("aria-busy");
   }
+  if (seq !== renderSeq) return;
   // The content fades in where the skeleton was, rather than cutting over it. The reflow restarts
   // the animation when the class comes straight back (the same view rendered again).
   void main.offsetWidth;
@@ -102,17 +110,56 @@ function keepActiveSectionInView() {
   else if (a.right > n.right) nav.scrollLeft += a.right - n.right + 8;
 }
 
-// Sorting, sticky edges and chart drawing all attach after a view puts its HTML in the page.
+// Sorting, sticky edges, chart drawing and policy simulators attach after a view puts its HTML in the page.
 export const wire = (root) => {
   wireTables(root);
   wireCharts(root);
+  wireSimulators(root);
 };
+
+let reviewCountSeq = 0;
 
 export async function refreshReviewCount() {
   if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) return; // no review queue for these
+  const packId = state.packId;
+  const seq = ++reviewCountSeq;
   try {
-    const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
+    const [pending, summary] = await Promise.all([
+      api(`/api/review?pack_id=${encodeURIComponent(packId)}&limit=500`),
+      state.packs.length > 1 ? api("/api/review/summary").catch(() => null) : Promise.resolve(null),
+    ]);
+    if (seq !== reviewCountSeq || state.packId !== packId) return;
     $("#review-count").textContent = pending.length || "";
     keepActiveSectionInView(); // the count changes the strip's width
+    if (Array.isArray(summary)) {
+      state.packQueue = new Map(summary.map((row) => [row.pack_id, row]));
+      updateCrossPackStat(summary, packId);
+    }
   } catch { /* the badge is optional */ }
+}
+
+function updateCrossPackStat(summary, currentPackId) {
+  const pill = $("#other-stat-pill");
+  if (!pill) return;
+  const others = summary.filter((row) => row.pack_id !== currentPackId && row.stat > 0);
+  const totalStat = others.reduce((sum, row) => sum + row.stat, 0);
+  if (!totalStat) {
+    pill.hidden = true;
+    return;
+  }
+  const first = others[0];
+  const packName = state.packs.find((p) => p.id === first.pack_id)?.name ?? first.pack_id;
+  pill.textContent = others.length === 1
+    ? `${totalStat} stat in ${packName}`
+    : `${totalStat} stat in other packs`;
+  pill.title = `Open urgent review queue for ${packName}`;
+  pill.onclick = () => {
+    const select = $("#pack-select");
+    if (select) {
+      select.value = first.pack_id;
+      select.dispatchEvent(new Event("change"));
+    }
+    location.hash = "#review";
+  };
+  pill.hidden = false;
 }

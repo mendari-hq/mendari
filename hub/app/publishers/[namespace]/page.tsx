@@ -23,7 +23,7 @@ export default async function PublisherPage({ params }: { params: Promise<Params
   if (!found) notFound();
   return (
     <>
-      <p className="muted"><Link href="/">Decision Packs</Link></p>
+      <nav className="breadcrumb muted" aria-label="Breadcrumb"><Link href="/">Decision Packs</Link></nav>
       <h1>{found.display_name}</h1>
       <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
       <h2>Packs</h2>

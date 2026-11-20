@@ -219,7 +219,9 @@ class Priority(StrEnum):
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, populate_by_name=True, allow_inf_nan=False
+    )
 
 
 class Publisher(_Strict):

@@ -607,12 +607,17 @@ def encode_cursor(key: Mapping[str, Any]) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
+_MAX_CURSOR_CHARS = 4096
+
+
 def decode_cursor(spec: ResourceSearch, text: str) -> dict[str, Any]:
     """A cursor back into the paging key of `spec`'s type, or ValueError: its fields, and
     only those, each in its expected form (a cursor is client input like any other)."""
+    if len(text) > _MAX_CURSOR_CHARS:
+        raise ValueError("not a cursor")
     try:
         key = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
         raise ValueError("not a cursor") from None
     if not isinstance(key, dict) or set(key) != {name for name, _ in spec.key}:
         raise ValueError("not a cursor for this type")

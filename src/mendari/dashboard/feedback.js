@@ -168,14 +168,20 @@ document.addEventListener("click", async (event) => {
   const label = event.target.closest("button[data-expected-label]");
   try {
     if (choice) {
+      if (box.dataset.busy === "1") return;
       const pressed = choice.getAttribute("aria-pressed") === "true";
-      if (choice.dataset.rating === "up") {
-        closeFollowUp(box, { focus: false });
-        if (!pressed) await sendRating(box, { rating: "up" });
-      } else {
-        if (!pressed) await sendRating(box, { rating: "down" });
-        follow.hidden = false; // wrong: optionally say what it should have been
-        (follow.querySelector("select, [data-expected-label], .fb-note") ?? follow.querySelector(".fb-save")).focus();
+      box.dataset.busy = "1";
+      try {
+        if (choice.dataset.rating === "up") {
+          closeFollowUp(box, { focus: false });
+          if (!pressed) await sendRating(box, { rating: "up" });
+        } else {
+          if (!pressed) await sendRating(box, { rating: "down" });
+          follow.hidden = false; // wrong: optionally say what it should have been
+          (follow.querySelector("select, [data-expected-label], .fb-note") ?? follow.querySelector(".fb-save")).focus();
+        }
+      } finally {
+        delete box.dataset.busy;
       }
     } else if (label) {
       const on = label.getAttribute("aria-pressed") !== "true";

@@ -146,10 +146,11 @@ class SqliteBackend(Backend):
             connection.execute("BEGIN IMMEDIATE")
             try:
                 yield SqliteSession(connection)
+                connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
                 raise
-            connection.execute("COMMIT")
 
     def ping(self, sql: str, timeout_s: float) -> None:
         if self._memory is not None:

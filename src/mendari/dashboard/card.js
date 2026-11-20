@@ -3,7 +3,7 @@
 
 import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
-import { $, actionDialog, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
+import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
 
 function deriveRow(row) {
   const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
@@ -197,14 +197,8 @@ views.card = async (main, params) => {
   wireApproval(main);
   if (registry) wireRegistry(main, registry, d);
   wireHolds(main, holds, d);
-  main.querySelector("[data-copy]").addEventListener("click", async (event) => {
-    try {
-      await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
-      toast("Digest copied");
-    } catch {
-      toastError("Copying isn't available here: select the digest and copy it");
-    }
-  });
+  main.querySelector("[data-copy]").addEventListener("click", (event) =>
+    copyText(event.currentTarget.dataset.copy, "Digest copied", "Copying isn't available here: select the digest and copy it"));
   return cardSection(params[0]);
 };
 
@@ -237,30 +231,36 @@ function approvalSection(g, d, registry) {
 }
 
 function wireApproval(main) {
-  main.querySelector("#approve-form")?.addEventListener("submit", async (event) => {
+  main.querySelector("#approve-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    try {
-      await api("/api/governance", {
-        method: "POST",
-        body: JSON.stringify({
-          pack_id: state.packId, reference: $("#approval-reference").value, days: Number($("#approval-days").value),
-          approver: $("#approval-approver")?.value || null,
-        }),
-      });
-      toast("Automation approved for this version");
-      render();
-    } catch (error) {
-      toastError(error.message);
-    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    whileBusy(button, "Approving…", async () => {
+      try {
+        await api("/api/governance", {
+          method: "POST",
+          body: JSON.stringify({
+            pack_id: state.packId, reference: $("#approval-reference").value, days: Number($("#approval-days").value),
+            approver: $("#approval-approver")?.value || null,
+          }),
+        });
+        toast("Automation approved for this version");
+        if (main.isConnected) render();
+      } catch (error) {
+        toastError(error.message);
+      }
+    });
   });
-  main.querySelector("[data-revoke]")?.addEventListener("click", async (event) => {
-    try {
-      await api(`/api/governance/${encodeURIComponent(event.currentTarget.dataset.revoke)}`, { method: "DELETE" });
-      toast("Approval revoked: a person reviews again");
-      render();
-    } catch (error) {
-      toastError(error.message);
-    }
+  main.querySelector("[data-revoke]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    whileBusy(button, "Revoking…", async () => {
+      try {
+        await api(`/api/governance/${encodeURIComponent(button.dataset.revoke)}`, { method: "DELETE" });
+        toast("Approval revoked: a person reviews again");
+        if (main.isConnected) render();
+      } catch (error) {
+        toastError(error.message);
+      }
+    });
   });
 }
 
@@ -350,16 +350,19 @@ function wireRegistry(main, r, d) {
     });
     if (!approved) return;
     toast("Approved for this version");
-    render();
+    if (main.isConnected) render();
   });
-  main.querySelector("[data-registry-revoke]")?.addEventListener("click", async (event) => {
-    try {
-      await api(`/api/registry-approvals/${encodeURIComponent(event.currentTarget.dataset.registryRevoke)}`, { method: "DELETE" });
-      toast("Approval revoked: a person reviews again");
-      render();
-    } catch (error) {
-      toastError(error.message);
-    }
+  main.querySelector("[data-registry-revoke]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    whileBusy(button, "Revoking…", async () => {
+      try {
+        await api(`/api/registry-approvals/${encodeURIComponent(button.dataset.registryRevoke)}`, { method: "DELETE" });
+        toast("Approval revoked: a person reviews again");
+        if (main.isConnected) render();
+      } catch (error) {
+        toastError(error.message);
+      }
+    });
   });
 }
 
@@ -397,15 +400,18 @@ function liftText(hold, d) {
 }
 
 function wireHolds(main, holds, d) {
-  main.querySelector("#hold-form")?.addEventListener("submit", async (event) => {
+  main.querySelector("#hold-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    try {
-      await api("/api/holds", { method: "POST", body: JSON.stringify({ pack_id: state.packId, reason: $("#hold-reason").value }) });
-      toast("Automation held: a person reviews every decision");
-      render();
-    } catch (error) {
-      toastError(error.message);
-    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    whileBusy(button, "Holding…", async () => {
+      try {
+        await api("/api/holds", { method: "POST", body: JSON.stringify({ pack_id: state.packId, reason: $("#hold-reason").value }) });
+        toast("Automation held: a person reviews every decision");
+        if (main.isConnected) render();
+      } catch (error) {
+        toastError(error.message);
+      }
+    });
   });
   for (const button of main.querySelectorAll("[data-lift]")) {
     button.addEventListener("click", async (event) => {
@@ -419,7 +425,7 @@ function wireHolds(main, holds, d) {
       });
       if (!lifted) return;
       toast("Hold lifted");
-      render();
+      if (main.isConnected) render();
     });
   }
 }

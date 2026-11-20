@@ -88,6 +88,7 @@ views.store = async (main, params = []) => {
 
 views.store.available = () => Boolean(state.store) && (may("author") || may("promote"));
 views.store.packless = true;
+views.store.leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 
 function defaultTab() {
   return may("author") ? "packs" : "promote";
@@ -155,20 +156,25 @@ async function upload(file) {
   const result = $("#upload-result");
   const data = new Uint8Array(await file.arrayBuffer());
   let answer;
-  if (data.length <= PART_BYTES) {
-    answer = await send("/api/store/versions", { method: "POST", raw: data });
-  } else {
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    const sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const begun = await post("/api/store/uploads", { size: data.length, sha256 });
-    progress.hidden = false;
-    for (let n = 0, start = 0; start < data.length; n += 1, start += PART_BYTES) {
-      await send(`/api/store/uploads/${begun.upload}/parts/${n}`, { method: "PUT", raw: data.slice(start, start + PART_BYTES) });
-      progress.value = Math.min(1, (start + PART_BYTES) / data.length);
+  try {
+    if (data.length <= PART_BYTES) {
+      answer = await send("/api/store/versions", { method: "POST", raw: data });
+    } else {
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      const sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const begun = await post("/api/store/uploads", { size: data.length, sha256 });
+      const uploadId = encodeURIComponent(begun.upload);
+      progress.hidden = false;
+      progress.value = 0;
+      for (let n = 0, start = 0; start < data.length; n += 1, start += PART_BYTES) {
+        await send(`/api/store/uploads/${uploadId}/parts/${n}`, { method: "PUT", raw: data.slice(start, start + PART_BYTES) });
+        progress.value = Math.min(1, (start + PART_BYTES) / data.length);
+      }
+      answer = await send(`/api/store/uploads/${uploadId}/complete`, { method: "POST" });
     }
-    answer = await send(`/api/store/uploads/${begun.upload}/complete`, { method: "POST" });
+  } finally {
+    progress.hidden = true;
   }
-  progress.hidden = true;
   result.innerHTML = uploadedHtml(answer);
   if (answer.ok && answer.body.state !== "held") toast(`Uploaded: ${answer.body.pack_id}`);
 }
@@ -208,11 +214,14 @@ async function showVersion(main, digest) {
     <h1><code>${esc(version.pack_id)}</code> ${esc(version.version)}</h1>
     <p>${stateBadge(version.state)} ${digestCode(version.digest)}</p>
     ${held ? '<div class="callout neutral" role="status">Held for the operator\'s review. Nothing more is shown until the operator answers.</div>' : versionBody(version)}`;
-  if (held) return focusHeading(main);
+  if (held) return focusHeading(main.querySelector("h1") ?? main);
   $("#run-tests")?.addEventListener("click", (event) =>
     whileBusy(event.currentTarget, "Running…", async () => {
       const ran = await post(`/api/store/versions/${encodeURIComponent(digest)}/tests`, {});
-      $("#tests-result").innerHTML = testsHtml(ran);
+      const box = $("#tests-result");
+      if (!box) return;
+      box.innerHTML = testsHtml(ran);
+      wire(box);
     }).catch((error) => toastError(error.message)));
   $("#edit-path")?.addEventListener("change", (event) => loadFile(digest, event.target.value));
   $("#edit-form")?.addEventListener("submit", (event) => {
@@ -228,7 +237,8 @@ async function showVersion(main, digest) {
   });
   const card = $("#version-card");
   if (card) card.textContent = version.card_markdown ?? "";
-  focusHeading(main);
+  wire(main);
+  focusHeading(main.querySelector("h1") ?? main);
 }
 
 function versionBody(version) {
@@ -266,11 +276,14 @@ function versionBody(version) {
     <section class="panel"><h2>Decision Card</h2><p class="muted">Rendered by the server from the version's files; nothing uploaded about it is shown.</p><pre id="version-card" class="wrap"></pre></section>`;
 }
 
+let fileLoadSeq = 0;
+
 async function loadFile(digest, path) {
   const area = $("#edit-content");
+  const seq = ++fileLoadSeq;
   if (!path) return (area.value = "");
   const file = await api(`/api/store/versions/${encodeURIComponent(digest)}/file?path=${encodeURIComponent(path)}`).catch((error) => toastError(error.message));
-  if (file) area.value = file.text;
+  if (file && seq === fileLoadSeq && area.isConnected) area.value = file.text;
 }
 
 function testsHtml(ran) {
@@ -330,15 +343,19 @@ async function showResults(body) {
       wire(body);
     }).catch((error) => toastError(error.message));
   });
-  body.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-advance]");
-    if (button) whileBusy(button, "Running…", () => runJob(button.dataset.advance)).then(() => showResults(body).then(() => wire(body))).catch((error) => toastError(error.message));
-  });
+  if (!body.dataset.resultsWired) {
+    body.dataset.resultsWired = "1";
+    body.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-advance]");
+      if (button) whileBusy(button, "Running…", () => runJob(button.dataset.advance)).then(() => showResults(body).then(() => wire(body))).catch((error) => toastError(error.message));
+    });
+  }
 }
 
 async function runJob(id) {
+  const jobId = encodeURIComponent(id);
   for (let i = 0; i < 1000; i += 1) {
-    const job = await post(`/api/store/jobs/${id}/advance`, {});
+    const job = await post(`/api/store/jobs/${jobId}/advance`, {});
     if (job.state !== "queued" && job.state !== "running") {
       toast(job.state === "done" ? "Job done: its report is kept" : `Job ${job.state}: ${job.error ?? ""}`);
       return;
@@ -406,23 +423,27 @@ async function showPromote(body) {
       })
     : '<p class="muted">Nothing from the store is served yet.</p>';
   body.innerHTML = `<section class="panel"><h2>Served from the store</h2>${serving}</section>${candidates}`;
-  body.addEventListener("submit", (event) => {
-    const form = event.target.closest("form[data-promote]");
-    if (!form) return;
-    event.preventDefault();
-    promote(form).then((done) => done && showPromote(body).then(() => wire(body))).catch((error) => toastError(error.message));
-  });
-  body.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-retire]");
-    if (!button) return;
-    actionDialog({
-      title: "Stop serving this version?",
-      body: `<p>Your organization is then served no version of this pack until another is promoted.</p>`,
-      action: "Stop serving",
-      danger: true,
-      run: () => post(`/api/store/promotions/${button.dataset.retire}/retire`, {}),
-    }).then((done) => done && showPromote(body).then(() => wire(body)));
-  });
+  if (!body.dataset.promoteWired) {
+    body.dataset.promoteWired = "1";
+    body.addEventListener("submit", (event) => {
+      const form = event.target.closest("form[data-promote]");
+      if (!form) return;
+      event.preventDefault();
+      promote(form).then((done) => done && showPromote(body).then(() => wire(body))).catch((error) => toastError(error.message));
+    });
+    body.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-retire]");
+      if (!button) return;
+      const promoId = encodeURIComponent(button.dataset.retire);
+      actionDialog({
+        title: "Stop serving this version?",
+        body: `<p>Your organization is then served no version of this pack until another is promoted.</p>`,
+        action: "Stop serving",
+        danger: true,
+        run: () => post(`/api/store/promotions/${promoId}/retire`, {}),
+      }).then((done) => done && showPromote(body).then(() => wire(body)));
+    });
+  }
 }
 
 function candidateHtml(v) {

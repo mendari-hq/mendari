@@ -1545,7 +1545,7 @@ def _apply(field: FieldMapping, values: list[Any]) -> Any:
 
 def age_years(birth_date: str, today: date | None = None) -> int | None:
     """Age in whole years from a FHIR date (YYYY, YYYY-MM or YYYY-MM-DD)."""
-    parts = [int(p) for p in birth_date.split("-")[:3] if p.isdigit()]
+    parts = [int(p) for p in birth_date.split("-")[:3] if p.isascii() and p.isdigit()]
     if not parts:
         return None
     year, month, day = ([*parts, 7, 1])[:3] if len(parts) == 1 else ([*parts, 15])[:3]
@@ -1583,29 +1583,35 @@ def iter_entries(
     value: Any, full_url: str | None = None
 ) -> Iterator[tuple[str | None, Mapping[str, Any]]]:
     """`iter_resources`, each resource with the `fullUrl` of the Bundle entry that holds it
-    (None outside a Bundle, or for an entry without one)."""
-    if isinstance(value, list):
-        for item in value:
-            yield from iter_entries(item)
-    elif isinstance(value, Mapping):
-        if value.get("resourceType") == "Bundle":
-            entries = value.get("entry")
-            if entries is not None and not isinstance(entries, list):
-                raise FhirStructureError([_wrong_type("Bundle.entry", "an array of objects")])
-            for index, entry in enumerate(entries or []):
-                where = f"Bundle.entry[{index}]"
-                if not isinstance(entry, Mapping):
-                    raise FhirStructureError([_wrong_type(where, "an object")])
-                resource = entry.get("resource")
-                if resource is not None and not isinstance(resource, Mapping):
-                    raise FhirStructureError([_wrong_type(f"{where}.resource", "an object")])
-                url = entry.get("fullUrl")
-                yield from iter_entries(resource, url if isinstance(url, str) else None)
-        elif "resourceType" in value:
-            yield full_url, value
-        else:
-            for item in value.values():
-                yield from iter_entries(item)
+    (None outside a Bundle, or for an entry without one). Iterative so deeply nested JSON
+    never hits Python's recursion limit."""
+    stack: list[tuple[Any, str | None]] = [(value, full_url)]
+    while stack:
+        current, current_url = stack.pop()
+        if isinstance(current, list):
+            for item in reversed(current):
+                stack.append((item, None))
+        elif isinstance(current, Mapping):
+            if current.get("resourceType") == "Bundle":
+                entries = current.get("entry")
+                if entries is not None and not isinstance(entries, list):
+                    raise FhirStructureError([_wrong_type("Bundle.entry", "an array of objects")])
+                children: list[tuple[Any, str | None]] = []
+                for index, entry in enumerate(entries or []):
+                    where = f"Bundle.entry[{index}]"
+                    if not isinstance(entry, Mapping):
+                        raise FhirStructureError([_wrong_type(where, "an object")])
+                    resource = entry.get("resource")
+                    if resource is not None and not isinstance(resource, Mapping):
+                        raise FhirStructureError([_wrong_type(f"{where}.resource", "an object")])
+                    url = entry.get("fullUrl")
+                    children.append((resource, url if isinstance(url, str) else None))
+                stack.extend(reversed(children))
+            elif "resourceType" in current:
+                yield current_url, current
+            else:
+                for item in reversed(list(current.values())):
+                    stack.append((item, None))
 
 
 def _wrong_type(expression: str, expected: str) -> dict[str, str]:

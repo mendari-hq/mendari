@@ -19,6 +19,7 @@ export const pct = (v, d = 1) => (v === null || v === undefined ? "n/a" : `${(v 
 // x with d decimals as Python's f"{x:.{d}f}": toFixed rounds an exact binary tie up (98.25 to
 // "98.3"), Python to the even digit ("98.2"). The double's own digits (toFixed(100)) show a tie.
 function fixed(x, d) {
+  if (typeof x !== "number" || !Number.isFinite(x)) return "n/a";
   const [whole, frac] = x.toFixed(100).split(".");
   if (frac[d] === "5" && /^0*$/.test(frac.slice(d + 1))) {
     const last = d ? frac[d - 1] : whole[whole.length - 1];
@@ -33,6 +34,7 @@ const OVER = `>${(100 - 10 ** -BOUND_DIGITS).toFixed(BOUND_DIGITS)}`;
 
 // A bound as a percentage, with the digits it needs (up to 4) never to read 0 or 100 when it is not.
 export function percent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   let digits = 1;
   while (digits < BOUND_DIGITS && value > 0 && value < 1
     && [(0).toFixed(digits), (100).toFixed(digits)].includes(fixed(value * 100, digits))) digits++;
@@ -329,7 +331,7 @@ export function storageSet(key, value) {
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
   accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, labelOnly: false,
-  evalsets: false, registry: false, reviewOnly: false,
+  evalsets: false, registry: false, reviewOnly: false, replayDraft: null, packQueue: new Map(),
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
@@ -408,12 +410,26 @@ export const packLoaded = () => (packFailed ? loadPack(state.packId) : packLoad)
 
 export function watchEdges(el) {
   const edges = () => {
+    if (!el.isConnected) return observer.disconnect();
     el.classList.toggle("scrolled", el.scrollLeft > 0);
     el.classList.toggle("more-right", el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
   };
   el.addEventListener("scroll", edges, { passive: true });
-  new ResizeObserver(edges).observe(el);
+  const observer = new ResizeObserver(edges);
+  observer.observe(el);
   edges();
+}
+
+// Copy text to clipboard with consistent feedback (used across card, audit, try, admin).
+export async function copyText(text, label = "Copied") {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(label);
+    return true;
+  } catch {
+    toastError("Copying isn't available here: select the text and copy it");
+    return false;
+  }
 }
 
 export function focusHeading(heading, { scroll = true } = {}) {
@@ -456,13 +472,13 @@ export function actionDialog({ title, body, action, danger = false, run }) {
     dialog.className = "confirm";
     dialog.dataset.admin = "";
     dialog.setAttribute("aria-labelledby", `${id}-title`);
-    dialog.innerHTML = `<form method="dialog">
+    dialog.innerHTML = `<form method="dialog" novalidate>
       <h2 id="${id}-title">${esc(title)}</h2>
       ${body}
       <p class="error" role="alert" hidden></p>
       <div class="row mt-4"><span class="grow"></span>
-        <button value="cancel" autofocus>Cancel</button>
-        <button type="button" class="${danger ? "danger" : "primary"}" data-act>${esc(action)}</button>
+        <button type="button" value="cancel" autofocus>Cancel</button>
+        <button type="submit" class="${danger ? "danger" : "primary"}" data-act>${esc(action)}</button>
       </div>
     </form>`;
     document.body.append(dialog);
@@ -472,6 +488,7 @@ export function actionDialog({ title, body, action, danger = false, run }) {
     const cancel = dialog.querySelector('button[value="cancel"]');
     let busy = false;
     let result = null;
+    cancel.addEventListener("click", () => { if (!busy) dialog.close("cancel"); });
     dialog.addEventListener("cancel", (event) => { if (busy) event.preventDefault(); }); // not mid-request
     dialog.addEventListener("close", () => {
       dialog.remove();
@@ -479,7 +496,10 @@ export function actionDialog({ title, body, action, danger = false, run }) {
     });
     // `data-busy` while its request runs: leaving the view leaves it open until the answer, so what
     // follows the answer (a page reload after changing your own roles) still happens.
-    act.addEventListener("click", async () => {
+    // Submit handler (not only button click) so pressing Enter inside a modal input submits instead of cancelling.
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy) return;
       error.hidden = true;
       busy = true;
       dialog.dataset.busy = "";
@@ -505,7 +525,6 @@ export function actionDialog({ title, body, action, danger = false, run }) {
 // (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
 export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
 
-// A stat: a label, a value, and what the value is out of. `html` values are trusted markup.
 // An empty view or section: an icon, what is (not) here in one line, and the one thing to do next.
 // `text` is trusted HTML (it may link somewhere).
 export function emptyState({ icon: name, title, text, action = null, level = 2 }) {
