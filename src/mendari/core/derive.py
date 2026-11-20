@@ -25,6 +25,7 @@ from collections import defaultdict
 from collections.abc import Mapping, MutableMapping
 from dataclasses import replace
 
+from mendari.core.patterns import check_time
 from mendari.core.spec import DeriveRow, PackManifest, Question
 from mendari.errors import DERIVED_INPUT_UNAVAILABLE
 from mendari.providers.base import Answer, ProviderInfo
@@ -71,45 +72,55 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
     rows = spec.table[:-1]
     fallback = spec.table[-1].result
 
-    # A state records, per row, whether its condition holds so far (`any` rows start False and
-    # become True on a match; `all` rows start True and become False on a mismatch) and
-    # whether its `when` is open (starts True; each gating member, when seen, must match).
+    # A state is a 2n-bit integer: bit i records whether row i's condition holds so far (`any` rows
+    # start 0 and become 1 on a match; `all` rows start 1 and become 0 on a mismatch), and bit
+    # n + i records whether row i's `when` gate is still open (starts 1; each gating member, when
+    # seen, must match). Precomputing bit masks per (member, label) makes transitions O(1) bitwise
+    # ops while keeping the exact probability distribution identical.
     n = len(rows)
     matches = [row.labels for row in rows]
     gates = [row.gates for row in rows]
-    start = tuple(row.all is not None for row in rows) + (True,) * n
-    states: dict[tuple[bool, ...], float] = {start: 1.0}
+    full_mask = (1 << (2 * n)) - 1
+    start = ((1 << n) - 1) << n  # all gates open
+    for i, row in enumerate(rows):
+        if row.all is not None:
+            start |= 1 << i
+    states: dict[int, float] = {start: 1.0}
     for member in spec.members:
-        advanced: dict[tuple[bool, ...], float] = defaultdict(float)
-        for state, p_state in states.items():
-            for label, p_label in answers[member].probabilities.items():
-                if p_label <= 0.0:
-                    continue
-                holds = tuple(
-                    held
-                    if not row.applies_to(member)
-                    else (held or label in match)
-                    if row.any is not None
-                    else (held and label in match)
-                    for held, row, match in zip(state[:n], rows, matches, strict=True)
-                )
-                opened = tuple(
-                    ok and (member not in gate or label in gate[member])
-                    for ok, gate in zip(state[n:], gates, strict=True)
-                )
-                advanced[holds + opened] += p_state * p_label
+        check_time()
+        transitions: list[tuple[int, int, float]] = []
+        for label, p_label in answers[member].probabilities.items():
+            if p_label <= 0.0:
+                continue
+            set_bits = 0
+            keep_bits = full_mask
+            for i, (row, match, gate) in enumerate(zip(rows, matches, gates, strict=True)):
+                if row.applies_to(member):
+                    if row.any is not None:
+                        if label in match:
+                            set_bits |= 1 << i
+                    elif label not in match:
+                        keep_bits &= ~(1 << i)
+                if member in gate and label not in gate[member]:
+                    keep_bits &= ~(1 << (n + i))
+            transitions.append((set_bits, keep_bits, p_label))
+        advanced: dict[int, float] = defaultdict(float)
+        for steps, (state, p_state) in enumerate(states.items(), 1):
+            if steps & 4095 == 0:
+                check_time()
+            for set_bits, keep_bits, p_label in transitions:
+                advanced[(state | set_bits) & keep_bits] += p_state * p_label
         states = advanced
 
     probabilities = dict.fromkeys(question.criteria, 0.0)
     for state, p_state in states.items():
-        result = next(
-            (
-                row.result
-                for held, ok, row in zip(state[:n], state[n:], rows, strict=True)
-                if held and ok
-            ),
-            fallback,
-        )
+        both = state & (state >> n)
+        if both:
+            # Lowest set bit is the first matching row.
+            first_row = (both & -both).bit_length() - 1
+            result = rows[first_row].result
+        else:
+            result = fallback
         probabilities[result] += p_state
     total = sum(probabilities.values()) or 1.0
     probabilities = {label: p / total for label, p in probabilities.items()}

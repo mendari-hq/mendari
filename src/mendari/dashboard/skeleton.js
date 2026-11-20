@@ -22,10 +22,16 @@ const SHAPES = {
   labelling: () => `${rows(2)}${bar("form")}`,
   evalsets: () => `${bar("tabs")}${rows(5)}`,
   "registry-review": () => `${repeat(2, bar("card"))}`,
+  store: () => `${bar("tabs")}${repeat(2, bar("card"))}`,
 };
 
 export function skeleton(view) {
   const shape = SHAPES[view] ?? (() => rows(4));
   return `<div class="skeleton" aria-hidden="true">${bar("title")}${bar("intro")}${shape()}</div>
     <p class="sr-only">Loading…</p>`;
+}
+
+export function drawerSkeleton() {
+  return `<div class="skeleton" aria-hidden="true">${bar("intro")}${bar("card")}${rows(4)}</div>
+    <p class="sr-only">Loading decision…</p>`;
 }

@@ -56,8 +56,12 @@ function show(answer) {
     </dl>`;
 }
 
+let checkSeq = 0;
+
 async function check() {
-  show(await readiness());
+  const seq = ++checkSeq;
+  const result = await readiness();
+  if (seq === checkSeq) show(result);
 }
 
 check();

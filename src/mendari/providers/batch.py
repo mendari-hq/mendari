@@ -58,7 +58,7 @@ class _Group:
 def batching(providers: Iterable[Provider]) -> Iterator[None]:
     """Group the calling providers of one decision; see the module docstring."""
     groups: list[_Group] = []
-    for leaf in (leaf for provider in providers for leaf in provider.leaves()):
+    for leaf in (leaf for provider in providers for leaf in provider.eager_leaves()):
         if leaf.batch_key() is None:
             continue
         group = next((group for group in groups if group.fits(leaf)), None)

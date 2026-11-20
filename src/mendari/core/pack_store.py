@@ -772,14 +772,17 @@ class PackStore:
         return card_of(self.load(org, digest))
 
     def _scratch_dir(self) -> Path:
-        if self._scratch is None:
-            self._scratch = Path(tempfile.mkdtemp(prefix="mendari-store-"))
-        self._scratch.mkdir(parents=True, exist_ok=True)
-        return self._scratch
+        with self._lock:
+            if self._scratch is None:
+                self._scratch = Path(tempfile.mkdtemp(prefix="mendari-store-"))
+            scratch = self._scratch
+        scratch.mkdir(parents=True, exist_ok=True)
+        return scratch
 
     def _evict(self) -> None:
-        """Called under the lock: drop the least recently used versions past the bounds."""
-        while self._cache and (
+        """Called under the lock: drop the least recently used versions past the bounds,
+        never evicting the sole entry just inserted."""
+        while len(self._cache) > 1 and (
             len(self._cache) > CACHE_VERSIONS
             or sum(size for _, size in self._cache.values()) > CACHE_BYTES
         ):
@@ -1021,6 +1024,10 @@ class PackStore:
             else text
         )
         with self.store._db.session(exclusive=True) as db:
+            if kind == "upload":
+                self._refuse_stopped(org, db)
+            if self.store.phi.mode == "encrypt":
+                self.store._refuse_retired(db)
             db.all(
                 "INSERT INTO store_datasets (id, org, name, pack_id, digest, sha256, cases, "
                 "data, sealed, report, created_by, created_at, state, kind) "

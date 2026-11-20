@@ -41,6 +41,7 @@ import base64
 import hashlib
 import os
 import re
+import threading
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -50,7 +51,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from mendari.core import clock
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
-from mendari.errors import FhirError, PackValidationError, ProviderError, ProviderErrorCode
+from mendari.errors import (
+    FhirError,
+    MendariError,
+    PackValidationError,
+    ProviderError,
+    ProviderErrorCode,
+)
 from mendari.providers import deadline
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, get_path, read_problems
 from mendari.providers.criteria import DECIDED, _date
@@ -132,6 +139,7 @@ class CqlProvider(Provider):
         start, end = declaration.span(1)
         self.engine_source = self.source[:start] + self.engine_name + self.source[end:]
         self._uploaded_to: str | None = None
+        self._upload_lock = threading.Lock()
 
     @classmethod
     def config_problems(
@@ -233,25 +241,53 @@ class CqlProvider(Provider):
         try:
             with GuardedHttp() as http:
                 library = f"{base}/Library/{self.resource_id}"
-                if self._uploaded_to != base:
-                    resource = self.library_resource()
-                    http.send_json(
-                        "PUT",
-                        library,
-                        resource,
+                with self._upload_lock:
+                    if self._uploaded_to != base:
+                        resource = self.library_resource()
+                        http.send_json(
+                            "PUT",
+                            library,
+                            resource,
+                            timeout=deadline.clamp(TIMEOUT),
+                            stop=deadline.past,
+                        )
+                        self._uploaded_to = base
+                timeout = deadline.clamp(TIMEOUT)  # each request waits at most what remains
+                try:
+                    result = http.send_json(
+                        "POST",
+                        f"{library}/$evaluate",
+                        parameters,
+                        timeout=timeout,
+                        stop=deadline.past,
+                    )
+                except FhirError as eval_err:
+                    # Re-upload once if the CQL engine restarted and dropped the Library (404).
+                    if eval_err.status != 404:
+                        raise
+                    with self._upload_lock:
+                        http.send_json(
+                            "PUT",
+                            library,
+                            self.library_resource(),
+                            timeout=deadline.clamp(TIMEOUT),
+                            stop=deadline.past,
+                        )
+                        self._uploaded_to = base
+                    result = http.send_json(
+                        "POST",
+                        f"{library}/$evaluate",
+                        parameters,
                         timeout=deadline.clamp(TIMEOUT),
                         stop=deadline.past,
                     )
-                    self._uploaded_to = base
-                timeout = deadline.clamp(TIMEOUT)  # each request waits at most what remains
-                result = http.send_json(
-                    "POST", f"{library}/$evaluate", parameters, timeout=timeout, stop=deadline.past
-                )
         except FhirError as failure:
             # Past the deadline, the engine was cut off by it (the clamped timeout, or an
-            # answer still arriving).
+            # answer still arriving). Outside a decision, the same failure is `unavailable`.
             code: ProviderErrorCode = "timeout" if deadline.past() else "unavailable"
             raise ProviderError(code, f"the CQL engine: {failure}") from None
+        except MendariError as failure:
+            raise ProviderError("invalid_endpoint", f"the CQL engine: {failure}") from None
         values = _results(result)
         answers = {}
         for question, expression in self.settings.expressions.items():
@@ -277,7 +313,10 @@ def _results(parameters: Mapping[str, Any]) -> dict[str, Any]:
     if parameters.get("resourceType") != "Parameters":
         raise ProviderError("invalid_response", "the CQL engine did not answer with Parameters")
     values: dict[str, Any] = {}
-    for parameter in parameters.get("parameter") or []:
+    raw_params = parameters.get("parameter")
+    if raw_params is not None and not isinstance(raw_params, list):
+        raise ProviderError("invalid_response", "the CQL engine returned malformed Parameters")
+    for parameter in raw_params or []:
         if not isinstance(parameter, Mapping):
             continue
         name = parameter.get("name")

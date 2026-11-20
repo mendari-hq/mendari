@@ -108,6 +108,11 @@ def fhir_validation() -> FhirValidation:
     return cast(FhirValidation, mode)
 
 
+def _is_whole(raw: str) -> bool:
+    """True only for ASCII decimal digits (`isdigit` alone accepts Unicode superscripts)."""
+    return raw.isascii() and raw.isdigit()
+
+
 def max_body_bytes() -> int:
     """The largest request body the server takes ($MENDARI_MAX_BODY_BYTES; default 4 MiB, under
     Vercel's 4.5 MB, and room for real FHIR Bundles). At least 64 KiB, so a value meant in
@@ -115,7 +120,7 @@ def max_body_bytes() -> int:
     raw = os.environ.get("MENDARI_MAX_BODY_BYTES", "").strip()
     if not raw:
         return DEFAULT_MAX_BODY_BYTES
-    if not raw.isdigit() or int(raw) < MIN_MAX_BODY_BYTES:
+    if not _is_whole(raw) or int(raw) < MIN_MAX_BODY_BYTES:
         raise MendariError(
             f"MENDARI_MAX_BODY_BYTES must be a number of bytes, {MIN_MAX_BODY_BYTES} or more"
         )
@@ -147,7 +152,7 @@ def retention_days() -> int:
     raw = os.environ.get("MENDARI_RETENTION_DAYS", "").strip()
     if not raw:
         return DEFAULT_RETENTION_DAYS
-    if not raw.isdigit() or not 1 <= int(raw) <= MAX_RETENTION_DAYS:
+    if not _is_whole(raw) or not 1 <= int(raw) <= MAX_RETENTION_DAYS:
         raise MendariError(
             f"MENDARI_RETENTION_DAYS must be a whole number of days, 1 to {MAX_RETENTION_DAYS}"
         )
@@ -287,7 +292,7 @@ def daily_limits() -> dict[str, int | None]:
         raw = os.environ.get(variable, str(default)).strip()
         if raw.lower() == "none":
             limits[provider] = None
-        elif raw.isdigit():
+        elif _is_whole(raw):
             limits[provider] = int(raw)
         else:
             raise MendariError(f"{variable} must be a non-negative integer or `none`")
@@ -316,7 +321,7 @@ def org_daily_limits() -> dict[str, int]:
         if not item.strip():
             continue
         metric, sep, value = (part.strip() for part in item.partition("="))
-        if not sep or metric not in ORG_METRICS or not value.isdigit() or metric in limits:
+        if not sep or metric not in ORG_METRICS or not _is_whole(value) or metric in limits:
             raise MendariError(
                 "MENDARI_ORG_DAILY_LIMITS must look like "
                 "decisions=5000,jev=2000,llm=200,eval_jev=500 "
@@ -332,7 +337,7 @@ def store_org_bytes() -> int:
     raw = os.environ.get("MENDARI_STORE_ORG_BYTES", "").strip()
     if not raw:
         return DEFAULT_STORE_ORG_BYTES
-    if not raw.isdigit() or int(raw) < 1:
+    if not _is_whole(raw) or int(raw) < 1:
         raise MendariError("MENDARI_STORE_ORG_BYTES is a positive whole number of bytes")
     return int(raw)
 
@@ -347,7 +352,7 @@ def store_max_archive_bytes() -> int:
     raw = os.environ.get("MENDARI_STORE_MAX_ARCHIVE_BYTES", "").strip()
     if not raw:
         return DEFAULT_STORE_MAX_ARCHIVE_BYTES
-    if not raw.isdigit() or not 0 < int(raw) <= 100 * 1024 * 1024:
+    if not _is_whole(raw) or not 0 < int(raw) <= 100 * 1024 * 1024:
         raise MendariError("MENDARI_STORE_MAX_ARCHIVE_BYTES is 1 to 104857600 bytes")
     return int(raw)
 
@@ -372,7 +377,7 @@ def principal_daily_limit() -> int | None:
     raw = os.environ.get("MENDARI_PRINCIPAL_DAILY_LIMIT", "").strip()
     if not raw:
         return None
-    if not raw.isdigit():
+    if not _is_whole(raw):
         raise MendariError(
             "MENDARI_PRINCIPAL_DAILY_LIMIT must be a non-negative integer: the decisions each "
             "principal may ask for a day"

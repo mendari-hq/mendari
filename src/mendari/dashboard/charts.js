@@ -135,12 +135,13 @@ function drawColumns(spec, width) {
   const columns = cats.map((cat, i) => {
     const x0 = m.l + i * slot;
     let top = m.t + plotH;
-    const segments = spec.series.map((s) => {
+    const present = spec.series.filter((s) => cat.values[s.key] ?? 0);
+    const segments = present.map((s, idx) => {
       const v = cat.values[s.key] ?? 0;
-      if (!v) return "";
       const h = (v / axis.max) * plotH;
       top -= h;
-      return `<rect class="f-${esc(s.swatch)} seg" x="${px(x0 + (slot - barW) / 2)}" y="${px(top)}" width="${px(barW)}" height="${px(h)}"/>`;
+      const round = idx === present.length - 1 && h >= 4 ? ` rx="2"` : "";
+      return `<rect class="f-${esc(s.swatch)} seg" x="${px(x0 + (slot - barW) / 2)}" y="${px(top)}" width="${px(barW)}" height="${px(h)}"${round}/>`;
     }).join("");
     const mark = {
       title: cat.title,
@@ -262,7 +263,11 @@ function drawScatter(spec, width) {
     ? `<line class="grid dashed" x1="${px(m.l + 24)}" x2="${px(m.l + 24)}" y1="${m.t}" y2="${m.t + plotH}"/>
        <text class="tick" x="${px(m.l + 8)}" y="${m.t + plotH + 16}" text-anchor="middle">${esc(xAxis.format(0))}</text>` : "";
   const diagonal = spec.diagonal
-    ? `<line class="ref" x1="${px(x(xAxis.min))}" y1="${px(y(yAxis.min))}" x2="${px(x(xAxis.max))}" y2="${px(y(yAxis.max))}"/>` : "";
+    ? `<line class="ref" x1="${px(x(xAxis.min))}" y1="${px(y(yAxis.min))}" x2="${px(x(xAxis.max))}" y2="${px(y(yAxis.max))}"/>
+       <text class="quadrant-label" x="${px(m.l + 8)}" y="${px(m.t + 14)}" text-anchor="start">Underconfident ↑</text>
+       <text class="quadrant-label" x="${px(m.l + plotW - 8)}" y="${px(m.t + plotH - 8)}" text-anchor="end">Overconfident ↓</text>` : "";
+  const frontier = spec.frontier?.length >= 2
+    ? `<path class="frontier" d="${spec.frontier.map((pt, idx) => `${idx ? "L" : "M"}${px(x(pt.x))},${px(y(pt.y))}`).join("")}"/>` : "";
   const axisTitles = `<text class="tick" x="${px(m.l + plotW / 2)}" y="${H - 6}" text-anchor="middle">${esc(spec.x.title)}</text>
     <text class="tick" transform="translate(12 ${px(m.t + plotH / 2)}) rotate(-90)" text-anchor="middle">${esc(spec.y.title)}</text>`;
 
@@ -290,7 +295,7 @@ function drawScatter(spec, width) {
   const frameRect = `<rect class="frame" x="${m.l}" y="${m.t}" width="${px(plotW)}" height="${px(plotH)}"/>`;
   return {
     marks, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
-    svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles + axisBreak(yAxis, m.l, m.t + plotH))}${dots}${decor(labels)}</svg>`,
+    svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + frontier + axisTitles + axisBreak(yAxis, m.l, m.t + plotH))}${dots}${decor(labels)}</svg>`,
   };
 }
 
@@ -394,15 +399,24 @@ export function sparkline(values, { zero = false } = {}) {
   const hi = Math.max(...known);
   const x = (i) => pad + (i / (values.length - 1)) * (W - 2 * pad);
   const y = (v) => (hi === lo ? H / 2 : H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad));
-  let d = "", pen = false;
+  const base = H - pad;
+  let d = "", area = "", run = [];
+  const closeRun = () => {
+    if (run.length >= 2) {
+      area += `M${px(run[0][0])},${base}${run.map(([rx, ry]) => `L${px(rx)},${px(ry)}`).join("")}L${px(run[run.length - 1][0])},${base}Z`;
+    }
+    run = [];
+  };
   values.forEach((v, i) => {
-    if (v === null || v === undefined) { pen = false; return; }
-    d += `${pen ? "L" : "M"}${px(x(i))},${px(y(v))}`;
-    pen = true;
+    if (v === null || v === undefined) { closeRun(); return; }
+    const [cx, cy] = [x(i), y(v)];
+    d += `${run.length ? "L" : "M"}${px(cx)},${px(cy)}`;
+    run.push([cx, cy]);
   });
+  closeRun();
   const last = values.findLastIndex((v) => v !== null && v !== undefined);
   return `<svg class="sparkline" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true" focusable="false">
-    <path d="${d}"/><circle cx="${px(x(last))}" cy="${px(y(values[last]))}" r="2.5"/></svg>`;
+    ${area ? `<path class="spark-area" d="${area}"/>` : ""}<path d="${d}"/><circle cx="${px(x(last))}" cy="${px(y(values[last]))}" r="2.5"/></svg>`;
 }
 
 // ---- page pieces -------------------------------------------------------------------------------

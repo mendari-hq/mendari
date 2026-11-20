@@ -201,7 +201,7 @@ def matches(condition: Condition, answer: Answer | None) -> bool:
     if answer is None or answer.confidence < condition.min_confidence:
         return False
     if condition.min_probability is not None:
-        mass = sum(answer.probabilities.get(label, 0.0) for label in condition.labels)
+        mass = sum(answer.probabilities.get(label, 0.0) for label in frozenset(condition.labels))
         if mass < condition.min_probability:
             return False
     elif condition.labels and answer.label not in condition.labels:

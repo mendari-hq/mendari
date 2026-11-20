@@ -49,8 +49,6 @@
   --band: #142030;
   --band-text: #e6ebf2;
   --band-muted: #c3ccd8;
-  --band-button: #7ea2ff;
-  --band-on-button: #0b1220;
   --terminal: #0b1220;
   --terminal-line: #2a3544;
 
@@ -128,6 +126,15 @@ html {
   html {
     scroll-behavior: smooth;
   }
+
+  a,
+  .button {
+    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  }
+}
+
+section[id] {
+  scroll-margin-top: 1.5rem;
 }
 
 body {

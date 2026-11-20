@@ -32,6 +32,20 @@ RUN = """async ([tags, exclude]) => {
   const finite = () => document.getAnimations()
     .filter((a) => a.effect && a.effect.getTiming().iterations !== Infinity);
   await Promise.all(finite().map((a) => a.finished.catch(() => null)));
+  await new Promise((done) => {
+    let last = window.scrollY;
+    let steady = 0;
+    const step = () => {
+      if (window.scrollY === last) {
+        if (++steady >= 3) return done();
+      } else {
+        last = window.scrollY;
+        steady = 0;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
   const context = { include: [document], exclude: exclude.map((s) => [s]) };
   const result = await axe.run(context, { runOnly: { type: "tag", values: tags } });
   return result.violations.map((v) => ({

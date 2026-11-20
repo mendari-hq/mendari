@@ -18,6 +18,7 @@ import "./labelling.js";
 import "./evalsets.js";
 import "./store.js";
 import { defaultPack, packOptions } from "./pack.js";
+import { setupPalette } from "./palette.js";
 import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
@@ -58,8 +59,6 @@ async function boot() {
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
-    // A pack author and nothing else (LP-20f): the store's own screens come with LP-20j; until
-    // then, the access page says what the role is for.
     // A pack author and nothing else (LP-20f): the store's screens where it is served (LP-20j),
     // else the access page saying what the role is for.
     else if (me.principal.permissions.every((p) => p === "author")) {
@@ -123,10 +122,13 @@ async function boot() {
   const first = defaultPack(state.packs);
   const saved = storageGet("oh.pack", first);
   switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
-  select.addEventListener("change", async () => {
-    await switchPack(select.value).catch(() => null); // the view says it (router.js), with Try again
+  const pickPack = async (packId) => {
+    if (!known(packId)) return;
+    await switchPack(packId).catch(() => null); // the view says it (router.js), with Try again
     render();
-  });
+  };
+  setupPalette({ onSelectPack: (packId) => (packId === state.packId ? undefined : pickPack(packId)) });
+  select.addEventListener("change", () => pickPack(select.value));
   // Back and Forward can cross a pack change. The address then names another pack than the one
   // shown, and the browser fires only popstate (hashchange needs everything but the hash to match).
   window.addEventListener("popstate", async () => {

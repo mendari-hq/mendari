@@ -238,7 +238,9 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
             f"the archive is signed by a key that is not trusted ({signature.get('key_id')})"
         )
     try:
-        key.verify(base64.b64decode(str(signature.get("signature", ""))), manifest_bytes)
+        key.verify(
+            base64.b64decode(str(signature.get("signature", "")), validate=True), manifest_bytes
+        )
     except (InvalidSignature, ValueError):
         raise HubError("the archive's signature does not match its manifest") from None
     files = {name.removeprefix("pack/"): data for name, data in members.items()}
@@ -248,6 +250,8 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     ):
         raise HubError("the archive's manifest does not list its files")
     listed = {entry["path"]: entry for entry in entries}
+    if len(listed) != len(entries):
+        raise HubError("the archive's manifest lists a file more than once")
     if set(files) != set(listed):
         raise HubError("the archive's files are not the files its manifest lists")
     collision = _collision(files)

@@ -456,6 +456,7 @@ class Decision:
         due_at: float | None = None,
         not_offered: Sequence[str] = (),
         ehr_declaration: Mapping[str, str] | None = None,
+        shadow: bool = False,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
         `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
@@ -589,7 +590,8 @@ class Decision:
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None
                 origin_holds = self._origin_holds()
-                hold = "; ".join(filter(None, [*origin_holds, hold])) or None
+                shadow_note = "shadow mode: held for clinician comparison" if shadow else None
+                hold = "; ".join(filter(None, [*origin_holds, hold, shadow_note])) or None
                 if over_quota is not None:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
@@ -660,6 +662,7 @@ class Decision:
         not_offered: Mapping[str, str] | None = None,
         declaration: EhrDeclaration | None = None,
         statuses: Mapping[str, int] | None = None,
+        shadow: bool = False,
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
@@ -805,6 +808,7 @@ class Decision:
             due_at=due_at,
             not_offered=limited,
             ehr_declaration=None if not limited or declaration is None else declaration.stamp(),
+            shadow=shadow,
         )
         return result, adapter.to_task(result, indexed)
 
@@ -838,7 +842,7 @@ def _check_not_offered(
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)
 
 
-_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")
 
 
 def _where(path: Iterable[Any]) -> str:
@@ -887,7 +891,9 @@ def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
         return "does not match the pattern the schema requires"
     if keyword == "format":
         return f"is not a valid {expected}"
-    if keyword in ("additionalProperties", "unevaluatedProperties"):
+    if keyword == "unevaluatedProperties":
+        return "has a field the schema does not allow"
+    if keyword == "additionalProperties":
         schema = error.schema if isinstance(error.schema, Mapping) else {}
         allowed = set(schema.get("properties") or {})
         patterns = list(schema.get("patternProperties") or {})
@@ -898,11 +904,12 @@ def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
             and not any(search(p, str(key), community=bounded) for p in patterns)
         ]
         named = [key for key in extra if _KEY.match(key)]
-        unnamed = len(extra) - len(named)
-        listed = [*named, *([f"{unnamed} more"] if unnamed and named else [])]
+        shown = named[:5]
+        omitted = len(extra) - len(shown)
+        listed = [*shown, *([f"{omitted} more"] if omitted and shown else [])]
         return (
             f"has fields the schema does not allow: {', '.join(listed)}"
-            if named
+            if shown
             else ("has a field the schema does not allow")
         )
     return f"does not satisfy the schema's {keyword} rule"

@@ -228,14 +228,26 @@ def _named(line: str, others: bool, p: Patterns) -> bool:
     return any(m.group(0) in listed for m in p["capitalised"].finditer(line))
 
 
+def _encodable(text: str) -> str:
+    """Replace lone UTF-16 surrogates (which JSON escapes can produce) so RE2 accepts the string."""
+    if text.isascii():
+        return text
+    try:
+        text.encode("utf-8")
+        return text
+    except UnicodeEncodeError:
+        return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def kinds_of(line: str, patterns: Patterns | None = None) -> list[str]:
     """The kinds one line holds, in `KINDS` order. A line longer than `MAX_LINE_CHARS` is read
     in pieces of that size that overlap by `OVERLAP_CHARS`, so nothing is cut in two."""
     p = patterns or re2_patterns()
+    safe = _encodable(line)
     found: set[str] = set()
     step = MAX_LINE_CHARS - OVERLAP_CHARS
-    for start in range(0, max(len(line) - OVERLAP_CHARS, 1), step):
-        piece = line[start : start + MAX_LINE_CHARS]
+    for start in range(0, max(len(safe) - OVERLAP_CHARS, 1), step):
+        piece = safe[start : start + MAX_LINE_CHARS]
         kinds = structural_kinds(piece, p)
         found.update(kinds)
         if _named(piece, bool(kinds), p):
@@ -343,8 +355,21 @@ def _decoded(path: str, text: str) -> list[tuple[int, str]]:
             return []
         found += [(1, s) for s in _strings(value, budget)]
     elif lower.endswith((".yaml", ".yml")):
+        from mendari.core.pack import parse_yaml
+        from mendari.errors import PackValidationError
+
         try:
-            value = yaml.safe_load(text)
+            value = parse_yaml(text.encode("utf-8", "replace"), path, path)
+        except PackValidationError as exc:
+            # Alias bombs, excessive depth or expansion limits are refused as unscannable;
+            # ordinary malformed YAML falls back to raw-text scanning.
+            msg = str(exc).lower()
+            if any(
+                word in msg
+                for word in ("alias", "anchor", "expand", "refers to itself", "nested", "deep")
+            ):
+                raise _TooMany from exc
+            return []
         except (yaml.YAMLError, RecursionError, ValueError):
             return []
         found += [(1, s) for s in _strings(value, budget)]

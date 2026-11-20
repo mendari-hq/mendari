@@ -48,7 +48,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
-from mendari.core import accounts, checkpoint, clock, tenancy
+from mendari.core import accounts, checkpoint, clock, tenancy, validation_brief
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     OFF_DECISION_KINDS,
@@ -1225,34 +1225,36 @@ def create_app(
             return found
         with store_lock:
             building = store_building.setdefault(key, threading.Lock())
-        with building:
-            found = store_built.get(key)
-            if found is None:
-                chosen, _ = variants_for(pack)
-                try:
-                    found = Decision(
-                        pack,
-                        providers=chosen,
-                        store=store,
-                        budget=budget,
-                        fhir_validation=validation,
-                        governance_source=approved_override,
-                        hold_source=held_or_recommending,
-                        deadline_s=deadline_s,
-                        site_codes=site_maps,
-                        promotion=promotion,
-                    )
-                except MendariError:
-                    raise
-                except Exception as error:  # the pack's content: named by type, never a 500
-                    problem = f"its providers could not be built ({type(error).__name__})"
-                    raise PackValidationError(pack.id, [problem]) from None
-                with store_lock:
-                    if len(store_built) >= STORE_BUILT_MAX:
-                        store_built.pop(next(iter(store_built)))
-                    store_built[key] = found
-        with store_lock:
-            store_building.pop(key, None)
+        try:
+            with building:
+                found = store_built.get(key)
+                if found is None:
+                    chosen, _ = variants_for(pack)
+                    try:
+                        found = Decision(
+                            pack,
+                            providers=chosen,
+                            store=store,
+                            budget=budget,
+                            fhir_validation=validation,
+                            governance_source=approved_override,
+                            hold_source=held_or_recommending,
+                            deadline_s=deadline_s,
+                            site_codes=site_maps,
+                            promotion=promotion,
+                        )
+                    except MendariError:
+                        raise
+                    except Exception as error:  # the pack's content: named by type, never a 500
+                        problem = f"its providers could not be built ({type(error).__name__})"
+                        raise PackValidationError(pack.id, [problem]) from None
+                    with store_lock:
+                        if len(store_built) >= STORE_BUILT_MAX:
+                            store_built.pop(next(iter(store_built)))
+                        store_built[key] = found
+        finally:
+            with store_lock:
+                store_building.pop(key, None)
         return found
 
     def decision_for(pack_id: str) -> Decision:
@@ -1509,7 +1511,18 @@ def create_app(
         and frames). It is answered outside the middleware, so it sets the security headers and
         the request id itself."""
         rid = getattr(request.state, "request_id", None)
-        headers = {**SECURITY_HEADERS, **({"X-Request-Id": rid} if rid else {})}
+        headers = {
+            **SECURITY_HEADERS,
+            "Content-Security-Policy": csp,
+            "Cross-Origin-Embedder-Policy": "require-corp",
+            "Cache-Control": "no-store",
+            **(
+                {"Strict-Transport-Security": HSTS}
+                if not is_local_host(request.url.hostname)
+                else {}
+            ),
+            **({"X-Request-Id": rid} if rid else {}),
+        }
         if _FHIR_ROUTE.match(request.url.path):
             issue = {"code": "exception", "diagnostics": "internal error"}
             return operation_outcome(500, [issue], headers)
@@ -1854,12 +1867,24 @@ def create_app(
         acknowledged.add(key)
         return {**notices.notice(), "acknowledged": True, "required": acknowledgement == "required"}
 
+    def _is_shadow(request: Request, shadow: bool = False) -> bool:
+        if shadow:
+            return True
+        header = (request.headers.get("x-mendari-shadow") or "").strip().lower()
+        return header in {"1", "true", "yes", "on"}
+
     @app.post(
         "/api/packs/{namespace}/{name}/decide",
         tags=["Decisions"],
         summary="Make a decision",
     )
-    def decide(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
+    def decide(
+        request: Request,
+        namespace: str,
+        name: str,
+        payload: JsonBody,
+        shadow: bool = False,
+    ) -> dict[str, Any]:
         """Run the pack on one input (its `input_schema`; see `GET …/examples` for synthetic ones).
 
         Every decision is recorded in the audit trail and ends as `AUTO`, `HUMAN_REVIEW`,
@@ -1867,10 +1892,16 @@ def create_app(
         is a recorded decision with `outcome: BLOCK` and the reason in `reasons`, so check
         `outcome`, not only the status code.
 
+        Pass `?shadow=true` or header `X-Mendari-Shadow: 1` to evaluate in shadow mode: automation
+        is held for clinician comparison while recording what the pack would have automated.
+
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
-        return {**decision_for(f"{namespace}/{name}").decide(payload).to_dict(), **NOTICE}
+        decided = decision_for(f"{namespace}/{name}").decide(
+            payload, shadow=_is_shadow(request, shadow)
+        )
+        return {**decided.to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/guard",
@@ -1889,7 +1920,13 @@ def create_app(
         tags=["FHIR and CDS Hooks"],
         summary="Make a decision from FHIR",
     )
-    def decide_fhir(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
+    def decide_fhir(
+        request: Request,
+        namespace: str,
+        name: str,
+        payload: JsonBody,
+        shadow: bool = False,
+    ) -> dict[str, Any]:
         """Decide from FHIR R4 resources: a Bundle, one resource, or a CDS Hooks prefetch object.
         The pack's `fhir/mapping.yaml` maps them onto its input. Returns the decision and a FHIR
         `Task` for the work queue.
@@ -1907,8 +1944,69 @@ def create_app(
         a link, so a spec 0.3 reference the record does not hold is `not_fetched` too.
         `decision.data_coverage` says what the mapping looked for and found, as counts and the
         pack's own codes."""
-        result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
+        result, task = decision_for(f"{namespace}/{name}").decide_fhir(
+            payload, shadow=_is_shadow(request, shadow)
+        )
         return {"decision": result.to_dict(), "task": task, **NOTICE}
+
+    @app.get(
+        "/api/packs/{namespace}/{name}/validation-brief",
+        tags=["Evaluation and monitoring"],
+        summary="Executive validation & readiness brief",
+    )
+    def pack_validation_brief(
+        request: Request,
+        namespace: str,
+        name: str,
+        days: int = 30,
+        minutes_per_case: float = validation_brief.DEFAULT_MINUTES_PER_CASE,
+        format: Literal["json", "markdown"] = "json",
+    ) -> Any:
+        """Aggregate clinical and operational validation brief for a pack (zero PHI): readiness
+        gates, exact Clopper-Pearson confidence intervals, shadow-pilot status, reclaimable
+        clinician hours, and clustered human-override patterns for closed-loop improvement."""
+        pack = pack_or_404(f"{namespace}/{name}")
+        days = max(1, min(days, MONITOR_MAX_DAYS))
+        minutes_per_case = max(0.5, min(minutes_per_case, 60.0))
+        org = org_of(auth.acting(request))
+        held = store.holds(org)
+        if auth.memberships:
+            held = [h if h["org"] is not None else operators_hold(h) for h in held]
+        gov = store.active_approval(pack.id, pack.digest)
+        reg = (
+            {
+                "active": store.registry_approval(pack.id, pack.digest),
+            }
+            if pack.origin == "hub"
+            else None
+        )
+        mon_days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
+        mon = monitor(
+            store,
+            pack,
+            days=mon_days,
+            providers=health_providers.get(pack.id),
+            models=running_models.get(pack.id),
+        )
+        brief = validation_brief.build(
+            store,
+            pack,
+            days=days,
+            minutes_per_case=minutes_per_case,
+            holds=held,
+            governance_active=gov,
+            registry_approval=reg,
+            monitoring_alerts=mon.get("alerts", ()),
+        )
+        if format == "markdown":
+            return Response(
+                validation_brief.render_markdown(brief),
+                media_type="text/markdown; charset=utf-8",
+                headers={
+                    "content-disposition": f'attachment; filename="{name}-validation-brief.md"'
+                },
+            )
+        return brief
 
     # -- monitoring ------------------------------------------------------------------------------
 
@@ -1985,10 +2083,10 @@ def create_app(
         pack version (its digest)."""
         pack = pack_or_404(body.pack_id)
         approver = acting_as(request, body.approver, "approver")
-        principal = auth.principal(request)
+        principal = principal_of(request)
         if (
             pack.origin == "store"
-            and principal is not None
+            and principal.kind != "open"
             and principal.id in app.state.pack_store.authors(org_of(principal), pack.digest)
         ):
             # Separation of duties reaches the automation approval too (LP-20h review).
@@ -2216,6 +2314,16 @@ def create_app(
     # -- review & audit ----------------------------------------------------------------------
 
     @app.get(
+        "/api/review/summary",
+        tags=["Review and feedback"],
+        summary="Pending review counts by pack",
+    )
+    def review_summary() -> list[dict[str, Any]]:
+        """Pending and urgent review counts across every pack in this organization (aggregate
+        counts only, no inputs or PHI)."""
+        return store.pending_by_pack()
+
+    @app.get(
         "/api/review",
         tags=["Review and feedback"],
         summary="The review queue",
@@ -2288,7 +2396,10 @@ def create_app(
             raise HTTPException(404, "no checkpoint is signed here: no key is set")
         public = checkpoint_signer.public_key()
         now = time.monotonic()
-        if now - published["at"] > CHECKPOINT_SECONDS:
+        with store_lock:
+            stale = now - published["at"] > CHECKPOINT_SECONDS
+            statement = published["statement"]
+        if stale:
             rows = store.statements(until=clock.today().isoformat())
             found = next(
                 (
@@ -2299,11 +2410,13 @@ def create_app(
                 ),
                 None,
             )
-            published.update(at=now, statement=found)
-        if published["statement"] is None:
+            with store_lock:
+                published.update(at=now, statement=found)
+                statement = found
+        if statement is None:
             raise HTTPException(404, "no checkpoint is signed with this key yet")
         return {
-            "statement": published["statement"],
+            "statement": statement,
             "public_key": public_text(public),
             "key_id": key_id(public),
         }
@@ -2713,23 +2826,27 @@ def create_app(
         request: Request,
         namespace: str,
         name: str,
-        source: Literal["ratings", "reviews"] = "ratings",
+        source: Literal["ratings", "reviews", "overrides"] = "ratings",
         rating: Literal["up", "down"] | None = None,
     ) -> Response:
         """What people said about a pack's decisions, as JSONL for evaluation, the newest 1,000:
-        rated decisions (`source=ratings`, thumbs `rating`, down unless given), or decisions a
-        reviewer resolved or an outcome was recorded for, each with the label a person chose
-        (`source=reviews`). `x-mendari-skipped` counts the ones stored without their input.
-        Each record says it was exported (`attributes.exported_by`): a site's cases, which no
-        pack archive holds."""
+        rated decisions (`source=ratings`, thumbs `rating`, down unless given), decisions a
+        reviewer resolved or an outcome was recorded for (`source=reviews`), or only cases where
+        a clinician overrode the pack (`source=overrides`). `x-mendari-skipped` counts the ones
+        stored without their input. Each record says it was exported (`attributes.exported_by`):
+        a site's cases, which no pack archive holds."""
         pack = pack_or_404(f"{namespace}/{name}")
-        if source == "reviews":
+        if source in ("reviews", "overrides"):
             if rating is not None:
-                raise HTTPException(422, "rating filters ratings: leave it out with reviews")
+                raise HTTPException(422, f"rating filters ratings: leave it out with {source}")
             records, skipped = reviewed_dataset(
-                store, pack_id=pack.id, reader=input_reader(request)
+                store,
+                pack_id=pack.id,
+                reader=input_reader(request),
+                only_overrides=(source == "overrides"),
             )
-            filename = f"{name}-reviewed.jsonl"
+            stem = "overrides" if source == "overrides" else "reviewed"
+            filename = f"{name}-{stem}.jsonl"
         else:
             rating = rating or "down"
             records, skipped = feedback_dataset(
@@ -2809,7 +2926,12 @@ def create_app(
         (`MENDARI_EHR_DECLARATIONS`) is not read for a pack that may read its list without it:
         the decision records the declaration, and never automates."""
         pack = next(
-            (p for p in served_here().values() if cds_hooks.service_id(p) == service_id), None
+            (
+                p
+                for p in served_here().values()
+                if p.manifest.cds_hooks is not None and cds_hooks.service_id(p) == service_id
+            ),
+            None,
         )
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
@@ -3343,6 +3465,11 @@ def create_app(
             response.headers.setdefault(name, value)
         if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
             response.headers["Cache-Control"] = "no-store"
+        elif path.startswith(("/auth/", "/smart/", "/cds-services/")) or path in (
+            "/fhir/$decide",
+            "/fhir/Questionnaire/$questionnaire-package",
+        ):
+            response.headers.setdefault("Cache-Control", "no-store")
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
         if api and response.status_code in (401, 403) and NOTICE_HEADER not in response.headers:
             response.headers.setdefault("WWW-Authenticate", challenge())  # RFC 7235 and 6750
@@ -4211,7 +4338,7 @@ class BodyCap:
             await self.app(scope, receive, send)
             return
         declared = Headers(scope=scope).get("content-length", "")
-        if declared.isdigit() and int(declared) > self.limit:
+        if declared.isascii() and declared.isdigit() and int(declared) > self.limit:
             await self.too_large(scope["path"])(scope, receive, send)
             return
         if self.counted_within and scope["path"].startswith(self.counted_within):

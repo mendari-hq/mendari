@@ -7,7 +7,8 @@ import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
 import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
-import { $, api, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { guardrailTrace } from "./trace.js";
+import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -66,6 +67,9 @@ function fhirError(message) {
   else $("#fhir-json").removeAttribute("aria-invalid");
 }
 
+const shadowChecked = () => Boolean($("#try-shadow")?.checked);
+const shadowHeaders = (shadow) => (shadow ? { "content-type": "application/json", "x-mendari-shadow": "1" } : undefined);
+
 function decideFhir(button) {
   let input;
   try {
@@ -79,27 +83,55 @@ function decideFhir(button) {
     return $("#fhir-json").focus();
   }
   fhirError("");
+  const targetPack = state.packId;
+  const endpoint = `${packPath()}/fhir/decide`;
+  const shadow = shadowChecked();
   return whileBusy(button, "Deciding…", async () => {
     try {
-      const answer = await api(`${packPath()}/fhir/decide`, { method: "POST", body: JSON.stringify(input) });
-      showResult(answer.decision, { task: answer.task, fhir: input });
+      const answer = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
+      if (state.packId !== targetPack || !$("#result")) return;
+      showResult(answer.decision, { task: answer.task, fhir: input, request: { endpoint, body: input, shadow } });
     } catch (error) {
-      fhirError(error.message);
+      if (state.packId === targetPack && $("#fhir-error")) fhirError(error.message);
     }
   });
 }
 
 // The pack's own input, decided, or (`guard`) checked as an AI reply.
 function send(button, input, guard = false) {
+  const targetPack = state.packId;
+  const endpoint = `${packPath()}/${guard ? "guard" : "decide"}`;
+  const shadow = !guard && shadowChecked();
   return whileBusy(button, guard ? "Checking…" : "Deciding…", async () => {
     try {
-      if (!guard) return showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
-      const checked = await api(`${packPath()}/guard`, { method: "POST", body: JSON.stringify(input) });
-      showResult(checked.decision, { guard: checked });
+      if (!guard) {
+        const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
+        if (state.packId !== targetPack || !$("#result")) return;
+        return showResult(decision, { request: { endpoint, body: input, shadow } });
+      }
+      const checked = await api(endpoint, { method: "POST", body: JSON.stringify(input) });
+      if (state.packId !== targetPack || !$("#result")) return;
+      showResult(checked.decision, { guard: checked, request: { endpoint, body: input, shadow: false } });
     } catch (error) {
       toastError(error.message);
     }
   });
+}
+
+function wireSubmitKey(element, trigger) {
+  element?.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      trigger();
+    }
+  });
+}
+
+function curlCommand({ endpoint, body, shadow = false }) {
+  const url = `${location.origin}${endpoint}`;
+  const json = JSON.stringify(body).replaceAll("'", "'\\''");
+  const extra = shadow ? " \\\n  -H 'X-Mendari-Shadow: 1'" : "";
+  return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json'${extra} \\\n  -d '${json}'`;
 }
 
 // Packs whose input is a structured record: edit JSON, starting from the pack's own examples.
@@ -125,7 +157,9 @@ async function tryRecord(main) {
       <div id="record-json"><label for="record" class="sr-only">Input (JSON)</label>
         <textarea id="record" class="code" spellcheck="false"></textarea></div>
       ${modes.includes("fhir") ? fhirBox() : ""}
-      <div class="row mt-3"><span class="grow"></span>
+      <div class="row mt-3">
+        <label class="shadow-toggle"><input type="checkbox" id="try-shadow"> <span>Shadow mode</span></label>
+        <span class="grow"></span>
         ${guard ? `<button type="button" class="primary" id="guard">Check the AI reply</button>` : ""}
         <button type="button" ${guard ? "" : `class="primary" `}id="decide">Decide</button></div>
     </div>
@@ -178,7 +212,16 @@ async function tryRecord(main) {
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
     $("#expected").textContent = example && expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
   };
-  choose(0);
+  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  state.replayDraft = null;
+  if (replay && isObject(replay)) {
+    load(replay);
+    $("#record").value = JSON.stringify(replay, null, 2);
+    $("#expected").textContent = "Loaded from the audit trail: edit any field and decide to compare.";
+    toast("Loaded case from audit trail");
+  } else {
+    choose(0);
+  }
   showMode();
   $("#example").addEventListener("change", (e) => choose(Number(e.target.value)));
   const run = (button, asGuard) => {
@@ -198,6 +241,9 @@ async function tryRecord(main) {
   };
   $("#decide").addEventListener("click", (e) => run(e.currentTarget, false));
   if (guard) $("#guard").addEventListener("click", (e) => run(e.currentTarget, true));
+  const submitPrimary = () => (guard && !$("#guard").hidden ? $("#guard").click() : $("#decide").click());
+  wireSubmitKey($("#record"), submitPrimary);
+  wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
 // Whether an object schema takes `key`: it declares it, or it is open (no
@@ -244,6 +290,7 @@ async function tryMessage(main) {
         ${fields.age ? `<label>Age band <select id="age"><option value="">unknown</option><option>0-17</option><option>18-39</option><option>40-64</option><option>65+</option></select></label>` : ""}
         </span>
         <span class="grow"></span>
+        <label class="shadow-toggle"><input type="checkbox" id="try-shadow"> <span>Shadow mode</span></label>
         <button class="primary" id="decide">Decide</button>
       </div>
     </div>
@@ -261,6 +308,18 @@ async function tryMessage(main) {
     showMode();
   }));
   showMode();
+  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  state.replayDraft = null;
+  if (replay && isObject(replay)) {
+    const msg = isObject(replay.message) ? replay.message : {};
+    const pat = isObject(replay.patient) ? replay.patient : {};
+    if (typeof msg.body === "string") $("#body").value = msg.body;
+    if (fields.subject && typeof msg.subject === "string") $("#subject").value = msg.subject;
+    if (fields.channel && typeof msg.channel === "string") $("#channel").value = msg.channel;
+    if (fields.language && typeof pat.preferred_language === "string") $("#language").value = pat.preferred_language;
+    if (fields.age && typeof pat.age_band === "string") $("#age").value = pat.age_band;
+    toast("Loaded case from audit trail");
+  }
   main.querySelectorAll("button[data-sample]").forEach((b) => b.addEventListener("click", () => {
     const s = SAMPLES[Number(b.dataset.sample)];
     $("#body").value = s.body;
@@ -282,6 +341,8 @@ async function tryMessage(main) {
     }
     return send(e.currentTarget, input);
   });
+  wireSubmitKey($("#body"), () => $("#decide").click());
+  wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
 // The outcome in words, with the priority when it isn't routine: "Blocked · urgent". A checked AI
@@ -301,10 +362,15 @@ const resultHeadline = (r, guard) => `${guard ? GUARD_WORDS[guard.status] ?? gua
 // decision the PAS route builds a request for (`pas_ready`), the form that builds it.
 function showResult(result, extra = {}) {
   const box = $("#result");
+  if (!box) return;
   const pas = Boolean(state.detail.pas_ready) && result.recommendation === state.detail.pas_ready;
   box.innerHTML = decisionView(result, extra) + (pas ? pasPanel(extra.fhir) : "");
   wire(box);
   wireCodes(box.querySelector(".result"));
+  if (extra.request) {
+    box.querySelector("#copy-curl")?.addEventListener("click", () =>
+      copyText(curlCommand(extra.request), "cURL copied"));
+  }
   if (pas) wirePas(result);
   focusHeading($("#result-title"));
   refreshReviewCount();
@@ -322,7 +388,7 @@ function guardLead(guard) {
 // reads, and each question's answer. The engine's detail (each label's probability, the
 // providers, thresholds and timings, the reasons as the engine gave them) is in the decision
 // record, one link away.
-function decisionView(r, { guard = null, task = null } = {}) {
+function decisionView(r, { guard = null, task = null, request = null } = {}) {
   const urgent = r.outcome === "BLOCK" || r.priority === "stat";
   const why = plainReasons(r);
   // Every question the pack asks: an answer by name, or that none came (a provider failed).
@@ -346,12 +412,13 @@ function decisionView(r, { guard = null, task = null } = {}) {
       <h2 id="result-title">${icon(headIcon)}${esc(resultHeadline(r, guard))}</h2>
       <p>${r.recommendation ? `${named(questionName(r.primary), r.primary)}: <b>${named(labelName(r.primary, r.recommendation), r.recommendation)}</b>` : "No recommendation"}${certainty}</p>
     </div>
+    ${guardrailTrace(r)}
     ${guard ? guardLead(guard) : ""}
     ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
     ${why.length ? `<h3>Why</h3><ul class="reasons">${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
     ${asked.length ? `<h3>Answers</h3>${answers}` : ""}
     <p class="result-more">${codesToggle()} ·
-      <a class="action-link" href="#audit/${encodeURIComponent(r.id)}">Engine detail in the decision record <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
+      <a class="action-link" href="#audit/${encodeURIComponent(r.id)}">Engine detail in the decision record <span class="mono">${esc(r.id.slice(0, 8))}</span></a>${request ? ` · <button type="button" class="link-button" id="copy-curl">${icon("copy")} Copy as cURL</button>` : ""}</p>
     ${task ? `<details><summary>The FHIR Task for the work queue</summary><pre class="json" tabindex="0">${esc(JSON.stringify(task, null, 2))}</pre></details>` : ""}
     <h3>Was this right?</h3>${feedbackControls(r)}
   </section>`;
@@ -471,11 +538,14 @@ function wirePas(decision) {
       const value = $(`#pas-${c.key}`).value.trim();
       if (value) body[c.key] = value;
     }
+    const targetPack = state.packId;
     return whileBusy(button, "Building…", async () => {
       try {
         const answer = await api(`${packPath()}/pas`, { method: "POST", body: JSON.stringify(body) });
+        if (state.packId !== targetPack || !$("#pas-bundle")) return;
         showBundle(answer.bundle, decision);
       } catch (error) {
+        if (state.packId !== targetPack || !$("#pas-bundle")) return;
         $("#pas-bundle").innerHTML = "";
         const message = /[.!?]$/.test(error.message) ? error.message : `${error.message}.`;
         if (!/MENDARI_PAS_/.test(message)) return say(message);
@@ -493,14 +563,7 @@ function showBundle(bundle, decision) {
     <div class="row mb-3"><button type="button" id="pas-copy">${icon("copy")} Copy</button>
       <button type="button" id="pas-download">${icon("download")} Download</button></div>
     <pre class="json" tabindex="0" aria-labelledby="pas-bundle-title">${esc(text)}</pre>`;
-  $("#pas-copy").addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast("Bundle copied");
-    } catch {
-      toastError("Copying isn't available here: select the Bundle and copy it");
-    }
-  });
+  $("#pas-copy").addEventListener("click", () => copyText(text, "Bundle copied", "Copying isn't available here: select the Bundle and copy it"));
   $("#pas-download").addEventListener("click", () =>
     saveFile(new Blob([text], { type: "application/fhir+json" }), `pas-request-${decision.id.slice(0, 8)}.json`));
   focusHeading($("#pas-bundle-title"));

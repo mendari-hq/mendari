@@ -7,12 +7,24 @@ import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadg
 
 const PRIORITIES = ["stat", "asap", "urgent", "routine"];
 
+let keyHandler = null;
+
+function stopKeys() {
+  if (!keyHandler) return;
+  document.removeEventListener("keydown", keyHandler);
+  keyHandler = null;
+}
+
+const isTyping = (target) => Boolean(target?.closest?.("input, textarea, select, [contenteditable]"));
+
 views.review = async (main) => {
+  stopKeys();
   const [items, stats] = await Promise.all([
     api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
   ]);
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
+  let activePriority = "";
   main.innerHTML = `
     <h1>Review queue</h1>
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
@@ -24,7 +36,7 @@ views.review = async (main) => {
         ? `<input id="reviewer" value="${esc(state.me.actor)}" readonly title="Reviews are recorded for whoever is signed in, as the audit trail names them">`
         : `<input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" maxlength="100" spellcheck="false" title="An identifier, without spaces: the audit trail keeps it">`}
       <span class="grow"></span>
-      <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items)}</span>
+      <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items, activePriority)}</span>
     </div>
     ${items.length < stats.pending_reviews ? `<p class="muted">Showing the first ${items.length} of ${stats.pending_reviews}, most urgent first.</p>` : ""}
     <div id="queue">
@@ -33,11 +45,59 @@ views.review = async (main) => {
         ${group.map(reviewCard).join("")}
       </section>`).join("") || emptyQueue()}
     </div>`;
+
+  const applyFilter = () => {
+    const allGroups = [...main.querySelectorAll(".review-group")];
+    if (activePriority && !allGroups.some((g) => g.dataset.priority === activePriority)) activePriority = "";
+    allGroups.forEach((g) => (g.hidden = Boolean(activePriority && g.dataset.priority !== activePriority)));
+    const left = [...main.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
+    $("#queue-counts").innerHTML = queueCounts(left, activePriority);
+  };
+
   $("#reviewer").addEventListener("change", (e) => storageSet("oh.reviewer", e.target.value.trim()));
+  $("#queue-counts").addEventListener("click", (event) => {
+    const pill = event.target.closest("button[data-priority-filter]");
+    if (!pill) return;
+    const p = pill.dataset.priorityFilter;
+    activePriority = activePriority === p ? "" : p;
+    applyFilter();
+  });
   $("#queue").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-label]");
-    if (button) resolveCard(button);
+    if (button) resolveCard(button, applyFilter);
   });
+
+  // Keyboard triage: J/K step through visible cards, C confirms the focused card's recommendation,
+  // Z cancels a held override. Ignored when typing or inside a modal dialog.
+  keyHandler = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+    if (document.querySelector("dialog[open], .drawer-open")) return;
+    const key = event.key.toLowerCase();
+    if (!["j", "k", "c", "z"].includes(key)) return;
+    const visible = [...main.querySelectorAll(".review-group:not([hidden]) .review-card")];
+    if (!visible.length) return;
+    const current = document.activeElement?.closest?.(".review-card");
+    const index = current ? visible.indexOf(current) : -1;
+    if (key === "j" || key === "k") {
+      event.preventDefault();
+      const target = key === "j"
+        ? visible[Math.min(index + 1, visible.length - 1)]
+        : visible[Math.max(index <= 0 ? 0 : index - 1, 0)];
+      if (target) focusHeading(target);
+    } else if (key === "c") {
+      const card = current ?? visible[0];
+      const confirm = card?.querySelector(".labels button.primary:not(:disabled)");
+      if (!confirm) return;
+      event.preventDefault();
+      confirm.click();
+    } else if (key === "z") {
+      const undo = current?.querySelector(".undo-bar .undo") ?? main.querySelector(".undo-bar .undo");
+      if (!undo) return;
+      event.preventDefault();
+      undo.click();
+    }
+  };
+  document.addEventListener("keydown", keyHandler);
 };
 
 const emptyQueue = () => emptyState({
@@ -58,10 +118,14 @@ async function collapse(card) {
   card.remove();
 }
 
-function queueCounts(items) {
+function queueCounts(items, activePriority = "") {
   if (!items.length) return "Nothing waiting";
-  return PRIORITIES.map((p) => [p, items.filter((i) => i.priority === p).length]).filter(([, n]) => n)
-    .map(([p, n]) => `<span class="badge p-${p}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</span>`).join(" ");
+  const present = PRIORITIES.map((p) => [p, items.filter((i) => i.priority === p).length]).filter(([, n]) => n);
+  if (present.length < 2 && !activePriority) {
+    return present.map(([p, n]) => `<span class="badge p-${p}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</span>`).join(" ");
+  }
+  return present.map(([p, n]) =>
+    `<button type="button" class="badge p-${p} priority-filter" data-priority-filter="${p}" aria-pressed="${activePriority === p}" title="Filter by ${esc(PRIORITY_TEXT[p].toLowerCase())}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</button>`).join(" ");
 }
 
 // Confirming the recommendation is one tap. Any other label is held for UNDO_SECONDS with an Undo
@@ -70,7 +134,7 @@ function queueCounts(items) {
 const UNDO_SECONDS = 5;
 const held = new Map(); // decision id -> send()
 
-function resolveCard(button) {
+function resolveCard(button, onResolved) {
   const card = button.closest(".review-card");
   const reviewer = $("#reviewer").value.trim();
   if (!reviewer) {
@@ -78,11 +142,11 @@ function resolveCard(button) {
     return toastError("Enter a reviewer name first");
   }
   const label = button.dataset.label;
-  if (label === card.dataset.recommendation) return sendResolution(card, label, reviewer);
-  holdResolution(card, button, label, reviewer);
+  if (label === card.dataset.recommendation) return sendResolution(card, label, reviewer, { onResolved });
+  holdResolution(card, button, label, reviewer, onResolved);
 }
 
-function holdResolution(card, button, label, reviewer) {
+function holdResolution(card, button, label, reviewer, onResolved) {
   const labelButtons = card.querySelectorAll(".labels button");
   labelButtons.forEach((b) => (b.disabled = true));
   button.classList.add("held");
@@ -103,7 +167,7 @@ function holdResolution(card, button, label, reviewer) {
   };
   const send = (options) => {
     release();
-    return sendResolution(card, label, reviewer, options);
+    return sendResolution(card, label, reviewer, { ...options, onResolved });
   };
   const timer = setTimeout(send, UNDO_SECONDS * 1000);
   held.set(card.dataset.id, send);
@@ -120,41 +184,58 @@ function holdResolution(card, button, label, reviewer) {
 
 // Leaving the queue (another view, another pack, another organization: that one waits for them)
 // sends what is held; so does closing the page, with keepalive so the request outlives it.
-views.review.leave = () => Promise.all([...held.values()].map((send) => send()));
+views.review.leave = () => {
+  stopKeys();
+  return Promise.all([...held.values()].map((send) => send()));
+};
 window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
 
-async function sendResolution(card, label, reviewer, { keepalive = false } = {}) {
+async function sendResolution(card, label, reviewer, { keepalive = false, onResolved } = {}) {
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   const hadFocus = card.contains(document.activeElement) || document.activeElement === document.body;
+  const primary = state.detail?.primary;
+  const note = card.querySelector(".review-note textarea")?.value.trim() || null;
+  const payload = note ? { final_label: label, reviewer, note } : { final_label: label, reviewer };
   try {
     const result = await api(`/api/review/${card.dataset.id}`, {
       method: "POST",
-      body: JSON.stringify({ final_label: label, reviewer }),
+      body: JSON.stringify(payload),
       keepalive,
     });
-    const name = labelName(state.detail.primary, label);
+    const name = primary ? labelName(primary, label) : label;
     toast(result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`);
     refreshReviewCount();
     if (!card.isConnected) return; // sent on the way out of the queue
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
     // unless they have already moved on to another.
-    const cards = [...document.querySelectorAll(".review-card")];
+    const cards = [...document.querySelectorAll(".review-group:not([hidden]) .review-card")];
     const next = cards[cards.indexOf(card) + 1] ?? cards[cards.indexOf(card) - 1];
     const group = card.closest(".review-group");
     await collapse(card);
-    if (!group.querySelector(".review-card")) group.remove();
-    else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
-    const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
-    $("#queue-counts").innerHTML = queueCounts(left);
-    if (next) {
+    if (group?.isConnected) {
+      if (!group.querySelector(".review-card")) group.remove();
+      else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
+    }
+    if (onResolved) onResolved();
+    else {
+      const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
+      const counts = $("#queue-counts");
+      if (counts) counts.innerHTML = queueCounts(left);
+    }
+    const remaining = document.querySelectorAll(".review-card").length;
+    if (next && next.isConnected) {
       if (hadFocus) focusHeading(next);
-    } else {
-      $("#queue").innerHTML = emptyQueue();
+    } else if (!remaining) {
+      const queue = $("#queue");
+      if (queue) queue.innerHTML = emptyQueue();
       if (hadFocus) focusHeading($("main h1"));
+    } else if (hadFocus) {
+      const fallback = document.querySelector(".review-group:not([hidden]) .review-card");
+      if (fallback) focusHeading(fallback);
     }
   } catch (error) {
     toastError(error.message);
-    card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    if (card.isConnected) card.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
 }
 
@@ -168,6 +249,12 @@ function reviewCard(item) {
   const labels = state.detail.labels;
   const name = (label) => labelName(state.detail.primary, label);
   const title = recommendation ? `Recommended: ${name(recommendation)}` : "No recommendation: the pack abstained";
+  const noteField = may("review") && state.phiMode !== "hash"
+    ? `<details class="review-note"><summary>Add a note <span class="muted">(optional)</span></summary>
+        <label class="sr-only" for="review-note-${esc(item.id)}">Review note</label>
+        <textarea id="review-note-${esc(item.id)}" rows="2" maxlength="2000" placeholder="Context for the team (kept apart from the audit chain)"></textarea>
+      </details>`
+    : "";
   return `<article class="panel review-card${item.priority === "stat" ? " is-stat" : ""}" data-id="${esc(item.id)}" data-priority="${esc(item.priority)}"
       data-recommendation="${esc(recommendation ?? "")}"
       tabindex="-1" aria-labelledby="card-${esc(item.id)}">
@@ -179,11 +266,12 @@ function reviewCard(item) {
       ${isCommunity(state.detail) ? originBadge(state.detail) : ""}
       ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
-      <span class="mono muted">${esc(item.id.slice(0, 8))}</span>
+      ${may("read") ? `<a class="action-link mono" href="#audit/${encodeURIComponent(item.id)}" title="Inspect decision ${esc(item.id)}">${esc(item.id.slice(0, 8))}</a>` : `<span class="mono muted">${esc(item.id.slice(0, 8))}</span>`}
     </div>
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
+    ${noteField}
     ${may("review") ? `<div class="labels">
       ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(name(recommendation))}</button>
         <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}

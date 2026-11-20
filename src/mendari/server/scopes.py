@@ -223,6 +223,8 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
 
 def needed(method: str, path: str) -> str | None:
     """The scope a request needs, or None: no scope reaches it."""
+    if method == "HEAD":
+        method = "GET"
     for rule_method, pattern, scope in _ROUTE_SCOPES:
         found = pattern.match(path) if rule_method == method else None
         if found is None:

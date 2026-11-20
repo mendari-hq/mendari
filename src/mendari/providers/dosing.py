@@ -80,9 +80,9 @@ _AMOUNT = re.compile(rf"\b{_N}\s*(mg|milligrams?|g|grams?|mcg|micrograms?)\b", r
 # A count just before an amount: "2 tablets of 500 mg", "2 Advil tablets of 200 mg",
 # "2 x 500 mg", "two 500 mg tablets".
 _COUNT_BEFORE = re.compile(
-    rf"\b{_N}\s*(?:(?:[a-z]+\s+)?{_FORMS}\s*(?:of\s*)?|x\s*)$", re.IGNORECASE
+    rf"(?<!/)\b{_N}\s*(?:(?:[a-z]+\s+)?{_FORMS}\s*(?:of\s*)?|x\s*)$", re.IGNORECASE
 )
-_BARE_BEFORE = re.compile(rf"\b{_N}\s+$", re.IGNORECASE)
+_BARE_BEFORE = re.compile(rf"(?<!/)\b{_N}\s+$", re.IGNORECASE)
 _FORM_AFTER = re.compile(
     rf"^\s*(?:[a-z]+\s+)?{_FORMS}\b", re.IGNORECASE
 )  # "500 mg (Tylenol) tablets"
@@ -99,10 +99,15 @@ _FREQUENCY_WORD = re.compile(
 # Counts without a strength: "2 tablets every 6 hours", "8 tablets a day" (needs tablet_mg).
 _COUNT_ONLY = re.compile(rf"\b{_N}\s+(?:[a-z]+\s+)?{_FORMS}\b(?!\s*of\s*\d)", re.IGNORECASE)
 _EVERY = re.compile(
-    rf"\bevery\s+{_N}(?:\s*(?:-|to|or)\s*{_N})?\s*(?:hours?|hrs?|h)\b|\bq\s*(\d+)\s*h\b",
+    rf"\bevery\s+{_N}(?:\s*(?:[-\u2013\u2014]|to|or)\s*{_N})?\s*(?:hours?|hrs?|h)\b"
+    r"|\bq\s*(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s*h\b",
     re.IGNORECASE,
 )
 _EVERY_HOUR = re.compile(r"\bevery\s+hour\b|\bhourly\b", re.IGNORECASE)
+_EVERY_MINUTES = re.compile(
+    rf"\bevery\s+{_N}(?:\s*(?:[-\u2013\u2014]|to|or)\s*{_N})?\s*(?:minutes?|mins?)\b",
+    re.IGNORECASE,
+)
 _TIMES = re.compile(rf"\b{_N}\s*times\s*(?:(?:a|per|each)\s*day|daily)\b", re.IGNORECASE)
 _SIMPLE = re.compile(r"\b(once|twice)\s*(?:a\s*day|daily)\b", re.IGNORECASE)
 _ABBREVIATIONS = {"qd": 1, "bid": 2, "tid": 3, "qid": 4}
@@ -110,7 +115,7 @@ _ABBREVIATION = re.compile(r"\b(qd|bid|tid|qid)\b", re.IGNORECASE)
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class Medicine(_Model):
@@ -306,9 +311,13 @@ def _is_daily(after: str) -> bool:
 def _times_per_day(sentence: str) -> float | None:
     counts = []
     for m in _EVERY.finditer(sentence):
-        hours = [_number(h) for h in (m[1], m[2], m[3]) if h and _number(h) > 0]
-        if hours:  # "every 0 hours" is no frequency; "every 4-6 hours" allows every 4
+        hours = [_number(h) for h in (m[1], m[2], m[3], m[4]) if h and _number(h) > 0]
+        if hours:  # "every 0 hours" is no frequency; "every 4-6 hours" or "q4-6h" allows every 4
             counts.append(24 / min(hours))
+    for m in _EVERY_MINUTES.finditer(sentence):
+        mins = [_number(x) for x in (m[1], m[2]) if x and _number(x) > 0]
+        if mins:
+            counts.append(1440 / min(mins))
     if _EVERY_HOUR.search(sentence):
         counts.append(24.0)
     counts += [_number(m[1]) for m in _TIMES.finditer(sentence)]

@@ -502,6 +502,7 @@ async function decideSite(siteId, name, decision) {
   if (!body) return;
   body.innerHTML = siteQueueHtml();
   wire(body);
+  focusHeading($("#site-queue-heading"), { scroll: false });
 }
 
 function queueHtml() {

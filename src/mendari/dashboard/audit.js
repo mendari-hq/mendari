@@ -2,12 +2,14 @@
 // Audit trail: the decisions table and each record in the drawer; the signed daily checkpoint
 // (LP-21k, public) and, for administrators, the pack's trail exported as FHIR NDJSON.
 
-import { closeDrawer, showDrawer } from "./drawer.js";
+import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
 import { answerChart, communityNotice, criteriaTable, derivedPrimary, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
+import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
-import { $, api, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, zoneShort } from "./ui.js";
+import { guardrailTrace } from "./trace.js";
+import { $, api, copyText, download, esc, fileSlug, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, PRIORITY_TEXT, priorityBadge, saveFile, shortTime, state, storageGet, storageSet, time, toastError, today, whileBusy, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -31,8 +33,14 @@ const NOTE_STATUS = {
   missing: "Note (missing: verify the chain with --notes)",
 };
 
+let auditRows = [];
+let visibleIds = [];
+
 views.audit = async (main, params) => {
   const outcome = storageGet("oh.audit.outcome", "");
+  const packId = state.packId;
+  auditRows = [];
+  visibleIds = [];
   main.innerHTML = `
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
@@ -41,22 +49,56 @@ views.audit = async (main, params) => {
     <div class="row toolbar">
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
+      <label for="priority-filter">Priority</label>
+      <select id="priority-filter"><option value="">All</option>${Object.entries(PRIORITY_TEXT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
+      <label for="audit-search" class="sr-only">Filter decisions</label>
+      <input id="audit-search" type="search" class="audit-search" placeholder="Search ID, label, reviewer…" autocomplete="off">
+      <button type="button" id="audit-reset" hidden>Reset</button>
+      <span id="audit-count" class="muted audit-count" aria-live="polite"></span>
       <span class="grow"></span>
       ${may("admin") ? `<button type="button" id="export-fhir">${icon("download")} Export as FHIR</button>` : ""}
-      ${may("admin") && state.accounts !== "memberships" ? `<button id="verify">Verify chain</button>
+      ${may("admin") && state.accounts !== "memberships" ? `<button type="button" id="verify">Verify chain</button>
       <span id="verify-result"></span>` : ""}
     </div>
     <p class="muted checkpoint" id="checkpoint"></p>
     <div class="panel" id="audit-table"></div>`;
+
+  const paintTable = () => {
+    const table = $("#audit-table");
+    if (!table) return;
+    const priority = $("#priority-filter")?.value ?? "";
+    const query = ($("#audit-search")?.value ?? "").trim().toLowerCase();
+    const filtered = auditRows.filter((r) => {
+      if (priority && r.priority !== priority) return false;
+      if (!query) return true;
+      const hay = `${r.id} ${r.recommendation ?? ""} ${r.final_label ?? ""} ${r.observed_label ?? ""} ${r.review_status ?? ""} ${r.priority ?? ""} ${r.outcome ?? ""}`.toLowerCase();
+      return hay.includes(query);
+    });
+    visibleIds = filtered.map((r) => r.id);
+    const active = Boolean(priority || query);
+    const reset = $("#audit-reset");
+    if (reset) reset.hidden = !active;
+    const count = $("#audit-count");
+    if (count) count.textContent = active ? `Showing ${filtered.length} of ${auditRows.length}` : "";
+    table.innerHTML = filtered.length
+      ? auditTable(filtered)
+      : `<div class="empty">${auditRows.length ? "No decisions match the current filter." : "No decisions recorded."}</div>`;
+    wire(table);
+  };
+
   const load = async () => {
     const filter = $("#outcome-filter").value;
     storageSet("oh.audit.outcome", filter);
-    const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-    const table = $("#audit-table");
-    // Another filter chosen meanwhile, or the view left: this answer is stale.
-    if (!table || $("#outcome-filter")?.value !== filter) return;
-    table.innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
-    wire(table);
+    try {
+      const rows = await api(`/api/audit?pack_id=${encodeURIComponent(packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
+      const table = $("#audit-table");
+      // Another pack or filter chosen meanwhile, or the view left: this answer is stale.
+      if (!table || state.packId !== packId || $("#outcome-filter")?.value !== filter) return;
+      auditRows = rows;
+      paintTable();
+    } catch (error) {
+      if (state.packId === packId) toastError(error.message);
+    }
   };
   // Rows open their record (the first cell's button does the same from the keyboard).
   $("#audit-table").addEventListener("click", (event) => {
@@ -64,12 +106,26 @@ views.audit = async (main, params) => {
     if (row) location.hash = `#audit/${encodeURIComponent(row.dataset.id)}`;
   });
   $("#outcome-filter").addEventListener("change", load);
-  $("#verify")?.addEventListener("click", async () => {
-    const result = await api("/api/audit/verify");
-    $("#verify-result").innerHTML = result.ok
-      ? `<span class="badge s-ok">verified · ${result.events} events</span>`
-      : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
+  $("#priority-filter").addEventListener("change", paintTable);
+  $("#audit-search").addEventListener("input", paintTable);
+  $("#audit-reset").addEventListener("click", () => {
+    $("#priority-filter").value = "";
+    $("#audit-search").value = "";
+    paintTable();
+    $("#audit-search").focus();
   });
+  $("#verify")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Verifying…", async () => {
+    try {
+      const result = await api("/api/audit/verify");
+      const out = $("#verify-result");
+      if (!out?.isConnected) return;
+      out.innerHTML = result.ok
+        ? `<span class="badge s-ok">verified · ${result.events} events</span>`
+        : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
+    } catch (error) {
+      toastError(error.message);
+    }
+  }));
   // Fetched, not linked, so the request carries the window's organization (`download`, ui.js).
   $("#export-fhir")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Exporting…", () => download(
     `/api/audit/export/fhir?pack_id=${encodeURIComponent(state.packId)}`,
@@ -157,11 +213,17 @@ let recordAsked = 0; // the latest record asked for: an older answer, arriving a
 async function openRecord(id) {
   const opener = document.querySelector(`button.open-record[data-id="${CSS.escape(id)}"]`) ?? document.activeElement;
   const asked = ++recordAsked;
+  const onClose = () => {
+    if (route().params.length) location.hash = "#audit";
+  };
+  // Show a drawer skeleton at once so clicking a row feels instantaneous.
+  showDrawer({ title: `Decision ${id.slice(0, 8)}`, opener, onClose, body: drawerSkeleton(), busy: true });
   let found;
   try {
     found = await api(`/api/audit/${encodeURIComponent(id)}`);
   } catch (error) {
     if (asked !== recordAsked) return;
+    closeDrawer({ restoreFocus: true, closedByUser: false });
     toastError(error.message);
     location.hash = "#audit";
     return;
@@ -170,23 +232,41 @@ async function openRecord(id) {
   // names what is shown, so a slow answer never replaces a newer drawer.
   if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
-  const shown = showDrawer({
+  const samePack = !r.pack_id || r.pack_id === state.packId;
+  const recLabel = (code) => (samePack ? labelName(r.primary ?? state.detail.primary, code) : code);
+  const at = visibleIds.indexOf(id);
+  const prevId = at > 0 ? visibleIds[at - 1] : null;
+  const nextId = at >= 0 && at < visibleIds.length - 1 ? visibleIds[at + 1] : null;
+  const canReplay = samePack && may("decide") && !found.input_restricted && r.input !== null && r.input !== undefined;
+  const headActions = `
+    ${visibleIds.length > 1 && at >= 0 ? `<button type="button" class="icon-button" data-step="${esc(prevId ?? "")}" aria-label="Previous decision ([)" title="Previous decision ([)"${prevId ? "" : " disabled"}>${icon("chevron-left")}</button>
+      <button type="button" class="icon-button" data-step="${esc(nextId ?? "")}" aria-label="Next decision (])" title="Next decision (])"${nextId ? "" : " disabled"}>${icon("chevron-right")}</button>` : ""}
+    ${canReplay ? `<button type="button" class="icon-button" data-replay aria-label="Replay in Try it" title="Replay this input in Try it">${icon("rotate-ccw")}</button>` : ""}
+    <button type="button" class="icon-button" data-copy-id aria-label="Copy decision ID" title="Copy decision ID">${icon("copy")}</button>`;
+  const shown = updateDrawer({
     // What happened, in words ("Human review · nurse"); the id is in the body.
-    title: `${outcomeText(r.outcome)}${r.recommendation && r.recommendation !== r.outcome.toLowerCase() ? ` · ${labelName(r.primary ?? state.detail.primary, r.recommendation)}` : ""}`,
-    opener,
-    // Closing the drawer (button, Escape, backdrop) goes back to the list's URL.
-    onClose: () => {
-      if (route().params.length) location.hash = "#audit";
+    title: `${outcomeText(r.outcome)}${r.recommendation && r.recommendation !== r.outcome.toLowerCase() ? ` · ${recLabel(r.recommendation)}` : ""}`,
+    headActions,
+    onKeydown: (event) => {
+      if (event.target?.closest?.("input, textarea, select")) return;
+      if (event.key === "[" && prevId) {
+        event.preventDefault();
+        location.hash = `#audit/${encodeURIComponent(prevId)}`;
+      } else if (event.key === "]" && nextId) {
+        event.preventDefault();
+        location.hash = `#audit/${encodeURIComponent(nextId)}`;
+      }
     },
     body: `
       <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
-        <span>→ <b>${r.recommendation ? `${esc(labelName(r.primary ?? state.detail.primary, r.recommendation))}</b> <span class="mono muted">${esc(r.recommendation)}</span>` : "no recommendation</b>"}</span>
+        <span>→ <b>${r.recommendation ? `${esc(recLabel(r.recommendation))}</b> <span class="mono muted">${esc(r.recommendation)}</span>` : "no recommendation</b>"}</span>
         ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
       <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
+      ${guardrailTrace(r)}
       ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-      ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
+      ${samePack && derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
       ${r.data_coverage ? coveragePanel(id, r.data_coverage, r.ehr_declaration) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
@@ -195,6 +275,16 @@ async function openRecord(id) {
       <h3>Events</h3>${timeline(found.events)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });
+  if (!shown) return;
+  shown.querySelector("[data-copy-id]")?.addEventListener("click", () => copyText(id, "Decision ID copied"));
+  shown.querySelector("[data-replay]")?.addEventListener("click", () => {
+    state.replayDraft = { packId: state.packId, input: r.input };
+    closeDrawer({ restoreFocus: false, closedByUser: false });
+    location.hash = "#try";
+  });
+  shown.querySelectorAll("[data-step]").forEach((btn) => btn.addEventListener("click", () => {
+    if (btn.dataset.step) location.hash = `#audit/${encodeURIComponent(btn.dataset.step)}`;
+  }));
   wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
 }
 

@@ -12,6 +12,7 @@ Both backends run the same SQL (written with `?` placeholders) and the same hash
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import re
@@ -783,7 +784,33 @@ CREATE TABLE IF NOT EXISTS store_upload_parts (
     n          INTEGER NOT NULL,
     data       {blob} NOT NULL,
     PRIMARY KEY (upload_id, n)
-)
+);
+CREATE INDEX IF NOT EXISTS governance_approvals_lookup
+    ON governance_approvals (org, pack_id, pack_digest, revoked_at);
+CREATE INDEX IF NOT EXISTS registry_approvals_lookup
+    ON registry_approvals (org, pack_id, pack_digest, revoked_at);
+CREATE INDEX IF NOT EXISTS automation_holds_active
+    ON automation_holds (lifted_at, org, pack_id);
+CREATE INDEX IF NOT EXISTS audit_events_event_seq
+    ON audit_events (event, seq);
+CREATE INDEX IF NOT EXISTS oauth_tokens_client
+    ON oauth_tokens (client_id);
+CREATE INDEX IF NOT EXISTS memberships_user_active
+    ON memberships (user_id) WHERE removed_at IS NULL;
+CREATE INDEX IF NOT EXISTS memberships_pending_email
+    ON memberships (pending_email) WHERE removed_at IS NULL AND user_id IS NULL;
+CREATE INDEX IF NOT EXISTS decision_inputs_created
+    ON decision_inputs (created_at, decision_id);
+CREATE INDEX IF NOT EXISTS notes_created_sealed
+    ON notes (created_at, id) WHERE sealed IS NOT NULL;
+CREATE INDEX IF NOT EXISTS evalset_cases_set_status
+    ON evalset_cases (set_id, status, id);
+CREATE INDEX IF NOT EXISTS evalset_assignments_case
+    ON evalset_assignments (case_id);
+CREATE INDEX IF NOT EXISTS evalset_labels_case
+    ON evalset_labels (case_id);
+CREATE INDEX IF NOT EXISTS alert_deliveries_created
+    ON alert_deliveries (created_at DESC)
 """
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
 # input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
@@ -1653,15 +1680,18 @@ class AuditStore(RateBuckets):
         `UnknownCard`, one refusal whichever it is, naming the cards as sent, and nothing is
         chained. The events, as chained."""
         cards = [str(item["card"]) for item in items]
+        if not cards:
+            return []
+        unique_cards = list(dict.fromkeys(cards))
         requester = tenancy.requester()
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
-            marks = ", ".join("?" for _ in cards)
+            marks = ", ".join("?" for _ in unique_cards)
             rows = {
                 row["id"]: row
                 for row in db.all(
                     f"SELECT id, org, pack_id FROM decisions d WHERE id IN ({marks}) AND {scope}",
-                    (*cards, *scoped),
+                    (*unique_cards, *scoped),
                 )
                 if row["pack_id"] == pack_id
             }
@@ -1671,7 +1701,7 @@ class AuditStore(RateBuckets):
                     for row in db.all(
                         "SELECT decision_id, payload FROM audit_events "
                         f"WHERE event = 'decision.created' AND decision_id IN ({marks})",
-                        tuple(cards),
+                        tuple(unique_cards),
                     )
                 }
                 rows = {id_: row for id_, row in rows.items() if asked.get(id_) == requester}
@@ -1970,6 +2000,8 @@ class AuditStore(RateBuckets):
         none: the count it reached, or None when they would pass its daily cap (nothing is
         counted, nor written). One statement, as `consume_org`: instances never count past the
         cap together. Not part of the audit chain."""
+        if cost < 1:
+            raise ValueError("cost must be at least 1")
         if cost > daily_limit:  # a cap of 0 admits nothing, and writes nothing
             return None
         with self._db.session(exclusive=False) as db:
@@ -2807,7 +2839,11 @@ class AuditStore(RateBuckets):
                 except MendariError:
                     failures.append({"kind": "note", "id": row["id"], "key": named})
                     continue
-                salt = base64.b64decode(str(body.get("salt", "")))
+                try:
+                    salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+                except (binascii.Error, ValueError):
+                    failures.append({"kind": "note", "id": row["id"], "key": "commitment"})
+                    continue
                 if (
                     row["id"] in refs
                     and _commitment(salt, str(body.get("text"))) != refs[row["id"]]
@@ -5054,6 +5090,137 @@ class AuditStore(RateBuckets):
             )
         return {str(row["pack_version"]): int(row["n"]) for row in rows}
 
+    def pending_by_pack(self) -> list[dict[str, Any]]:
+        """Pending review counts grouped by pack for the current organization (aggregate counts
+        only, never inputs or PHI), ordered with stat items first."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT d.pack_id, "
+                "COUNT(*) AS pending, "
+                "SUM(CASE WHEN d.priority = 'stat' THEN 1 ELSE 0 END) AS stat, "
+                "SUM(CASE WHEN d.priority = 'asap' THEN 1 ELSE 0 END) AS asap, "
+                "SUM(CASE WHEN d.priority = 'urgent' THEN 1 ELSE 0 END) AS urgent "
+                "FROM decisions d "
+                f"WHERE {scope} AND d.review_status = 'pending' "
+                "GROUP BY d.pack_id "
+                "ORDER BY stat DESC, asap DESC, urgent DESC, pending DESC, d.pack_id ASC",
+                scoped,
+            )
+        return [
+            {
+                "pack_id": str(row["pack_id"]),
+                "pending": int(row["pending"] or 0),
+                "stat": int(row["stat"] or 0),
+                "asap": int(row["asap"] or 0),
+                "urgent": int(row["urgent"] or 0),
+            }
+            for row in rows
+        ]
+
+    def validation_summary(self, pack_id: str, *, days: int = 30) -> dict[str, Any]:
+        """Aggregate clinical and operational summary for `pack_id` over the last `days` calendar
+        days (zero PHI: reads only counts, outcomes, label codes, latencies, and policy reasons)."""
+        scope, scoped = _scope()
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="milliseconds")
+        params = (*scoped, pack_id, cutoff)
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT outcome, priority, recommendation, final_label, observed_label, "
+                "human_override, review_status, latency_ms, cost_usd, record "
+                "FROM decisions d "
+                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ?",
+                params,
+            )
+            ratings = db.all(
+                "SELECT f.rating, d.outcome FROM feedback f "
+                "JOIN decisions d ON d.id = f.decision_id "
+                f"WHERE f.superseded_by IS NULL AND {scope} AND d.pack_id = ? "
+                "AND d.created_at >= ?",
+                params,
+            )
+        outcomes = {outcome.value: 0 for outcome in Outcome}
+        shadow_decisions = 0
+        would_automate = 0
+        stat_cases = 0
+        reviewed = 0
+        overrides = 0
+        labelled = 0
+        agreed = 0
+        clusters: dict[tuple[str, str], int] = {}
+        latencies: list[float] = []
+        costs: list[float | None] = []
+        for row in rows:
+            out = str(row["outcome"])
+            if out in outcomes:
+                outcomes[out] += 1
+            if row["priority"] == "stat":
+                stat_cases += 1
+            latencies.append(float(row["latency_ms"]))
+            costs.append(row["cost_usd"])
+            reasons: list[str] = []
+            try:
+                parsed = json.loads(row["record"])
+                raw_reasons = parsed.get("reasons") if isinstance(parsed, dict) else None
+                if isinstance(raw_reasons, list):
+                    reasons = [str(r) for r in raw_reasons]
+            except (TypeError, ValueError):
+                reasons = []
+            held_shadow = any("shadow mode:" in r or "shadow pilot:" in r for r in reasons)
+            if held_shadow:
+                shadow_decisions += 1
+            if out == Outcome.AUTO.value or any("automation is on hold:" in r for r in reasons):
+                would_automate += 1
+            if row["human_override"] is not None:
+                reviewed += 1
+                if row["human_override"]:
+                    overrides += 1
+                    rec = str(row["recommendation"] or "(abstained)")
+                    chosen = str(row["final_label"] or "")
+                    if chosen:
+                        clusters[(rec, chosen)] = clusters.get((rec, chosen), 0) + 1
+            truth = truth_label(row)
+            if truth and row["recommendation"]:
+                labelled += 1
+                if truth == row["recommendation"]:
+                    agreed += 1
+        latencies.sort()
+        down_on_auto = sum(
+            r["rating"] == "down" and r["outcome"] == Outcome.AUTO.value for r in ratings
+        )
+        top_clusters = [
+            {
+                "recommended": rec,
+                "chosen": chosen,
+                "count": count,
+                "share": round(count / overrides, 4) if overrides else 0.0,
+            }
+            for (rec, chosen), count in sorted(
+                clusters.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1])
+            )[:10]
+        ]
+        return {
+            "window_days": days,
+            "total": len(rows),
+            "outcomes": outcomes,
+            "shadow_decisions": shadow_decisions,
+            "would_automate": would_automate,
+            "stat_cases": stat_cases,
+            "pending_reviews": sum(r["review_status"] == "pending" for r in rows),
+            "reviewed": reviewed,
+            "overrides": overrides,
+            "labelled": labelled,
+            "agreed": agreed,
+            "down_on_auto": down_on_auto,
+            "p95_latency_ms": _percentile(latencies, 95),
+            "cost_per_decision_usd": (
+                None
+                if not costs or any(c is None for c in costs)
+                else sum(c for c in costs if c is not None) / len(costs)
+            ),
+            "override_clusters": top_clusters,
+        }
+
     def pending_reviews(
         self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None
     ) -> list[dict[str, Any]]:
@@ -5087,12 +5254,13 @@ class AuditStore(RateBuckets):
         labelled = [r for r in rows if truth_label(r) and r["recommendation"]]
         latencies = sorted(r["latency_ms"] for r in rows)
         costs = [r["cost_usd"] for r in rows]
+        tz = clock.zone()
         daily: dict[str, dict[str, int]] = {}
         for row in rows:
             # Local calendar days: a decision at 9 PM Eastern counts on that Eastern day. Reviews
             # and labels count on the day of the decision they judge, so any run of days gives the
             # override rate and observed accuracy of the decisions made in it.
-            local = clock.local_date(row["created_at"])
+            local = clock.local_date(row["created_at"], tz)
             day = daily.setdefault(
                 local, {**{o.value: 0 for o in Outcome}, **dict.fromkeys(_DAILY_REVIEWS, 0)}
             )
@@ -5498,7 +5666,10 @@ class AuditStore(RateBuckets):
             if body is None:
                 counts["unchecked"] += 1
                 continue
-            salt = base64.b64decode(str(body.get("salt", "")))
+            try:
+                salt = base64.b64decode(str(body.get("salt", "")), validate=True)
+            except (binascii.Error, ValueError):
+                return event["seq"], counts, dict(unopenable)
             if _commitment(salt, str(body.get("text"))) != ref.get("sha256"):
                 return event["seq"], counts, dict(unopenable)
             counts["checked"] += 1

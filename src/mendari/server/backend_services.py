@@ -380,7 +380,7 @@ def _segment(segment: str) -> dict[str, Any] | None:
     """A JWS segment as a JSON object (unverified), or None."""
     try:
         value = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
-    except (ValueError, binascii.Error, UnicodeDecodeError):
+    except (ValueError, binascii.Error, UnicodeDecodeError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
 

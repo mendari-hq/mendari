@@ -280,7 +280,7 @@ def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
     automation = report["decisions"]["automation"]
     wrong = counted(automation["false_automation_rate"], automation["n"])
     labelled = report["questions"].get(report["primary"], {}).get("n")
-    return None if labelled is None else stats.proportion(wrong.k if wrong else 0, labelled)
+    return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
 
 
 def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:

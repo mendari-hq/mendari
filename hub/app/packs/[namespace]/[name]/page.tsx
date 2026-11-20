@@ -18,6 +18,7 @@ import {
   type SiteEvidence,
 } from "@/lib/registry";
 
+import { CopyCommand } from "./copy-command";
 import { EvidenceGroupView } from "./forest";
 
 export const dynamic = "force-dynamic";
@@ -36,26 +37,50 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 
 export default async function PackPage({ params }: { params: Promise<Params> }) {
   const { namespace, name } = await params;
-  const detail = await pack(namespace, name);
+  const [packResult, evidenceResult] = await Promise.allSettled([
+    pack(namespace, name),
+    siteEvidence(namespace, name),
+  ]);
+  if (packResult.status === "rejected") throw packResult.reason;
+  const detail = packResult.value;
   if (!detail) notFound();
   const recalled = detail.recalled ?? [];
   const latest = detail.latest;
   if (!latest) {
     return (
       <>
-        <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
+        <nav className="breadcrumb muted" aria-label="Breadcrumb">
+          <Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link>
+        </nav>
         <h1>{detail.id}</h1>
         <p className="notice"><strong>Every version of this pack is recalled. Do not use it.</strong></p>
         <Recalls recalled={recalled} />
       </>
     );
   }
-  const evidence = await siteEvidence(namespace, name);
+  const evidence = evidenceResult.status === "fulfilled" ? evidenceResult.value : null;
+  const evidenceError = evidenceResult.status === "rejected";
+  const versionGroups = (evidence?.groups ?? []).filter((group) => group.version === latest.version);
+  const totalSites = versionGroups.reduce((total, group) => total + group.sites, 0);
+  const totalSiteCases = versionGroups.reduce((total, group) => total + group.cases, 0);
+  const anySiteDiff = versionGroups.some((group) =>
+    group.figures.some((fig) => fig.homogeneity?.differ === true),
+  );
+  const siteSummary = totalSites
+    ? `${totalSites} ${totalSites === 1 ? "site" : "sites"} · ${totalSiteCases.toLocaleString()} cases`
+    : "None yet";
+  const siteFoot = totalSites
+    ? anySiteDiff
+      ? "Site differences noted — inspect below"
+      : "Signed zero-PHI counts"
+    : "Share with mendari eval --share";
   const { checked, claimed } = latest;
   const risk = claimed.risk;
   return (
     <>
-      <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
+      <nav className="breadcrumb muted" aria-label="Breadcrumb">
+        <Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link>
+      </nav>
       <h1>{latest.pack_name}</h1>
       <p className="lead">{latest.summary}</p>
       <p className="notice"><strong>{checked.status_label ?? "Not clinically reviewed."}</strong></p>
@@ -67,6 +92,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       <section className="facts" aria-label="At a glance">
         <Fact label="Latest version" value={latest.version} />
         <Fact label="Decides" value={latest.primary} foot={`${latest.questions.length} questions`} />
+        <Fact label="Multi-site evidence" value={siteSummary} foot={siteFoot} />
       </section>
 
       <section className="group checked" aria-labelledby="checked-heading">
@@ -116,15 +142,15 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </section>
 
       <h2>Use it</h2>
-      <code className="pull">pip install mendari &amp;&amp; mendari pull {detail.id}</code>
+      <CopyCommand command={`pip install mendari && mendari pull ${detail.id}`} />
       <p className="muted">
         Pulls verify the archive against its signature ({checked.signature.key_id}) and the pack digest{" "}
         <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for{" "}
         <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
       </p>
-      <SiteEvidenceSection evidence={evidence} version={latest.version} packId={detail.id} />
+      <SiteEvidenceSection evidence={evidence} evidenceError={evidenceError} version={latest.version} packId={detail.id} />
       <h2>Versions</h2>
-      <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>
+      <div className="row">{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</div>
       <Recalls recalled={recalled} />
       {latest.card_markdown ? (
         <>
@@ -144,7 +170,17 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
 
 // Site evidence (LP-22h): sites' own data, shared as signed counts, for the version shown. Its
 // own section, apart from what the registry checked and from any rank (ADR-0017).
-function SiteEvidenceSection({ evidence, version, packId }: { evidence: SiteEvidence | null; version: string; packId: string }) {
+function SiteEvidenceSection({
+  evidence,
+  evidenceError,
+  version,
+  packId,
+}: {
+  evidence: SiteEvidence | null;
+  evidenceError: boolean;
+  version: string;
+  packId: string;
+}) {
   const groups = (evidence?.groups ?? []).filter((group) => group.version === version);
   const sites = groups.reduce((total, group) => total + group.sites, 0);
   const cases = groups.reduce((total, group) => total + group.cases, 0);
@@ -157,7 +193,9 @@ function SiteEvidenceSection({ evidence, version, packId }: { evidence: SiteEvid
         These are sites&apos; own data, shared as signed counts. They are not part of any hidden-set result or
         rank. A ticket binds a dataset before its run, not how its cases were chosen.
       </p>
-      {groups.length ? (
+      {evidenceError ? (
+        <p className="muted">Site evidence is temporarily unavailable. Reload in a moment to check again.</p>
+      ) : groups.length ? (
         groups.map((group) => <EvidenceGroupView key={`${group.digest}:${JSON.stringify(group.configuration)}:${group.remote_consent}`} group={group} />)
       ) : (
         <p>

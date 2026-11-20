@@ -150,6 +150,11 @@ function costChart(rows, varying, group) {
   const beaten = (r) => usable.some((o) => o !== r && o.cost_per_decision_usd <= r.cost_per_decision_usd && accuracy(o) >= accuracy(r)
     && (o.cost_per_decision_usd < r.cost_per_decision_usd || accuracy(o) > accuracy(r)));
   const named = (r) => isDeployed(r) || !beaten(r);
+  const frontier = usable
+    .filter((r) => !beaten(r))
+    .map((r) => ({ x: r.cost_per_decision_usd, y: accuracy(r) }))
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+    .filter((pt, i, arr) => i === 0 || pt.x !== arr[i - 1].x || pt.y !== arr[i - 1].y);
   return `<h3 class="chart-title">Cost against accuracy</h3>${chartHtml({
     id: `cost-${group.index}`,
     type: "scatter",
@@ -157,6 +162,7 @@ function costChart(rows, varying, group) {
     x: { kind: "log", title: "Cost per decision (log scale)", format: costTick },
     y: { kind: "rate", title: "Accuracy" },
     dodge: true,
+    frontier: frontier.length >= 2 ? frontier : null,
     points: usable.map((r) => ({
       x: r.cost_per_decision_usd, y: accuracy(r), ring: isDeployed(r), shape: missed(r) ? "diamond" : "circle", tone: missed(r) ? "danger" : "c1",
       label: named(r) ? configName(r, varying) : undefined,

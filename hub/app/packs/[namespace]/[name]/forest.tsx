@@ -9,9 +9,10 @@ const WIDTH = 640;
 const LABEL = 200; // the left column, for the sites' names
 const ROW = 22;
 const PAD = 8;
+const PAD_RIGHT = 24; // keeps the "100" tick label inside the viewBox
 
 function x(share: number): number {
-  return LABEL + PAD + Math.max(0, Math.min(1, share)) * (WIDTH - LABEL - 2 * PAD);
+  return LABEL + PAD + Math.max(0, Math.min(1, share)) * (WIDTH - LABEL - PAD - PAD_RIGHT);
 }
 
 // A model's estimate per 100 cases, its interval in brackets: never a bare percentage.
@@ -32,22 +33,27 @@ export function randomWords(figure: EvidenceFigure): string {
 }
 
 export function Forest({ figure }: { figure: EvidenceFigure }) {
-  const rows = figure.sites.length + 2;
-  const height = rows * ROW + 2 * PAD + 16;
   const pooled = figure.pooled;
   const re = figure.random_effects;
+  const showPooled = pooled.status === "ok" && pooled.k !== undefined && Boolean(pooled.n);
+  const showRandom = re.status === "ok" && re.estimate !== undefined;
+  const pooledRow = figure.sites.length;
+  const randomRow = figure.sites.length + (showPooled ? 1 : 0);
+  const rows = figure.sites.length + (showPooled ? 1 : 0) + (showRandom ? 1 : 0);
+  const axisBottom = PAD + rows * ROW;
+  const height = axisBottom + 36;
   const label = `${figure.label}: ${figure.sites.length} sites; pooled ${pooledWords(figure)}`;
   return (
     <svg className="forest" viewBox={`0 0 ${WIDTH} ${height}`} role="img" aria-label={label} width="100%">
       {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
         <g key={tick}>
-          <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={height - PAD - 14} />
-          <text className="forest-axis" x={x(tick)} y={height - PAD} textAnchor="middle">
+          <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={axisBottom} />
+          <text className="forest-axis" x={x(tick)} y={axisBottom + 14} textAnchor="middle">
             {tick * 100}
           </text>
         </g>
       ))}
-      <text className="forest-axis" x={WIDTH - PAD} y={height - PAD} textAnchor="end">
+      <text className="forest-axis" x={x(0.5)} y={axisBottom + 30} textAnchor="middle">
         per 100 cases
       </text>
       {figure.sites.map((site, i) => {
@@ -61,41 +67,41 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
             {site.low !== null && site.high !== null ? (
               <line className="forest-interval" x1={x(site.low)} x2={x(site.high)} y1={y} y2={y} />
             ) : null}
-            <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} />
+            {site.n > 0 ? <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} /> : null}
           </g>
         );
       })}
-      {pooled.status === "ok" && pooled.k !== undefined && pooled.n ? (
+      {showPooled && pooled.k !== undefined && pooled.n ? (
         <g>
-          <text className="forest-label" x={0} y={PAD + figure.sites.length * ROW + ROW / 2 + 4}>
+          <text className="forest-label" x={0} y={PAD + pooledRow * ROW + ROW / 2 + 4}>
             Pooled (summed counts)
           </text>
           <polygon
             className="forest-pooled"
             points={[
-              [x(pooled.low ?? 0), PAD + figure.sites.length * ROW + ROW / 2],
-              [x(pooled.k / pooled.n), PAD + figure.sites.length * ROW + 4],
-              [x(pooled.high ?? 1), PAD + figure.sites.length * ROW + ROW / 2],
-              [x(pooled.k / pooled.n), PAD + (figure.sites.length + 1) * ROW - 4],
+              [x(pooled.low ?? 0), PAD + pooledRow * ROW + ROW / 2],
+              [x(pooled.k / pooled.n), PAD + pooledRow * ROW + 4],
+              [x(pooled.high ?? 1), PAD + pooledRow * ROW + ROW / 2],
+              [x(pooled.k / pooled.n), PAD + (pooledRow + 1) * ROW - 4],
             ]
               .map((p) => p.join(","))
               .join(" ")}
           />
         </g>
       ) : null}
-      {re.status === "ok" && re.estimate !== undefined ? (
+      {showRandom && re.estimate !== undefined ? (
         <g>
-          <text className="forest-label" x={0} y={PAD + (figure.sites.length + 1) * ROW + ROW / 2 + 4}>
+          <text className="forest-label" x={0} y={PAD + randomRow * ROW + ROW / 2 + 4}>
             Random effects
           </text>
           <line
             className="forest-interval"
             x1={x(re.low ?? 0)}
             x2={x(re.high ?? 1)}
-            y1={PAD + (figure.sites.length + 1) * ROW + ROW / 2}
-            y2={PAD + (figure.sites.length + 1) * ROW + ROW / 2}
+            y1={PAD + randomRow * ROW + ROW / 2}
+            y2={PAD + randomRow * ROW + ROW / 2}
           />
-          <circle className="forest-random" cx={x(re.estimate)} cy={PAD + (figure.sites.length + 1) * ROW + ROW / 2} r={4} />
+          <circle className="forest-random" cx={x(re.estimate)} cy={PAD + randomRow * ROW + ROW / 2} r={4} />
         </g>
       ) : null}
     </svg>
@@ -106,7 +112,7 @@ export function EvidenceTable({ figure }: { figure: EvidenceFigure }) {
   return (
     <div className="table-wrap">
       <table>
-        <caption className="muted">{figure.label}</caption>
+        <caption className="sr-only">{figure.label}</caption>
         <thead>
           <tr>
             <th scope="col">Site</th>

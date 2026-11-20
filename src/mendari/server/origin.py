@@ -94,7 +94,11 @@ class OriginCheck:
         site = request.headers.get("sec-fetch-site", "").strip().lower()
         if site == "same-origin" or (site == "none" and safe):
             return
-        origin = request.headers.get("origin")
+        sent_origins = request.headers.getlist("origin")
+        if len(sent_origins) > 1:
+            security_log.event("auth.origin.refused", outcome="refused", reason="foreign_origin")
+            raise AuthError(REFUSED, 403)
+        origin = sent_origins[0] if sent_origins else None
         if not site:
             if origin is not None and is_this_site(origin, request, self.trusted):
                 return
