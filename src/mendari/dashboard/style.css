@@ -216,6 +216,12 @@ button.other-stat-pill:hover { opacity: 0.9; }
 @media (max-width: 1199px) {
   .topbar:not(.settings-open) button.other-stat-pill { display: none; }
 }
+@media (max-width: 1024px) {
+  .topbar:not(.settings-open) .palette-trigger { display: none; }
+}
+@media (max-width: 1599px) {
+  .topbar:not(.settings-open):has(#org-form:not([hidden])) :is(.palette-trigger, button.other-stat-pill) { display: none; }
+}
 .kbd {
   display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1;

@@ -168,8 +168,8 @@ def build(
                 "label": "Clinician agreement",
                 "status": status,
                 "detail": (
-                    f"{agreed} of {labelled} recommendations matched clinician or "
-                    f"downstream outcome ({rate * 100:.1f}%)."
+                    f"{_fmt_figure(agreement_fig)} recommendations matched clinician or "
+                    "downstream outcome."
                 ),
             }
         )
@@ -357,7 +357,7 @@ def render_markdown(brief: Mapping[str, Any]) -> str:
         for cluster in clusters:
             lines.append(
                 f"| `{cluster['recommended']}` | `{cluster['chosen']}` | "
-                f"{cluster['count']} | {cluster['share'] * 100:.1f}% |"
+                f"{cluster['count']} | {cluster['count']} of {vol['overrides']} |"
             )
     lines.append("")
     return "\n".join(lines)
