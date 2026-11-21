@@ -19,25 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12", "3.13"]
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-        # Docker Hub limits anonymous pulls; this repository's own runs pull signed in. A fork's
-        # pull request gets empty credentials and pulls anonymously, as before.
-        credentials:
-          username: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_USERNAME || '' }}
-          password: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_TOKEN || '' }}
-        env:
-          POSTGRES_PASSWORD: mendari-test
-          POSTGRES_DB: mendari_test
-        ports: ["5432:5432"]
-        options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=1g
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # On pull requests, run the full suite (with Postgres, linters and pack tests) on 3.12 and
-      # the fast core compatibility suite on 3.11/3.13; pushes to main run the full matrix.
-      MENDARI_TEST_DATABASE_URL: ${{ (github.event_name == 'push' || matrix.python == '3.12') && 'postgresql://postgres:mendari-test@localhost:5432/mendari_test' || '' }}
+      # Run the full suite (with Postgres, linters and pack tests) on 3.12 and the fast core
+      # compatibility suite on 3.11/3.13 on both pull requests and pushes to main.
+      MENDARI_TEST_DATABASE_URL: ${{ matrix.python == '3.12' && 'postgresql://postgres:mendari-test@localhost:5432/mendari_test' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -46,8 +31,31 @@ jobs:
         with:
           version: "0.13.6"
           python-version: ${{ matrix.python }}
+      - name: Sign in to Docker Hub (this repository's own runs; forks and Dependabot pull anonymously)
+        if: matrix.python == '3.12' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Start disposable Postgres 16 (tuned for fast parallel tests)
+        if: matrix.python == '3.12'
+        run: |
+          docker run -d --rm --name mendari-pg \
+            -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_PASSWORD=mendari-test \
+            -e POSTGRES_DB=mendari_test \
+            postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
+            postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
+            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
+          for i in $(seq 1 30); do
+            docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          docker logs mendari-pg
+          exit 1
       - name: Postgres 16 client tools, to match the service (a newer pg_dump writes settings 16 rejects)
-        if: github.event_name == 'push' || matrix.python == '3.12'
+        if: matrix.python == '3.12'
         run: |
           if ! /usr/lib/postgresql/16/bin/pg_dump --version 2>/dev/null; then
             sudo apt-get install -y postgresql-common
@@ -56,32 +64,32 @@ jobs:
           fi
           echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
       - run: uv sync --locked
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run ruff check src tests scripts
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run ruff format --check src tests scripts
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mypy src tests
-      - if: github.event_name == 'push' || matrix.python == '3.12'
-        run: uv run pytest
-      - name: Core compatibility suite (Python 3.11 / 3.13 on pull requests)
-        if: github.event_name == 'pull_request' && matrix.python != '3.12'
-        run: uv run pytest -m core
+      - if: matrix.python == '3.12'
+        run: uv run pytest -n auto --dist loadscope
+      - name: Core compatibility suite (Python 3.11 / 3.13)
+        if: matrix.python != '3.12'
+        run: uv run pytest -n auto --dist loadscope -m core
       - name: The API examples work, in open mode and with a service key (README, snippets)
-        if: github.event_name == 'push' || matrix.python == '3.12'
+        if: matrix.python == '3.12'
         run: uv run python scripts/check_doc_snippets.py
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mendari test mendari/patient-inbox-router
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mendari test mendari/clinical-trial-prescreener
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mendari test mendari/referral-router
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mendari test mendari/prior-auth-preflight
-      - if: github.event_name == 'push' || matrix.python == '3.12'
+      - if: matrix.python == '3.12'
         run: uv run mendari test mendari/ai-guard
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
-        if: github.event_name == 'push' || matrix.python == '3.12'
+        if: matrix.python == '3.12'
         run: |
           failed=0
           for manifest in community-packs/*/pack.yaml; do
@@ -89,26 +97,15 @@ jobs:
             uv run mendari test "$(dirname "$manifest")" || failed=1
           done
           exit $failed
+      - name: Postgres container logs on failure
+        if: failure() && matrix.python == '3.12'
+        run: docker logs --tail 80 mendari-pg || true
 
   browser:
     # The dashboard in a real browser (tests/browser, skipped by the default pytest run), then the
-    # launch gates, whose probes run browser tests and both databases' cases.
+    # launch gates report (full live report on push to main; fast collection check on pull requests
+    # since `test (3.12)` and `browser` already ran every underlying test).
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-        # Docker Hub limits anonymous pulls; this repository's own runs pull signed in. A fork's
-        # pull request gets empty credentials and pulls anonymously, as before.
-        credentials:
-          username: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_USERNAME || '' }}
-          password: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_TOKEN || '' }}
-        env:
-          POSTGRES_PASSWORD: mendari-test
-          POSTGRES_DB: mendari_test
-        ports: ["5432:5432"]
-        options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=1g
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -117,7 +114,37 @@ jobs:
         with:
           version: "0.13.6"
           python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m browser
+      - name: Launch gates integrity check (pull requests)
+        if: github.event_name == 'pull_request'
+        run: uv run python scripts/check_gates.py --collect-only
+      - name: Sign in to Docker Hub (push to main, for the launch gates Postgres service)
+        if: github.event_name == 'push' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Start disposable Postgres 16 for launch gates (push to main)
+        if: github.event_name == 'push'
+        run: |
+          docker run -d --rm --name mendari-pg \
+            -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_PASSWORD=mendari-test \
+            -e POSTGRES_DB=mendari_test \
+            postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
+            postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
+            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
+          for i in $(seq 1 30); do
+            docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          docker logs mendari-pg
+          exit 1
       - name: Postgres 16 client tools, to match the service (a newer pg_dump writes settings 16 rejects)
+        if: github.event_name == 'push'
         run: |
           if ! /usr/lib/postgresql/16/bin/pg_dump --version 2>/dev/null; then
             sudo apt-get install -y postgresql-common
@@ -125,17 +152,14 @@ jobs:
             sudo apt-get install -y postgresql-client-16
           fi
           echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
-      - run: uv sync --locked
-      - run: uv run playwright install --with-deps chromium
-      - run: uv run pytest -m browser
       # A report, never a gate on a pull request: it fails only when launch/gates.yaml itself is
-      # wrong (a test it names is gone, an attestation where none belongs). Here because its
-      # probes include browser tests.
+      # wrong (a test it names is gone, an attestation where none belongs). Full run on push to main.
       - name: The launch gates (launch/gates.yaml), in the run's summary
+        if: github.event_name == 'push'
         env:
           MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
         run: |
-          uv run python scripts/check_gates.py > /tmp/gates.md
+          uv run python scripts/check_gates.py --workers auto > /tmp/gates.md
           cat /tmp/gates.md
           cat /tmp/gates.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -456,25 +480,29 @@ jobs:
     # v0.7: the trial pack's criteria in CQL (logic/criteria.cql) must answer exactly like the
     # `criteria` provider on every test and dataset case, on HAPI FHIR's Clinical Reasoning module.
     runs-on: ubuntu-latest
-    services:
-      cql:
-        image: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
-        # Docker Hub limits anonymous pulls; this repository's own runs pull signed in. A fork's
-        # pull request gets empty credentials and pulls anonymously, as before.
-        credentials:
-          username: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_USERNAME || '' }}
-          password: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.DOCKERHUB_TOKEN || '' }}
-        ports: ["58090:8080"]
-        env:
-          HAPI_FHIR_FHIR_VERSION: R4
-          HAPI_FHIR_CR_ENABLED: "true"
     env:
-      MENDARI_CQL_URL: http://127.0.0.1:58090/fhir
-      MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:58090
+      # Port 18090 stays outside Linux's 32768-60999 ephemeral range (58090 collided with
+      # outbound sockets during image pull).
+      MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
+      MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Sign in to Docker Hub (this repository's own runs; forks and Dependabot pull anonymously)
+        if: (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Start HAPI FHIR with Clinical Reasoning
+        run: >-
+          docker run -d --rm --name mendari-cql
+          -p 127.0.0.1:18090:8080
+          -e HAPI_FHIR_FHIR_VERSION=R4
+          -e HAPI_FHIR_CR_ENABLED=true
+          hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.6"
@@ -493,6 +521,8 @@ jobs:
           --dataset datasets/trial-local-site-example.jsonl
       - name: The pack's behaviour tests pass with the CQL variant deployed
         run: uv run mendari test mendari/clinical-trial-prescreener --provider structured=cql
+      - if: failure()
+        run: docker logs --tail 100 mendari-cql
 
   security:
     # v1.0 security review, on every change (docs/security/threat-model.md): no known-vulnerable
@@ -651,11 +681,11 @@ jobs:
     services:
       idp:
         image: ghcr.io/navikt/mock-oauth2-server:6.0.4@sha256:47374fe063995d9b6d39ebb6ea21eb5f765025bf0aa08b61b08b439eb91adaf0
-        ports: ["58080:8080"]
+        ports: ["18080:8080"]
         env:
           JSON_CONFIG: '{"interactiveLogin": true}'
     env:
-      MENDARI_OIDC_ISSUER: http://127.0.0.1:58080/pilot
+      MENDARI_OIDC_ISSUER: http://127.0.0.1:18080/pilot
       MENDARI_OIDC_CLIENT_ID: mendari
       MENDARI_OIDC_ROLE_CLAIM: groups
       MENDARI_OIDC_ROLE_MAP: informatics=admin,clinicians=reviewer,front-desk=viewer,ai-committee=governance

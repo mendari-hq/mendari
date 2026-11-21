@@ -1111,9 +1111,14 @@ def _migrate(db: _Session) -> None:
     """Bring a database created by an earlier release up to _TABLES. Runs under the schema lock
     (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race."""
     added = set()
+    columns: dict[str, set[str]] = {}
     for table, column, kind in _ADDED_COLUMNS:
-        if column not in db.columns(table):
+        present = columns.get(table)
+        if present is None:
+            present = columns[table] = db.columns(table)
+        if column not in present:
             db.all(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            present.add(column)
             added.add(column)
     if "superseded_by" in added:
         _supersede_earlier_ratings(db)

@@ -22,19 +22,53 @@ export default async function PublisherPage({ params }: { params: Promise<Params
   const found = await getNamespace((await params).namespace);
   if (!found) notFound();
   return (
-    <>
-      <nav className="breadcrumb muted" aria-label="Breadcrumb"><Link href="/">Decision Packs</Link></nav>
-      <h1>{found.display_name}</h1>
-      <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
-      <h2>Packs</h2>
-      {found.packs.length ? (
-        <ul>{found.packs.map((id) => <li key={id}><Link href={`/packs/${id}`}>{id}</Link></li>)}</ul>
-      ) : (
-        <p className="muted">Nothing published yet.</p>
-      )}
-      <h2>Signing keys</h2>
-      <p className="muted">Every archive from this publisher is signed by one of these keys; <code>mendari pull</code> checks it.</p>
-      <ul>{found.keys.map((key) => <li key={key.key_id} className="mono">{key.key_id}</li>)}</ul>
-    </>
+    <div className="wrap page-body">
+      <nav className="breadcrumb muted" aria-label="Breadcrumb">
+        <Link href="/">Decision Packs</Link>
+      </nav>
+
+      <header className="pack-hero">
+        <div className="pack-hero-meta row">
+          <span className="mono pack-id-pill">@{found.name}</span>
+          <span className={`badge ${found.publisher_type}`}>{found.publisher_type}</span>
+        </div>
+        <h1>{found.display_name}</h1>
+        <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
+        <p className="publisher-meta muted">
+          {found.packs.length} published {found.packs.length === 1 ? "pack" : "packs"} · {found.keys.length} signing{" "}
+          {found.keys.length === 1 ? "key" : "keys"}
+        </p>
+      </header>
+
+      <section className="panel" aria-labelledby="publisher-packs-heading">
+        <h2 id="publisher-packs-heading">Packs</h2>
+        {found.packs.length ? (
+          <ul className="publisher-packs">
+            {found.packs.map((id) => (
+              <li key={id}>
+                <Link href={`/packs/${id}`} className="publisher-pack-link">
+                  <span className="mono">{id}</span>
+                  <span className="card-cta" aria-hidden="true">Inspect →</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">Nothing published yet.</p>
+        )}
+      </section>
+
+      <section className="panel" aria-labelledby="signing-keys-heading">
+        <h2 id="signing-keys-heading">Signing keys</h2>
+        <p className="muted group-sub">
+          Every archive from this publisher is signed by one of these keys; <code>mendari pull</code> checks it.
+        </p>
+        <ul className="key-list">
+          {found.keys.map((key) => (
+            <li key={key.key_id} className="mono">{key.key_id}</li>
+          ))}
+        </ul>
+      </section>
+    </div>
   );
 }

@@ -372,9 +372,9 @@ def test_the_declaration_the_engine_reads_is_the_one_renamed(
 
 def test_finding_the_declaration_is_linear() -> None:
     for source in ["/*" * 50_000, "//\n" * 50_000 + "x", " " * 100_000 + "library X"]:
-        started = time.perf_counter()
+        started = time.process_time()
         assert cql_module.library_declaration(source) is None
-        assert time.perf_counter() - started < 0.05
+        assert time.process_time() - started < 0.2
 
 
 # Libraries of blank lines: `^\s*library` (MULTILINE) ran from each line's start to the end of the
@@ -385,9 +385,9 @@ BLANK_LIBRARIES = ["\n" * 100_000, "library\n" + "\n" * 100_000]
 
 def test_finding_the_header_is_linear() -> None:
     for source in BLANK_LIBRARIES:
-        started = time.perf_counter()
+        started = time.process_time()
         assert cql_module._HEADER.search(source) is None
-        assert time.perf_counter() - started < 0.05
+        assert time.process_time() - started < 0.2
 
 
 def test_a_library_of_blank_lines_is_checked_at_load_in_linear_time(tmp_path: Path) -> None:

@@ -236,7 +236,7 @@ def _matches(probe: str, nodeids: dict[str, str]) -> list[str]:
     ]
 
 
-def check(gates: list[Gate], root: Path, run: bool = True) -> None:
+def check(gates: list[Gate], root: Path, run: bool = True, *, workers: str | None = None) -> None:
     """Fill in each prerequisite's results. Tests are collected (and run) once, together."""
     wanted = [
         test
@@ -256,7 +256,8 @@ def check(gates: list[Gate], root: Path, run: bool = True) -> None:
     if unknown:
         raise GatesError("\n".join(f"{t}: no such test" for t in unknown))
     chosen = sorted({n for test in wanted for n in _matches(test, collected)})
-    outcomes = _pytest(root, chosen) if run and chosen else {}
+    run_args = ["-n", workers, "--dist", "loadscope", *chosen] if workers else chosen
+    outcomes = _pytest(root, run_args) if run and chosen else {}
     digests: dict[str, str] | None = None
     for gate in gates:
         for p in gate.prerequisites:
@@ -343,13 +344,18 @@ def main(argv: list[str]) -> int:
         help="the repository to check (its tests run in this environment: for another "
         "checkout, run that checkout's own script)",
     )
+    parser.add_argument(
+        "--workers",
+        default=None,
+        help="pytest-xdist worker count for the test run (e.g. auto or 4)",
+    )
     args = parser.parse_args(argv)
     try:
         gates = load(args.root / args.file)
         known = {gate.id for gate in gates}
         if unknown := [g for g in args.asserted if g not in known]:
             raise GatesError(f"no such gate: {', '.join(unknown)} (the gates: {', '.join(known)})")
-        check(gates, args.root, run=not args.collect_only)
+        check(gates, args.root, run=not args.collect_only, workers=args.workers)
     except (GatesError, OSError, UnicodeDecodeError, yaml.YAMLError) as error:
         print(f"{args.file}: {error}", file=sys.stderr)
         return 2
@@ -388,6 +394,9 @@ def pytest_runtest_logreport(report: Any) -> None:
 
 
 def pytest_sessionfinish(session: Any) -> None:
+    # Under pytest-xdist, only the controller has every worker's logreport outcomes.
+    if hasattr(session.config, "workerinput"):
+        return
     if path := os.environ.get(REPORT_ENV):
         Path(path).write_text(json.dumps(_outcomes), encoding="utf-8")
 
