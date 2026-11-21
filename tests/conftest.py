@@ -51,12 +51,13 @@ _WORKER_DB_LOCK = 72_610_491
 
 
 def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
-    """Under pytest-xdist, give each worker its own Postgres database so database-scoped
-    advisory locks and schema catalog operations never contend across workers."""
+    """Under pytest-xdist, give each worker (and any nested pytest subprocess) its own Postgres
+    database so database-scoped advisory locks, schema catalog operations, and teardown drops
+    never contend across workers or parent/child processes."""
     if not base_url or not worker:
         return base_url, None
     db_name = urlsplit(base_url).path.lstrip("/")
-    candidate = f"{db_name}_{worker}"
+    candidate = f"{db_name}_{worker}_{os.getpid()}"
     if not db_name or not re.fullmatch(r"[A-Za-z0-9_]+", candidate):
         return base_url, None
     worker_url = re.sub(r"/[^/?]+(\?|$)", f"/{candidate}\\1", base_url, count=1)

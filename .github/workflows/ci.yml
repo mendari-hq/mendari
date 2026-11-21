@@ -45,10 +45,9 @@ jobs:
             -p 127.0.0.1:5432:5432 \
             -e POSTGRES_PASSWORD=mendari-test \
             -e POSTGRES_DB=mendari_test \
-            --tmpfs=/var/lib/postgresql/data:rw,size=1g \
             postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
             postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
-            -c autovacuum=off -c checkpoint_timeout=30min -c max_wal_size=4GB
+            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
           for i in $(seq 1 30); do
             docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
             sleep 1
@@ -98,6 +97,9 @@ jobs:
             uv run mendari test "$(dirname "$manifest")" || failed=1
           done
           exit $failed
+      - name: Postgres container logs on failure
+        if: failure() && matrix.python == '3.12'
+        run: docker logs --tail 80 mendari-pg || true
 
   browser:
     # The dashboard in a real browser (tests/browser, skipped by the default pytest run), then the
@@ -134,7 +136,7 @@ jobs:
             -e POSTGRES_DB=mendari_test \
             postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
             postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
-            -c autovacuum=off -c checkpoint_timeout=30min -c max_wal_size=4GB
+            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
           for i in $(seq 1 30); do
             docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
             sleep 1
