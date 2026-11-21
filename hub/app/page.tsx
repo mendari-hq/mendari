@@ -24,14 +24,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
             <div className="hero-copy">
               <p className="eyebrow">
                 <span className="eyebrow-dot" aria-hidden="true" />
-                Mendari Agent Hub · Governed Healthcare AI Agents
+                Mendari Agent Hub · Signed Registry
               </p>
-              <h1>Decision Packs</h1>
-              <p className="hero-subtitle">
-                Discover vetted healthcare AI agents with published evals, deterministic risk caps, and multi-site hospital evidence.
-              </p>
+              <h1>Healthcare AI Agents</h1>
               <p className="lead">
-                Hospital IT teams browse signed agent packages with registry-rendered Decision Cards instead of starting from zero with every vendor. AI builders wrap any model or agent in Mendari, run standardized evals showing what works best, and publish verified scorecards here.
+                Browse vetted healthcare AI agents with published evals, deterministic risk caps, and multi-site hospital evidence. Builders wrap any LLM, LangGraph, or HTTP agent in Mendari and publish signed scorecards here.
               </p>
               <dl className="hero-metrics" aria-label="Registry summary">
                 <div className="hero-metric">
@@ -50,7 +47,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
             </div>
             <div className="hero-cli" aria-label="Pull and shadow-test an agent or publish your own">
               <p className="terminal-bar">
-                <span>Try a vetted agent · or publish yours</span>
+                <span>Pull to shadow-test · or publish yours</span>
                 <span>Ed25519 verified</span>
               </p>
               <pre>
@@ -58,28 +55,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
                   <span className="comment"># Hospital IT: pull &amp; shadow-test locally</span>{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/referral-router{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/referral-router --dataset your-cases.jsonl{"\n"}
-                  <span className="comment"># AI Builders: wrap any agent &amp; publish scorecard</span>{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari new my-agent --id my-org/my-agent{"\n"}
+                  <span className="comment"># AI Builders: wrap an agent &amp; publish scorecard</span>{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari new --agent my-agent --id my-org/my-agent{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari push my-agent --key keys/publisher.key
                 </code>
               </pre>
-            </div>
-          </div>
-
-          <div className="hub-loop-strip" aria-label="Two-sided Hub workflow">
-            <div className="hub-loop-side hub-loop-hospitals">
-              <p className="hub-loop-label">For Hospital IT &amp; Informatics</p>
-              <p className="hub-loop-flow">Compare evals → Shadow-test locally → Publish site eval</p>
-              <p className="hub-loop-desc">
-                Inspect signed digests, risk caps, and multi-site hospital counts before running a 7-day FHIR / CDS Hooks shadow pilot.
-              </p>
-            </div>
-            <div className="hub-loop-side hub-loop-builders">
-              <p className="hub-loop-label">For AI Builders &amp; Vendors</p>
-              <p className="hub-loop-flow">Wrap agent → Run evals → Publish scorecard</p>
-              <p className="hub-loop-desc">
-                Wrap Claude, OpenAI, LangGraph, custom HTTP agents, or rules in Mendari to prove which models and configs work best.
-              </p>
             </div>
           </div>
 
@@ -136,7 +116,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
                 Built-in <code>mendari/*</code> entries are tagged as starter demos; risk levels are declared by publishers until reviewed.
               </p>
             </div>
-            <ul className="results" aria-label="Packs">
+            <ul className="results" aria-label="Agents">
               {packs.map((item) => <PackCard key={item.id} item={item} />)}
             </ul>
           </>
@@ -144,9 +124,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
           <div className="empty-state">
             <p className="empty">
               {filtered ? (
-                <>No pack matches these filters. <Link href="/">Clear filters</Link></>
+                <>No agent matches these filters. <Link href="/">Clear filters</Link></>
               ) : (
-                "No packs are published yet."
+                "No agents are published yet."
               )}
             </p>
           </div>

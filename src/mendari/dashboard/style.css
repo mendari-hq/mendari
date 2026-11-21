@@ -460,38 +460,6 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
   color: var(--color-text); margin-right: var(--space-0-5);
 }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
-.badge.demo-agent { color: var(--color-accent); background: var(--color-accent-soft); }
-
-/* Hospital IT adoption loop strip (overview.js). */
-.adoption-strip { padding: var(--space-4) var(--space-5); }
-.adoption-head {
-  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
-  gap: var(--space-1) var(--space-3); margin-bottom: var(--space-3);
-}
-.adoption-head h2 { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); }
-.adoption-head span { font-size: var(--text-xs); }
-.adoption-steps {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3);
-}
-.adoption-step {
-  display: flex; flex-direction: column; gap: var(--space-1-5); min-width: 0;
-  padding: var(--space-3); border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border); background: var(--color-surface-sunken);
-}
-.adoption-step-head { display: flex; align-items: flex-start; gap: var(--space-2); }
-.adoption-step-num {
-  display: inline-grid; place-items: center; flex: none; min-width: 22px; height: 22px;
-  border-radius: var(--radius-pill); background: var(--color-accent-soft); color: var(--color-accent);
-  font-size: var(--text-xs); font-weight: var(--weight-semibold);
-}
-.adoption-step h3 { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text); }
-.adoption-step p { margin: 0; font-size: var(--text-xs); line-height: var(--leading-xs); flex: 1; }
-.adoption-step-links {
-  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-top: var(--space-0-5);
-  font-size: var(--text-xs); font-weight: var(--weight-medium);
-}
-.adoption-step-links .icon { width: 14px; height: 14px; }
 /* Where the pack comes from (pack.js originBadge; the docs landing labels community packs too). */
 .badge.origin { color: var(--origin-other); background: var(--origin-other-soft); }
 .badge.origin-community { color: var(--origin-community); background: var(--origin-community-soft); }
@@ -1336,7 +1304,6 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
-  .adoption-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pack-picker select { width: 13rem; }
   .stats-primary:is(:has(> :nth-child(4):last-child), :has(> :nth-child(6):last-child)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar .segmented .label {
@@ -1380,8 +1347,6 @@ ol.rules p { margin: var(--space-1) 0; }
   main { padding: var(--space-4); }
   h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
-  .adoption-strip { padding: var(--space-3) var(--space-4); }
-  .adoption-steps { grid-template-columns: minmax(0, 1fr); }
   .stats-primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-primary.two { grid-template-columns: minmax(0, 1fr); }
   .stat-value { font-size: var(--text-xl); line-height: var(--leading-xl); }

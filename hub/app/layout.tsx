@@ -38,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="topbar-nav" aria-label="Main">
               <Link href="/">Browse agents</Link>
               <Link href="/publishers/mendari">Starter demos</Link>
+              <a href="https://mendari.co" rel="noopener noreferrer">mendari.co ↗</a>
               <span className="tag">synthetic data only</span>
             </nav>
           </div>
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <nav className="foot-links" aria-label="Registry">
                 <Link href="/">Browse agents</Link>
                 <Link href="/publishers/mendari">Starter demos</Link>
+                <a href="https://mendari.co" rel="noopener noreferrer">mendari.co ↗</a>
               </nav>
               <p className="muted">Apache-2.0 · Research preview</p>
             </div>

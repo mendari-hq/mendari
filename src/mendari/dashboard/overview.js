@@ -21,12 +21,11 @@ views.overview = async (main) => {
   const total = stats.decisions;
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   const lens = LENSES.some(([key]) => key === storageGet("oh.lens")) ? storageGet("oh.lens") : "governance";
-  const demoBadge = d.origin === "maintained" ? ` <span class="badge demo-agent">Demo agent</span>` : "";
   main.innerHTML = `
-    <section class="pack-hero pack-header" aria-label="Pack overview">
+    <section class="pack-hero pack-header" aria-label="Agent overview">
       <div class="pack-hero-top">
         <div class="pack-hero-title">
-          <p class="pack-risk">${originBadge(d)}${demoBadge} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+          <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
           <h1>${esc(d.name)}</h1>
         </div>
         <div class="pack-hero-actions">
@@ -38,7 +37,6 @@ views.overview = async (main) => {
       </div>
       ${packHeader(d, holds)}
     </section>
-    ${adoptionStrip()}
     ${total ? `
       <div class="period-row">
         <span class="muted" id="period-name">Period</span>
@@ -52,7 +50,7 @@ views.overview = async (main) => {
       </div>` : `
       ${emptyState({
         icon: "inbox", title: "No decisions yet",
-        text: `Decisions appear here as soon as this pack makes one: from Try it, <a href="/docs">the API</a>, a CDS Hooks call or the sandbox worker.`,
+        text: `Decisions appear here as soon as this agent makes one: from Try it, <a href="/docs">the API</a>, a CDS Hooks call or the sandbox worker.`,
         action: { href: "#try", label: "Try it" },
       })}`}
     ${brief ? commandCenter(brief, d, lens) : ""}`;
@@ -205,67 +203,16 @@ function packHeader(d, holds) {
     ${holdNotice(holds, d)}
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
-    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")} · <a href="https://mendari-agent-hub.vercel.app" target="_blank" rel="noopener noreferrer">Agent Hub ${icon("external")}</a></p>
     ${withoutModel(d.without_model ?? [])}
   </div>`;
 }
 
-// Slots on the pack's offline floor although it offers a model there (e.g. no Jev set up).
+// Slots on the agent's offline floor although it offers a model there (e.g. no Jev set up).
 function withoutModel(slots) {
   if (!slots.length) return "";
   return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.
-    This deployment uses the pack's offline readers there; the Decision Card compares them with the model readers.</div>`;
-}
-
-// Concise four-step Hospital IT adoption loop: evaluate, shadow-test, govern, connect.
-function adoptionStrip() {
-  const steps = [
-    {
-      num: "1",
-      title: "Published Evals & Best Setup",
-      text: "Compare benchmark accuracy, safety checks, and policy thresholds.",
-      links: [
-        { href: "#evals", label: "Evaluations" },
-        { href: "#card", label: "Decision Card" },
-      ],
-    },
-    {
-      num: "2",
-      title: "Shadow-Test on Your Workflow",
-      text: "Run local or synthetic cases alongside clinicians before automating.",
-      links: [{ href: "#try", label: "Try it" }],
-    },
-    {
-      num: "3",
-      title: "Human Review & Audit Trail",
-      text: "Verify escalations with clinicians and inspect hash-chained logs.",
-      links: [
-        { href: "#review", label: "Review queue" },
-        { href: "#audit", label: "Audit trail" },
-      ],
-    },
-    {
-      num: "4",
-      title: "Connect via FHIR / CDS Hooks / API",
-      text: "Wire into EHR workqueues, SMART launch, and REST endpoints.",
-      links: [{ href: "/docs", label: "API docs", external: true }],
-    },
-  ];
-  return `<section class="panel adoption-strip" aria-labelledby="adoption-title">
-    <div class="adoption-head">
-      <h2 id="adoption-title">Hospital IT adoption loop</h2>
-      <span class="muted">Four-step path from evaluation to governed EHR deployment</span>
-    </div>
-    <ol class="adoption-steps">${steps.map((s) => `<li class="adoption-step">
-      <div class="adoption-step-head">
-        <span class="adoption-step-num" aria-hidden="true">${s.num}</span>
-        <h3>${esc(s.title)}</h3>
-      </div>
-      <p class="muted">${esc(s.text)}</p>
-      <div class="adoption-step-links">${s.links.map((l) =>
-        `<a class="action-link" href="${esc(l.href)}">${esc(l.label)} ${icon(l.external ? "external" : "arrow-right")}</a>`).join("")}</div>
-    </li>`).join("")}</ol>
-  </section>`;
+    This deployment uses the agent's offline readers there; the Decision Card compares them with the model readers.</div>`;
 }
 
 // Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without
