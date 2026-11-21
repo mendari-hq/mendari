@@ -20,8 +20,8 @@ from tests.browser import test_docs as reference
 pytestmark = pytest.mark.browser
 
 # The page's own colours, from style.css's tokens (--color-bg, --color-text).
-BACKGROUND = {"light": "rgb(245, 246, 248)", "dark": "rgb(14, 19, 26)"}
-TEXT = {"light": "rgb(23, 32, 44)", "dark": "rgb(230, 235, 242)"}
+BACKGROUND = {"light": "rgb(244, 246, 250)", "dark": "rgb(9, 13, 22)"}
+TEXT = {"light": "rgb(15, 23, 42)", "dark": "rgb(237, 242, 251)"}
 STEP = {step.name: step for step in snippets.load("quickstart")}
 
 

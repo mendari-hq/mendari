@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -28,9 +32,12 @@ jobs:
           POSTGRES_DB: mendari_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --tmpfs /var/lib/postgresql/data:rw,size=1g
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
+      # On pull requests, run the full suite (with Postgres, linters and pack tests) on 3.12 and
+      # the fast core compatibility suite on 3.11/3.13; pushes to main run the full matrix.
+      MENDARI_TEST_DATABASE_URL: ${{ (github.event_name == 'push' || matrix.python == '3.12') && 'postgresql://postgres:mendari-test@localhost:5432/mendari_test' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -40,6 +47,7 @@ jobs:
           version: "0.13.6"
           python-version: ${{ matrix.python }}
       - name: Postgres 16 client tools, to match the service (a newer pg_dump writes settings 16 rejects)
+        if: github.event_name == 'push' || matrix.python == '3.12'
         run: |
           if ! /usr/lib/postgresql/16/bin/pg_dump --version 2>/dev/null; then
             sudo apt-get install -y postgresql-common
@@ -48,18 +56,32 @@ jobs:
           fi
           echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
       - run: uv sync --locked
-      - run: uv run ruff check src tests scripts
-      - run: uv run ruff format --check src tests scripts
-      - run: uv run mypy src tests
-      - run: uv run pytest
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run ruff check src tests scripts
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run ruff format --check src tests scripts
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mypy src tests
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run pytest
+      - name: Core compatibility suite (Python 3.11 / 3.13 on pull requests)
+        if: github.event_name == 'pull_request' && matrix.python != '3.12'
+        run: uv run pytest -m core
       - name: The API examples work, in open mode and with a service key (README, snippets)
+        if: github.event_name == 'push' || matrix.python == '3.12'
         run: uv run python scripts/check_doc_snippets.py
-      - run: uv run mendari test mendari/patient-inbox-router
-      - run: uv run mendari test mendari/clinical-trial-prescreener
-      - run: uv run mendari test mendari/referral-router
-      - run: uv run mendari test mendari/prior-auth-preflight
-      - run: uv run mendari test mendari/ai-guard
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mendari test mendari/patient-inbox-router
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mendari test mendari/clinical-trial-prescreener
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mendari test mendari/referral-router
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mendari test mendari/prior-auth-preflight
+      - if: github.event_name == 'push' || matrix.python == '3.12'
+        run: uv run mendari test mendari/ai-guard
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
+        if: github.event_name == 'push' || matrix.python == '3.12'
         run: |
           failed=0
           for manifest in community-packs/*/pack.yaml; do
@@ -85,7 +107,8 @@ jobs:
           POSTGRES_DB: mendari_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --tmpfs /var/lib/postgresql/data:rw,size=1g
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
