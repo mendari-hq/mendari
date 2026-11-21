@@ -6,6 +6,7 @@ import base64
 import gc
 import json
 import os
+import re
 import secrets
 import shutil
 import time
@@ -16,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar, cast
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -43,7 +45,25 @@ INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
 LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
-POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
+_BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "").strip()
+_WORKER_DB_LOCK = 72_610_491
+
+
+def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
+    """Under pytest-xdist, give each worker its own Postgres database so database-scoped
+    advisory locks and schema catalog operations never contend across workers."""
+    if not base_url or not worker:
+        return base_url, None
+    db_name = urlsplit(base_url).path.lstrip("/")
+    candidate = f"{db_name}_{worker}"
+    if not db_name or not re.fullmatch(r"[A-Za-z0-9_]+", candidate):
+        return base_url, None
+    worker_url = re.sub(r"/[^/?]+(\?|$)", f"/{candidate}\\1", base_url, count=1)
+    return worker_url, candidate
+
+
+POSTGRES_URL, _WORKER_POSTGRES_DB = _worker_postgres(_BASE_POSTGRES_URL, _XDIST_WORKER)
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
 # exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
 # endpoint and key (and the origins they may be at), the alert webhook, the registry, the payer,
@@ -329,6 +349,28 @@ def calm_jev(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 def screened(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The inbox providers whose decisions may be automated, with `calm_jev` in the screen."""
     return calm_jev(monkeypatch)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _postgres_worker_db() -> Iterator[None]:
+    """Create this xdist worker's own Postgres database once and drop it when the worker exits."""
+    if not _WORKER_POSTGRES_DB:
+        yield
+        return
+    import psycopg
+
+    with psycopg.connect(_BASE_POSTGRES_URL, autocommit=True) as connection:
+        connection.execute("SELECT pg_advisory_lock(%s)", (_WORKER_DB_LOCK,))
+        try:
+            connection.execute(f'DROP DATABASE IF EXISTS "{_WORKER_POSTGRES_DB}" WITH (FORCE)')
+            connection.execute(f'CREATE DATABASE "{_WORKER_POSTGRES_DB}"')
+        finally:
+            connection.execute("SELECT pg_advisory_unlock(%s)", (_WORKER_DB_LOCK,))
+    try:
+        yield
+    finally:
+        with psycopg.connect(_BASE_POSTGRES_URL, autocommit=True) as connection:
+            connection.execute(f'DROP DATABASE IF EXISTS "{_WORKER_POSTGRES_DB}" WITH (FORCE)')
 
 
 @pytest.fixture(params=["sqlite", "postgres"])

@@ -200,6 +200,20 @@ def test_a_gate_is_asserted_only_when_asked(
     assert "no such gate: GC" in capsys.readouterr().err
 
 
+def test_workers_flag_reports_all_outcomes_under_xdist(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = project(tmp_path, GATES)
+    assert check.main(["--root", str(root), "--workers", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "| GA All met | 5 of 5 | none |" in out
+    assert "- [x] passing (build): 1 tests passed" in out
+    assert (
+        "- [ ] failing (build): 1 of 1 tests did not pass: tests/test_probes.py::test_fails failed"
+        in out
+    )
+
+
 def test_collect_only_runs_nothing_and_meets_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

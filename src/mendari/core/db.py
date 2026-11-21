@@ -186,8 +186,12 @@ class PostgresSession(Session):
 
     def columns(self, table: str) -> set[str]:
         rows = self.all(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = current_schema() AND table_name = ?",
+            "SELECT a.attname AS column_name "
+            "FROM pg_catalog.pg_attribute a "
+            "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = current_schema() AND c.relname = ? "
+            "AND a.attnum > 0 AND NOT a.attisdropped",
             (table,),
         )
         return {row["column_name"] for row in rows}
@@ -253,9 +257,8 @@ class PostgresBackend(Backend):
             connection.transaction(),
         ):
             connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
-            for statement in ddl.split(";"):
-                if statement.strip():
-                    connection.execute(statement)
+            if ddl.strip():
+                connection.execute(ddl)
             migrate(PostgresSession(connection))
 
     @contextmanager
