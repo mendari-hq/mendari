@@ -1,6 +1,6 @@
 # {{name}}: an AI Agent Decision Pack written in YAML. Change anything; `mendari validate` checks it.
 # Runs offline out of the box via `fixtures/mock_agent.json`, and switches automatically to any live
-# external agent (OpenAI, Claude, LangGraph, or custom HTTP) when `MENDARI_AGENT_URL` is set.
+# external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
 spec_version: "0.2"

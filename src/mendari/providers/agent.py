@@ -104,7 +104,7 @@ class AgentProvider(Provider):
         self._client = client
         self._mock: dict[str, Any] | None = None
         if self.settings.mock_file is not None:
-            self._mock = _load_mock_file(
+            self._mock = _load_fixture_file(
                 self.pack, self.settings.mock_file, self.questions, self.info.slot
             )
         if self.settings.agent_id is not None:
@@ -128,7 +128,7 @@ class AgentProvider(Provider):
         data, file_problems = read_problems(lambda: _read_pack_fixture(pack, mock_file))
         if file_problems:
             return file_problems
-        return _mock_data_problems(where, mock_file, data, questions)
+        return _fixture_data_problems(where, mock_file, data, questions)
 
     @staticmethod
     def _settings(
@@ -185,7 +185,7 @@ class AgentProvider(Provider):
         url, from_env = self._resolve_endpoint()
         if url is None:
             if self._mock is not None:
-                return self._answer_mock(inputs)
+                return self._answer_fixture(inputs)
             raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
 
         require_secure(url, "Agent")
@@ -225,14 +225,14 @@ class AgentProvider(Provider):
         self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         return self._build_output(parsed, used_mock=False)
 
-    def _answer_mock(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+    def _answer_fixture(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         assert self._mock is not None
         state = (
             select_fields(inputs, self.settings.state_fields)
             if self.settings.state_fields is not None
             else dict(inputs)
         )
-        matched = _match_mock_response(self._mock, state)
+        matched = _match_fixture_response(self._mock, state)
         if matched is None:
             raise ProviderError("invalid_response", "no mock case matched input")
         parsed = validate_response(matched, self.questions)
@@ -546,18 +546,18 @@ def _read_pack_fixture(pack: Pack, relative: str) -> Any:
     return pack.read_json(relative)
 
 
-def _load_mock_file(
+def _load_fixture_file(
     pack: Pack, relative: str, questions: Mapping[str, Question], where: str
 ) -> dict[str, Any]:
     data = _read_pack_fixture(pack, relative)
-    problems = _mock_data_problems(where, relative, data, questions)
+    problems = _fixture_data_problems(where, relative, data, questions)
     if problems:
         raise PackValidationError(pack.id, problems)
     assert isinstance(data, dict)
     return data
 
 
-def _mock_data_problems(
+def _fixture_data_problems(
     where: str, relative: str, data: Any, questions: Mapping[str, Question]
 ) -> list[str]:
     if not isinstance(data, dict):
@@ -591,14 +591,14 @@ def _mock_data_problems(
         if match_problem is not None:
             problems.append(f"{where}: {relative}: cases[{index}].match: {match_problem}")
             continue
-        merged = _merge_mock_response(data, case["response"])
+        merged = _merge_fixture_response(data, case["response"])
         try:
             validate_response(merged, questions)
         except ProviderError as error:
             problems.append(f"{where}: {relative}: cases[{index}].response: {error.detail}")
 
     if "default" in data and data["default"] is not None:
-        merged = _merge_mock_response(data, data["default"])
+        merged = _merge_fixture_response(data, data["default"])
         try:
             validate_response(merged, questions)
         except ProviderError as error:
@@ -632,7 +632,7 @@ def _match_spec_problem(spec: Any) -> str | None:
     return "must be a string, list of strings, or mapping"
 
 
-def _merge_mock_response(root: Mapping[str, Any], response: Any) -> Any:
+def _merge_fixture_response(root: Mapping[str, Any], response: Any) -> Any:
     if not isinstance(response, dict):
         return response
     merged = dict(response)
@@ -686,11 +686,11 @@ def _case_matches(spec: Any, text: str, state: Mapping[str, Any]) -> bool:
     return not ("input" in spec and not _subset_match(spec["input"], state))
 
 
-def _match_mock_response(mock: Mapping[str, Any], state: Mapping[str, Any]) -> Any | None:
+def _match_fixture_response(mock: Mapping[str, Any], state: Mapping[str, Any]) -> Any | None:
     text = _flatten_strings(state)
     for case in mock.get("cases", []):
         if _case_matches(case["match"], text, state):
-            return _merge_mock_response(mock, case["response"])
+            return _merge_fixture_response(mock, case["response"])
     if mock.get("default") is not None:
-        return _merge_mock_response(mock, mock["default"])
+        return _merge_fixture_response(mock, mock["default"])
     return None
