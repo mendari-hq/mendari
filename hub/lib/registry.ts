@@ -134,11 +134,14 @@ export type Namespace = {
 export class RegistryUnavailable extends Error {}
 
 async function get<T>(path: string): Promise<T | null> {
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  const headers: Record<string, string> = bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {};
   let response: Response;
   try {
     response = await fetch(`${BASE}${path}`, {
       cache: "no-store",
       redirect: "error",
+      headers,
       signal: AbortSignal.timeout(10_000),
     });
   } catch {

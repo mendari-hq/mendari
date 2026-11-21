@@ -40,7 +40,7 @@
         <a href="#loop">How it works</a>
         <a href="#how">Guardrails</a>
         <a href="#scores">Live Evals</a>
-        <a href="#agents">Your Agent</a>
+        <a href="https://mendari-agent-hub.vercel.app" rel="noopener noreferrer">Agent Hub ↗</a>
         <a class="button" href="#start">Get started</a>
       </nav>
     </header>
@@ -52,10 +52,10 @@
         <div class="hero-copy">
           <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Apache-2.0 · Healthcare AI Agent Governance &amp; Hub</p>
           <h1>Stop evaluating healthcare AI agents <span class="hero-accent">from scratch.</span></h1>
-          <p class="lede">Mendari is an open-source <strong>AI Agent Governance &amp; Evaluation Platform</strong> and <strong>Agent Hub</strong> for healthcare. Developers wrap any AI agent in deterministic guardrails and publish reproducible evals; hospitals browse already-vetted agents, shadow-test on real EHR workflows, and share real-world site evidence.</p>
+          <p class="lede">Mendari is an open-source <strong>AI Agent Governance &amp; Evaluation Platform</strong> and <strong>Agent Hub</strong> for healthcare. Builders wrap any agent in deterministic guardrails and publish reproducible evals; hospitals browse vetted agents, shadow-test locally, and share zero-PHI site evidence.</p>
           <p class="actions">
-            <a class="button button-lg" href="#scores">For Hospital IT · Live Evals &amp; Hub</a>
-            <a class="button button-lg button-ghost" href="#agents">For AI Builders · Wrap Your Agent</a>
+            <a class="button button-lg" href="https://mendari-agent-hub.vercel.app" rel="noopener noreferrer">Browse Agent Hub ↗</a>
+            <a class="button button-lg button-ghost" href="#agents">Wrap Your Agent</a>
           </p>
           <ul class="hero-proof" aria-label="Platform guarantees">
             <li><span>01</span> Wrap any LLM, LangGraph or HTTP agent</li>
@@ -92,7 +92,7 @@
           </div>
           <figcaption class="decision-outcome">
             <span class="outcome-line"><span class="chip chip-review">HUMAN_REVIEW</span> Suggested: front desk</span>
-            <span class="decision-reason">Confident (1.00), but this pack automates only with a model in its safety screen, so a person confirms. Recorded in the audit trail.</span>
+            <span class="decision-reason">Confident (1.00), but this agent automates only with a model in its safety screen, so a person confirms. Recorded in the audit trail.</span>
           </figcaption>
         </figure>
       </section>
@@ -103,80 +103,72 @@
         <div class="intro">
           <p class="section-kicker">Two-sided platform</p>
           <h2>One governance engine. Built for both sides of healthcare AI.</h2>
-          <p>AI builders stop rebuilding compliance wrappers and hospital bake-offs from zero. Health systems stop starting blind with every vendor pitch.</p>
+          <p>AI builders stop rebuilding compliance wrappers from zero. Health systems stop starting blind with every vendor pitch.</p>
         </div>
 
         <div class="loop-grid">
           <article class="loop-card loop-card-builders">
             <div class="loop-card-head">
-              <span class="loop-pill loop-pill-dark">Side 1 · AI Developers &amp; Vendors</span>
-              <h3>Wrap any healthcare AI agent, prove what works, and publish.</h3>
+              <span class="loop-pill loop-pill-dark">For AI Developers &amp; Vendors</span>
+              <h3>Wrap any AI agent, prove what works, and publish.</h3>
             </div>
             <ol class="loop-steps">
               <li>
                 <span class="loop-step-num">01</span>
                 <div>
-                  <strong>Wrap your agent in governance</strong>
-                  <p>Put Mendari around Claude, OpenAI, LangGraph, a custom HTTP agent, or deterministic rules with typed schemas, risk-level caps, and explicit human handoffs.</p>
+                  <strong>Wrap your agent in deterministic guardrails</strong>
+                  <p>Put Mendari around Claude, OpenAI, LangGraph, a custom HTTP agent, or rules with typed schemas, risk caps, and explicit human handoffs.</p>
                 </div>
               </li>
               <li>
                 <span class="loop-step-num">02</span>
                 <div>
                   <strong>Eval which models &amp; configs work best</strong>
-                  <p>Run standardized safety and accuracy evals across models and rules on shared labelled cases — measured as exact k of n with confidence intervals.</p>
+                  <p>Benchmark models, prompts, and rules head-to-head on shared labelled cases — measured as exact k of n with 95% intervals.</p>
                 </div>
               </li>
               <li>
                 <span class="loop-step-num">03</span>
                 <div>
-                  <strong>Publish Agent + Scorecard to the Hub</strong>
-                  <p>Ship a cryptographically signed agent package with an auto-rendered Decision Card and reproducible regression check so hospitals can verify before they pilot.</p>
+                  <strong>Publish a signed Agent + Scorecard to the Hub</strong>
+                  <p>Ship an Ed25519-signed package with an auto-rendered Decision Card and reproducible regression check so hospitals can verify before piloting.</p>
                 </div>
               </li>
             </ol>
-            <p class="loop-foot">Works with: OpenAI-compatible LLMs · LangGraph · Custom HTTP endpoints · Classical ML &amp; rules</p>
+            <p class="loop-foot">Works with: OpenAI-compatible LLMs · LangGraph · Custom HTTP agents · Rules &amp; local ML</p>
           </article>
 
           <article class="loop-card loop-card-hospitals">
             <div class="loop-card-head">
-              <span class="loop-pill loop-pill-light">Side 2 · Hospital IT &amp; Clinical Informatics</span>
-              <h3>Browse vetted agents, shadow-test locally, and share site proof.</h3>
+              <span class="loop-pill loop-pill-light">For Hospital IT, CMIOs &amp; Informatics</span>
+              <h3>Browse vetted agents, shadow-test locally, and share proof.</h3>
             </div>
             <ol class="loop-steps">
               <li>
                 <span class="loop-step-num">01</span>
                 <div>
                   <strong>Start from vetted agents, not slide decks</strong>
-                  <p>Browse the Mendari Agent Hub to inspect signed digests, declared vs. reviewed risk levels, model-by-model evals, and multi-site hospital evidence.</p>
+                  <p>Inspect signed digests, declared vs. reviewed risk caps, auto-rendered Decision Cards, and multi-site hospital evidence on the <a href="https://mendari-agent-hub.vercel.app" rel="noopener noreferrer">Agent Hub ↗</a>.</p>
                 </div>
               </li>
               <li>
                 <span class="loop-step-num">02</span>
                 <div>
-                  <strong>Shadow-test on local EHR workflows</strong>
+                  <strong>Shadow-test in the Governance Console</strong>
                   <p>Pull any agent and run a 7-day shadow pilot over FHIR R4, CDS Hooks, and the clinician review queue with zero live automation risk.</p>
                 </div>
               </li>
               <li>
                 <span class="loop-step-num">03</span>
                 <div>
-                  <strong>Adopt with risk caps &amp; publish site evals</strong>
-                  <p>Deploy with hash-chained FHIR audit trails, and optionally publish signed zero-PHI site counts back to the Hub so the next hospital starts from real-world evidence.</p>
+                  <strong>Adopt with audit trails &amp; publish zero-PHI site evals</strong>
+                  <p>Deploy with hash-chained FHIR audit trails and exportable Validation Briefs, then optionally share signed site counts back to the Hub.</p>
                 </div>
               </li>
             </ol>
             <p class="loop-foot">Integrates via: FHIR R4 · CDS Hooks 2.0 · SMART App Launch · Hash-chained audit &amp; review queue</p>
           </article>
         </div>
-
-        <ol class="loop-flywheel" aria-label="Two-sided platform flywheel">
-          <li><span>1</span> Wrap &amp; Govern Agent</li>
-          <li><span>2</span> Compare Models &amp; Configs</li>
-          <li><span>3</span> Publish Signed Scorecard</li>
-          <li><span>4</span> Hospital Shadow Pilot</li>
-          <li><span>5</span> Zero-PHI Site Evals Back to Hub</li>
-        </ol>
       </div>
     </section>
 
@@ -185,7 +177,7 @@
         <div class="intro">
           <p class="section-kicker">Deterministic runtime boundary</p>
           <h2>Every agent call ends in one of four governed outcomes.</h2>
-          <p>Your AI agent can use rules, classical models, Jev, a hosted LLM, or a multi-step external workflow. Mendari’s policy engine turns the agent’s output into a deterministic clinical boundary — and policy can only lower automation, never raise it.</p>
+          <p>Your AI agent can use an LLM, a LangGraph workflow, a custom HTTP service, local models, or deterministic rules. Mendari’s policy engine turns every call into a strict clinical boundary — and policy can only lower automation, never raise it.</p>
         </div>
         <ul class="outcomes">
           <li class="outcome outcome-auto"><span class="chip chip-solid">AUTO</span><h3>Automated</h3><p>Acted on without a person, strictly within the agent’s risk cap and confidence policy.</p></li>
@@ -193,7 +185,7 @@
           <li class="outcome outcome-abstain"><span class="chip chip-solid">ABSTAIN</span><h3>Abstained</h3><p>Not confident enough — or missing required EHR data — to make a call.</p></li>
           <li class="outcome outcome-block"><span class="chip chip-solid">BLOCK</span><h3>Blocked</h3><p>The input schema, safety screen, or a clinical guardrail stops it cold.</p></li>
         </ul>
-        <p class="muted small">Every agent decision is written to an append-only, hash-chained audit trail. Cases needing a clinician wait in the review queue, and every decision can be read as a FHIR Task.</p>
+        <p class="muted small">Every decision writes to an append-only, hash-chained audit trail. Escalated cases wait in the clinician review queue, and every decision exports as a FHIR Task.</p>
       </div>
     </section>
 
@@ -201,8 +193,8 @@
       <div class="intro">
         <p class="section-kicker">Reproducible agent evaluations</p>
         <h2>See which models and configs actually work best.</h2>
-        <p>Every agent configuration can be evaluated on shared labelled cases, so developers and hospital informatics teams see what a model adds before deploying or paying for it. Below is every result stored so far on our starter demo agent; an arm with none yet reads “not measured”. Mendari never locks you into one model: swap rules, naive Bayes, Jev, a hosted LLM, or a self-hosted agent without rewriting the governance policy.</p>
-        <p class="muted small">Each figure is k of n with its exact 95% interval. A public set is a regression check, not a ranking: grades and rankings are given only on frozen hidden sets.</p>
+        <p>Every agent configuration can be evaluated on shared labelled cases so builders and hospital informatics teams see what a model adds before deploying it. Below is every result stored so far on our starter demo agent; an arm with none yet reads “not measured”. Swap LLMs, custom HTTP agents, local classifiers, or rules without rewriting your governance policy.</p>
+        <p class="muted small">Each figure is k of n with its exact 95% interval. A public set is a regression check, not a ranking: grades and rankings are given only on frozen hidden sets. <a href="https://mendari-agent-hub.vercel.app" rel="noopener noreferrer">Inspect all published agents on the Hub ↗</a></p>
       </div>
       <!-- Generated by scripts/scoreboard_page.py from the results store (scoreboard/), down to the closing comment: run it again rather than edit these lines. -->
       <div class="board">
@@ -238,16 +230,16 @@
           <div class="byo-copy">
             <p class="section-kicker">Bring your own agent</p>
             <h2>Wrap any healthcare AI agent in minutes.</h2>
-            <p class="byo-lede">Mendari is the governance, evaluation, and distribution layer — <strong>your AI agents are the product</strong>. Package any Claude, OpenAI, LangGraph, custom HTTP agent, or deterministic ruleset as a portable Decision Pack with typed schemas, risk caps, and signed evals.</p>
+            <p class="byo-lede">Mendari is the governance, evaluation, and distribution layer — <strong>your AI agents are the product</strong>. Wrap any Claude, OpenAI, LangGraph, custom HTTP agent, or ruleset as a signed, governed agent package with typed schemas, risk caps, and reproducible evals.</p>
             <ul class="byo-list">
-              <li><strong>Model-agnostic slots:</strong> benchmark frontier LLMs, local models, and rules head-to-head on identical cases</li>
+              <li><strong>Model-agnostic slots:</strong> benchmark frontier LLMs, local models, HTTP agents, and rules head-to-head on identical cases</li>
               <li><strong>Standard healthcare plumbing:</strong> instant REST, FHIR R4 <code>$decide</code>, CDS Hooks 2.0, and clinician review queue</li>
-              <li><strong>Signed Hub publishing:</strong> ship Ed25519-verified archives with auto-rendered Decision Cards and multi-site eval support</li>
+              <li><strong>Signed Hub publishing:</strong> ship Ed25519-verified archives with auto-rendered Decision Cards and zero-PHI site evals</li>
             </ul>
           </div>
           <div class="terminal">
             <p class="terminal-bar"><span>Wrap, eval &amp; publish your agent</span><span>CLI</span></p>
-            <pre><code><span class="prompt" aria-hidden="true">$ </span>mendari new triage-agent --id my-org/triage-agent
+            <pre><code><span class="prompt" aria-hidden="true">$ </span>mendari new --agent triage-agent --id my-org/triage-agent
 <span class="prompt" aria-hidden="true">$ </span>mendari test triage-agent
 <span class="prompt" aria-hidden="true">$ </span>mendari eval triage-agent --dataset examples
 <span class="prompt" aria-hidden="true">$ </span>mendari push triage-agent --key keys/publisher.key</code></pre>
@@ -257,11 +249,11 @@
         <div id="packs" class="demos-section">
           <div class="packs-head">
             <div>
-              <p class="section-kicker">Starter demo agents &amp; templates</p>
-              <h3>Try one demo in 10 seconds — plus four optional starter templates.</h3>
-              <p class="muted small">Included as open reference demos proving the governance format — not Mendari’s product.</p>
+              <p class="section-kicker">10-second starter demo</p>
+              <h3>Try one governed demo locally — or browse templates on the Hub.</h3>
+              <p class="muted small">Included solely to demonstrate the governance format and local console, not as clinical products.</p>
             </div>
-            <p class="caution">Synthetic examples. Not clinically reviewed. Not for patient care.</p>
+            <p class="caution">Synthetic example. Not clinically reviewed. Not for patient care.</p>
           </div>
 
           <div class="demo-featured">
@@ -271,85 +263,14 @@
                 <span class="risk">Risk 0</span>
               </div>
               <h4>Patient Inbox Router <span class="mono muted">mendari/patient-inbox-router</span></h4>
-              <p>Built for an instant 10-second tryout via <code>uv run mendari demo</code>: routes synthetic patient messages, flags possible emergencies to a nurse, runs the clinician review queue, verifies the audit chain, and catches local-site drift.</p>
+              <p>Run <code>uv run mendari demo</code> to watch a governed agent route synthetic patient messages, escalate emergencies to clinicians, verify the hash-chained audit trail, and check for local-site drift.</p>
+              <p class="muted small">Need more reference templates (referrals, prior auth, trial prescreening, AI guard)? <a href="https://mendari-agent-hub.vercel.app/publishers/mendari" rel="noopener noreferrer">Browse starter templates on the Agent Hub ↗</a></p>
             </div>
             <p class="demo-featured-score">
               <span class="k">596 / 600</span>
-              <span class="muted">routed correctly · 95% CI 98.3–99.8%</span>
+              <span class="muted">synthetic test set · 95% CI 98.3–99.8%</span>
             </p>
           </div>
-
-          <ul class="demos-compact" aria-label="Optional starter templates">
-            <li class="demo-mini">
-              <div class="demo-mini-head">
-                <h4>Referral Router</h4>
-                <span class="demo-tag-muted">Starter template · Risk 1</span>
-              </div>
-              <p>Routes specialty referrals and flags two-week urgency windows.</p>
-              <p class="demo-mini-score"><span class="mono">597 / 600</span> <span class="muted">· 95% CI 98.5–99.9%</span></p>
-            </li>
-            <li class="demo-mini">
-              <div class="demo-mini-head">
-                <h4>Prior Auth Preflight</h4>
-                <span class="demo-tag-muted">Starter template · Risk 1</span>
-              </div>
-              <p>Checks payer prior-authorization rules and clinical record completeness.</p>
-              <p class="demo-mini-score"><span class="mono">600 / 600</span> <span class="muted">· 95% CI 99.4–100%</span></p>
-            </li>
-            <li class="demo-mini">
-              <div class="demo-mini-head">
-                <h4>Clinical Trial Prescreener</h4>
-                <span class="demo-tag-muted">Starter template · Risk 2</span>
-              </div>
-              <p>Screens patient records against study criteria; every case goes to a clinician.</p>
-              <p class="demo-mini-score"><span class="mono">298 / 300</span> <span class="muted">· 95% CI 97.6–99.9%</span></p>
-            </li>
-            <li class="demo-mini">
-              <div class="demo-mini-head">
-                <h4>AI Guard</h4>
-                <span class="demo-tag-muted">Starter template · Risk 2</span>
-              </div>
-              <p>Safety wrapper for patient-facing LLM drafts: blocks unsafe replies and queues risky ones.</p>
-              <p class="demo-mini-score"><span class="mono">586 / 600</span> <span class="muted">· 95% CI 96.1–98.7%</span></p>
-            </li>
-          </ul>
-          <p class="muted small">Synthetic benchmark figures on each starter template’s generated test set. Template-generated data overstates real-world accuracy: validate any agent on your own labelled cases before use.</p>
-        </div>
-      </div>
-    </section>
-
-    <section id="teams" class="wrap stack-lg teams-section">
-      <div class="intro">
-        <p class="section-kicker">Clinical operations &amp; governance</p>
-        <h2>One governed agent, trusted across three teams.</h2>
-      </div>
-      <div class="teams">
-        <div class="team">
-          <h3>AI Developers &amp; Vendors</h3>
-          <p class="team-line">Wrap any agent, compare models, and ship verified proof.</p>
-          <ul>
-            <li>Scaffold, test, evaluate, and publish with <code>mendari new</code>, <code>test</code>, <code>eval</code>, and <code>push</code></li>
-            <li>Simulate confidence thresholds interactively and export deterministic policy YAML</li>
-            <li>Plug in OpenAI-compatible LLMs, local models, or custom HTTP agents behind one contract</li>
-          </ul>
-        </div>
-        <div class="team">
-          <h3>Clinicians &amp; CMIOs</h3>
-          <p class="team-line">See what an agent is for, how it scored, and when it hands off.</p>
-          <ul>
-            <li>Auto-rendered Decision Card for every agent: intended use, out-of-scope limits, and k-of-n evals</li>
-            <li>Priority-sorted review queue with a cross-agent stat urgency radar and 4-stage guardrail trace</li>
-            <li>Clinician overrides cluster automatically into local regression sets for recalibration</li>
-          </ul>
-        </div>
-        <div class="team">
-          <h3>Hospital IT &amp; Informatics</h3>
-          <p class="team-line">Shadow-test vetted agents before turning on live automation.</p>
-          <ul>
-            <li>Send <code>X-Mendari-Shadow: 1</code> or hold automation in one click while measuring clinician agreement</li>
-            <li>Export a committee-ready Validation Brief and publish zero-PHI site counts back to the Hub</li>
-            <li>Hash-chained audit trail verified with <code>mendari audit verify</code> and exported as FHIR NDJSON</li>
-          </ul>
         </div>
       </div>
     </section>
@@ -374,8 +295,8 @@
     <section id="start" class="start">
       <div class="wrap split">
         <div class="intro">
-          <h2>Run the 10-second demo, or wrap your own agent.</h2>
-          <p><code>mendari demo</code> runs our starter demo agent end to end — including the message above: decisions, the review queue, audit-chain verification, and local-site drift checks. Then scaffold your own governed agent or start <code>mendari serve</code> for the API and dashboard.</p>
+          <h2>Run the 10-second demo, or launch the Governance Console.</h2>
+          <p><code>mendari demo</code> runs the starter demo end to end. Scaffold your own HTTP or LLM agent with <code>mendari new --agent</code>, or start <code>mendari serve</code> for the local API and Governance Console.</p>
           <p class="small">The source opens to the public at launch. Until then, cloning needs access to the repository.</p>
         </div>
         <div class="terminal">
@@ -384,7 +305,7 @@
 <span class="prompt" aria-hidden="true">$ </span>cd mendari
 <span class="prompt" aria-hidden="true">$ </span>uv sync
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari demo
-<span class="prompt" aria-hidden="true">$ </span>uv run mendari new my-agent --id my-org/my-agent
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari new --agent my-agent --id my-org/my-agent
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari serve   <span class="comment"># http://127.0.0.1:8000</span></code></pre>
         </div>
       </div>
@@ -398,6 +319,7 @@
         <span>Mendari</span>
       </p>
       <p>Open-source AI Agent Governance &amp; Evaluation Platform for healthcare. Research preview on synthetic data. Not a medical device. Not for emergencies: patients should call 911.</p>
+      <p class="small"><a href="https://mendari-agent-hub.vercel.app" rel="noopener noreferrer">Mendari Agent Hub ↗</a></p>
     </div>
     <div class="foot-meta">
       <nav class="foot-links" aria-label="Legal">

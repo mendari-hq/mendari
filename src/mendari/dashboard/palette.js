@@ -113,7 +113,7 @@ function buildItems(query, onSelectPack) {
     });
   }
 
-  // Decision Packs (when available), enriched with live cross-pack queue counts.
+  // Governed agents (when available), enriched with live cross-agent queue counts.
   if (state.packs.length > 1 && !$("#pack-select")?.closest(".pack-picker")?.hidden) {
     for (const pack of state.packs) {
       const q = state.packQueue?.get?.(pack.id);
@@ -121,7 +121,7 @@ function buildItems(query, onSelectPack) {
         ? ` · ${q.pending} waiting${q.stat ? ` (${q.stat} stat)` : ""}`
         : "";
       items.push({
-        group: "Decision Packs",
+        group: "Agents",
         icon: "package",
         label: pack.name,
         detail: `${pack.id} v${pack.version}${pack.id === state.packId ? " · Active" : ""}${queueNote}`,
@@ -146,6 +146,14 @@ function buildItems(query, onSelectPack) {
       run: () => document.querySelector(`[data-theme-choice="${choice}"]`)?.click(),
     });
   }
+  items.push({
+    group: "Actions",
+    icon: "external",
+    label: "Open Mendari Agent Hub",
+    detail: "mendari-agent-hub.vercel.app",
+    search: "agent hub registry browse vetted agents evals",
+    run: () => window.open("https://mendari-agent-hub.vercel.app", "_blank", "noopener,noreferrer"),
+  });
   items.push({
     group: "Actions",
     icon: "external",
@@ -179,8 +187,8 @@ function openPalette(onSelectPack) {
   dialog.innerHTML = `
     <div class="palette-head">
       ${icon("search")}
-      <label class="sr-only" for="palette-input">Jump to a view, pack or action</label>
-      <input id="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Jump to a view, Decision Pack, decision ID, or action…">
+      <label class="sr-only" for="palette-input">Jump to a view, agent or action</label>
+      <input id="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Jump to a view, agent, decision ID, or action…">
       <button type="button" class="icon-button" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <div class="palette-results" id="palette-results"></div>
@@ -200,7 +208,7 @@ function openPalette(onSelectPack) {
     matches = buildItems(input.value, onSelectPack);
     active = matches.length ? Math.min(active, matches.length - 1) : 0;
     if (!matches.length) {
-      results.innerHTML = `<p class="palette-empty muted">No matching view, pack, or action.</p>`;
+      results.innerHTML = `<p class="palette-empty muted">No matching view, agent, or action.</p>`;
       return;
     }
     let lastGroup = "";

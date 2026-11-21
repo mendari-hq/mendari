@@ -35,8 +35,8 @@ function watchConsole(page: Page): string[] {
 test("the home page lists every published pack, with no uploaded figure", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision Packs");
-  await expect(page.getByRole("list", { name: "Packs" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare AI Agents");
+  await expect(page.getByRole("list", { name: "Agents" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
   await expect(page.locator(".badge.verified")).toHaveCount(5);
   // The risk level is the publisher's own word, and nothing the publisher uploaded is a figure here.
   await expect(page.getByText(/^Risk \d \(declared\)$/)).toHaveCount(PACKS.length);
@@ -52,7 +52,7 @@ test("search narrows by words, risk level and standard", async ({ page }) => {
   await page.goto("/?standard=CDS+Hooks&q=authorization");
   await expect(page.locator(".results h3")).toHaveText(["Prior Authorization Preflight"]);
   await page.goto("/?q=nothing-matches-this");
-  await expect(page.getByText("No pack matches these filters.")).toBeVisible();
+  await expect(page.getByText("No agent matches these filters.")).toBeVisible();
 });
 
 test("a pack page shows what the registry checked apart from what the publisher claims", async ({ page }) => {

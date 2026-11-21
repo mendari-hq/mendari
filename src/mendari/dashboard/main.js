@@ -115,7 +115,7 @@ async function boot() {
   const select = $("#pack-select");
   if (!state.packs.length) {
     $("#view").removeAttribute("aria-busy");
-    $("#view").innerHTML = `<div class="panel empty">No Decision Packs found on the search path.</div>`;
+    $("#view").innerHTML = `<div class="panel empty">No governed agents found on the search path.</div>`;
     return;
   }
   // Grouped by where each pack comes from when more than one origin is served (pack.js).

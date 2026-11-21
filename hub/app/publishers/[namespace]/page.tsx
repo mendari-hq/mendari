@@ -24,7 +24,7 @@ export default async function PublisherPage({ params }: { params: Promise<Params
   return (
     <div className="wrap page-body">
       <nav className="breadcrumb muted" aria-label="Breadcrumb">
-        <Link href="/">Decision Packs</Link>
+        <Link href="/">Agent Hub</Link>
       </nav>
 
       <header className="pack-hero">
@@ -35,13 +35,13 @@ export default async function PublisherPage({ params }: { params: Promise<Params
         <h1>{found.display_name}</h1>
         <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
         <p className="publisher-meta muted">
-          {found.packs.length} published {found.packs.length === 1 ? "pack" : "packs"} · {found.keys.length} signing{" "}
+          {found.packs.length} published {found.packs.length === 1 ? "agent" : "agents"} · {found.keys.length} signing{" "}
           {found.keys.length === 1 ? "key" : "keys"}
         </p>
       </header>
 
       <section className="panel" aria-labelledby="publisher-packs-heading">
-        <h2 id="publisher-packs-heading">Packs</h2>
+        <h2 id="publisher-packs-heading">Published agents</h2>
         {found.packs.length ? (
           <ul className="publisher-packs">
             {found.packs.map((id) => (

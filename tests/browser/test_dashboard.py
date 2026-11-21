@@ -1680,7 +1680,7 @@ def test_phones_get_a_56_px_top_bar_with_settings_in_a_sheet(page: Page) -> None
     expect(page.locator("#pack-select")).to_be_hidden()
     settings.click()
     expect(settings).to_have_attribute("aria-expanded", "true")
-    expect(page.get_by_text("Decision Pack", exact=True)).to_be_visible()
+    expect(page.get_by_text("Agent", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Dark")).to_be_visible()
     page.keyboard.press("Escape")
     expect(page.locator("#pack-select")).to_be_hidden()

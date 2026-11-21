@@ -1095,45 +1095,7 @@ td .interval {
   color: var(--muted);
 }
 
-.loop-flywheel {
-  list-style: none;
-  margin: 0;
-  padding: 1rem 1.25rem;
-  border-radius: 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1.25rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.loop-flywheel li {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.loop-flywheel span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  flex: none;
-}
-
-/* Bring your own agent & starter demos */
+/* Bring your own agent & starter demo */
 
 .byo-panel {
   display: grid;
@@ -1308,57 +1270,6 @@ td .interval {
   }
 }
 
-.demos-compact {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
-  gap: 0.875rem;
-}
-
-.demo-mini {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 1.125rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  background: var(--paper);
-}
-
-.demo-mini-head {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-}
-
-.demo-mini h4 {
-  font-family: var(--serif);
-  font-size: 1.15rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.demo-mini p {
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--ink-2);
-}
-
-.demo-mini-score {
-  margin-top: auto;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--line);
-  font-size: 0.78rem;
-}
-
-.demo-mini-score .mono {
-  font-family: var(--mono);
-  font-weight: 600;
-  color: var(--ink);
-}
-
 /* Packs */
 
 .packs-head {
@@ -1478,50 +1389,6 @@ td .interval {
   color: #93b4ff;
   font-size: 0.84rem;
   overflow-wrap: anywhere;
-}
-
-/* Teams */
-
-.teams-section {
-  padding-block: 6rem;
-}
-
-.teams {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
-  gap: 2.5rem;
-}
-
-.team {
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-  padding-top: 1.25rem;
-  border-top: 2px solid var(--ink);
-}
-
-.team h3 {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-text);
-}
-
-.team-line {
-  font-family: var(--serif);
-  font-size: 1.5rem;
-  line-height: 1.3;
-  font-weight: 500;
-}
-
-.team ul {
-  padding-left: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  font-size: 1rem;
-  color: var(--ink-2);
 }
 
 /* Standards */
@@ -1837,10 +1704,8 @@ td .interval {
   .board,
   .pack,
   .loop-card,
-  .loop-flywheel,
   .byo-panel,
-  .demo-featured,
-  .demo-mini {
+  .demo-featured {
     border: 1px solid CanvasText;
   }
 

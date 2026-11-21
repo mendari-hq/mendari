@@ -56,7 +56,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         </nav>
         <section className="pack-hero pack-hero-danger">
           <h1>{detail.id}</h1>
-          <p className="notice notice-danger"><strong>Every version of this pack is recalled. Do not use it.</strong></p>
+          <p className="notice notice-danger"><strong>Every version of this agent is recalled. Do not use it.</strong></p>
         </section>
         <Recalls recalled={recalled} />
       </div>
@@ -208,7 +208,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <section className="card-doc" aria-labelledby="decision-card-heading">
           <div className="card-doc-head">
             <h2 id="decision-card-heading">Decision Card</h2>
-            <p className="muted">Rendered by the registry from the pack&apos;s own files. What it says is the publisher&apos;s.</p>
+            <p className="muted">Rendered by the registry from the agent&apos;s own files. What it says is the publisher&apos;s.</p>
           </div>
           <article className="markdown">
             {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
@@ -256,7 +256,7 @@ function SiteEvidenceSection({
         groups.map((group) => <EvidenceGroupView key={`${group.digest}:${JSON.stringify(group.configuration)}:${group.remote_consent}`} group={group} />)
       ) : (
         <p className="evidence-empty">
-          No site has shared signed counts for version {version} yet. A verified site shares how this pack did on its
+          No site has shared signed counts for version {version} yet. A verified site shares how this agent did on its
           own data with <code>mendari eval {packId} --dataset … --share</code>; no case leaves the site.
         </p>
       )}
