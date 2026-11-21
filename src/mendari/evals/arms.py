@@ -33,6 +33,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import ProviderVariant
 from mendari.errors import MendariError
 from mendari.providers import MODEL_TYPES
+from mendari.providers.agent import AgentProvider
 from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
 
@@ -52,7 +53,11 @@ APPLICABLE = "applicable"
 NOT_APPLICABLE = "not applicable"
 # The class of each model type: every type in `providers.MODEL_TYPES` has one, so a new model
 # type cannot fall into an arm unseen (tests/test_arms.py).
-MODEL_CLASSES: dict[str, str] = {JevProvider.type: CLASSIFIER, LlmProvider.type: LLM}
+MODEL_CLASSES: dict[str, str] = {
+    JevProvider.type: CLASSIFIER,
+    LlmProvider.type: LLM,
+    AgentProvider.type: LLM,
+}
 # More configurations than this are refused, never listed: the product of a pack's slots grows
 # fast, and no scoreboard runs that many.
 MAX_CONFIGURATIONS = 10_000

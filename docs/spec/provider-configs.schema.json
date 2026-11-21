@@ -1,5 +1,103 @@
 {
   "$defs": {
+    "agent": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions"
+        },
+        "mock_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mock File"
+        },
+        "state_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Fields"
+        },
+        "system_prompt": {
+          "anyOf": [
+            {
+              "maxLength": 16000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "System Prompt"
+        },
+        "timeout_seconds": {
+          "default": 15.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 120.0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "type": {
+          "const": "agent"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "agent provider config",
+      "type": "object"
+    },
     "any_of": {
       "additionalProperties": false,
       "properties": {
@@ -305,6 +403,9 @@
       "description": "A composite's member: a provider config of a type that is not a composite.",
       "oneOf": [
         {
+          "$ref": "#/$defs/agent"
+        },
+        {
           "$ref": "#/$defs/cql"
         },
         {
@@ -422,6 +523,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "A provider variant's config in a Decision Pack (`providers.<slot>.variants.<name>`), one per provider type, each closed: a key it does not name is refused for a pack the deployment does not own and a warning for an owned one. Generated from the provider config models by scripts/provider_config_schema.py; do not edit.",
   "oneOf": [
+    {
+      "$ref": "#/$defs/agent"
+    },
     {
       "$ref": "#/$defs/any_of"
     },

@@ -62,3 +62,47 @@ def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:
     assert (tmp_path / "taken" / "notes.txt").read_text() == "mine"
     assert main(["new", str(tmp_path / "fresh"), "--id", "Not An Id"]) == 1
     assert not (tmp_path / "fresh").exists()
+
+
+def test_new_agent_pack_works_offline_as_written(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from mendari.cli import AGENT_TEMPLATE
+
+    suffixes = {p.suffix for p in AGENT_TEMPLATE.rglob("*") if p.is_file()}
+    assert suffixes <= {".yaml", ".json", ".jsonl"}  # YAML/JSON only
+
+    target = tmp_path / "agent-router"
+    args = [
+        "new",
+        str(target),
+        "--agent",
+        "--id",
+        "my-clinic/agent-router",
+        "--publisher",
+        "My Clinic",
+    ]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "MENDARI_AGENT_URL=" in out
+    assert f"The guide: {AUTHORING_GUIDE}" in out
+
+    pack = resolve_pack(str(target))
+    assert pack.id == "my-clinic/agent-router"
+    assert pack.manifest.providers["reader"].use == "agent"
+    assert pack.manifest.providers["reader"].variants["agent"].type == "agent"
+    assert "{{" not in (target / "pack.yaml").read_text()
+
+    decision = Decision(pack)
+    assert all(outcome.passed for outcome in run_pack_tests(decision))
+    report = evaluate(decision, resolve_dataset(pack, "examples"))
+    assert report["questions"]["request"]["accuracy"] > 0.9
+    for command in (
+        ["validate", str(target)],
+        ["test", str(target)],
+        ["eval", str(target), "--dataset", "examples"],
+    ):
+        assert main(command) == 0
+
+    assert main(["new", str(tmp_path / "both"), "--community", "--agent", "--id", "a/b"]) == 1
+    assert not (tmp_path / "both").exists()

@@ -68,6 +68,7 @@ VALID: dict[str, dict[str, Any]] = {
     "naive_bayes": NB,
     "jev": {"type": "jev", "state_fields": SENT},
     "llm": {"type": "llm", "state_fields": SENT, "calibration": "models/calibration.json"},
+    "agent": {"type": "agent", "state_fields": SENT, "mock_file": "models/mock_agent.json"},
     "any_of": {
         "type": "any_of",
         "escalate": {"topic": "billing"},
@@ -154,6 +155,18 @@ def template(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "temperatures": {"topic": 1.5},
     }
     (root / "models" / "calibration.json").write_text(json.dumps(calibration))
+    mock_agent = {
+        "model": "mock-agent",
+        "agent_version": "0.1.0",
+        "cases": [
+            {
+                "match": {"contains_any": ["bill"]},
+                "response": {"answers": {"topic": {"value": "billing", "confidence": 0.9}}},
+            }
+        ],
+        "default": {"answers": {"topic": {"value": "other", "confidence": 0.7}}},
+    }
+    (root / "models" / "mock_agent.json").write_text(json.dumps(mock_agent))
     return root
 
 
@@ -417,6 +430,7 @@ def test_a_registry_packs_answer_length_timeout_and_effort_are_capped(
     assert NOT_OWNED_CAPS == {
         "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
         "jev": {"timeout_ms": 5_000},
+        "agent": {"timeout_seconds": 15.0},
     }
     # An absent key stays absent, and the members are held to the same.
     composite = {"type": "vote", "members": {"a": {**big, "model": "x/y"}, "b": {"type": "jev"}}}
@@ -525,10 +539,16 @@ def shipped(tmp_path: Path) -> Iterator[tuple[Path, str]]:
         if (source / "pack.yaml").is_file():
             yield source, "maintained"
     plain, community = tmp_path / "plain", tmp_path / "community-packs" / "contributed"
+    agent_dir = tmp_path / "agent"
     assert main(["new", str(plain), "--id", "someone/plain", "--publisher", "Test"]) == 0
     assert main(["new", str(community), "--community", "--publisher", "Test"]) == 0
+    assert (
+        main(["new", str(agent_dir), "--agent", "--id", "someone/agent", "--publisher", "Test"])
+        == 0
+    )
     yield plain, "local"
     yield community, "community"
+    yield agent_dir, "local"
     for manifest_path in sorted((ROOT / "tests" / "fixtures").glob("**/pack.yaml")):
         root = manifest_path.parent
         yield root, "community" if root.parent.name == "community-packs" else "local"
@@ -588,6 +608,7 @@ FILES = (
     "logic/topic.cql",
     "models/nb.json",
     "models/calibration.json",
+    "models/mock_agent.json",
     "models/missing.json",
 )
 URLS = ("https://evil.test/v1", "https://llm.test.evil.test/v1", "http://127.0.0.1:9/x")
@@ -596,8 +617,12 @@ ENV_NAMES = ("PACK_SAFETY_URL", "PACK_SAFETY_KEY", "LLM_API_KEY", "JEV_API_KEY")
 ENV_KEYS = sorted({key for keys in DEPLOYMENT_ENV_KEYS.values() for key in keys})
 ODD: tuple[Any, ...] = (None, True, -1, 0.5, "x", [], {}, ["message"], {"topic": 1}, "64", 64.0)
 TYPICAL: dict[str, tuple[Any, ...]] = {
-    **dict.fromkeys(("config", "library", "model_file", "calibration"), FILES),
+    **dict.fromkeys(("config", "library", "model_file", "calibration", "mock_file"), FILES),
     "model": MODELS,
+    "agent_id": ("my-agent", "org/agent:v1", "bad agent!", ""),
+    "system_prompt": ("Classify the input.", ""),
+    "instructions": ("Be concise.", ""),
+    "timeout_seconds": (0, 0.5, 15.0, 30.5, 120.0, 500.0, "30.5", True),
     **dict.fromkeys((*ENV_KEYS, "url", "endpoint", "base_url", "api_key"), URLS + ENV_NAMES),
     **dict.fromkeys(
         ("state_fields", "text_fields"), (["message"], [], ["x"], ["message", "x"], "message")
@@ -695,13 +720,15 @@ def builds(pack: Pack, config: dict[str, Any]) -> Provider | None:
 
 def held_to_the_deployments(provider: Provider) -> bool:
     """Whether every model leaf of a provider built for a pack the deployment does not own runs
-    on the deployment's model, within the caps (`NOT_OWNED_CAPS`) and an effort of `low` or
-    less."""
+    on the deployment's model and endpoint, within the caps (`NOT_OWNED_CAPS`) and an effort of
+    `low` or less."""
     for leaf in provider.leaves():
         settings: Any = getattr(leaf, "settings", None)
         if leaf.type not in MODEL_TYPES:
             continue
-        if settings.model is not None:
+        if getattr(settings, "model", None) is not None:
+            return False
+        if getattr(settings, "endpoint", None) is not None:
             return False
         if any(getattr(settings, key) > cap for key, cap in NOT_OWNED_CAPS[leaf.type].items()):
             return False

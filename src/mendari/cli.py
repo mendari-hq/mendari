@@ -3424,6 +3424,8 @@ def cmd_evalset_show(args: argparse.Namespace) -> int:
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
+# Laid over TEMPLATE by `mendari new --agent`: an AI agent pack with an offline mock fixture.
+AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md"
 COMMUNITY_GUIDE = (
@@ -3434,10 +3436,14 @@ COMMUNITY_GUIDE = (
 def cmd_new(args: argparse.Namespace) -> int:
     """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
     With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
-    also passes `mendari community-check`, its benchmark and card written."""
+    also passes `mendari community-check`, its benchmark and card written.
+    With `--agent`, an AI agent Decision Pack with an offline mock fixture that switches to a
+    live agent endpoint when `MENDARI_AGENT_URL` is set."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
 
+    if args.community and args.agent:
+        raise MendariError("choose either --community or --agent, not both")
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
         raise MendariError(f"{target} exists and is not empty")
@@ -3459,7 +3465,12 @@ def cmd_new(args: argparse.Namespace) -> int:
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
     name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
     values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
-    templates = [TEMPLATE, COMMUNITY_TEMPLATE] if args.community else [TEMPLATE]
+    if args.community:
+        templates = [TEMPLATE, COMMUNITY_TEMPLATE]
+    elif args.agent:
+        templates = [TEMPLATE, AGENT_TEMPLATE]
+    else:
+        templates = [TEMPLATE]
     for template in templates:
         for source in sorted(template.rglob("*")):
             if not source.is_file():
@@ -3482,6 +3493,13 @@ def cmd_new(args: argparse.Namespace) -> int:
             f"add {{id: {pack_id}, maintainers: [your-github-name]}} to "
             "community-packs/MAINTAINERS.yaml",
             f"mendari community-check {target} --base origin/main",
+        ]
+    elif args.agent:
+        steps += [
+            f"mendari eval {target} --dataset examples",
+            f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
+            "--dataset examples",
+            f"mendari eval {target} --dataset examples --provider reader=rules",
         ]
     else:
         steps += [
@@ -5006,6 +5024,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="a community pack for community-packs/<name> (id community/<name>), with the "
         "defaults community-check asks for",
+    )
+    new.add_argument(
+        "--agent",
+        action="store_true",
+        help="an AI agent pack wired to an offline mock fixture that switches to MENDARI_AGENT_URL",
     )
     new.set_defaults(handler=cmd_new)
 

@@ -83,7 +83,7 @@ LIVE_SETTINGS = (
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
     "CRON_SECRET", "MENDARI_EVALSET_KEY", "MENDARI_EVALSET_READ_KEYS", "MENDARI_EVALSET_INDEX_KEY",
     "MENDARI_CDS_CLIENTS", "MENDARI_SITE_CODES", "MENDARI_EHR_DECLARATIONS",
-    "MENDARI_GRADING_SIGNING_KEY",
+    "MENDARI_GRADING_SIGNING_KEY", "MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN",
 )  # fmt: skip
 for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:
     os.environ.pop(_name, None)
@@ -223,7 +223,15 @@ def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
     """Jev is never set up, and no provider is chosen, unless a test does it (with a fake): a
     developer's own Jev settings would turn on the servers' Jev defaults and send test cases to
     Jev, and their MENDARI_PROVIDERS would change what every pack runs."""
-    for name in ("JEV_API_URL", "JEV_MODEL", "JEV_API_KEY", "JEV_CONNECTOR", "MENDARI_PROVIDERS"):
+    for name in (
+        "JEV_API_URL",
+        "JEV_MODEL",
+        "JEV_API_KEY",
+        "JEV_CONNECTOR",
+        "MENDARI_AGENT_URL",
+        "MENDARI_AGENT_TOKEN",
+        "MENDARI_PROVIDERS",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 

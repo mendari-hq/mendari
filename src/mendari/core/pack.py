@@ -550,7 +550,7 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
 # Manifest fields naming a file the pack decides or tests with, in a provider variant or a
 # composite member's config. Every one is checked at load, naming the field; a file read under
 # any other key goes through `Pack.path`, which accepts only a digested file as well.
-_PROVIDER_FILE_KEYS = ("config", "library", "model_file", "calibration")
+_PROVIDER_FILE_KEYS = ("config", "library", "model_file", "calibration", "mock_file")
 _TRAINED_FILE_KEYS = ("model_file", "calibration")  # may not exist yet (`missing_models_ok`)
 
 
