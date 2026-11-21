@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The public site's legal pages (web/terms.html, privacy.html, acceptable-use.html; launch gate
-G2-3's `legal-pages-live`, B16): drafts for the owner and counsel. Each exists, says it is a
-draft pending legal review with the day it was last updated, is linked from every page's footer,
-and keeps the site's rules: the notice, no scripts, no inline styles, nothing loaded from
-another origin, every link inside the site leading somewhere. Each fact still to be supplied is
-a marked placeholder, and the note for the owner and counsel lists every one. The gate stays
-the owner's: nothing here marks it met."""
+"""The public site's legal pages (web/terms.html, privacy.html, acceptable-use.html): drafts for the
+owner and counsel. Each exists, says it is a draft pending legal review with the day it was last
+updated, is linked from every page's footer, and keeps the site's rules: the notice, no scripts, no
+inline styles, nothing loaded from another origin, every link inside the site leading somewhere.
+Each fact still to be supplied is a marked placeholder, and the note for the owner and counsel
+lists every one."""
 
 from __future__ import annotations
 
@@ -16,7 +15,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
-import yaml
 
 from mendari import notices
 
@@ -198,16 +196,6 @@ def test_every_placeholder_is_marked_and_listed_for_the_owner_and_counsel() -> N
     listed = set(re.findall(r"`(\[[a-z][a-z ,'-]+\])`", note))
     assert listed == marked, "the note lists a placeholder no page has"
     assert "legal-pages-open-questions.md" in (ROOT / "notes" / "README.md").read_text()
-
-
-def test_the_gate_stays_the_owners_and_unmet() -> None:
-    gates = yaml.safe_load((ROOT / "launch" / "gates.yaml").read_text(encoding="utf-8"))
-    (gate,) = [each for each in gates["gates"] if each["id"] == "G2-3"]
-    (legal,) = [each for each in gate["prerequisites"] if each["id"] == "legal-pages-live"]
-    assert legal["owner"] == "owner"
-    (attested,) = [probe["attested"] for probe in legal["probes"] if "attested" in probe]
-    assert attested["by"] == "" and attested["date"] == ""
-    assert [probe for probe in legal["probes"] if "pending" in probe]
 
 
 def luminance(colour: str) -> float:

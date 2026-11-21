@@ -11,12 +11,11 @@ column's criteria give, the overall grade the lowest dimension's."""
 
 from __future__ import annotations
 
-import importlib.util
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import NamedTuple
 
 import pytest
@@ -126,20 +125,37 @@ def grade(paragraph: str, label: str) -> tuple[int, int]:
     return int(found.group(1)), int(found.group(2))
 
 
-def gates_script() -> ModuleType:
-    path = ROOT / "scripts" / "check_gates.py"
-    spec = importlib.util.spec_from_file_location("check_gates_for_the_scorecard", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def _collect_tests(files: list[str]) -> set[str]:
+    """Collect pytest node IDs for `files` from the repository root without running them."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")}
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "addopts=",
+        *files,
+    ]
+    ran = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    return {
+        line.strip()
+        for line in ran.stdout.splitlines()
+        if line.strip().startswith("tests/") and "::" in line
+    }
+
+
+def _matches(probe: str, nodeids: set[str]) -> bool:
+    return any(n == probe or (n.startswith(probe + "[") and "[" not in probe) for n in nodeids)
 
 
 def test_every_row_cites_a_test_that_exists_or_says_missing() -> None:
     """A met criterion cites its tests, a missing one says "missing", and every test the
-    scorecard names anywhere is collected (collect-only, as tests/test_gates.py checks the
-    gates' tests: none is run)."""
+    scorecard names anywhere is collected (collect-only: none is run)."""
     rows = [row for body in sections().values() for row in criteria(body)]
     assert len(rows) >= 7 * 4
     for row in rows:
@@ -154,12 +170,11 @@ def test_every_row_cites_a_test_that_exists_or_says_missing() -> None:
             assert row.evidence == "missing", row.id
     named = sorted(set(NODE.findall(text())))
     assert named
-    check = gates_script()
     files = sorted({node.split("::")[0] for node in named})
     for file in files:
         assert (ROOT / file).is_file(), file
-    collected = check._pytest(ROOT, ["--collect-only", *files])
-    assert [node for node in named if not check._matches(node, collected)] == []
+    collected = _collect_tests(files)
+    assert [node for node in named if not _matches(node, collected)] == []
 
 
 def test_every_grade_states_its_rubric_version_commit_and_scope() -> None:

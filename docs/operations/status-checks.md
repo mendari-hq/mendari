@@ -9,7 +9,7 @@ Two things tell people whether Mendari is working:
 - **An external status page**: a status provider that checks the deployment from outside,
   several times an hour from more than one region, and keeps a public page and a history that
   survive any outage of Mendari's. This is the one people should be pointed to. Choosing the
-  provider, and who it pages, is the owner's (gate `status-page` in `launch/gates.yaml`).
+  provider, and who it pages, is the owner's.
 
 ## The checks
 
