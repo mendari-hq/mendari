@@ -1,14 +1,23 @@
 # Mendari
 
-**Open infrastructure for reusable healthcare decision logic: a "Hugging Face for healthcare
-decisions."**
+**Open-source AI Agent Governance & Evaluation Platform + Agent Hub for healthcare.**
 
-Mendari turns healthcare workflow decisions (route this message, is this prior-auth packet
-complete, does this AI answer need a clinician) into standardized, testable, versioned,
-governed software components called **Decision Packs**. A pack does not depend on any one
-model. Rules, [Jev](#jev), classical ML and (soon) LLMs all answer the same questions through
-the same interface, and every decision ends in an explicit `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or
-`BLOCK` with a hash-chained audit record.
+Stop evaluating healthcare AI agents from scratch. Mendari is the governance, evaluation, and
+distribution layer for healthcare AI agents — **your agents are the product**, packaged as
+standardized, versioned, signed **Decision Packs**.
+
+- **For AI Developers & Vendors:** Wrap any healthcare AI agent (Claude, OpenAI, LangGraph, a
+  custom HTTP agent, [Jev](#jev), classical ML, or deterministic rules) in Mendari's governance
+  engine → run standardized safety and accuracy evals showing **which models and configs work
+  best** → publish the vetted **Agent + Evaluation Scorecard** to the **Mendari Agent Hub**.
+- **For Hospital IT & Clinical Informatics:** Browse **already-vetted healthcare AI agents** with
+  transparent governance checks and published evals → pull and shadow-test them against local
+  patient workflows and EHR standards (FHIR R4, CDS Hooks, clinician review queue) → adopt with
+  built-in risk caps and hash-chained audit trails → optionally **publish signed zero-PHI site
+  evals back to the Hub** so the next hospital starts from real-world evidence too.
+
+Every agent call ends in an explicit `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK` outcome with a
+hash-chained audit record — and policy can only lower automation, never raise it.
 
 > **Status: research preview** (roadmap milestones v0.1–v0.5 done; package 0.1.0, not released).
 > Everything here runs on synthetic data. It is not a medical device. Organization sign-in and PHI
@@ -20,36 +29,45 @@ the same interface, and every decision ends in an explicit `AUTO`, `HUMAN_REVIEW
 > (`openhealth/…`) in the providers and packs settings, so existing deployments need no change.
 
 ```text
+  AI Developers & Vendors                              Hospital IT & Clinical Informatics
+  ───────────────────────                              ──────────────────────────────────
+  Wrap any AI agent (LLM, LangGraph, HTTP,             Browse vetted agents & published evals
+  Jev, ML, rules) in Mendari governance                on the Mendari Agent Hub
+            │                                                        │
+            ▼                                                        ▼
+  Eval models & configs ──► Publish signed Agent + Card ──► Shadow-test on EHR (FHIR / CDS)
+                                      ▲                               │
+                                      └─── Zero-PHI site evals ───────┘
+
 Clinical/EHR data (FHIR R4, CDS Hooks, REST)
         │
         ▼
-  input schema ──► provider slots ──► decision policy ──► AUTO | HUMAN_REVIEW | ABSTAIN | BLOCK
-                   rules │ Jev │ ML      thresholds, rules,        │
-                   (swappable variants)  risk-level caps           ▼
-                                                  audit trail · review queue · FHIR Task
+  input schema ──► agent / provider slots ──► governance policy ──► AUTO | HUMAN_REVIEW | ABSTAIN | BLOCK
+                   LLMs │ HTTP │ Jev │ ML     thresholds, rules,            │
+                   rules (swappable variants) risk-level caps               ▼
+                                                              audit trail · review queue · FHIR Task
 ```
 
 ## What's in it
 
 | Item | Where |
 |---|---|
-| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.1.md); 0.3, the FHIR mapping only: [`decision-pack-0.3.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.3.md)), [`src/mendari/core/spec.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/spec.py) |
-| Mendari runtime | [`src/mendari/core/decision.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/decision.py), [`policy.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/policy.py) |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/mendari/providers/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/providers) |
-| FHIR adapter + CDS Hooks | [`src/mendari/standards/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/standards) |
-| Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/patient-inbox-router) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/patient-inbox-router/DECISION_CARD.md)) |
-| Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](https://github.com/mendari-hq/mendari/tree/main/packs/clinical-trial-prescreener) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/clinical-trial-prescreener/DECISION_CARD.md)) |
-| Referral Router reference pack (v0.3) | [`packs/referral-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/referral-router) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/referral-router/DECISION_CARD.md)) |
-| Prior Authorization Preflight reference pack (v0.3) | [`packs/prior-auth-preflight/`](https://github.com/mendari-hq/mendari/tree/main/packs/prior-auth-preflight) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/prior-auth-preflight/DECISION_CARD.md)) |
-| AI Guard reference pack (v0.3) | [`packs/ai-guard/`](https://github.com/mendari-hq/mendari/tree/main/packs/ai-guard) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/ai-guard/DECISION_CARD.md)) |
-| Human review / abstention | policy outcomes + [`core/audit.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/audit.py) review queue |
-| Evaluation harness | [`src/mendari/evals/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/evals) |
+| Governed agent / Decision Pack spec | [`docs/spec/decision-pack-0.2.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.1.md); 0.3, the FHIR mapping only: [`decision-pack-0.3.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.3.md)), [`src/mendari/core/spec.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/spec.py) |
+| Governance runtime & policy engine | [`src/mendari/core/decision.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/decision.py), [`policy.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/policy.py) |
+| Model & agent adapters: LLMs (Vercel AI Gateway, or OpenAI-compatible local/custom models), Jev, rules, naive Bayes, criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/mendari/providers/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/providers) |
+| Evaluation & multi-site evidence harness | [`src/mendari/evals/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/evals) |
+| Mendari Agent Hub & signed registry | [`hub/`](https://github.com/mendari-hq/mendari/tree/main/hub), [`src/mendari/hub/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/hub) |
+| FHIR R4 adapter + CDS Hooks 2.0 | [`src/mendari/standards/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/standards) |
+| Human review queue & abstention | policy outcomes + [`core/audit.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/audit.py) review queue |
 | Audit trail | SQLite or Postgres, append-only hash-chained events, `mendari audit verify` |
-| Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
-| Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). In memberships mode, an organization's administrators also get Access (members, invitations, requests to join), and an invitation link opens its own page (`/invite`). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
+| Dashboard | `mendari serve` → http://127.0.0.1:8000: every governed agent on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). In memberships mode, an organization's administrators also get Access (members, invitations, requests to join), and an invitation link opens its own page (`/invite`). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
+| **Quick Demo Agent** (10-second offline tryout) | [`packs/patient-inbox-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/patient-inbox-router) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/patient-inbox-router/DECISION_CARD.md)) |
+| **Starter Templates** (optional reference examples proving the format — not Mendari's product) | [`packs/referral-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/referral-router) ([Card](https://github.com/mendari-hq/mendari/blob/main/packs/referral-router/DECISION_CARD.md)), [`packs/prior-auth-preflight/`](https://github.com/mendari-hq/mendari/tree/main/packs/prior-auth-preflight) ([Card](https://github.com/mendari-hq/mendari/blob/main/packs/prior-auth-preflight/DECISION_CARD.md)), [`packs/clinical-trial-prescreener/`](https://github.com/mendari-hq/mendari/tree/main/packs/clinical-trial-prescreener) ([Card](https://github.com/mendari-hq/mendari/blob/main/packs/clinical-trial-prescreener/DECISION_CARD.md)), [`packs/ai-guard/`](https://github.com/mendari-hq/mendari/tree/main/packs/ai-guard) ([Card](https://github.com/mendari-hq/mendari/blob/main/packs/ai-guard/DECISION_CARD.md)) |
+| Synthetic datasets for the starter demos | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
 
-The five reference packs are examples built on synthetic data, and each says so on every surface
-(its Decision Card, the dashboard, CDS Hooks cards, the registry):
+The five built-in reference packs are **optional starter demos and templates** built on synthetic
+data to prove the governance and evaluation format (your own AI agents are the product), and each
+says so on every surface (its Decision Card, the dashboard, CDS Hooks cards, the Agent Hub):
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
 ## Install
@@ -111,7 +129,8 @@ the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a ser
 
 ## Quickstart
 
-In the clone, with uv ([Install](#install)):
+Run the 10-second offline demo agent (`mendari/patient-inbox-router`) in the clone with uv
+([Install](#install)), then scaffold and evaluate your own governed agent:
 
 <!-- check: run quickstart -->
 ```bash
@@ -119,11 +138,11 @@ uv sync
 uv run mendari demo
 ```
 
-The demo routes synthetic patient messages, simulates reviewers working the queue, verifies
-the audit chain, and then runs **local validation** of the public pack against a simulated
-deploying site. It needs no keys, so the keyword rules alone screen for emergencies, and the
-inbox's policy then sends every message to a person; with a model in the screen
-([Jev](#jev)), routine messages are automated:
+The demo runs our starter demo agent end to end on synthetic patient messages: routes messages,
+simulates clinicians working the review queue, verifies the hash-chained audit trail, and runs
+**local-site validation** comparing the public benchmark against a simulated hospital deployment.
+It needs no keys, so keyword rules alone screen for emergencies and the risk policy sends every
+message to a person; with a model in the screen ([Jev](#jev)), routine messages are automated:
 
 ```text
 Public benchmark (test, n=600):                 99.3%
@@ -139,14 +158,16 @@ Emergency screen at the local site: 18/18 detected, 0 automated.
 ```
 
 The site writes Spanish billing and refill requests in ways the public data never saw. The
-comparison finds where the pack degrades, and the policy sent every misrouted message to a
-human instead of automating it. (The synthetic public benchmark is template-generated and
+comparison finds where the agent degrades, and the governance policy sent every misrouted message
+to a human instead of automating it. (The synthetic public benchmark is template-generated and
 overstates real-world accuracy. It is a regression test, not a performance estimate.)
 
-### Write your own pack
+### Wrap your own healthcare AI agent
 
-No programming needed: a pack is YAML. The [authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md)
-walks a clinician through it:
+No heavy boilerplate needed: a governed agent package (Decision Pack) is a folder of plain-text
+YAML files that wraps rules, classical models, or an LLM / HTTP agent endpoint. The
+[authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md)
+walks through creating, evaluating, and publishing your agent:
 
 <!-- check: run quickstart -->
 ```bash

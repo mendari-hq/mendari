@@ -296,7 +296,15 @@ code.wrap { overflow-wrap: anywhere; }
   background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold);
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
-.nav a.external { color: var(--color-text-muted); margin-top: var(--space-3); justify-content: flex-start; }
+.nav-section-label {
+  font-size: var(--text-xs); line-height: var(--leading-xs); font-weight: var(--weight-semibold);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-3) var(--space-0-5); user-select: none;
+}
+.nav > :not([hidden]) ~ .nav-section-label {
+  margin-top: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--color-border);
+}
+.nav a.external { color: var(--color-text-muted); justify-content: flex-start; }
 /* Content grows with the screen up to 1,440 px and then centres, instead of stopping at 1,180 px
    and leaving the right of a wide screen empty. */
 main { padding: var(--space-6) var(--space-7) var(--space-10); width: 100%; max-width: 1440px; margin-inline: auto; outline: none; }
@@ -441,6 +449,7 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 .pack-hero-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3) var(--space-4); }
 .pack-hero-title { min-width: 0; }
 .pack-hero-title h1 { margin: var(--space-2) 0 0; }
+.pack-risk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1-5) var(--space-2); }
 .pack-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .pack-header-meta { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .pack-header p { margin: 0 0 var(--space-1); }
@@ -451,6 +460,38 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
   color: var(--color-text); margin-right: var(--space-0-5);
 }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
+.badge.demo-agent { color: var(--color-accent); background: var(--color-accent-soft); }
+
+/* Hospital IT adoption loop strip (overview.js). */
+.adoption-strip { padding: var(--space-4) var(--space-5); }
+.adoption-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: var(--space-1) var(--space-3); margin-bottom: var(--space-3);
+}
+.adoption-head h2 { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); }
+.adoption-head span { font-size: var(--text-xs); }
+.adoption-steps {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3);
+}
+.adoption-step {
+  display: flex; flex-direction: column; gap: var(--space-1-5); min-width: 0;
+  padding: var(--space-3); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); background: var(--color-surface-sunken);
+}
+.adoption-step-head { display: flex; align-items: flex-start; gap: var(--space-2); }
+.adoption-step-num {
+  display: inline-grid; place-items: center; flex: none; min-width: 22px; height: 22px;
+  border-radius: var(--radius-pill); background: var(--color-accent-soft); color: var(--color-accent);
+  font-size: var(--text-xs); font-weight: var(--weight-semibold);
+}
+.adoption-step h3 { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text); }
+.adoption-step p { margin: 0; font-size: var(--text-xs); line-height: var(--leading-xs); flex: 1; }
+.adoption-step-links {
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-top: var(--space-0-5);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+}
+.adoption-step-links .icon { width: 14px; height: 14px; }
 /* Where the pack comes from (pack.js originBadge; the docs landing labels community packs too). */
 .badge.origin { color: var(--origin-other); background: var(--origin-other-soft); }
 .badge.origin-community { color: var(--origin-community); background: var(--origin-community-soft); }
@@ -1272,6 +1313,22 @@ ol.rules p { margin: var(--space-1) 0; }
   /* minmax(0, 1fr), not 1fr: a plain 1fr track grows to its widest table and scrolls the page. */
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); padding: var(--space-2); }
+  .nav-section-label { display: none; }
+  .nav a[data-view="patient"], .nav a[data-view="access"] { order: 0; }
+  .nav a[data-view="overview"] { order: 1; }
+  .nav a[data-view="review"] { order: 2; }
+  .nav a[data-view="audit"] { order: 3; }
+  .nav a[data-view="evals"] { order: 4; }
+  .nav a[data-view="monitoring"] { order: 5; }
+  .nav a[data-view="feedback"] { order: 6; }
+  .nav a[data-view="card"] { order: 7; }
+  .nav a[data-view="try"] { order: 8; }
+  .nav a[data-view="admin"],
+  .nav a[data-view="evalsets"],
+  .nav a[data-view="labelling"],
+  .nav a[data-view="registry-review"],
+  .nav a[data-view="store"],
+  .nav a.external { order: 9; }
   .nav a { white-space: nowrap; }
   .nav a.active { box-shadow: inset 0 -2px 0 var(--color-accent); }
   /* The section list scrolls sideways: edge shadows say there is more. */
@@ -1279,6 +1336,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
+  .adoption-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pack-picker select { width: 13rem; }
   .stats-primary:is(:has(> :nth-child(4):last-child), :has(> :nth-child(6):last-child)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar .segmented .label {
@@ -1322,6 +1380,8 @@ ol.rules p { margin: var(--space-1) 0; }
   main { padding: var(--space-4); }
   h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .adoption-strip { padding: var(--space-3) var(--space-4); }
+  .adoption-steps { grid-template-columns: minmax(0, 1fr); }
   .stats-primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-primary.two { grid-template-columns: minmax(0, 1fr); }
   .stat-value { font-size: var(--text-xl); line-height: var(--leading-xl); }

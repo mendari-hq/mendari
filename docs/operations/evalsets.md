@@ -4,7 +4,7 @@ A **hidden evaluation set** is a set of hand-written cases that a pack's authors
 to measure the pack honestly (LP-11,
 [ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)). Clinicians label its cases blind,
 and a grading run answers aggregates only. This runbook covers all of LP-11 (11a to 11o): the
-owner's steps for the keys and the launch gates; making a set, adding and removing its cases,
+owner's steps for the keys; making a set, adding and removing its cases,
 drawing them for labelling, assigning them to labellers, following the labelling, adjudicating
 disputes and measuring agreement and coverage, freezing a set under its rotation rule, reading
 it, retiring it, listing sets and verifying them, rotating the keys, rebuilding the hidden-case
@@ -167,8 +167,7 @@ first real set:
    uses it. How long it lives, and what to do before it expires:
    [Grading a hidden set](#grading-a-hidden-set).
 7. **Give each set the owner's rotation rule**, at most 20 grading runs and 180 days (owner
-   decision 2), when you freeze it ([Freezing a set](#freezing-a-set)), and attest the launch
-   gates when they are true ([The launch gates](#the-launch-gates)).
+   decision 2), when you freeze it ([Freezing a set](#freezing-a-set)).
 
 ## Making a set and adding its cases
 
@@ -832,28 +831,3 @@ work on kept inputs and notes only.
 are never PHI keys.
 There is no erasure path for a hidden case yet; one is needed before B20 brings de-identified
 cases.
-
-## The launch gates
-
-Two prerequisites of the launch gates (`launch/gates.yaml`) are hidden sets'. Each names the
-tests that hold what was built (`uv run python scripts/check_gates.py` runs them) and waits for
-the owner's attestation: only the owner writes their name (`by`) and the date (`date`,
-YYYY-MM-DD) there, once it is true. The facts behind each stay with the owner's records,
-outside the repository.
-
-- **`labelling-underway`** (gate G2-3): "the labellers contracted and the sets in labelling".
-  The contracts stay outside the repository. `mendari evalset list` shows each set in
-  labelling, a `draft` with its cases; `mendari evalset progress` shows its drawn cases by
-  status and each labeller's assignments by user id, with labels coming in.
-- **`hidden-sets-frozen`** (gate G3-4): "each set's id, freeze hash and positives per critical
-  label (100 or more)", for each frozen set. Its id is the one `mendari evalset list` prints.
-  Its freeze hash is its commitment, which `freeze` prints and `show` reads back. It stays a
-  salted hash, never signed on its own: a signed hidden-set result carries it (the
-  [grading method](../grading/method-1.0.md), section 11). Its positives per critical label are
-  `freeze`'s `critical` list, the `distinct` count of each label, computed from the labels as
-  the set freezes; `show` reads back the coverage freezing stored, checked against the
-  commitment `evalset.frozen` chained to it ([Verifying](#verifying)). A set frozen before
-  LP-11p has no such commitment, and `show` reads its coverage as it is, unchecked: for such a
-  set, take the positives from `freeze`'s own output, kept when it froze. A set counts only when
-  none of its critical labels is `insufficient` (fewer than 100 distinct positives): a set
-  frozen with that warning does not.

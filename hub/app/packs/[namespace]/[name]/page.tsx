@@ -50,7 +50,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
     return (
       <div className="wrap page-body">
         <nav className="breadcrumb muted" aria-label="Breadcrumb">
-          <Link href="/">Decision Packs</Link>
+          <Link href="/">Agent Hub</Link>
           <span className="breadcrumb-sep" aria-hidden="true">/</span>
           <Link href={`/publishers/${namespace}`}>{namespace}</Link>
         </nav>
@@ -76,14 +76,20 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
   const siteFoot = totalSites
     ? anySiteDiff
       ? "Site differences noted — inspect below"
-      : "Signed zero-PHI counts"
-    : "Share with mendari eval --share";
+      : "Signed zero-PHI hospital counts"
+    : "Publish with mendari eval --share";
+  const starterLabel =
+    namespace === "mendari"
+      ? name === "patient-inbox-router"
+        ? "Demo agent"
+        : "Starter template"
+      : null;
   const { checked, claimed } = latest;
   const risk = claimed.risk;
   return (
     <div className="wrap page-body">
       <nav className="breadcrumb muted" aria-label="Breadcrumb">
-        <Link href="/">Decision Packs</Link>
+        <Link href="/">Agent Hub</Link>
         <span className="breadcrumb-sep" aria-hidden="true">/</span>
         <Link href={`/publishers/${namespace}`}>{namespace}</Link>
       </nav>
@@ -91,6 +97,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       <header className="pack-hero">
         <div className="pack-hero-meta row">
           <span className="mono pack-id-pill">{detail.id}@{latest.version}</span>
+          {starterLabel ? <span className="badge demo-tag">{starterLabel}</span> : null}
           {checked.publisher_type ? (
             <span className={`badge ${checked.publisher_type}`}>{checked.publisher_type} publisher</span>
           ) : null}
@@ -114,20 +121,20 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           value={latest.version}
           foot={`${detail.versions.length} ${detail.versions.length === 1 ? "version" : "versions"} published`}
         />
-        <Fact label="Decides" value={latest.primary} foot={`${latest.questions.length} questions`} />
-        <Fact label="Multi-site evidence" value={siteSummary} foot={siteFoot} />
+        <Fact label="Agent output" value={latest.primary} foot={`${latest.questions.length} governed questions`} />
+        <Fact label="Hospital site evals" value={siteSummary} foot={siteFoot} />
       </section>
 
       <section className="install-card" aria-labelledby="use-heading">
         <div className="install-head">
-          <h2 id="use-heading">Use it</h2>
+          <h2 id="use-heading">Try &amp; shadow-test this agent</h2>
           <span className="install-tag mono">Signature &amp; digest verified on pull</span>
         </div>
         <CopyCommand command={`pip install mendari && mendari pull ${detail.id}`} />
         <p className="install-note">
-          Pulls verify the archive against its signature (<span className="mono">{checked.signature.key_id}</span>) and the pack digest{" "}
-          <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for{" "}
-          <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
+          Pulls verify the signed archive (<span className="mono">{checked.signature.key_id}</span>) and digest{" "}
+          <span className="mono">{checked.digest.slice(0, 19)}…</span>, then cache it for local shadow evaluation with{" "}
+          <code>mendari eval {detail.id} --dataset your-cases.jsonl</code> — add <code>--share</code> to publish zero-PHI site counts back to the Hub.
         </p>
       </section>
 
@@ -173,7 +180,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
             <h2 id="claimed-heading">Claimed by the publisher</h2>
             <span className="group-tag group-tag-warn">Publisher declared</span>
           </div>
-          <p className="muted group-sub">What the pack says about itself. The registry has not checked it.</p>
+          <p className="muted group-sub">What the agent package says about itself. The registry has not checked it.</p>
           <dl>
             {claimed.publisher ? (
               <Item term="Publisher">{claimed.publisher.name} ({claimed.publisher.type}, self-declared)</Item>

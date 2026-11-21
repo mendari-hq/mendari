@@ -66,8 +66,8 @@ published: disclosure pending" in place of its figures, and the arm's configurat
 measured are counted in one row rather than named. A result is published there by the page's
 rule, from the same board: its figures and models are shown only while the disclosures file
 still holds, word for word, the statement each type it calls had when it was stored, as the
-section on replicates below says. Deploying `web/` is the owner's, and waited only for gate
-G1-2's `patent-decision`, attested on 2026-11-07, when the page was deployed.
+section on replicates below says. Deploying `web/` is the owner's; the page was deployed on
+2026-11-07.
 
 The Decision Cards, `mendari leaderboard` and the dashboard's Provider comparison say the same
 of a pack's own leaderboard: "public set: regression check, not a ranking", no rank printed,
@@ -433,7 +433,7 @@ not signed: step 8 supersedes them.
     Keep a copy where you keep your other private keys. It is never a server setting or a CI
     secret. Its public half is listed in `scoreboard/keys.json` at step 10, when it first signs.
 
-3. **Publish the method** (owner decision 11, after gate G1-2's `patent-decision`): the
+3. **Publish the method** (owner decision 11): the
    documentation site, which holds the method and the early scoreboard, and the public page's
    scores. The site deploys by
    hand only: Actions, then `docs`, then Run workflow, from `main` (it deploys once the
@@ -443,8 +443,8 @@ not signed: step 8 supersedes them.
     cd web && vercel deploy --prod
     ```
 
-    The public page was deployed this way on 2026-11-07, once `patent-decision` was attested and
-    main was green (`tasks/todo.md`); the documentation site is still to publish. The day the
+    The public page was deployed this way on 2026-11-07, once main was green (`tasks/todo.md`);
+    the documentation site is still to publish. The day the
     method is at its URL starts its 30 days'
     notice (B30). Note the URL and the day.
 
@@ -459,10 +459,8 @@ not signed: step 8 supersedes them.
      method changed", and stays as it is until step 8.
 
     The pull request can merge before the day. Publish the site again (step 3's workflow), so
-    the method's page shows its date before it falls. Then fill in the attestation of gate
-    `grading-method` in `launch/gates.yaml` (`by` and `date`): the method at its public URL,
-    with its version and effective date. Once the day comes, the method does not change: a
-    change is a new version, with 30 days' notice of its own.
+    the method's page shows its date before it falls. Once the day comes, the method does not
+    change: a change is a new version, with 30 days' notice of its own.
 
 5. **Write the price table.** `scoreboard/prices/<YYYY-MM-DD>.json` (`mendari.prices/1`), dated
    the day you read the prices, with where you read them (`source`), and per model type and
@@ -564,8 +562,8 @@ not signed: step 8 supersedes them.
     named). The other tests of the store work out what the page says from the store: signatures,
     the method's effective date, superseded results and hidden sets' answers need no edit.
 
-9. **Grade the hidden sets.** Once a set is frozen (gate `hidden-sets-frozen`; its rotation
-   numbers set at freeze, owner decision 4: 20 runs and 180 days:
+9. **Grade the hidden sets.** Once a set is frozen (with its rotation numbers set at freeze,
+   owner decision 4: 20 runs and 180 days:
    `mendari evalset freeze <set id> --max-runs 20 --max-age-days 180 --db "$DATABASE_URL"`,
    [Freezing a set](evalsets.md#freezing-a-set)), mint the organization's grading key
    ([Grading a hidden set](evalsets.md#grading-a-hidden-set)):

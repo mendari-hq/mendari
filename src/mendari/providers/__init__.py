@@ -12,6 +12,8 @@ from mendari.core.origin import deployment_config
 from mendari.core.pack import Pack
 from mendari.core.spec import ProviderVariant
 from mendari.errors import PackValidationError
+from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
+from mendari.providers.agent import AgentConfig, AgentProvider
 from mendari.providers.any_of import AnyOfConfig, AnyOfProvider
 from mendari.providers.base import (
     Answer,
@@ -45,6 +47,7 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
         NaiveBayesProvider,
         JevProvider,
         LlmProvider,
+        AgentProvider,
         AnyOfProvider,
         CascadeProvider,
         VoteProvider,
@@ -52,7 +55,7 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
 }
 
 # The provider types that ask a model to read the input.
-MODEL_TYPES = frozenset({JevProvider.type, LlmProvider.type})
+MODEL_TYPES = frozenset({JevProvider.type, LlmProvider.type, AgentProvider.type})
 
 # Each provider type's closed config: every key a variant (or a composite member) of that type
 # may set, and nothing else (`config_problems`). Jev's and the LLM's leave out `type`, which their
@@ -65,6 +68,7 @@ PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     NaiveBayesProvider.type: NaiveBayesConfig,
     JevProvider.type: JevConfig,
     LlmProvider.type: LlmConfig,
+    AgentProvider.type: AgentConfig,
     AnyOfProvider.type: AnyOfConfig,
     CascadeProvider.type: CascadeConfig,
     VoteProvider.type: VoteConfig,
@@ -73,7 +77,7 @@ PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
 CONFIG_SCHEMA_ID = "https://mendari.co/spec/provider-configs.schema.json"
 # The deployment's variables that name a remote provider's endpoint: when it lists the origins
 # its providers may be called at, each one it sets must be on that list (`provider_allow_list`).
-ENDPOINT_ENVS = (LLM_BASE_URL_ENV, JEV_ENDPOINT_ENV)
+ENDPOINT_ENVS = (LLM_BASE_URL_ENV, JEV_ENDPOINT_ENV, AGENT_ENDPOINT_ENV)
 
 __all__ = [
     "ENDPOINT_ENVS",

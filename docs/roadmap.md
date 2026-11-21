@@ -230,7 +230,10 @@ the Hub and the docs site._
 - Later: a Hub domain name and a publisher-verification policy.
 
 ## Next step
-v0.2, planned in detail and approved before code is written.
+Publish the v1.0 open-source release (public repository, PyPI package, container images, and
+hosted docs/Hub) and focus on real-world adoption of Mendari as an open-source healthcare AI
+governance and evaluation platform — clinician-reviewed evaluation sets, transparent provider
+benchmarking, auditable human-in-the-loop policies, and community-contributed Decision Packs.
 
 ## Verification of the roadmap itself
 Each milestone's exit criteria are testable (commands, datasets, metrics). The roadmap counts

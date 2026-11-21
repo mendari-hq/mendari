@@ -4,8 +4,9 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Mendari Hub", template: "%s · Mendari Hub" },
-  description: "Decision Packs for healthcare: packaged, evaluated, signed and shared.",
+  title: { default: "Mendari Agent Hub", template: "%s · Mendari Agent Hub" },
+  description:
+    "Mendari Agent Hub: browse vetted healthcare AI agents with published evals, deterministic risk caps, and multi-site hospital evidence.",
 };
 
 function BrandMark({ size = 28 }: { size?: number }) {
@@ -32,11 +33,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="brand">
               <BrandMark size={28} />
               <span className="brand-wordmark">Mendari</span>
-              <span className="brand-sub">Hub</span>
+              <span className="brand-sub">Agent Hub</span>
             </Link>
             <nav className="topbar-nav" aria-label="Main">
-              <Link href="/">Browse packs</Link>
-              <Link href="/publishers/mendari">Reference packs</Link>
+              <Link href="/">Browse agents</Link>
+              <Link href="/publishers/mendari">Starter demos</Link>
               <span className="tag">synthetic data only</span>
             </nav>
           </div>
@@ -48,16 +49,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="brand brand-sm">
                 <BrandMark size={22} />
                 <span className="brand-wordmark">Mendari</span>
-                <span className="brand-sub">Hub</span>
+                <span className="brand-sub">Agent Hub</span>
               </p>
               <p className="muted">
-                Signed Decision Pack registry. Every card is rendered from the pack&apos;s verified archive; validate on your own cases before use.
+                Signed healthcare AI agent registry. Every Decision Card is rendered from the agent&apos;s verified archive; shadow-test on your own workflows before use.
               </p>
             </div>
             <div className="foot-meta">
               <nav className="foot-links" aria-label="Registry">
-                <Link href="/">Browse packs</Link>
-                <Link href="/publishers/mendari">Reference packs</Link>
+                <Link href="/">Browse agents</Link>
+                <Link href="/publishers/mendari">Starter demos</Link>
               </nav>
               <p className="muted">Apache-2.0 · Research preview</p>
             </div>

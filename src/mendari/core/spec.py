@@ -174,6 +174,7 @@ def version_key(version: str) -> tuple[tuple[int, str], ...]:
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
     "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
+    "agent": frozenset({"endpoint_env", "token_env", "api_key_env"}),
 }
 
 

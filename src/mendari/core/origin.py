@@ -44,6 +44,7 @@ limits wherever it was loaded from (`is_community`).
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -85,10 +86,11 @@ COMPOSITE_PROVIDER_TYPES = frozenset({"any_of", "cascade", "vote"})
 # Variant keys a pack the deployment does not own (`bounded`) may set but the deployment decides:
 # which model a remote provider calls. Its answer length and timeout are held to the provider
 # defaults below, a lower value of its own kept, and its effort to `MAX_NOT_OWNED_EFFORT`.
-DEPLOYMENT_CHOSEN_KEYS = ("model",)
-NOT_OWNED_CAPS: Mapping[str, Mapping[str, int]] = {
+DEPLOYMENT_CHOSEN_KEYS = ("model", "endpoint")
+NOT_OWNED_CAPS: Mapping[str, Mapping[str, int | float]] = {
     "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
     "jev": {"timeout_ms": 5_000},
+    "agent": {"timeout_seconds": 15.0},
 }
 # Variant keys a pack from a store (LP-20e) may set but the deployment decides, beyond those of
 # any pack it does not own: its price per call (the recorded cost is the deployment's), whether
@@ -345,7 +347,7 @@ def deployment_config(config: Mapping[str, Any], *, store: bool = False) -> dict
     chosen = DEPLOYMENT_CHOSEN_KEYS + (STORE_DEPLOYMENT_KEYS if store else ())
     kept = {key: value for key, value in config.items() if key not in chosen}
     for key, cap in NOT_OWNED_CAPS.get(str(kept.get("type")), {}).items():
-        if key in kept and (number := _config_int(kept[key])) is not None:
+        if key in kept and (number := _config_number(kept[key], cap)) is not None:
             kept[key] = min(number, cap)
     effort = kept.get("reasoning_effort", "none")
     if effort not in EFFORTS or EFFORTS.index(effort) > EFFORTS.index(MAX_NOT_OWNED_EFFORT):
@@ -360,16 +362,20 @@ def deployment_config(config: Mapping[str, Any], *, store: bool = False) -> dict
 
 
 _INT = TypeAdapter(int)
+_FLOAT = TypeAdapter(float)
 
 
-def _config_int(value: Any) -> int | None:
-    """`value` as a provider's config model reads an integer setting: pydantic's lax mode, so
-    `"32000"`, `32000.0` and `"32000.0"` are 32000, as `LlmConfig` and `JevConfig` read them
-    (a cap compares that, never the text). None for what the models refuse (a bool, `32000.5`,
-    `"x"`): `load_pack` refused a pack with one, so nothing runs with it."""
+def _config_number(value: Any, cap: int | float) -> int | float | None:
+    """`value` as a provider's config model reads a numeric setting: pydantic's lax mode, so
+    `"32000"`, `32000.0` and `"32000.0"` are 32000 for integer caps (`LlmConfig`, `JevConfig`),
+    and finite floats for float caps (`AgentConfig.timeout_seconds`). None for what the models
+    refuse (a bool, `32000.5` for int caps, `"x"`): `load_pack` refused a pack with one."""
     if isinstance(value, bool):
         return None
     try:
+        if isinstance(cap, float):
+            parsed = _FLOAT.validate_python(value)
+            return parsed if math.isfinite(parsed) else None
         return _INT.validate_python(value)
     except ValidationError:
         return None

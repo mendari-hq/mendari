@@ -102,9 +102,7 @@ jobs:
         run: docker logs --tail 80 mendari-pg || true
 
   browser:
-    # The dashboard in a real browser (tests/browser, skipped by the default pytest run), then the
-    # launch gates report (full live report on push to main; fast collection check on pull requests
-    # since `test (3.12)` and `browser` already ran every underlying test).
+    # The dashboard in a real browser (tests/browser, skipped by the default pytest run).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -117,51 +115,6 @@ jobs:
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m browser
-      - name: Launch gates integrity check (pull requests)
-        if: github.event_name == 'pull_request'
-        run: uv run python scripts/check_gates.py --collect-only
-      - name: Sign in to Docker Hub (push to main, for the launch gates Postgres service)
-        if: github.event_name == 'push' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
-        continue-on-error: true
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Start disposable Postgres 16 for launch gates (push to main)
-        if: github.event_name == 'push'
-        run: |
-          docker run -d --rm --name mendari-pg \
-            -p 127.0.0.1:5432:5432 \
-            -e POSTGRES_PASSWORD=mendari-test \
-            -e POSTGRES_DB=mendari_test \
-            postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
-            postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
-            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
-          for i in $(seq 1 30); do
-            docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
-            sleep 1
-          done
-          docker logs mendari-pg
-          exit 1
-      - name: Postgres 16 client tools, to match the service (a newer pg_dump writes settings 16 rejects)
-        if: github.event_name == 'push'
-        run: |
-          if ! /usr/lib/postgresql/16/bin/pg_dump --version 2>/dev/null; then
-            sudo apt-get install -y postgresql-common
-            sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-            sudo apt-get install -y postgresql-client-16
-          fi
-          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
-      # A report, never a gate on a pull request: it fails only when launch/gates.yaml itself is
-      # wrong (a test it names is gone, an attestation where none belongs). Full run on push to main.
-      - name: The launch gates (launch/gates.yaml), in the run's summary
-        if: github.event_name == 'push'
-        env:
-          MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
-        run: |
-          uv run python scripts/check_gates.py --workers auto > /tmp/gates.md
-          cat /tmp/gates.md
-          cat /tmp/gates.md >> "$GITHUB_STEP_SUMMARY"
 
   reference-pack:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source,

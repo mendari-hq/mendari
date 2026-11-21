@@ -135,28 +135,32 @@
       <a href="#patient" data-view="patient" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-user"/></svg>This patient</span></a>
       <!-- Memberships mode: a launch in a browser whose person has chosen no organization yet. -->
       <a href="#access" data-view="access" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-key"/></svg>Choose an organization</span></a>
-      <a href="#overview" data-view="overview"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-layout-dashboard"/></svg>Overview</span></a>
-      <a href="#review" data-view="review"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-clipboard-check"/></svg>Review queue</span> <span class="count" id="review-count"></span></a>
-      <a href="#audit" data-view="audit"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-scroll-text"/></svg>Audit trail</span></a>
-      <a href="#evals" data-view="evals"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-bar-chart"/></svg>Evaluations</span></a>
-      <a href="#monitoring" data-view="monitoring"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitoring</span></a>
-      <a href="#feedback" data-view="feedback"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-message"/></svg>Feedback</span></a>
-      <a href="#card" data-view="card"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-file-text"/></svg>Decision Card</span></a>
-      <a href="#try" data-view="try"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Try it</span></a>
-      <!-- An administrator who signed in (admin.js): API keys and clients; people in memberships mode. -->
-      <a href="#admin" data-view="admin" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-key"/></svg>Access</span></a>
-      <!-- An administrator who signed in, in memberships mode where hidden evaluation sets are on
-           (evalsets.js): their organization's sets, drawn, assigned and followed. -->
-      <a href="#evalsets" data-view="evalsets" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-lock"/></svg>Hidden sets</span></a>
-      <!-- Someone holding `label` where the labelling routes are served (labelling.js). -->
-      <a href="#labelling" data-view="labelling" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-tag"/></svg>Labelling</span></a>
-      <!-- A reviewer of the pack registry, in its review organization, where the registry is served
-           here (registry.js): the namespace claims waiting. -->
-      <a href="#registry-review" data-view="registry-review" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Registry review</span></a>
+      <div class="nav-section-label" data-nav-group="adopt" aria-hidden="true">Adopt</div>
+      <a href="#overview" data-view="overview" data-nav-section="adopt"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-layout-dashboard"/></svg>Overview</span></a>
+      <a href="#card" data-view="card" data-nav-section="adopt"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-file-text"/></svg>Decision Card</span></a>
       <!-- A pack author or someone who may promote, where the organization's pack store is served
            (store.js, LP-20j). -->
-      <a href="#store" data-view="store" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-package"/></svg>Pack store</span></a>
-      <a href="/docs" class="external">API docs <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a>
+      <a href="#store" data-view="store" data-nav-section="adopt" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-package"/></svg>Pack store</span></a>
+      <div class="nav-section-label" data-nav-group="evaluate" aria-hidden="true">Evaluate</div>
+      <a href="#try" data-view="try" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Try it</span></a>
+      <a href="#evals" data-view="evals" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-bar-chart"/></svg>Evaluations</span></a>
+      <a href="#feedback" data-view="feedback" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-message"/></svg>Feedback</span></a>
+      <div class="nav-section-label" data-nav-group="govern" aria-hidden="true">Govern</div>
+      <a href="#review" data-view="review" data-nav-section="govern"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-clipboard-check"/></svg>Review queue</span> <span class="count" id="review-count"></span></a>
+      <a href="#audit" data-view="audit" data-nav-section="govern"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-scroll-text"/></svg>Audit trail</span></a>
+      <a href="#monitoring" data-view="monitoring" data-nav-section="govern"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-activity"/></svg>Monitoring</span></a>
+      <div class="nav-section-label" data-nav-group="connect" aria-hidden="true">Connect &amp; Ops</div>
+      <!-- An administrator who signed in (admin.js): API keys and clients; people in memberships mode. -->
+      <a href="#admin" data-view="admin" data-nav-section="connect" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-key"/></svg>Access</span></a>
+      <!-- An administrator who signed in, in memberships mode where hidden evaluation sets are on
+           (evalsets.js): their organization's sets, drawn, assigned and followed. -->
+      <a href="#evalsets" data-view="evalsets" data-nav-section="connect" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-lock"/></svg>Hidden sets</span></a>
+      <!-- Someone holding `label` where the labelling routes are served (labelling.js). -->
+      <a href="#labelling" data-view="labelling" data-nav-section="connect" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-tag"/></svg>Labelling</span></a>
+      <!-- A reviewer of the pack registry, in its review organization, where the registry is served
+           here (registry.js): the namespace claims waiting. -->
+      <a href="#registry-review" data-view="registry-review" data-nav-section="connect" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Registry review</span></a>
+      <a href="/docs" class="external" data-nav-section="connect">API docs <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a>
     </nav>
     <main id="view" tabindex="-1"></main>
   </div>
