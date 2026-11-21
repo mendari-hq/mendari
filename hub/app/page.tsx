@@ -24,16 +24,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
             <div className="hero-copy">
               <p className="eyebrow">
                 <span className="eyebrow-dot" aria-hidden="true" />
-                Signed Decision Pack Registry
+                Mendari Agent Hub · Governed Healthcare AI Agents
               </p>
               <h1>Decision Packs</h1>
+              <p className="hero-subtitle">
+                Discover vetted healthcare AI agents with published evals, deterministic risk caps, and multi-site hospital evidence.
+              </p>
               <p className="lead">
-                Healthcare decisions packaged as signed archives, each with a Decision Card the registry
-                rendered from the pack&apos;s own files. Validate a pack on your own data before you rely on it.
+                Hospital IT teams browse signed agent packages with registry-rendered Decision Cards instead of starting from zero with every vendor. AI builders wrap any model or agent in Mendari, run standardized evals showing what works best, and publish verified scorecards here.
               </p>
               <dl className="hero-metrics" aria-label="Registry summary">
                 <div className="hero-metric">
-                  <dt>{filtered ? "Matching packs" : "Published packs"}</dt>
+                  <dt>{filtered ? "Matching agents" : "Published agents"}</dt>
                   <dd>{packs.length}</dd>
                 </div>
                 <div className="hero-metric">
@@ -41,32 +43,51 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
                   <dd>{verifiedCount}</dd>
                 </div>
                 <div className="hero-metric">
-                  <dt>Standards covered</dt>
+                  <dt>EHR standards</dt>
                   <dd>{standardsCount}</dd>
                 </div>
               </dl>
             </div>
-            <div className="hero-cli" aria-label="Install and verify a Decision Pack">
+            <div className="hero-cli" aria-label="Pull and shadow-test an agent or publish your own">
               <p className="terminal-bar">
-                <span>Quick install</span>
+                <span>Try a vetted agent · or publish yours</span>
                 <span>Ed25519 verified</span>
               </p>
               <pre>
                 <code>
-                  <span className="prompt" aria-hidden="true">$ </span>pip install mendari{"\n"}
+                  <span className="comment"># Hospital IT: pull &amp; shadow-test locally</span>{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/referral-router{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/referral-router{"\n"}
-                  <span className="comment">    --dataset your-cases.jsonl</span>
+                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/referral-router --dataset your-cases.jsonl{"\n"}
+                  <span className="comment"># AI Builders: wrap any agent &amp; publish scorecard</span>{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari new my-agent --id my-org/my-agent{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari push my-agent --key keys/publisher.key
                 </code>
               </pre>
+            </div>
+          </div>
+
+          <div className="hub-loop-strip" aria-label="Two-sided Hub workflow">
+            <div className="hub-loop-side hub-loop-hospitals">
+              <p className="hub-loop-label">For Hospital IT &amp; Informatics</p>
+              <p className="hub-loop-flow">Compare evals → Shadow-test locally → Publish site eval</p>
+              <p className="hub-loop-desc">
+                Inspect signed digests, risk caps, and multi-site hospital counts before running a 7-day FHIR / CDS Hooks shadow pilot.
+              </p>
+            </div>
+            <div className="hub-loop-side hub-loop-builders">
+              <p className="hub-loop-label">For AI Builders &amp; Vendors</p>
+              <p className="hub-loop-flow">Wrap agent → Run evals → Publish scorecard</p>
+              <p className="hub-loop-desc">
+                Wrap Claude, OpenAI, LangGraph, custom HTTP agents, or rules in Mendari to prove which models and configs work best.
+              </p>
             </div>
           </div>
 
           <div className="search-shell">
             <form key={filterKey} className="search" role="search" action="/">
               <label>
-                Search
-                <input name="q" type="search" defaultValue={filters.q ?? ""} placeholder="referral, prior authorization…" />
+                Search agents
+                <input name="q" type="search" defaultValue={filters.q ?? ""} placeholder="referral, prior authorization, triage…" />
               </label>
               <label>
                 Risk level
@@ -107,12 +128,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
         {packs.length ? (
           <>
             <div className="catalog-bar">
-              <h2 className="sr-only">Published packs</h2>
+              <h2 className="sr-only">Published agents</h2>
               <p className="catalog-count">
-                <strong>{packs.length}</strong> {packs.length === 1 ? "pack" : "packs"}{filtered ? " matching filters" : " available"}
+                <strong>{packs.length}</strong> {packs.length === 1 ? "agent" : "agents"}{filtered ? " matching filters" : " available"}
               </p>
               <p className="muted catalog-hint">
-                Risk levels are declared by publishers until reviewed by the registry.
+                Built-in <code>mendari/*</code> entries are tagged as starter demos; risk levels are declared by publishers until reviewed.
               </p>
             </div>
             <ul className="results" aria-label="Packs">
@@ -135,22 +156,22 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
       <div className="wrap federated-wrap">
         <section className="federated-banner" aria-labelledby="federated-heading">
           <div className="federated-copy">
-            <p className="section-kicker">Zero-PHI multi-site validation</p>
-            <h2 id="federated-heading">Independent multi-site validation, without sharing PHI</h2>
+            <p className="section-kicker">Zero-PHI multi-site hospital evidence</p>
+            <h2 id="federated-heading">Publish local site evals back — without sharing PHI</h2>
             <p className="federated-text">
-              Verified health systems evaluate packs on their own chart-reviewed cases and publish
-              cryptographically signed counts (never patient records). Open any pack to inspect its
-              multi-site forest plot and homogeneity tests.
+              Verified health systems shadow-test agents on their own chart-reviewed cases and publish
+              cryptographically signed counts (never patient records), so the next hospital starts from
+              real-world evidence instead of vendor claims. Open any agent to inspect its forest plot.
             </p>
           </div>
           <div className="federated-cmd">
             <p className="terminal-bar">
-              <span>Share site counts</span>
+              <span>Publish local site eval</span>
               <span>No PHI leaves site</span>
             </p>
             <pre>
               <code>
-                <span className="prompt" aria-hidden="true">$ </span>mendari eval &lt;pack&gt; --dataset your-cases.jsonl --share
+                <span className="prompt" aria-hidden="true">$ </span>mendari eval &lt;agent-id&gt; --dataset your-cases.jsonl --share
               </code>
             </pre>
           </div>
@@ -161,6 +182,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
 }
 
 function PackCard({ item }: { item: PackSummary }) {
+  const starterLabel =
+    item.namespace === "mendari"
+      ? item.name === "patient-inbox-router"
+        ? "Demo agent"
+        : "Starter template"
+      : null;
+
   return (
     <li className="card">
       <div className="card-top">
@@ -169,6 +197,7 @@ function PackCard({ item }: { item: PackSummary }) {
           <p className="card-id mono muted">{item.id}@{item.version}</p>
         </div>
         <div className="card-badges">
+          {starterLabel ? <span className="badge demo-tag">{starterLabel}</span> : null}
           {item.checked.publisher_type ? (
             <span className={`badge ${item.checked.publisher_type}`}>{item.checked.publisher_type}</span>
           ) : null}
@@ -190,7 +219,7 @@ function PackCard({ item }: { item: PackSummary }) {
             </span>
           ) : null}
         </div>
-        <span className="card-cta" aria-hidden="true">Inspect →</span>
+        <span className="card-cta" aria-hidden="true">Inspect evals →</span>
       </div>
     </li>
   );
