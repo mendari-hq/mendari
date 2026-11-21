@@ -105,10 +105,12 @@ async function boot() {
     // links.
     const kept = [state.labelOnly && "labelling", state.reviewOnly && "registry-review", state.storeOnly && "store"];
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !kept.includes(a.dataset.view)));
+    syncNavGroups();
     window.addEventListener("hashchange", onHashChange);
     render();
     return;
   }
+  syncNavGroups();
   state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {
@@ -242,6 +244,15 @@ function showRegistryReview() {
 // the store's screens (store.js).
 function showStore() {
   $('.nav a[data-view="store"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.store.available();
+}
+
+// Hide each desktop pillar header whenever every link inside that pillar is hidden.
+function syncNavGroups() {
+  document.querySelectorAll(".nav-section-label[data-nav-group]").forEach((label) => {
+    const group = label.dataset.navGroup;
+    const links = [...document.querySelectorAll(`.nav a[data-nav-section="${group}"]`)];
+    label.hidden = links.every((a) => a.hidden);
+  });
 }
 
 boot().catch((error) => {
