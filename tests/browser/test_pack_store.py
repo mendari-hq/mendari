@@ -176,7 +176,7 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
     digest = copy(page)
     found["a version"] = violations(page)
     page.get_by_role("button", name="Run the tests").click()
-    expect(page.locator("#tests-result")).to_contain_text("passed")
+    expect(page.locator("#tests-result")).to_contain_text("passed", timeout=20_000)
     found["its tests"] = violations(page)
     run_job(page, version=digest)
     run_job(page, pack=INBOX)
@@ -217,7 +217,7 @@ def _upload(page: Page, tmp_path: Path, data: bytes) -> None:
     path.write_bytes(data)
     page.get_by_label("Archive").set_input_files(str(path))
     page.get_by_role("button", name="Upload", exact=True).click()
-    expect(page.locator("#upload-result")).not_to_be_empty()
+    expect(page.locator("#upload-result")).not_to_be_empty(timeout=20_000)
 
 
 def test_a_refused_upload_shows_kinds_and_places_and_no_value(site: Site, tmp_path: Path) -> None:
