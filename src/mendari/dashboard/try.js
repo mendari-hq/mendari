@@ -212,12 +212,18 @@ async function tryRecord(main) {
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
     $("#expected").textContent = example && expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
   };
-  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
+    if (mode === "fhir") mode = recordView;
     load(replay);
     $("#record").value = JSON.stringify(replay, null, 2);
-    $("#expected").textContent = "Loaded from the audit trail: edit any field and decide to compare.";
+    const orig = replayMeta?.original;
+    const origNote = orig?.outcome
+      ? ` (original: ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})`
+      : "";
+    $("#expected").textContent = `Loaded from the audit trail${origNote}: edit any field and decide to compare.`;
     toast("Loaded case from audit trail");
   } else {
     choose(0);
@@ -307,10 +313,11 @@ async function tryMessage(main) {
     storageSet("oh.try.mode", mode);
     showMode();
   }));
-  showMode();
-  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
+    if (mode === "fhir") mode = "form";
     const msg = isObject(replay.message) ? replay.message : {};
     const pat = isObject(replay.patient) ? replay.patient : {};
     if (typeof msg.body === "string") $("#body").value = msg.body;
@@ -318,8 +325,11 @@ async function tryMessage(main) {
     if (fields.channel && typeof msg.channel === "string") $("#channel").value = msg.channel;
     if (fields.language && typeof pat.preferred_language === "string") $("#language").value = pat.preferred_language;
     if (fields.age && typeof pat.age_band === "string") $("#age").value = pat.age_band;
-    toast("Loaded case from audit trail");
+    const orig = replayMeta?.original;
+    const origNote = orig?.outcome ? ` (was ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})` : "";
+    toast(`Loaded case from audit trail${origNote}`);
   }
+  showMode();
   main.querySelectorAll("button[data-sample]").forEach((b) => b.addEventListener("click", () => {
     const s = SAMPLES[Number(b.dataset.sample)];
     $("#body").value = s.body;

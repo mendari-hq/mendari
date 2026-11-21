@@ -85,7 +85,7 @@ function showNamespaces() {
       <p class="muted">The first part of a pack's id (<code>namespace/pack</code>). Nothing published in it is served to anyone until the registry's reviewers approve its first version.</p>
       <label for="claim-name">Name</label>
       <input id="claim-name" name="name" required maxlength="${MAX_NAMESPACE}" pattern="${NAME_PATTERN}" autocomplete="off" spellcheck="false" class="field-full mono" aria-describedby="claim-name-hint">
-      <p class="muted" id="claim-name-hint">Lowercase letters, digits and dashes. <code>mendari</code> and <code>openhealth</code> are reserved.</p>
+      <p class="muted" id="claim-name-hint">Lowercase letters, digits and dashes. <code>mendari</code> is reserved.</p>
       <label for="claim-display">Display name (optional)</label>
       <input id="claim-display" name="display_name" maxlength="200" autocomplete="off" class="field-full">
       <p class="error" id="claim-error" role="alert" hidden></p>
@@ -430,7 +430,7 @@ views["registry-review"] = async (main) => {
     <p class="muted">Namespace claims waiting for a reviewer. Approving lists the namespace: every version it has and will have is served to everyone. What the registry checked stands apart from what the publisher claims. You never decide a claim you filed yourself.</p>
     <div id="registry-queue">${queueHtml()}</div>
     <h2 class="mt-4" id="site-queue-heading">Sites waiting</h2>
-    <p class="muted">Evaluating sites an organization registered (LP-22). Check outside Mendari that the organization is who it says before you verify its site: its name is shown beside its signed counts. You never decide your own organization's site.</p>
+    <p class="muted">Evaluating sites an organization registered. Check outside Mendari that the organization is who it says before you verify its site: its name is shown beside its signed counts. You never decide your own organization's site.</p>
     <div id="site-queue">${siteQueueHtml()}</div>`;
   const body = $("#registry-queue");
   body.addEventListener("click", (event) => {

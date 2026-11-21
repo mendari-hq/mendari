@@ -81,6 +81,10 @@ async function showRunTab(body, empty) {
   }
   const datasets = await api(`${packPath()}/datasets`);
   if (body.dataset.tab !== "run") return;
+  if (!datasets.length) {
+    body.innerHTML = empty("No datasets are available for this agent yet.");
+    return;
+  }
   const preselected = datasets.find((d) => d.name.includes("local-site")) ?? datasets[0];
   const remote = remoteSlots();
   body.innerHTML = `

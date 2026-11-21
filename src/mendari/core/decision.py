@@ -586,7 +586,12 @@ class Decision:
                 finally:
                     METER.reset(metering)
                     OVER_QUOTA.reset(over)
-                complete_answers(manifest, answers, failures)
+                try:
+                    complete_answers(manifest, answers, failures)
+                except OutOfTime:
+                    for key in manifest.derived:
+                        if key not in answers:
+                            failures[key] = "time_budget"
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None
                 origin_holds = self._origin_holds()

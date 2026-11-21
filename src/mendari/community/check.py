@@ -1113,7 +1113,13 @@ def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
         evaluation = evaluation if isinstance(evaluation, dict) else {}
         default = Evaluation.model_fields["degradation_tolerance"].default
         given = evaluation.get("degradation_tolerance", default)
-        tolerance = min(float(given), MAX_TOLERANCE) if isinstance(given, int | float) else 0.0
+        tolerance = (
+            min(float(given), MAX_TOLERANCE)
+            if isinstance(given, int | float)
+            and not isinstance(given, bool)
+            and math.isfinite(given)
+            else 0.0
+        )
         relative = evaluation.get("benchmark")
         if not isinstance(relative, str):
             ctx.report.not_checked.append("regressions: the base's pack has no benchmark")
@@ -1169,8 +1175,16 @@ def _honest_numbers(ctx: _Context, report: dict[str, Any]) -> None:
     rewrite = f"render it again after the benchmark: `mendari card {ctx.shown} --write`"
     if not card_path.is_file():
         ctx.report.error("honest-numbers", f"{CARD} is missing: {rewrite}")
-    elif card_path.read_text(encoding="utf-8") != card:
-        ctx.report.error("honest-numbers", f"{CARD} is not the card the pack renders: {rewrite}")
+    else:
+        try:
+            existing_card = card_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            ctx.report.error("honest-numbers", f"{CARD} is not valid UTF-8: {rewrite}")
+        else:
+            if existing_card != card:
+                ctx.report.error(
+                    "honest-numbers", f"{CARD} is not the card the pack renders: {rewrite}"
+                )
 
 
 def _retrained(ctx: _Context) -> None:
@@ -1358,6 +1372,32 @@ def _ledger_problems(ctx: _Context, relative: str, committed: dict[str, Any]) ->
     return found
 
 
+def _safe_under(root: Path, relative: str) -> Path | None:
+    """Resolve `relative` strictly inside `root`, refusing absolute paths, `..`, and symlinks."""
+    if not relative or relative.startswith("/") or "\0" in relative:
+        return None
+    parts = PurePosixPath(relative).parts
+    if ".." in parts:
+        return None
+    candidate = root / relative
+    if candidate.is_symlink():
+        return None
+    try:
+        resolved = candidate.resolve()
+        root_resolved = root.resolve()
+    except OSError:
+        return None
+    if not resolved.is_relative_to(root_resolved):
+        return None
+    # Also ensure no intermediate directory component is a symlink escaping `root`.
+    cur = root
+    for part in parts:
+        cur = cur / part
+        if cur.is_symlink():
+            return None
+    return candidate
+
+
 def _benchmark_files(ctx: _Context) -> set[str]:
     """The benchmark and the ledger its result is computed from (`ledgers/<id>.jsonl` beside
     it, as `mendari eval --out` writes it), when it names one."""
@@ -1365,8 +1405,11 @@ def _benchmark_files(ctx: _Context) -> set[str]:
     if benchmark is None:
         return set()
     kept = {benchmark}
+    safe_path = _safe_under(ctx.root, benchmark)
+    if safe_path is None:
+        return kept
     try:
-        report = json.loads((ctx.root / benchmark).read_text(encoding="utf-8"))
+        report = json.loads(safe_path.read_text(encoding="utf-8"))
         ledger = report["ledger"]["id"]
     except (OSError, ValueError, KeyError, TypeError):
         return kept
@@ -1525,7 +1568,9 @@ def _phi(ctx: _Context) -> None:
     _site_cases(ctx)
     for relative in sorted(_model_files(ctx)):
         # A trained model's vocabulary is words from the data it was trained on, one per line.
-        path = ctx.root / relative
+        path = _safe_under(ctx.root, relative)
+        if path is None:
+            continue
         try:
             model = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):

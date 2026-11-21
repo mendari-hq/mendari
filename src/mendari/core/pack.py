@@ -279,6 +279,8 @@ def load_pack(
         raise PackValidationError(
             str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
         )
+    if not (root / MANIFEST).is_file():
+        raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     # Hashed first: everything below is read through `_read`, which accepts only a file the
     # digest covers, whatever spelling reaches it, and only the bytes the digest hashed.
     digest, digested, named = _digest(root, str(path))
@@ -537,7 +539,8 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
             problem = f"{relative.as_posix()}: cannot be read ({type(error).__name__})"
             raise PackValidationError(label or str(root), [problem]) from None
         digested[(status.st_dev, status.st_ino)] = hashlib.sha256(content).hexdigest()
-        if any(hint in content for hint in LICENSED_HINTS):
+        lower_content = content.lower()
+        if any(hint in lower_content for hint in LICENSED_HINTS):
             for url in licensed_systems(content.decode("utf-8", "replace")):
                 named.setdefault(url, relative.as_posix())
         digest.update(relative.as_posix().encode())

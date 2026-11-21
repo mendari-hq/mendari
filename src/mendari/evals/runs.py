@@ -301,11 +301,14 @@ def agrees(record: Mapping[str, Any], ledger: Ledger) -> bool:
 _PLACEHOLDERS = frozenset({"None", *PROVIDER_TYPES})
 
 
+_DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
+
+
 def _deterministic(model: str) -> bool:
     """Whether `model` is a deterministic provider's: its type (with a CQL library's name), "@"
     and its pack file's fingerprint (`rules@…`, `cql:<library>@…`, `providers.base.fingerprint`).
-    A model provider's id never holds an "@" (Jev's and the LLM's `MODEL_PATTERN`)."""
-    return "@" in model
+    Agent ids (`agent_id@version`) are remote providers, not deterministic."""
+    return model.startswith(_DETERMINISTIC_PREFIXES) and "@" in model
 
 
 def _composites(header: Mapping[str, Any]) -> list[tuple[str, frozenset[str]]]:

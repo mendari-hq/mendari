@@ -62,7 +62,7 @@ export function shown(p) {
 // The same text as HTML, the interval set smaller (its text is unchanged for screen readers).
 export function figureHtml(p) {
   if (p === null || p === undefined || !p.n) return esc(shown(p));
-  return `${p.k} of ${p.n} <span class="interval">[${bounds(p)}%]</span>`;
+  return `${esc(p.k)} of ${esc(p.n)} <span class="interval">[${esc(bounds(p))}%]</span>`;
 }
 
 // k / n, for sorting, tone and geometry only (never shown as a number).
@@ -132,7 +132,7 @@ export const outcomeBadge = (o) => `<span class="badge o-${esc(o)}" title="${esc
 export const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="priority: ${esc(p)}">${esc(PRIORITY_TEXT[p] ?? p)}</span>`;
 
 // Icons come from the sprite in index.html; they are decorative, so the text beside them names them.
-export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${esc(name)}"/></svg>`;
 
 // Memberships mode: the organization this window shows goes with each request, so one meant for
 // it never lands in another chosen since in a second window (the server answers 409).
@@ -523,7 +523,10 @@ export function actionDialog({ title, body, action, danger = false, run }) {
 
 // Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
 // (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
-export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
+export const slotText = (slot) => {
+  const s = String(slot ?? "");
+  return s ? `${s[0].toUpperCase()}${s.slice(1).replaceAll("_", " ")}` : "";
+};
 
 // An empty view or section: an icon, what is (not) here in one line, and the one thing to do next.
 // `text` is trusted HTML (it may link somewhere).

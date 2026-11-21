@@ -18,7 +18,7 @@ import re
 import threading
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from html import escape
@@ -2448,13 +2448,22 @@ def create_app(
         """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
         streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
         log_event(request, "export.audit")  # its filters are query values: not logged
-        lines = (
-            json.dumps(resource, separators=(",", ":")) + "\n"
-            for resource in audit_fhir.resources(
-                store.iter_events(pack_id=pack_id, since=since, until=until)
-            )
-        )
-        return StreamingResponse(lines, media_type="application/fhir+ndjson")
+        org = scope_of(auth.acting(request))  # resolved before the stream starts
+
+        def stream() -> Iterator[str]:
+            after = 0
+            while True:
+                # Re-enter tenancy per page rather than across `yield`: Starlette iterates a
+                # sync generator in a threadpool where each step runs in its own Context copy.
+                with tenancy.acting_for(org):
+                    page = store.events(pack_id=pack_id, since=since, until=until, after_seq=after)
+                if not page:
+                    break
+                for resource in audit_fhir.resources(page):
+                    yield json.dumps(resource, separators=(",", ":")) + "\n"
+                after = page[-1]["seq"]
+
+        return StreamingResponse(stream(), media_type="application/fhir+ndjson")
 
     @app.get(
         "/api/usage",
@@ -2578,7 +2587,7 @@ def create_app(
     )
     def audit_record_fhir(decision_id: str) -> JSONResponse:
         """One decision's audit trail as a FHIR `collection` Bundle."""
-        record = store.get(decision_id)
+        record = store.item(decision_id)
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
         bundle = audit_fhir.decision_bundle(record)

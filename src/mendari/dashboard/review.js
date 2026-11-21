@@ -23,7 +23,10 @@ views.review = async (main) => {
     api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
   ]);
+  const known = new Set(PRIORITIES);
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
+  const other = items.filter((item) => !known.has(item.priority));
+  if (other.length) groups.push(["other", other]);
   let activePriority = "";
   main.innerHTML = `
     <h1>Review queue</h1>
@@ -40,18 +43,21 @@ views.review = async (main) => {
     </div>
     ${items.length < stats.pending_reviews ? `<p class="muted">Showing the first ${items.length} of ${stats.pending_reviews}, most urgent first.</p>` : ""}
     <div id="queue">
-      ${groups.map(([priority, group]) => `<section class="review-group" data-priority="${priority}" aria-labelledby="group-${priority}">
-        <h2 id="group-${priority}">${esc(PRIORITY_TEXT[priority])} <span class="count-plain">${group.length}</span></h2>
+      ${groups.map(([priority, group]) => `<section class="review-group" data-priority="${esc(priority)}" aria-labelledby="group-${esc(priority)}">
+        <h2 id="group-${esc(priority)}">${esc(PRIORITY_TEXT[priority] ?? "Other")} <span class="count-plain">${group.length}</span></h2>
         ${group.map(reviewCard).join("")}
       </section>`).join("") || emptyQueue()}
     </div>`;
 
-  const applyFilter = () => {
+  const applyFilter = (refocusPriority = null) => {
     const allGroups = [...main.querySelectorAll(".review-group")];
     if (activePriority && !allGroups.some((g) => g.dataset.priority === activePriority)) activePriority = "";
     allGroups.forEach((g) => (g.hidden = Boolean(activePriority && g.dataset.priority !== activePriority)));
     const left = [...main.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
     $("#queue-counts").innerHTML = queueCounts(left, activePriority);
+    if (refocusPriority) {
+      main.querySelector(`#queue-counts button[data-priority-filter="${CSS.escape(refocusPriority)}"]`)?.focus();
+    }
   };
 
   $("#reviewer").addEventListener("change", (e) => storageSet("oh.reviewer", e.target.value.trim()));
@@ -60,7 +66,7 @@ views.review = async (main) => {
     if (!pill) return;
     const p = pill.dataset.priorityFilter;
     activePriority = activePriority === p ? "" : p;
-    applyFilter();
+    applyFilter(p);
   });
   $("#queue").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-label]");

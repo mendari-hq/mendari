@@ -4,7 +4,7 @@
 import { chartHtml } from "./charts.js";
 import { criticalText } from "./pack.js";
 import { tableHtml } from "./table.js";
-import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, time } from "./ui.js";
+import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, storageGet, time } from "./ui.js";
 
 // A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
 export const runOf = (r) => r.run ?? r;
@@ -239,6 +239,10 @@ function thresholdSimulator(sweep, figures, autoThreshold, id) {
 }
 
 export function wireSimulators(root) {
+  // Drop entries for simulators no longer in the document so repeated navigation never leaks.
+  for (const key of SIMULATORS.keys()) {
+    if (!document.querySelector(`[data-simulator="${CSS.escape(key)}"]`)) SIMULATORS.delete(key);
+  }
   root.querySelectorAll("[data-simulator]").forEach((section) => {
     if (section.dataset.wired) return;
     section.dataset.wired = "1";
@@ -260,7 +264,9 @@ export function wireSimulators(root) {
       const autoK = row.automated?.k ?? 0;
       const reviewK = Math.max(0, autoN - autoK);
       const autoShare = share(row.automated);
-      const hrsPer1k = autoShare !== null ? ((autoShare * 1000 * 3.5) / 60).toFixed(1) : "n/a";
+      const storedMins = Number(storageGet("oh.roi.mins", "4"));
+      const minsPerCase = Number.isFinite(storedMins) ? Math.min(60, Math.max(0.5, storedMins)) : 4;
+      const hrsPer1k = autoShare !== null ? ((autoShare * 1000 * minsPerCase) / 60).toFixed(1) : "n/a";
       const wrongAuto = row.correct && row.correct.n ? row.correct.n - row.correct.k : 0;
       metrics.innerHTML = `
         <div class="sim-metric"><span class="muted">Would automate</span><b>${figureHtml(row.automated)}</b></div>

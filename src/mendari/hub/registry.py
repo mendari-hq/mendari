@@ -2191,7 +2191,8 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
 
     def bearer(request: Request) -> str:
         header = request.headers.get("authorization", "")
-        return header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+        scheme, _, value = header.partition(" ")
+        return value.strip() if scheme.lower() == "bearer" else ""
 
     def require_publisher(request: Request, namespace: str) -> None:
         token = bearer(request)
@@ -2242,7 +2243,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
 
     @app.put("/v1/packs/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         if not _NAME.match(name) or not _VERSION.match(version):
             raise HubError("not a pack name and version")
         body = bytearray()
@@ -2283,15 +2284,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         with one of the namespace's keys (`mendari yank`). Chained `pack.yanked`; a version is
         recalled once. The registry's own recall, signed with its key, is a reviewer's (under
         the engine) or the operator's (`mendari registry recall`)."""
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         body = await small_body(request, YankRequest)
         if body.record is None:
             raise HubError("a publisher's recall is a record signed with a namespace key")
         if body.record.get("signer") != "publisher":
             raise HubError("a publisher's recall is signed by the publisher")
         # Checked above: the namespace's own publisher.
-        recalled = store.recall(namespace, name, version, body.record, by=actor(request))
-        return served(recalled, REVIEWER)
+        recalled = await run_in_threadpool(
+            store.recall, namespace, name, version, body.record, by=actor(request)
+        )
+        return await run_in_threadpool(served, recalled, REVIEWER)
 
     @app.get("/v1/registry-key")
     def registry_key() -> dict[str, str]:

@@ -26,6 +26,7 @@ import json
 import math
 import os
 import re
+import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, TypeGuard
@@ -210,7 +211,9 @@ class AgentProvider(Provider):
         self.sending()
 
         token = os.environ.get(TOKEN_ENV, "").strip() if from_env else ""
-        headers = {"authorization": f"Bearer {token}"} if token else {}
+        headers = {"idempotency-key": str(uuid.uuid4())}
+        if token:
+            headers["authorization"] = f"Bearer {token}"
         raw = post_json(
             self._client,
             url,
@@ -391,6 +394,8 @@ def _validate_answer(key: str, question: Question, answer: Any) -> dict[str, Any
         if not _probability(raw_confidence):
             raise _invalid(f"answer {key!r} has malformed confidence")
         confidence = float(raw_confidence)
+        if confidence < (1.0 / len(question.labels)) - 1e-6:
+            raise _invalid(f"answer {key!r} confidence is below uniform chance for a chosen label")
         other_labels = [candidate for candidate in question.labels if candidate != label]
         remainder = max(0.0, 1.0 - confidence)
         share = remainder / len(other_labels)
@@ -403,7 +408,7 @@ def _validate_answer(key: str, question: Question, answer: Any) -> dict[str, Any
     if rationale is not None:
         if not isinstance(rationale, str):
             raise _invalid(f"answer {key!r} rationale must be a string")
-        rationale = rationale.strip()[:MAX_RATIONALE_CHARS] or None
+        rationale = _CTRL_CHARS.sub(" ", rationale).strip()[:MAX_RATIONALE_CHARS] or None
 
     return {
         "label": label,
@@ -508,19 +513,23 @@ def _effective_model(
     return agent_id or agent_version
 
 
+_CTRL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
+
+
 def _tool_evidence(tool_calls: list[Any]) -> list[str]:
     names: list[str] = []
     for item in tool_calls:
         if isinstance(item, str):
-            name = item
+            name = _CTRL_CHARS.sub(" ", item).strip()[:MAX_TOOL_NAME_CHARS]
         elif isinstance(item, dict):
             raw_name = item.get("name") or item.get("tool")
             if not isinstance(raw_name, str) or not raw_name.strip():
                 continue
-            name = raw_name.strip()[:MAX_TOOL_NAME_CHARS]
+            name = _CTRL_CHARS.sub(" ", raw_name).strip()[:MAX_TOOL_NAME_CHARS]
         else:
             continue
-        names.append(f"tool:{name}")
+        if name:
+            names.append(f"tool:{name}")
     return names
 
 
@@ -665,6 +674,9 @@ def _subset_match(expected: Mapping[str, Any], actual: Any) -> bool:
             return False
         if isinstance(wanted, Mapping):
             if not _subset_match(wanted, actual[key]):
+                return False
+        elif isinstance(wanted, bool) or isinstance(actual[key], bool):
+            if type(actual[key]) is not type(wanted) or actual[key] != wanted:
                 return False
         elif actual[key] != wanted:
             return False

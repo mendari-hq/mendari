@@ -14,6 +14,7 @@ import hashlib
 import secrets
 import threading
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import jwt
@@ -68,6 +69,21 @@ class Discovery:
         return config
 
 
+_PRIVATE_JWK_FIELDS = frozenset({"d", "p", "q", "dp", "dq", "qi", "k", "oth"})
+
+
+def _valid_jwk(jwk: Mapping[str, Any], alg: str) -> bool:
+    if _PRIVATE_JWK_FIELDS.intersection(jwk):
+        return False
+    use = jwk.get("use")
+    if use is not None and use != "sig":
+        return False
+    kty = jwk.get("kty")
+    if alg.startswith("RS") and kty != "RSA":
+        return False
+    return not (alg.startswith("ES") and kty != "EC")
+
+
 def verify_id_token(
     id_token: str, *, issuer: str, audience: str, nonce: str, jwks_uri: str, http: GuardedHttp
 ) -> dict[str, Any]:
@@ -75,11 +91,13 @@ def verify_id_token(
         header = jwt.get_unverified_header(id_token)
     except jwt.PyJWTError:
         raise AuthError("the id_token is not a JWT") from None
-    if header.get("alg") not in ALGORITHMS:
-        raise AuthError(f"the id_token is signed with {header.get('alg')!r}, not {ALGORITHMS}")
+    alg = header.get("alg")
+    if alg not in ALGORITHMS:
+        raise AuthError(f"the id_token is signed with {alg!r}, not {ALGORITHMS}")
+    kid = header.get("kid")
     raw_keys = http.get_json(jwks_uri).get("keys", [])
     keys = [k for k in raw_keys if isinstance(k, dict)] if isinstance(raw_keys, list) else []
-    matching = [k for k in keys if k.get("kid") == header.get("kid")] if header.get("kid") else keys
+    matching = [k for k in keys if _valid_jwk(k, alg) and (not kid or k.get("kid") == kid)]
     matching = matching[:MAX_CANDIDATE_KEYS]
     if not matching:
         raise AuthError("no key in the issuer's JWKS matches the id_token")
@@ -88,8 +106,8 @@ def verify_id_token(
         try:
             claims: dict[str, Any] = jwt.decode(
                 id_token,
-                jwt.PyJWK(jwk, algorithm=header["alg"]).key,
-                algorithms=[header["alg"]],
+                jwt.PyJWK(jwk, algorithm=alg).key,
+                algorithms=[alg],
                 audience=audience,
                 issuer=issuer,
                 options={"require": ["exp", "iss", "aud"]},

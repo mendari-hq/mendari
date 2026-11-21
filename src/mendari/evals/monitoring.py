@@ -331,7 +331,16 @@ def _alerts(
     alerts.extend(_operations(recent, before))
     now_rate, then_rate = recent["override_rate"], before["override_rate"]
     compared = recent["reviewed"] >= MIN_REVIEWED and before["reviewed"] >= MIN_REVIEWED
-    if compared and then_rate and now_rate is not None and now_rate >= 2 * then_rate:
+    override_spike = (
+        compared
+        and now_rate is not None
+        and then_rate is not None
+        and (
+            (then_rate > 0 and now_rate >= 2 * then_rate)
+            or (then_rate == 0 and recent["figures"]["overrides"]["low"] >= ABSTAIN_RISE)
+        )
+    )
+    if override_spike:
         message = (
             f"overridden {shown(recent['figures']['overrides'])} this week, "
             f"{shown(before['figures']['overrides'])} the week before"
@@ -466,5 +475,9 @@ def _psi(bins: Sequence[Row], rows: Sequence[Row]) -> float | None:
     for value in values:
         actual[min(int(value * 10), 9)] += 1 / len(values)
     smooth = 1e-4
+    denom = 1.0 + len(actual) * smooth
     pairs = zip(actual, expected, strict=True)
-    return sum((a - e) * math.log((a + smooth) / (e + smooth)) for a, e in pairs)
+    return sum(
+        ((a + smooth) / denom - (e + smooth) / denom) * math.log((a + smooth) / (e + smooth))
+        for a, e in pairs
+    )

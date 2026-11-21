@@ -136,8 +136,15 @@ def is_this_site(origin: str, request: Request, trusted: frozenset[str]) -> bool
     normal = origin_of(origin)
     if normal is None:
         return False
-    own = origin_of(f"{urlsplit(normal).scheme}://{request.headers.get('host', '')}")
-    return normal == own or normal in trusted
+    host = request.headers.get("host", "")
+    if request.url.scheme == "https":
+        own = origin_of(f"https://{host}")
+        return normal == own or normal in trusted
+    # Behind a TLS-terminating proxy (or an ASGI scope without `scheme`), `request.url.scheme` is
+    # `http` even when the browser loaded the page over HTTPS; allow `https://<host>` as well as
+    # `http://<host>`, while still refusing `http://` when the request itself arrived over HTTPS.
+    own_origins = {origin_of(f"https://{host}"), origin_of(f"http://{host}")}
+    return normal in own_origins or normal in trusted
 
 
 def _has_mendari_cookie(request: Request) -> bool:

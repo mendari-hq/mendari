@@ -1041,14 +1041,26 @@ def _read_store(target: str, *, phi: Any = None) -> AuditStore:
         raise
 
 
+_LIBPQ_SECRET = re.compile(
+    r"(?i)\b(password|pass|passwd|sslpassword)\s*=\s*(?:'(?:\\.|[^'])*'|\S+)"
+)
+
+
 def _shown(target: str) -> str:
-    """A database target as it is printed: a URL without its password, anywhere in it."""
+    """A database target as it is printed: a URL or libpq DSN without its password."""
     if "://" not in target:
-        return target
+        return _LIBPQ_SECRET.sub(r"\1=***", target)
     parts = urlsplit(target)
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc = f"{netloc}:{parts.port}"
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port:
+        netloc = f"{netloc}:{port}"
     if parts.username:
         netloc = f"{parts.username}@{netloc}"
     query = "&".join(
@@ -3464,7 +3476,17 @@ def cmd_new(args: argparse.Namespace) -> int:
     if not _PACK_ID.match(pack_id):
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
     name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
-    values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    raw_values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    yaml_values = {
+        "{{id}}": pack_id,
+        "{{name}}": json.dumps(name, ensure_ascii=False),
+        "{{publisher}}": json.dumps(args.publisher, ensure_ascii=False),
+    }
+    placeholder_re = re.compile("|".join(re.escape(k) for k in raw_values))
+
+    def fill(text: str, values: dict[str, str]) -> str:
+        return placeholder_re.sub(lambda match: values[match.group(0)], text)
+
     if args.community:
         templates = [TEMPLATE, COMMUNITY_TEMPLATE]
     elif args.agent:
@@ -3475,9 +3497,8 @@ def cmd_new(args: argparse.Namespace) -> int:
         for source in sorted(template.rglob("*")):
             if not source.is_file():
                 continue
-            text = source.read_text(encoding="utf-8")
-            for placeholder, value in values.items():
-                text = text.replace(placeholder, value)
+            values = yaml_values if source.suffix in (".yaml", ".yml") else raw_values
+            text = fill(source.read_text(encoding="utf-8"), values)
             destination = target / source.relative_to(template)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(text, encoding="utf-8")
@@ -5077,7 +5098,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BrokenPipeError:
         # The reader of the output closed it (`mendari audit export | head`): not an error.
         # Later writes go nowhere, so the interpreter's own flush at exit stays silent.
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
         return 141
     except Exception as error:
         if debug:

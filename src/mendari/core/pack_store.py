@@ -999,6 +999,14 @@ class PackStore:
             found = phi_detect.detect_files({f"{name}.jsonl": raw})
             if phi_detect.rejects(found):
                 raise PhiRejected(found.to_json())
+        elif self.store.phi.mode == "hash":
+            raise StoreError(
+                "PHI mode hash keeps no patient text: switch to encrypt mode to store "
+                "improvement datasets",
+                409,
+            )
+        if self.store.phi.mode == "off":
+            self.store.refuse_plaintext()
         row = self.version(org, digest)
         if row["state"] in (HELD, WITHDRAWN):
             raise StoreError(f"version {digest} is {row['state']}", 409)
@@ -1026,6 +1034,8 @@ class PackStore:
         with self.store._db.session(exclusive=True) as db:
             if kind == "upload":
                 self._refuse_stopped(org, db)
+            if self.store.phi.mode == "off":
+                self.store._refuse_plaintext(db)
             if self.store.phi.mode == "encrypt":
                 self.store._refuse_retired(db)
             db.all(

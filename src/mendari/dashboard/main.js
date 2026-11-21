@@ -99,6 +99,12 @@ async function boot() {
   showLabelling();
   showRegistryReview();
   showStore();
+  const pickPack = async (packId) => {
+    if (!state.packs.some((p) => p.id === packId)) return;
+    await switchPack(packId).catch(() => null); // the view says it (router.js), with Try again
+    render();
+  };
+  setupPalette({ onSelectPack: (packId) => (packId === state.packId ? undefined : pickPack(packId)) });
   if ((state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) && !state.launchOnly) {
     $(".pack-picker").hidden = true;
     // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
@@ -124,12 +130,6 @@ async function boot() {
   const first = defaultPack(state.packs);
   const saved = storageGet("oh.pack", first);
   switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
-  const pickPack = async (packId) => {
-    if (!known(packId)) return;
-    await switchPack(packId).catch(() => null); // the view says it (router.js), with Try again
-    render();
-  };
-  setupPalette({ onSelectPack: (packId) => (packId === state.packId ? undefined : pickPack(packId)) });
   select.addEventListener("change", () => pickPack(select.value));
   // Back and Forward can cross a pack change. The address then names another pack than the one
   // shown, and the browser fires only popstate (hashchange needs everything but the hash to match).

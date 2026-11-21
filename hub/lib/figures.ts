@@ -49,6 +49,3 @@ export function shown(p: Figure | null | undefined): string {
   if (!p.n || p.low === null || p.high === null) return "no cases";
   return `${p.k} of ${p.n} [${bounds(p)}%]`;
 }
-
-// k / n, for ordering only (never shown as a number).
-export const share = (p: Figure | null | undefined): number | null => (p && p.n ? p.k / p.n : null);

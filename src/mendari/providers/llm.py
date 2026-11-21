@@ -121,7 +121,7 @@ class LlmProvider(Provider):
         self._client = client
         # No default model: with none here, the provider is built, but never called.
         model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or None
-        if model is not None and not re.match(MODEL_PATTERN, model):
+        if model is not None and not re.fullmatch(MODEL_PATTERN, model):
             raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model"])
         self.model = model
         self.temperatures = self._load_calibration()
@@ -143,7 +143,11 @@ class LlmProvider(Provider):
         return {
             q: float(t)
             for q, t in temperatures.items()
-            if q in self.questions and isinstance(t, int | float) and t > 0
+            if q in self.questions
+            and isinstance(t, int | float)
+            and not isinstance(t, bool)
+            and math.isfinite(t)
+            and t > 0
         }
 
     @classmethod
@@ -332,7 +336,11 @@ class LlmProvider(Provider):
         if self.settings.temperature is not None:
             body["temperature"] = self.settings.temperature
         if self.settings.reasoning_effort is not None:
-            body["reasoning"] = {"effort": self.settings.reasoning_effort}
+            base = _base_url()
+            if "api.openai.com" in base:
+                body["reasoning_effort"] = self.settings.reasoning_effort
+            elif "ai-gateway.vercel.sh" in base or "openrouter.ai" in base:
+                body["reasoning"] = {"effort": self.settings.reasoning_effort}
         return body
 
 
@@ -394,8 +402,12 @@ def parse_response(
     content = message.get("content")
     if not isinstance(content, str):
         raise invalid("no content")
+    cleaned = content.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        inner = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
+        cleaned = inner.rsplit("```", 1)[0].strip()
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(cleaned)
     except ValueError:
         raise invalid("content is not JSON") from None
     if not isinstance(parsed, dict) or set(parsed) != set(questions):
@@ -476,22 +488,22 @@ def fit_calibration(
     """Ask the uncalibrated model about every labelled record and fit one temperature per
     question on its answers. Returns the calibration file's content (with provenance). A
     provider that cannot be called (no model, say) is refused before the first record."""
+    import copy
+
     from mendari.parallel import parallel_map
     from mendari.providers.calibration import fit_temperature, log_probabilities
 
     provider.preflight()
-    fitted_for, provider.temperatures = provider.temperatures, {}
-    try:
+    uncalibrated = copy.copy(provider)
+    uncalibrated.temperatures = {}
 
-        def ask(record: dict[str, Any]) -> ProviderOutput | str:
-            try:
-                return provider.answer(record["input"])
-            except ProviderError as error:
-                return error.code
+    def ask(record: dict[str, Any]) -> ProviderOutput | str:
+        try:
+            return uncalibrated.answer(record["input"])
+        except ProviderError as error:
+            return error.code
 
-        outputs = parallel_map(ask, records, workers)
-    finally:
-        provider.temperatures = fitted_for
+    outputs = parallel_map(ask, records, workers)
 
     failures: dict[str, int] = {}
     cost: float | None = 0.0

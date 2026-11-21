@@ -203,7 +203,10 @@ def _shape_problem(model: dict[str, Any]) -> str | None:
             isinstance(value, list)
             and isinstance(labels, list)
             and len(value) == len(labels)
-            and all(isinstance(x, int | float) and not isinstance(x, bool) for x in value)
+            and all(
+                isinstance(x, int | float) and not isinstance(x, bool) and math.isfinite(x)
+                for x in value
+            )
         )
 
     temperature = model.get("temperature")
@@ -215,6 +218,7 @@ def _shape_problem(model: dict[str, Any]) -> str | None:
         and all(isinstance(x, str) for x in model["text_fields"]),
         "temperature": isinstance(temperature, int | float)
         and not isinstance(temperature, bool)
+        and math.isfinite(temperature)
         and temperature > 0,
         "log_prior": numbers(model.get("log_prior")),
         "tokens": isinstance(tokens, dict) and all(numbers(v) for v in tokens.values()),

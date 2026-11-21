@@ -314,13 +314,19 @@ class FhirClient:
             parts = urlsplit(urljoin(self.base, relative))
         except ValueError:  # e.g. a malformed IPv6 host
             raise FhirError("a FHIR request is not a URL", reason="off_server") from None
+        if re.search(r"%(?:2[eEfF]|5[cC]|00)", parts.path or ""):
+            raise FhirError("a FHIR request contains encoded path traversal", reason="off_server")
         base = urlsplit(self.base)
         path = posixpath.normpath(parts.path or "/")
-        if (parts.scheme, parts.netloc) != (base.scheme, base.netloc) or not (
-            path.rstrip("/") + "/"
-        ).startswith(base.path):
+        target_origin = _origin(urlunsplit((parts.scheme, parts.netloc, "/", "", "")))
+        base_origin = _origin(self.base)
+        if (
+            target_origin is None
+            or target_origin != base_origin
+            or not (path.rstrip("/") + "/").startswith(base.path)
+        ):
             raise FhirError("a FHIR request left the server's base URL", reason="off_server")
-        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
+        return urlunsplit((parts.scheme.lower(), parts.netloc, path, parts.query, ""))
 
 
 def _entries(bundle: Mapping[str, Any]) -> list[Any]:

@@ -20,11 +20,16 @@ does not start (`providers.provider_allow_list`). The CQL engine stays on the FH
 
 from __future__ import annotations
 
+import atexit
+import email.utils
 import json
+import math
 import os
 import re
+import threading
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -35,8 +40,34 @@ from mendari.providers import deadline
 from mendari.standards.fhir_client import allowed_servers, origin_of
 
 MAX_RESPONSE_BYTES = 65_536
-_LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)$")
+_LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)\Z")
 ALLOWED_ORIGINS_ENV = "MENDARI_PROVIDER_ALLOWED_ORIGINS"
+_ORIGINAL_CLIENT = httpx.Client
+_POOL_LOCK = threading.Lock()
+_POOLED_CLIENT: httpx.Client | None = None
+
+
+def _shared_client() -> httpx.Client:
+    """Thread-safe pooled HTTP client for production calls (reuses TCP/TLS sessions)."""
+    global _POOLED_CLIENT
+    with _POOL_LOCK:
+        if _POOLED_CLIENT is None or _POOLED_CLIENT.is_closed:
+            _POOLED_CLIENT = _ORIGINAL_CLIENT(
+                follow_redirects=False,
+                limits=httpx.Limits(max_connections=64, max_keepalive_connections=32),
+            )
+        return _POOLED_CLIENT
+
+
+def close_shared_client() -> None:
+    global _POOLED_CLIENT
+    with _POOL_LOCK:
+        if _POOLED_CLIENT is not None and not _POOLED_CLIENT.is_closed:
+            _POOLED_CLIENT.close()
+        _POOLED_CLIENT = None
+
+
+atexit.register(close_shared_client)
 
 
 def require_secure(endpoint: str, service: str) -> None:
@@ -58,7 +89,9 @@ def require_https(endpoint: str, service: str) -> None:
         raise ProviderError(
             "invalid_endpoint", f"{service} endpoint must not carry credentials in its address"
         )
-    if (parsed.scheme == "https" and host) or (parsed.scheme == "http" and _LOCAL_HOST.match(host)):
+    if (parsed.scheme == "https" and host) or (
+        parsed.scheme == "http" and _LOCAL_HOST.fullmatch(host)
+    ):
         return
     raise ProviderError(
         "invalid_endpoint", f"{service} endpoints must use https (http only for localhost)"
@@ -99,7 +132,7 @@ def require_listed(variable: str, allowed: frozenset[str]) -> None:
 
 def is_local(endpoint: str) -> bool:
     try:
-        return bool(_LOCAL_HOST.match(urlparse(endpoint).hostname or ""))
+        return bool(_LOCAL_HOST.fullmatch(urlparse(endpoint).hostname or ""))
     except ValueError:
         return False
 
@@ -125,8 +158,15 @@ def post_json(
     """
     require_allowed(endpoint, "Provider")
     timeout = httpx.Timeout(deadline.clamp(timeout_s))  # past the deadline: nothing is opened
-    own = client is None
-    session = client or httpx.Client(timeout=timeout, follow_redirects=False)
+    use_pool = client is None and httpx.Client is _ORIGINAL_CLIENT
+    own = client is None and not use_pool
+    session = (
+        client
+        if client is not None
+        else (
+            _shared_client() if use_pool else httpx.Client(timeout=timeout, follow_redirects=False)
+        )
+    )
     try:
         for attempt in range(retries + 1):
             try:
@@ -160,13 +200,23 @@ class _Retryable(Exception):
 
 
 def _retry_after(headers: httpx.Headers) -> float | None:
-    import math
-
     for name, scale in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
-        try:
-            value = float(headers[name]) * scale
-        except (KeyError, ValueError):
+        raw = headers.get(name)
+        if raw is None:
             continue
+        try:
+            value = float(raw) * scale
+        except ValueError:
+            if name == "retry-after":
+                try:
+                    parsed_dt = email.utils.parsedate_to_datetime(raw)
+                except (TypeError, ValueError):
+                    continue
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=UTC)
+                value = (parsed_dt - datetime.now(UTC)).total_seconds()
+            else:
+                continue
         if math.isfinite(value):
             return max(0.0, value)
     return None

@@ -123,8 +123,11 @@ async function showPacks(body) {
   $("#copy-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
+    const pack = form.pack.value.trim();
+    const name = form.name.value.trim();
+    if (!pack || !name) return toastError("Enter both the source pack and a name for the copy.");
     whileBusy(form.querySelector("button"), "Copying…", async () => {
-      const made = await post("/api/store/copies", { pack: form.pack.value.trim(), name: form.name.value.trim() });
+      const made = await post("/api/store/copies", { pack, name });
       toast(`Copied into a draft: ${made.pack_id}`);
       location.hash = `#store/version/${encodeURIComponent(made.digest)}`;
     }).catch((error) => toastError(error.message));
@@ -347,14 +350,19 @@ async function showResults(body) {
     body.dataset.resultsWired = "1";
     body.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-advance]");
-      if (button) whileBusy(button, "Running…", () => runJob(button.dataset.advance)).then(() => showResults(body).then(() => wire(body))).catch((error) => toastError(error.message));
+      if (button) {
+        whileBusy(button, "Running…", () => runJob(button.dataset.advance, body))
+          .then(() => (body.isConnected ? showResults(body).then(() => wire(body)) : undefined))
+          .catch((error) => toastError(error.message));
+      }
     });
   }
 }
 
-async function runJob(id) {
+async function runJob(id, anchor) {
   const jobId = encodeURIComponent(id);
   for (let i = 0; i < 1000; i += 1) {
+    if (anchor && !anchor.isConnected) return;
     const job = await post(`/api/store/jobs/${jobId}/advance`, {});
     if (job.state !== "queued" && job.state !== "running") {
       toast(job.state === "done" ? "Job done: its report is kept" : `Job ${job.state}: ${job.error ?? ""}`);

@@ -142,7 +142,7 @@ from mendari.errors import (
 from mendari.server import presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
-from mendari.standards.fhir_client import GuardedHttp, allowed_servers
+from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
 from mendari.standards.smart import Registration
 
 if TYPE_CHECKING:  # server/cds_clients.py imports this module
@@ -418,6 +418,10 @@ def auth_settings() -> AuthSettings | None:
     if not issuer or not client_id:
         raise MendariError("set both MENDARI_OIDC_ISSUER and MENDARI_OIDC_CLIENT_ID")
     parts = urlsplit(issuer)
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise MendariError(
+            "MENDARI_OIDC_ISSUER must not carry credentials, query parameters, or fragments"
+        )
     host = parts.hostname or ""
     local = host in ("localhost", "127.0.0.1") or "." not in host  # a compose service, say
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
@@ -1393,8 +1397,9 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         return settings
 
     def http_for(options: AuthSettings) -> GuardedHttp:
-        issuer_origin = f"{urlsplit(options.issuer).scheme}://{urlsplit(options.issuer).netloc}"
-        return GuardedHttp(allowed={*allowed_servers(), issuer_origin, *options.endpoint_origins})
+        issuer_origin = origin_of(options.issuer)
+        allowed = {o for o in (issuer_origin, *options.endpoint_origins) if o}
+        return GuardedHttp(allowed=allowed)
 
     @app.get("/auth/login", include_in_schema=False)
     def login(request: Request, next: str = "/", account: str = "") -> Response:

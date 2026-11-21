@@ -40,7 +40,8 @@ const took = (ms) => {
 };
 
 views.monitoring = async (main) => {
-  const days = Number(storageGet("oh.monitoring.days", "30"));
+  const storedDays = Number(storageGet("oh.monitoring.days", "30"));
+  const days = PERIODS.includes(storedDays) ? storedDays : 30;
   const packId = state.packId;
   const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(packId)}&days=${days}`);
   if (state.packId !== packId) return;

@@ -128,8 +128,13 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
 
     likely = {member: answers[member] for member in spec.members}
     deciding = next((row for row in rows if row_holds(row, likely)), spec.table[-1])
+    table_note = (
+        f"table: {deciding.describe()}"
+        if deciding.result == label
+        else f"table: marginal distribution -> {label} (argmax path: {deciding.describe()})"
+    )
     evidence = (
-        f"table: {deciding.describe()}",
+        table_note,
         *(f"{member}={a.label} ({a.confidence:.2f})" for member, a in likely.items()),
     )
     return Answer(

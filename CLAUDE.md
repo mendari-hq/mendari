@@ -19,7 +19,6 @@ MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/men
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
-uv run python scripts/check_gates.py      # the launch gates (launch/gates.yaml): met and not met
 uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
@@ -38,9 +37,6 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   `evals/benchmark.json` and `DECISION_CARD.md` together, with the pages the script names
   (`docs/grading/scoreboard.md`, `web/index.html`). CI checks data and model are
   byte-reproducible.
-- **Launch gates are a checked file** (`launch/gates.yaml`, `scripts/check_gates.py`,
-  LP-03). A prompt that lands replaces its `pending` probe with the tests its acceptance created.
-  Only the owner fills in an attestation; a build session never marks an owner prerequisite met.
 - **Policy only lowers automation.** Caps (per-label, provider failure, risk level) may turn
   AUTO into HUMAN_REVIEW, never the reverse. Risk-level limits live in `core/policy.py`, not
   in packs (ADR-0002).

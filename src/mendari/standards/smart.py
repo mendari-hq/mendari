@@ -146,6 +146,13 @@ def discover(iss: str, http: GuardedHttp) -> dict[str, Any]:
         )
     if config.get("jwks_uri"):
         http.check(config["jwks_uri"])
+    declared_issuer = config.get("issuer")
+    if declared_issuer is not None:
+        if not isinstance(declared_issuer, str) or not declared_issuer.strip():
+            raise SmartError(
+                "the SMART configuration's issuer must be a URL", reason="configuration"
+            )
+        http.check(declared_issuer)
     return config
 
 

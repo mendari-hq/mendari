@@ -62,6 +62,7 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
           const share = site.n ? site.k / site.n : 0;
           return (
             <g key={site.report}>
+              <title>{`${site.site_name}: ${shown(site)}`}</title>
               <text className="forest-label" x={0} y={y + 4}>
                 {site.site_name.length > 28 ? `${site.site_name.slice(0, 27)}…` : site.site_name}
               </text>
@@ -74,34 +75,40 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
         })}
         {showPooled && pooled.k !== undefined && pooled.n ? (
           <g>
+            <title>{`Pooled (summed counts): ${pooledWords(figure)}`}</title>
             <text className="forest-label forest-label-strong" x={0} y={PAD + pooledRow * ROW + ROW / 2 + 4}>
               Pooled (summed counts)
             </text>
-            <polygon
-              className="forest-pooled"
-              points={[
-                [x(pooled.low ?? 0), PAD + pooledRow * ROW + ROW / 2],
-                [x(pooled.k / pooled.n), PAD + pooledRow * ROW + 4],
-                [x(pooled.high ?? 1), PAD + pooledRow * ROW + ROW / 2],
-                [x(pooled.k / pooled.n), PAD + (pooledRow + 1) * ROW - 4],
-              ]
-                .map((p) => p.join(","))
-                .join(" ")}
-            />
+            {pooled.low != null && pooled.high != null ? (
+              <polygon
+                className="forest-pooled"
+                points={[
+                  [x(pooled.low), PAD + pooledRow * ROW + ROW / 2],
+                  [x(pooled.k / pooled.n), PAD + pooledRow * ROW + 4],
+                  [x(pooled.high), PAD + pooledRow * ROW + ROW / 2],
+                  [x(pooled.k / pooled.n), PAD + (pooledRow + 1) * ROW - 4],
+                ]
+                  .map((p) => p.join(","))
+                  .join(" ")}
+              />
+            ) : null}
           </g>
         ) : null}
         {showRandom && re.estimate !== undefined ? (
           <g>
+            <title>{`Random effects: ${randomWords(figure)}`}</title>
             <text className="forest-label forest-label-strong" x={0} y={PAD + randomRow * ROW + ROW / 2 + 4}>
               Random effects
             </text>
-            <line
-              className="forest-interval"
-              x1={x(re.low ?? 0)}
-              x2={x(re.high ?? 1)}
-              y1={PAD + randomRow * ROW + ROW / 2}
-              y2={PAD + randomRow * ROW + ROW / 2}
-            />
+            {re.low != null && re.high != null ? (
+              <line
+                className="forest-interval"
+                x1={x(re.low)}
+                x2={x(re.high)}
+                y1={PAD + randomRow * ROW + ROW / 2}
+                y2={PAD + randomRow * ROW + ROW / 2}
+              />
+            ) : null}
             <circle className="forest-random" cx={x(re.estimate)} cy={PAD + randomRow * ROW + ROW / 2} r={4} />
           </g>
         ) : null}

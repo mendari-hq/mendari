@@ -29,6 +29,7 @@ type Params = { namespace: string; name: string };
 // No image is shown: a publisher's picture could pass for a badge, and would tell its server
 // who reads the page.
 const CARD_ELEMENTS = { h1: "h3", h2: "h4", h3: "h5", h4: "h6", img: () => null } as const;
+const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { namespace, name } = await params;
@@ -52,7 +53,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <nav className="breadcrumb muted" aria-label="Breadcrumb">
           <Link href="/">Agent Hub</Link>
           <span className="breadcrumb-sep" aria-hidden="true">/</span>
-          <Link href={`/publishers/${namespace}`}>{namespace}</Link>
+          <Link href={`/publishers/${encodeURIComponent(namespace)}`}>{namespace}</Link>
         </nav>
         <section className="pack-hero pack-hero-danger">
           <h1>{detail.id}</h1>
@@ -86,12 +87,32 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       : null;
   const { checked, claimed } = latest;
   const risk = claimed.risk;
+  const publisherBadgeClass =
+    checked.publisher_type && PUBLISHER_BADGE.has(checked.publisher_type)
+      ? checked.publisher_type
+      : null;
+  const reviewPill =
+    checked.review.status === "reviewed"
+      ? {
+          tone: checked.review.matches_declared === false ? "warn" : "ok",
+          text:
+            checked.review.matches_declared === false
+              ? `Reviewed · Risk ${checked.review.risk_level} found`
+              : `Reviewed · Risk ${checked.review.risk_level}`,
+        }
+      : { tone: "neutral", text: "Unreviewed" };
+  const regressionPill =
+    checked.regression?.status === "measured"
+      ? checked.regression.regressions?.length
+        ? { tone: "warn", text: `${checked.regression.regressions.length} regression(s) flagged` }
+        : { tone: "ok", text: "Regression check passed" }
+      : { tone: "neutral", text: "Regression not measured" };
   return (
     <div className="wrap page-body">
       <nav className="breadcrumb muted" aria-label="Breadcrumb">
         <Link href="/">Agent Hub</Link>
         <span className="breadcrumb-sep" aria-hidden="true">/</span>
-        <Link href={`/publishers/${namespace}`}>{namespace}</Link>
+        <Link href={`/publishers/${encodeURIComponent(namespace)}`}>{namespace}</Link>
       </nav>
 
       <header className="pack-hero">
@@ -99,7 +120,9 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           <span className="mono pack-id-pill">{detail.id}@{latest.version}</span>
           {starterLabel ? <span className="badge demo-tag">{starterLabel}</span> : null}
           {checked.publisher_type ? (
-            <span className={`badge ${checked.publisher_type}`}>{checked.publisher_type} publisher</span>
+            <span className={publisherBadgeClass ? `badge ${publisherBadgeClass}` : "badge"}>
+              {checked.publisher_type} publisher
+            </span>
           ) : null}
           <span className={`badge risk-${risk.level}`} title="Declared by the publisher">
             Risk {risk.level} (declared): {RISK_WORDS[risk.level]}
@@ -114,6 +137,25 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           </div>
         ) : null}
       </header>
+
+      <ul className="trust-strip" aria-label="Verification summary">
+        <li className="trust-pill trust-pill-ok">
+          <span className="trust-k">Signature</span>
+          <span className="trust-v">{checked.signature.algorithm} verified</span>
+        </li>
+        <li className={`trust-pill trust-pill-${reviewPill.tone}`}>
+          <span className="trust-k">Registry review</span>
+          <span className="trust-v">{reviewPill.text}</span>
+        </li>
+        <li className={`trust-pill trust-pill-${regressionPill.tone}`}>
+          <span className="trust-k">Test set</span>
+          <span className="trust-v">{regressionPill.text}</span>
+        </li>
+        <li className={`trust-pill trust-pill-${checked.accepted ? "ok" : "neutral"}`}>
+          <span className="trust-k">Counter-signature</span>
+          <span className="trust-v">{checked.accepted ? "Registry signed" : "None recorded"}</span>
+        </li>
+      </ul>
 
       <section className="facts" aria-label="At a glance">
         <Fact

@@ -38,6 +38,9 @@ SCOREBOARD = "https://github.com/mendari-hq/mendari/blob/main/docs/grading/score
 _COMPOSITES = ("any_of", "cascade", "vote")
 
 
+_DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
+
+
 def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
     """`slot=variant` pairs, naming the model of remote providers (it is a deployment choice,
     so the same variant on two models is two configurations). Local artifacts are
@@ -49,7 +52,12 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
             models = [m.split(":", 1)[1] for m in re.split(r" \+ | → ", model) if ":" in m]
         else:
             models = [model] if model else []
-        remote = [m for m in models if "@" not in m and m not in ("rules", "naive_bayes")]
+        remote = [
+            m
+            for m in models
+            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m)
+            and m not in ("rules", "naive_bayes", "criteria", "dosing")
+        ]
         parts.append(f"{slot}={info['variant']}" + (f" ({', '.join(remote)})" if remote else ""))
     return " · ".join(parts)
 
