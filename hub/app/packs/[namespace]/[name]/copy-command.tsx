@@ -18,7 +18,10 @@ export function CopyCommand({ command }: { command: string }) {
 
   return (
     <div className="copy-cmd">
-      <code className="pull">{command}</code>
+      <div className="cmd-shell">
+        <span className="cmd-prompt" aria-hidden="true">$</span>
+        <code className="pull">{command}</code>
+      </div>
       <button type="button" onClick={onCopy} aria-live="polite">
         {copied ? "Copied" : "Copy"}
       </button>

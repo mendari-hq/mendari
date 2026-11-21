@@ -44,67 +44,69 @@ export function Forest({ figure }: { figure: EvidenceFigure }) {
   const height = axisBottom + 36;
   const label = `${figure.label}: ${figure.sites.length} sites; pooled ${pooledWords(figure)}`;
   return (
-    <svg className="forest" viewBox={`0 0 ${WIDTH} ${height}`} role="img" aria-label={label} width="100%">
-      {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-        <g key={tick}>
-          <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={axisBottom} />
-          <text className="forest-axis" x={x(tick)} y={axisBottom + 14} textAnchor="middle">
-            {tick * 100}
-          </text>
-        </g>
-      ))}
-      <text className="forest-axis" x={x(0.5)} y={axisBottom + 30} textAnchor="middle">
-        per 100 cases
-      </text>
-      {figure.sites.map((site, i) => {
-        const y = PAD + i * ROW + ROW / 2;
-        const share = site.n ? site.k / site.n : 0;
-        return (
-          <g key={site.report}>
-            <text className="forest-label" x={0} y={y + 4}>
-              {site.site_name.length > 28 ? `${site.site_name.slice(0, 27)}…` : site.site_name}
+    <div className="forest-frame">
+      <svg className="forest" viewBox={`0 0 ${WIDTH} ${height}`} role="img" aria-label={label} width="100%">
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
+          <g key={tick}>
+            <line className="forest-grid" x1={x(tick)} x2={x(tick)} y1={PAD} y2={axisBottom} />
+            <text className="forest-axis" x={x(tick)} y={axisBottom + 14} textAnchor="middle">
+              {tick * 100}
             </text>
-            {site.low !== null && site.high !== null ? (
-              <line className="forest-interval" x1={x(site.low)} x2={x(site.high)} y1={y} y2={y} />
-            ) : null}
-            {site.n > 0 ? <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} /> : null}
           </g>
-        );
-      })}
-      {showPooled && pooled.k !== undefined && pooled.n ? (
-        <g>
-          <text className="forest-label" x={0} y={PAD + pooledRow * ROW + ROW / 2 + 4}>
-            Pooled (summed counts)
-          </text>
-          <polygon
-            className="forest-pooled"
-            points={[
-              [x(pooled.low ?? 0), PAD + pooledRow * ROW + ROW / 2],
-              [x(pooled.k / pooled.n), PAD + pooledRow * ROW + 4],
-              [x(pooled.high ?? 1), PAD + pooledRow * ROW + ROW / 2],
-              [x(pooled.k / pooled.n), PAD + (pooledRow + 1) * ROW - 4],
-            ]
-              .map((p) => p.join(","))
-              .join(" ")}
-          />
-        </g>
-      ) : null}
-      {showRandom && re.estimate !== undefined ? (
-        <g>
-          <text className="forest-label" x={0} y={PAD + randomRow * ROW + ROW / 2 + 4}>
-            Random effects
-          </text>
-          <line
-            className="forest-interval"
-            x1={x(re.low ?? 0)}
-            x2={x(re.high ?? 1)}
-            y1={PAD + randomRow * ROW + ROW / 2}
-            y2={PAD + randomRow * ROW + ROW / 2}
-          />
-          <circle className="forest-random" cx={x(re.estimate)} cy={PAD + randomRow * ROW + ROW / 2} r={4} />
-        </g>
-      ) : null}
-    </svg>
+        ))}
+        <text className="forest-axis" x={x(0.5)} y={axisBottom + 30} textAnchor="middle">
+          per 100 cases
+        </text>
+        {figure.sites.map((site, i) => {
+          const y = PAD + i * ROW + ROW / 2;
+          const share = site.n ? site.k / site.n : 0;
+          return (
+            <g key={site.report}>
+              <text className="forest-label" x={0} y={y + 4}>
+                {site.site_name.length > 28 ? `${site.site_name.slice(0, 27)}…` : site.site_name}
+              </text>
+              {site.low !== null && site.high !== null ? (
+                <line className="forest-interval" x1={x(site.low)} x2={x(site.high)} y1={y} y2={y} />
+              ) : null}
+              {site.n > 0 ? <rect className="forest-point" x={x(share) - 4} y={y - 4} width={8} height={8} rx={2} /> : null}
+            </g>
+          );
+        })}
+        {showPooled && pooled.k !== undefined && pooled.n ? (
+          <g>
+            <text className="forest-label forest-label-strong" x={0} y={PAD + pooledRow * ROW + ROW / 2 + 4}>
+              Pooled (summed counts)
+            </text>
+            <polygon
+              className="forest-pooled"
+              points={[
+                [x(pooled.low ?? 0), PAD + pooledRow * ROW + ROW / 2],
+                [x(pooled.k / pooled.n), PAD + pooledRow * ROW + 4],
+                [x(pooled.high ?? 1), PAD + pooledRow * ROW + ROW / 2],
+                [x(pooled.k / pooled.n), PAD + (pooledRow + 1) * ROW - 4],
+              ]
+                .map((p) => p.join(","))
+                .join(" ")}
+            />
+          </g>
+        ) : null}
+        {showRandom && re.estimate !== undefined ? (
+          <g>
+            <text className="forest-label forest-label-strong" x={0} y={PAD + randomRow * ROW + ROW / 2 + 4}>
+              Random effects
+            </text>
+            <line
+              className="forest-interval"
+              x1={x(re.low ?? 0)}
+              x2={x(re.high ?? 1)}
+              y1={PAD + randomRow * ROW + ROW / 2}
+              y2={PAD + randomRow * ROW + ROW / 2}
+            />
+            <circle className="forest-random" cx={x(re.estimate)} cy={PAD + randomRow * ROW + ROW / 2} r={4} />
+          </g>
+        ) : null}
+      </svg>
+    </div>
   );
 }
 
@@ -116,26 +118,26 @@ export function EvidenceTable({ figure }: { figure: EvidenceFigure }) {
         <thead>
           <tr>
             <th scope="col">Site</th>
-            <th scope="col">Cases</th>
+            <th scope="col" className="num">Cases</th>
           </tr>
         </thead>
         <tbody>
           {figure.sites.map((site) => (
             <tr key={site.report}>
               <th scope="row">{site.site_name}</th>
-              <td>
+              <td className="num">
                 {shown(site)}
                 {site.insufficient_evidence ? " (insufficient evidence)" : ""}
               </td>
             </tr>
           ))}
-          <tr>
+          <tr className="summary-row">
             <th scope="row">Pooled (fixed effect, summed counts)</th>
-            <td>{pooledWords(figure)}</td>
+            <td className="num">{pooledWords(figure)}</td>
           </tr>
-          <tr>
+          <tr className="summary-row">
             <th scope="row">Random effects (DerSimonian-Laird)</th>
-            <td>{randomWords(figure)}</td>
+            <td className="num">{randomWords(figure)}</td>
           </tr>
         </tbody>
       </table>
@@ -149,18 +151,20 @@ export function EvidenceGroupView({ group }: { group: EvidenceGroup }) {
     .join(", ");
   return (
     <div className="evidence-group">
-      <h3>
-        {group.sites} {group.sites === 1 ? "site" : "sites"}, {group.cases} cases
-        {group.remote_consent ? " (a configuration with remote providers, consented)" : ""}
-      </h3>
-      <p className="muted">
-        Configuration <span className="mono">{configuration}</span>. {group.unreported_tickets} unreported{" "}
-        {group.unreported_tickets === 1 ? "ticket" : "tickets"}, {group.withdrawn_tickets} withdrawn,{" "}
-        {group.superseded_reports} superseded {group.superseded_reports === 1 ? "report" : "reports"}.{" "}
-        {group.tests_run} homogeneity {group.tests_run === 1 ? "test" : "tests"} run, each at 0.05.
-      </p>
+      <div className="evidence-group-head">
+        <h3>
+          {group.sites} {group.sites === 1 ? "site" : "sites"}, {group.cases} cases
+          {group.remote_consent ? " (a configuration with remote providers, consented)" : ""}
+        </h3>
+        <p className="muted evidence-meta">
+          Configuration <span className="mono">{configuration}</span>. {group.unreported_tickets} unreported{" "}
+          {group.unreported_tickets === 1 ? "ticket" : "tickets"}, {group.withdrawn_tickets} withdrawn,{" "}
+          {group.superseded_reports} superseded {group.superseded_reports === 1 ? "report" : "reports"}.{" "}
+          {group.tests_run} homogeneity {group.tests_run === 1 ? "test" : "tests"} run, each at 0.05.
+        </p>
+      </div>
       {group.left_out.length ? (
-        <ul className="muted">
+        <ul className="muted evidence-left-out">
           {group.left_out.map((item) => (
             <li key={item.report}>
               Not pooled: {item.site_name}, {item.reason}.
