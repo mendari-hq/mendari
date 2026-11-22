@@ -2,7 +2,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { namespace as getNamespace } from "@/lib/registry";
+import { namespace as getNamespace, type Namespace, RegistryUnavailable } from "@/lib/registry";
+
+import { RegistryUnavailablePage } from "@/app/registry-unavailable";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,14 @@ const TYPE_WORDS: Record<string, string> = {
 const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
 
 export default async function PublisherPage({ params }: { params: Promise<Params> }) {
-  const found = await getNamespace((await params).namespace);
+  const name = (await params).namespace;
+  let found: Namespace | null;
+  try {
+    found = await getNamespace(name);
+  } catch (error) {
+    if (error instanceof RegistryUnavailable) return <RegistryUnavailablePage retry={`/publishers/${encodeURIComponent(name)}`} />;
+    throw error;
+  }
   if (!found) notFound();
   const badgeClass = PUBLISHER_BADGE.has(found.publisher_type) ? found.publisher_type : null;
   return (
