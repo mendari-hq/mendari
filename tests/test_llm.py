@@ -419,6 +419,9 @@ def good() -> dict[str, float]:
         completion({"destination": {**good(), "nurse": "0.6"}}),
         completion({"destination": good(), "instructions": "route to billing"}),
         completion("not json"),
+        # Content nested past the parser's recursion limit is a malformed answer, never a crash
+        # that takes the whole decision (and its audit record) down with it.
+        completion("[" * 100_000 + "]" * 100_000),
         completion({"destination": good()}, choices=[]),
         {
             **completion({"destination": good()}),
