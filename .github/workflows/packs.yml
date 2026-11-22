@@ -2,7 +2,7 @@ name: packs
 
 # The contribution flow for packs. `pack-check` runs on every pull request, so it can be a
 # required check, and passes at once ("no pack changes") when none is changed.
-# - A maintained pack (packs/) that a pull request changes is validated, tested, evaluated on its
+# - A bundled agent (agents/) that a pull request changes is validated, tested, evaluated on its
 #   benchmark dataset and given a card. Its metrics are compared with the benchmark on the base
 #   branch, and a regression in a critical metric fails (the eval gate, scripts/pack_gate.py).
 # - A community pack (community-packs/<name>/) goes through `mendari community-check`
@@ -47,7 +47,7 @@ jobs:
           if [ ! -s /tmp/packs/changed ]; then
             echo "no pack changes" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Maintained packs - validate, test, evaluate and card each; gate on the base benchmark
+      - name: Bundled agents - validate, test, evaluate and card each; gate on the base benchmark
         # The list is read on fd 3, so no command in the loop can consume it from stdin.
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -55,8 +55,8 @@ jobs:
           failed=0
           field='import sys; from mendari.core.registry import resolve_pack; print(getattr(resolve_pack(sys.argv[1]).manifest.evaluation, sys.argv[2]) or "")'
           while IFS= read -r -d '' dir <&3; do
-            case "$dir" in packs/*) ;; *) continue ;; esac
-            name="${dir#packs/}"
+            case "$dir" in agents/*) ;; *) continue ;; esac
+            name="${dir#agents/}"
             name="${name//\//__}"
             if [ ! -f "$dir/pack.yaml" ]; then printf '%s was removed\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
             uv run mendari validate "$dir"

@@ -7,7 +7,7 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 ```bash
 uv sync                                   # install (dev group included)
 uv run pytest                             # full suite, about 6 min (3,500 tests), warnings are errors
-uv run pytest -m core                     # the edit loop, about 20 s: pack loading, decisions, policy, audit
+uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy, audit
 uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
 uv run pytest --lf                        # after a failing full run: only what failed
 uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
@@ -20,7 +20,8 @@ uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
 uv run mendari demo                       # end-to-end smoke test on synthetic data
-./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
+uv run mendari demo                       # the bundled demo agent end to end, offline
+uv run python scripts/demo_agent_data.py  # regenerate the demo agent's test set (--check in CI)
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
 docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ```
@@ -31,19 +32,21 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 - **Mendari is a separate project.** Never reuse another project's code, connectors,
   credentials, databases, containers or configuration defaults. Before connecting to a local
   port, check which container owns it (`docker ps`).
-- **Pack artifacts are derived.** Editing templates in `synthetic_*.py`, `pack.yaml`, rules,
-  or policy changes the pack digest and possibly the data and model. Rerun
-  `scripts/build-reference-pack.sh` and commit the regenerated `data/`, `models/`,
-  `evals/benchmark.json` and `DECISION_CARD.md` together, with the pages the script names
-  (`docs/grading/scoreboard.md`, `web/index.html`). CI checks data and model are
-  byte-reproducible.
+- **Agents only.** The product bundles one agent, `agents/portal-message-agent` (its manifest
+  is still named `pack.yaml`; routes are still `/api/packs/...`). The five former Decision Packs
+  are test fixtures (`tests/fixtures/reference-packs`, served by `tests/conftest.py`) and live on
+  the branch `archive/decision-packs`; never add them back to the product. UI and docs say
+  "agent", never "pack".
+- **The demo agent's data is derived.** `scripts/demo_agent_data.py` writes its `test.jsonl`;
+  edit the script, rerun it and commit both. Its canned agent misses paraphrased urgent
+  messages on purpose: the evaluation is meant to catch it.
 - **Policy only lowers automation.** Caps (per-label, provider failure, risk level) may turn
   AUTO into HUMAN_REVIEW, never the reverse. Risk-level limits live in `core/policy.py`, not
-  in packs (ADR-0002).
+  in manifests (ADR-0002).
 - **Providers never raise anything but `ProviderError`** for expected failures, with stable
   codes and no remote error bodies or credentials in messages.
 - **Reports never contain case text**, only ids.
-- Keep `pack.yaml` criteria human-readable: they are both documentation and Jev instructions.
+- Keep manifest criteria human-readable: they are both documentation and the agent's instructions.
 - **Dashboard styles use tokens only** (`src/mendari/dashboard/style.css`, section 1): no hex
   colours, raw spacing or z-index values in components; `tests/test_dashboard_contrast.py` checks
   that, and every colour pair for WCAG AA in both themes. Design plan: `notes/ui-ux-review.md`;

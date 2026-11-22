@@ -3,9 +3,15 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# With Jev (Mendari + Jev in the inbox, referral and prior-auth packs):
-#   JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... docker compose up
+# The engines here serve the synthetic EHR's example agents (the inbox, referral, prior-auth,
+# trial and guard agents of tests/fixtures/reference-packs, with their datasets), mounted
+# read-only: they exercise FHIR, SMART, CDS Hooks and PAS end to end. The image itself ships only
+# the demo agent (agents/).
 name: mendari
+
+x-sandbox-agents: &sandbox-agents
+  - ./tests/fixtures/reference-packs:/sandbox/agents:ro
+  - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
 services:
   fhir:
@@ -81,8 +87,12 @@ services:
       MENDARI_PAS_SELF_RELATIONSHIP: ${MENDARI_PAS_SELF_RELATIONSHIP:-18}
       MENDARI_PAS_PAYER_ENTITY: ${MENDARI_PAS_PAYER_ENTITY:-PR}
       MENDARI_PAS_REQUESTER_ENTITY: ${MENDARI_PAS_REQUESTER_ENTITY:-1P}
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-data:/data
+      - ./tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
   engine-signin:
     # The same engine with sign-in on (profile `signin`, for CI's `sandbox-e2e`): the launcher is
@@ -122,8 +132,12 @@ services:
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
       MENDARI_OIDC_ORG_CLAIM: org
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-signin-data:/data
+      - ./tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
   payer:
     # A mock payer for Da Vinci PAS: approves every well-formed prior-authorization request.
@@ -164,6 +178,10 @@ services:
 
   workflow:
     image: mendari-engine:0.1.0
+    environment:
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
+    volumes: *sandbox-agents
     depends_on:
       engine:
         condition: service_healthy
@@ -195,6 +213,10 @@ services:
     # client's keys again at most once a minute.
     profiles: [signin]
     image: mendari-engine:0.1.0
+    environment:
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
+    volumes: *sandbox-agents
     depends_on:
       engine:
         condition: service_healthy

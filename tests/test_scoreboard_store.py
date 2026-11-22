@@ -550,11 +550,11 @@ def test_the_command_line_runs_and_adds_results(
     assert canonical(json.loads(path.read_text())) == canonical(found)
 
 
-def test_the_reference_pack_job_checks_the_store_and_the_page() -> None:
-    """The checks are steps of CI's required `reference-pack` job, against the pull request's
+def test_the_demo_agent_job_checks_the_store_and_the_page() -> None:
+    """The checks are steps of CI's required `demo-agent` job, against the pull request's
     base (or the commit a push was made on), with the history fetched to reach it."""
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
-    job = workflow["jobs"]["reference-pack"]
+    job = workflow["jobs"]["demo-agent"]
     assert job["steps"][0]["with"] == {"persist-credentials": False, "fetch-depth": 0}
     runs = {step.get("run"): step for step in job["steps"]}
     check = runs['uv run python scripts/check_scoreboard.py --base "$BASE"']
@@ -563,13 +563,9 @@ def test_the_reference_pack_job_checks_the_store_and_the_page() -> None:
     }
     assert "uv run python scripts/scoreboard_page.py --check" in runs
     assert not {"if", "continue-on-error"} & {key for step in job["steps"] for key in step}
-    # The build writes the page again (a pack change makes its results stale), so the page is
-    # checked before it, as committed.
-    order = [step.get("run") for step in job["steps"]]
-    page = order.index("uv run python scripts/scoreboard_page.py --check")
-    assert page < order.index("./scripts/build-reference-pack.sh")
-    build = (ROOT / "scripts" / "build-reference-pack.sh").read_text(encoding="utf-8")
-    assert build.rstrip().splitlines()[-2] == "uv run python scripts/scoreboard_page.py"
+    # The scoreboard's build writes the page last, from the store.
+    build = (ROOT / "scripts" / "build-scoreboard.sh").read_text(encoding="utf-8")
+    assert build.rstrip().splitlines()[-3] == "uv run python scripts/scoreboard_page.py"
 
 
 def _page_script() -> Any:
