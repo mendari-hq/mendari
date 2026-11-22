@@ -198,6 +198,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
         {},
     ),
     "registry delete": (["a/b", "--reason", "x", "--db", "{missing_db}"], {}),
+    "registry revoke-key": (["a", "ed25519:0", "--reason", "x", "--db", "{missing_db}"], {}),
     "registry countersign": (["--db", "{missing_db}"], {}),
     "registry checkpoint": (["--db", "{missing_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),

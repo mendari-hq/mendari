@@ -183,6 +183,11 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "site.ticket_reported",
     ),
     (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    # A publisher's signed evaluation of a listed version (ADR-0020); a later one supersedes.
+    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/evaluations"): (
+        "evaluation.published",
+        "evaluation.superseded",
+    ),
     # A verified site, signing with its own key (LP-22e).
     (REGISTRY, "POST", "/v1/tickets"): ("site.ticket_issued", "site.correction_opened"),
     (REGISTRY, "POST", "/v1/tickets/{ticket_id}/withdraw"): ("site.ticket_withdrawn",),

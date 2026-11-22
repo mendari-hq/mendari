@@ -776,4 +776,15 @@ def unchanged_by_suppression(report: SiteReportV2) -> bool:
         return False
 
 
+def adds_up(report: SiteReportV2) -> bool:
+    """Whether a payload's counts are one run's: every equation it states holds where its cells
+    are shown, and can hold where they are null (`_add_up`). What the registry checks of a
+    publisher's evaluation, whose counts are not suppressed (`hub/evaluations.py`)."""
+    try:
+        _add_up(report.model_dump(mode="json"))
+    except MendariError:
+        return False
+    return True
+
+
 _FIELD_NAMES = _field_names()

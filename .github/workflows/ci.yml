@@ -326,13 +326,13 @@ jobs:
           version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
-      - name: Start a registry and publish the demo agent, and a copy whose text tries to run a script
+      - name: Start a registry and publish the demo agent, a copy whose text tries to run a script, site evidence and the publisher's evaluations
         # Background servers run from the venv, not `uv run`: a live `uv run` process holds the uv
         # cache lock, and the setup-uv post step then times out pruning the cache (uv 0.12).
         run: |
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
-          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db /tmp/registry.db --hostile-example --sites
+          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db /tmp/registry.db --hostile-example --sites --evaluations
           .venv/bin/mendari registry verify --db /tmp/registry.db
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:

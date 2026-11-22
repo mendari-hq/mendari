@@ -460,6 +460,34 @@ into one page. Share it with your AI or clinical decision support committee. At 
   recalls a version, and servers that pulled it stop automating it
   ([Running a registry](../operations/registry.md)).
 
+### Publish your evaluations
+
+Once a version is listed, publish how each configuration did on one of its own datasets, so a
+hospital sees on the Agent Hub which configuration works best before it pulls
+([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)). Run it once per configuration:
+
+```bash
+mendari eval my-agent --dataset test --provider reader=rules --publish --key keys/publisher.key
+mendari eval my-agent --dataset test --provider reader=agent --publish --key keys/publisher.key
+```
+
+Each run sends its counts (never a case, never a rate), signed with your publisher key and sent
+with your publisher token. The dataset must be one `pack.yaml` declares, so it is in the signed
+archive (a file path is refused), at least 100 cases, and the whole of it (`--limit` is
+refused). The registry checks it against the archive, then:
+
+- a configuration whose providers are all local (`rules`, `criteria`, `dosing`, `naive_bayes`)
+  is run again by the registry, and refused unless its counts are yours exactly; the Hub shows
+  "Re-run by the registry: matched";
+- one that calls a model (`agent`, `jev`, `llm`, an agent answered from its `mock_file` too) is
+  not run again; the Hub shows "Signed by the publisher; not re-run: calls a model" and the
+  models your run reported.
+
+Latency and cost are shown as you reported them. Publishing the same configuration and dataset
+again replaces the live evaluation; both stay in the registry's chain. The set is your own and
+public, so a configuration can be tuned to it: the page says so, and site evidence stays the
+stronger evidence.
+
 ## Checklist before real use
 
 - [ ] The card's intended use, population and failure modes are honest and complete.
