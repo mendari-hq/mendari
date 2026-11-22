@@ -154,8 +154,8 @@ first real set:
    decision 1), so the keys mount the grading route (`POST /api/evalsets/{set_id}/runs`,
    [Grading a hidden set](#grading-a-hidden-set)), a labeller's routes, the curators' routes
    and the dashboard's Labelling and Hidden sets. In claims mode they would mount the grading
-   route only. How labellers get past Vercel Authentication is still to settle before
-   contracting labellers.
+   route only. Vercel Authentication covers Preview deployments only, so labellers reach
+   Production with the site's own sign-in.
 5. **For the commands**, keep the same two values in a file only you may read (`0600`), as for
    the PHI key's rotation, and read it into the shell you run `mendari evalset` from, with
    `DATABASE_URL` (or `--db`) naming the deployment's database. `mendari access grader-key`

@@ -1200,9 +1200,14 @@ For the project's own public deployment (synthetic data, Vercel), the owner's la
 order:
 
 - [ ] All of Phase 4b, then the external security review and its fixes.
-- [ ] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
-      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production and confirmed in
-      `/api/health` signed in.
+- [x] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production (2026-11-22; until then
+      they were stored under the project's old `OPENHEALTH_*` names, which nothing reads);
+      still to confirm in `/api/health` signed in.
 - [ ] The firewall rule in [`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel)
-      added in log mode, its findings read for 7 days, then enforced.
-- [ ] Then Vercel Authentication lifted.
+      added in log mode (2026-11-22), its findings read for 7 days, then enforced (from
+      2026-11-29).
+- [x] Vercel Authentication lifted from Production, ahead of this order, so the registry and
+      the Agent Hub could read it: since then it protects Preview deployments only. Production
+      holds synthetic data only and needs sign-in on everything but its public routes. The
+      external review above is still to do before any real patient data.
