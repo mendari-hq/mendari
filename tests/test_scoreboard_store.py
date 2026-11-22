@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The results store (LP-17f, `mendari.evals.results_store`, `scripts/check_scoreboard.py`;
+"""The results store (LP-17f, `mendari.evals.results_store`;
 ADR-0013 and the grading method's sections 11, 12 and 14): a result is stored once, by its body's
 SHA-256; nothing stored changes but a valid signature added to an unsigned result; `supersedes`
 names an earlier result of the same pack, set, arm and configuration; every committed result is
@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from mendari import Pack, load_pack
@@ -544,28 +543,15 @@ def test_the_command_line_runs_and_adds_results(
     found = json.loads(path.read_text())
     signed.write_text(signing.dump(signing.sign(found, Ed25519PrivateKey.generate())))
     assert main(["scoreboard", "add", str(signed), "--supersedes", name, "--store", "x"]) == 1
-    assert main(["scoreboard", "add", str(signed), "--supersedes", name]) == 1
+    assert (
+        main(
+            ["scoreboard", "add", str(signed), "--supersedes", name, "--store", str(elsewhere.root)]
+        )
+        == 1
+    )
     errors = capsys.readouterr().err
     assert "no results store at x" in errors and "is signed: its supersedes link" in errors
     assert canonical(json.loads(path.read_text())) == canonical(found)
-
-
-def test_the_demo_agent_job_checks_the_store_and_the_page() -> None:
-    """The checks are steps of CI's required `demo-agent` job, against the pull request's
-    base (or the commit a push was made on), with the history fetched to reach it."""
-    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
-    job = workflow["jobs"]["demo-agent"]
-    assert job["steps"][0]["with"] == {"persist-credentials": False, "fetch-depth": 0}
-    runs = {step.get("run"): step for step in job["steps"]}
-    check = runs['uv run python scripts/check_scoreboard.py --base "$BASE"']
-    assert check["env"] == {
-        "BASE": "${{ github.event.pull_request.base.sha || github.event.before }}"
-    }
-    assert "uv run python scripts/scoreboard_page.py --check" in runs
-    assert not {"if", "continue-on-error"} & {key for step in job["steps"] for key in step}
-    # The scoreboard's build writes the page last, from the store.
-    build = (ROOT / "scripts" / "build-scoreboard.sh").read_text(encoding="utf-8")
-    assert build.rstrip().splitlines()[-3] == "uv run python scripts/scoreboard_page.py"
 
 
 def _page_script() -> Any:

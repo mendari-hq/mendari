@@ -373,15 +373,8 @@ def test_a_result_under_another_methods_hash_or_outside_its_keys_dates_is_refuse
 
 
 def test_the_keys_file_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """The committed keys file is `mendari.grading-keys/1` and holds public keys only (none until
-    the owner adds one); a file that is anything else stops the verifier, naming the key."""
-    committed = json.loads((ROOT / signing.KEYS_PATH).read_text(encoding="utf-8"))
-    assert committed["format"] == signing.KEYS_FORMAT
-    loaded = signing.load_keys(committed)
-    fields = {"key_id", "public_key", "valid_from", "valid_until"}
-    assert all(set(entry) == fields for entry in committed["keys"])
-    assert sorted(loaded) == sorted(entry["key_id"] for entry in committed["keys"])
-
+    """A keys file is `mendari.grading-keys/1` with public keys only; a file that is anything
+    else stops the verifier, naming the key."""
     key, other = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     good = keys_file(key)
     entry = good["keys"][0]
@@ -675,12 +668,7 @@ def test_verifying_needs_no_secret(
     assert "(valid on any day)" in capsys.readouterr().out
     assert main(["scoreboard", "verify", str(path), "--public-key", "x" + given[1:-2]]) == 1
     assert err_lines(capsys) == ["error: --public-key is a public key: 32 bytes in base64"]
-    # The default keys file is the repository's, read from its root: no key in it yet.
-    monkeypatch.chdir(ROOT)
-    assert main(["scoreboard", "verify", str(path)]) == 1
-    assert err_lines(capsys) == [
-        f"error: {path}: it is signed with {signer}, which is not a grading key in the keys given"
-    ]
+    # The default keys file is the deployment's store's, read from where it runs: none here.
     monkeypatch.chdir(tmp_path)
     assert main(["scoreboard", "verify", str(path)]) == 1
     assert err_lines(capsys) == [

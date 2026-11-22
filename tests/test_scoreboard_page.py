@@ -58,13 +58,6 @@ def tables(text: str) -> dict[tuple[str, str], str]:
     return {(pack, name): body for pack, name, body in zip(*[iter(parts[1:])] * 3, strict=True)}
 
 
-def test_the_page_is_regenerated_from_the_store() -> None:
-    """The committed page is the repository's own store's (empty until a result is committed)."""
-    committed = page_script.page(Store.at(page_script.STORE))
-    assert page_script.PAGE.read_text(encoding="utf-8") == committed
-    assert page_script.main(["--check"]) == 0
-
-
 def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
     text: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -79,20 +72,6 @@ def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path))
     assert resolve_pack("mendari/ai-guard").root == copy.resolve()
     assert page_script.page(Store.at(ROOT / "tests" / "fixtures" / "scoreboard")) == text
-    assert page_script.main(["--check"]) == 0
-
-
-def test_the_page_check_fails_on_an_edited_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    edited = tmp_path / "scoreboard.md"
-    edited.write_text(
-        page_script.PAGE.read_text(encoding="utf-8").replace("0 current", "1 current", 1)
-    )
-    monkeypatch.setattr(page_script, "PAGE", edited)
-    monkeypatch.setattr(page_script, "ROOT", tmp_path)
-    assert page_script.main(["--check"]) == 1
-    assert "is not what the results store gives" in capsys.readouterr().err
 
 
 def test_all_five_packs_appear_on_every_public_scoring_set(text: str) -> None:

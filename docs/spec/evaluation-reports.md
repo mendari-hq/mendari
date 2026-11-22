@@ -367,7 +367,7 @@ never a ranking, so no surface prints a rank (a board can also hold a site's own
 
 - The Decision Card's "Provider comparison" opens with "Public set: regression check, not a
   ranking", says that nothing there is graded and the order its rows are listed in, and links
-  the [scoreboard](../grading/scoreboard.md). Its tables have no Rank column. A row measured on
+  the scoreboard. Its tables have no Rank column. A row measured on
   an earlier version of the agent says so beside its configuration.
 - `mendari leaderboard` prints the same opening and the same tables.
 - The dashboard's Provider comparison says the same and links the scoreboard. It has no rank
@@ -434,7 +434,7 @@ its SHA-256). The same inputs give the same bytes, and every bootstrap is the me
 resamples, seed 0, at 95%. Where `mendari.eval/2`'s result already holds a figure, the entry
 reuses it. No format on this page changes. Entries are kept in the
 [results store](#the-results-store-scoreboard), and the
-[early scoreboard](../grading/scoreboard.md) is generated from it.
+early scoreboard is generated from it.
 
 An entry is refused, with a message that names ids and hashes and never a case, when:
 
@@ -809,7 +809,7 @@ a publisher's agent could carry a forged result. Each file is named by its conte
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says
   ("Stored").
 - **The page.** `scripts/scoreboard_page.py` writes
-  [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
+  the early scoreboard from the current results, through `board`
   and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
   `demo-agent`) fails when the page is not the store's. Its bytes depend only on the repository:
   the store and `agents/`.
@@ -1028,4 +1028,4 @@ effect, with each graded arm unranked by the safety attestations it did not meet
 otherwise. What no ledger is kept to recompute is kept as it is: each k and n, and a ranking's
 ranks, intervals, bands and tests are the owner's attestation once signed. Its signature
 (LP-17e) covers its body and its run block, so its run's number cannot change unnoticed. The
-[early scoreboard](../grading/scoreboard.md), of public sets, does not show it.
+early scoreboard, of public sets, does not show it.

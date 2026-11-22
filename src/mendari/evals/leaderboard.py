@@ -34,7 +34,6 @@ PATH = "evals/leaderboard.json"
 PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
 # The early scoreboard's page, where the reference packs' configurations on their public sets
 # are shown with every figure's interval and scope (a URL, so a card links it from anywhere).
-SCOREBOARD = "https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md"
 _COMPOSITES = ("any_of", "cascade", "vote")
 
 
@@ -195,8 +194,7 @@ def preface() -> str:
         "listing order, not a ranking: those measured on this version of the pack, on records "
         f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
         "critical cases caught first and never accuracy alone; every other row follows, by "
-        f"configuration name. Mendari's [scoreboard]({SCOREBOARD}) shows its reference packs' "
-        "configurations on their public sets, each figure with its interval and scope."
+        "configuration name."
     )
 
 
