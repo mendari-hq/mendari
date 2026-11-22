@@ -1333,6 +1333,18 @@ def test_the_digest_copies(page: Page) -> None:
     assert page.evaluate("navigator.clipboard.readText()").startswith("sha256:")
 
 
+def test_a_digest_that_cannot_be_copied_says_what_to_select(page: Page) -> None:
+    """The card names what to select by hand; copyText dropped that message for a generic one."""
+    page.add_init_script(
+        "navigator.clipboard.writeText = () => Promise.reject(new Error('denied'))"
+    )
+    open_pack(page, INBOX, "card")
+    page.get_by_role("button", name="Copy the digest").click()
+    expect(page.locator("#toast")).to_have_text(
+        "Copying isn't available here: select the digest and copy it"
+    )
+
+
 def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
     def remote(route: Route) -> None:
         body = route.fetch().json()
