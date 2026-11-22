@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The agent over HTTP (FastAPI): `POST /decide` for Mendari, `GET /health` for monitors.
+"""The agent over HTTP (the kit's FastAPI app): `POST /decide` for Mendari, `GET /health`.
 
 Vercel serves this file's `app` as one function (vercel.json routes every path here); locally:
 `uvicorn api.index:app --port 8787` from examples/claude-agent.
@@ -11,14 +11,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import agent
+from mendari_agent_kit import Case, create_app
 
-app = FastAPI(title="Mendari demo agent (Claude)", docs_url=None, redoc_url=None)
 _client: Any = None
 
 
@@ -32,26 +29,8 @@ def messages() -> Any:
     return _client.beta.messages
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "agent_version": agent.AGENT_VERSION}
+def handler(case: Case) -> dict[str, Any]:
+    return agent.answer(case, messages())
 
 
-@app.post("/decide")
-async def decide(request: Request) -> JSONResponse:
-    if not agent.authorized(request.headers.get("authorization")):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    try:
-        body = await request.json()
-    except ValueError:
-        return JSONResponse({"error": "the request is not JSON"}, status_code=400)
-    try:
-        return JSONResponse(agent.answer(body, messages()))
-    except agent.AgentError as error:
-        return JSONResponse({"error": error.message}, status_code=error.status)
-    except Exception as error:  # the model's API: a status and a type, never a body
-        status = getattr(error, "status_code", None)
-        return JSONResponse(
-            {"error": f"the model could not answer ({type(error).__name__}, {status})"},
-            status_code=502,
-        )
+app = create_app(handler, title="Mendari demo agent (Claude)", agent_version=agent.AGENT_VERSION)

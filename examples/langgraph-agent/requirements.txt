@@ -1,0 +1,4 @@
+# The kit is mendari_agent_kit.py, a copy of mendari.agent_kit.
+langgraph>=1.2,<2
+fastapi>=0.132
+uvicorn>=0.29

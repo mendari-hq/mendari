@@ -9,8 +9,9 @@ back**. Hospitals stop starting from zero with each vendor. Every change is judg
 makes that loop easier, clearer or more trustworthy: A+, high IQ, high EQ, easy to use.
 
 The loop, and where the platform stands:
-1. **Build:** `mendari new --agent`, the agent HTTP contract, `mendari mcp`. Next: starters for
-   common stacks (an LLM API, LangGraph, a plain HTTP service).
+1. **Build:** `mendari new --agent`, the agent HTTP contract, `mendari mcp`, and the agent kit
+   (`mendari.agent_kit`) with starters for common stacks: `examples/http-agent`,
+   `examples/langgraph-agent`, `examples/claude-agent` (branch `feat/agent-starters`).
 2. **Govern:** policy, risk caps, review queue, audit chain: in place.
 3. **Evaluate and publish "what works best":** `mendari eval`, configuration comparison
    (`mendari leaderboard`), signed archives on the Agent Hub. Next: a publisher's signed eval
