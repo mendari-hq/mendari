@@ -46,14 +46,14 @@ def site(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> I
 def store_tab(page: Page, tab: str) -> None:
     page.goto("about:blank")
     page.goto(f"/#store/{tab}")
-    expect(page.locator("main h1")).to_have_text("Pack store")
+    expect(page.locator("main h1")).to_have_text("Agent store")
     expect(page.locator(f'.tabs a[data-tab="{tab}"]')).to_have_attribute("aria-current", "page")
     expect(page.locator("#store-body")).not_to_have_attribute("aria-busy", "true")
 
 
 def copy(page: Page, name: str = "inbox-router") -> str:
     store_tab(page, "packs")
-    page.get_by_label("Pack", exact=True).fill(INBOX)
+    page.get_by_label("Agent to copy", exact=True).fill(INBOX)
     page.get_by_label("Name of the copy").fill(name)
     page.get_by_role("button", name="Copy", exact=True).click()
     expect(page).to_have_url(re.compile(r"#store/version/sha256"), timeout=20_000)
@@ -68,7 +68,7 @@ def digest_of(page: Page) -> str:
 def run_job(page: Page, *, version: str | None = None, pack: str | None = None) -> None:
     store_tab(page, "results")
     if pack:
-        page.get_by_label("Or a pack served here (the current one)").fill(pack)
+        page.get_by_label("Or an agent served here (the current one)").fill(pack)
     else:
         page.get_by_label("Version").select_option(version)
     page.get_by_label("Dataset").select_option("name:test")
@@ -276,7 +276,7 @@ def test_without_the_store_the_view_is_not_there(
         )
         page.goto("/#store")
         expect(page.locator('.nav a[data-view="store"]')).to_be_hidden()
-        expect(page.locator("main h1")).not_to_have_text("Pack store")
+        expect(page.locator("main h1")).not_to_have_text("Agent store")
         author = here.window(
             person(here, sub="pia", email="pia@example.org", org=CLINIC_A, roles=["pack_author"])
         )

@@ -77,7 +77,7 @@
         <div class="docs-figure">
           <svg class="docs-diagram" viewBox="0 0 340 488" role="img" aria-labelledby="diagram-title diagram-desc">
             <title id="diagram-title">How a decision is made</title>
-            <desc id="diagram-desc">An input passes the pack's input schema, provider slots answer its questions, and the decision policy chooses one of four outcomes, which is recorded. The list beside the picture says the same in words.</desc>
+            <desc id="diagram-desc">An input passes the agent's input schema, provider slots answer its questions, and the decision policy chooses one of four outcomes, which is recorded. The list beside the picture says the same in words.</desc>
             <defs>
               <marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
                 <path class="head" d="M0 0 10 5 0 10Z"/>
@@ -120,9 +120,9 @@
           </svg>
           <ol class="docs-flow">
             <li>Your EHR, app or script sends an input: FHIR R4, a CDS Hooks request, or JSON over REST.</li>
-            <li>The pack's input schema checks it. FHIR input first passes a structural R4 check, then R4 and US Core rules.</li>
-            <li>Provider slots answer the pack's questions: rules, Jev, classical machine learning or a language model, each a variant the deployment chooses.</li>
-            <li>The decision policy turns the answers into an outcome with thresholds, rules and the pack's risk-level caps. Policy only ever lowers automation.</li>
+            <li>The agent's input schema checks it. FHIR input first passes a structural R4 check, then R4 and US Core rules.</li>
+            <li>Provider slots answer the agent's questions: rules, Jev, classical machine learning or a language model, each a variant the deployment chooses.</li>
+            <li>The decision policy turns the answers into an outcome with thresholds, rules and the agent's risk-level caps. Policy only ever lowers automation.</li>
             <li>The outcome is <code>AUTO</code>, <code>HUMAN_REVIEW</code>, <code>ABSTAIN</code> or <code>BLOCK</code>.</li>
             <li>Every decision is recorded in a hash-chained audit trail. One that needs a person waits in the review queue, and each decision can be read as a FHIR Task.</li>
           </ol>
@@ -131,10 +131,10 @@
 
       <section class="docs-section" id="quickstart" aria-labelledby="quickstart-title">
         <h2 id="quickstart-title">Quickstart in three calls</h2>
-        <p>List the packs, decide on a synthetic patient message, and read the decision's audit record. The examples need <code>curl</code> and <code>jq</code>. First name the server and, with sign-in on, your API key:</p>
+        <p>List the agents, decide on a synthetic patient message, and read the decision's audit record. The examples need <code>curl</code> and <code>jq</code>. First name the server and, with sign-in on, your API key:</p>
         <!-- landing:setup -->
         <ol class="docs-steps"><!-- landing:quickstart --></ol>
-        <p>Check <code>outcome</code>, not only the status code: an input that fails the pack's schema is a recorded decision with <code>outcome: BLOCK</code>.</p>
+        <p>Check <code>outcome</code>, not only the status code: an input that fails the agent's schema is a recorded decision with <code>outcome: BLOCK</code>.</p>
       </section>
 
       <section class="docs-section" id="fhir" aria-labelledby="fhir-title">
@@ -142,7 +142,7 @@
         <p>The FHIR base is <code>/fhir</code>. <a href="/fhir/metadata"><code>GET /fhir/metadata</code></a> is its CapabilityStatement, and <a href="/fhir/OperationDefinition/decide"><code>$decide</code>'s OperationDefinition</a> says what the operation takes. <code>POST /fhir/$decide</code> takes <code>Parameters</code> (<code>pack</code>, and <code>data</code> as a Bundle) and returns the decision as a FHIR Bundle, a <code>GuidanceResponse</code> first: act on its <code>outcome</code>, not its <code>status</code>. Decisions are read and searched as <code>Task</code>, and their audit trail as <code>AuditEvent</code> and <code>Provenance</code>, your organization's only. Mendari is a decision engine, not a FHIR data server: it stores and serves no clinical resources.</p>
         <ol class="docs-steps"><!-- landing:fhir --></ol>
         <h3 id="cds-hooks">CDS Hooks</h3>
-        <p><code>GET /cds-services</code> lists the services, one per pack that declares a hook (the <code>discover</code> permission: every role, and a key or token scoped to decide; never an EHR launch), and <code>POST /cds-services/{id}</code> decides on a hook's context and prefetch (<code>decide</code>), answering with cards. A part of the record it cannot read gives a recorded <code>ABSTAIN</code> and an <code>info</code> card that says what. A card's <code>uuid</code> is its decision's id, and <code>POST /cds-services/{id}/feedback</code> records what the clinician did with it, accepted or overridden, as codes and ids only. An EHR calls them with a key from the <code>cds-hooks</code> preset or, once the deployment registers it (<code>MENDARI_CDS_CLIENTS</code>), with its own signed token. With sign-in off, they answer on this machine only.</p>
+        <p><code>GET /cds-services</code> lists the services, one per agent that declares a hook (the <code>discover</code> permission: every role, and a key or token scoped to decide; never an EHR launch), and <code>POST /cds-services/{id}</code> decides on a hook's context and prefetch (<code>decide</code>), answering with cards. A part of the record it cannot read gives a recorded <code>ABSTAIN</code> and an <code>info</code> card that says what. A card's <code>uuid</code> is its decision's id, and <code>POST /cds-services/{id}/feedback</code> records what the clinician did with it, accepted or overridden, as codes and ids only. An EHR calls them with a key from the <code>cds-hooks</code> preset or, once the deployment registers it (<code>MENDARI_CDS_CLIENTS</code>), with its own signed token. With sign-in off, they answer on this machine only.</p>
         <ol class="docs-steps"><!-- landing:cds --></ol>
         <h3 id="smart">SMART on FHIR</h3>
         <!-- landing:smart -->
@@ -150,7 +150,7 @@
 
       <section class="docs-section" id="guard" aria-labelledby="guard-title">
         <h2 id="guard-title">Guarding a model's replies</h2>
-        <p>A pack with a <code>guard</code> section, such as the AI Guard reference pack, checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The same check runs in Python, without a server.</p>
+        <p>An agent with a <code>guard</code> section checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The same check runs in Python, without a server.</p>
         <ol class="docs-steps"><!-- landing:guard --></ol>
       </section>
 
@@ -168,7 +168,7 @@
           <li><a href="/docs/reference">The API reference</a>: every operation, with its parameters, synthetic examples and "Try it out".<!-- landing:reference --></li>
           <li><a href="/openapi.json" download="openapi.json" data-openapi>The OpenAPI document</a>, for code generators and API clients.</li>
           <li><a href="/">The dashboard</a>: the review queue, the audit trail and evaluations, and <a href="/#try">Try it</a>, a decision without code.</li>
-          <li><a href="/#store">The pack store</a>, where the operator has switched it on: your organization's own versions of packs, copied or uploaded, evaluated and promoted by people who sign in. No key reaches it, so it has no example here; its operations are in the API reference under "Pack store".</li>
+          <li><a href="/#store">The agent store</a>, where the operator has switched it on: your organization's own versions of agents, copied or uploaded, evaluated and promoted by people who sign in. No key reaches it, so it has no example here; its operations are in the API reference under "Pack store".</li>
           <li><!-- landing:cards --></li>
         </ul>
       </section>

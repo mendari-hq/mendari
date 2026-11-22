@@ -50,11 +50,11 @@ function automationText(d, governance, registry) {
   const p = d.manifest.policy;
   const code = (v) => `<code>${esc(v)}</code>`;
   const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
-  if (isCommunity(d)) return `Never: a community pack recommends, and a person confirms every decision. ${review}`;
+  if (isCommunity(d)) return `Never: a community agent recommends, and a person confirms every decision. ${review}`;
   if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
   if (registry?.recalled) return `Not while its registry's recall stands: a person reviews every decision. ${review}`;
   if (registry && !registry.active) {
-    return `Not without an approval: this pack came from a registry, so a person reviews every decision until your organization approves this exact version (see Automation approval, below). ${review}`;
+    return `Not without an approval: this agent came from a registry, so a person reviews every decision until your organization approves this exact version (see Automation approval, below). ${review}`;
   }
   if (d.risk.level >= 2 && !governance.active) {
     return `Not without an approval: at risk level ${d.risk.level} a person reviews every decision unless your organization approves automation for this version (see Automation approval, below). ${review}`;
@@ -75,11 +75,11 @@ function automationText(d, governance, registry) {
 // Where this pack runs: one row each time its version, providers or release changed somewhere.
 // In memberships mode they are the deployment operator's (null: not served, ADR-0008).
 function deploymentsSection(rows) {
-  if (rows === null) return `<p class="prose muted">Kept by the deployment's operator: where and how this pack runs is recorded on the server, not shown to each organization.</p>`;
-  if (!rows.length) return `<p class="prose muted">Not recorded yet: a server records itself the first time it uses the pack.</p>`;
+  if (rows === null) return `<p class="prose muted">Kept by the deployment's operator: where and how this agent runs is recorded on the server, not shown to each organization.</p>`;
+  if (!rows.length) return `<p class="prose muted">Not recorded yet: a server records itself the first time it uses the agent.</p>`;
   const providers = (map) => Object.entries(map).map(([slot, variant]) => `<code>${esc(slot)}</code> ${esc(variant)}`).join(", ");
   return `<div class="panel table-wrap"><table>
-    <caption class="sr-only">Deployments of this pack, newest first</caption>
+    <caption class="sr-only">Deployments of this agent, newest first</caption>
     <thead><tr><th scope="col">Since</th><th scope="col">Environment</th><th scope="col">Version</th><th scope="col">Providers</th><th scope="col">Release</th></tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="nowrap"><time datetime="${esc(r.started_at)}" title="${esc(time(r.started_at))}">${esc(shortTime(r.started_at))}</time></td>
       <td>${esc(r.environment)}</td>
@@ -154,7 +154,7 @@ views.card = async (main, params) => {
       <h2 id="card-policy-title">Policy</h2>
       <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
         An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
-        isn't deployed, the risk level forbids it, or the pack is a community pack.</p>
+        isn't deployed, the risk level forbids it, or the agent is a community agent.</p>
       <ol class="rules">${p.rules.map((r) => `<li>
         <div class="row"><b>${esc(r.name)}</b> ${outcomeBadge(r.outcome)} ${r.priority ? priorityBadge(r.priority) : ""}
           ${r.recommendation ? `<span>→ <code>${esc(r.recommendation)}</code></span>` : ""}</div>
@@ -205,7 +205,7 @@ views.card = async (main, params) => {
 // What the pack's risk level allows, the approval in force, and (for people who may approve)
 // approving or revoking. An approval is for this exact pack: a new version needs a new one.
 function approvalSection(g, d, registry) {
-  if (isCommunity(d)) return `<p class="prose">A community pack is never automated, and no approval can change that: a person confirms every decision.</p>`;
+  if (isCommunity(d)) return `<p class="prose">A community agent is never automated, and no approval can change that: a person confirms every decision.</p>`;
   if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
   if (!g.approvable) {
     return registry
@@ -294,7 +294,7 @@ function registrySection(r) {
     ? `<div class="callout neutral" id="registry-active"><b>Approved for automation</b> by ${esc(a.approver)} (${esc(a.reference)}),
         ${esc(time(a.created_at))}, for digest <span class="mono">${esc(shortDigest(a.pack_digest))}</span>, until revoked.
         ${may("approve") ? `<button type="button" data-registry-revoke="${esc(a.id)}">Revoke</button>` : ""}</div>`
-    : `<p class="prose"><b>Not approved here.</b> A person reviews every decision this pack's policy would automate, and every
+    : `<p class="prose"><b>Not approved here.</b> A person reviews every decision this agent's policy would automate, and every
         case its own rules would block, until your organization approves this exact version
         (digest <span class="mono">${esc(shortDigest(r.digest))}</span>).</p>`;
   const form = !a && may("approve") ? `<form class="approve-form" id="registry-form">
@@ -304,7 +304,7 @@ function registrySection(r) {
       <button type="submit" class="primary">Approve this version…</button>
     </form>` : "";
   return `<div id="registry-approval">
-    <h3>Pack from a registry</h3>
+    <h3>Agent from a registry</h3>
     ${facts}${recall}${status}${form}
     ${registryHistory(r.approvals ?? [], r.digest)}
   </div>`;
@@ -320,7 +320,7 @@ function registryHistory(rows, digest) {
     return row.pack_digest === digest ? "In force" : "Another version, not served here";
   };
   return `<div class="panel table-wrap mt-2"><table>
-    <caption class="sr-only">Approvals of this pack from a registry, newest first</caption>
+    <caption class="sr-only">Approvals of this agent from a registry, newest first</caption>
     <thead><tr><th scope="col">Approved</th><th scope="col">Digest</th><th scope="col">By</th><th scope="col">Reference</th><th scope="col">Status</th></tr></thead>
     <tbody>${rows.map((row) => `<tr><td class="nowrap">${when(row.created_at)}</td>
       <td class="mono">${esc(shortDigest(row.pack_digest))}</td><td>${esc(row.approver)}</td>
@@ -335,10 +335,10 @@ function wireRegistry(main, r, d) {
     const approver = $("#registry-approver")?.value || null;
     const registry = r.pulled?.registry;
     const approved = await actionDialog({
-      title: "Approve this pack from a registry?",
+      title: "Approve this agent from a registry?",
       body: `<p>Your organization approves <b>${esc(d.manifest.name)}</b> <span class="mono">${esc(r.pack_id)}</span> v${esc(d.manifest.version)},
           digest <code class="break-anywhere">${esc(r.digest)}</code>${registry ? `, from ${esc(registry)}` : ""}, to automate under its own policy.</p>
-        <p>Once approved, what this pack's policy automates is no longer sent to a person because the pack came from a
+        <p>Once approved, what this agent's policy automates is no longer sent to a person because the agent came from a
           registry, and its own rules' blocks take effect without a person.</p>
         <p>It does not lift a recall by its registry, an automation hold, or its risk level's limits (levels 2 and 3 also need
           their own approval). It covers this digest only, lasts until revoked, and is kept in the audit trail with your reference.</p>`,
@@ -378,12 +378,12 @@ function holdSection(holds, d) {
     ? `set by the deployment's operator, ${esc(time(h.set_at))}.`
     : `${esc(h.reason)}. Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.`);
   const listed = covering.map((h) => `<div class="callout danger"><b>Automation on hold</b>
-      (${h.pack_id ? "this pack" : "every pack"}${h.org ? "" : ", every organization"}): ${why(h)}
+      (${h.pack_id ? "this agent" : "every agent"}${h.org ? "" : ", every organization"}): ${why(h)}
       ${may("approve") && h.org ? `<button type="button" data-lift="${esc(h.id)}">Lift</button>` : ""}</div>`).join("");
   const form = may("approve") ? `<form class="approve-form" id="hold-form">
       <label for="hold-reason">Reason</label>
       <input id="hold-reason" required maxlength="200" placeholder="e.g. investigating a missed emergency">
-      <button type="submit">Hold automation for this pack</button>
+      <button type="submit">Hold automation for this agent</button>
     </form>` : "";
   return listed + form;
 }
@@ -393,7 +393,7 @@ function holdSection(holds, d) {
 function liftText(hold, d) {
   const who = hold?.pack_id
     ? `<b>${esc(d.manifest.name)}</b> decides on its own again`
-    : `Every pack of your organization decides on its own again, <b>${esc(d.manifest.name)}</b> included`;
+    : `Every agent of your organization decides on its own again, <b>${esc(d.manifest.name)}</b> included`;
   return `<p>${who}: what its policy automates is no longer sent to a person because of this hold.</p>
     <p>Another hold, a recall by its registry, an approval it still needs and its risk level's limits keep applying.
       The lift is kept in the audit trail.</p>`;

@@ -35,6 +35,7 @@ from mendari.hub.registry import REVIEWER, RegistryStore
 
 OPERATOR = "operator (scripts/hub_seed.py)"  # who the chain names for what this script does
 
+DEMO_AGENT = "mendari/portal-message-agent"  # the agent this release bundles (agents/)
 HOSTILE_ID = "hub-test/hostile-text"
 # Publisher text that would run in a page that rendered it as HTML.
 HOSTILE_SCRIPT = "<script>window.__hostile = 1</script>"
@@ -89,7 +90,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
     private, public = archive.generate_key()
     key = archive.load_private_key(private)
-    inbox = resolve_pack("mendari/patient-inbox-router")
+    inbox = resolve_pack(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
@@ -147,7 +148,7 @@ def sites_example(registry: str, store: RegistryStore) -> None:
     from mendari.evals.share import shareable
     from mendari.hub import site_signing
 
-    pack = resolve_pack("mendari/referral-router")
+    pack = resolve_pack(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch, RegistryClient(registry) as client:
         for org, name, cases in SITES:
             record = store.register_site(org=org, name=name, by=OPERATOR, reason="seeded")
@@ -161,13 +162,14 @@ def sites_example(registry: str, store: RegistryStore) -> None:
             )
             site = site_signing.Site(where)
             dataset = resolve_dataset(pack, "test").head(cases)
-            report = shareable(evaluation(Decision(pack), dataset).ledger)
+            # The agent is a provider off the site's machines: the site consents to that.
+            report = shareable(evaluation(Decision(pack), dataset).ledger, remote_consent=True)
             request = site.sign(
                 site_signing.TICKET_REQUEST,
                 {
                     "pack": report["pack"],
                     "configuration": {s: p["variant"] for s, p in report["providers"].items()},
-                    "remote_consent": False,
+                    "remote_consent": True,
                     "commitment": site.commitment(f"{org}:{cases}".encode()),
                     "n": report["dataset"]["n"],
                 },
@@ -205,7 +207,7 @@ def main() -> int:
 
 
 def seed(args: argparse.Namespace, store: RegistryStore) -> None:
-    token = namespace(store, args.namespace, "Mendari reference packs")
+    token = namespace(store, args.namespace, "Mendari")
     hostile = (
         namespace(store, HOSTILE_ID.split("/")[0], "Hub test publisher")
         if args.hostile_example

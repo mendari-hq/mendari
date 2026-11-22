@@ -375,7 +375,7 @@ def test_decide_shows_progress_and_blocks_a_second_submit(page: Page) -> None:
 def test_the_record_example_picker_matches_the_input(page: Page) -> None:
     open_pack(page, GUARD, "try")
     expect(page.locator("#example")).to_have_value("0")
-    expect(page.locator("#expected")).to_contain_text("The pack's test expects")
+    expect(page.locator("#expected")).to_contain_text("The agent's test expects")
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
@@ -462,7 +462,7 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     # The order as ranking.grouped writes it: every shipped row is of an earlier version, so by
     # configuration name.
     expect(panel).to_contain_text("every other row follows, by configuration name")
-    expect(panel).to_contain_text("the pack's own sets are public")
+    expect(panel).to_contain_text("the agent's own sets are public")
     expect(panel).not_to_contain_text("Every set")
     scoreboard = panel.get_by_role("link", name="scoreboard")
     expect(scoreboard).to_have_attribute("href", f"{DOCS_SITE}operations/scoreboard/")
@@ -2316,7 +2316,7 @@ def test_a_viewer_reads_but_is_not_offered_what_the_server_would_refuse(
     decide_inbox(live_server, "Crushing chest pain and my left arm is numb")  # waits for review
     signed_in_as(page, "viewer")
     page.goto(f"/?pack={INBOX}#try")
-    expect(page.get_by_role("heading", name="Trying the pack is for reviewers")).to_be_visible()
+    expect(page.get_by_role("heading", name="Trying the agent is for reviewers")).to_be_visible()
     page.goto(f"/?pack={INBOX}#review")
     card = page.locator(".review-card").first
     expect(card).to_contain_text("Resolving is for reviewers")
@@ -2509,7 +2509,7 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
         f"Accuracy below the benchmark: reviewed decisions: accuracy {shown(figures.of(20, 30))}"
     )
     expect(page.locator("main")).to_contain_text("against its benchmark")
-    expect(page.locator("main")).to_contain_text("3 decisions of other versions of the pack are")
+    expect(page.locator("main")).to_contain_text("3 decisions of other versions of the agent are")
     reviewed = page.locator(".stats-primary .stat").first
     expect(reviewed).to_contain_text(shown(figures.of(20, 30)))  # the stratum, not the whole set
     expect(reviewed).to_contain_text(f"benchmark {shown(figures.counted(0.995, 598))}")
@@ -2537,7 +2537,7 @@ def test_monitoring_says_a_pack_from_a_registry_is_not_compared(page: Page) -> N
     open_pack(page, INBOX, "monitoring")
     main = page.locator("main")
     expect(main).to_contain_text(
-        "Not compared with the benchmark: the pack is from a registry, and the benchmark it "
+        "Not compared with the benchmark: the agent is from a registry, and the benchmark it "
         "carries is its publisher's upload, never a reference. Only the checks that need no "
         "benchmark run"
     )
@@ -2562,7 +2562,7 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
         "Not compared with the benchmark: the benchmark ran other providers or models than this "
         "deployment. Only the checks that need no benchmark run"
     )
-    expect(main).to_contain_text("1 decision of another version of the pack is not counted.")
+    expect(main).to_contain_text("1 decision of another version of the agent is not counted.")
     expect(main).not_to_contain_text("against its benchmark")
     expect(page.locator(".stats-primary .stat").first).not_to_contain_text("benchmark")
     expect(page.locator(".stats-primary")).to_contain_text("needs a comparable benchmark")

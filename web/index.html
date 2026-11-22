@@ -67,32 +67,32 @@
         <figure class="decision" aria-label="An example decision on a synthetic message">
           <div class="decision-chrome">
             <span class="decision-chrome-title">Demo Agent Guardrail Trace</span>
-            <span class="decision-chrome-tag">10-sec demo · Synthetic</span>
+            <span class="decision-chrome-tag">Demo agent · Synthetic</span>
           </div>
           <div class="decision-input">
-            <p class="decision-meta"><span>Patient portal · Scheduling</span><span>Governed intake</span></p>
-            <blockquote>“I need to make an appointment for my annual physical. Any openings next week? Thanks so much”</blockquote>
+            <p class="decision-meta"><span>Patient portal · Message</span><span>Governed intake</span></p>
+            <blockquote>“Please refill my inhaler. Also I have had chest pain since last night.”</blockquote>
           </div>
           <ol class="hero-trace" aria-label="Four-stage guardrail pipeline">
             <li class="ht-step ht-ok"><span class="ht-k">01 Input gate</span><b>Schema valid</b></li>
-            <li class="ht-step ht-ok"><span class="ht-k">02 Agent slot</span><b>1.00 sure</b></li>
-            <li class="ht-step ht-warn"><span class="ht-k">03 Risk policy</span><b>Model screen req.</b></li>
+            <li class="ht-step ht-ok"><span class="ht-k">02 Agent slot</span><b>0.94 sure</b></li>
+            <li class="ht-step ht-warn"><span class="ht-k">03 Policy rule</span><b>Same-day symptoms</b></li>
             <li class="ht-step ht-warn"><span class="ht-k">04 Outcome</span><b>HUMAN_REVIEW</b></li>
           </ol>
           <div class="decision-answers">
-            <p class="decision-pack">
+            <p class="decision-agent">
               <svg class="mark mark-sm" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 7.25 20 11.25 16 15.25 12 11.25Z"/><path class="dim" d="M20.75 12 24.75 16 20.75 20 16.75 16Z"/><path class="dim" d="M16 16.75 20 20.75 16 24.75 12 20.75Z"/><path class="dim" d="M11.25 12 15.25 16 11.25 20 7.25 16Z"/></svg>
-              <span>mendari/patient-inbox-router 0.4.3 · rules + naive Bayes</span>
+              <span>mendari/portal-message-agent 0.1.0 · offline mock agent</span>
             </p>
             <p class="synthetic">Synthetic example. Not clinically reviewed. Not for patient care.</p>
             <dl class="answers">
-              <div><dt>Destination</dt><dd>front_desk</dd></div>
-              <div><dt>Urgency</dt><dd>routine</dd></div>
+              <div><dt>Request</dt><dd>refill</dd></div>
+              <div><dt>Urgent symptoms</dt><dd>yes</dd></div>
             </dl>
           </div>
           <figcaption class="decision-outcome">
-            <span class="outcome-line"><span class="chip chip-review">HUMAN_REVIEW</span> Suggested: front desk</span>
-            <span class="decision-reason">Confident (1.00), but this agent automates only with a model in its safety screen, so a person confirms. Recorded in the audit trail.</span>
+            <span class="outcome-line"><span class="chip chip-review">HUMAN_REVIEW</span> Suggested: refill · urgent</span>
+            <span class="decision-reason">Confident (0.94) that it is a refill, but the message may describe symptoms that need a nurse today, so a person decides. Recorded in the audit trail.</span>
           </figcaption>
         </figure>
       </section>
@@ -131,7 +131,7 @@
                 <span class="loop-step-num">03</span>
                 <div>
                   <strong>Publish a signed Agent + Scorecard to the Hub</strong>
-                  <p>Ship an Ed25519-signed package with an auto-rendered Decision Card and reproducible regression check so hospitals can verify before piloting.</p>
+                  <p>Ship an Ed25519-signed archive with an auto-rendered Decision Card and reproducible regression check so hospitals can verify before piloting.</p>
                 </div>
               </li>
             </ol>
@@ -207,7 +207,7 @@
           <div class="byo-copy">
             <p class="section-kicker">Bring your own agent</p>
             <h2>Wrap any healthcare AI agent in minutes.</h2>
-            <p class="byo-lede">Mendari is the governance, evaluation, and distribution layer — <strong>your AI agents are the product</strong>. Wrap any Claude, OpenAI, LangGraph, custom HTTP agent, or ruleset as a signed, governed agent package with typed schemas, risk caps, and reproducible evals.</p>
+            <p class="byo-lede">Mendari is the governance, evaluation, and distribution layer — <strong>your AI agents are the product</strong>. Wrap any Claude, OpenAI, LangGraph, custom HTTP agent, or ruleset as a signed, governed agent with typed schemas, risk caps, and reproducible evals.</p>
             <ul class="byo-list">
               <li><strong>Model-agnostic slots:</strong> benchmark frontier LLMs, local models, HTTP agents, and rules head-to-head on identical cases</li>
               <li><strong>Standard healthcare plumbing:</strong> instant REST, FHIR R4 <code>$decide</code>, CDS Hooks 2.0, and clinician review queue</li>
@@ -223,11 +223,11 @@
           </div>
         </div>
 
-        <div id="packs" class="demos-section">
-          <div class="packs-head">
+        <div id="demo" class="demos-section">
+          <div class="demo-head">
             <div>
-              <p class="section-kicker">10-second starter demo</p>
-              <h3>Try one governed demo locally — or browse templates on the Hub.</h3>
+              <p class="section-kicker">Bundled demo agent</p>
+              <h3>Try one governed agent locally, offline.</h3>
               <p class="muted small">Included solely to demonstrate the governance format and local console, not as clinical products.</p>
             </div>
             <p class="caution">Synthetic example. Not clinically reviewed. Not for patient care.</p>
@@ -239,13 +239,13 @@
                 <span class="demo-tag">Quick Demo Agent</span>
                 <span class="risk">Risk 0</span>
               </div>
-              <h4>Patient Inbox Router <span class="mono muted">mendari/patient-inbox-router</span></h4>
-              <p>Run <code>uv run mendari demo</code> to watch a governed agent route synthetic patient messages, escalate emergencies to clinicians, verify the hash-chained audit trail, and check for local-site drift.</p>
-              <p class="muted small">Need more reference templates (referrals, prior auth, trial prescreening, AI guard)? <a href="https://mendari-agent-hub.vercel.app/publishers/mendari" rel="noopener noreferrer">Browse starter templates on the Agent Hub ↗</a></p>
+              <h4>Portal Message Agent <span class="mono muted">mendari/portal-message-agent</span></h4>
+              <p>Run <code>uv run mendari test agents/portal-message-agent</code> and <code>uv run mendari eval agents/portal-message-agent --dataset examples</code> to watch a governed agent route synthetic patient portal messages and send anything that may describe same-day symptoms to a nurse.</p>
+              <p class="muted small">It runs offline on canned answers. Set <code>MENDARI_AGENT_URL</code> and the same commands call your live agent; an agent that fails or times out never automates.</p>
             </div>
             <p class="demo-featured-score">
-              <span class="k">596 / 600</span>
-              <span class="muted">synthetic test set · 95% CI 98.3–99.8%</span>
+              <span class="k">12 / 12</span>
+              <span class="muted">bundled synthetic examples · a smoke test, not a performance estimate</span>
             </p>
           </div>
         </div>
@@ -272,8 +272,8 @@
     <section id="start" class="start">
       <div class="wrap split">
         <div class="intro">
-          <h2>Run the 10-second demo, or launch the Governance Console.</h2>
-          <p><code>mendari demo</code> runs the starter demo end to end. Scaffold your own HTTP or LLM agent with <code>mendari new --agent</code>, or start <code>mendari serve</code> for the local API and Governance Console.</p>
+          <h2>Try the demo agent, or launch the Governance Console.</h2>
+          <p><code>mendari test</code> and <code>mendari eval</code> run the bundled demo agent offline. Scaffold your own HTTP or LLM agent with <code>mendari new --agent</code>, or start <code>mendari serve</code> for the local API and Governance Console.</p>
           <p class="small">The source opens to the public at launch. Until then, cloning needs access to the repository.</p>
         </div>
         <div class="terminal">
@@ -281,7 +281,8 @@
           <pre><code><span class="prompt" aria-hidden="true">$ </span>git clone https://github.com/mendari-hq/mendari.git
 <span class="prompt" aria-hidden="true">$ </span>cd mendari
 <span class="prompt" aria-hidden="true">$ </span>uv sync
-<span class="prompt" aria-hidden="true">$ </span>uv run mendari demo
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari test agents/portal-message-agent
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari eval agents/portal-message-agent --dataset examples
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari new --agent my-agent --id my-org/my-agent
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari serve   <span class="comment"># http://127.0.0.1:8000</span></code></pre>
         </div>

@@ -346,13 +346,13 @@ export const MEMBERSHIP_ROLES = [
   { key: "viewer", label: "Viewer", text: "reads decisions and the audit trail" },
   { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
-  { key: "governance", label: "Governance", text: "approves packs and holds automation" },
+  { key: "governance", label: "Governance", text: "approves agents and holds automation" },
   { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
-  { key: "pack_author", label: "Pack author", text: "writes packs in the organization's pack store, where it is on" },
+  { key: "pack_author", label: "Agent author", text: "writes agents in the organization's agent store, where it is on" },
   { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
   // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
   // where the server says this organization is that one (`me.registry_review_org`).
-  { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the pack registry: namespace claims, recalls and deletions", reviewOrg: true },
+  { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the agent registry: namespace claims, recalls and deletions", reviewOrg: true },
 ];
 
 // The roles this organization's administrators may give: every one, but the registry

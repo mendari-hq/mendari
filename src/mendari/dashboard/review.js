@@ -254,7 +254,7 @@ function reviewCard(item) {
   const recommendation = item.recommendation;
   const labels = state.detail.labels;
   const name = (label) => labelName(state.detail.primary, label);
-  const title = recommendation ? `Recommended: ${name(recommendation)}` : "No recommendation: the pack abstained";
+  const title = recommendation ? `Recommended: ${name(recommendation)}` : "No recommendation: the agent abstained";
   const noteField = may("review") && state.phiMode !== "hash"
     ? `<details class="review-note"><summary>Add a note <span class="muted">(optional)</span></summary>
         <label class="sr-only" for="review-note-${esc(item.id)}">Review note</label>

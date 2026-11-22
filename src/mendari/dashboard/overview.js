@@ -346,11 +346,11 @@ function improvementLens(brief, detail) {
   const cli = `mendari eval ${detail.id} --dataset ${name}-overrides.jsonl`;
   const table = clusters.length
     ? `<div class="table-wrap mt-3"><table class="compact">
-        <thead><tr><th scope="col">Pack recommended</th><th scope="col">Clinician chose</th><th scope="col" class="num">Overrides</th><th scope="col" class="num">Of overrides</th></tr></thead>
+        <thead><tr><th scope="col">Agent recommended</th><th scope="col">Clinician chose</th><th scope="col" class="num">Overrides</th><th scope="col" class="num">Of overrides</th></tr></thead>
         <tbody>${clusters.map((c) => `<tr><td><code>${esc(c.recommended)}</code></td><td><code>${esc(c.chosen)}</code></td><td class="num">${c.count}</td><td class="num">${c.count} of ${brief.volume.overrides}</td></tr>`).join("")}</tbody>
       </table></div>`
     : `<p class="muted mt-3">No human overrides recorded in the last ${brief.window_days} days. As clinicians override decisions in the Review queue, recurring disagreement patterns cluster here for targeted recalibration.</p>`;
-  return `<p class="muted mt-2">Close the loop from clinician overrides to measurable pack improvements: export overridden cases as a local validation set, test a recalibrated threshold or stronger provider, and compare before promotion.</p>
+  return `<p class="muted mt-2">Close the loop from clinician overrides to measurable agent improvements: export overridden cases as a local validation set, test a recalibrated threshold or stronger provider, and compare before promotion.</p>
     ${table}
     <div class="row mt-3">
       ${may("admin") ? `<button type="button" class="primary" id="export-overrides">${icon("download")} Export overrides (JSONL)</button>` : ""}

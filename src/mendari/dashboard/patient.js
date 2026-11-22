@@ -51,7 +51,7 @@ views.patient = async (main, params) => {
     ${banner(patient)}
     ${items.length ? `<ul class="work-items">${items.map(workItem).join("")}</ul>` : emptyState({
       icon: "inbox", title: "Nothing to decide",
-      text: `This patient has nothing ${esc(packName())} decides about. Choose another pack above.`,
+      text: `This patient has nothing ${esc(packName())} decides about. Choose another agent above.`,
     })}`;
   $("#smart-logout").addEventListener("click", logout);
   main.querySelectorAll("button[data-decide]").forEach((button) => button.addEventListener("click", () => decide(button, pinned)));

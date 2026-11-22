@@ -107,7 +107,7 @@ def test_an_unapproved_pack_says_so_and_is_approved_through_the_dialog(page: Pag
     open_pack(page, INBOX, "card")
     assert any(m == "GET" and "pack_id=mendari%2Fpatient-inbox-router" in u for m, u, _ in sent)
     expect(page.locator("#card-facts")).to_contain_text(
-        "Not without an approval: this pack came from a registry"
+        "Not without an approval: this agent came from a registry"
     )
     section = page.locator("#registry-approval")
     expect(section).to_contain_text("https://hub.example.org")
@@ -124,7 +124,7 @@ def test_an_unapproved_pack_says_so_and_is_approved_through_the_dialog(page: Pag
     section.get_by_label("Reference").fill("AI committee minutes, item 4")
     section.get_by_label("Approver").fill("dr-a")
     section.get_by_role("button", name="Approve this version…").click()
-    dialog = page.get_by_role("dialog", name="Approve this pack from a registry?")
+    dialog = page.get_by_role("dialog", name="Approve this agent from a registry?")
     expect(dialog).to_contain_text(DIGEST)
     expect(dialog).to_contain_text("from https://hub.example.org")
     expect(dialog).to_contain_text("It does not lift a recall by its registry, an automation hold")
@@ -245,7 +245,7 @@ def test_a_risk_level_2_pack_shows_both_approvals(page: Page) -> None:
     registry_approvals(page, [], pack_id=GUARD)
     open_pack(page, GUARD, "card")
     section = page.locator("#card-approval")
-    expect(section.get_by_role("heading", name="Pack from a registry")).to_be_visible()
+    expect(section.get_by_role("heading", name="Agent from a registry")).to_be_visible()
     expect(section.get_by_role("heading", name="Approval for risk level 2")).to_be_visible()
 
 

@@ -82,7 +82,7 @@ function waitsFor(c) {
 function showNamespaces() {
   const form = `<form class="panel admin-form" id="claim-form" novalidate>
       <h2>Claim a namespace</h2>
-      <p class="muted">The first part of a pack's id (<code>namespace/pack</code>). Nothing published in it is served to anyone until the registry's reviewers approve its first version.</p>
+      <p class="muted">The first part of an agent's id (<code>namespace/name</code>). Nothing published in it is served to anyone until the registry's reviewers approve its first version.</p>
       <label for="claim-name">Name</label>
       <input id="claim-name" name="name" required maxlength="${MAX_NAMESPACE}" pattern="${NAME_PATTERN}" autocomplete="off" spellcheck="false" class="field-full mono" aria-describedby="claim-name-hint">
       <p class="muted" id="claim-name-hint">Lowercase letters, digits and dashes. <code>mendari</code> is reserved.</p>
@@ -121,7 +121,7 @@ function showNamespaces() {
 // A refusal of a claim, in words: a reserved name plainly; anything else as the server says it.
 function claimRefusal(error, name) {
   if (error.status === 422 && /reserved/.test(error.message)) {
-    return `“${name}” is reserved for Mendari's own packs. Choose another name.`;
+    return `“${name}” is reserved for Mendari's own agents. Choose another name.`;
   }
   if (error.status === 409 && /exists/.test(error.message)) return `“${name}” is taken. Choose another name.`;
   return error.message;
@@ -192,7 +192,7 @@ function showTokens() {
   const form = spaces.length
     ? `<form class="panel admin-form" id="mint-form" novalidate>
       <h2>Mint a publisher token</h2>
-      <p class="muted">For whatever publishes packs (a CI job, say): it publishes to one namespace only, at <code>/registry/v1/</code>, and is no credential anywhere else. It is shown once.</p>
+      <p class="muted">For whatever publishes agents (a CI job, say): it publishes to one namespace only, at <code>/registry/v1/</code>, and is no credential anywhere else. It is shown once.</p>
       <label for="mint-name">Name</label>
       <input id="mint-name" name="name" required maxlength="${MAX_TOKEN_NAME}" autocomplete="off" class="field-full">
       <label for="mint-namespace">Namespace</label>
@@ -310,7 +310,7 @@ function siteKeys(site) {
 function showSites() {
   const form = `<form class="panel admin-form" id="site-form" novalidate>
       <h2>Register a site</h2>
-      <p class="muted">A place that evaluates packs on its own chart-reviewed cases and shares signed counts, never cases. It is shown by this name once the registry's reviewers verify it.</p>
+      <p class="muted">A place that evaluates agents on its own chart-reviewed cases and shares signed counts, never cases. It is shown by this name once the registry's reviewers verify it.</p>
       <label for="site-name">Name</label>
       <input id="site-name" name="name" required maxlength="${MAX_SITE_NAME}" autocomplete="off" class="field-full">
       <p class="error" id="site-error" role="alert" hidden></p>

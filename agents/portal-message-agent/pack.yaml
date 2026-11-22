@@ -99,7 +99,8 @@ policy:
 evaluation:
   datasets:
     examples: data/examples.jsonl
-  benchmark_dataset: examples
+    test: data/test.jsonl  # 600 synthetic messages (scripts/demo_agent_data.py)
+  benchmark_dataset: test
   critical:
     - {question: urgent_symptoms, label: "yes"}
 

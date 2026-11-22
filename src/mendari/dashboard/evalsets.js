@@ -100,7 +100,7 @@ async function showSets(main) {
         key: "name", label: "Set", sort: (s) => s.name.toLowerCase(),
         cell: (s) => `<a class="set-link" href="${esc(setLink(s.set))}">${esc(s.name)}</a><br><code class="mono">${esc(s.set)}</code>`,
       },
-      { key: "pack", label: "Pack", sort: (s) => s.pack, cell: (s) => `<code>${esc(s.pack)}</code>` },
+      { key: "pack", label: "Agent", sort: (s) => s.pack, cell: (s) => `<code>${esc(s.pack)}</code>` },
       { key: "state", label: "State", sort: (s) => Object.keys(STATES).indexOf(s.state), cell: (s) => stateBadge(s.state) },
       { key: "cases", label: "Cases", numeric: true, sort: (s) => s.cases, cell: (s) => esc(s.cases) },
       { key: "made", label: "Made", className: "nowrap", sort: (s) => s.created_at, cell: (s) => esc(time(s.created_at)) },
@@ -214,7 +214,7 @@ function factsHtml(s) {
   const about = STATES[s.state]?.about;
   const facts = [
     ["Set", `<code class="wrap">${esc(s.set)}</code>`],
-    ["Pack", `<code class="wrap">${esc(s.pack)}</code>`],
+    ["Agent", `<code class="wrap">${esc(s.pack)}</code>`],
     ["State", `${stateBadge(s.state)}${about ? ` <span class="muted">${esc(about)}</span>` : ""}`],
     ["Cases", esc(s.cases)],
     ["Made", esc(time(s.created_at))],
@@ -583,7 +583,7 @@ function showCoverage() {
   return `<p class="muted evalset-intro">${measured(stored)} Each case counts with its settled labels (an
       agreed case's, or the majority of a resolved one); a case still waiting counts none.</p>
     ${stats}${warnings}
-    <h2>Critical labels</h2>${critical || '<p class="muted">The pack names no critical label.</p>'}
+    <h2>Critical labels</h2>${critical || '<p class="muted">The agent names no critical label.</p>'}
     <h2>Labels</h2>${tableHtml({
       id: "evalset-labels",
       caption: "Each question's labels: cases, and distinct inputs among them",

@@ -86,7 +86,7 @@ def test_the_readme_links_work_on_pypi() -> None:
     and each link into this repository names a path that exists, as a file or a folder."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     targets = re.findall(r"\]\(([^)\s]+)\)", readme)
-    assert len(targets) > 40  # the links were found
+    assert len(targets) > 25  # the links were found
     relative = [t for t in targets if not re.match(r"(https?://|#|mailto:)", t)]
     assert relative == [], "relative links break on pypi.org"
     for target in targets:

@@ -141,7 +141,7 @@ function reliabilityChart(calibration, figures, id) {
   return chartHtml({
     id: `reliability-${id}`,
     type: "scatter",
-    ariaLabel: `Reliability diagram: ${bins.length} confidence bins over ${cases} cases, expected calibration error ${num(calibration.ece)}. ${overconfident} of ${bins.length} bins sit below the diagonal, where the pack is more confident than accurate.`,
+    ariaLabel: `Reliability diagram: ${bins.length} confidence bins over ${cases} cases, expected calibration error ${num(calibration.ece)}. ${overconfident} of ${bins.length} bins sit below the diagonal, where the agent is more confident than accurate.`,
     square: true,
     diagonal: true,
     sizeBy: true,
@@ -176,7 +176,7 @@ function sweepChart(sweep, figures, autoThreshold, nothingAutomated, id) {
   return chartHtml({
     id: `sweep-${id}`,
     type: "lines",
-    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} automates ${shown(first.automated)} cases at first and ${shown(last.automated)} at last; of those, ${shown(first.correct)} and ${shown(last.correct)} are correct.${typeof autoThreshold === "number" ? ` The pack's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
+    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} automates ${shown(first.automated)} cases at first and ${shown(last.automated)} at last; of those, ${shown(first.correct)} and ${shown(last.correct)} are correct.${typeof autoThreshold === "number" ? ` The agent's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
     x: { title: "Automate when confidence is at least", format: threshold },
     series: [{ key: "coverage", label: "Would be automated", swatch: "c1" }, { key: "accuracy", label: "Of those, correct", swatch: "c2", dashed: true }],
     directLabels: true,
@@ -257,7 +257,7 @@ export function wireSimulators(root) {
       const th = row.threshold.toFixed(2);
       const delta = entry.current !== null ? row.threshold - entry.current : null;
       const deltaText = delta === null ? ""
-        : Math.abs(delta) < 0.001 ? " (pack default)"
+        : Math.abs(delta) < 0.001 ? " (agent default)"
           : ` (${delta > 0 ? "+" : ""}${delta.toFixed(2)} vs default)`;
       out.textContent = `${th}${deltaText}`;
       const autoN = row.automated?.n ?? 0;
@@ -295,7 +295,7 @@ function confusionView(confusion, figures, id) {
   return `<details class="mt-3"><summary>Confusion matrix</summary>
     ${tableHtml({
       id: `confusion-${id}`,
-      caption: "Rows are the true label, columns the pack's answer. Mistakes are shaded: amber, or red when they are a tenth of the row or more.",
+      caption: "Rows are the true label, columns the agent's answer. Mistakes are shaded: amber, or red when they are a tenth of the row or more.",
       rows,
       stickyFirst: true,
       columns: [

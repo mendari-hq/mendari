@@ -366,7 +366,7 @@ function coveragePanel(id, coverage, declared) {
   const dash = `<span class="muted">–</span>`;
   return `<section class="coverage" aria-labelledby="coverage-${esc(id)}">
     <h3 id="coverage-${esc(id)}">What it read</h3>
-    <p class="muted">From the FHIR record, for each field and list the pack maps: counts only, never a value. Could not read, in all: ${total}.</p>
+    <p class="muted">From the FHIR record, for each field and list the agent maps: counts only, never a value. Could not read, in all: ${total}.</p>
     ${tableHtml({
       id: `coverage-table-${id}`,
       caption: `<span class="sr-only">What the decision read from the FHIR record, by field</span>`,
