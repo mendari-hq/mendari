@@ -297,7 +297,7 @@ def load_pack(
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
         raw["policy"] = parse_yaml(
-            _read(root, raw["policy"], label, digested), raw["policy"], label
+            _read(root, raw["policy"], label, digested, "policy"), raw["policy"], label
         )
 
     try:
@@ -941,6 +941,16 @@ def _excluded(name: str) -> bool:
     return name.startswith(".") or name == "__pycache__"
 
 
+_SHOWN_PATH_CHARS = 80  # how much of a refused path a problem shows
+
+
+def _shown_path(relative: str) -> str:
+    """A path the manifest names, quoted, at most `_SHOWN_PATH_CHARS` of it."""
+    if len(relative) <= _SHOWN_PATH_CHARS:
+        return repr(relative)
+    return repr(relative[:_SHOWN_PATH_CHARS]) + f"... ({len(relative):,} characters)"
+
+
 def _confined(root: Path, relative: str, label: str, field: str | None = None) -> Path:
     """`relative` resolved inside `root`, or a `PackValidationError` naming `field` (the
     manifest field naming the path, if any): a path that escapes the pack, or that goes through
@@ -949,7 +959,11 @@ def _confined(root: Path, relative: str, label: str, field: str | None = None) -
     is refused). These checks read the path as written, for a clear message; what decides
     whether a file of the pack may be read is its identity on disk (`_pack_file`)."""
     where = f"{field}: " if field else ""
-    resolved = (root / relative).resolve()
+    try:
+        resolved = (root / relative).resolve()
+    except (OSError, RuntimeError, ValueError) as error:  # a NUL in it, a link loop, …
+        problem = f"{where}path {_shown_path(relative)} is not a path a file can have"
+        raise PackValidationError(label, [f"{problem} ({type(error).__name__})"]) from None
     if not resolved.is_relative_to(root):
         raise PackValidationError(label, [f"{where}path {relative!r} escapes the pack directory"])
     parts = resolved.relative_to(root).parts
@@ -983,6 +997,10 @@ def _pack_file(
         status = os.stat(resolved)
     except (FileNotFoundError, NotADirectoryError):
         return resolved  # nothing there to read: a file to write, or one a caller checks for
+    except OSError as error:  # a name too long for the filesystem, a folder it may not read, …
+        why = error.strerror or type(error).__name__  # the system's words, never the path
+        problem = f"{where}path {_shown_path(relative)} cannot be read ({why})"
+        raise PackValidationError(label, [problem]) from None
     if stat.S_ISDIR(status.st_mode) or (status.st_dev, status.st_ino) in digested:
         return resolved
     problem = (
