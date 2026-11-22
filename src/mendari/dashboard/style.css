@@ -717,8 +717,6 @@ figure.chart { margin: var(--space-3) 0 0; }
 /* Line points ring in their series colour; scatter dots get a dashed ring in the text colour, so
    focus never looks like the solid accent ring that marks the deployed configuration. */
 .chart-svg .focus-dot { fill: var(--color-surface); stroke-width: 2; }
-.chart-svg .focus-dot.st-c1 { stroke: var(--chart-1); }
-.chart-svg .focus-dot.st-c2 { stroke: var(--chart-2); }
 .chart-svg .focus-ring { fill: none; stroke: var(--color-text); stroke-width: 2; stroke-dasharray: 3 2; }
 .chart-svg .mark:hover :is(.hl, .guide, .focus-dot, .focus-ring),
 .chart-svg .mark:focus-visible :is(.hl, .guide, .focus-dot, .focus-ring) { opacity: 1; }
@@ -734,7 +732,7 @@ figure.chart { margin: var(--space-3) 0 0; }
 .tip-row { display: flex; align-items: center; gap: var(--space-2); font-variant-numeric: tabular-nums; }
 .tip-row span { flex: 1; color: var(--color-text-muted); white-space: nowrap; margin-right: var(--space-3); }
 /* Fills and strokes by meaning: the four outcomes, series colours, and tones for bars and dots. */
-.f-AUTO, .f-auto { fill: var(--outcome-auto); }
+.f-AUTO { fill: var(--outcome-auto); }
 .f-HUMAN_REVIEW, .f-review { fill: var(--outcome-review); }
 .f-ABSTAIN { fill: var(--outcome-abstain); }
 .f-BLOCK, .f-block { fill: var(--outcome-block); }
