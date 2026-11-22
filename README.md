@@ -221,6 +221,24 @@ result.priority         # Priority.URGENT
 result.reasons          # ('rule same-day-symptoms: The message may describe symptoms that need a nurse today.',)
 ```
 
+### From another AI agent (MCP)
+
+`mendari mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio, so an
+assistant or agent framework can call governed decisions as tools: `list_agents`, `decide`,
+`review_queue` and `verify_audit`. A `decide` call runs the agent under its own policy, exactly as
+the REST API does, and is written to the audit trail (`--db`). The caller is told to treat the
+outcome as binding: `HUMAN_REVIEW` means a person decides. A client's server entry:
+
+```json
+{
+  "mcpServers": {
+    "mendari": {"command": "uv", "args": ["run", "mendari", "mcp", "--db", "var/mcp.db"]}
+  }
+}
+```
+
+The review queue it returns holds ids, outcomes and recommendations, never the input.
+
 ## What the engine provides
 
 **Audit trail.** Every decision is an event in an append-only, hash-chained trail (SQLite

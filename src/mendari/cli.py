@@ -3570,6 +3570,16 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from mendari.core.phi import phi_policy
+    from mendari.mcp import McpServer, serve
+
+    # Decisions are recorded under the PHI mode set here, as `mendari decide --db` records them.
+    with AuditStore(args.db or ":memory:", phi=phi_policy()) as store:
+        serve(McpServer(store), sys.stdin, sys.stdout)
+    return 0
+
+
 def _write_jsonl(path: Path, records: Sequence[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for record in records:
@@ -5069,6 +5079,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo
     )
+    mcp = sub.add_parser(
+        "mcp",
+        help="serve governed decisions to other AI agents as MCP tools (stdio)",
+        description="A Model Context Protocol server on stdin/stdout: list_agents, decide, "
+        "review_queue and verify_audit. Every decide call runs under the agent's policy and is "
+        "written to the audit trail.",
+    )
+    mcp.add_argument("--db", help="audit database to record decisions in (default: in memory)")
+    mcp.set_defaults(handler=cmd_mcp)
     return parser
 
 
