@@ -259,8 +259,11 @@ def test_superseding_keeps_both_in_the_chain(published: Registry) -> None:
     }
     listing = published.client.get(path()).json()
     assert listing["superseded"] == 1 and len(listing["evaluations"]) == 1
-    # One signed before the live one does not take its place.
-    refused(send(published, signed(published.key)), 409, "signed later is live")
+    # One signed before the live one does not take its place (its time set, not the clock's:
+    # a slow run would otherwise sign it after the live one).
+    earlier = (datetime.fromisoformat(later) - timedelta(seconds=1)).isoformat(timespec="seconds")
+    older = signed(published.key, created_at=earlier.replace("+00:00", "Z"))
+    refused(send(published, older), 409, "signed later is live")
     assert published.operator.verify()["ok"]
 
 
