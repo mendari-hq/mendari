@@ -3,8 +3,8 @@
 // they act for no organization, instead of the sections. Holding memberships, they choose one
 // (the server keeps the choice for this browser). Holding none, they see who they are signed in
 // as and may ask to join an organization by its id: the server answers the same whether or not
-// it exists, and this page never lists organizations. Holding one whose roles grant nothing yet
-// (a reserved role), they are told so; one who only labels hidden evaluation sets, where the
+// it exists, and this page never lists organizations. Holding one whose roles grant nothing
+// here, they are told so; one who only labels hidden evaluation sets, where the
 // deployment serves no labelling route, is told what they do (where it does, they see the
 // labelling screen instead, labelling.js). Reached only through `state.noAccess` (router.js).
 
