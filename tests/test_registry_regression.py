@@ -122,7 +122,12 @@ def test_the_check_runs_isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     _fake(monkeypatch, b'{"status": "no_test_set"}')
     assert regression.check(tmp_path, None)["status"] == "no_test_set"
     (seen,) = FakeChild.started
-    assert seen["args"][1:4] == ["-I", "-m", "mendari.hub.regression"]
+    assert seen["args"][1:3] == ["-I", "-c"]
+    # The parent's own import path, as code (a host may find packages only via PYTHONPATH,
+    # which -I ignores); never a relative entry, so never the working directory.
+    boot = seen["args"][3]
+    assert "run_module('mendari.hub.regression', run_name='__main__'" in boot
+    assert "''" not in boot.split("sys.path[:] = ")[1].split("; runpy")[0]
     assert set(seen["env"]) == {"PATH", "HOME", "MENDARI_CACHE_DIR", "MENDARI_CONFIG_DIR", "LANG"}
     assert seen["cwd"] != str(Path.cwd()) and "preexec_fn" not in seen
     assert seen["stdin"] == seen["stderr"] == subprocess.DEVNULL

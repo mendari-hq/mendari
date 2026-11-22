@@ -115,6 +115,21 @@ def rerun(pack_dir: Path, configuration: Mapping[str, str], dataset: str) -> dic
     )
 
 
+def _boot() -> str:
+    """The child's first line: the parent's own import path, then this module as `__main__`.
+    `-I` keeps the child from reading PYTHONPATH, user site-packages and the working
+    directory, which is the point; but on a host that finds the installed packages through
+    PYTHONPATH (Vercel's Python runtime) it then cannot import Mendari at all. So the child
+    gets the parent's resolved path, absolute directories only, as code, never from its
+    environment."""
+    path = [entry for entry in sys.path if entry and os.path.isabs(entry)]
+    return (
+        "import runpy, sys; "
+        f"sys.path[:] = {path!r}; "
+        "runpy.run_module('mendari.hub.regression', run_name='__main__', alter_sys=True)"
+    )
+
+
 def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as home:
         env = {
@@ -126,7 +141,7 @@ def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
         }
         try:
             child = subprocess.Popen(
-                [sys.executable, "-I", "-m", "mendari.hub.regression", str(pack_dir), *extra],
+                [sys.executable, "-I", "-c", _boot(), str(pack_dir), *extra],
                 env=env,
                 cwd=home,
                 stdin=subprocess.DEVNULL,
