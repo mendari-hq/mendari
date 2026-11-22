@@ -791,7 +791,9 @@ mendari evalset rotate --db "$DATABASE_URL" --check
 index key in one transaction: a reader sees the old index or the new one, never a mix of key
 ids. A case input no key opens refuses it all, and nothing changes. The chain records the new
 key's epoch (`evalset_index.epoch`) and the rebuild (`evalset_index.rebuilt`). Until the reindex,
-the check lists each case indexed under the old key (`index`). Case hashes already chained keep
+the check lists each case indexed under the old key (`index`), and the agent store's hidden-set
+check refuses every upload (`503`, nothing stored) rather than look cases up in an index it would
+miss them in; so does a shell still holding a replaced index key. Case hashes already chained keep
 the index key id they were made under: `mendari audit verify --evalsets` recomputes only those
 under the current index key, and each case's commitment, which no index key keys, still binds it.
 

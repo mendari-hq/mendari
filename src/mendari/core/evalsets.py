@@ -2210,9 +2210,16 @@ class EvalsetStore:
     def hidden_matches(self, value: Any) -> list[dict[str, str]]:
         """The cases, of every organization's sets, whose input equals `value` exactly or under
         `norm/v1`, by set and case id: the hidden-case index, for the pack store's upload check
-        (LP-20). In the store only: no route or command answers it."""
-        hashes = self._ring().index_hashes(value)
+        (LP-20). In the store only: no route or command answers it. An index that is not wholly
+        under this store's index key (a new index key before `reindex`, or a key a reindex
+        replaced) would miss cases and answer none: that is a `StaleIndex`, never an empty
+        answer, so the upload check fails closed."""
+        keys = self._ring()
+        hashes = keys.index_hashes(value)
         with self.store._db.session(exclusive=False) as db:
+            stale = _stale_index(db, key_id(keys.index_key))
+            if stale is not None:
+                raise StaleIndex(stale)
             rows = db.all(
                 "SELECT DISTINCT set_id, case_id FROM evalset_index WHERE hash IN (?, ?) "
                 "ORDER BY set_id, case_id",
@@ -2339,6 +2346,47 @@ def _label_ref_of(row: Mapping[str, Any], body: Any) -> str | None:
         )
     except (MendariError, ValueError, AttributeError):
         return None
+
+
+class StaleIndex(MendariError):
+    """The hidden-case index is not wholly under the index key asked with (`_stale_index`): a
+    lookup would miss what another key indexed, so it answers nothing (`hidden_matches`)."""
+
+
+def _stale_index(db: Session, index_key: str) -> str | None:
+    """Why the hidden-case index may hold cases `index_key` does not find, or None: that key was
+    retired by a reindex (the index is under a newer one), or another index key started an epoch
+    here and no reindex has retired it since (its rows, if any, are under that key). Key ids and
+    the command only."""
+    names = [
+        name
+        for row in db.all(
+            "SELECT name FROM settings WHERE name LIKE ? OR name LIKE ?",
+            (EVALSET_INDEX_EPOCH + "%", EVALSET_INDEX_RETIRED + "%"),
+        )
+        if (name := str(row["name"])).startswith((EVALSET_INDEX_EPOCH, EVALSET_INDEX_RETIRED))
+    ]
+    retired = {
+        name[len(EVALSET_INDEX_RETIRED) :]
+        for name in names
+        if name.startswith(EVALSET_INDEX_RETIRED)
+    }
+    if index_key in retired:
+        return (
+            f"index key {index_key} was replaced by a reindex: the hidden-case index is under a "
+            f"newer {INDEX_ENV}"
+        )
+    others = sorted(
+        {n[len(EVALSET_INDEX_EPOCH) :] for n in names if n.startswith(EVALSET_INDEX_EPOCH)}
+        - retired
+        - {index_key}
+    )
+    if others:
+        return (
+            f"the hidden-case index holds cases under index key(s) {', '.join(others)}, not "
+            f"{index_key}: rebuild it (`mendari evalset reindex`)"
+        )
+    return None
 
 
 def _refuse_an_older_index_key(db: Session, index_key: str) -> None:
