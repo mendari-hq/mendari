@@ -209,7 +209,7 @@ def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path
     with pytest.raises(PackValidationError) as shadow:
         load_pack(same, origin="hub")
     assert not isinstance(shadow.value, PatternsRefused)
-    assert "never takes a reference pack's place" in shadow.value.problems[0]
+    assert "never takes a bundled agent's place" in shadow.value.problems[0]
     assert not load_pack(same, origin="local").bounded
 
 
@@ -233,11 +233,11 @@ def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
     shadow = load_pack(same, origin="local")
     assert (shadow.id, shadow.version) == (reference.id, reference.version)
     assert shadow.manifest.publisher.type == reference.manifest.publisher.type
-    with pytest.raises(PackValidationError, match="never takes a reference pack's place"):
+    with pytest.raises(PackValidationError, match="never takes a bundled agent's place"):
         load_pack(same, origin="hub")
 
 
-# -- a pulled pack never takes a reference pack's place (F) ---------------------------------------
+# -- a pulled pack never takes a bundled agent's place (F) ---------------------------------------
 
 
 def shadow(base: Path, version: str | None = None) -> Path:
@@ -261,9 +261,9 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
         load_pack(root, origin="hub")
     (problem,) = refused.value.problems
     assert problem.startswith(
-        f"{reference.id}@{reference.version} has the id and version of a reference pack this "
+        f"{reference.id}@{reference.version} has the id and version of an agent this "
         f"release bundles ({reference.id}@{reference.version}) but other files (digest "
-        f"{pack_digest(root)[:23]}): a pack from a registry never takes a reference pack's place"
+        f"{pack_digest(root)[:23]}): a pack from a registry never takes a bundled agent's place"
     )
     assert problem.endswith(f"; remove {root.resolve()} from the cache")
     # Checked where it is not cached (an archive being checked), it names no directory.
@@ -271,7 +271,7 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
     elsewhere = copied(tmp_path / "unpacked", "patient-inbox-router", edit=edit)
     with pytest.raises(PackValidationError) as unpacked:
         load_pack(elsewhere, origin="hub")
-    assert "never takes a reference pack's place" in unpacked.value.problems[0]
+    assert "never takes a bundled agent's place" in unpacked.value.problems[0]
     assert "remove" not in unpacked.value.problems[0]
 
 
@@ -286,7 +286,7 @@ def test_a_version_that_ties_a_reference_packs_is_refused_too(tmp_path: Path, ti
     with pytest.raises(PackValidationError) as refused:
         load_pack(shadow(tmp_path, version), origin="hub")
     (problem,) = refused.value.problems
-    assert problem.startswith(f"{reference.id}@{version} has the id and version of a reference")
+    assert problem.startswith(f"{reference.id}@{version} has the id and version of an agent")
 
 
 def test_a_pulled_copy_of_a_reference_pack_and_a_newer_version_still_load(tmp_path: Path) -> None:
@@ -313,7 +313,7 @@ def test_a_shadow_in_the_cache_is_listed_and_the_reference_pack_is_served(tmp_pa
     root = shadow(tmp_path)
     paths = [SearchPath(packs_cache(), "hub"), SearchPath(PACKS, "maintained")]
     found = discover(paths)
-    assert "never takes a reference pack's place" in found.problems[str(root.resolve())]
+    assert "never takes a bundled agent's place" in found.problems[str(root.resolve())]
     for ref in (reference.id, f"{reference.id}@{reference.version}"):
         served = resolve_pack(ref, paths)
         assert (served.origin, served.digest) == ("maintained", reference.digest), ref

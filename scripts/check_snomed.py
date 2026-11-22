@@ -6,7 +6,7 @@ SNOMED CT's url or OID only in the modules that must name the system (`NAMES_THE
 holding a code). A concept id is any id the repository has used (`CONCEPT_IDS`), in any file, and
 in Mendari's own files (src/mendari, the packs, the datasets) any other number written as one:
 6 to 18 digits ending in a concept's partition and SNOMED CT's check digit. A bare id names no
-system, which is how the codes once came into the packs. The reference packs, their data and the
+system, which is how the codes once came into the packs. The agents, their data and the
 sandbox use fictional codes instead. The tests keep SNOMED CT (the US Core fixtures code
 procedures and referrals in it) and ship in no package. Exit 1, naming each file and what it
 carries.
@@ -30,7 +30,7 @@ from pathlib import Path
 from mendari.core.spec import licensed_systems
 
 SNOMED = "http://snomed.info/sct"
-# Every SNOMED CT concept id the repository has carried: the six the reference packs, their data
+# Every SNOMED CT concept id the repository has carried: the six the agents, their data
 # and the sandbox used before LP-14 swapped them for fictional codes, and the three only the US
 # Core test fixtures use. A bare id names no system, so the scan looks for these values in every
 # file, and for any other number written as a concept id in Mendari's own files (`OWN_FILES`).

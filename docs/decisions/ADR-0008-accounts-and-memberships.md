@@ -1,7 +1,5 @@
 # ADR-0008: Accounts and memberships beside the claims a sign-in carries
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
-
 ## Status
 Accepted (2026-11-07: the hosted site runs memberships mode since that day, switched after the
 owner chose "Now, after this PR"). Proposed 2026-10-07. Built (LP-12, 12a to 12k, 2026-10-08),

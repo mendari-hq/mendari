@@ -135,8 +135,9 @@ def test_pack_verify_refuses_a_shadow_without_a_traceback(
     shadow.write_bytes(archive.build(load_pack(changed_referral(tmp_path)), key))
     assert main(["pack", "verify", str(shadow), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
-    assert f"{REFERRAL.id}@{REFERRAL.version} has the id and version of a reference pack" in err
-    assert "never takes a reference pack's place" in err and "remove" not in err
+    shadowed = f"{REFERRAL.id}@{REFERRAL.version}"
+    assert f"{shadowed} has the id and version of an agent this release bundles" in err
+    assert "never takes a bundled agent's place" in err and "remove" not in err
     assert "Traceback" not in err
 
 

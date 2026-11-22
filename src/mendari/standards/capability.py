@@ -143,7 +143,7 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         "operation",
         name="decide",
         definition=f"{DECIDE_URL}|{__version__}",
-        documentation="Decide one case with a Decision Pack: Parameters (pack, version, data, "
+        documentation="Decide one case with an agent: Parameters (pack, version, data, "
         "focus) in, a collection Bundle (GuidanceResponse, RequestGroup, Task, Parameters, "
         "OperationOutcome, Provenance) out. Every call is recorded in the audit trail.",
         serves=_takes_fhir,

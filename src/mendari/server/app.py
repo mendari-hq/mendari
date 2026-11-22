@@ -1669,7 +1669,7 @@ def create_app(
             # ...and those that apply to no served pack at all (a typo, a pack not served).
             "provider_settings_unused": unused_settings,
             "jev": {
-                # The reference packs run Mendari + Jev where no setting chose (JEV_DEFAULTS).
+                # The bundled agents run Mendari + Jev where no setting chose (JEV_DEFAULTS).
                 "defaults": bool(fallbacks),
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
@@ -1753,7 +1753,7 @@ def create_app(
         summary="List packs",
     )
     def list_packs() -> list[dict[str, Any]]:
-        """Every Decision Pack this deployment serves: id, version, risk level, the labels of its
+        """Every agent this deployment serves: id, version, risk level, the labels of its
         main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
         `local`, with `origin_label` to show; a community pack is not clinically reviewed and
         never automates)."""

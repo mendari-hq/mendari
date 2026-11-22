@@ -10,7 +10,7 @@ the deployment's own database, in the `evalset_` tables of `core/audit.py`, and 
   is null, and `author`, `language` and `stratum` are given. A record holding what a model
   decided or people rated (a `system` or `feedback` block, as `mendari feedback export` writes)
   is refused, and so is an input equal, exactly or under `norm/v1`, to one of the public cases:
-  the reference packs' data and `datasets/` as this release bundles them, and each generator's
+  the bundled agents' data and `datasets/` as this release bundles them, and each generator's
   output at its default seed. The store mints each case's id (a UUID4); the author's id and an
   intended label, if any, are kept among its attributes. Its input is sealed, and its attributes
   sealed with a 32-byte salt; its keyed case hash and its two index hashes (`index_hashes`) are
@@ -2242,7 +2242,7 @@ def case_problems(records: Sequence[Any], header: Mapping[str, Any]) -> list[tup
                 problems.append(
                     (
                         index,
-                        "its input is a public case's (the reference packs' data, datasets/ or "
+                        "its input is a public case's (the bundled agents' data, datasets/ or "
                         "a generator's output): a hidden case is written by hand",
                     )
                 )
@@ -2497,7 +2497,7 @@ def _public_forms() -> tuple[frozenset[bytes], frozenset[bytes]]:
 
 
 def _public_inputs() -> Iterator[Any]:
-    """Every public case's input: each JSONL record's under the reference packs and the example
+    """Every public case's input: each JSONL record's under the bundled agents and the example
     datasets as this release bundles them (`mendari/_packs`, `mendari/_datasets`, or a checkout's
     `packs/` and `datasets/`), and each generator's at its default seed."""
     from mendari.core.reference import bundled_dir

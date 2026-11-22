@@ -1563,8 +1563,8 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
 
 
 SANDBOX_KINDS = {
-    # kind: (default agent directory, default local-site output). The synthetic EHR's example
-    # agents are test fixtures; the sandbox (docker-compose.yml) mounts them.
+    # kind: (default agent directory, default local-site output). The synthetic EHR's agents
+    # are test fixtures; the sandbox (docker-compose.yml) mounts them.
     "inbox": (
         "tests/fixtures/reference-packs/patient-inbox-router",
         "tests/fixtures/datasets/local-site-example.jsonl",
@@ -2737,7 +2737,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
     if pack.bounded:
         print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
     else:
-        print("  runs on the maintained engine: a copy of the reference pack in this release")
+        print("  runs on the maintained engine: a copy of an agent this release bundles")
     print(
         "  served, it never automates until your organization approves this digest "
         "(POST /api/registry-approvals); `mendari test` and `eval` check its own policy"
@@ -3467,7 +3467,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
     With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
     also passes `mendari community-check`, its benchmark and card written.
-    With `--agent`, an AI agent Decision Pack with an offline mock fixture that switches to a
+    With `--agent`, an AI agent with an offline mock fixture that switches to a
     live agent endpoint when `MENDARI_AGENT_URL` is set."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
@@ -3682,7 +3682,7 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="mendari", description="Package, evaluate and deploy healthcare Decision Packs."
+        prog="mendari", description="Evaluate, govern and deploy healthcare AI agents."
     )
     parser.add_argument("--version", action="version", version=f"mendari {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -4008,7 +4008,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         action="append",
         metavar="SLOT=VARIANT",
-        help="instead of $MENDARI_PROVIDERS; with Jev set up, the reference packs run Mendari + "
+        help="instead of $MENDARI_PROVIDERS; with Jev set up, the bundled agents run Mendari + "
         "Jev in every slot these choose nothing for",
     )
     serve.add_argument(
@@ -4233,9 +4233,11 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(
         dest="sandbox_command", required=True
     )
-    generate = sandbox.add_parser("generate", help="regenerate a reference pack's synthetic data")
+    generate = sandbox.add_parser(
+        "generate", help="regenerate a test-fixture agent's synthetic data"
+    )
     generate.add_argument("--kind", choices=sorted(SANDBOX_KINDS), default="inbox")
-    generate.add_argument("--pack-dir", help="default: the kind's reference pack")
+    generate.add_argument("--pack-dir", help="default: the kind's agent in the test fixtures")
     generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
     generate.set_defaults(handler=cmd_sandbox_generate)
     seed = sandbox.add_parser("seed", help="load synthetic cases into FHIR as US Core resources")
@@ -4250,7 +4252,7 @@ def build_parser() -> argparse.ArgumentParser:
             "mendari/prior-auth-preflight",
             "ehr-profile",
         ],
-        help="whose local-site cases (default: the inbox's messages), or ehr-profile: the "
+        help="whose local-site cases (default: portal messages), or ehr-profile: the "
         "vendor-shaped EHR profile (LP-23e), under its own ids (--count does not apply)",
     )
     seed.add_argument("--count", type=int, default=40)
@@ -4325,7 +4327,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="the v0.6 pilot: sign-in, API keys, PHI mode, review, governance, monitoring",
     )
     pilot.add_argument("--engine", required=True, help="engine URL (its MENDARI_PUBLIC_URL)")
-    pilot.add_argument("--messages", type=int, default=12, help="inbox messages to decide")
+    pilot.add_argument("--messages", type=int, default=12, help="portal messages to decide")
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
     payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
     payer.add_argument("--host", default="127.0.0.1")

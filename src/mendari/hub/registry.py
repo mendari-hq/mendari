@@ -12,7 +12,7 @@
     wrote, or a model built from one (`archive.refuse_site_cases`: a site's cases, which a
     client refuses to archive, and which a client that did not look still cannot publish);
   - it extracts to a pack that loads with the signed digest, on the engine its pullers run
-    (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a reference pack of
+    (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);
   - that version does not exist yet.
 
@@ -962,7 +962,7 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
         archive.refuse_site_cases(verified.files)
         with tempfile.TemporaryDirectory() as scratch:
             try:
-                # Checked on the engine its pullers run, against this release's reference packs.
+                # Checked on the engine its pullers run, against this release's bundled agents.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
                 _refuse_invalid(pack)
@@ -1756,8 +1756,8 @@ def _checked(
         # The digest the signed manifest names, which the pack loaded with, on `engine`.
         "digest": version.get("digest"),
         "engine": version.get("engine"),
-        # The registry's release whose reference packs that engine was chosen against: a puller
-        # on another release may run a copy of a reference pack on the bounded engine.
+        # The registry's release whose bundled agents that engine was chosen against: a puller
+        # on another release may run a copy of a bundled agent on the bounded engine.
         "engine_release": version.get("engine_release"),
         # Rendered here from the files the digest covers, never the uploaded card.
         "card": "rendered" if rendered else "not_rendered",
@@ -1920,7 +1920,7 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         ),
         "digest": pack.digest,
         "key_id": verified.key_id,
-        # The engine its pullers run it on (ADR-0009): a copy of a reference pack of this
+        # The engine its pullers run it on (ADR-0009): a copy of a bundled agent of this
         # registry's release keeps the maintained one; every other pack runs bounded.
         "engine": "bounded" if pack.bounded else "maintained",
         "engine_release": __version__,

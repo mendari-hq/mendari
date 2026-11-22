@@ -25,7 +25,7 @@ governed agent is a folder of plain text:
 | evaluate an agent on your own site's cases | [Evaluating at your site](guides/evaluate-at-your-site.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
 | publish and pull signed agents | [Running a registry](operations/registry.md) |
-| know exactly what a manifest may contain | [The spec](spec/decision-pack-0.2.md), and the FHIR mapping of [0.3](spec/decision-pack-0.3.md) |
+| know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), and the FHIR mapping of [0.3](spec/agent-manifest-0.3.md) |
 | understand how the engine works | [Architecture](architecture.md) |
 | review its security | [Threat model](security/threat-model.md) |
 | see where the project is going | [Roadmap](roadmap.md) |

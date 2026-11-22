@@ -105,7 +105,7 @@ from mendari.evals.hidden import (
     WeightedWithheld,
 )
 from mendari.server.app import GRADING_REFUSALS
-from tests.conftest import ROOT, calm_jev, hand_written
+from tests.conftest import ROOT, calm_jev, hand_written, runbook_body
 from tests.test_evalset_grading import (
     LOCAL,
     UNTOUCHED,
@@ -1296,7 +1296,9 @@ def test_the_runbooks_scoreboard_run_runs_as_written(world: World) -> None:
         if '"arms"' in line
     ]
     assert len(posted) == 1
-    body = json.loads(shlex.split(posted[0].split(" > ")[0])[-1].replace("<sha256>", DECLARED))
+    written = json.loads(shlex.split(posted[0].split(" > ")[0])[-1].replace("<sha256>", DECLARED))
+    arms = {"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}
+    body = runbook_body(written, world.pack.id, arms=arms)
     found = world.client.post(f"/api/evalsets/{set_id}/runs", json=body, headers=world.grader())
     assert found.status_code == 200, found.text
     shown = found.json()

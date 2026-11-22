@@ -1,7 +1,5 @@
 # ADR-0012: A registry that shows only what it checked
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
-
 ## Status
 Accepted (2026-11-07, the owner: "the patent gate is clear and I approve everything on my part",
 which confirms each default below). Proposed 2026-10-09. Built (LP-18, 18a to 18h and the
@@ -117,7 +115,7 @@ Nothing on a pack's page comes from the uploader unchecked.
    (the one its last pull recorded; a running server checks its registry, 18e): AUTO becomes
    HUMAN_REVIEW, as under a hold, and the pack's own rule's BLOCK goes to a person too (final at
    once, it would act alone). The cap follows the origin, not the bytes: a pulled copy of a
-   reference pack is capped too, and no field of the pack lifts it. One live approval a digest
+   bundled pack is capped too, and no field of the pack lifts it. One live approval a digest
    (a second is refused, so revoking stops automation at once); an approval lasts until
    revoked, since it names one digest. `mendari test`, `mendari eval`, `leaderboard --run` and
    the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
@@ -167,7 +165,7 @@ Nothing on a pack's page comes from the uploader unchecked.
 6. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
    registry with its own key. A client honours every yank, verified or not (a forged yank only
    stops automation, the safe direction), and says whether it verified.
-7. (18d) A pulled copy of a reference pack is capped too: the cap follows the origin, not the
+7. (18d) A pulled copy of a bundled pack is capped too: the cap follows the origin, not the
    bytes. `mendari test` checks the pack's own policy and says that serving caps it.
 8. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
 9. (18g) A regression is shown, not refused: the version is the publisher's; a pack that cannot

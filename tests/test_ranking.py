@@ -166,7 +166,6 @@ def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
         for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
             section = card[card.index("## Provider comparison") : card.index("## Known failure")]
             assert section.count("Public set: regression check, not a ranking.") == 1, name
-            assert f"[scoreboard]({leaderboard.SCOREBOARD})" in section, name
             assert "| Configuration | Critical detected |" in section, name
             assert printed_ranks(section) == [], name
 

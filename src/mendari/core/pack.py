@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Loading a Decision Pack directory into a validated, content-addressed `Pack`."""
+"""Loading an agent directory into a validated, content-addressed `Pack`."""
 
 from __future__ import annotations
 
@@ -258,9 +258,9 @@ def load_pack(
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
     trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
     found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
-    community pack, or one from a registry that is not a reference pack of this release) is
+    community pack, or one from a registry that is not a bundled agent of this release) is
     checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
-    from a registry never has a reference pack's id and version with other files
+    from a registry never has a bundled agent's id and version with other files
     (`_shadow_problem`). Every other pack's input schema is held to the expansion bounds
     (`core/input_schema.py` `expansion_problems`).
 
@@ -444,12 +444,12 @@ def manifest_template_problems(manifest: PackManifest) -> list[str]:
 
 def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:
     """Why a pack of an origin the deployment does not own (`NOT_OWNED`: a registry's, LP-20's
-    store) may not load: it has the id of a reference pack of this release and a version that
-    ties that pack's (`version_key`: `0.4.1-x` and `0.04.1` tie `0.4.1`), but other files (its
-    digest is no reference pack's). It would take the reference pack's place: the search path
+    store) may not load: it has the id of a bundled agent of this release and a version that
+    ties that agent's (`version_key`: `0.4.1-x` and `0.04.1` tie `0.4.1`), but other files (its
+    digest is no bundled agent's). It would take the bundled agent's place: the search path
     serves the first of two tying versions, and the registry cache comes before the bundled
     packs. None for every other pack: an operator's local copy (its choice), a community pack
-    (its ids are `community/`), a copy of a reference pack, and any other version."""
+    (its ids are `community/`), a copy of a bundled agent, and any other version."""
     if origin not in NOT_OWNED:
         return None
     from mendari.core.reference import reference_digests, reference_packs  # imports this module
@@ -466,9 +466,9 @@ def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: P
         return None
     bundled, short = f"{manifest.id}@{tying[0].version}", digest[: len("sha256:") + 16]
     return (
-        f"{manifest.id}@{manifest.version} has the id and version of a reference pack this "
+        f"{manifest.id}@{manifest.version} has the id and version of an agent this "
         f"release bundles ({bundled}) but other files (digest {short}): a pack from a registry "
-        "never takes a reference pack's place. Use the copy this release bundles, or publish it "
+        "never takes a bundled agent's place. Use the copy this release bundles, or publish it "
         f"under another version{_cached(root)}"
     )
 

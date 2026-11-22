@@ -30,7 +30,7 @@ jobs:
     env:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
-      # The sample scripts decide with the example agents of the test fixtures (FHIR, PAS, DTR).
+      # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
       MENDARI_PACKS_PATH: tests/fixtures/reference-packs
       MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:

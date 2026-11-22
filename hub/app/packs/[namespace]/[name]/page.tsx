@@ -81,7 +81,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
     : "Publish with mendari eval --share";
   const starterLabel =
     namespace === "mendari"
-      ? name === "patient-inbox-router"
+      ? name === "portal-message-agent"
         ? "Demo agent"
         : "Starter template"
       : null;

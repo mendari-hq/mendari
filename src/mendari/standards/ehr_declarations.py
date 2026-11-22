@@ -21,9 +21,9 @@ does not offer, one FHIR base at a time:
   and the refusal names the setting, the base and the field. A JSON object that gives one key
   twice is refused.
 - **A claim, attested.** Declaring a type says more than that the EHR lacks it: that what the
-  pack should see is in the list's other sources (for the trial pack, every medication in the
-  EHR's MedicationRequests). So each entry names who attested it (`attested_by`) and where that
-  is recorded (`reference`), as a governance override does.
+  pack should see is in the list's other sources (for a trial-eligibility agent, every
+  medication in the EHR's MedicationRequests). So each entry names who attested it
+  (`attested_by`) and where that is recorded (`reference`), as a governance override does.
 - **Only one of several sources.** For a pack, a declared type is left out of what is read only
   when it is one source of a multi-source list, another source of that list is not declared and
   is read by a prefetch key that ran, and the pack reads the type nowhere else: not as its focus,

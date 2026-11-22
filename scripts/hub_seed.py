@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Publish the five reference packs to a registry (local development, CI, the clean-machine check).
+"""Publish the agents on the search path to a registry (local development, CI, the clean-machine
+check).
 
 As the registry's operator, on its database (`--db`, as `mendari registry ...` acts; there is no
 shared administrator token since LP-19g): claims the `mendari` namespace for the `mendari`
@@ -9,7 +10,7 @@ namespace, and records it as a verified publisher. Prints the token and key id; 
 it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
 community publisher, a pack whose text tries to run a script and a `javascript:` link (the
 Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
-(LP-22) evaluate the Referral Router on its synthetic test cases and share signed counts, so
+(LP-22) evaluate the demo agent on its synthetic test cases and share signed counts, so
 the Hub's Site evidence section has something to show.
 
     uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db
@@ -140,7 +141,7 @@ SITES = (
 
 def sites_example(registry: str, store: RegistryStore) -> None:
     """Two synthetic sites, registered and verified by the operator, each with a key made here
-    (thrown away after), share a signed evaluation of the Referral Router on the first cases of
+    (thrown away after), share a signed evaluation of the demo agent on the first cases of
     its synthetic test split (LP-22): a ticket, the run, the signed counts."""
     from mendari.core.decision import Decision
     from mendari.evals import resolve_dataset
@@ -198,7 +199,7 @@ def main() -> int:
     parser.add_argument(
         "--sites",
         action="store_true",
-        help="also have two synthetic sites share signed counts of the Referral Router",
+        help="also have two synthetic sites share signed counts of the demo agent",
     )
     args = parser.parse_args()
     with RegistryStore(args.db) as store:

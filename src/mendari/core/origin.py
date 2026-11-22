@@ -4,7 +4,7 @@
 A pack's origin is set by where it was found, never by its manifest (`publisher.type` is
 self-declared):
 
-- `maintained`: the reference packs Mendari ships (`packs/`, bundled in the wheel).
+- `maintained`: the agents Mendari bundles (`packs/`, bundled in the wheel).
 - `community`: packs outside developers contributed by pull request, in
   `community-packs/<name>/` with id `community/<name>`; served only with
   `MENDARI_COMMUNITY_PACKS=on`.
@@ -22,7 +22,7 @@ patterns on RE2 (`core/patterns.py`), its settings capped at load (`core/caps.py
 keywords bounded (`core/input_schema.py`), its inputs held to the limits below and its patterns
 and schema checks to a CPU budget per decision. Those are the community packs, and the packs
 pulled from a registry (`NOT_OWNED`) whose digest, the one `load_pack` hashed, is not that of a
-reference pack of the installed release (`core/reference.py`): a copy of a reference pack keeps
+bundled agent of the installed release (`core/reference.py`): a copy of a bundled agent keeps
 the maintained engine, and nothing a manifest, a registry or a marker file says chooses it.
 The engine is all a pulled pack shares with a community pack: it is labelled "From a registry",
 may automate under its policy and may block, as before. Maintained and local packs (an
@@ -56,16 +56,16 @@ from mendari.core.spec import Outcome, PackManifest, RiskLevel
 
 Origin = Literal["maintained", "community", "hub", "local", "store"]
 # The origins of packs the deployment does not own, besides community packs: they run on the
-# community engine unless they are a reference pack of this release (`bounded`). `store`: a
-# version in an organization's pack store (LP-20e, ADR-0016), whose digest is never a reference
-# pack's (its id is its organization's, LP-20f).
+# community engine unless they are a bundled agent of this release (`bounded`). `store`: a
+# version in an organization's pack store (LP-20e, ADR-0016), whose digest is never a bundled
+# agent's (its id is its organization's, LP-20f).
 NOT_OWNED: frozenset[Origin] = frozenset({"hub", "store"})
 
 COMMUNITY_NAMESPACE = "community"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
 RESERVED_NAMESPACES: Mapping[str, Origin] = {
     "mendari": "maintained",
-    "openhealth": "maintained",  # the reference packs' id before the rename (`legacy.py`)
+    "openhealth": "maintained",  # the bundled agents' namespace before the rename (`legacy.py`)
 }
 # Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
 COMMUNITY_URL = "https://mendari.co/packs/community/"
@@ -153,7 +153,7 @@ def is_community(pack_id: str, origin: Origin) -> bool:
 def bounded(pack_id: str, origin: Origin, digest: str) -> bool:
     """A pack the deployment does not own, which runs on the community engine (module
     docstring): a community pack, or a pack of a `NOT_OWNED` origin whose `digest` (the one
-    `load_pack` hashed, never one a manifest or a registry names) is not a reference pack's."""
+    `load_pack` hashed, never one a manifest or a registry names) is not a bundled agent's."""
     if is_community(pack_id, origin):
         return True
     if origin not in NOT_OWNED:

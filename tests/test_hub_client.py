@@ -314,7 +314,7 @@ def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> 
         pull("mendari/referral-router", signed)
     assert not isinstance(refused.value, PatternsRefused)
     (problem,) = refused.value.problems
-    assert "never takes a reference pack's place" in problem and "remove" not in problem
+    assert "never takes a bundled agent's place" in problem and "remove" not in problem
     cache = client.packs_cache()
     assert not (cache / "mendari" / "referral-router" / reference.version).exists()
     assert list(cache.rglob(".mendari-verified")) == []
@@ -353,7 +353,7 @@ def test_pulling_a_reference_pack_keeps_the_maintained_engine(
     capsys.readouterr()
     assert main(["pull", "mendari/referral-router"]) == 0
     out = capsys.readouterr().out
-    assert "runs on the maintained engine: a copy of the reference pack in this release" in out
+    assert "runs on the maintained engine: a copy of an agent this release bundles" in out
     cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
     pack = Decision.from_path(cached).pack
     assert (pack.origin, pack.bounded, pack.digest) == ("hub", False, reference.digest)

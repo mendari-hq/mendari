@@ -3,7 +3,7 @@
 
 Why a custom, system-level operation and not `PlanDefinition/$apply`: R4's `$apply` resolves
 its `subject` against the server's own data, and Mendari holds none; CPG's `$apply` adds `data`
-but returns a different shape; and a Decision Pack's logic (models, rules, LLM providers, policy)
+but returns a different shape; and an agent's logic (models, rules, LLM providers, policy)
 cannot be expressed as PlanDefinition actions, so serving packs as PlanDefinitions would promise
 what no other engine could run. R4 has a resource for a decision-support result, though:
 
@@ -217,7 +217,7 @@ def operation_definition() -> dict[str, Any]:
         "resourceType": "OperationDefinition",
         "id": "decide",
         "text": narrative(
-            "POST [base]/$decide: decide one case with a Mendari Decision Pack. In: pack, "
+            "POST [base]/$decide: decide one case with a Mendari agent. In: pack, "
             "version, data (a Bundle), focus. Out: a collection Bundle with a GuidanceResponse, "
             "a RequestGroup and Task, a Parameters, an OperationOutcome when there are findings, "
             "and a Provenance."
@@ -225,7 +225,7 @@ def operation_definition() -> dict[str, Any]:
         "url": DECIDE_URL,
         "version": __version__,
         "name": "Decide",
-        "title": "Decide with a Decision Pack",
+        "title": "Decide with an agent",
         "status": "draft",
         "kind": "operation",
         "experimental": True,
@@ -234,7 +234,7 @@ def operation_definition() -> dict[str, Any]:
         "affectsState": True,
         "code": "decide",
         "comment": "Every call records a decision in Mendari's audit trail, so it is POST only. "
-        "This is not PlanDefinition/$apply: Decision Packs are not PlanDefinitions, and their "
+        "This is not PlanDefinition/$apply: agents are not PlanDefinitions, and their "
         "logic is not expressed in FHIR. Which packs a deployment serves with FHIR input is in "
         "its CapabilityStatement in open mode; with sign-in on, it is for signed-in callers.",
         "system": True,
@@ -407,7 +407,7 @@ def _parameter(name: str, use: str, minimum: int, kind: str, doc: str) -> dict[s
 
 
 _DESCRIPTION = (
-    "Runs one Mendari Decision Pack on FHIR R4 data the client sends, records the decision in "
+    "Runs one Mendari agent on FHIR R4 data the client sends, records the decision in "
     "Mendari's audit trail, and returns it as FHIR. Mendari is a decision engine, not a FHIR "
     "data server: it reads no data of its own, so everything the pack needs comes in `data`, "
     "which the pack's FHIR mapping turns into its input. `data` first passes a structural R4 "
@@ -436,7 +436,7 @@ _DESCRIPTION = (
     "fail the call: the decision is recorded, the failure is a warning in the OperationOutcome, "
     "and the policy treats the question as unanswered."
 )
-_PACK_DOC = "The Decision Pack, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
+_PACK_DOC = "The agent, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
 _VERSION_DOC = (
     "The pack version the client expects. When the deployment serves another version, the call "
     "fails with 404 and decides nothing."

@@ -32,8 +32,6 @@ from mendari.evals.result import MIN_POSITIVES, counted, false_automation, norma
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
 PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
-# The early scoreboard's page, where the reference packs' configurations on their public sets
-# are shown with every figure's interval and scope (a URL, so a card links it from anywhere).
 _COMPOSITES = ("any_of", "cascade", "vote")
 
 

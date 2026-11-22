@@ -219,9 +219,9 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
-    Communications' message channel, the fictional codes of the reference packs' synthetic
-    data (the Prior Authorization Preflight's procedures, the Clinical Trial Prescreener's
-    local-site conditions, the Referral Router's referral), and the vendor-shaped EHR profile's
+    Communications' message channel, the fictional codes of the test fixtures' synthetic
+    data (prior-authorization procedures, trial-eligibility local-site conditions, a
+    specialty referral), and the vendor-shaped EHR profile's
     site codes (its diagnoses and its referral's order type, LP-23e). CI loads them so the
     sandbox and Da Vinci samples validate."""
     return [
@@ -383,8 +383,8 @@ def _decision_packs(served: list[Pack]) -> dict[str, Any]:
     return _code_system(
         PACK_TAG_SYSTEM,
         "decision-pack",
-        "Mendari Decision Pack",
-        "Decision Pack versions (`namespace/name@version`), as Task.meta.tag. Lists the packs "
+        "Mendari agent",
+        "Agent versions (`namespace/name@version`), as Task.meta.tag. Lists the agents "
         "this deployment serves; decisions made by other packs or versions keep their codes, so "
         "this is a fragment.",
         _served_version(served),

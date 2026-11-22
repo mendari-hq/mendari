@@ -5,7 +5,7 @@
     uv run python scripts/harder_inbox_draft.py --check   # the committed files are the generator's
 
 Both run the generator (`mendari.sandbox.synthetic_inbox_harder`, local and seeded: no network),
-its leakage check against the shipped Patient Inbox Router's data and templates, and its coverage
+its leakage check against the message-routing test fixture's data and templates, and its coverage
 check against the pack's labels. `--check` exits 1 when a committed file differs from what the
 generator writes, byte for byte, or either check has a problem; writing exits 1 on a problem too,
 after writing. Neither touches the pack: its data, model, benchmark and digest stay as shipped.

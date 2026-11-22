@@ -236,7 +236,7 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
     (root / SCHEMA).write_text(json.dumps(document))
     load_pack(root)  # any other pack: as before
     # Written down where a contributor reads the limits.
-    for doc in ("docs/guides/contributing-an-agent.md", "docs/spec/decision-pack-0.2.md"):
+    for doc in ("docs/guides/contributing-an-agent.md", "docs/spec/agent-manifest-0.2.md"):
         text = " ".join((ROOT / doc).read_text().split())
         assert "`unevaluatedProperties`" in text and "`unevaluatedItems`" in text, doc
 

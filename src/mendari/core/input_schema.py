@@ -19,7 +19,7 @@ a schema; each object once, by identity. The validator (`validator`) also has a 
 retrieves nothing, so a reference can never leave the document even if a check were missed.
 
 The schema patterns of a pack on the community engine (a pack the deployment does not own: a
-community pack, or one from a registry that is not a reference pack of this release,
+community pack, or one from a registry that is not a bundled agent of this release,
 `Pack.bounded`) run on RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
 `patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
 the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
@@ -32,7 +32,7 @@ only keywords whose work stays within the budget, `$ref` only to its own `$defs`
 (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
 once (`uniqueItems`).
 
-Every other pack's schema (a pack the deployment owns: a reference pack, an operator's local
+Every other pack's schema (a pack the deployment owns: a bundled agent, an operator's local
 one) has no budget, so its shape is bounded at load instead (`expansion_problems`): it nests at
 most `MAX_SCHEMA_NESTING` deep, a chain of `$ref`s runs at most `MAX_REF_CHAIN` long, and one
 value of an input is checked against at most `MAX_SCHEMA_APPLICATIONS` schema objects (a `$ref`,

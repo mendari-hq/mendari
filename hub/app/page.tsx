@@ -66,8 +66,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <pre>
                 <code>
                   <span className="comment"># Hospital IT: pull &amp; shadow-test locally</span>{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/referral-router{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/referral-router --dataset your-cases.jsonl{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/portal-message-agent{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/portal-message-agent --dataset your-cases.jsonl{"\n"}
                   <span className="comment"># AI Builders: wrap an agent &amp; publish scorecard</span>{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari new --agent my-agent --id my-org/my-agent{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari push my-agent --key keys/publisher.key
@@ -157,7 +157,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
 function PackCard({ item }: { item: PackSummary }) {
   const starterLabel =
     item.namespace === "mendari"
-      ? item.name === "patient-inbox-router"
+      ? item.name === "portal-message-agent"
         ? "Demo agent"
         : "Starter template"
       : null;

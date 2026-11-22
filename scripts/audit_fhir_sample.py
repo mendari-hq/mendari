@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Write a sample of the FHIR audit export for the HL7 validator (CI job `fhir-conformance`).
 
-A throwaway store (in PHI mode `encrypt`) gets synthetic decisions from the inbox pack, its
-urgency screen run with an in-process Jev (`sample_jev`): one confirmed in review, one
-overridden (with a note, later erased on request), one automated with a downstream outcome and
-feedback, and one asked for by a signed-in person, so its AuditEvent and Provenance name the
-requester. One input is read and then purged by retention. The full export (AuditEvent and
-Provenance) is written as a `collection` Bundle.
+A throwaway store (in PHI mode `encrypt`) gets synthetic decisions from the test fixtures'
+portal-message agent, its urgency screen run with an in-process Jev (`sample_jev`): one
+confirmed in review, one overridden (with a note, later erased on request), one automated with
+a downstream outcome and feedback, and one asked for by a signed-in person, so its AuditEvent
+and Provenance name the requester. One input is read and then purged by retention. The full
+export (AuditEvent and Provenance) is written as a `collection` Bundle.
 
     uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
 """

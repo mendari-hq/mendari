@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Write what `mendari sandbox seed` posts, for the HL7 validator (CI job `fhir-conformance`): the
-inbox's and the referral router's cases, and the vendor-shaped EHR profile (LP-23e), each held
-to US Core 6.1.0.
+portal-message and referral cases of the test fixtures, and the vendor-shaped EHR profile
+(LP-23e), each held to US Core 6.1.0.
 
 uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
 """

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "@playwright/test";
 
-// The site against a running registry that holds the five reference packs (REGISTRY_URL, seeded
-// by scripts/hub_seed.py). `npm run build` first; this starts the production server.
+// The site against a running registry that holds the demo agent (REGISTRY_URL, seeded by
+// scripts/hub_seed.py). `npm run build` first; this starts the production server.
 export default defineConfig({
   testDir: "tests",
   timeout: 30_000,

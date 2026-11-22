@@ -219,7 +219,7 @@ export function today() {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-// A file name's part from an id ("mendari/patient-inbox-router" → "mendari-patient-inbox-router").
+// A file name's part from an id ("mendari/portal-message-agent" → "mendari-portal-message-agent").
 export const fileSlug = (id) => String(id ?? "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "all";
 
 // A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or

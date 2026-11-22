@@ -1,7 +1,5 @@
 # Agent manifest spec 0.1
 
-(formerly the Decision Pack spec; the format is unchanged)
-
 Status: draft. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (manifest) and `mendari.core.policy` (semantics).
 Where this document and the implementation disagree, file an issue; the document is intended

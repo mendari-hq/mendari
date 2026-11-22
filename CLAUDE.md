@@ -58,7 +58,7 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 
 ## Layout
 
-See README "Project layout". Spec: `docs/spec/decision-pack-0.2.md` (0.1 still loads). Decisions:
+See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md` (0.1 still loads). Decisions:
 `docs/decisions/`. Lessons: `tasks/lessons.md`. Plan and status: `tasks/todo.md` (the vision plan at its top; its Definition of shipped and
 build prompts are in `notes/vision-audit.md`, Phase 4). Plans, reviews
 and the build log: `notes/` (outside the docs site and the sdist; `docs/` is only what readers

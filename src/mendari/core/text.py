@@ -7,7 +7,7 @@ web forms, word processors and language models, which write the same words other
 apostrophe (U+2019, a phone's default), a no-break space, a zero-width space carried in pasted
 text, an accent as a separate character, an en dash in a range ("every 4 to 6 hours" written
 4, en dash, 6). Matched as written, each makes a pattern miss what it was written to find. On the
-reference packs' own hand-written emergencies, the curly apostrophe alone took the stat priority
+test fixtures' own hand-written emergencies, the curly apostrophe alone took the stat priority
 off 3 of the 55 the keyword rules flagged ("it won't stop bleeding").
 
 So every provider that reads free text here reads its plain form, `plain` (`rules`, `dosing`

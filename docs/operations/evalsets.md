@@ -525,13 +525,8 @@ and the old one is revoked; an expired key grades nothing.
 ```bash
 curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   -H "Authorization: Bearer $GRADING_KEY" -H "Content-Type: application/json" \
-  -d '{"pack": "mendari/patient-inbox-router", "variants": {"router": "naive_bayes"}}'
+  -d '{"pack": "mendari/portal-message-agent", "variants": {"reader": "rules"}}'
 ```
-
-The body names `mendari/patient-inbox-router`, a former example agent (on the branch
-`archive/decision-packs`), because the test suite runs this command as written against its test
-fixture. For a set made for the demo agent, the body is
-`{"pack": "mendari/portal-message-agent", "variants": {"reader": "rules"}}`.
 
 - `pack` is the id of the agent the set was made for, as this server serves it. A later version
   of it grades the set too, as long as it asks the set's questions with their labels and
@@ -595,21 +590,18 @@ names the route's template.
 ### The hidden-set scoreboard
 
 The same route grades the arms of the scoreboard (LP-17k, the
-[grading method](../grading/method-1.0.md), sections 3 to 9). Mendari's own grading declares, per
-arm, the local configuration a hidden set grades (its `local` entry in
-`scoreboard/declared/<pack name>.json`, `mendari.declared/1`) before any hidden set is graded,
-and commits the declaration. A run sends those configurations, as `arms`, with the
+[grading method](../grading/method-1.0.md), sections 3 to 9). The grader declares, per arm, the
+local configuration a hidden set grades (its `local` entry in the results store's
+`declared/<pack name>.json`, `mendari.declared/1`) before any hidden set is graded, and commits
+the declaration. A run sends those configurations, as `arms`, with the
 declaration's SHA-256, as `declared`, in place of `variants`:
 
 ```bash
 curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   -H "Authorization: Bearer $GRADING_KEY" -H "Content-Type: application/json" \
-  -d '{"pack": "mendari/patient-inbox-router", "arms": {"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}, "declared": "<sha256>"}' \
+  -d '{"pack": "mendari/portal-message-agent", "arms": {"deterministic": {"reader": "rules"}}, "declared": "<sha256>"}' \
   > scoreboard-answer.json
 ```
-
-As above, the body names the former inbox example agent because the tests run it as written; for
-the demo agent, `arms` is `{"deterministic": {"reader": "rules"}}`.
 
 - `arms` names each declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`)
   with its whole configuration: a variant for every slot of the agent, since a slot left out

@@ -1,7 +1,5 @@
 # ADR-0016: A pack store per organization, and promotion
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
-
 ## Status
 Proposed (2026-11-10, LP-20a). Built in steps 20b to 20j (`notes/lp20-plan.md`, 2026-11-16),
 off unless `MENDARI_PACK_STORE=on`; it stays Proposed until the owner confirms the decisions
@@ -43,7 +41,7 @@ The pieces the store needs exist: the bounded engine for packs the deployment do
    dropped; the server renders the card and computes every figure for the digest.
 4. **A store pack is a pack the deployment does not own.** Its origin is `store`; it runs on the
    bounded engine with the per-decision budget, its provider settings are capped as a pulled
-   pack's are, and it never takes a reference pack's id and version. Its namespace is its
+   pack's are, and it never takes a bundled pack's id and version. Its namespace is its
    organization's id, or a registry namespace that organization holds
    ([ADR-0015](ADR-0015-registry-accounts-under-the-engine.md)); a copy of a built-in pack is
    renamed on the way in.
@@ -87,11 +85,11 @@ The pieces the store needs exist: the bounded engine for packs the deployment do
   it. Both are residual risks.
 - The detector finds shapes and listed names. It is a filter, not a guarantee; the terms of use
   still forbid real patient data.
-- Two reference packs cannot be copied until their lookahead patterns are rewritten (LP-16c-2),
-  because a copy runs on the bounded engine.
+- A bundled pack whose patterns use lookaheads cannot be copied until they are rewritten
+  (LP-16c-2), because a copy runs on the bounded engine.
 - Hosted scaffolding, training and calibration are not built: a pack whose trained model
   changes is trained locally and uploaded.
-- Nothing changes what a valid pack decides, and no reference pack's digest changes.
+- Nothing changes what a valid pack decides, and no bundled pack's digest changes.
 
 ## Alternatives Considered
 - **Keep packs on disk and add a per-organization allow-list.** It gives no upload, no draft and

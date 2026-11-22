@@ -15,7 +15,7 @@
   origin and its label), so a browser that only launched opens the dashboard on the patient
   view alone.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
-- `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their inbox
+- `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their portal
   messages, their referrals).
 - `POST /api/smart/decide`: decide one of them, with the record fetched through the pack's own
   prefetch templates; the decision is audited like any other.

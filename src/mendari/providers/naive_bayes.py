@@ -10,11 +10,11 @@ Its features are a text's words and pairs of neighbouring words. A model file ma
 of characters inside each word (`character_ngrams`, the shortest and longest run): a misspelt or
 unseen word is then read by the parts it shares with the words the model learned. Such a file
 says so and has a format of its own (`FORMAT_CHARACTERS`), so an engine that does not know the
-features refuses it instead of scoring it without them. Measured on the inbox router, trained on
-the pack's own data and read on the harder draft's held-out messages: 322 of 436 right with
-words alone, 353 with runs of 3 to 5 characters, and 6 confident mistakes (at 0.90 or more) for
-12. On the pack's own test it is the same within one case, and a little less sure. A model
-without the key is trained and scored as it always was, byte for byte.
+features refuses it instead of scoring it without them. Measured on a message-routing agent of
+the test fixtures, trained on its own data and read on the harder draft's held-out messages:
+322 of 436 right with words alone, 353 with runs of 3 to 5 characters, and 6 confident mistakes
+(at 0.90 or more) for 12. On the pack's own test it is the same within one case, and a little
+less sure. A model without the key is trained and scored as it always was, byte for byte.
 """
 
 from __future__ import annotations

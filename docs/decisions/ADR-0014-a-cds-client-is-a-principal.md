@@ -1,7 +1,5 @@
 # ADR-0014: A CDS client is a principal, and a record it cannot read abstains
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
-
 ## Status
 Accepted (2026-11-06, LP-23m). Proposed 2026-10-17. It amends
 [ADR-0006](ADR-0006-an-ehr-launch-is-a-principal.md)'s rule that the narrow EHR principal exists
@@ -34,17 +32,15 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
 - 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
   risks, this status, the scorecard graded again, and the end-to-end test
   (`tests/test_ehr_pilot_e2e.py`);
-- 23j (#281), after the close-out, the shipped packs' cards: the inbox's own
-  card template, and referral cards only when the person signing can act (`show:
-  [return_for_info, urgent_review]`, the default the owner confirmed on 2026-11-06). No
-  decision changes;
-- 23k (#282), after the close-out and the owner's go-ahead (2026-11-06), the reference
-  packs' mappings for real EHR data on spec 0.3: the trial pack reads a condition by its
-  ICD-10-CM coding wherever it sits and its medications from MedicationRequest too (spec 0.3's
-  stated start and stop rule), the prior-authorization pack its payer through the Coverage's
-  reference, both their notes through `attachment_text` (a linked Binary read from the EHR), and
-  the referral router its referrals and checklist documents through code sets a site's code map
-  can translate into. Three engine additions it needed: `focus_where` through a code set, a
+- 23j (#281), after the close-out, the shipped packs' cards: a card template of a pack's own,
+  and cards only for the outcomes the person signing can act on (`show:`, the default the owner
+  confirmed on 2026-11-06). No decision changes;
+- 23k (#282), after the close-out and the owner's go-ahead (2026-11-06), the shipped packs'
+  mappings for real EHR data on spec 0.3: a condition read by its ICD-10-CM coding wherever it
+  sits, medications from MedicationRequest too (spec 0.3's stated start and stop rule), a payer
+  through the Coverage's reference, notes through `attachment_text` (a linked Binary read from
+  the EHR), and an order's or a document's code through code sets a site's code map can
+  translate into. Three engine additions it needed: `focus_where` through a code set, a
   followed field's fallback to a path of its own type, and notes longer in all than a pack's
   input allows abstaining (`too_large`) rather than refusing the input.
 
@@ -54,12 +50,10 @@ attestation records the review): the owner, a physician, answered it on 2026-11-
 with changes; the rule is not clinically reviewed until those changes are built and the owner
 confirms them. How a payer field reads a site's own payer identifier was
 confirmed as built by the owner on 2026-11-07: 23k reads it as no payer the pack knows, so the
-order is `not_checked`. The owner's answers as a clinician that day are built, in the
-prior-authorization pack's and the referral router's 0.3.1 with spec 0.3's two card keys
-(`also_show` and `refused`, §5), no decision changed: a possible red flag under a site's payer
-identifier shows a card at `order-sign`, other `not_checked` orders still show none (#282 Q2);
-and a referral refused as invalid input (BLOCK) shows a card that says why, while a referral to
-schedule still shows none (#281 Q3). The Epic sandbox
+order is `not_checked`. The owner's answers as a clinician that day are built, with spec 0.3's
+two card keys (`also_show` and `refused`, §5), no decision changed: a possible red flag under a
+site's payer identifier shows a card at `order-sign`, other `not_checked` orders still show none
+(#282 Q2); and an order refused as invalid input (BLOCK) shows a card that says why (#281 Q3). The Epic sandbox
 run, in which every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3),
 and `mendari smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
 pending. `conformance.yml`'s new jobs

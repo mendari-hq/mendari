@@ -59,7 +59,7 @@ services:
       MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
       MENDARI_SMART_CLIENT_ID: mendari-sandbox
       MENDARI_SMART_SCOPES: launch patient/*.rs
-      # The example agents are test fixtures, mounted read-only (the image ships the demo agent).
+      # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
       MENDARI_PACKS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:

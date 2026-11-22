@@ -1,7 +1,5 @@
 # ADR-0004: Machines get scoped keys or short-lived SMART tokens; one scope language for both
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
-
 ## Status
 Accepted (Phase 4 of the FHIR work, 2026-10-02). Amended by
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): one key of a role outside

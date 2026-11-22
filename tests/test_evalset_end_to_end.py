@@ -62,6 +62,7 @@ from tests.conftest import (
     evalset_on,
     evalsets_are_on,
     member,
+    runbook_body,
 )
 from tests.test_auth import CLIENT, IDP
 from tests.test_evalset_labelling import events
@@ -246,7 +247,9 @@ def the_runbooks_grading(world: World, org: str) -> tuple[dict[str, str], dict[s
     found = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
     (posted,) = [line for line in found if '"arms"' not in line]  # the scoreboard's is LP-17k's
     key = json.loads(out)["key"]
-    return {"authorization": f"Bearer {key}"}, json.loads(shlex.split(posted)[-1])
+    body = json.loads(shlex.split(posted)[-1])
+    sent = runbook_body(body, INBOX, variants={"router": "rules"})
+    return {"authorization": f"Bearer {key}"}, sent
 
 
 def test_a_hidden_set_from_creation_to_retirement_through_the_cli_and_http(

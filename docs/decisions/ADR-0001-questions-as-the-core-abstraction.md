@@ -1,6 +1,4 @@
-# ADR-0001: Questions, not models, are the core abstraction of a Decision Pack
-
-*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+# ADR-0001: Questions, not models, are the core abstraction of an agent
 
 ## Status
 Accepted (v0.1)

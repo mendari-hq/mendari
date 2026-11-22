@@ -9,15 +9,11 @@ evaluated, shared, versioned, governed and deployed across rules, Jev, ML, local
 external HTTP agents and combinations of them, with healthcare standards, human deferral and
 local validation built in.
 
-**Agents only (2026-11-21).** The product now bundles one demo agent,
-`mendari/portal-message-agent`. The five example agents built in v0.2 and v0.3 (Patient Inbox
-Router, Referral Router, Prior Authorization Preflight, Clinical Trial Prescreener, AI Guard)
-were removed from the product; they remain as test fixtures (`tests/fixtures/reference-packs/`)
-and on the branch `archive/decision-packs`. The milestones below are kept as they shipped, and
-name them.
+The product bundles one demo agent, `mendari/portal-message-agent`. The milestones below are
+kept as they shipped.
 
 v0.1 is done and running in production on Vercel. Decisions for what follows: **agents
-first** (the Hub only matters once it has five strong agents), **LLMs through Vercel AI Gateway**
+first** (the Hub only matters once it has strong agents), **LLMs through Vercel AI Gateway**
 (OIDC, no stored keys), and a **public open-source launch at v1.0**.
 
 **Progress (2026-09-30):**
@@ -40,10 +36,10 @@ first** (the Hub only matters once it has five strong agents), **LLMs through Ve
   Authentication.
 
 - **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
-  - a CQL provider, with the trial criteria in CQL agreeing with `criteria` on every case;
+  - a CQL provider, with eligibility criteria in CQL agreeing with `criteria` on every case;
   - OMOP CDM inputs with population reports;
-  - Da Vinci CRD, DTR and PAS around the PA agent, each profile-validated against its guide in
-    CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
+  - Da Vinci CRD, DTR and PAS around a prior-authorization agent, each profile-validated against
+    its guide in CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
     produces. How DTR's `$questionnaire-package` behaves is checked weekly by the Inferno DTR
     payer suite v0.18.0, with the gaps it lists (`sandbox/inferno/`). Neither shows whether a
     payer accepts what Mendari sends.
@@ -66,7 +62,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 | Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
-| Bundled agents | ✅ the demo agent (the five example agents archived, 2026-11-21) | A harder, clinician-reviewed benchmark |
+| Bundled agents | ✅ the demo agent | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every agent; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
 | FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
@@ -84,12 +80,13 @@ ships as several reviewed PRs.
 
 ### v0.2 Model-agnostic core (foundation for the new agents) ✅
 _Done 2026-09-29. Question groups shipped as derived questions (decision tables with exact
-probabilities). The harder inbox benchmark did not ship and is an open item in
+probabilities). The harder message-routing benchmark did not ship and is an open item in
 `tasks/todo.md`._
 - **Spec 0.2:** new question types `boolean` (maps to Jev `noul`) and `score` alongside
   `choice`; **question groups with aggregation policies** (e.g. "any criterion = no → not
-  eligible; any = unknown → review"), which the trial, PA and AI Guard agents all need; derived
-  outputs. Migrate the inbox agent, with a spec migration note.
+  eligible; any = unknown → review"), which eligibility, prior-authorization and draft-checking agents all
+  need; derived
+  outputs. Migrate the message-routing agent, with a spec migration note.
 - **LLM provider** through Vercel AI Gateway (OIDC, as the Jev connector already works): Claude
   by default (removed in LP-10c: the deployment's `LLM_MODEL` names the model), with
   structured output of per-label probabilities, calibration fitted on a held-out split, and
@@ -99,31 +96,31 @@ probabilities). The harder inbox benchmark did not ship and is an open item in
   when uncertain) and weighted voting, next to `any_of`.
 - **Jev:** send every Jev-answered question of a decision in one call (today the router and the
   emergency screen make 2), run slots in parallel, and support the `noul` and `score` types.
-- **Harder inbox benchmark:** paraphrased messages reviewed by a clinician, plus held-out splits
+- **Harder message-routing benchmark:** paraphrased messages reviewed by a clinician, plus held-out splits
   for every critical label (from lesson 2026-09-28).
-- **Exit:** a provider leaderboard for the inbox agent (rules vs NB vs Jev vs Claude vs a local
+- **Exit:** a provider leaderboard for the message-routing agent (rules vs NB vs Jev vs Claude vs a local
   model, with accuracy, calibration, false automation, cost and latency); one Jev call per
   decision; all red-flag sets fully caught with the deployed provider mix.
 
-### v0.3 The other four example agents (content release) ✅
+### v0.3 Four more agents (content release) ✅
 _Done 2026-09-29: all five agents deployed with provider leaderboards and the providers chosen
-from them. Risk levels as shipped: Referral Router L1, Prior Authorization Preflight L1,
-Clinical Trial Prescreener L2, AI Guard L2 (`POST /api/packs/{id}/guard`)._
+from them. Risk levels as shipped: L1 for the referral and prior-authorization agents, L2 for
+the prescreening agent and the draft checker (`POST /api/packs/{id}/guard`)._
 Each agent gets questions and criteria, rules + Jev + LLM variants, a policy with a justified
 risk level, synthetic data (public, local-shift and held-out safety sets), behaviour tests, a
 benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
-- **Referral Router** (L0–1): ServiceRequest + Condition + DocumentReference. Answers
+- **A referral agent** (L0–1): ServiceRequest + Condition + DocumentReference. Answers
   specialty, workflow destination, a per-item missing-documentation checklist, and needs-review.
   Hook: `order-sign`.
-- **Prior Authorization Preflight** (L1): order + Coverage + attached documents, checked against
+- **A prior-authorization agent** (L1): order + Coverage + attached documents, checked against
   synthetic payer requirement sets. Each element is present / missing / unclear. Complete →
   submit-ready; otherwise review with the gaps listed. Hook: `order-sign`. This is the bridge to
   Da Vinci later.
-- **Clinical Trial Prescreener** (L2, so human review by default): synthetic ResearchStudy
+- **A clinical-trial prescreening agent** (L2, so human review by default): synthetic ResearchStudy
   criteria plus the patient record (Condition, Observation, MedicationStatement). Each
   criterion is yes / no / unknown; uncertain cases go to review with the criteria listed. Hook:
   `patient-view`.
-- **AI Guard** (L1–2): a question, an LLM draft reply and optional context. Checks for unsafe
+- **A draft checker for LLM replies** (L1–2): a question, an LLM draft reply and optional context. Checks for unsafe
   advice, dosing errors, missing emergency escalation, scope violations and claims unsupported
   by the context. Outcome is pass / review / **block**. Exposed as an API middleware.
 - **Exit:** all five agents pass tests, benchmarks and held-out safety sets, and run through the
@@ -131,16 +128,16 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
 
 ### v0.4 Healthcare standards ✅
 _Done 2026-09-30 (#66–#74). Both exits run in CI on every change: a scripted SMART launch of the
-inbox and referral agents against HAPI and the SMART launcher, and a Bulk export whose evaluation
-must be identical to the same cases read from the dataset file._
+message-routing and referral agents against HAPI and the SMART launcher, and a Bulk export
+whose evaluation must be identical to the same cases read from the dataset file._
 - US Core profile validation of FHIR inputs; audit export as FHIR AuditEvent + Provenance.
 - **SMART on FHIR** EHR launch (the dashboard opens in patient/encounter context), using
   **OAuth 2 / OpenID Connect**.
 - **CDS Hooks** that fetch from `fhirServer` with `fhirAuthorization` (SMART backend services,
   with a server allow-list against SSRF), in addition to prefetch.
 - **Bulk FHIR** `$export` ingestion into local-validation datasets.
-- Exit: the inbox and referral agents run from a SMART launch against the HAPI sandbox; Bulk
-  export → `mendari eval` works end to end.
+- Exit: the message-routing and referral agents run from a SMART launch against the HAPI
+  sandbox; Bulk export → `mendari eval` works end to end.
 
 ### v0.5 The Hub (the "Hugging Face" part) ✅
 _Built and verified 2026-09-30 (#75–#82): signed deterministic archives, the registry (namespaces,
@@ -160,7 +157,7 @@ go-ahead to publish (see the overnight log)._
 - Shareable local-validation reports (metrics only; reports already contain no case text), for
   site-to-site comparison.
 - Exit: the five agents are published; on a clean machine
-  `pip install mendari && mendari pull mendari/referral-router` works.
+  `pip install mendari && mendari pull <agent id>` works.
 
 ### v0.6 Readiness for health organizations ✅
 _Built and verified 2026-09-30 (#83–#89). Every control is off until configured. The exit runs
@@ -179,7 +176,7 @@ committee approves a level 2 agent, and monitoring and the chain check out._
 - **PHI mode:** hash-only or encrypted inputs, retention policies, access logging, and a
   deployment guide.
 - A container image per agent (GHCR) and on-prem templates.
-- Exit: a pilot organization could run the inbox router with its own IdP, PHI-safe settings,
+- Exit: a pilot organization could run the message-routing agent with its own IdP, PHI-safe settings,
   monitoring and governance approvals.
 
 ### v0.7 Later standards ✅
@@ -188,7 +185,7 @@ CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples are pro
 against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
 - A **CQL** provider (a CQL engine as an agent provider type).
 - **OMOP** CDM → agent inputs, for population-level evaluation.
-- **Da Vinci CRD / DTR / PAS** wired into PA Preflight. Since 2026-10-17, DTR's
+- **Da Vinci CRD / DTR / PAS** wired into the prior-authorization agent. Since 2026-10-17, DTR's
   `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
   questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
   names no decision, and a `422` OperationOutcome for orders or a context that name no
@@ -208,7 +205,7 @@ the Hub and the docs site._
 - CODE_OF_CONDUCT and community governance.
 - PyPI release, public GitHub repo, launch.
 - Exit: a new user goes from README to their own local validation in under 10 minutes; the
-  sandbox runs with `docker compose up`; the Hub is live with five agents.
+  sandbox runs with `docker compose up`; the Hub is live with its agents.
 
 ## How every milestone is built
 - **PR flow:** branch → PR → required CI checks → preview on its own Neon branch → verification
@@ -223,8 +220,8 @@ the Hub and the docs site._
 ## Risks
 - **Synthetic data flatters models**, as we saw with the red-flag screen. Mitigation: held-out
   sets, paraphrase sets, clinician review.
-- **Clinical correctness of agent content.** Clinician reviewers are needed for trial criteria,
-  AI Guard checks and red flags.
+- **Clinical correctness of agent content.** Clinician reviewers are needed for eligibility criteria,
+  draft-reply checks and red flags.
 - **LLM calibration and cost.** These are measured per agent; cascades and budgets control them.
 - **Regulatory positioning** (FDA CDS guidance) for L2+ agents. Mitigation: clinician-facing,
   human review by default, and documented intended use.

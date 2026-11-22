@@ -33,7 +33,7 @@ body:
     id: risk
     attributes:
       label: Intended risk level
-      description: The table in the guide's "Risk level" section, with the reference packs as precedents.
+      description: The table in the guide's "Risk level" section.
       options:
         - "0: administrative (who or which queue sees something first)"
         - "1: clinical information (reading clinical facts to extract, check or route them)"

@@ -381,7 +381,7 @@ answer: each matching pattern adds its weight to a label's score, and `negatable
 "no chest pain" does not count. Patterns are Python regular expressions matched with case
 ignored, at most 2,000 characters each and 500 in a manifest; keep them simple, since `re` has
 no time limit. Text is read in its plain form first (curly apostrophes, no-break spaces and the
-like become a keyboard's characters; [the spec, §5](../spec/decision-pack-0.2.md#5-providers),
+like become a keyboard's characters; [the spec, §5](../spec/agent-manifest-0.2.md#5-providers),
 lists what changes). A community agent's patterns run on RE2: see
 [Contributing an agent](contributing-an-agent.md#patterns-run-on-re2).
 
@@ -423,7 +423,7 @@ or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}`): n
 `..`, operation or fragment. A card summary or Task text uses bare placeholders (`{request}`),
 and every text a card can give must be under 140 characters. Selecting codings by system,
 fallback paths, following a reference and code sets need `spec_version: "0.3"`
-([Agent manifest spec 0.3](../spec/decision-pack-0.3.md)). How an EHR connects is in
+([Agent manifest spec 0.3](../spec/agent-manifest-0.3.md)). How an EHR connects is in
 [Connecting an EHR](connecting-an-ehr.md).
 
 ## 14. Publish the card
@@ -470,5 +470,5 @@ into one page. Share it with your AI or clinical decision support committee. At 
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
-The full format is in the [agent manifest spec](../spec/decision-pack-0.2.md), and the FHIR
-mapping of spec 0.3 in [its own document](../spec/decision-pack-0.3.md).
+The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), and the FHIR
+mapping of spec 0.3 in [its own document](../spec/agent-manifest-0.3.md).

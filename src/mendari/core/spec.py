@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Decision Pack manifest, spec versions 0.1, 0.2 and 0.3.
+"""Agent manifest, spec versions 0.1, 0.2 and 0.3.
 
 A pack declares *questions* (a fixed set of labels, each with human-readable criteria).
 Providers answer questions with probability distributions; the policy turns answers into
 one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *derived*
-questions computed from other answers by a decision table. See docs/spec/decision-pack-0.2.md.
-Spec 0.3 changes the FHIR mapping (docs/spec/decision-pack-0.3.md), which
+questions computed from other answers by a decision table. See docs/spec/agent-manifest-0.2.md.
+Spec 0.3 changes the FHIR mapping (docs/spec/agent-manifest-0.3.md), which
 `standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
 `cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest.
 """

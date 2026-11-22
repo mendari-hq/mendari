@@ -207,7 +207,7 @@ def test_text_that_composing_would_lengthen_stays_as_it_is() -> None:
 def test_the_spec_lists_every_character_the_plain_form_writes_another_way() -> None:
     """Spec §5 names each by its code point (a pack author writes patterns by that list): the
     table's, and the zero-width space, which becomes a space."""
-    spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text(encoding="utf-8")
+    spec = (ROOT / "docs" / "spec" / "agent-manifest-0.2.md").read_text(encoding="utf-8")
     section = spec[spec.index("read it in its **plain form**") : spec.index("A newline stays a")]
     listed: set[int] = set()
     for first, last in re.findall(r"U\+([0-9A-F]{4})(?:\s+to\s+U\+([0-9A-F]{4}))?", section):

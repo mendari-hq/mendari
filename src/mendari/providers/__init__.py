@@ -168,8 +168,9 @@ def config_json_schema() -> dict[str, Any]:
         "$id": CONFIG_SCHEMA_ID,
         "title": "Mendari provider configs",
         "description": (
-            "A provider variant's config in a Decision Pack (`providers.<slot>.variants.<name>`), "
-            "one per provider type, each closed: a key it does not name is refused for a pack "
+            "A provider variant's config in an agent's manifest "
+            "(`providers.<slot>.variants.<name>`), "
+            "one per provider type, each closed: a key it does not name is refused for an agent "
             "the deployment does not own and a warning for an owned one. Generated from the "
             "provider config models by scripts/provider_config_schema.py; do not edit."
         ),

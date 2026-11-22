@@ -1,7 +1,5 @@
 # ADR-0013: A scoreboard and scoped grades
 
-*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
-
 ## Status
 Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
 planned in `notes/lp17-plan.md`). What landed, in the order it was built:
@@ -22,13 +20,13 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
 - 17g (#279, the LP-17 lane), the public template sets relabelled "public set: regression check,
   not a ranking" on the Decision Cards, the dashboard and `web/`, with no Rank column;
 - 17h (#279), remote arms on public sets: replicates, the flip rate, the canary, the
-  declarations (`mendari.declared/1`) and the disclosures, run by hand and refused in CI; the
-  Clinical Trial Prescreener's CQL configuration measured on Mendari's own CQL engine;
+  declarations (`mendari.declared/1`) and the disclosures, run by hand and refused in CI; a
+  CQL configuration measured on Mendari's own CQL engine;
 - 17k (#279), the hidden-set scoreboard through the existing grading route
   (`mendari.hidden_scoreboard/1`), stored as answered;
 - 17m (#279), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
   the threat model's residual risks, this status, the owner's runbook
-  ([Running the scoreboard](../operations/scoreboard.md#the-owners-runbook)) and the end-to-end
+  ([Running the scoreboard](../operations/scoreboard.md)) and the end-to-end
   test.
 
 Two steps stay open. 17i is the owner's run: the remote arms' replicates on the public `test`
@@ -49,8 +47,8 @@ strict name tiebreak.
 - Every set it ranks on is public: in the repository and in the wheel. A pack can be tuned to it,
   and a set built from templates cannot be told from a hand-written one (no record carries a
   `template` or `source` attribute).
-- Raw counts overstate the evidence. AI Guard's `test` set has 164 `verdict=block` positives but
-  30 distinct inputs, and 600 cases but 81 distinct inputs.
+- Raw counts overstate the evidence. A `test` set built from templates can hold far fewer
+  distinct positives than positives, and far fewer distinct inputs than cases.
 - It has no arms by provider class, no simultaneous bound across critical labels, no Brier, no
   bands, no shared ranks and no rank intervals.
 - Its 166 shipped rows are mostly on older pack digests, with n of 100 or less and no ledgers.
@@ -91,8 +89,8 @@ grade is given.
    remote variant before any case is read (LP-11l). A remote arm on a hidden set reads "not
    graded here". With one local arm per pack, ranking is built but off until the owner decides
    otherwise. A remote configuration is measured on public sets only, with 3 to 5 replicates,
-   outside CI: the remote arms by the owner, and the Clinical Trial Prescreener's CQL
-   configuration (deterministic, but calling Mendari's own CQL engine) by a build session
+   outside CI: the remote arms by the owner, and a CQL configuration (deterministic, but
+   calling Mendari's own CQL engine) by a build session
    (LP-17h).
 6. **The declared-configuration route to selection.** For Mendari's own grading, one
    configuration per arm is declared and committed (`scoreboard/declared/`) before grading, and
@@ -139,8 +137,8 @@ grade is given.
   its hash and makes earlier entries stale.
 - Nothing published today changes until LP-17g relabels the public template sets on the card, the
   dashboard and `web/`, a stated display change.
-- On today's public sets, almost every table carries the insufficient-evidence banner: only the
-  Referral Router's `test` set has 100 distinct positives on every critical label.
+- On the public sets of the time, almost every table carried the insufficient-evidence banner:
+  only one `test` set had 100 distinct positives on every critical label.
 - A signed hidden-set result is the owner's attestation: no one else can recompute it, since no
   ledger of a hidden set is kept.
 - The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps three

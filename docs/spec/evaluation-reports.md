@@ -3,7 +3,7 @@
 This page specifies what an evaluation run writes: the report (`mendari.eval/2`), the per-case
 ledger its result is computed from (`mendari.ledger/1`), and a paired comparison of two runs
 (`mendari.compare/1`). It supersedes the report format of the
-[agent spec 0.2](decision-pack-0.2.md) (`mendari.eval/1`), which still loads. The key
+[agent spec 0.2](agent-manifest-0.2.md) (`mendari.eval/1`), which still loads. The key
 words MUST, SHOULD and MAY are used as in that spec.
 
 The scoreboard and its scoped grades (LP-17) follow the
@@ -54,7 +54,7 @@ The result MUST carry everything a `mendari.eval/1` report carries, except case 
   in place of `missed_ids`;
 - `misclassified`, its cases named by ledger hash (`case`), never by id;
 - `models`: per question, the models that answered and how often (each answer's provider
-  model, [agent spec 0.2](decision-pack-0.2.md), §4.2), beside `providers`, the
+  model, [agent spec 0.2](agent-manifest-0.2.md), §4.2), beside `providers`, the
   configured model per slot. Reports and ledgers made before this was recorded (2026-10-07) by
   an `llm` slot (alone or in a composite) or a `vote` slot name the configured model there
   instead; a report's engine version does not tell them apart.
@@ -741,10 +741,10 @@ SHA-256 of a domain tag, the seed and the case's ledger hash is smallest, in the
 
 ## The results store: `scoreboard/`
 
-Scoreboard results are kept in the repository, under `scoreboard/` at its root
-(`evals/results_store.py`, LP-17f; the [grading method](../grading/method-1.0.md), section 11).
-It is outside the wheel, the sdist and the site: an agent's own `evals/` is in every archive, where
-a publisher's agent could carry a forged result. Each file is named by its content:
+Scoreboard results are kept in a results store, a folder: `scoreboard/` in the working directory
+unless `--store` names another (`evals/results_store.py`, LP-17f; the
+[grading method](../grading/method-1.0.md), section 11). It is never part of an agent: an
+agent's own `evals/` is in every archive, where a publisher's agent could carry a forged result. Each file is named by its content:
 
 | Path | What it holds |
 |---|---|
@@ -861,8 +861,8 @@ The report counts duplicates under `norm/v1`, the stricter rule:
 | `duplicates` | Only with `--ids`: the case ids of each duplicate group, for a file a person holds. |
 
 It names labels, counts and attribute values, never a case's input. The evaluation report
-(`mendari.eval/2`) still counts every positive: AI Guard's test set had 164 `verdict=block`
-cases, 30 of them distinct (applied to the former example agents; see the archive branch).
+(`mendari.eval/2`) still counts every positive, so a set built from templates can report many
+more positives there than it holds distinct.
 
 ## Rater agreement: `mendari.agreement/1`
 

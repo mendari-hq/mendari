@@ -4,7 +4,7 @@ for RE2.
 
 A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).
 The patterns of a pack the deployment does not own (a community pack, or one from a registry
-that is not a reference pack of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
+that is not a bundled agent of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
 which never backtracks.
 `translate` parses a pattern the way `re` does (`re._parser`, the same parse `re.compile`
 makes) and writes out an RE2 pattern that matches the same text, spelling out what `re` means

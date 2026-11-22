@@ -257,7 +257,7 @@ def not_writable(pack: Pack) -> str | None:
     if not where:
         return None
     what = {
-        "maintained": "a reference pack of this release",
+        "maintained": "an agent this release bundles",
         "community": "a community pack of this repository",
         "hub": "a pack pulled from a registry",
         "store": "a version in a pack store",

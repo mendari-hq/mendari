@@ -149,7 +149,7 @@ Edit the questions, the policy, the examples and the tests for your own task; `m
 says what is wrong, by file and field. Every section of the manifest is explained in the
 [authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md)
 and specified in
-[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md).
+[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md).
 
 ### Point it at a live agent
 
@@ -288,7 +288,7 @@ maps FHIR resources to its input and names a hook is also offered as a CDS Hooks
 agent takes plain JSON and declares no FHIR mapping, so it appears on none of these until you
 add one. See [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md),
 [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md)
-and the [FHIR mapping spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.3.md).
+and the [FHIR mapping spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.3.md).
 
 **The registry and the Agent Hub.** An agent travels as a deterministic archive signed with its
 publisher's Ed25519 key. A registry keeps immutable versions; `mendari pull` checks the archive
@@ -372,7 +372,6 @@ web/              the public page, mendari.co (static HTML and CSS)
 deploy/           on-premises, Kubernetes and Vercel templates
 scripts/          checks and generators that CI runs
 community-packs/  where community contributions arrive by pull request (none yet)
-scoreboard/       the store for signed evaluation results (no results yet)
 sandbox/inferno/  Inferno conformance kits against the engine
 notes/, tasks/    project notes, plans and lessons
 ```

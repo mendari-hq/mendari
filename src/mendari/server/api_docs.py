@@ -20,7 +20,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.server import scopes
 
 TAGS = [
-    {"name": "Decisions", "description": "Run a Decision Pack on an input and get its decision."},
+    {"name": "Decisions", "description": "Run an agent on an input and get its decision."},
     {
         "name": "FHIR and CDS Hooks",
         "description": "FHIR R4 in and out: the $decide operation and the CapabilityStatement "
@@ -29,7 +29,7 @@ TAGS = [
         "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
         "clinical resources.",
     },
-    {"name": "Packs", "description": "The Decision Packs this deployment serves."},
+    {"name": "Packs", "description": "The agents this deployment serves."},
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
@@ -107,7 +107,7 @@ MAX_EXAMPLE_BYTES = 64 * 1024
 
 # What Mendari is, in one sentence; the reference's introduction and the /docs landing open with it.
 PRODUCT = (
-    "Mendari runs healthcare AI agents as Decision Packs: versioned, tested workflow decisions "
+    "Mendari governs and evaluates healthcare AI agents: versioned, tested workflow decisions "
     "under deterministic policy, such as which queue should read a patient's portal message first."
 )
 # The four outcomes every decision ends in: the code, the dashboard's word for it (ui.js
@@ -223,7 +223,7 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
-        f"decides is one, at most 50 a request), the AI guard {rates['guard']}, evaluations "
+        f"decides is one, at most 50 a request), guard checks {rates['guard']}, evaluations "
         f"{rates['evaluate']} (a grading run is one), exports {rates['export']} and a labeller's "
         f"calls {rates['label']}; signing in {rates['signin']} and the token endpoint "
         f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "

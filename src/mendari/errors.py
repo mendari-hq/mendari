@@ -52,13 +52,13 @@ class MendariError(Exception):
 
 
 class PackValidationError(MendariError):
-    """A Decision Pack is malformed, inconsistent, or violates its risk-level rules."""
+    """An agent is malformed, inconsistent, or violates its risk-level rules."""
 
     def __init__(self, pack: str, problems: list[str]):
         self.pack = pack
         self.problems = problems
         detail = "\n".join(f"  - {problem}" for problem in problems)
-        super().__init__(f"Decision Pack {pack!r} is invalid:\n{detail}")
+        super().__init__(f"Agent {pack!r} is invalid:\n{detail}")
 
 
 class PackNotFoundError(MendariError):

@@ -132,7 +132,7 @@ def maintained_pack(ref: str, root: Path | None = None) -> Pack:
     )
     if not found:
         raise PackNotFoundError(
-            f"{ref} is not a pack Mendari maintains: the store holds the reference packs' "
+            f"{ref} is not a pack Mendari maintains: the store holds the bundled agents' "
             "results (give one by its id)"
         )
     return max(found, key=lambda pack: version_key(pack.version))
@@ -140,8 +140,8 @@ def maintained_pack(ref: str, root: Path | None = None) -> Pack:
 
 def scoring_sets(pack: Pack) -> list[str]:
     """The pack's public scoring sets, in its manifest's order: every set it declares but its
-    fitting sets (its `test` set, its enriched set and that set's holdout, for the five
-    reference packs)."""
+    fitting sets (its `test` set, its enriched set and that set's holdout, for the agents of
+    the test fixtures)."""
     return [name for name in pack.manifest.evaluation.datasets if name not in FITTING_SETS]
 
 
@@ -823,7 +823,7 @@ def refuse_unconfigured(pack: Pack, configuration: arms.Configuration) -> None:
                 raise MendariError(
                     f"{written(configuration.providers)}: {slot}={variant} cannot run on this "
                     f"machine, so every case would fail: {error}; set its provider up before "
-                    "the run (docs/operations/scoreboard.md, step 8)"
+                    "the run (docs/operations/scoreboard.md)"
                 ) from None
 
 
@@ -836,12 +836,12 @@ def refuse_unmeasurable(
     pack: Pack, set_name: str, configuration: arms.Configuration, *, replicates: int = 1
 ) -> None:
     """A `MendariError` unless `pack` is a pack Mendari maintains and `set_name` one of its
-    public scoring sets: the store's results are the reference packs', on sets in the
+    public scoring sets: the store's results are the bundled agents', on sets in the
     repository. A local configuration is deterministic, so it runs one replicate. A remote one
     runs `method.MIN_REPLICATES` to `method.MAX_REPLICATES`, never in CI."""
     if pack.origin != MAINTAINED:
         raise MendariError(
-            f"{pack.ref} is not a pack Mendari maintains: the store holds the reference packs' "
+            f"{pack.ref} is not a pack Mendari maintains: the store holds the bundled agents' "
             "results (give the pack by its id)"
         )
     sets = ", ".join(scoring_sets(pack))

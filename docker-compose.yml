@@ -3,9 +3,8 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# The engines here serve the synthetic EHR's example agents (the inbox, referral, prior-auth,
-# trial and guard agents of tests/fixtures/reference-packs, with their datasets), mounted
-# read-only: they exercise FHIR, SMART, CDS Hooks and PAS end to end. The image itself ships only
+# The engines here serve the synthetic EHR's agents, the test fixtures in
+# tests/fixtures/reference-packs (with their datasets), mounted read-only: they exercise FHIR, SMART, CDS Hooks and PAS end to end. The image itself ships only
 # the demo agent (agents/).
 name: mendari
 
@@ -159,7 +158,7 @@ services:
   registry:
     # The pack registry (mendari.hub): push and pull signed packs locally. There is no shared
     # administrator token (LP-19g): seed it after `docker compose up --build` as its operator, on
-    # its database, with the image's own reference packs:
+    # its database, with the image's own bundled agent:
     #   docker compose exec registry python /seed/hub_seed.py \
     #     --registry http://127.0.0.1:8100 --db /data/registry.db
     # Its other writes are `mendari registry ...` there too (claim, approve, token, review).

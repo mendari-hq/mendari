@@ -108,7 +108,7 @@ async function showPacks(body) {
       <label for="copy-pack">Agent to copy</label>
       <input id="copy-pack" name="pack" required placeholder="mendari/portal-message-agent" autocomplete="off">
       <label for="copy-name">Name of the copy</label>
-      <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="inbox-router">
+      <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="portal-agent">
       <button type="submit" class="primary">Copy</button>
     </form>
     <form class="panel admin-form" id="upload-form" novalidate>

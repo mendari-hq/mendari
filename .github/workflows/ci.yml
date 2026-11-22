@@ -78,16 +78,12 @@ jobs:
       - name: The API examples work, in open mode and with a service key (README, snippets)
         if: matrix.python == '3.12'
         run: uv run python scripts/check_doc_snippets.py
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/patient-inbox-router
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/clinical-trial-prescreener
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/referral-router
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/prior-auth-preflight
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/ai-guard
+      - name: The test fixtures' agents pass their behaviour tests
+        if: matrix.python == '3.12'
+        env:
+          MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+          MENDARI_DATASETS_PATH: tests/fixtures/datasets
+        run: for agent in tests/fixtures/reference-packs/*/; do uv run mendari test "$agent"; done
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
         if: matrix.python == '3.12'
         run: |
@@ -173,7 +169,7 @@ jobs:
     env:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
-      # The sample scripts decide with the example agents of the test fixtures (FHIR, PAS, DTR).
+      # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
       MENDARI_PACKS_PATH: tests/fixtures/reference-packs
       MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:
@@ -280,29 +276,29 @@ jobs:
           done
           docker compose logs workflow
           exit 1
-      - name: SMART launch, referral pack
+      - name: SMART launch, a test-fixture agent on referrals
         run: >-
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/referral-router
-      - name: SMART launch, inbox pack
+      - name: SMART launch, a test-fixture agent on portal messages
         run: >-
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/patient-inbox-router
       - name: The launcher, as `mendari smart check` sees it with sign-in on
         run: docker compose exec -T engine-signin mendari smart check http://launcher/v/r4/fhir
-      - name: SMART launch with sign-in on, referral pack, in the registered organization
+      - name: SMART launch with sign-in on, the agent on referrals, in the registered organization
         run: >-
           docker compose exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/referral-router --expect-org pilot --db /data/mendari.db
-      - name: SMART launch with sign-in on, inbox pack, in the registered organization
+      - name: SMART launch with sign-in on, the agent on portal messages, in the registered organization
         run: >-
           docker compose exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/patient-inbox-router --expect-org pilot --db /data/mendari.db
-      - name: Bulk export -> dataset -> mendari eval (referral pack)
+      - name: Bulk export -> dataset -> mendari eval (the agent on referrals)
         # The export's cases must evaluate exactly like the same cases read from the dataset file.
         run: >-
           docker compose exec -T engine mendari sandbox bulk-check
@@ -374,7 +370,7 @@ jobs:
 
   hub-e2e:
     # The v0.5 exit: on a clean machine, `pip install mendari && mendari pull
-    # mendari/referral-router` works. The wheel, built from the sdist, stands in for PyPI until
+    # mendari/portal-message-agent` works. The wheel, built from the sdist, stands in for PyPI until
     # the release.
     runs-on: ubuntu-latest
     steps:
@@ -412,7 +408,7 @@ jobs:
           cat /tmp/pull.txt
           # The wheel's bundled agent is the checkout's: the pulled copy keeps the maintained
           # engine (ADR-0009).
-          grep -q "a copy of the reference pack in this release" /tmp/pull.txt
+          grep -q "a copy of an agent this release bundles" /tmp/pull.txt
           version=$(sed -n 's/^version: //p' agents/portal-message-agent/pack.yaml)
           test -f "/tmp/clean-home/.cache/mendari/packs/mendari/portal-message-agent/$version/pack.yaml"
           /tmp/clean/bin/mendari test mendari/portal-message-agent
@@ -422,14 +418,14 @@ jobs:
           /tmp/clean/bin/mendari test /tmp/refill-router
 
   cql:
-    # v0.7: the trial pack's criteria in CQL (logic/criteria.cql) must answer exactly like the
+    # v0.7: a test-fixture agent's criteria in CQL (logic/criteria.cql) must answer exactly like the
     # `criteria` provider on every test and dataset case, on HAPI FHIR's Clinical Reasoning module.
     runs-on: ubuntu-latest
     env:
       # Port 18090 stays outside Linux's 32768-60999 ephemeral range (58090 collided with
       # outbound sockets during image pull).
       MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
-      # The trial agent (CQL beside its criteria) is an example, served from the test fixtures.
+      # The agent with CQL beside its criteria is served from the test fixtures.
       MENDARI_PACKS_PATH: tests/fixtures/reference-packs
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
@@ -617,11 +613,11 @@ jobs:
         run: uv run python scripts/doc_blocks.py run python
       - name: A new virtual environment installs from the clone, with the server extra
         run: python3 scripts/doc_blocks.py run install
-      - name: A REST, a FHIR and an AI Guard decision by the documented commands, and the commands on the server's database
+      - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
 
   pilot-check:
-    # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,
+    # The v0.6 exit: a pilot organization runs a portal-message agent with its own identity provider,
     # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party
     # OpenID Connect implementation (navikt/mock-oauth2-server) with a scriptable sign-in form.
     runs-on: ubuntu-latest
@@ -638,7 +634,7 @@ jobs:
       MENDARI_OIDC_ROLE_MAP: informatics=admin,clinicians=reviewer,front-desk=viewer,ai-committee=governance
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
-      # The pilot runs the inbox example agent, served from the test fixtures.
+      # The pilot runs a portal-message agent of the test fixtures.
       MENDARI_PACKS_PATH: tests/fixtures/reference-packs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

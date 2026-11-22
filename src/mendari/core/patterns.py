@@ -14,13 +14,13 @@ names the B11 community engine, which runs the packs the deployment does not own
 (`Pack.bounded`, `core/origin.py`, ADR-0009):
 
 - **A pack the deployment does not own** (a community pack, or one pulled from a registry whose
-  digest is not a reference pack's of this release) has its patterns run on RE2 (`google-re2`),
+  digest is not a bundled agent's of this release) has its patterns run on RE2 (`google-re2`),
   which never backtracks: its time grows with the text's length times the pattern's compiled
   size, never exponentially, so no pattern can stall a worker the way `(a+)+$` stalls `re`.
   Each is rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
   differences that remain); one RE2 cannot run (a lookaround, a back reference) or cannot
   compile (too large once compiled) makes the pack invalid, saying what to write instead.
-- **Every other pack's** (the reference packs, a pulled copy of one included, and an operator's
+- **Every other pack's** (the bundled agents, a pulled copy of one included, and an operator's
   local packs) run on `re`, exactly as they always have. `re` has no time limit, and checking a
   pattern at load cannot tell how long it will take on an input: a pattern like `(a+)+$`
   backtracks for seconds on a few dozen characters. Installing such a pack means trusting its

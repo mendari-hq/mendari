@@ -1,7 +1,7 @@
 {
   "name": "mendari-hub-site",
   "private": true,
-  "description": "The Mendari Hub website: search Decision Packs, read their cards, benchmarks and site reports. Reads the registry API.",
+  "description": "The Mendari Hub website: search agents, read their cards, benchmarks and site reports. Reads the registry API.",
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",

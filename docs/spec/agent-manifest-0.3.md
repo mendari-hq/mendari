@@ -1,8 +1,6 @@
 # Agent manifest spec 0.3
 
-(formerly the Decision Pack spec; the format is unchanged)
-
-Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping, one key of the
+Status: draft. Supersedes [0.2](agent-manifest-0.2.md) for the FHIR mapping, one key of the
 `criteria` provider's medication check (§3) and two card keys (§5) only. Every other part of an
 agent is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with `spec_version: "0.3"`. Every
 valid 0.1 and 0.2 agent is still valid, with unchanged behaviour (§4). The key words MUST,
@@ -363,12 +361,8 @@ wherever it comes from (an owned agent too), and so by `mendari validate`.
 An engine that reads only 0.1 and 0.2 refuses a 0.3 agent, since its `spec_version` is not one
 it knows. Publish an agent as 0.3 only for engines that read 0.3.
 
-Every 0.1 and 0.2 agent loads and maps as before. The former example agents' FHIR decisions are
-pinned case by case, input hash included (`tests/fixtures/fhir/decisions-golden.json`), and a
-0.2 mapping written with `paths` and `resources` reads every case alike. Three of them are 0.3
-agents (the Clinical Trial Prescreener, the Prior Authorization Preflight and the Referral
-Router, since their 0.3.0): their `fhir/mapping.yaml` files, now test fixtures in
-`tests/fixtures/reference-packs/` and on the archive branch, use most of this section.
+Every 0.1 and 0.2 agent loads and maps as before: a 0.2 mapping written with `paths` and
+`resources` reads every case alike.
 
 ## 5. Cards (0.3)
 
@@ -417,9 +411,8 @@ cds_hooks:
         indicator: critical
 ```
 
-Of the former example agents, the Prior Authorization Preflight (0.3.1) uses `also_show` for its
-red-flag rule on an order it has no requirement set for (`not_checked`), and the Referral Router
-(0.3.1) uses `refused`.
+An agent might use `also_show` for a red-flag rule on an order it has no requirement set for
+(`not_checked`), and `refused` to show a card for an order refused as invalid input.
 
 ## 6. Changes from 0.2 and migration
 

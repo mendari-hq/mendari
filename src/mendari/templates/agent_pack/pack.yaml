@@ -1,4 +1,4 @@
-# {{name}}: an AI Agent Decision Pack written in YAML. Change anything; `mendari validate` checks it.
+# {{name}}: an AI agent written in YAML. Change anything; `mendari validate` checks it.
 # Runs offline out of the box via `fixtures/mock_agent.json`, and switches automatically to any live
 # external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:

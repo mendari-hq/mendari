@@ -1,9 +1,7 @@
 # Agent manifest spec 0.2
 
-(formerly the Decision Pack spec; the format is unchanged)
-
-Status: draft. Supersedes [0.1](decision-pack-0.1.md); every valid 0.1 agent is a valid 0.2
-agent with unchanged behaviour (§13). [0.3](decision-pack-0.3.md) changes only the FHIR mapping
+Status: draft. Supersedes [0.1](agent-manifest-0.1.md); every valid 0.1 agent is a valid 0.2
+agent with unchanged behaviour (§13). [0.3](agent-manifest-0.3.md) changes only the FHIR mapping
 (§9): what it adds is there, and the rest of this document holds for 0.3 too. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (manifest), `mendari.core.derive` (derived
 questions) and `mendari.core.policy` (semantics).
@@ -584,7 +582,7 @@ recorded: its model lists every member's as `member:model`, in the agent's order
 
 ## 9. FHIR and CDS Hooks
 
-Spec [0.3](decision-pack-0.3.md) extends the mapping below; a 0.2 agent reads as this section
+Spec [0.3](agent-manifest-0.3.md) extends the mapping below; a 0.2 agent reads as this section
 says. `fhir/mapping.yaml` declares the `focus` resource type, the required and optional resource
 types, and a mapping from input fields to FHIRPath-subset paths (dotted elements, where a
 list-valued element yields all its items and `[n]` selects one), with optional transforms
@@ -642,8 +640,8 @@ focus: ServiceRequest
 focus_where: {path: category[0].coding[0].code, in: ["FR101"]}  # the code a site marks referrals with
 ```
 
-Other resources of the focus type are ignored. (`FR101` is a fictional referral code, from the
-former Referral Router example; a site lists the code its own EHR uses.)
+Other resources of the focus type are ignored. (`FR101` is a fictional referral code; a site lists
+the code its own EHR uses.)
 
 An agent with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). Each
 `prefetch` template is a read or a search relative to the EHR's FHIR server: `Type/<id>`,

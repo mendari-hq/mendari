@@ -27,15 +27,15 @@ for review when:
 - `mendari validate <dir>` and `mendari test <dir>` pass;
 - the Decision Card states intended use, users, population, out-of-scope uses and known
   failure modes honestly;
-- the risk level matches the intended use (see `docs/spec/decision-pack-0.2.md` §7);
+- the risk level matches the intended use (see `docs/spec/agent-manifest-0.2.md` §7);
 - a benchmark report is published, and critical labels (cases a person must see: never
   automated by default; see the spec, §8) are declared under `evaluation.critical`;
 - all data is synthetic or openly licensed and de-identified: **never real patient data**;
 - a clinician other than the author has reviewed the criteria (say who in the PR).
 
-The five reference packs Mendari maintains in `packs/` are the owner's demonstrations of how a
-pack is built. Their reviewer is the owner, a physician, and each review record discloses that
-the reviewer is also the author. Every other pack keeps the rule above.
+The demo agent Mendari maintains in `agents/` is the owner's demonstration of how an agent is
+built. Its reviewer is the owner, a physician, and its review record discloses that the reviewer
+is also the author. Every other agent keeps the rule above.
 
 A pack contributed for others to use goes in `community-packs/<name>/` with the id
 `community/<name>`. [Contributing a community pack](docs/guides/contributing-an-agent.md) is the
@@ -48,7 +48,7 @@ each saying what to fix), and open the PR with the pack template (`?template=pac
 ### What CI does with a pack PR
 
 The `pack-check` job of the `packs` workflow runs on every PR (with no pack changed, it says so
-and passes). For every maintained pack (`packs/`) your PR changes, it:
+and passes). For every bundled agent (`agents/`) your PR changes, it:
 - validates it, runs its behaviour tests, and evaluates it on its benchmark dataset;
 - renders its Decision Card (an artifact of the run);
 - compares its metrics with the benchmark on `main`, in the job summary.
@@ -176,8 +176,8 @@ Packs carry clinical content, so where it comes from matters as much as the code
   with the terms, and a pack whose files name one by its url or OID without it does not load
   (spec §3). A bare code names no system, so declaring where your codes come from is yours to
   do. Prefer
-  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the reference packs do
-  in place of CPT and SNOMED CT (no package carries either).
+  free systems (ICD-10-CM, LOINC) or a fictional one named as such in place of CPT and
+  SNOMED CT (no package carries either).
 - **Say what you used.** The pack template asks for the sources of the criteria and of
   `card.evidence`, and who reviewed the clinical content.
 
@@ -191,4 +191,5 @@ Third-party material keeps its own licence: say what it is in the PR, and add it
 `licenses/notice.toml` (then `uv run python scripts/build_notice.py` writes `NOTICE`).
 
 A maintainer merges ([GOVERNANCE.md](GOVERNANCE.md)): a pull request needs green CI and one
-maintainer's approval, and a reference pack also needs a clinical reviewer's sign-off.
+maintainer's approval, and an agent Mendari maintains (`mendari/…`) also needs a clinical
+reviewer's sign-off.

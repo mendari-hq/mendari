@@ -16,14 +16,11 @@ not, with sign-in off the CDS services answer this machine only ([In open mode](
 The decision behind it is
 [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md).
 
-!!! note "Which agents this page names"
+!!! note "The bundled agent's service"
     The bundled demo agent, `mendari/portal-message-agent`, offers one CDS Hooks service, the
-    hook `mendari-message-received` (a FHIR `Communication` in, a card and a `Task` out). The
-    Clinical Trial Prescreener, the Prior Authorization Preflight, the Referral Router and the
-    Patient Inbox Router that this page also names are the former example agents: they remain
-    as test fixtures (`tests/fixtures/reference-packs/`) and on the branch
-    `archive/decision-packs`, and what is said of them describes how the engine treats an agent
-    of that shape.
+    hook `mendari-message-received` (a FHIR `Communication` in, a card and a `Task` out). What
+    this page says of standard hooks (`patient-view`, `order-sign`), linked reads and code sets
+    applies to an agent of your own that declares them.
 
 ## Register the EHR
 
@@ -231,7 +228,7 @@ read.
 
 An agent on spec 0.3 can read a note that is only a link to a Binary, and what a reference points
 to: the payer behind `Coverage.payor`, the drug behind `medicationReference`
-([the 0.3 mapping](../spec/decision-pack-0.3.md)). When the record does not hold them, Mendari
+([the 0.3 mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
 reads them from the same `fhirServer`, with the same token:
 
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
@@ -276,10 +273,9 @@ read. A note none of whose renditions is read counts once, by the reason of its 
 text rendition (`cap`, a failed read), else `unsupported_type`, and the field's data-coverage
 record counts the formats of the notes it read as `unsupported_type` (`unread_formats`: `rtf`,
 `pdf`, `xml`, `image`, `none`, `other`). The record's `links` section says how many links the
-decision read for each budget, and how many reads failed with each HTTP status. Since LP-23k the Clinical Trial Prescreener and the Prior Authorization Preflight read
-links: their notes (a Binary), the Medication a MedicationRequest names (the trial agent), and
-the Organization a Coverage's payor names (the prior-authorization agent). The token must allow
-`Binary`, `Medication` and `Organization` reads for them. The Referral Router reads no link.
+decision read for each budget, and how many reads failed with each HTTP status. An agent that
+reads notes by link, the Medication a MedicationRequest names, or the Organization a Coverage's
+payor names needs a token that allows `Binary`, `Medication` and `Organization` reads.
 
 ## The cards
 
@@ -301,27 +297,17 @@ Each card is CDS Hooks 2.0's:
   `cds_hooks.card.show`; a decision with no recommendation, an ABSTAIN or a BLOCK, is its
   `none`, and since spec 0.3 one that refused its input is its `refused` where the agent names
   that key). An agent may also show a card for a recommendation it otherwise leaves out when a
-  policy rule of its own matched, in that rule's words (`cds_hooks.card.also_show`). The
-  referral router shows one only when the person signing can act: a referral to send back with
-  what is missing, or one to review today. A referral to schedule, for a coordinator or with no
-  suggestion gets no card, and the referral office works it from Mendari. A referral Mendari
-  refuses as invalid input (BLOCK, a reason over 5,000 characters for one) gets a `warning`
-  card saying it was not checked (no urgency or completeness check) and why, each reason naming
-  where in the input and which rule, never the text; it is in the audit trail, not in the
-  review queue, and the EHR's own referral workflow carries it. The trial agent is silent for a
-  patient who is clearly not eligible, and the prior authorization service for an order it has
-  no requirement set for (`not_checked`), unless the notes may document a red flag: then a
-  `critical` card says so, and says nothing of the payer's requirements. An ABSTAIN because
+  policy rule of its own matched, in that rule's words (`cds_hooks.card.also_show`). An input
+  the agent refuses as invalid (BLOCK) gets its `refused` card, if the agent names one, saying
+  it was not checked and why, each reason naming where in the input and which rule, never the
+  text; it is in the audit trail, not in the review queue. An ABSTAIN because
   part of the record could not be read always gets its `info` card, whatever the agent shows
   otherwise; a decision whose input is also refused is a BLOCK, and shows the card the agent
   shows for refused input, if any.
-- The Patient Inbox Router's card (`mendari-message-received`, Mendari's own hook) (applied to the former example agents; see the archive branch) names the team in its
-  summary, says whether the message was routed or needs a person to confirm the team, and is
-  `info` for the front desk, a medical assistant and billing, `warning` for a nurse and a
-  physician, and `critical` for a possible emergency. A message with no suggested team, whether
-  the engine abstained or refused it as invalid input, says it stays in the shared inbox for
-  manual triage, and the detail says which.
-- The prior authorization service is a Da Vinci CRD service. Its discovery entry declares
+- The demo agent's hook, `mendari-message-received`, is Mendari's own, not a standard one:
+  the EHR sends the message (a `Communication`) and its sender as prefetch, and gets one card.
+- A service whose agent declares `coverage_information` is a Da Vinci CRD service. Its discovery
+  entry declares
   `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
   is `coverage-info` in `source.topic`. A request with
   `"extension": {"davinci-crd.configuration": {"coverage-info": false}}` gets no cards and no
@@ -393,11 +379,9 @@ Before an EHR does, the sandbox plays one: a CDS client that signs its own token
 HTTP, on synthetic patients shaped as an EHR's FHIR API returns them.
 
 **The vendor-shaped EHR profile.** `mendari sandbox seed --pack ehr-profile --fhir <FHIR base>`
-loads it into a FHIR server, each resource under its own id (`ehr-trial-1`, …), so seeding again
-replaces it. It holds five synthetic patients for each former example agent with a standard hook: the
-Clinical Trial Prescreener (`patient-view`), the Prior Authorization Preflight and the Referral
-Router (`order-sign`). Its shapes follow Epic's and Oracle Health's public FHIR documentation,
-and it holds none of their data:
+loads it into a FHIR server, each resource under its own id, so seeding again replaces it. It
+holds synthetic patients for standard hooks (`patient-view`, `order-sign`). Its shapes follow
+Epic's and Oracle Health's public FHIR documentation, and it holds none of their data:
 
 - a note is a DocumentReference that links to a Binary (`attachment.url`), as plain text, HTML or
   RTF;
@@ -446,28 +430,17 @@ runs it on every change:
 docker compose --profile signin run --rm --use-aliases cds-client
 ```
 
-**What the agents cannot read in these shapes yet.** Since LP-23k the three agents are on spec
-0.3 and read most of this data. A note that is only a link is read from the FHIR server (its
-Binary, as text/plain or text/html); an RTF note is not, so the trial and prior-authorization
-agents abstain for the patient whose note is RTF (`could not read notes: unsupported_type`, an
-`info` card). A Condition is read by its ICD-10-CM coding and a referral by its FR101 coding
-wherever they sit, so every referral is found. The trial agent reads the MedicationRequests and
-the Medication each names (its RxNorm code, which the case's own record does not carry, is read
-in addition). The prior-authorization agent follows the payer's reference to its Organization,
-but the Organization holds only the site's own payer id, which the agent does not know and no
-site code map translates (a map translates codings only): the payer reads as `other`, and the order
-as `not_checked`. The owner confirmed this reading on 2026-11-07, and decided that a possible
-red flag under a site's payer id is to show a card at `order-sign`, while other `not_checked`
-orders stay quiet: built in the prior-authorization agent's 0.3.1, so such an order shows no card
-unless its notes may document a red flag (that order shows the red-flag card, and reaches the
-review queue at urgent priority). `tests/test_ehr_profile.py` pins each of these, with why: it is
-a regression fixture, not a rate.
+**What an agent cannot read in these shapes.** An agent on spec 0.3 reads a note that is only a
+link from the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
+the decision abstains for a patient whose note is RTF (`could not read notes: unsupported_type`,
+an `info` card). A payer's reference is followed to its Organization, but the Organization holds
+only the site's own payer id, which no site code map translates (a map translates codings only).
 
 ## Site codes
 
 An EHR often codes things its own way: a local code system, or another code of a standard one.
 An agent at spec 0.3 names sets of its own codes (`code_sets`) and reads a field through one
-(`code_set`, [the spec](../spec/decision-pack-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
+(`code_set`, [the spec](../spec/agent-manifest-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
 says how a site's codes translate into an agent's, one organization at a time. Off until you set
 it: unset, no code is translated and every decision is made as before.
 
@@ -539,16 +512,15 @@ What a decision does with it:
   lifting it then is the owner's decision.
 
 A map is configuration, not part of an agent: no agent file or digest changes. A site's own SNOMED
-CT codes may go in its map under its own licence; Mendari ships none. The Referral Router
-declares three code sets (since LP-23k): `referral_category` (FR101, which `focus_where` reads:
-translate the code your EHR marks a referral with into it, and the router finds your referrals),
-`checklist_documents` and `checklist_reports` (the LOINC document and report codes its checklist
-looks for). The trial and prior-authorization agents read their codes by code system, through no
-code set, so a map does not reach them.
+CT codes may go in its map under its own licence; Mendari ships none. A map reaches only an
+agent that declares code sets: an agent that reads a referral through `focus_where` and a code
+set (`referral_category` above), say, finds your referrals once the map translates the code
+your EHR marks them with. An agent that reads its codes by code system, through no code set, is
+not reached by a map. The bundled demo agent declares none.
 
 ## What your EHR does not offer
 
-An agent may read one list from several resource types: the trial agent reads its medications from
+An agent may read one list from several resource types: an agent may read its medications from
 MedicationStatement and MedicationRequest. Some EHRs do not offer one of them at all. Epic offers
 no R4 MedicationStatement API (only DSTU2 and STU3), so its read is refused (`unauthorized`), and,
 as for any part of the record that cannot be read, the decision abstains: `could not read
@@ -592,21 +564,20 @@ organization at a time. Off until you set it. It is inline JSON, or the path of 
   schema, or under `enforce` by US Core, is a final BLOCK, and its reason ends at the closing
   parenthesis). A card the agent shows keeps it in its detail even when its other reasons are
   behind the audit link (on an unreadable ABSTAIN's card and a refused input's, apart from what
-  was not read or why it was refused). The trial agent shows none for `not_eligible`, which an
-  incomplete list can give: such a decision reaches only the review queue (owner question O6).
+  was not read or why it was refused). An agent that shows no card for an outcome an incomplete
+  list can give sends such a decision to the review queue only (owner question O6).
 
 Declaring MedicationStatement says more than that Epic lacks the API: it says every medication
 the agent should see is in Epic's MedicationRequests, so "no insulin among the orders" may read as
 "off insulin". Check, on your Epic, before you set it:
 
 - whether patient-reported or historical home medications are returned as MedicationRequest,
-  and with which `intent`. A trial agent that leaves out requests whose `intent` is `proposal`,
-  `plan` or `option` (the trial agent since 0.4.0, #287) would not see home medications recorded so;
+  and with which `intent`. An agent that leaves out requests whose `intent` is `proposal`,
+  `plan` or `option` would not see home medications recorded so;
 - whether the default MedicationRequest search (no `status`, no `category`) returns stopped,
-  completed and inpatient orders: `no_insulin` looks back 90 days at recently stopped insulin;
-- whether `Medication.code.text` (or the request's `display`) carries the generic name. The
-  trial criteria match medications by name, so a brand-only name reads as no insulin, or no
-  metformin.
+  completed and inpatient orders, if an agent's criteria look back at recently stopped drugs;
+- whether `Medication.code.text` (or the request's `display`) carries the generic name. Criteria
+  that match medications by name read a brand-only name as no such drug.
 
 Setting it on a hosted deployment is a clinical claim as well as a configuration change: the
 person who attests it is named on every decision it applies to.
@@ -635,7 +606,7 @@ are in its public repository, so never register it on a deployment.
 
 Each hook call carries a new ES384 token with exactly these header fields (`alg`, `kid`, `typ`,
 `jku`), and its `aud` is the engine's `MENDARI_PUBLIC_URL` plus the path called. The run proves,
-on synthetic data, that discovery and the prior-authorization agent's `order-sign` answer a
+on synthetic data, that discovery and an agent's `order-sign` service answer a
 signed CRD client, read the record from the EHR's FHIR server with the token the hook carries,
 and abstain, saying what they could not read, when part of it cannot be read: with the EHR's
 FHIR server failing every read (the kit's Technical Issues group), the answer's coverage is
@@ -662,17 +633,16 @@ to a pilot:
   vendor's sandbox patients without a failed hook, and that `mendari smart check` passes against
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
-- **Notes the agents may not read.** The former example agents that read notes (the trial and
-  prior-authorization agents) are on spec 0.3 since LP-23k, and read a note that is only a link
-  from the FHIR server, but as text only when it is text/plain or text/html: an RTF, PDF or CDA
-  note abstains (`unsupported_type`). So do notes longer than the agent's input allows in all (20,000
-  characters, `too_large`; the text is never cut) and more notes than a decision reads (50,
+- **Notes the agents may not read.** An agent on spec 0.3 that reads notes reads a note that is
+  only a link from the FHIR server, but as text only when it is text/plain or text/html: an RTF,
+  PDF or CDA note abstains (`unsupported_type`). So do notes longer than the agent's input allows
+  in all (`too_large`; the text is never cut) and more notes than a decision reads (50,
   `cap`), which a patient with many notes may reach. On an EHR that sends notes that way, or keeps
   many notes for each patient, the agents that read notes may abstain for most patients with one,
   each decision going to a person with an `info` card. Read the decisions' data-coverage records
   (the audit view's "What it read") in the first days.
 - **After the first run.** The first SMART launch on Epic's sandbox (2026-11-08) launched,
-  authorized and read the patient; the trial agent abstained on MedicationStatement's refusal, on
+  authorized and read the patient; the agent abstained on MedicationStatement's refusal, on
   one link budget its notes had used, and on RTF twins counted twice. Each decision's "What it
   read" now says which prefetch reads failed and with which HTTP status, how many links it read
   for each budget, and the formats of the notes it could not read: read those lines after the

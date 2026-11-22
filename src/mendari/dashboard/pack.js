@@ -142,7 +142,7 @@ export function packOptions(packs) {
 export const defaultPack = (packs) =>
   (packs.find((p) => p.origin === "maintained") ?? packs.find((p) => !isCommunity(p)) ?? packs[0]).id;
 
-// Packs whose input is a patient message (the inbox) keep a message-shaped UI.
+// Packs whose input is a patient message keep a message-shaped UI.
 export const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
 
 // `restricted`: PHI mode `encrypt` kept the input, but this role may not read it (the server says).

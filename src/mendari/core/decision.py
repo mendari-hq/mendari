@@ -248,7 +248,7 @@ class CallBudget:
 
 
 class Decision:
-    """A loaded Decision Pack bound to concrete providers. Call it with a pack input."""
+    """A loaded agent bound to concrete providers. Call it with a pack input."""
 
     def __init__(
         self,

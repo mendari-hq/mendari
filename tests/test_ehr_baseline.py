@@ -168,7 +168,12 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
     job = _jobs()["fhir-conformance"]
     assert "if" not in job
     assert not [s for s in job["steps"] if "if" in s or "continue-on-error" in s]
-    assert set(job["env"]) == {"VALIDATOR_VERSION", "VALIDATOR_SHA256"}
+    assert set(job["env"]) == {
+        "VALIDATOR_VERSION",
+        "VALIDATOR_SHA256",
+        "MENDARI_PACKS_PATH",  # the sample scripts decide with the test fixtures' agents
+        "MENDARI_DATASETS_PATH",
+    }
     runs = _runs(job)
     assert "releases/download/${VALIDATOR_VERSION}/validator_cli.jar" in runs
     assert 'echo "${VALIDATOR_SHA256} var/validator/validator_cli.jar" | sha256sum -c -' in runs

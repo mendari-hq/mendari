@@ -2,7 +2,7 @@
 """Write samples of the Da Vinci resources Mendari produces, for the HL7 validator (CI job
 `fhir-conformance`), each checked against its implementation guide.
 
-- `crd-*.json`: the orders a Prior Authorization Preflight `order-sign` response updates with
+- `crd-*.json`: the orders a prior-authorization agent's `order-sign` response updates with
   CRD `coverage-information` (a complete request, one with documentation missing, a service
   the payer doesn't require authorization for, and `crd-indeterminate.json`: an order whose
   record holds a note that is only a link, so the decision abstains and the coverage is

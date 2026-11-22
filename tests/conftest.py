@@ -759,3 +759,37 @@ def launched(
     session, expires_at = sessions.begin(row, now, sessions.Lifetime(), ends_by=now + 3600)
     store.smart_put(sid, "session", session, expires_at)
     return {"cookie": f"{sessions.cookie_name(sessions.SMART, host)}={sid}", **DASHBOARD}
+
+
+DEMO_AGENT_DIR = ROOT / "agents" / "portal-message-agent"
+
+
+def runbook_body(
+    body: dict[str, Any],
+    pack_id: str,
+    *,
+    variants: dict[str, str] | None = None,
+    arms: dict[str, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """A grading body from docs/operations/evalsets.md, sent to a test's own agent. The runbook
+    writes it for the bundled demo agent, which a hidden set made of these tests' cases cannot
+    grade: so the body's agent, slots and variants are checked against the demo agent's
+    manifest (each named slot and variant exists and runs locally), then its `pack` and its
+    `variants` or `arms` are put in for the test's agent, the rest of the body kept as written."""
+    from mendari.core.pack import load_pack
+
+    demo = load_pack(DEMO_AGENT_DIR)
+    assert body["pack"] == demo.id, body["pack"]
+    named = [body.get("variants") or {}, *(body.get("arms") or {}).values()]
+    for slots in named:
+        for slot, variant in slots.items():
+            spec = demo.manifest.providers[slot].variants[variant]
+            assert spec.type not in ("agent", "jev", "llm"), (slot, variant)  # local only
+    sent = {**body, "pack": pack_id}
+    if "variants" in body:
+        assert variants is not None
+        sent["variants"] = variants
+    if "arms" in body:
+        assert arms is not None
+        sent["arms"] = arms
+    return sent

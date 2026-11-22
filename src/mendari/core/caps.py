@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Caps on what multiplies the work of the patterns of a pack on the community engine (plan B11):
-a community pack, or one from a registry that is not a reference pack of this release
+a community pack, or one from a registry that is not a bundled agent of this release
 (`Pack.bounded`, ADR-0009). Below, "a community pack" stands for either.
 
 A community pack's patterns run on RE2 (`core/patterns.py`), which never backtracks: a pattern's
@@ -40,7 +40,7 @@ the schema had already found wrong is refused). One decision runs a community pa
 patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
 worst).
 
-Every other pack (a reference pack, a pulled copy of one, an operator's local pack) is not
+Every other pack (a bundled agent, a pulled copy of one, an operator's local pack) is not
 capped: its patterns run on `re`, and installing it means trusting its author (SECURITY.md).
 """
 
