@@ -831,3 +831,15 @@ def test_a_steady_timeout_tail_does_not_alert_but_a_real_slowdown_does(
     report = monitor(store, inbox_pack, now=NOW, providers=None)
     (alert,) = report["alerts"]
     assert alert["kind"] == "latency" and alert["message"].startswith("60 of 60 [")
+
+
+def test_drift_reads_only_confidences_that_are_shares() -> None:
+    """Before, a stored confidence of -0.25 was counted in the ninth tenth (index -2 of the
+    list), so a few bad rows read as a drift of 17, and a NaN raised a ValueError."""
+    from mendari.evals.monitoring import _psi
+
+    bins = [{"low": 0.9, "n": 10}]
+    sure = [{"confidence": 0.95}] * 5
+    assert _psi(bins, sure) == _psi(bins, [*sure, *[{"confidence": -0.25}] * 5])
+    assert _psi(bins, [*sure, {"confidence": math.nan}]) == _psi(bins, sure)
+    assert _psi(bins, [{"confidence": -0.25}]) is None  # nothing to compare
