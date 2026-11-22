@@ -436,7 +436,7 @@ _DESCRIPTION = (
     "fail the call: the decision is recorded, the failure is a warning in the OperationOutcome, "
     "and the policy treats the question as unanswered."
 )
-_PACK_DOC = "The Decision Pack, as `namespace/name` (e.g. `mendari/patient-inbox-router`)."
+_PACK_DOC = "The Decision Pack, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
 _VERSION_DOC = (
     "The pack version the client expects. When the deployment serves another version, the call "
     "fails with 404 and decides nothing."

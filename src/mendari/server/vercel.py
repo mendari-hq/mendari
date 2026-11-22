@@ -5,11 +5,11 @@ Configuration comes from the environment:
 - `DATABASE_URL`: pooled Postgres URL (injected by the Neon integration). Required on Vercel:
   functions have no persistent disk, and an audit trail that silently disappears is worse
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
-- `MENDARI_PROVIDERS`: provider variants, e.g. `router=jev`, or scoped to one pack,
-  e.g. `mendari/clinical-trial-prescreener:notes=jev`. A setting that names a slot or
-  variant a pack does not have is skipped and reported in `/api/health`. With Jev set up, the
-  reference packs run Mendari + Jev in every slot these settings choose nothing for
-  (`settings.JEV_DEFAULTS`).
+- `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one pack,
+  e.g. `mendari/portal-message-agent:reader=rules`. A setting that names a slot or
+  variant a pack does not have is skipped and reported in `/api/health`. With Jev set up, a
+  pack listed in `settings.JEV_DEFAULTS` (none in a release) runs Mendari + Jev in every slot
+  these settings choose nothing for.
 - `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
   limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
   (`decisions=5000,jev=2000,llm=200`; unset: none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily

@@ -68,7 +68,7 @@ TAGS = [
     {"name": "Service", "description": "Health and settings of this deployment."},
 ]
 
-# A synthetic patient message as FHIR: what the inbox pack's FHIR mapping reads.
+# A synthetic patient message as FHIR: what the demo agent's FHIR mapping reads.
 FHIR_EXAMPLE: dict[str, Any] = {
     "resourceType": "Bundle",
     "type": "collection",
@@ -100,15 +100,15 @@ FHIR_EXAMPLE: dict[str, Any] = {
         },
     ],
 }
-FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
+FHIR_EXAMPLE_PACK = "mendari/portal-message-agent"  # the bundled demo agent
 # A pack's example is in the reference only if its JSON is at most this (the shipped packs' are
 # under 1 KB); a larger one is left out, as is one from tests that do not load.
 MAX_EXAMPLE_BYTES = 64 * 1024
 
 # What Mendari is, in one sentence; the reference's introduction and the /docs landing open with it.
 PRODUCT = (
-    "Mendari runs Decision Packs: versioned, tested healthcare workflow decisions such as which "
-    "team should handle a patient's message, or whether a prior-authorization request is complete."
+    "Mendari runs healthcare AI agents as Decision Packs: versioned, tested workflow decisions "
+    "under deterministic policy, such as which queue should read a patient's portal message first."
 )
 # The four outcomes every decision ends in: the code, the dashboard's word for it (ui.js
 # OUTCOME_TEXT), and what it means for the caller.

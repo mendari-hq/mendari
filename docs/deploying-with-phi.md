@@ -208,7 +208,6 @@ Give each key the least it needs:
 |---|---|---|---|---|
 | `rest` | REST API | `service` | none: the role's own | `GET /api/packs`<br>`POST /api/packs/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
 | `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
-| `ai-guard` | AI Guard | `service` | `https://mendari.co/fhir/scope/decide` | `POST /api/packs/{namespace}/{name}/guard` |
 | `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}`<br>`POST /cds-services/{service_id}/feedback` |
 | `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/packs/{namespace}/{name}/pas` |
 | `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |

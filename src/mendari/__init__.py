@@ -3,8 +3,8 @@
 
 from mendari import Decision
 
-router = Decision.from_hub("mendari/patient-inbox-router")
-result = router({"message": {"body": "I need a refill on my lisinopril."}})
+agent = Decision.from_hub("mendari/portal-message-agent")
+result = agent({"message": {"body": "I need a refill on my lisinopril."}})
 result.outcome, result.recommendation
 """
 

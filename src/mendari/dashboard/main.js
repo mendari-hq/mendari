@@ -143,7 +143,7 @@ async function boot() {
   render();
 }
 
-// The pack travels in the address ("?pack=mendari/referral-router#review"), so a shared or
+// The pack travels in the address ("?pack=mendari/portal-message-agent#review"), so a shared or
 // bookmarked link opens the pack it was copied from, and a record link opens over that pack's
 // list. Without one, the pack last chosen here. Hash links keep the query, so no link builds it.
 const packInAddress = () => new URLSearchParams(location.search).get("pack");

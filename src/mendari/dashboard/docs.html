@@ -150,8 +150,7 @@
 
       <section class="docs-section" id="guard" aria-labelledby="guard-title">
         <h2 id="guard-title">Guarding a model's replies</h2>
-        <p>An agent with a <code>guard</code> section checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The same check runs in Python, without a server.</p>
-        <ol class="docs-steps"><!-- landing:guard --></ol>
+        <p>An agent with a <code>guard</code> section checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The bundled demo agent declares no <code>guard</code> section; an agent of your own that does is checked the same way, and in Python with <code>mendari.guard.check</code>, without a server.</p>
       </section>
 
       <section class="docs-section" id="auth" aria-labelledby="auth-title">

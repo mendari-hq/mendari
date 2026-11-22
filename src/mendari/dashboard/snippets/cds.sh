@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# CDS Hooks: the services, one per pack that declares a hook, and a call to the Patient Inbox
-# Router's with a synthetic patient and message as prefetch (the API reference's own FHIR example,
+# CDS Hooks: the services, one per pack that declares a hook, and a call to the demo agent's
+# (the Portal Message Agent's) with a synthetic patient and message as prefetch (the API reference's own FHIR example,
 # server/api_docs.py FHIR_EXAMPLE), answered with cards.
 #
 # MENDARI is the server; with sign-in on, MENDARI_KEY is an API key (`ohk_…`, the `service` role
@@ -13,8 +13,8 @@
 curl -sS --fail-with-body "$MENDARI/cds-services" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '[.services[] | {id, hook}]'
 
-# step: hook — Call the inbox's hook with the patient and the message as prefetch
-curl -sS --fail-with-body -X POST "$MENDARI/cds-services/mendari.patient-inbox-router" \
+# step: hook — Call the agent's hook with the patient and the message as prefetch
+curl -sS --fail-with-body -X POST "$MENDARI/cds-services/mendari.portal-message-agent" \
   -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
   -d '{"hook": "mendari-message-received", "hookInstance": "7f1c2a4e-0d1b-4c55-9a51-3c1e2d000003",
     "context": {"patientId": "example-patient", "communicationId": "example-message"},

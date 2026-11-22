@@ -106,7 +106,7 @@ async function showPacks(body) {
       <h2>Copy an agent</h2>
       <p class="muted">A draft of an agent this deployment serves, under your organization's name. It runs on the engine for agents the deployment does not own.</p>
       <label for="copy-pack">Agent to copy</label>
-      <input id="copy-pack" name="pack" required placeholder="mendari/patient-inbox-router" autocomplete="off">
+      <input id="copy-pack" name="pack" required placeholder="mendari/portal-message-agent" autocomplete="off">
       <label for="copy-name">Name of the copy</label>
       <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="inbox-router">
       <button type="submit" class="primary">Copy</button>
@@ -325,7 +325,7 @@ async function showResults(body) {
       <select id="job-version" name="version">${versions.map((v) => `<option value="${esc(v.digest)}">${esc(v.pack_id)} ${esc(v.version)} (${short(v.digest)})</option>`).join("")}
         <option value="">The agent it was copied from</option></select>
       <label for="job-pack">Or an agent served here (the current one)</label>
-      <input id="job-pack" name="pack" placeholder="mendari/patient-inbox-router">
+      <input id="job-pack" name="pack" placeholder="mendari/portal-message-agent">
       <label for="job-dataset">Dataset</label>
       <select id="job-dataset" name="source">${datasets.filter((d) => d.state !== "held").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
         <option value="name:test">The version's own test set</option></select>

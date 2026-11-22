@@ -21,9 +21,15 @@ from mendari.core import db as db_module
 from mendari.core import patterns
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.core.registry import SearchPath
-from mendari.server.app import DASHBOARD_DIR, create_app
-from tests.conftest import LOCAL_DATASET
+from mendari.core.registry import SearchPath, discover
+from mendari.server.app import (
+    DASHBOARD_DIR,
+    DEMO_AGENT,
+    GradingRequest,
+    LabelRequest,
+    create_app,
+)
+from tests.conftest import LOCAL_DATASET, ROOT
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 from tests.test_community_budget import EMOJI, long_message, slow_rules
 from tests.test_community_caps import sorter
@@ -311,7 +317,9 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     assert "Sign-in is off here" in schema["info"]["description"]
     decide = schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
-    assert next(iter(examples)) == "patient-inbox-router"  # the default pack comes first
+    # No demo agent among the tests' fixtures: the packs come by id (the demo agent first where a
+    # release serves it: test_a_release_offers_the_demo_agent_first).
+    assert list(examples) == sorted(examples)
     for example in examples.values():
         pack_id = example["summary"].split(":")[0]
         decided = client.post(f"/api/packs/{pack_id}/decide", json=example["value"]).json()
@@ -324,14 +332,47 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
 
     assert offered("/api/packs/{namespace}/{name}/guard") == ["ai-guard"]  # the guard pack
     fhir_packs = offered("/api/packs/{namespace}/{name}/fhir/decide")
-    assert fhir_packs[0] == "patient-inbox-router" and "ai-guard" not in fhir_packs
+    assert "patient-inbox-router" in fhir_packs and "ai-guard" not in fhir_packs
     smart = schema["paths"]["/api/smart/decide"]["post"]
     assert "Needs an EHR launch" in smart["description"]  # not a session or a key
+
+
+def test_a_release_offers_the_demo_agent_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a release's server, which serves only the bundled demo agent, every example of the
+    reference names it: "Try it out" decides with its own examples, the FHIR example is its
+    FHIR mapping's, and the slot and variant examples are its own."""
+    monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)  # its offline fixture
+    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=[ROOT / "agents"]))
+    schema = client.get("/openapi.json").json()
+    decide = schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    examples = decide["requestBody"]["content"]["application/json"]["examples"]
+    assert list(examples) == ["portal-message-agent"]
+    for example in examples.values():
+        decided = client.post(f"/api/packs/{DEMO_AGENT}/decide", json=example["value"]).json()
+        assert decided["outcome"] != "BLOCK", decided["reasons"]
     fhir = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
+    name = next(p for p in fhir["parameters"] if p["name"] == "name")
+    assert list(name["examples"]) == ["portal-message-agent"]
     bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]
-    decided = client.post(f"{PACK}/fhir/decide", json=bundle).json()
+    decided = client.post(f"/api/packs/{DEMO_AGENT}/fhir/decide", json=bundle).json()
     assert decided["task"]["resourceType"] == "Task"
     assert decided["decision"]["input_issues"] == []  # the example conforms to US Core
+    assert decided["decision"]["recommendation"] == "refill"
+    # The grading and labelling routes are mounted with hidden sets on: their models, as read.
+    grading = GradingRequest.model_json_schema()["properties"]
+    assert grading["pack"]["examples"] == [DEMO_AGENT]
+    (agent,) = discover([ROOT / "agents"]).packs
+    slots = {slot: set(spec.variants) for slot, spec in agent.manifest.providers.items()}
+    (variants,) = grading["variants"]["examples"]
+    ((_, configuration),) = grading["arms"]["examples"][0].items()
+    for chosen in (variants, configuration):
+        assert all(variant in slots[slot] for slot, variant in chosen.items()), chosen
+    assert set(configuration) == set(slots)  # an arm names a variant for every slot
+    (labels,) = LabelRequest.model_json_schema()["properties"]["labels"]["examples"]
+    questions = agent.manifest.questions
+    assert all(label in questions[q].labels for q, label in labels.items()), labels
 
 
 # -- health does no pack work in the request (LP-16d) ----------------------------------------

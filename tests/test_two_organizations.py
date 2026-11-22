@@ -49,7 +49,7 @@ from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.registry import resolve_pack
 from mendari.server import presets, smart_routes
-from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
+from mendari.server.api_docs import FHIR_EXAMPLE
 from mendari.server.app import create_app
 from mendari.server.auth import person_id
 from mendari.server.backend_services import ASSERTION_TYPE
@@ -676,7 +676,7 @@ def seed(world: World, org: Org) -> None:
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+            {"name": "pack", "valueString": INBOX},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
@@ -688,7 +688,7 @@ def seed(world: World, org: Org) -> None:
         org,
         org.people["reviewer"],
         ("POST", "/api/packs/{namespace}/{name}/fhir/decide"),
-        f"/api/packs/{FHIR_EXAMPLE_PACK}/fhir/decide",
+        f"/api/packs/{INBOX}/fhir/decide",
         json=FHIR_EXAMPLE,
         expect=200,
     ).json()

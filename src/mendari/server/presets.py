@@ -104,16 +104,6 @@ _ALL = [
         examples=("fhir/metadata", "fhir/decide", "fhir/search"),
     ),
     Preset(
-        id="ai-guard",
-        title="AI Guard",
-        purpose="Check a model's draft reply before a patient reads it.",
-        role="service",
-        scope=DECIDE,
-        calls=(("POST", "/api/packs/{namespace}/{name}/guard"),),
-        doc="guides/api.md#guarding-a-models-replies",
-        examples=("guard/check",),
-    ),
-    Preset(
         id="cds-hooks",
         title="CDS Hooks",
         purpose="An EHR that lists the CDS services, calls them with a hook's context and "

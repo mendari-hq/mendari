@@ -151,13 +151,15 @@ def _body(step: Step) -> Any:
 
 
 def _packs() -> dict[str, Pack]:
-    return {pack.id: pack for pack in discover().packs}
+    """What a release serves: the bundled demo agent (the tests' own search path is fixtures)."""
+    return {pack.id: pack for pack in discover([ROOT / "agents"]).packs}
 
 
 def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
-    """A decide body is one of the pack's behaviour-test inputs, and the FHIR one is the API
+    """A decide body is one of the demo agent's behaviour-test inputs, and the FHIR one is the API
     reference's example: synthetic, and the same as what "Try it out" offers. The CDS hook's
-    prefetch is that example's patient and message, for the pack it is the example of."""
+    prefetch is that example's patient and message, for the agent it is the example of. Every
+    pack a body names is one a release serves."""
     packs = _packs()
     bodies = 0
     for step in STEPS:
@@ -186,11 +188,11 @@ def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
             assert body["prefetch"] == {"patient": patient, "communication": message}
             assert body["context"] == {"patientId": patient["id"], "communicationId": message["id"]}
             continue
-        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/(?:decide|guard)", path)
+        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/decide", path)
         assert pack_id is not None, f"{step.file}.sh {step.name}: a body for {path}"
         inputs = [case["input"] for case in load_cases(packs[pack_id.group(1)])]
         assert body in inputs, f"{step.file}.sh {step.name}: not one of the pack's examples"
-    assert bodies == 4  # the inbox's decision, the FHIR one, the CDS hook's and the AI Guard's
+    assert bodies == 3  # the demo agent's decision, the FHIR one and the CDS hook's
 
 
 def test_the_key_pass_skips_only_what_a_service_key_may_not_do() -> None:

@@ -42,6 +42,7 @@ card:
 
 inputs:
   schema: schemas/input.schema.json
+  fhir: fhir/mapping.yaml  # a FHIR Communication in (`$decide`, CDS Hooks), a Task out
 
 questions:
   request:
@@ -105,3 +106,13 @@ evaluation:
     - {question: urgent_symptoms, label: "yes"}
 
 tests: tests/cases.yaml
+
+# A CDS Hooks 2.0 service (`/cds-services/mendari.portal-message-agent`): the EHR sends the
+# message and its sender as prefetch, and gets a card back.
+cds_hooks:
+  hook: mendari-message-received
+  title: Portal Message Agent
+  description: Suggests the queue that reads an incoming patient portal message first.
+  prefetch:
+    communication: Communication/{{context.communicationId}}
+    patient: Patient/{{context.patientId}}

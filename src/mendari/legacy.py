@@ -28,8 +28,8 @@ def adopt_legacy_settings(environ: MutableMapping[str, str]) -> list[str]:
 
 
 def current_pack_id(pack_id: str) -> str:
-    """A pack id from before the rename (`openhealth/referral-router`) as it is now
-    (`mendari/referral-router`); any other id unchanged."""
+    """A pack id from before the rename (`openhealth/portal-message-agent`) as it is now
+    (`mendari/portal-message-agent`); any other id unchanged."""
     if pack_id.startswith(OLD_NAMESPACE):
         return NEW_NAMESPACE + pack_id.removeprefix(OLD_NAMESPACE)
     return pack_id

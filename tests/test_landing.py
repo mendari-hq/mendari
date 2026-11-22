@@ -18,6 +18,7 @@ from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
 from mendari.server.auth import permission_for
 from mendari.settings import default_providers
 from tests.conftest import (
+    ROOT,
     calm_jev,
     encrypt_mode,
     encrypted_store,
@@ -101,7 +102,8 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     count, nothing from the store. Only the mode shows, which /api/auth/me says anyway."""
     _sign_in_on(monkeypatch)
     every = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs", follow_redirects=False)
-    # Nor whether Jev is set up: the quickstart shows both of the inbox's answers.
+    # Nor whether Jev is set up, nor whether the demo agent is served: the quickstart shows the
+    # agent's offline answer.
     calm_jev(monkeypatch)
     app = create_app(db_path=tmp_path / "c.db", default_providers=default_providers())
     with_jev = TestClient(app).get("/docs", follow_redirects=False)
@@ -109,8 +111,7 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     one = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs", follow_redirects=False)
     assert every.status_code == one.status_code == with_jev.status_code == 200
     assert every.text == one.text == with_jev.text
-    for printed in (landing.REVIEWED, landing.AUTOMATED):
-        assert html.escape(json.dumps(printed, indent=2, ensure_ascii=False)) in every.text
+    assert html.escape(json.dumps(landing.PRINTED, indent=2, ensure_ascii=False)) in every.text
     assert "Sign-in is on here" in every.text and 'href="/auth/login"' in every.text
     assert "/?pack=" not in every.text and 'href="/#card"' in every.text
     assert "Backend Services (signed client assertions" in every.text  # off here
@@ -120,8 +121,8 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
 def test_every_example_that_takes_focus_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sign_in: bool
 ) -> None:
-    """A screen reader tabbing to an example hears what it is: its kind and its step, so the two
-    answers shown for one step with sign-in on are told apart."""
+    """A screen reader tabbing to an example hears what it is: its kind and its step, and what
+    the quickstart's decision prints is told apart from the step itself."""
     if sign_in:
         _sign_in_on(monkeypatch)
     text = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs").text
@@ -129,7 +130,7 @@ def test_every_example_that_takes_focus_is_named(
     names = [re.search(r'role="group" aria-label="([^"]+)"', attrs) for attrs in focusable]
     assert focusable and all(names), focusable
     prints = [n[1] for n in names if n and n[1].startswith("Prints")]
-    assert len(prints) == (2 if sign_in else 1) and len(set(prints)) == len(prints)
+    assert len(prints) == 1  # one answer, the same whether sign-in is on or not
 
 
 def test_the_landing_describes_phase_4b_without_this_deployments_settings(
@@ -256,22 +257,25 @@ def test_the_smart_launch_is_described_as_it_is(
     assert "It opens the dashboard on that patient's work alone." in signed
 
 
-@pytest.mark.parametrize("jev", [False, True], ids=["without a model", "with jev set up"])
 def test_the_quickstart_prints_what_the_server_decides(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The abridged answer shown under the decide step is the server's answer to that step: a
-    person reviews it without a model in the inbox's screen, and it is automated with Jev."""
-    if jev:
-        calm_jev(monkeypatch)
-    app = create_app(db_path=tmp_path / "a.db", default_providers=default_providers())
+    """The abridged answer shown under the decide step is the answer a release's server gives to
+    that step: the bundled demo agent's, on its offline fixture."""
+    monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)
+    # The tests' search path is their fixtures (conftest); a release's is the bundled agent.
+    app = create_app(
+        db_path=tmp_path / "a.db",
+        packs_paths=[ROOT / "agents"],
+        default_providers=default_providers(),
+    )
     client = TestClient(app)
-    printed = landing.AUTOMATED if jev else landing.REVIEWED
+    printed = landing.PRINTED
     (step,) = [s for s in snippets.load("quickstart") if s.name == "decide"]
     body = re.search(r"-d '(.*?)'", step.text, re.S)
     assert body
     ((method, path),) = step.calls()
-    assert method == "POST"
+    assert (method, path) == ("POST", f"/api/packs/{landing.QUICKSTART_PACK}/decide")
     decided = client.post(path, json=json.loads(body[1])).json()
     shown = {key: value for key, value in printed.items() if key != "id"}
     assert {key: decided[key] for key in shown} == shown

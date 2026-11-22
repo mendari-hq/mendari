@@ -325,7 +325,7 @@ def test_jev_set_up_off_the_allow_list_stops_the_server_before_its_defaults(
     with pytest.raises(MendariError, match=f"{jev.ENDPOINT_ENV} is not on {ALLOW}"):
         default_providers()
     monkeypatch.setenv(ALLOW, f"{GATEWAY},{JEV}")
-    assert default_providers()
+    assert default_providers() == {}  # it starts: a release names no Jev defaults (JEV_DEFAULTS)
 
 
 def test_health_reports_the_provider_allow_list(

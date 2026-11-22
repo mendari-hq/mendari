@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Mendari's REST API in three calls: list the packs, decide on a synthetic patient message, and
-# read the decision's audit record. The body is synthetic, one of the pack's own behaviour tests.
+# Mendari's REST API in three calls: list the packs, ask the bundled demo agent for a decision on a
+# synthetic patient message, and read the decision's audit record. The body is synthetic, one of
+# the agent's own behaviour tests.
 #
 # MENDARI is the server (`mendari serve` listens on http://localhost:8000). With sign-in on,
 # MENDARI_KEY is an API key (`ohk_…`, the `service` role); open mode ignores it. Needs curl and
@@ -13,9 +14,9 @@ curl -sS --fail-with-body "$MENDARI/api/packs" -H "Authorization: Bearer $MENDAR
 
 # step: decide — Decide on a synthetic patient message
 decision=$(curl -sS --fail-with-body -X POST \
-  "$MENDARI/api/packs/mendari/patient-inbox-router/decide" \
+  "$MENDARI/api/packs/mendari/portal-message-agent/decide" \
   -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
-  -d '{"message": {"subject": "Refill request", "body": "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"}}')
+  -d '{"message": {"body": "Could you refill my lisinopril? I am running low."}}')
 jq '{id, outcome, recommendation, priority, reasons}' <<<"$decision"
 id=$(jq -r .id <<<"$decision")
 
