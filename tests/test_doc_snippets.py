@@ -228,4 +228,6 @@ def test_step_titles_say_agent_not_pack() -> None:
     """A step's title is shown on /docs beside its copy button: user-facing words say "agent"
     (the routes still say `packs`, which a step's commands keep)."""
     for step in [*snippets.every(), *snippets.python_steps()]:
-        assert not re.search(r"\bpacks?\b", step.title, re.I), f"{step.file} {step.name}: {step.title}"
+        assert not re.search(r"\bpacks?\b", step.title, re.I), (
+            f"{step.file} {step.name}: {step.title}"
+        )

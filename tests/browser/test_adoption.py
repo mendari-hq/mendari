@@ -51,8 +51,9 @@ def test_the_path_fits_a_phone(page: Page) -> None:
 
 
 def test_the_shadow_pilot_action_lands_on_the_command_center(page: Page) -> None:
-    """"#cc-title" is no view: followed as a route, it rendered the Overview again from the top,
-    so "Start a shadow pilot" went nowhere. It scrolls to the section and focuses its heading."""
+    """The step links to "#cc-title", which is no view: followed as a route, it rendered the
+    Overview again from the top, so "Start a shadow pilot" went nowhere. It scrolls to the
+    section and focuses its heading."""
     open_pack(page, INBOX, "overview")
     page.get_by_role("link", name="Start a shadow pilot").click()
     expect(page.locator("#cc-title")).to_be_focused()
