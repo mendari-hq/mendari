@@ -52,6 +52,7 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         and all(
             isinstance(m, dict)
             and _number(m.get("n"))
+            and _number(m.get("labelled"), optional=True)
             and _number(m.get("accuracy"), optional=True)
             for m in values.values()
         )
@@ -63,7 +64,19 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         automation.get("false_automation_rate"), optional=True
     ):
         return "the published benchmark's automation figures are malformed"
+    if not (
+        isinstance(baseline.get("dataset"), dict)
+        and isinstance(baseline.get("pack"), dict)
+        and isinstance(baseline.get("primary"), str)
+    ):
+        return "the published benchmark does not say which pack, dataset and question it measured"
     return None
+
+
+def _labelled(members: dict[str, Any]) -> int:
+    """How many of a subgroup's members its accuracy is over, for the smallest group worth
+    flagging: its labelled members where the report says (since LP-10b), else its size."""
+    return int(members.get("labelled", members["n"]))
 
 
 def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -> dict[str, Any]:
@@ -104,11 +117,15 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
     for attribute, values in local.get("subgroups", {}).items():
         base_values = baseline.get("subgroups", {}).get(attribute, {})
         for value, local_m in values.items():
-            if local_m["n"] < MIN_GROUP or local_m["accuracy"] is None:
+            # An accuracy is over the labelled members: a subgroup of 40 cases with 2 labelled is
+            # two cases' luck, too few to flag, however many cases it has.
+            if local_m["accuracy"] is None or _labelled(local_m) < MIN_GROUP:
                 continue
             reference = base_values.get(value)
             own = bool(
-                reference and reference["n"] >= MIN_GROUP and reference["accuracy"] is not None
+                reference
+                and reference["accuracy"] is not None
+                and _labelled(reference) >= MIN_GROUP
             )
             # Against the benchmark's own subgroup when it has one big enough, else its overall
             # accuracy, said as such. Each accuracy is over the labelled members.

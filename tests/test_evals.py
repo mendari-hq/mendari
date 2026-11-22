@@ -136,6 +136,44 @@ def test_a_subgroup_the_benchmark_lacks_is_compared_with_its_overall_figure(
     assert line.endswith("-> 20 of 40 [33.8-66.2%]")
 
 
+def test_a_subgroup_with_few_labelled_members_is_never_flagged(inbox_pack: Pack) -> None:
+    """Before, the smallest group worth flagging (MIN_GROUP) was counted in members, not in the
+    labelled members an accuracy is over: 40 cases with 2 labelled, both wrong, were flagged."""
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    local = copy.deepcopy(baseline)
+    group = {"n": 40, "labelled": 2, "accuracy": 0.0, "auto_rate": 0.0, "abstention_rate": 0.0}
+    local["subgroups"]["language"]["xx"] = {**group, "false_automation_rate": None}
+    comparison = compare(local, baseline, 0.03)
+    assert not [f for f in comparison["findings"] if f["subject"] == "language=xx"]
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        lambda b: b.pop("dataset"),
+        lambda b: (
+            [b.pop("primary")]  # with subgroups counted as mendari.eval/1 counts them
+            + [m.pop("labelled") for v in b["subgroups"].values() for m in v.values()]
+        ),
+        lambda b: next(iter(b["subgroups"]["language"].values())).update(labelled="many"),
+    ],
+    ids=["dataset", "primary", "labelled"],
+)
+def test_a_baseline_without_what_it_measured_cannot_be_compared(
+    inbox_pack: Pack, spoil: Callable[[dict[str, Any]], None]
+) -> None:
+    """Before, these raised a KeyError or a ValueError in `compare` (a 500 from POST .../evals),
+    as the malformed figures below once did."""
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    local = copy.deepcopy(baseline)
+    for members in local["subgroups"]["language"].values():
+        members["accuracy"] = 0.0  # every subgroup reads the baseline's
+    spoil(baseline)
+    assert compare(local, baseline, 0.03)["status"] == "unknown"
+
+
 def test_a_baseline_without_its_counts_is_compared_with_n_a(inbox_pack: Pack) -> None:
     """The counts each figure is of are read from a published benchmark only where they are."""
     from mendari.evals.render import comparison_text
