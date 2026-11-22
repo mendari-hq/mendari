@@ -72,7 +72,9 @@ task: {code_text: ..., performer_system: ..., performer: ..., description: ...}
 
 The input MAY be a Bundle, a single resource, or a CDS Hooks prefetch object whose values are
 resources or search Bundles. All are flattened, and resources are de-duplicated by type and id.
-Only the focus must be unique. The Task's `description` and `performer` are templates (0.2 §9).
+Only the focus must be unique. The Task's `description` and `performer` are templates (0.2 §9),
+and a `performer` gives at most 10,000 codes. The mapping is YAML held to 0.2 §3: among other
+rules, no mapping in it gives a key twice.
 
 ### 2.1 Paths
 

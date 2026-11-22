@@ -670,7 +670,27 @@ class _PackLoader(yaml.SafeLoader):
     - a string with a lone surrogate (`"\\ud800"`, which no UTF-8 text holds) refused, and the
       `!!binary`, `!!set`, `!!omap` and `!!pairs` values (bytes, a set, lists of pairs) too;
     - a value the safe constructor raises on (a date such as 2024-02-30, `!!bool maybe`) named
-      by the error's type and the value's line and column."""
+      by the error's type and the value's line and column;
+    - a mapping that holds one key twice refused, by both places: the safe loader keeps the
+      last, so a reader of the first would be misled about what the pack decides with. A key
+      merged in with `<<` may still be set again by the mapping itself, as YAML intends."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        if isinstance(node, yaml.MappingNode):
+            seen: dict[Any, yaml.Mark] = {}
+            for key_node, _ in node.value:
+                if key_node.tag == f"{_YAML_TAG}merge":
+                    continue
+                key = self.construct_object(key_node, deep=True)
+                try:
+                    first = seen.setdefault(key, key_node.start_mark)
+                except TypeError:
+                    continue  # unhashable: the safe constructor refuses it
+                if first is not key_node.start_mark:
+                    at = f"{_at(key_node.start_mark)}; first at {_at(first)}"
+                    raise _Refused(f"a key given twice ({at})")
+        mapping: dict[Any, Any] = super().construct_mapping(node, deep=deep)
+        return mapping
 
     def construct_object(self, node: yaml.Node, deep: bool = False) -> Any:
         try:

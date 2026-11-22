@@ -113,7 +113,10 @@ Validation rules (all MUST hold):
   number (an integer or a float, in any base, implicit or tagged) whose text, underscores
   removed, is longer than 4,300 characters or has more than 4 `:` parts (base 60, as in
   `1:30:00`), and an integer of more than 4,300 decimal digits: each is refused before it is
-  built.
+  built. A mapping in any YAML file of the agent MUST NOT give one key twice: the agent is
+  invalid, named by the file and the line and column of both keys (a YAML loader keeps the
+  last, so a reader of the first would be misled about what the agent decides with). A key
+  merged in with `<<` may be set again by the mapping that merges it.
 - Every referenced file exists inside the agent. A directory agent MUST NOT hold a symbolic link
   that resolves outside the agent's directory. Hidden entries (a name starting with `.`) and
   `__pycache__` are not part of the agent (not digested, archived or read), so a `.venv` in the
@@ -632,7 +635,10 @@ recommendation reads `manual triage`; a Task keeps the labels. Every text a card
 give this way MUST be under 140 characters (at most 139), CDS Hooks' limit, checked when the
 agent loads. Any other placeholder is refused when the agent loads. A placeholder is a bare name:
 no conversion (`{priority!r}`), format spec (`{priority:>9}`), attribute (`{priority.x}`) or
-index (`{priority[0]}`). An agent the
+index (`{priority[0]}`). A Task `performer` template gives at most 10,000 codes (the product of
+its placeholders' choices: a question's labels and `unknown`, the recommendation's labels and
+`manual-triage`, the priorities), each a concept of the agent's performer CodeSystem; any agent
+with more is invalid. An agent the
 deployment does not own (a community agent, or one from a registry that is not an agent
 bundled with the release) is invalid with one, its Task text included, or with a card summary that can
 read 140 characters or more; any other agent loads with a warning for either in its card
@@ -763,7 +769,8 @@ schema must be self-contained, a version has at most 64 characters, a YAML file 
 anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON and holds no
 number over 4,300 characters or 4 `:` parts (§3), every file the agent decides or tests with is
 one its digest hashes, however a path spells it, and `evaluation.benchmark` is in `evals/` (§3),
-YAML and JSON hold only what JSON can carry (§3), every behaviour test has the shape of §10 and is
+YAML and JSON hold only what JSON can carry and no YAML mapping gives a key twice (§3), every
+behaviour test has the shape of §10 and is
 JSON (§10), and every pattern (input-schema `patternProperties` keys
 included) compiles, at most 2,000 characters and 500 per agent (§5). No published agent did any
 of these.
