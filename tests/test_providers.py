@@ -75,6 +75,31 @@ def test_within_one_edit(a: str, b: str, expected: bool) -> None:
     assert within_one_edit(a, b) is expected
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("weight: 6\n", "weight: .inf\n"),
+        ("default_score: 2.0", "default_score: .nan"),
+        ("temperature: 1.0", "temperature: .inf"),
+    ],
+)
+def test_a_rules_file_with_a_number_that_is_not_finite_is_refused_when_built(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    # Each one made every decision that ran the rules raise (the softmax refuses a score or a
+    # temperature that is not finite), so the decision had no outcome and no audit record.
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    rules = root / "logic" / "red_flags.yaml"
+    text = rules.read_text()
+    assert old in text
+    rules.write_text(text.replace(old, new, 1))
+    pack = load_pack(root)
+    assert any("red_flags.yaml" in warning for warning in pack.warnings)
+    with pytest.raises(PackValidationError, match="red_flags.yaml"):
+        build_provider(pack, "safety_screen", "rules")
+
+
 # -- naive Bayes -------------------------------------------------------------------------------
 
 
