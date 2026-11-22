@@ -2283,10 +2283,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "packs": len(store.latest()),
         }
 
-    @app.post("/v1/namespaces/{namespace}/keys", status_code=201)
-    def add_key(request: Request, namespace: str, body: KeyRequest) -> dict[str, str]:
-        require_publisher(request, namespace)
-        key_id = store.add_key(namespace, body.public_pem, by=actor(request))
+    @app.post(
+        "/v1/namespaces/{namespace}/keys", status_code=201, openapi_extra=_body_of(KeyRequest)
+    )
+    async def add_key(request: Request, namespace: str) -> dict[str, str]:
+        """Register a publisher key: its body read only once the token is the namespace's, and
+        at most `MAX_SMALL_BYTES` (a body FastAPI parses is read before the route runs)."""
+        await run_in_threadpool(require_publisher, request, namespace)
+        body = await small_body(request, KeyRequest)
+        key_id = await run_in_threadpool(
+            store.add_key, namespace, body.public_pem, by=actor(request)
+        )
         return {"namespace": namespace, "key_id": key_id}
 
     @app.get("/v1/namespaces/{namespace}")
