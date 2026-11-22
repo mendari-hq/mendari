@@ -106,6 +106,27 @@ def test_the_coverage_reference_comes_from_the_prefetch() -> None:
     assert davinci.coverage_reference({}) is None
 
 
+def test_the_coverage_is_the_searchs_first_coverage_whatever_comes_before_it() -> None:
+    """A search page may open with an `outcome` entry (an OperationOutcome warning, as
+    Mendari's own searches send) or an included resource: only its first entry was looked at,
+    so the order had no coverage information at all."""
+    coverage = {"resourceType": "Coverage", "id": "c9"}
+    warning = {"resourceType": "OperationOutcome", "issue": []}
+    bundle = {
+        "resourceType": "Bundle",
+        "entry": [
+            {"resource": warning},
+            {"resource": {"resourceType": "Patient"}},
+            {"resource": coverage},
+        ],
+    }
+    assert davinci.coverage_reference({"coverage": bundle}) == {"reference": "Coverage/c9"}
+    nameless = {"resourceType": "Bundle", "entry": [{"resource": {"resourceType": "Coverage"}}]}
+    assert davinci.coverage_reference({"coverage": nameless}) is None
+    unnamed = {"resourceType": "Coverage", "id": "../Patient/p1"}  # not a FHIR id
+    assert davinci.coverage_reference({"coverage": unnamed}) is None
+
+
 def test_a_bad_coverage_mapping_fails_validation() -> None:
     pack: Pack = resolve_pack(PA)
     manifest = copy.deepcopy(pack.manifest)

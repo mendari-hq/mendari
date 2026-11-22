@@ -313,7 +313,7 @@ def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
     """The ClaimResponse in a PAS response Bundle: its outcome, the authorization number, and
     each item's review action (an X12 306 code, as the payer sends it). An outcome or a review
     action that is not a code (a payer's mistake) is dropped."""
-    entries = [e.get("resource") for e in answer.get("entry") or [] if isinstance(e, Mapping)]
+    entries = [e.get("resource") for e in _objects(answer, "entry")]
     response = next(
         (r for r in entries if isinstance(r, Mapping) and r.get("resourceType") == "ClaimResponse"),
         None,
@@ -321,12 +321,12 @@ def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
     if response is None:
         raise PasError("the payer's answer has no ClaimResponse")
     actions = []
-    for item in response.get("item") or []:
-        for adjudication in item.get("adjudication") or []:
-            for extension in adjudication.get("extension") or []:
-                if extension.get("url", "").endswith("extension-reviewAction"):
-                    for part in extension.get("extension") or []:
-                        if part.get("url", "").endswith("extension-reviewActionCode"):
+    for item in _objects(response, "item"):
+        for adjudication in _objects(item, "adjudication"):
+            for extension in _objects(adjudication, "extension"):
+                if str(extension.get("url")).endswith("extension-reviewAction"):
+                    for part in _objects(extension, "extension"):
+                        if str(part.get("url")).endswith("extension-reviewActionCode"):
                             actions.append(_code(part.get("valueCodeableConcept"), f"{X12}/306"))
     code = response.get("outcome")
     return {
@@ -344,6 +344,13 @@ def payer_note(answer: Mapping[str, Any]) -> str | None:
     if not any(words.values()):
         return None
     return json.dumps(words, sort_keys=True, separators=(",", ":"))
+
+
+def _objects(parent: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
+    """The objects of a payer's list (`parent[key]`); anything else in it, or a `key` that is
+    not a list (a payer's mistake), is passed over, never a crash."""
+    found = parent.get(key)
+    return [x for x in found if isinstance(x, Mapping)] if isinstance(found, list) else []
 
 
 def _text(value: Any, limit: int) -> str | None:

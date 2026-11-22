@@ -369,6 +369,28 @@ def test_without_its_setting_the_sandbox_payer_answers_with_no_review_action_cod
     assert "MENDARI_SANDBOX_PAYER_REVIEW_ACTION must be" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "item",
+    [
+        ["not an item"],  # AttributeError on `item.get`
+        [{"adjudication": [{"extension": [{"url": 5}]}]}],  # AttributeError on `.endswith`
+        [{"adjudication": [{"extension": [{"url": "x/extension-reviewAction", "extension": 7}]}]}],
+        {"adjudication": []},  # an object for a list
+    ],
+)
+def test_a_payer_answer_of_the_wrong_shape_is_read_without_a_crash(item: Any) -> None:
+    response = {"resourceType": "ClaimResponse", "outcome": "complete", "item": item}
+    answer = {"resourceType": "Bundle", "entry": [{"resource": response}, "junk"]}
+    assert pas.outcome(answer) == {
+        "outcome": "complete",
+        "authorization": None,
+        "review_actions": [],
+        "disposition": None,
+    }
+    with pytest.raises(pas.PasError, match="no ClaimResponse"):
+        pas.outcome({"resourceType": "Bundle", "entry": 7})
+
+
 def submit_ready_decision(client: TestClient) -> str:
     signed = client.post(
         f"/cds-services/{PA.replace('/', '.')}",
