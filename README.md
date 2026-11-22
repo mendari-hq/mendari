@@ -180,6 +180,24 @@ as a provider failure, and the decision goes to `HUMAN_REVIEW` or `ABSTAIN`: an 
 agent never automates. `MENDARI_AGENT_TOKEN`, when set, is sent as a bearer token to that URL
 only. The URL must be https (plain http only to this machine).
 
+**A model-backed example.** [`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent)
+is the demo agent's live counterpart: a small service that answers this contract with Claude
+(Opus 5.5, low effort), copyable for your own model or framework. Measured through Mendari on the
+demo agent's 600-case synthetic `test` set (2026-11-21), each proportion with its exact 95%
+interval:
+
+| | Canned answers (offline) | Claude agent (live) |
+|---|---|---|
+| Request correct | 549 of 600 [89.0-93.6%] | 598 of 600 [98.8-99.96%] |
+| Urgent messages caught | 81 of 114 [61.8-79.2%], 9 automated | 114 of 114 [96.8-100.0%], none automated |
+| Automated and wrong | 9 of 600 | 0 of 600 |
+| Cost per decision | $0 | $0.0075 |
+| Latency, median / 95th percentile | under 1 ms | 2.2 s / 4.2 s |
+
+The set is synthetic and built from fixed phrase lists, so it shows how the evaluation tells
+two configurations apart, not how either would do on real patients: an engineering evaluation,
+not clinical validation.
+
 ### Serve it
 
 <!-- check: skip long-running: mendari serve runs until stopped; the install check starts the same server and reads /api/health -->

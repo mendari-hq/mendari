@@ -5,7 +5,7 @@
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
 spec_version: "0.2"
 id: mendari/portal-message-agent
-version: 0.1.0
+version: 0.1.1
 name: "Portal Message Agent"
 summary: >-
   Wraps an external AI agent inside Mendari's governance and evaluation engine to route patient

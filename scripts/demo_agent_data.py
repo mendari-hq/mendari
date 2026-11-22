@@ -8,7 +8,8 @@ Every message is made here from the phrase lists below with a fixed seed, so the
 on every machine and holds no patient's words. One case in five describes a symptom that needs a
 nurse today; some of those are worded as a patient might, not as a keyword list would have it
 ("an elephant sitting on my chest"), so an agent that only matches keywords misses them and the
-evaluation shows it. A few cases deny a symptom ("no chest pain") and are not urgent.
+evaluation shows it. A few cases deny a symptom ("no chest pain"): they are not urgent, and
+they ask for what they would ask for without the denial.
 """
 
 from __future__ import annotations
@@ -79,9 +80,10 @@ URGENT_PARAPHRASED = (
     "There is a tightness in my chest that will not go away.",
     "I get winded just walking to the kitchen and my lips look blue.",
 )
+# A symptom said not to be there: it changes nothing about what the message asks for.
 DENIED = (
-    "I have no chest pain, I just wanted to ask about my results.",
-    "No chest pain or anything like that, only a question.",
+    "I have no chest pain or trouble breathing.",
+    "No chest pain or anything like that.",
 )
 
 
@@ -109,10 +111,9 @@ def build(cases: int = CASES, seed: int = SEED) -> list[dict[str, object]]:
             else:
                 body, request = symptom, "other"
             urgent = "yes"
-        elif roll < 0.24:  # a symptom said not to be there
+        elif roll < 0.24:  # a symptom said not to be there: still the request it is
             asked, request = _routine(rng)
             body, urgent = f"{rng.choice(DENIED)} {asked}", "no"
-            request = "other"  # more than one thing: the front desk reads it
         else:
             body, request = _routine(rng)
             urgent = "no"
