@@ -2081,9 +2081,14 @@ class AuditStore(RateBuckets):
 
         Every kind but the deployment's names its organization (`_bound`), the kinds chained
         before LP-12g only on a marked database: a writer that forgets is refused here, before
-        anything is chained, so a new kind cannot leave it out."""
+        anything is chained, so a new kind cannot leave it out. So is a session that is not
+        exclusive (`db.Session.exclusive`): only the chain's lock keeps the head read here the
+        head the insert follows."""
         if not entries:
             return []
+        if not db.exclusive:
+            # Outside the chain's lock two writers read the same head and fork the chain.
+            raise RuntimeError("the audit chain is appended to in an exclusive session only")
         if event not in DEPLOYMENT_KINDS and (self.binds_org or event not in BOUND_WHEN_MARKED):
             for _, payload in entries:
                 if not (isinstance(payload, Mapping) and "org" in payload):
@@ -5414,7 +5419,11 @@ class AuditStore(RateBuckets):
         organization, or gone, breaks verification at the first such event, with
         `reason: "organization"`. Each recorded checkpoint (`audit_checkpoints`, LP-21j) must
         still name its event: a chain rewritten from before one, or cut short of it, breaks
-        verification there, with `reason: "checkpoint"`. With `notes` (`mendari audit verify
+        verification there, with `reason: "checkpoint"`. Each decision row's unchanging columns
+        must be its chained record's, and a full verification also requires every decision row
+        to have its `decision.created` and every decision taken off the review queue to have a
+        chained review or outcome (`_row_as_chained`, `_unsettled`): `reason: "decision"`. With
+        `notes` (`mendari audit verify
         --notes`), also each kept note against the commitment its event chained: a note
         changed, moved to another decision, or missing without a chained `note.erased` breaks
         verification at that event (`_check_notes`).
@@ -5546,7 +5555,8 @@ class AuditStore(RateBuckets):
                     "SELECT * FROM audit_events WHERE seq >= ? ORDER BY seq", (start["seq"],)
                 )
             with_org = "decisions.org" not in self.unmigrated
-            columns = f"id, record{', org' if with_org else ''}"
+            columns = f"{', '.join(_DECISION_CHAINED)}, review_status, record"
+            columns += ", org" if with_org else ""
             if start is None:
                 decided = db.all(f"SELECT {columns} FROM decisions")
             else:  # the decisions the events read name, and no others
@@ -5559,7 +5569,18 @@ class AuditStore(RateBuckets):
                         f"SELECT {columns} FROM decisions WHERE id IN ({marks})", tuple(batch)
                     )
             records = {row["id"]: json.loads(row["record"]) for row in decided}
+            rows_of = {row["id"]: row for row in decided}
             owners = {row["id"]: _org_of(row["org"]) for row in decided} if with_org else None
+            # A full verification checks every decision row against the chain (`_unchained`):
+            # the events chained since those read excuse a row written, or resolved, after them.
+            later: dict[str, set[str]] = {}
+            if start is None:
+                for row in db.all(
+                    "SELECT decision_id, event FROM audit_events WHERE seq > ? "
+                    "AND event IN (?, ?, ?)",
+                    (int(events[-1]["seq"]) if events else 0, *_DECISION_STATES),
+                ):
+                    later.setdefault(str(row["decision_id"]), set()).add(str(row["event"]))
             subjects = _subject_orgs(db)
             # An older database read as it is may have no notes table: nothing kept to check.
             has_notes = notes and "notes" not in self.unmigrated
@@ -5582,6 +5603,15 @@ class AuditStore(RateBuckets):
                 return {**cut, "reason": "checkpoint"}, None
             prev, events = start["hash"], events[1:]
         expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
+        # Each decision's events that make or settle it (`_DECISION_STATES`), and the `seq` of
+        # its `decision.created`, for the rows' own check after the chain's.
+        settled: dict[str, set[str]] = {}
+        created_at_seq: dict[str, int] = {}
+        for event in events:
+            if event["event"] in _DECISION_STATES:
+                settled.setdefault(str(event["decision_id"]), set()).add(str(event["event"]))
+                if event["event"] == "decision.created":
+                    created_at_seq.setdefault(str(event["decision_id"]), int(event["seq"]))
         for event in events:
             chained = _chain_hash(
                 prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
@@ -5595,6 +5625,9 @@ class AuditStore(RateBuckets):
                 record = records.get(event["decision_id"])
                 if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
                     return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
+                if not _row_as_chained(rows_of[event["decision_id"]], record):
+                    moved = {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                    return {**moved, "reason": "decision"}, None
             if event["event"] in STORE_STATES:
                 version_id = str(event["decision_id"]).partition(":")[2]
                 row = stored.get(version_id)
@@ -5622,6 +5655,11 @@ class AuditStore(RateBuckets):
             return {**cut, "reason": "checkpoint"}, None
         if head is not None and not any(event["hash"] == head for event in events):
             return {"ok": False, "events": len(events), "reason": "statement"}, None
+        # The rows themselves, once the chain holds: a chain cut short reads as cut first.
+        if start is None:
+            found = _unsettled(rows_of, settled, later, created_at_seq)
+            if found is not None:
+                return {"ok": False, "events": len(events), **found, "reason": "decision"}, None
         last = (
             {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
             if events
@@ -6707,6 +6745,65 @@ def _show_own_note(
 
 # Decisions a verification from a checkpoint reads per query (`_verify`).
 _VERIFY_BATCH = 500
+# A decision row's columns that never change once written, each as its chained record holds it
+# (`_row_as_chained`): what lists, the review queue and statistics read instead of the record.
+_DECISION_CHAINED = (
+    "id", "created_at", "pack_id", "pack_version", "outcome", "recommendation", "priority",
+)  # fmt: skip
+# The events that make a decision and settle its review: a reviewer's or, in a database from
+# before an outcome had to wait for a pending review, an outcome's (`_unsettled`).
+_DECISION_STATES = ("decision.created", "review.resolved", "outcome.recorded")
+
+
+def _row_as_chained(row: Mapping[str, Any], record: Any) -> bool:
+    """Whether a decision row's unchanging columns (`_DECISION_CHAINED`) are its chained
+    record's: a row whose outcome, priority or pack was changed past the store (an escalated
+    decision made to look automated, say) breaks `verify` at its `decision.created`."""
+    if not isinstance(record, Mapping):
+        return False
+    found = record.get("pack")
+    pack: Mapping[str, Any] = found if isinstance(found, Mapping) else {}
+    chained = {
+        "id": record.get("id"),
+        "created_at": record.get("created_at"),
+        "pack_id": pack.get("id"),
+        "pack_version": pack.get("version"),
+        "outcome": record.get("outcome"),
+        "recommendation": record.get("recommendation"),
+        "priority": record.get("priority"),
+    }
+    return all(row[column] == chained[column] for column in _DECISION_CHAINED)
+
+
+def _unsettled(
+    rows: Mapping[str, Mapping[str, Any]],
+    settled: Mapping[str, set[str]],
+    later: Mapping[str, set[str]],
+    created: Mapping[str, int],
+) -> dict[str, Any] | None:
+    """What a full `verify` finds wrong with the decision rows themselves (None: nothing): a
+    decision that awaits review (HUMAN_REVIEW or ABSTAIN) taken off the queue with no chained
+    review or outcome (`broken_at` its `decision.created`, the earliest such), or rows that no
+    `decision.created` chained (`unchained`, how many: a decision added past the store). Each
+    row's events are those read (`settled`) and those chained since (`later`), so a decision
+    made or resolved beside the verification never reads as a break."""
+    unchained = 0
+    dropped: list[int] = []
+    for decision_id, row in rows.items():
+        events = settled.get(decision_id, set()) | later.get(decision_id, set())
+        if "decision.created" not in events:
+            unchained += 1
+            continue
+        if (
+            row["outcome"] in _REVIEWABLE
+            and row["review_status"] != "pending"
+            and not events & {"review.resolved", "outcome.recorded"}
+            and decision_id in created
+        ):
+            dropped.append(created[decision_id])
+    if dropped:
+        return {"broken_at": min(dropped)}
+    return {"unchained": unchained} if unchained else None
 
 
 def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
