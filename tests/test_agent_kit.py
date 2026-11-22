@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import math
 import threading
+from collections.abc import MutableMapping
 from typing import Any
 
 import pytest
@@ -398,8 +399,8 @@ def test_a_large_body_is_refused_as_it_arrives_and_deep_json_is_not_json(token: 
         received.append(1)
         return {"type": "http.request", "body": b" " * 65_536, "more_body": len(received) < 100}
 
-    async def send(message: dict[str, Any]) -> None:
-        answered.append(message)
+    async def send(message: MutableMapping[str, Any]) -> None:
+        answered.append(dict(message))
 
     scope = {
         "type": "http",
