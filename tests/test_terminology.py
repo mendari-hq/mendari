@@ -17,6 +17,7 @@ import yaml
 
 from mendari import Decision, Outcome, Pack, __version__, load_pack
 from mendari.core.registry import discover
+from mendari.core.spec import Priority
 from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import CHANNELS
 from mendari.standards import audit_fhir, davinci, terminology
@@ -179,6 +180,56 @@ def test_performer_codes_follow_the_task_template(
         "prior-auth-team"  # a literal
     ]
     assert not any(r["url"].endswith("ai-guard") for r in served.resources if "url" in r)
+
+
+def test_a_performer_template_that_expands_past_the_cap_is_refused_at_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`performer_codes` builds every combination of a template's labels: "{a}{b}{c}{d}" over
+    questions of 255 labels is 4 billion codes, built in memory when the terminology is. The
+    count is refused at load, before anything is expanded."""
+    from mendari.core import templates
+    from mendari.errors import PackValidationError
+    from mendari.standards import fhir
+
+    def expand(*_: Any) -> Any:
+        raise AssertionError("expanded before the count was checked")
+
+    monkeypatch.setattr(fhir, "expansions", expand)
+    monkeypatch.setattr(fhir, "MAX_PERFORMER_CODES", 5)
+    wide = inbox_variant(
+        tmp_path,
+        "test/inbox-wide",
+        lambda task: task.update(performer="{recommendation}-{priority}"),
+    )
+    with pytest.raises(PackValidationError):
+        Terminology.for_packs([wide])
+    with pytest.raises(PackValidationError) as refused:
+        FhirAdapter.for_pack(wide)
+    destinations = len(load_pack(INBOX_DIR).manifest.labels("destination")) + 1
+    count = destinations * len(Priority)
+    assert refused.value.problems == [
+        f"fhir/mapping.yaml: task.performer can give {count:,} codes (every combination of its "
+        "placeholders' labels); a performer template gives at most 5: use fewer placeholders"
+    ]
+    assert templates.expansion_count("{a}{b}{c}{d}", dict.fromkeys("abcd", ["x"] * 256)) == 2**32
+
+
+def test_every_shipped_performer_template_is_under_the_cap(packs: dict[str, Pack]) -> None:
+    from mendari.core.templates import expansion_count
+    from mendari.standards.fhir import MAX_PERFORMER_CODES, _performer_choices
+
+    shipped = [
+        *packs.values(),
+        *discover([ROOT / "agents", ROOT / "tests" / "fixtures" / "packs"]).packs,
+    ]
+    counted = [
+        expansion_count(adapter.performer_template, _performer_choices(pack.manifest))
+        for pack in shipped
+        if pack.manifest.inputs.fhir is not None
+        for adapter in [FhirAdapter.for_pack(pack)]
+    ]
+    assert counted and max(counted) <= MAX_PERFORMER_CODES
 
 
 def test_a_task_performer_is_a_code_of_its_system(router: Decision, served: Terminology) -> None:

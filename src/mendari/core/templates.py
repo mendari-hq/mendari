@@ -19,6 +19,7 @@ templates as it always did.
 from __future__ import annotations
 
 import itertools
+import math
 import string
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
@@ -141,6 +142,15 @@ def longest(template: str, choices: Mapping[str, Sequence[str]]) -> str:
     picked = {name: [max(values, key=len)] for name, values in choices.items()}
     ((text, _),) = expansions(template, picked)
     return text
+
+
+def expansion_count(template: str, choices: Mapping[str, Sequence[str]]) -> int:
+    """How many texts `expansions` builds for `template` (the product of its placeholders'
+    choices, each placeholder counted once), without building any: so a caller can refuse a
+    template whose expansions would not fit in memory. A placeholder without choices counts
+    one: `expansions` refuses it."""
+    names = dict.fromkeys(name for _, name, _, _ in string.Formatter().parse(template) if name)
+    return math.prod(len(choices.get(name, ("",))) for name in names)
 
 
 def expansions(
