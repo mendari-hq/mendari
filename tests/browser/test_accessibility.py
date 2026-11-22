@@ -12,6 +12,7 @@ small targets, the version badges' contrast) are upstream's to fix."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -107,3 +108,30 @@ def test_the_developer_pages_pass_axe(axe_page: Page, path: str) -> None:
     expect(axe_page.locator("h1").first).to_be_visible()
     swagger = ("#reference",) if path == "/docs/reference" else ()
     assert violations(axe_page, swagger) == []
+
+
+@pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)
+def test_the_command_palette_names_its_active_option(axe_page: Page) -> None:
+    """Focus stays in the search box while the arrows move: the box points at the active option
+    (a combobox over a listbox), or a screen reader hears nothing as they move."""
+    open_pack(axe_page, INBOX)
+    axe_page.keyboard.press("Control+k")
+    box = axe_page.get_by_role("combobox", name="Jump to a view, agent or action")
+    expect(box).to_be_focused()
+    expect(box).to_have_attribute("aria-expanded", "true")
+    options = axe_page.get_by_role("listbox").get_by_role("option")
+    expect(options.first).to_have_attribute("aria-selected", "true")
+    axe_page.keyboard.press("ArrowDown")
+    second = options.nth(1)
+    expect(second).to_have_attribute("aria-selected", "true")
+    expect(box).to_have_attribute("aria-activedescendant", second.get_attribute("id") or "-")
+    expect(axe_page.get_by_role("listbox").get_by_role("option", selected=True)).to_have_count(1)
+    assert violations(axe_page) == []
+    box.fill("no such thing at all")
+    expect(box).not_to_have_attribute("aria-activedescendant", re.compile("."))
+    box.fill("audit trail")
+    axe_page.keyboard.press("Enter")
+    expect(axe_page.locator('.nav a[data-view="audit"]')).to_have_class(re.compile("active"))
+    axe_page.keyboard.press("Control+k")
+    axe_page.get_by_role("option", name=re.compile("^Evaluations")).click()
+    expect(axe_page.locator('.nav a[data-view="evals"]')).to_have_class(re.compile("active"))

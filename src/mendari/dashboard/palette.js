@@ -188,10 +188,11 @@ function openPalette(onSelectPack) {
     <div class="palette-head">
       ${icon("search")}
       <label class="sr-only" for="palette-input">Jump to a view, agent or action</label>
-      <input id="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Jump to a view, agent, decision ID, or action…">
+      <input id="palette-input" type="search" role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list"
+        autocomplete="off" spellcheck="false" placeholder="Jump to a view, agent, decision ID, or action…">
       <button type="button" class="icon-button" data-close aria-label="Close">${icon("x")}</button>
     </div>
-    <div class="palette-results" id="palette-results"></div>
+    <div class="palette-results" id="palette-results" role="listbox" aria-label="Matches"></div>
     <div class="palette-foot muted">
       <span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> Navigate</span>
       <span><kbd class="kbd">↵</kbd> Select</span>
@@ -204,26 +205,33 @@ function openPalette(onSelectPack) {
   let matches = [];
   let active = 0;
 
-  const paint = () => {
-    matches = buildItems(input.value, onSelectPack);
-    active = matches.length ? Math.min(active, matches.length - 1) : 0;
-    if (!matches.length) {
-      results.innerHTML = `<p class="palette-empty muted">No matching view, agent, or action.</p>`;
-      return;
-    }
-    let lastGroup = "";
-    results.innerHTML = matches.map((item, i) => {
-      const heading = item.group !== lastGroup ? `<div class="palette-group">${esc(item.group)}</div>` : "";
-      lastGroup = item.group;
-      return `${heading}<button type="button" class="palette-item${i === active ? " is-active" : ""}" data-index="${i}"${i === active ? ' aria-current="true"' : ""}>
+  // Focus stays in the box; the arrows move the active option, which the box names
+  // (aria-activedescendant), so a screen reader says each one as it is reached.
+  const option = (item, i) => `<div role="option" id="palette-option-${i}" class="palette-item${i === active ? " is-active" : ""}" data-index="${i}" aria-selected="${i === active}">
         ${icon(item.icon)}
         <span class="palette-item-main">
           <span class="palette-item-label">${esc(item.label)}</span>
           ${item.detail ? `<span class="palette-item-detail muted">${esc(item.detail)}</span>` : ""}
         </span>
         ${item.shortcut ? `<kbd class="kbd">${esc(item.shortcut)}</kbd>` : ""}
-      </button>`;
-    }).join("");
+      </div>`;
+  const paint = () => {
+    matches = buildItems(input.value, onSelectPack);
+    active = matches.length ? Math.min(active, matches.length - 1) : 0;
+    if (!matches.length) {
+      results.innerHTML = `<p class="palette-empty muted" role="presentation">No matching view, agent, or action.</p>`;
+      input.removeAttribute("aria-activedescendant");
+      return;
+    }
+    const groups = [];
+    matches.forEach((item, i) => {
+      if (groups.at(-1)?.name !== item.group) groups.push({ name: item.group, html: [] });
+      groups.at(-1).html.push(option(item, i));
+    });
+    results.innerHTML = groups.map((group, g) => `<div role="group" aria-labelledby="palette-group-${g}">
+        <div class="palette-group" id="palette-group-${g}" role="presentation">${esc(group.name)}</div>${group.html.join("")}
+      </div>`).join("");
+    input.setAttribute("aria-activedescendant", `palette-option-${active}`);
   };
 
   const highlight = (next) => {
@@ -232,13 +240,10 @@ function openPalette(onSelectPack) {
     results.querySelectorAll(".palette-item").forEach((el, i) => {
       const on = i === active;
       el.classList.toggle("is-active", on);
-      if (on) {
-        el.setAttribute("aria-current", "true");
-        el.scrollIntoView({ block: "nearest" });
-      } else {
-        el.removeAttribute("aria-current");
-      }
+      el.setAttribute("aria-selected", String(on));
+      if (on) el.scrollIntoView({ block: "nearest" });
     });
+    input.setAttribute("aria-activedescendant", `palette-option-${active}`);
   };
 
   const choose = (index) => {
