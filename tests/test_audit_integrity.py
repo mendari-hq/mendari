@@ -4,6 +4,7 @@ appends outside the chain's lock, and decision rows changed without their events
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -13,6 +14,7 @@ from urllib.parse import quote
 import pytest
 
 from mendari import AuditStore, Decision, DecisionResult, Pack
+from mendari.errors import MendariError
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
@@ -46,6 +48,92 @@ def test_the_chain_is_never_appended_to_outside_an_exclusive_session(store: Audi
     ):
         store._append(db, "deployment:x", "deployment.recorded", {"id": "x"})
     assert store.verify() == {"ok": True, "events": 0, "head": "0" * 64}
+
+
+# -- the chain's unique links: no two events follow the same one ------------------------------
+
+LINKS = "audit_events_prev_hash"
+
+
+def _refused_by_the_database() -> tuple[type[BaseException], ...]:
+    import psycopg
+
+    return (sqlite3.IntegrityError, psycopg.IntegrityError)
+
+
+def _fork(store: AuditStore) -> None:
+    """A second event chained after the event the head follows, written past the store."""
+    tamper(
+        store,
+        "INSERT INTO audit_events (decision_id, event, payload, created_at, prev_hash, hash) "
+        "SELECT decision_id, event, payload, created_at, prev_hash, ? FROM audit_events "
+        "WHERE seq = (SELECT MAX(seq) FROM audit_events)",
+        ("f" * 64,),
+    )
+
+
+def _links_indexed(store: AuditStore) -> bool:
+    with store._db.session(exclusive=False) as db:
+        return LINKS in db.indexes("audit_events")
+
+
+def test_the_database_refuses_a_second_event_after_the_same_head(
+    store: AuditStore, decide: Decide
+) -> None:
+    """Even a writer that skipped the chain's lock (a future bug) cannot fork the chain: the
+    database refuses the row, and the chain stays whole."""
+    decide(ROUTINE)
+    decide(ROUTINE)
+    assert _links_indexed(store)
+    with pytest.raises(_refused_by_the_database()):
+        _fork(store)
+    assert store.verify()["ok"] is True
+    # The first event (after GENESIS) is the only one that may follow GENESIS.
+    with pytest.raises(_refused_by_the_database()):
+        tamper(
+            store,
+            "INSERT INTO audit_events (decision_id, event, payload, created_at, prev_hash, hash) "
+            "VALUES ('x', 'deployment.recorded', '{}', '2026-01-01', ?, ?)",
+            ("0" * 64, "e" * 64),
+        )
+
+
+def test_a_database_that_already_forks_refuses_the_migration(
+    db_target: str, inbox_pack: Pack
+) -> None:
+    """A database from before the index that holds a fork: the start stops, says to run
+    `audit verify`, names no event or hash, and migrates nothing (the index is still absent,
+    so a fixed database takes it on the next start)."""
+    with AuditStore(db_target) as store:
+        Decision(inbox_pack, store=store)(message(ROUTINE))
+        Decision(inbox_pack, store=store)(message(ROUTINE))
+        tamper(store, f"DROP INDEX {LINKS}")
+        _fork(store)
+        with store._db.session(exclusive=False) as db:
+            hashes = [str(row["hash"]) for row in db.all("SELECT hash FROM audit_events")]
+    with pytest.raises(MendariError, match="mendari audit verify") as refused:
+        AuditStore(db_target)
+    said = str(refused.value)
+    assert "forks" in said and "nothing was migrated" in said
+    assert not any(digest in said for digest in hashes)
+    with AuditStore(db_target, read_only=True) as reader:
+        assert not _links_indexed(reader)
+        assert reader.verify()["ok"] is False  # what the operator is told to run finds it
+
+
+def test_a_clean_database_from_before_the_index_migrates(db_target: str, inbox_pack: Pack) -> None:
+    with AuditStore(db_target) as store:
+        for _ in range(3):
+            Decision(inbox_pack, store=store)(message(ROUTINE))
+        tamper(store, f"DROP INDEX {LINKS}")
+        assert not _links_indexed(store)
+    with AuditStore(db_target) as store:
+        assert _links_indexed(store)
+        assert store.verify()["ok"] is True
+        Decision(inbox_pack, store=store)(message(ROUTINE))
+        with pytest.raises(_refused_by_the_database()):
+            _fork(store)
+        assert store.verify()["ok"] is True
 
 
 # -- Postgres: a server whose default isolation is not READ COMMITTED -------------------------

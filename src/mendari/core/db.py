@@ -48,6 +48,10 @@ class Session(ABC):
     def columns(self, table: str) -> set[str]:
         """The column names a table has now."""
 
+    def indexes(self, table: str) -> set[str]:
+        """The names of the indexes a table has now."""
+        raise NotImplementedError
+
 
 class Backend(ABC):
     kind: str
@@ -80,6 +84,9 @@ class SqliteSession(Session):
 
     def columns(self, table: str) -> set[str]:
         return {row["name"] for row in self.all(f"PRAGMA table_info({table})")}
+
+    def indexes(self, table: str) -> set[str]:
+        return {row["name"] for row in self.all(f"PRAGMA index_list({table})")}
 
 
 class SqliteBackend(Backend):
@@ -246,6 +253,14 @@ class PostgresSession(Session):
             (table,),
         )
         return {row["column_name"] for row in rows}
+
+    def indexes(self, table: str) -> set[str]:
+        rows = self.all(
+            "SELECT indexname FROM pg_catalog.pg_indexes "
+            "WHERE schemaname = current_schema() AND tablename = ?",
+            (table,),
+        )
+        return {row["indexname"] for row in rows}
 
 
 class PostgresBackend(Backend):

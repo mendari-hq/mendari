@@ -1109,7 +1109,9 @@ def _canonical(value: Any) -> str:
 
 def _migrate(db: _Session) -> None:
     """Bring a database created by an earlier release up to _TABLES. Runs under the schema lock
-    (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race."""
+    (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race.
+    Everything here is one transaction: a step that refuses leaves the database as it was."""
+    _index_chain_links(db)
     added = set()
     columns: dict[str, set[str]] = {}
     for table, column, kind in _ADDED_COLUMNS:
@@ -1125,6 +1127,33 @@ def _migrate(db: _Session) -> None:
     if "observed_label" in added:
         _split_observed_labels(db)
     _expire_legacy_keys(db)
+
+
+# One chain runs through the whole table (`_append_many` reads its head over every row), so each
+# event follows a different one: no two rows share a `prev_hash`, the first row's GENESIS
+# included. The unique index makes the database itself refuse a second event chained after the
+# same head (a fork), whatever a future writer gets wrong.
+_CHAIN_LINKS_INDEX = "audit_events_prev_hash"
+
+
+def _index_chain_links(db: _Session) -> None:
+    """Create the chain's unique `prev_hash` index on a database from before it. A database
+    that already holds a fork cannot take it: refused, naming no event, so the operator finds
+    the fork with `audit verify` rather than the start half-migrating. Once the index is there
+    nothing is scanned again."""
+    if _CHAIN_LINKS_INDEX in db.indexes("audit_events"):
+        return
+    forked = db.one(
+        "SELECT prev_hash FROM audit_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1"
+    )
+    if forked is not None:
+        raise MendariError(
+            "the audit chain forks (two events follow the same one), so it cannot be given the "
+            "index that keeps it from forking: nothing was migrated. Run `mendari audit verify "
+            "--db <this database>` (read-only) to find where it breaks, and restore the database "
+            "from a backup taken before that point (docs/operations/incident-runbook.md)"
+        )
+    db.all(f"CREATE UNIQUE INDEX {_CHAIN_LINKS_INDEX} ON audit_events (prev_hash)")
 
 
 def _expire_legacy_keys(db: _Session) -> None:

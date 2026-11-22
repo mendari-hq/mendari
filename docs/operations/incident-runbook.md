@@ -148,6 +148,23 @@ sealed with until the last backup that needs them has expired
 The restore is tested in CI, on SQLite and on Postgres, with these commands
 (`tests/test_restore.py`).
 
+## Before deploying the chain's unique index
+
+A start of this release gives `audit_events` a unique index on `prev_hash`
+(`audit_events_prev_hash`), so the database itself refuses a second event chained after the same
+one (a fork). A database that already holds a fork cannot take it: the start stops with an error
+that says to run `mendari audit verify`, and migrates nothing. Before deploying it, check
+production read-only: `mendari audit verify --db "$DATABASE_URL"` opens the database without
+writing to it (no migration, no mark) and must say `"ok": true`. The fork check alone, in a
+read-only transaction, must return no row:
+
+```bash
+psql "$DATABASE_URL" -c "BEGIN READ ONLY; SELECT 1 FROM audit_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1; ROLLBACK;"
+```
+
+If either fails, do not deploy: treat it as a SEV1 (the chain fails verification) and restore
+from a backup taken before the break, as above.
+
 ## The firewall (the owner's)
 
 The hosted deployment's per-address limit on `/auth/` and `/smart/` is in log mode
