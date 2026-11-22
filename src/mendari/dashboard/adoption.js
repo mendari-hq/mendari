@@ -51,7 +51,11 @@ function steps(stats, brief, detail) {
       evidence: pilot.active
         ? `Shadow pilot running: ${pilotCases} of the ${MIN_PILOT_CASES} cases the brief asks for, automation held while clinicians decide.`
         : "Run it beside clinicians with automation held, so its answers are compared with theirs before it acts alone.",
-      action: { href: "#cc-title", label: pilot.active ? "Shadow pilot" : "Start a shadow pilot" },
+      // The pilot is run from the command center below (a section of this view, not a route);
+      // without the brief there is none, and holding automation on the Decision Card is the way.
+      action: brief
+        ? { href: "#cc-title", section: true, label: pilot.active ? "Shadow pilot" : "Start a shadow pilot" }
+        : { href: "#card/approval", label: "Hold automation" },
     },
     {
       key: "validate",
@@ -101,7 +105,7 @@ export function adoptionPath(stats, brief, detail) {
             <span class="sr-only">${step.state === "done" ? "(done)" : current ? "(next step)" : "(to do)"}</span></p>
           <p class="muted">${esc(step.evidence)}</p>
         </div>
-        <a class="button${current ? " primary" : ""} adoption-action" href="${step.action.href}">${esc(step.action.label)}</a>
+        <a class="button${current ? " primary" : ""} adoption-action" href="${step.action.href}"${step.action.section ? " data-section" : ""}>${esc(step.action.label)}</a>
       </li>`;
     }).join("")}</ol>
   </section>`;

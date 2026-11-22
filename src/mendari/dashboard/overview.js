@@ -5,7 +5,7 @@ import { adoptionPath } from "./adoption.js";
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
-import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
+import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, focusHeading, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const packId = state.packId;
@@ -65,6 +65,15 @@ views.overview = async (main) => {
     wireStack(main);
   });
   if (brief) wireCommandCenter(main, brief, d);
+  // A step of the adoption path that names a section of this view (the command center) goes
+  // there, on the lens where its action is, instead of following "#cc-title" as a route.
+  main.querySelector(".adoption")?.addEventListener("click", (event) => {
+    const link = event.target.closest("a[data-section]");
+    if (!link) return;
+    event.preventDefault();
+    main.querySelector('[data-lens="governance"][aria-pressed="false"]')?.click();
+    focusHeading(main.querySelector(link.getAttribute("href")));
+  });
   wire(main);
   wireStack(main);
 };
@@ -405,7 +414,7 @@ function wireCommandCenter(main, brief, detail) {
       const holdId = btn.dataset.hold;
       actionDialog({
         title: "End shadow pilot?",
-        body: "Ending the shadow pilot lifts its automation hold and allows live automation again within this agent's risk policy.",
+        body: "<p>Ending the shadow pilot lifts its automation hold and allows live automation again within this agent's risk policy.</p>",
         action: "End shadow pilot",
         danger: true,
         run: async () => {
