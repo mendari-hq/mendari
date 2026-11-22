@@ -45,25 +45,44 @@ closed: the case goes to a person or gets no recommendation. The full rules are 
 ## How this one answers
 
 `agent.py` turns the questions into a JSON schema (a probability for every choice, and a
-rationale) and asks Claude Opus 5.5 for structured output at low effort. The answer's value is
-the most probable choice, so it always passes Mendari's checks. The case is sent as data after
-the questions, and the system prompt tells the model to ignore instructions inside it. A
-refusal, a cut-off or malformed reply, or an API error returns an HTTP error, never a guess. It
-never logs a request's input. Server-side refusal fallback is on.
+rationale) and asks Claude Opus 5.5 for structured output at low effort. The case is sent as
+data after the questions, and the system prompt tells the model to ignore instructions inside
+it. A refusal, a cut-off or malformed reply, or an API error returns an HTTP error, never a
+guess. Server-side refusal fallback is on.
+
+Everything else is the agent kit (`mendari.agent_kit`): it checks the request, normalizes the
+probabilities and answers with the most probable choice, so the answer always passes Mendari's
+checks, and serves `POST /decide` with the bearer token and `GET /health` (`api/index.py` is
+`create_app(handler)`). An unexpected error returns 502 with its type only, never its message.
+It never logs a request's input. The other starters, a plain HTTP service and LangGraph, are in
+[`examples/`](..).
+
+| File | What it is |
+|---|---|
+| `agent.py` | `answer(case, messages)`: the prompt, the schema, the call to Claude, the cost |
+| `api/index.py` | The Anthropic client and `app = create_app(handler)` |
+| `mendari_agent_kit.py` | The kit, a copy of `mendari.agent_kit` |
+| `requirements.txt`, `vercel.json` | The Anthropic SDK and FastAPI; Vercel routes every path to `api/index.py` |
+
+**Why a copy of the kit.** Vercel uploads only this folder, and Mendari is not on PyPI (a bare
+`mendari` requirement would install whatever else has that name). So the folder carries the kit
+as one file, which needs nothing but FastAPI; `tests/test_agent_starters.py` fails if it differs
+from `src/mendari/agent_kit.py` by a byte. After changing the kit, copy it again:
+`cp src/mendari/agent_kit.py examples/claude-agent/mendari_agent_kit.py`.
 
 ## Run it
 
 ```bash
 cd examples/claude-agent
-pip install -r requirements.txt uvicorn
-ANTHROPIC_API_KEY=… AGENT_TOKEN=a-long-random-string uvicorn api.index:app --port 8787
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt uvicorn
+ANTHROPIC_API_KEY=… AGENT_TOKEN=a-long-random-string .venv/bin/uvicorn api.index:app --port 8787
 ```
 
 Then point the demo agent at it and evaluate:
 
 ```bash
 MENDARI_AGENT_URL=http://127.0.0.1:8787/decide MENDARI_AGENT_TOKEN=a-long-random-string \
-  mendari eval agents/portal-message-agent --dataset test --limit 50
+  uv run mendari eval agents/portal-message-agent --dataset test --limit 50
 ```
 
 On Vercel, `vercel deploy` from this folder, with `ANTHROPIC_API_KEY` and `AGENT_TOKEN` set as

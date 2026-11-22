@@ -18,6 +18,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from mendari import agent_kit
+from mendari.agent_kit import Case
 from mendari.core.decision import Decision
 from mendari.core.pack import load_pack
 from mendari.providers.agent import ENDPOINT_ENV, TOKEN_ENV, request_body, validate_response
@@ -38,6 +40,9 @@ def _module(name: str, path: Path) -> ModuleType:
     return module
 
 
+# The example carries a copy of the kit (mendari_agent_kit.py, the same bytes as
+# mendari.agent_kit: tests/test_agent_starters.py), so it deploys alone; here it is the kit.
+sys.modules["mendari_agent_kit"] = agent_kit
 agent = _module("agent", EXAMPLE / "agent.py")
 service = _module("claude_agent_service", EXAMPLE / "api" / "index.py")
 
@@ -75,6 +80,10 @@ class FakeMessages:
         )
 
 
+def case_of(body: str) -> Case:
+    return Case.parse(mendari_request(body))
+
+
 def mendari_request(body: str) -> dict[str, Any]:
     """The body Mendari sends for the demo agent, built by the engine itself."""
     pack = load_pack(DEMO)
@@ -94,7 +103,7 @@ def mendari_request(body: str) -> dict[str, Any]:
 
 def test_the_request_to_claude_is_governed_by_its_schema_and_defaults() -> None:
     fake = FakeMessages()
-    agent.answer(mendari_request("Please refill my metformin."), fake, environ={})
+    agent.answer(case_of("Please refill my metformin."), fake, environ={})
     (call,) = fake.calls
     assert call["model"] == "claude-opus-5-5"
     assert call["output_config"]["effort"] == "low"
@@ -115,8 +124,8 @@ def test_the_request_to_claude_is_governed_by_its_schema_and_defaults() -> None:
 
 
 def test_its_answers_pass_mendaris_own_validation() -> None:
-    body = mendari_request("I have had chest pain since last night. Refill too please.")
-    shown = agent.answer(body, FakeMessages(), environ={})
+    case = case_of("I have had chest pain since last night. Refill too please.")
+    shown = agent.answer(case, FakeMessages(), environ={})
     pack = load_pack(DEMO)
     questions = {key: pack.manifest.questions[key] for key in ("request", "urgent_symptoms")}
     checked = validate_response(shown, questions)
@@ -134,7 +143,10 @@ def test_its_answers_pass_mendaris_own_validation() -> None:
         ({"stop_reason": "refusal"}, "declined"),
         ({"stop_reason": "max_tokens"}, "cut off"),
         ({"text": "not json"}, "no structured answer"),
-        ({"text": json.dumps({"request": {"probabilities": {}}})}, "malformed probability"),
+        ({"text": json.dumps({
+            "request": {"probabilities": {"refill": "high"}},
+            "urgent_symptoms": {"probabilities": {"yes": 1, "no": 0}},
+        })}, "malformed probability"),
         ({"text": json.dumps({"request": {"rationale": "x"}})}, "unanswered"),
         ({"text": json.dumps({
             "request": {"probabilities": {"refill": 0, "appointment": 0, "other": 0}},
@@ -146,7 +158,7 @@ def test_a_bad_model_reply_is_an_error_so_mendari_fails_closed(
     reply: dict[str, Any], says: str
 ) -> None:
     with pytest.raises(agent.AgentError) as raised:
-        agent.answer(mendari_request("Hello?"), FakeMessages(**reply), environ={})
+        agent.answer(case_of("Hello?"), FakeMessages(**reply), environ={})
     assert raised.value.status == 502 and says in raised.value.message
 
 
@@ -161,20 +173,15 @@ def test_a_bad_model_reply_is_an_error_so_mendari_fails_closed(
         ({"questions": [{"key": "a", "choices": ["x", "y"]}], "input": {"t": "x" * 100_001}}, 413),
     ],
 )
-def test_a_malformed_request_is_refused_before_any_model_call(body: Any, status: int) -> None:
+def test_a_malformed_request_is_refused_before_any_model_call(
+    body: Any, status: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    monkeypatch.setenv("AGENT_ALLOW_OPEN", "1")
     fake = FakeMessages()
-    with pytest.raises(agent.AgentError) as raised:
-        agent.answer(body, fake, environ={})
-    assert raised.value.status == status and fake.calls == []
-
-
-def test_the_token_is_required_unless_open_is_asked_for() -> None:
-    assert not agent.authorized(None, {})
-    assert agent.authorized(None, {"AGENT_ALLOW_OPEN": "1"})
-    assert agent.authorized("Bearer s3cret", {"AGENT_TOKEN": "s3cret"})
-    assert agent.authorized("bearer s3cret", {"AGENT_TOKEN": "s3cret"})
-    assert not agent.authorized("Bearer other", {"AGENT_TOKEN": "s3cret"})
-    assert not agent.authorized("s3cret", {"AGENT_TOKEN": "s3cret"})
+    monkeypatch.setattr(service, "messages", lambda: fake)
+    refused = TestClient(service.app).post("/decide", json=body)
+    assert refused.status_code == status and fake.calls == []
 
 
 def test_the_http_service_answers_refuses_and_never_echoes_an_error_body(

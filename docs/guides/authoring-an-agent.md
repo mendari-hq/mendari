@@ -221,6 +221,48 @@ or extra answer, a value outside the choices, a malformed confidence, an HTTP er
 that is not JSON, or a timeout. One retry is made after `429` or `529`. The agent's error bodies
 are never recorded.
 
+### Starters
+
+You need not write the contract yourself. The agent kit, `mendari.agent_kit`, owns it: it
+checks each request, builds an answer that passes the checks above by construction, and serves
+it over HTTP. Your code is one function:
+
+```python
+from mendari.agent_kit import Case, create_app, respond
+
+def handler(case: Case) -> dict:  # may be async
+    text = case.text()            # also case.questions, case.input, case.instructions
+    return respond(case, {
+        "request": ("refill", 0.95) if "refill" in text else ("other", 0.6),  # (choice, confidence)
+        "urgent_symptoms": {"yes": 0.9, "no": 0.1} if "chest" in text else ("no", 0.95),
+    }, model="my-model-2026-01", usage={"input_tokens": 412, "output_tokens": 38})
+
+app = create_app(handler, title="My agent", agent_version="1.0.0")  # uvicorn module:app
+```
+
+- `respond` takes, per question asked (and no other), `(choice, confidence)` with the
+  confidence from uniform chance to 1, or `{choice: probability}`, which it normalizes (a
+  negative weight counts as 0), answering with the most probable choice. Optional:
+  `rationales`, `model`, `agent_version`, `usage`, `tool_calls`.
+- `create_app` serves `POST /decide` and `GET /health`. `/decide` needs
+  `Authorization: Bearer $AGENT_TOKEN` (set the same value as `MENDARI_AGENT_TOKEN` where
+  Mendari runs); without `AGENT_TOKEN` it refuses every request unless `AGENT_ALLOW_OPEN=1`, for
+  local use.
+- A request Mendari would not send is refused (400, or 413 for a large input) before your
+  function runs. `AgentError(status, message)` returns that status and message; any other
+  exception returns 502 with its type only, never its message, which may hold case text or a
+  credential. Either way Mendari fails closed. The kit logs nothing.
+
+Three starters answer the demo agent's questions with it. Each folder runs and deploys on its
+own (it carries the kit as `mendari_agent_kit.py`, which needs only FastAPI), and its README has
+the commands to run it, point Mendari at it and deploy it:
+
+| Starter | Choose it when |
+|---|---|
+| [`examples/http-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/http-agent) | Your agent is a model API, a rules engine or any service you call from Python: replace one function. |
+| [`examples/langgraph-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/langgraph-agent) | Your agent is a workflow of steps: a LangGraph `StateGraph` whose nodes are marked where a model call goes. |
+| [`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent) | You want a model-backed agent now: Claude with structured output, its cost and usage reported. |
+
 ## 7. Run it offline
 
 While no live agent is set, an `agent` variant with a `mock_file` answers from it, so the

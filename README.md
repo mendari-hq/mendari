@@ -180,9 +180,19 @@ as a provider failure, and the decision goes to `HUMAN_REVIEW` or `ABSTAIN`: an 
 agent never automates. `MENDARI_AGENT_TOKEN`, when set, is sent as a bearer token to that URL
 only. The URL must be https (plain http only to this machine).
 
+**Starters.** The agent kit (`mendari.agent_kit`) owns this contract: your code is one function
+from a case to its answers, and `create_app(handler)` serves it with a bearer token, so every
+answer passes Mendari's checks by construction. Three starters build on it, each deployable on
+its own: [`examples/http-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/http-agent)
+(any model or service called from Python),
+[`examples/langgraph-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/langgraph-agent)
+(a LangGraph workflow) and
+[`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent)
+([the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md#starters)).
+
 **A model-backed example.** [`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent)
 is the demo agent's live counterpart: a small service that answers this contract with Claude
-(Opus 5.5, low effort), copyable for your own model or framework. Measured through Mendari on the
+(Opus 5.5, low effort). Measured through Mendari on the
 demo agent's 600-case synthetic `test` set (2026-11-21), each proportion with its exact 95%
 interval:
 

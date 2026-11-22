@@ -1,0 +1,3 @@
+# The kit is mendari_agent_kit.py, a copy of mendari.agent_kit: no other dependency.
+fastapi>=0.132
+uvicorn>=0.29
