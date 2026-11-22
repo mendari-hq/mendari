@@ -460,7 +460,7 @@ def test_an_ehr_answer_of_the_wrong_shape_shows_less_never_a_500(
 ) -> None:
     """Items that are not objects where FHIR has objects raised AttributeError (a 500)."""
     full_launch(app, ehr)
-    wrong = {
+    wrong: dict[str, dict[str, Any]] = {
         "Patient": {"name": ["Jane"]},
         "ServiceRequest": {"code": ["x"], "reasonCode": ["x"], "subject": "Patient/ref-p1"},
     }
