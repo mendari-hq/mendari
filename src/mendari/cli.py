@@ -3566,7 +3566,7 @@ def cmd_community_check(args: argparse.Namespace) -> int:
 def cmd_demo(args: argparse.Namespace) -> int:
     from mendari.sandbox.demo import run_demo
 
-    run_demo(datasets_dir=example_datasets_dir())
+    run_demo()
     return 0
 
 
