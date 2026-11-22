@@ -66,8 +66,8 @@ reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
   invocation is no longer refused on discovery; EHR-signed CDS Hooks JWTs come with LP-23.
 - An EHR or DTR client can use SMART Backend Services against Mendari once the deployment turns it
   on, and Mendari's own Bulk client (`standards/bulk.py`) can test the whole exchange end to end.
-- Until the owner lifts Vercel Authentication, nothing external reaches the token endpoint. It is
-  built and tested, not exposed.
+- Vercel Authentication no longer covers Production, so the token endpoint is reachable there,
+  behind the firewall's per-address rule and the app's own limit (60 a minute per address).
 - The mendari.co scope URIs are permanent once clients are configured, so the owner keeps that
   domain.
 - Older admin keys stop managing keys at once, and stop working 30 days after deploy.

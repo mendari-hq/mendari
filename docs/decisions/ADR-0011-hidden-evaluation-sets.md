@@ -5,8 +5,8 @@ Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by th
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
 confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
 decided (1 in part): labellers reach the hosted site in memberships mode, which it runs since
-2026-11-07 (how they get past Vercel Authentication is still open, and the labelling routes
-mount there only once the evaluation-set keys are set), each set's rotation rule is at most 20
+2026-11-07 (Vercel Authentication no longer covers Production, so they sign in with the
+site's own sign-in; the labelling routes mount there only once the evaluation-set keys are set), each set's rotation rule is at most 20
 grading runs and 180 days, a clinical lead's call settles a three-way split (not built yet),
 and adjudicators label blind, as built. Accepted once what stays open there is decided: decision 1's Vercel
 Authentication and decision 7 (how a hidden case is erased). Gate G2-3's prerequisite

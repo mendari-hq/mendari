@@ -140,13 +140,12 @@ provider's own import format, API or Terraform is not written yet: copy each che
 
 ## The project's own deployment
 
-Until the launch, the project's own deployment (synthetic data, on Vercel) sits behind Vercel
-Authentication. A request without a Vercel session, a provider's check included, is redirected
-to Vercel's sign-in: readiness answers `302`, not `200`, so no outside check can reach it. Its
-checks are set up once Vercel Authentication is lifted, the last step of the launch order in
-[Before go-live](../deploying-with-phi.md#9-before-go-live). Do not give a provider the
-Protection Bypass for Automation secret to get past it: that secret passes every protection
-Vercel puts on the deployment, not one check. On that deployment the decide check also waits
+The project's own deployment (synthetic data, on Vercel) no longer sits behind Vercel
+Authentication: since it was lifted from Production (see the launch order in
+[Before go-live](../deploying-with-phi.md#9-before-go-live)), only Preview deployments are
+protected, and an outside check reaches Production's public routes. Never give a provider the
+Protection Bypass for Automation secret to reach a Preview: that secret passes every
+protection Vercel puts on the deployment, not one check. On that deployment the decide check also waits
 for a status organization (it runs in memberships mode since 2026-11-07, and has no status
 organization yet: it is made as above), and the
 registry and Hub checks wait until both are hosted (the registry under the engine, its base the
