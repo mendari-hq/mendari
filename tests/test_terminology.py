@@ -81,7 +81,9 @@ PINNED = {
 
 @pytest.fixture(scope="module")
 def packs() -> dict[str, Pack]:
-    return {pack.id: pack for pack in discover([ROOT / "packs"]).packs}
+    return {
+        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-packs"]).packs
+    }
 
 
 @pytest.fixture(scope="module")
@@ -334,7 +336,11 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
     sandbox = terminology.sandbox_resources()
     assert all(r["experimental"] for r in sandbox)
     assert not any(served.by_url(r["url"]) for r in sandbox)
-    schema = json.loads((ROOT / "packs/patient-inbox-router/schemas/input.schema.json").read_text())
+    schema = json.loads(
+        (
+            ROOT / "tests/fixtures/reference-packs/patient-inbox-router/schemas/input.schema.json"
+        ).read_text()
+    )
     channels = schema["properties"]["message"]["properties"]["channel"]["enum"]
     assert codes(sandbox[1]) == list(CHANNELS) == channels
 

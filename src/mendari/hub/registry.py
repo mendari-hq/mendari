@@ -12,7 +12,7 @@
     wrote, or a model built from one (`archive.refuse_site_cases`: a site's cases, which a
     client refuses to archive, and which a client that did not look still cannot publish);
   - it extracts to a pack that loads with the signed digest, on the engine its pullers run
-    (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a reference pack of
+    (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);
   - that version does not exist yet.
 
@@ -962,7 +962,7 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
         archive.refuse_site_cases(verified.files)
         with tempfile.TemporaryDirectory() as scratch:
             try:
-                # Checked on the engine its pullers run, against this release's reference packs.
+                # Checked on the engine its pullers run, against this release's bundled agents.
                 pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
                 _refuse_invalid(pack)
@@ -1756,8 +1756,8 @@ def _checked(
         # The digest the signed manifest names, which the pack loaded with, on `engine`.
         "digest": version.get("digest"),
         "engine": version.get("engine"),
-        # The registry's release whose reference packs that engine was chosen against: a puller
-        # on another release may run a copy of a reference pack on the bounded engine.
+        # The registry's release whose bundled agents that engine was chosen against: a puller
+        # on another release may run a copy of a bundled agent on the bounded engine.
         "engine_release": version.get("engine_release"),
         # Rendered here from the files the digest covers, never the uploaded card.
         "card": "rendered" if rendered else "not_rendered",
@@ -1920,7 +1920,7 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         ),
         "digest": pack.digest,
         "key_id": verified.key_id,
-        # The engine its pullers run it on (ADR-0009): a copy of a reference pack of this
+        # The engine its pullers run it on (ADR-0009): a copy of a bundled agent of this
         # registry's release keeps the maintained one; every other pack runs bounded.
         "engine": "bounded" if pack.bounded else "maintained",
         "engine_release": __version__,
@@ -2191,7 +2191,8 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
 
     def bearer(request: Request) -> str:
         header = request.headers.get("authorization", "")
-        return header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+        scheme, _, value = header.partition(" ")
+        return value.strip() if scheme.lower() == "bearer" else ""
 
     def require_publisher(request: Request, namespace: str) -> None:
         token = bearer(request)
@@ -2242,7 +2243,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
 
     @app.put("/v1/packs/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         if not _NAME.match(name) or not _VERSION.match(version):
             raise HubError("not a pack name and version")
         body = bytearray()
@@ -2283,15 +2284,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         with one of the namespace's keys (`mendari yank`). Chained `pack.yanked`; a version is
         recalled once. The registry's own recall, signed with its key, is a reviewer's (under
         the engine) or the operator's (`mendari registry recall`)."""
-        require_publisher(request, namespace)
+        await run_in_threadpool(require_publisher, request, namespace)
         body = await small_body(request, YankRequest)
         if body.record is None:
             raise HubError("a publisher's recall is a record signed with a namespace key")
         if body.record.get("signer") != "publisher":
             raise HubError("a publisher's recall is signed by the publisher")
         # Checked above: the namespace's own publisher.
-        recalled = store.recall(namespace, name, version, body.record, by=actor(request))
-        return served(recalled, REVIEWER)
+        recalled = await run_in_threadpool(
+            store.recall, namespace, name, version, body.record, by=actor(request)
+        )
+        return await run_in_threadpool(served, recalled, REVIEWER)
 
     @app.get("/v1/registry-key")
     def registry_key() -> dict[str, str]:

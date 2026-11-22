@@ -371,7 +371,7 @@ def add_store_routes(
     @app.post("/api/store/copies", status_code=201, tags=[TAG], summary="Copy a pack into a draft")
     def copy_pack(request: Request, body: CopyRequest) -> JSONResponse:
         """A draft of a pack this deployment serves from disk, renamed `<your organization>/
-        <name>` (a store pack never takes a reference pack's id) and recording what it was
+        <name>` (a store pack never takes a bundled agent's id) and recording what it was
         copied from (id, version, digest). It runs on the engine for packs the deployment does
         not own, so a pack whose patterns that engine cannot run is refused, saying why."""
         from mendari.hub.archive import pack_files

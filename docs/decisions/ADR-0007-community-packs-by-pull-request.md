@@ -9,13 +9,13 @@ Amended by [ADR-0009](ADR-0009-bounded-evaluation-for-packs-the-deployment-does-
 isolated one.
 
 ## Context
-The repository is going public so outside developers can contribute Decision Packs. Until now
+The repository is going public so outside developers can contribute agents. Until now
 every pack in the repository was one Mendari maintains (`packs/`), and the loader trusted what
 it found:
 
 - every `pack.yaml` under `packs/` was served, nested ones included, and when two packs shared
-  an id the newest version won silently, so a pull request could shadow a reference pack;
-- `publisher.type` is self-declared, and all five reference packs declare `community`, so the
+  an id the newest version won silently, so a pull request could shadow a maintained pack;
+- `publisher.type` is self-declared, and the maintained packs all declare `community`, so the
   manifest cannot say who stands behind a pack;
 - the risk level is self-declared too, and it decides whether a pack may automate;
 - an unscoped provider setting (`router=jev`) reached any pack with that slot and variant, so a
@@ -34,7 +34,7 @@ The owner decided (2026-10-04):
   with the id `community/<name>`. Only the owner's merge puts a pack there. The origin of a
   pack (`core/origin.py`: maintained, community, hub, local) comes from where it was found,
   never from its manifest. A community pack uses the `community/` namespace only, so it never
-  claims `mendari/` or `openhealth/`, nor a reference pack's id; a second claim to a community
+  claims `mendari/` or `openhealth/`, nor a maintained pack's id; a second claim to a community
   pack's id is refused and reported, whatever its version. Packs from anywhere else are found
   as before (the newest version of an id is served); one whose id is in `community/` gets the
   community limits wherever it was loaded from. A community pack's FHIR systems live under its
@@ -44,7 +44,7 @@ The owner decided (2026-10-04):
   `MENDARI_COMMUNITY_PACKS=on` (default off; the one switch turns them all on or off). Every
   surface labels them "Community · not clinically reviewed" (the API, `/api/health` counts,
   the dashboard picker, the overview, Try it, the Decision Card, CDS Hooks discovery and cards,
-  the `/docs` landing); the reference packs say "Maintained by Mendari"; `publisher.type` is
+  the `/docs` landing); the maintained packs say "Maintained by Mendari"; `publisher.type` is
   shown only as self-declared. A community pack never automates: the policy caps AUTO to
   HUMAN_REVIEW (ADR-0002: policy only lowers automation), and no policy rule of its own
   blocks (refused at load; a block is final at once, so no person would confirm it). It reads
@@ -70,9 +70,9 @@ The owner decided (2026-10-04):
   the product.
 
 ## Consequences
-- Nothing existing changes: the five reference packs decide identically, and with
+- Nothing existing changes: the maintained packs decide identically, and with
   `MENDARI_COMMUNITY_PACKS` unset a deployment serves exactly what it served before (a pack
-  pulled from a registry, a local copy of a reference pack, a path holding `packs/`), except
+  pulled from a registry, a local copy of a maintained pack, a path holding `packs/`), except
   that a pack whose id is in the new `community/` namespace gets the community limits. The
   community packs are not in the wheel or the images.
 - An outside author sees the pack live (where community packs are on) with no power to act on
@@ -106,8 +106,8 @@ The owner decided (2026-10-04):
 
 ## Alternatives Considered
 - **Community packs in `packs/`, labelled by `publisher.type`.** Rejected: the manifest is
-  self-declared, the reference packs already declare `community`, and a sixth folder there
-  changes the wheel, the images, the reference build and tests that count the packs.
+  self-declared, the maintained packs already declare `community`, and another folder there
+  changes the wheel, the images, the build and tests that count the packs.
 - **Kept in the repository, served only from an owner's allow-list per pack.** Safest, but
   "available on the platform" becomes an extra owner step for every pack. The label and the
   recommend-only cap give most of its safety without it.

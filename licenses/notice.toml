@@ -39,7 +39,7 @@ notice = "HL7 and FHIR are registered trademarks of Health Level Seven Internati
 
 [[material]]
 name = "LOINC"
-where = "LOINC codes in the synthetic reference packs and datasets (packs/, datasets/)"
+where = "LOINC codes in the sandbox's synthetic FHIR records (src/mendari/sandbox/fhir_records.py) and in tests"
 licence = "the LOINC License (https://loinc.org/license)"
 distributed = true
 # The notice the LOINC License asks redistributors to carry, word for word (the year is the
@@ -51,7 +51,7 @@ registered United States trademark of Regenstrief Institute, Inc."""
 
 [[material]]
 name = "RxNorm"
-where = "RxNorm codes in the Clinical Trial Prescreener's synthetic data and tests (packs/clinical-trial-prescreener)"
+where = "RxNorm codes in the sandbox's synthetic EHR profile (src/mendari/sandbox/ehr_profile.py) and in tests"
 licence = "public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes)"
 distributed = true
 # The acknowledgement NLM's RxNorm terms of service ask a product using RxNorm data to carry.
@@ -61,7 +61,7 @@ responsible for the product and does not endorse or recommend this or any other 
 
 [[material]]
 name = "ICD-10-CM"
-where = "ICD-10-CM codes in the synthetic reference packs and datasets"
+where = "ICD-10-CM codes in the sandbox's synthetic records and in tests"
 licence = "free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes"
 distributed = true
 
@@ -80,7 +80,7 @@ licence = "the names as HL7's Da Vinci PAS guide gives them (CC0 1.0); X12's cod
 distributed = true
 notice = "X12 is a registered trademark of X12."
 
-# No package carries SNOMED CT (LP-14): the reference packs, their data and the sandbox use
+# No package carries SNOMED CT (LP-14): the sandbox and its synthetic data use
 # fictional codes instead, and tests/test_code_systems.py and scripts/check_snomed.py keep it so.
 [[material]]
 name = "SNOMED CT"

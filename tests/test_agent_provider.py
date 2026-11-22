@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ from mendari.providers.agent import (
 from mendari.providers.deadline import decision_deadline
 from tests.conftest import LIVE_SETTINGS, message
 
+ROOT = Path(__file__).resolve().parents[1]
 AGENT_URL = "https://agent.test/v1/decide"
 CANARY = "canary-agent-secret-token"
 
@@ -650,3 +652,33 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
     assert len(live_calls) == 3
     assert all(str(r.url) == AGENT_URL for r in live_calls)
     assert all(r.headers.get("authorization") == "Bearer prod-token" for r in live_calls)
+
+
+def test_the_landing_pages_example_is_the_demo_agents_decision() -> None:
+    """The public page's example decision and the demo agent's figure (web/index.html) are typed
+    in by hand: the page names the bundled agent's current version, and shows what that version
+    decides on the message and how many of its bundled examples it gets right."""
+    pack = load_pack(ROOT / "agents" / "portal-message-agent")
+    decision = Decision(pack)
+    site = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    figure = site[site.index('<figure class="decision"') : site.index("</figure>")]
+    named = re.search(r"mendari/portal-message-agent (\S+) · offline mock agent", figure)
+    assert pack.id == "mendari/portal-message-agent"
+    assert named is not None and named.group(1) == pack.version
+    body = re.search(r"<blockquote>“(.+?)”</blockquote>", figure)
+    assert body is not None
+    shown = dict(re.findall(r"<div><dt>([\w ]+)</dt><dd>(\w+)</dd></div>", figure))
+    result = decision.decide(message(body.group(1)))
+    assert {question: answer.label for question, answer in result.answers.items()} == {
+        "request": shown["Request"],
+        "urgent_symptoms": shown["Urgent symptoms"],
+    }
+    assert f'<span class="chip chip-review">{result.outcome.value}</span>' in figure
+    assert f"Suggested: {result.recommendation} · {result.priority.value}</span>" in figure
+    assert result.confidence is not None
+    assert f"<b>{result.confidence:.2f} sure</b>" in figure
+    assert f"Confident ({result.confidence:.2f})" in figure
+    assert result.rule == "same-day-symptoms"
+
+    right = evaluate(decision, resolve_dataset(pack, "examples"))["proportions"]["accuracy"]
+    assert f'<span class="k">{right["k"]} / {right["n"]}</span>' in site

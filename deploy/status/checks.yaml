@@ -6,13 +6,12 @@
 # A registry served under the engine (MENDARI_REGISTRY=on) has the base {api}/registry.
 # The decide check's key is read from the environment variable it names, never from this file:
 # a key of its own, decide-only, in an organization of its own, so its decisions are told apart
-# from anyone's (each waits in that organization's review queue). It decides with AI Guard,
-# which runs local rules even where Jev is set up, so it spends no model calls unless your
-# provider settings name a model for AI Guard.
+# from anyone's (each waits in that organization's review queue). It decides with the bundled
+# demo agent.
 interval_seconds: 300
 checks:
   - name: readiness
-    what: the database answers and the packs loaded (503 when not; /api/health stays up)
+    what: the database answers and the agents loaded (503 when not; /api/health stays up)
     request: {method: GET, url: "{api}/api/health/ready"}
     expect: {status: [200]}
 
@@ -23,18 +22,17 @@ checks:
     only_with_sign_in: true
 
   - name: decide
-    what: a synthetic decision on a reference pack, by the status organization's key
+    what: a synthetic decision by the bundled demo agent, with the status organization's key
     request:
       method: POST
-      url: "{api}/api/packs/mendari/ai-guard/decide"
+      url: "{api}/api/packs/mendari/portal-message-agent/decide"
       key_from: STATUS_DECIDE_KEY
       json:
-        question: "Status check: is the clinic open on Friday?"
-        draft: "Yes, the clinic is open on Friday from 9 to 5."
+        message: {body: "Status check: what time does the clinic open on Friday?"}
     expect: {status: [200], json_has: outcome}
 
   - name: registry
-    what: the pack registry answers
+    what: the agent registry answers
     request: {method: GET, url: "{registry}/v1/health"}
     expect: {status: [200]}
 

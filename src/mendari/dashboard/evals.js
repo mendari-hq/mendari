@@ -23,7 +23,7 @@ views.evals = async (main, params) => {
   evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
   main.innerHTML = `
     <h1>Evaluations</h1>
-    <p class="muted">How the pack performs on labelled data, including your own.</p>
+    <p class="muted">How the agent performs on labelled data, including your own.</p>
     <nav class="segmented tabs" aria-label="Evaluation views">${evalTabs().map(([key, label]) =>
       `<a href="#evals/${key}" data-tab="${key}">${esc(label)}</a>`).join("")}</nav>
     <div id="evals-body"></div>`;
@@ -49,7 +49,7 @@ function showEvalsTab(requested) {
     body.innerHTML = leaderboardView(state.detail.leaderboard);
     wireLeaderboard(body, state.detail.leaderboard);
   } else if (tab === "report") {
-    body.innerHTML = state.detail.benchmark ? reportView(state.detail.benchmark) : empty("No benchmark published for this pack.");
+    body.innerHTML = state.detail.benchmark ? reportView(state.detail.benchmark) : empty("No benchmark published for this agent.");
   } else if (tab === "run") {
     showRunTab(body, empty).catch((error) => {
       if (body.dataset.tab === "run") body.innerHTML = empty(`Could not load the datasets: ${esc(error.message)}`);
@@ -63,7 +63,7 @@ function showEvalsTab(requested) {
       </div>
       <div id="history-report">${reportView(reports[0])}</div>` : emptyState({
       icon: "history", title: "No evaluations run here yet",
-      text: "Run the pack on a dataset to see how this deployment does, next to the published benchmark.",
+      text: "Run the agent on a dataset to see how this deployment does, next to the published benchmark.",
       action: { href: "#evals/run", label: "Run on a dataset" },
     });
     $("#history")?.addEventListener("change", (e) => {
@@ -81,6 +81,10 @@ async function showRunTab(body, empty) {
   }
   const datasets = await api(`${packPath()}/datasets`);
   if (body.dataset.tab !== "run") return;
+  if (!datasets.length) {
+    body.innerHTML = empty("No datasets are available for this agent yet.");
+    return;
+  }
   const preselected = datasets.find((d) => d.name.includes("local-site")) ?? datasets[0];
   const remote = remoteSlots();
   body.innerHTML = `

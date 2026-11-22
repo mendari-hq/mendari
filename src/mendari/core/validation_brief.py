@@ -9,6 +9,7 @@ Never reads or emits PHI or free-text case inputs.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -61,6 +62,10 @@ def build(
     monitoring_alerts: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Build the structured `mendari.validation-brief/1` report for `pack`."""
+    if days < 1:
+        raise ValueError("days must be >= 1")
+    if not math.isfinite(minutes_per_case) or minutes_per_case < 0:
+        raise ValueError("minutes_per_case must be a finite non-negative number")
     summary = store.validation_summary(pack.id, days=days)
     total = int(summary["total"])
     automated = int(summary["outcomes"].get("AUTO", 0))
@@ -179,7 +184,16 @@ def build(
     needs_reg_approval = pack.origin == "hub" and not (
         registry_approval and registry_approval.get("active")
     )
-    if pack.community or risk_level >= 4:
+    if hard_holds:
+        gates.append(
+            {
+                "key": "governance",
+                "label": "Governance & risk gates",
+                "status": "warn",
+                "detail": f"{len(hard_holds)} automation hold(s) active.",
+            }
+        )
+    elif pack.community or risk_level >= 4:
         gates.append(
             {
                 "key": "governance",
@@ -188,10 +202,8 @@ def build(
                 "detail": "Human-in-the-loop permanently enforced by pack origin or risk level.",
             }
         )
-    elif hard_holds or needs_risk_approval or needs_reg_approval:
+    elif needs_risk_approval or needs_reg_approval:
         pending_items = []
-        if hard_holds:
-            pending_items.append(f"{len(hard_holds)} automation hold(s) active")
         if needs_risk_approval:
             pending_items.append(f"risk level {risk_level} committee approval required")
         if needs_reg_approval:
@@ -310,6 +322,10 @@ def _fmt_figure(fig: Mapping[str, Any] | None) -> str:
     return f"{k} of {n}"
 
 
+def _md_cell(value: object) -> str:
+    return str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+
+
 def render_markdown(brief: Mapping[str, Any]) -> str:
     """Render a committee-ready Markdown validation & readiness brief (zero PHI)."""
     pack = brief["pack"]
@@ -322,12 +338,13 @@ def render_markdown(brief: Mapping[str, Any]) -> str:
         f"(at {roi['minutes_per_case']} min/case) |"
     )
     lines = [
-        f"# Clinical AI Validation & Readiness Brief: {pack['name']}",
+        f"# Clinical AI Validation & Readiness Brief: {_md_cell(pack['name'])}",
         "",
         f"*{brief['notice']}*",
         "",
-        f"- **Pack**: `{pack['id']}` v{pack['version']} (`{pack['digest'][:19]}...`)",
-        f"- **Risk level**: {pack['risk_level']} ({pack['risk_category']})",
+        f"- **Pack**: `{_md_cell(pack['id'])}` v{_md_cell(pack['version'])} "
+        f"(`{pack['digest'][:19]}...`)",
+        f"- **Risk level**: {pack['risk_level']} ({_md_cell(pack['risk_category'])})",
         f"- **Validation window**: Last {brief['window_days']} days ({brief['generated_at']})",
         f"- **Shadow pilot**: {'Active' if brief['shadow_pilot']['active'] else 'Off'}",
         f"- **Go-live readiness**: {readiness}",
@@ -356,7 +373,7 @@ def render_markdown(brief: Mapping[str, Any]) -> str:
         lines.append("| --- | --- | ---: | ---: |")
         for cluster in clusters:
             lines.append(
-                f"| `{cluster['recommended']}` | `{cluster['chosen']}` | "
+                f"| `{_md_cell(cluster['recommended'])}` | `{_md_cell(cluster['chosen'])}` | "
                 f"{cluster['count']} | {cluster['count']} of {vol['overrides']} |"
             )
     lines.append("")

@@ -64,18 +64,18 @@ function plainReason(reason, r) {
   const unanswered = reason.match(/^no answer for '(.+?)' /);
   if (unanswered) return `No answer for ${questionName(unanswered[1])}, so a person decides.`;
   const hold = reason.match(/^automation is on hold: ([\s\S]+)$/);
-  if (hold) return /^hold [0-9a-f]+$/.test(hold[1]) ? "Automation is on hold for this pack, so a person checks." : `Automation is on hold: ${hold[1]}`;
+  if (hold) return /^hold [0-9a-f]+$/.test(hold[1]) ? "Automation is on hold for this agent, so a person checks." : `Automation is on hold: ${hold[1]}`;
   const never = reason.match(/^policy never automates '(.+)'$/);
   if (never) return `${labelName(r.primary, never[1])} is never automated: a person checks.`;
   const approved = reason.match(/^risk level \d+ AUTO permitted by governance override \(([\s\S]+)\)$/);
-  if (approved) return `Automation at this pack's risk level was approved (${approved[1]}).`;
+  if (approved) return `Automation at this agent's risk level was approved (${approved[1]}).`;
   const said = [
     [/ < review threshold /, "Not sure enough to recommend, so a person decides."],
     [/ is below the auto threshold /, "Not sure enough to act alone, so a person checks."],
-    [/^automation requires /, "This deployment's safety screen is not one this pack automates with, so a person checks."],
-    [/^risk level \d+ requires human review$/, "This pack's risk level needs a person to check."],
-    [/^a community pack .* never blocks on its own/, "A community pack never blocks on its own: a person decides."],
-    [/^a community pack .* recommends and never automates$/, "A community pack only recommends: a person checks."],
+    [/^automation requires /, "This deployment's safety screen is not one this agent automates with, so a person checks."],
+    [/^risk level \d+ requires human review$/, "This agent's risk level needs a person to check."],
+    [/^a community pack .* never blocks on its own/, "A community agent never blocks on its own: a person decides."],
+    [/^a community pack .* recommends and never automates$/, "A community agent only recommends: a person checks."],
   ];
   return said.find(([pattern]) => pattern.test(reason))?.[1] ?? reason;
 }
@@ -110,12 +110,12 @@ export const holdsFor = (holds, pack) => (holds ?? []).filter((h) =>
   (h.pack_id == null || h.pack_id === pack.id) && (h.pack_digest == null || h.pack_digest === pack.digest));
 
 export const holdNotice = (holds, pack) => (holdsFor(holds, pack).length
-  ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this pack would
+  ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
       have automated, with the same recommendation and priority. See the Decision Card.</p>`
   : "");
 
 export const communityNotice = (pack) => (isCommunity(pack)
-  ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this pack,
+  ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this agent,
       and Mendari has not clinically reviewed it. It recommends and never automates: a person confirms every decision.</div>`
   : "");
 
@@ -123,7 +123,7 @@ export const communityNotice = (pack) => (isCommunity(pack)
 const ORIGIN_GROUPS = [
   ["maintained", "Maintained"],
   ["hub", "From a registry"],
-  ["local", "Local packs"],
+  ["local", "Local agents"],
   ["community", "Community · not clinically reviewed"],
 ];
 
@@ -142,14 +142,14 @@ export function packOptions(packs) {
 export const defaultPack = (packs) =>
   (packs.find((p) => p.origin === "maintained") ?? packs.find((p) => !isCommunity(p)) ?? packs[0]).id;
 
-// Packs whose input is a patient message (the inbox) keep a message-shaped UI.
+// Packs whose input is a patient message keep a message-shaped UI.
 export const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
 
 // `restricted`: PHI mode `encrypt` kept the input, but this role may not read it (the server says).
 export function inputView(input, { restricted = false } = {}) {
   if (restricted) return `<div class="message muted">Input kept encrypted (PHI mode): reviewers and administrators can read it, and each read is logged.</div>`;
   if (!input) {
-    const why = state.phiMode === "off" ? "the pack keeps only its hash (audit.store_input)" : "PHI mode keeps only its hash";
+    const why = state.phiMode === "off" ? "the agent keeps only its hash (audit.store_input)" : "PHI mode keeps only its hash";
     return `<div class="message muted">Input not stored: ${why}.</div>`;
   }
   return recordHtml(input);

@@ -18,7 +18,7 @@ import re
 import threading
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from html import escape
@@ -165,7 +165,7 @@ from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 VENDOR_DIR = DASHBOARD_DIR / "vendor"  # third-party front-end code (scripts/vendor_docs_ui.py)
-INBOX = "mendari/patient-inbox-router"
+DEMO_AGENT = "mendari/portal-message-agent"  # the one agent a release bundles
 JsonBody = Annotated[dict[str, Any], Body()]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
@@ -432,7 +432,7 @@ class HoldRequest(BaseModel):
 class LabelRequest(BaseModel):
     labels: dict[str, str] = Field(
         description="each question the case asks, with one of its labels (as the case gave them)",
-        examples=[{"destination": "nurse", "urgency": "routine"}],
+        examples=[{"request": "refill", "urgent_symptoms": "no"}],
     )
 
 
@@ -744,14 +744,14 @@ class GradingRequest(BaseModel):
         min_length=1,
         max_length=200,
         description="the id of the pack the set was made for, as this server serves it",
-        examples=[INBOX],
+        examples=[DEMO_AGENT],
     )
     variants: dict[SlotName, SlotName] | None = Field(
         default=None,
         max_length=64,
         description="a variant for any of the pack's provider slots (the others run the "
         "deployment's choice, or the pack's default); every slot must run a local variant",
-        examples=[{"router": "naive_bayes"}],
+        examples=[{"reader": "rules"}],
     )
     arms: dict[ArmName, Annotated[dict[SlotName, SlotName], Field(max_length=64)]] | None = Field(
         default=None,
@@ -761,7 +761,7 @@ class GradingRequest(BaseModel):
         "configuration, a variant for every one of the pack's slots (none is filled in from "
         "the deployment's choice); every one local, and each in the arm it is declared under. "
         "With `declared`, never with `variants`: the answer is `mendari.hidden_scoreboard/1`",
-        examples=[{"deterministic": {"safety_screen": "rules", "router": "naive_bayes"}}],
+        examples=[{"deterministic": {"reader": "rules"}}],
     )
     declared: str | None = Field(
         default=None,
@@ -1403,7 +1403,7 @@ def create_app(
         if shown:
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
 
-    default_pack = INBOX if INBOX in packs else next(iter(sorted(packs)), None)
+    default_pack = DEMO_AGENT if DEMO_AGENT in packs else next(iter(sorted(packs)), None)
     app = FastAPI(
         title="Mendari",
         version=__version__,
@@ -1669,7 +1669,7 @@ def create_app(
             # ...and those that apply to no served pack at all (a typo, a pack not served).
             "provider_settings_unused": unused_settings,
             "jev": {
-                # The reference packs run Mendari + Jev where no setting chose (JEV_DEFAULTS).
+                # The bundled agents run Mendari + Jev where no setting chose (JEV_DEFAULTS).
                 "defaults": bool(fallbacks),
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
@@ -1753,7 +1753,7 @@ def create_app(
         summary="List packs",
     )
     def list_packs() -> list[dict[str, Any]]:
-        """Every Decision Pack this deployment serves: id, version, risk level, the labels of its
+        """Every agent this deployment serves: id, version, risk level, the labels of its
         main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
         `local`, with `origin_label` to show; a community pack is not clinically reviewed and
         never automates)."""
@@ -2448,13 +2448,22 @@ def create_app(
         """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
         streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
         log_event(request, "export.audit")  # its filters are query values: not logged
-        lines = (
-            json.dumps(resource, separators=(",", ":")) + "\n"
-            for resource in audit_fhir.resources(
-                store.iter_events(pack_id=pack_id, since=since, until=until)
-            )
-        )
-        return StreamingResponse(lines, media_type="application/fhir+ndjson")
+        org = scope_of(auth.acting(request))  # resolved before the stream starts
+
+        def stream() -> Iterator[str]:
+            after = 0
+            while True:
+                # Re-enter tenancy per page rather than across `yield`: Starlette iterates a
+                # sync generator in a threadpool where each step runs in its own Context copy.
+                with tenancy.acting_for(org):
+                    page = store.events(pack_id=pack_id, since=since, until=until, after_seq=after)
+                if not page:
+                    break
+                for resource in audit_fhir.resources(page):
+                    yield json.dumps(resource, separators=(",", ":")) + "\n"
+                after = page[-1]["seq"]
+
+        return StreamingResponse(stream(), media_type="application/fhir+ndjson")
 
     @app.get(
         "/api/usage",
@@ -2578,7 +2587,7 @@ def create_app(
     )
     def audit_record_fhir(decision_id: str) -> JSONResponse:
         """One decision's audit trail as a FHIR `collection` Bundle."""
-        record = store.get(decision_id)
+        record = store.item(decision_id)
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
         bundle = audit_fhir.decision_bundle(record)
@@ -3696,18 +3705,9 @@ def create_app(
             headers={"cache-control": "public, max-age=86400"},
         )
 
-    # The quickstart's decision is automated only where the inbox runs what its policy requires.
-    quickstart = packs.get(landing.QUICKSTART_PACK)
-    running = {} if quickstart is None else variants_for(quickstart)[0]
-    quickstart_automates = quickstart is not None and all(
-        running.get(slot, quickstart.manifest.providers[slot].use) in allowed
-        for slot, allowed in quickstart.manifest.policy.automation_requires.items()
-    )
     landing_page = landing.page(
         versioned_page("docs.html"),
         version=__version__,
-        # With sign-in on, what runs here is not public: the page shows both answers.
-        quickstart_automates=None if auth.enabled else quickstart_automates,
         sign_in=auth.enabled,
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,

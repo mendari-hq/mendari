@@ -1,7 +1,7 @@
 # Community packs
 
-Decision Packs contributed by pull request, one per folder: `community-packs/<name>/`, with the
-id `community/<name>`. They are not the packs Mendari maintains (`packs/`), they are not
+Agents contributed by pull request, one per folder: `community-packs/<name>/`, with the
+id `community/<name>`. They are not the agents Mendari maintains (`agents/`), they are not
 clinically reviewed, and they never ship in the Python package or the images.
 
 **How they are served.** Only where a deployment sets `MENDARI_COMMUNITY_PACKS=on` (default off).

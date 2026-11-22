@@ -9,6 +9,7 @@ Mendari ships no X12 code value (tests/test_x12_values.py)."""
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
@@ -18,6 +19,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from mendari import notices
+from mendari.server import api_docs
 from mendari.standards import pas
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import GUARD, INBOX, PACKS, open_pack, signed_in_as
@@ -34,11 +36,10 @@ CODES = {"service_type": "Z9", "request_type": "Z1", "certification_type": "Z2"}
 
 
 def fhir_example(live_server: str) -> dict[str, Any]:
-    """The API reference's synthetic FHIR input (a patient's message, for the inbox router)."""
-    schema = httpx.get(f"{live_server}/openapi.json").json()
-    operation = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
-    example: dict[str, Any] = operation["requestBody"]["content"]["application/json"]["examples"]
-    return dict(example["message"]["value"])
+    """The API reference's synthetic FHIR input (a patient's message). The reference shows it
+    beside the bundled demo agent, which these tests' server does not serve, so it is read from
+    where the reference takes it; the inbox router maps the same Communication."""
+    return copy.deepcopy(api_docs.FHIR_EXAMPLE)
 
 
 def mode(page: Page, name: str) -> None:

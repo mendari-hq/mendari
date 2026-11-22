@@ -4,7 +4,7 @@ for RE2.
 
 A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).
 The patterns of a pack the deployment does not own (a community pack, or one from a registry
-that is not a reference pack of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
+that is not a bundled agent of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
 which never backtracks.
 `translate` parses a pattern the way `re` does (`re._parser`, the same parse `re.compile`
 makes) and writes out an RE2 pattern that matches the same text, spelling out what `re` means
@@ -310,7 +310,7 @@ _NOT_AFTER = (
     'for "not after a word" (no pain), mark the rule negatable: true and list the word in '
     "negation_cues; otherwise write a second rule for what must not come before"
 )
-_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-a-pack.md'
+_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-an-agent.md'
 _SINGLE = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 _REPEATS = ("MAX_REPEAT", "MIN_REPEAT")
 

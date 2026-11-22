@@ -594,7 +594,7 @@ h1 {
   gap: 0.875rem;
 }
 
-.decision-pack {
+.decision-agent {
   display: flex;
   align-items: center;
   gap: 0.625rem;
@@ -1270,9 +1270,9 @@ td .interval {
   }
 }
 
-/* Packs */
+/* Demo agent */
 
-.packs-head {
+.demo-head {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;

@@ -524,7 +524,7 @@ def test_a_pack_set_or_built_in_price_is_never_used(jev_run: Built, tmp_path: Pa
     # A table is never read from Mendari's code or from a pack's directory.
     for inside in (
         ROOT / "src" / "mendari" / "evals" / "method.py",
-        ROOT / "packs" / "ai-guard" / "pack.yaml",
+        ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard" / "pack.yaml",
     ):
         with pytest.raises(MendariError, match="never read from Mendari's code or a pack"):
             runs.load_prices(inside)

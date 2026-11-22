@@ -35,6 +35,12 @@ on:
 permissions:
   contents: read
 
+# The suites run on the agents of the test fixtures (the image ships only the demo agent):
+# the host scripts read them here, and the compose files mount them into the engines.
+env:
+  MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+  MENDARI_DATASETS_PATH: tests/fixtures/datasets
+
 jobs:
   dtr-payer:
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""One validation function for a Decision Pack (LP-20b).
+"""One validation function for an agent (LP-20b).
 
 `mendari validate`, the community check, the registry's publish and the pack store all call
 `validate` or `problems` here, so a pack one of them takes the others take too. It is what

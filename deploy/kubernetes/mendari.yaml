@@ -9,10 +9,10 @@
 #     --from-literal=MENDARI_INPUT_HASH_KEY='...'
 # (the two keys differ: each 32 random bytes, base64)
 # With Jev (only under an agreement that covers PHI), add --from-literal=JEV_API_KEY='...' and
-# set JEV_API_URL and JEV_MODEL below: the reference packs then run Mendari + Jev.
+# set JEV_API_URL and JEV_MODEL below for agents whose manifests name a Jev variant.
 # Set `image:` (twice below) to a release image, e.g. ghcr.io/mendari-hq/mendari-engine:v0.1.0
 # (the tag is `v` and the package version; v0.1.0 is the first release),
-# or one pack's image (mendari-referral-router). No release is published yet: until then,
+# or an image that serves one agent. No release is published yet: until then,
 # build and push your own (`docker build --build-arg PACK=... .`, see deploy/README.md).
 # Deploy by digest, not by tag: `ghcr.io/...:v0.1.0@sha256:<digest>` (find it with
 # `docker buildx imagetools inspect <image>:<tag>`), so a re-pushed tag never changes what runs.
@@ -40,8 +40,8 @@ data:
   # MENDARI_ORG_DAILY_LIMITS: decisions=5000
   # A daily cap per principal (a person, a key, a client) on the decisions it asks for:
   # MENDARI_PRINCIPAL_DAILY_LIMIT: "1000"
-  # Jev (with JEV_API_KEY in mendari-secrets): the inbox, referral and prior-auth packs then run
-  # Mendari + Jev, and share the daily Jev budget (default 500 calls):
+  # Jev (with JEV_API_KEY in mendari-secrets), for agents whose manifests name a Jev variant;
+  # their calls share the daily Jev budget (default 500 calls):
   # JEV_API_URL: https://...
   # JEV_MODEL: jev-1.13.0
   # MENDARI_JEV_DAILY_LIMIT: "2000"

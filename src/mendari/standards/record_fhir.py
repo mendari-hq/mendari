@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A pack's record input as FHIR R4 resources, for engines that read FHIR (a CQL library).
 
-Record packs (the trial prescreener, for one) take a compact record: the patient's age and sex,
+Record packs (a trial-eligibility agent, for one) take a compact record: the patient's age and sex,
 coded conditions, lab results and medications. A CQL library reads the same facts as FHIR, so
 this turns the record into a `collection` Bundle:
 

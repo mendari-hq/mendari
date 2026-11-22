@@ -75,6 +75,6 @@ def test_the_card_holds_and_lifts(page: Page) -> None:
     # it would be recorded too (the check right after Cancel can run before one arrives).
     assert [m for m, _ in sent if m == "DELETE"] == ["DELETE"] and lifts(sent)
     page.get_by_label("Reason").fill("checking a new version")
-    section.get_by_role("button", name="Hold automation for this pack").click()
+    section.get_by_role("button", name="Hold automation for this agent").click()
     expect(page.locator("#toast")).to_have_text("Automation held: a person reviews every decision")
     assert any(m == "POST" for m, _ in sent)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The reference packs of the installed release: the packs Mendari ships, and their digests.
+"""The bundled agents of the installed release: the agents Mendari ships, and their digests.
 
 A pack pulled from a registry runs on the engine for packs the deployment does not own (RE2,
 the caps, the input limits and a CPU budget per decision: `core/origin.py` `bounded`), unless
@@ -7,10 +7,10 @@ its digest, the one `load_pack` hashed from its files, is the digest of one of t
 covers every file in the pack except those under its `evals/`, any `DECISION_CARD.md`, and
 hidden entries and `__pycache__` at any depth (`pack_digest`), and what a pack decides with is
 read only from the files its digest covers (`Pack.read_bytes`): equal digests mean equal
-behaviour. So a copy of a reference pack keeps the maintained engine wherever it was pulled
+behaviour. So a copy of a bundled agent keeps the maintained engine wherever it was pulled
 from, and one changed byte puts it on the other (ADR-0009).
 
-A pack from a registry never takes a reference pack's place: one with a reference pack's id and
+A pack from a registry never takes a bundled agent's place: one with a bundled agent's id and
 a version that ties its (`version_key`) but other files is refused at load (`core/pack.py`
 `_shadow_problem`), so at pull and at publish too; `reference_packs` is the index it reads.
 """
@@ -28,8 +28,8 @@ from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import PackValidationError
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
-# Where the reference packs are: bundled in the wheel, or the repository's `packs/` in a checkout.
-BUNDLED_DIRS = (_PACKAGE_DIR / "_packs", _PACKAGE_DIR.parents[1] / "packs")
+# Where the bundled agents are: in the wheel, or the repository's `agents/` in a checkout.
+BUNDLED_DIRS: tuple[Path, ...] = (_PACKAGE_DIR / "_agents", _PACKAGE_DIR.parents[1] / "agents")
 
 
 def bundled_dir() -> Path | None:

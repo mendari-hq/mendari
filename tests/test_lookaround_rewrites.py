@@ -36,7 +36,7 @@ from mendari.providers.base import ProviderOutput
 from tests.conftest import ROOT
 from tests.test_registry_engine import copied, jsonl, one_more_line
 
-PACKS = ROOT / "packs"
+PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
 
 # The four reference-pack patterns with a lookaround, as they were, by (pack, rules file, rule).
 ORIGINALS: dict[tuple[str, str, str], str] = {
@@ -109,7 +109,9 @@ def shipped_inputs(pack: Pack) -> list[dict[str, Any]]:
     inputs = [case["input"] for case in load_cases(pack)]
     for path in sorted((GUARD_DIR / "data").glob("*.jsonl")):
         inputs += jsonl(path)
-    return inputs + jsonl(ROOT / "datasets" / "guard-local-site-example.jsonl")
+    return inputs + jsonl(
+        ROOT / "tests" / "fixtures" / "datasets" / "guard-local-site-example.jsonl"
+    )
 
 
 def decided(result: Any) -> dict[str, Any]:

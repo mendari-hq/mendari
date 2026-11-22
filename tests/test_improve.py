@@ -42,9 +42,13 @@ from mendari.hub import client as hub_client
 from mendari.sandbox import synthetic_inbox
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT
 
-HARDER = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+HARDER = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+)
 # The draft's other split: 436 messages that share no family, paraphrase or sentence with HARDER.
-UNSEEN = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+UNSEEN = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+)
 MODEL = "models/destination-nb.json"
 TRAIN = "data/train.jsonl"
 CALIBRATION = "data/calibration.jsonl"
@@ -496,7 +500,7 @@ def test_a_run_is_kept_only_in_a_pack_of_ones_own(
     _, found = learned
     assert not_writable(load_pack(inbox)) is None
     places = {
-        "a reference pack of this release": lambda: monkeypatch.setattr(
+        "an agent this release bundles": lambda: monkeypatch.setattr(
             registry, "_BUNDLED_DIRS", [inbox.parent]
         ),
         "a community pack of this repository": lambda: monkeypatch.setattr(
@@ -528,7 +532,7 @@ def test_a_pack_is_known_by_the_directory_it_is_in_however_its_path_is_spelt(
         pytest.skip("this volume tells the two spellings apart")
     monkeypatch.setattr(registry, "_BUNDLED_DIRS", [inbox.parent])
     assert registry.origin_of(respelt) == "maintained"
-    with pytest.raises(MendariError, match="a reference pack of this release is not changed"):
+    with pytest.raises(MendariError, match="an agent this release bundles is not changed"):
         apply(load_pack(respelt), found)
     assert pack_digest(inbox) == SHIPPED
 
@@ -539,7 +543,7 @@ def test_the_command_says_so_before_it_runs(
     monkeypatch.setattr(registry, "_BUNDLED_DIRS", [inbox.parent])
     assert main(["improve", str(inbox), "--with", str(HARDER), "--write"]) == 1
     printed = capsys.readouterr()
-    assert "--write: a reference pack of this release is not changed in place" in printed.err
+    assert "--write: an agent this release bundles is not changed in place" in printed.err
     assert printed.out == ""  # no run was made
     assert pack_digest(inbox) == SHIPPED
 
@@ -549,7 +553,7 @@ def test_the_command_says_so_before_it_runs(
 
 def test_a_pack_with_no_classifier_has_nothing_to_improve(harder: Dataset) -> None:
     with pytest.raises(MendariError, match="no naive_bayes"):
-        improve(load_pack(ROOT / "packs" / "ai-guard"), [harder])
+        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"), [harder])
 
 
 def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Dataset) -> None:

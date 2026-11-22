@@ -67,6 +67,7 @@ stone; CQL (spec work in v0.4) is the standard way to express such logic.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import date
@@ -96,7 +97,7 @@ SPEC_03 = "0.3"  # the spec version that adds a medication check's `current_with
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class Conversion(_Model):
@@ -390,7 +391,7 @@ def _decide(
 
 def _number(check: NumberCheck, inputs: Mapping[str, Any]) -> Decision | None:
     value = get_path(inputs, check.field)
-    if not isinstance(value, int | float) or isinstance(value, bool):
+    if not isinstance(value, int | float) or isinstance(value, bool) or not math.isfinite(value):
         return None
     inside = (check.min is None or value >= check.min) and (check.max is None or value <= check.max)
     label = check.in_range if inside else check.out_of_range
@@ -412,7 +413,7 @@ def _observation(
         return None
     when, latest = max(candidates, key=lambda pair: pair[0])
     value, unit = latest.get("value"), latest.get("unit")
-    if not isinstance(value, int | float) or isinstance(value, bool):
+    if not isinstance(value, int | float) or isinstance(value, bool) or not math.isfinite(value):
         return "unknown", f"{latest.get('code')} on {when} has no numeric value"
     shown = f"{latest.get('code')} {value:g} {unit or ''}".strip()
     if check.unit is not None and unit not in (None, check.unit):

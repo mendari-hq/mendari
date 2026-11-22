@@ -1,22 +1,23 @@
 # Verifying a scoreboard result
 
 A scoreboard result is one configuration's figures on one set, made under the
-[grading method](method-1.0.md) (section 11). Mendari's owner signs each result with a grading key
-held offline. Anyone can check a signed result with its public key alone: no secret, no account
+[grading method](method-1.0.md) (section 11), kept in a results store
+([Running the scoreboard](../operations/scoreboard.md)). The store's key holder signs each result
+with a grading key held offline. Anyone can check a signed result with its public key alone: no secret, no account
 and no server. This page is for whoever checks a result, and for the key holder who signs.
 
-No result is signed yet. `scoreboard/keys.json` lists no key until the owner adds one, and until
-then every result reads "unsigned".
+A store's `keys.json` lists no key until its key holder adds one, and until then every result
+reads "unsigned".
 
 !!! warning "Engineering evaluation, not clinical validation"
-    A signature says that Mendari's owner vouches for a result, exactly as it is. It does not
-    make the figures right, and it does not make a pack fit for patient care. A public set's result
-    can also be recomputed from its committed inputs; a hidden set's cannot, so its signature is
-    the owner's word for it.
+    A signature says that the key holder vouches for a result, exactly as it is. It does not
+    make the figures right, and it does not make an agent fit for patient care. A public set's result
+    can also be recomputed from its stored inputs; a hidden set's cannot, so its signature is
+    the key holder's word for it.
 
 ## Checking a result
 
-From the repository's root:
+From the folder that holds the store:
 
 ```bash
 mendari scoreboard verify scoreboard/results/<sha256>.json      # one or more files
@@ -72,7 +73,7 @@ Two fields of the result's scope are read:
   key's valid dates.
 
 Every other signature Mendari makes is over canonical JSON with no prefix: the daily checkpoint,
-a pack archive's manifest and a recall. So none of them verifies as a result, even made with the
+an agent archive's manifest and a recall. So none of them verifies as a result, even made with the
 same key, and a result's signature verifies as none of them.
 
 ## The keys file
@@ -102,7 +103,7 @@ one of its values. A file that breaks any of this stops the verifier.
 ## For the key holder
 
 The grading key is `MENDARI_GRADING_SIGNING_KEY`: 32 random bytes in base64, the Ed25519 private
-key's seed. It is the owner's, made and kept offline.
+key's seed. It is the key holder's, made and kept offline.
 
 - It is never a server setting, never a CI secret, and never in a deployment's environment.
   Only `mendari scoreboard sign` uses it, and that refuses to run when `CI` or `GITHUB_ACTIONS`
@@ -142,7 +143,8 @@ and the key's id and public key. It never prints the key.
 
 The first time, add the public key it prints to `scoreboard/keys.json`, with `valid_from` set to
 the first day it signs results for and `valid_until` set to `null`. Then check with `verify`, and
-write the scoreboard's page again (`uv run python scripts/scoreboard_page.py`): it marks each
+write the store's page again (`uv run python scripts/scoreboard_page.py scoreboard --out
+scoreboard.md`): it marks each
 unsigned result, and `sign` writes no page.
 
 Rotating to a new key: add the new key, and set the old key's `valid_until` to the last day it

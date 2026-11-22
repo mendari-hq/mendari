@@ -57,7 +57,10 @@ class RateBuckets:
             if admitted is not None:
                 return None
             row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
-        return _wait(row, step, tolerance, now)
+        wait = _wait(row, step, tolerance, now)
+        # The atomic upsert rejected this request; never return None (admitted) if a concurrent
+        # purge or clock tick moved past the stored TAT between the two statements.
+        return max(1, wait) if wait is not None else 1
 
     def rate_peek(self, bucket: str, interval: int, tolerance: int, now: int) -> int | None:
         """What `rate_take` would answer, without counting anything."""

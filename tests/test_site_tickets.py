@@ -27,7 +27,7 @@ from mendari.hub.site_signing import Site, init_site
 from tests.conftest import ROOT, Registry
 
 REFERRAL = resolve_pack("mendari/referral-router")
-DATASET = ROOT / "datasets" / "referral-local-site-example.jsonl"
+DATASET = ROOT / "tests" / "fixtures" / "datasets" / "referral-local-site-example.jsonl"
 CONFIGURATIONS = arms.configurations(REFERRAL)
 LOCAL = dict(next(c for c in CONFIGURATIONS if c.local).providers)
 REMOTE = next((dict(c.providers) for c in CONFIGURATIONS if not c.local), None)

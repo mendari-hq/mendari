@@ -3,7 +3,7 @@
 This page specifies what an evaluation run writes: the report (`mendari.eval/2`), the per-case
 ledger its result is computed from (`mendari.ledger/1`), and a paired comparison of two runs
 (`mendari.compare/1`). It supersedes the report format of the
-[Decision Pack spec 0.2](decision-pack-0.2.md) (`mendari.eval/1`), which still loads. The key
+[agent spec 0.2](agent-manifest-0.2.md) (`mendari.eval/1`), which still loads. The key
 words MUST, SHOULD and MAY are used as in that spec.
 
 The scoreboard and its scoped grades (LP-17) follow the
@@ -23,15 +23,15 @@ A report has two parts.
 - **The result:** every key except `run`, `comparison`, `result_sha256` and `figures` (what a
   server serves beside a report, never stored). It MUST be computed
   only from the run's ledger and the seeds it names, so two runs on the same cases with the same
-  pack, providers and seeds give byte-identical results (canonical JSON: sorted keys, no spaces),
+  agent, providers and seeds give byte-identical results (canonical JSON: sorted keys, no spaces),
   and anyone holding the ledger can recompute it.
 - **The run:** `run` holds what differs between two runs on the same cases: its `id`,
   `created_at`, `latency_ms` (mean, p50, p95, max), the engine version, and a governance
   override's approver (kept locally, never in the result). `result_sha256` is the SHA-256 of the
   canonical result.
 
-`comparison`, outside the result, is the local validation against the pack's benchmark. For a
-pack pulled from a registry it is never made with the benchmark the pack carries, which is its
+`comparison`, outside the result, is the local validation against the agent's benchmark. For a
+agent pulled from a registry it is never made with the benchmark the agent carries, which is its
 publisher's upload
 ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it is
 `{"status": "unknown", "reason": ..., "findings": []}`, as for a benchmark that cannot be
@@ -54,7 +54,7 @@ The result MUST carry everything a `mendari.eval/1` report carries, except case 
   in place of `missed_ids`;
 - `misclassified`, its cases named by ledger hash (`case`), never by id;
 - `models`: per question, the models that answered and how often (each answer's provider
-  model, [Decision Pack spec 0.2](decision-pack-0.2.md), §4.2), beside `providers`, the
+  model, [agent spec 0.2](agent-manifest-0.2.md), §4.2), beside `providers`, the
   configured model per slot. Reports and ledgers made before this was recorded (2026-10-07) by
   an `llm` slot (alone or in a composite) or a `vote` slot name the configured model there
   instead; a report's engine version does not tell them apart.
@@ -68,7 +68,7 @@ results become stale.
 JSON Lines in canonical form (sorted keys, no spaces, ASCII, LF line endings, a final newline).
 Its id is `sha256:` and the SHA-256 of its bytes. A ledger MUST NOT hold input text or a case id.
 
-Line 1, the header: the pack (id, version, digest); the dataset (name, SHA-256 of the whole
+Line 1, the header: the agent (id, version, digest); the dataset (name, SHA-256 of the whole
 file, size, `limit`); the case-hash scheme (`hmac-sha256-128`, key `dataset/v1`) and the number
 of cases; the primary question; each question with its labels in order; the critical labels; the
 subgroup attributes; the providers (variant, type and configured model per slot); the policy
@@ -94,7 +94,7 @@ from the hashes. A dataset with two cases of one id is refused.
 
 `mendari eval --out <dir>/report.json` writes the ledger to `<dir>/ledgers/<hex>.jsonl`; a
 server stores it beside the report, and chains an `eval.recorded` event (the report, result and
-ledger ids, the pack digest, the dataset's hash and the organization: ids and hashes only).
+ledger ids, the agent digest, the dataset's hash and the organization: ids and hashes only).
 
 ## How a figure is shown
 
@@ -107,9 +107,8 @@ says "no cases"; a share whose count is not known (a rate stored without it) say
 figure says "insufficient evidence". The only other percentages are thresholds and tolerances,
 which are settings, not shares of cases.
 
-A pack's known failure modes are its author's words, not computed. The reference packs state no
-share of cases as a percentage there: they state the finding and, for a local-site example, the
-command that measures it.
+An agent's known failure modes are its author's words, not computed. The bundled demo agent
+states no share of cases as a percentage there: it states the finding.
 
 ## Figures as served: `mendari.figures/1`
 
@@ -126,8 +125,8 @@ leaderboard or registry version on every read, so one published before needs no 
 | `GET /api/packs/{pack}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
 | `POST /api/packs/{pack}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
 | `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
-| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: a pack pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and a pack from a registry's benchmark figures are null |
-| `GET /v1/packs/{pack}`, `GET /v1/packs/{pack}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the pack's test set, labelled "publisher's own test set: regression check, not a ranking" |
+| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: an agent pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and an agent from a registry's benchmark figures are null |
+| `GET /v1/packs/{pack}`, `GET /v1/packs/{pack}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the agent's test set, labelled "publisher's own test set: regression check, not a ranking" |
 | `GET /v1/packs/{pack}` | `latest.figures` | `benchmark` and `leaderboard`, always null: a registry shows no uploaded figure |
 | `GET /v1/packs/{pack}/{version}` | `figures` | the same, always null |
 | `GET /v1/search` | each item's `figures` | `benchmark`, always null |
@@ -194,7 +193,7 @@ suppression function (`suppress`) that the sender runs before writing or sending
 registry runs again, refusing a payload it would change. A registry refuses
 `mendari.site-report/1`, which carried rates, and names this format in its answer.
 
-It holds the pack (id, version, digest), each slot's provider (variant, type, model), the
+It holds the agent (id, version, digest), each slot's provider (variant, type, model), the
 policy (risk level, thresholds as whole basis points: 0.85 is 8500, and whether a governance
 override applied), whether the site consented to a remote arm, the dataset's size, the primary
 question, per question its labelled cases (`n`), how many were right (`right`), its confusion
@@ -209,7 +208,7 @@ recall (the registry works them out where it shows them), error counts (with eve
 labelled they would say how many confusion cells are missing, so a suppressed cell could be
 worked out), the threshold sweep's finer rows (0.85, 0.95, 0.97, 0.99: their bands would cut
 a suppressed decile by subtraction; the registry works out the sweep at 0.5 to 0.9 from the
-deciles), and subgroups (their values come from a site's data, until a pack declares them).
+deciles), and subgroups (their values come from a site's data, until an agent declares them).
 
 Each field's rule (`share.SUPPRESSION_RULES`; a test holds every field to one):
 
@@ -217,7 +216,7 @@ Each field's rule (`share.SUPPRESSION_RULES`; a test holds every field to one):
 |---|---|
 | `format` | as it is |
 | `pack` | as it is: the published version's id, version and digest |
-| `providers` | as it is: names the pack declares |
+| `providers` | as it is: names the agent declares |
 | `policy` | as it is |
 | `remote_consent` | as it is |
 | `dataset.n` | total: shared exactly; a run on fewer than 100 cases is not shared at all |
@@ -254,7 +253,7 @@ to its own output the function changes nothing, which is what the registry check
 ## Pooled site evidence: `mendari.evals.pooling`
 
 LP-22 ([ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)) puts several
-sites' results on one pack side by side. Each site gives a whole k of n (cases right, detected
+sites' results on one agent side by side. Each site gives a whole k of n (cases right, detected
 or automated); every function here takes the sites as `(k, n)` pairs and refuses a rate, a
 fraction or anything that is not a whole k of a whole n of at least one case, as a figure does.
 Each answer names its method, and reads `insufficient evidence` (with the number of sites it
@@ -306,15 +305,15 @@ hypergeometric probabilities, and the permutation test for its seed and against 
 
 ## Site evidence: `mendari.site-evidence/1`
 
-What sites' signed reports say of one pack (LP-22g), served by a registry at
+What sites' signed reports say of one agent (LP-22g), served by a registry at
 `GET /v1/packs/{namespace}/{name}/site-evidence` and worked out on every read from the reports
 it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 
-- **Groups.** One per pack digest, configuration and remote consent, never across them: two
-  digests are two packs as far as evidence goes, and a remote configuration is never pooled
+- **Groups.** One per agent digest, configuration and remote consent, never across them: two
+  digests are two agents as far as evidence goes, and a remote configuration is never pooled
   with a local one. Each group gives its version, digest, configuration and consent; the
   reports in the pool (`sites`, with the total of their cases); the reports left out with the
-  reason (`left_out`: the publisher's own site, whose organization holds the pack's
+  reason (`left_out`: the publisher's own site, whose organization holds the agent's
   namespace; a report signed with a key later revoked as compromised; a report superseded by a
   correction); and, beside the figures, how many of the group's tickets are unreported (open,
   or expired with no report), how many were withdrawn, and how many reports were superseded.
@@ -337,13 +336,13 @@ it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
-A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and
+A leaderboard row carries its agent's version and digest, the dataset's name, hash, size and
 `limit`, the report's ledger, and `accuracy_proportion` and `false_automation` as k of n with
-their intervals. A row is keyed by pack digest, dataset hash, size and configuration: a new run
-of one configuration on the same pack and records replaces its row; a run on another pack
+their intervals. A row is keyed by agent digest, dataset hash, size and configuration: a new run
+of one configuration on the same agent and records replaces its row; a run on another agent
 version adds one.
 
-`build` writes the pack's digest and each row's `rank` and `standing`, from one ranking
+`build` writes the agent's digest and each row's `rank` and `standing`, from one ranking
 function, `mendari.rank/1` (`mendari.evals.ranking`). Rows are ranked against the rows on the
 same records (dataset hash and size), in this order:
 
@@ -355,12 +354,12 @@ same records (dataset hash and size), in this order:
 5. a lower cost per decision, then the configuration's name, so the order is total.
 
 Accuracy never ranks alone. Each bound is worked out from the row's k and n, never read from
-the row: a board can come from a registry upload. A row measured on another pack digest has the standing
+the row: a board can come from a registry upload. A row measured on another agent digest has the standing
 `earlier version` and no rank: its AUTO and false automation followed that version's policy. When
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.
 
-**How a leaderboard is shown (since LP-17g, a display change).** The pack's own sets are
+**How a leaderboard is shown (since LP-17g, a display change).** The agent's own sets are
 public: they are in the repository and in the package, so a configuration can be tuned to
 them. Under the [grading method](../grading/method-1.0.md) a public set is a regression check,
 never a ranking, so no surface prints a rank (a board can also hold a site's own file,
@@ -368,28 +367,27 @@ never a ranking, so no surface prints a rank (a board can also hold a site's own
 
 - The Decision Card's "Provider comparison" opens with "Public set: regression check, not a
   ranking", says that nothing there is graded and the order its rows are listed in, and links
-  the [scoreboard](../grading/scoreboard.md). Its tables have no Rank column. A row measured on
-  an earlier version of the pack says so beside its configuration.
+  the scoreboard. Its tables have no Rank column. A row measured on
+  an earlier version of the agent says so beside its configuration.
 - `mendari leaderboard` prints the same opening and the same tables.
 - The dashboard's Provider comparison says the same and links the scoreboard. It has no rank
   column, and its cost chart names the deployed configuration and every configuration no other
   beats on both cost and accuracy.
 
 The rows are listed in `ranking.grouped`'s order, a listing order: those that rank as data
-(measured on this version of the pack, on records where a critical label has at least 100
+(measured on this version of the agent, on records where a critical label has at least 100
 positives) first, in `mendari.rank/1`'s order, the critical cases caught first; then every
-other row, by configuration name. A table of rows all measured on earlier versions, as the
-reference packs' are, is therefore in order of configuration name. The data and the API do not
+other row, by configuration name. A table of rows all measured on earlier versions is therefore in order of configuration name. The data and the API do not
 change: each row keeps its `rank` and `standing`, and `GET /api/packs/{pack}` serves them as
 before.
 
 ## Arms: `mendari.arms/1`
 
-The scoreboard (LP-17) puts a pack's provider configurations in four arms, by the class of the
-models they ask (`evals/arms.py`). `mendari scoreboard arms PACK` lists them from the pack's
+The scoreboard (LP-17) puts an agent's provider configurations in four arms, by the class of the
+models they ask (`evals/arms.py`). `mendari scoreboard arms PACK` lists them from the agent's
 manifest alone: nothing is run, called or written (`--json` prints the report).
 
-A configuration is one variant for each of the pack's slots, so a pack's configurations are the
+A configuration is one variant for each of the agent's slots, so an agent's configurations are the
 product of its slots' variants. Its arm comes from the provider types it runs, in any slot,
 counting a composite's members as its own (one level: composites cannot nest). Jev is the
 specialised classifier and an LLM the general model; every other type asks no model.
@@ -406,29 +404,25 @@ it is local: every slot's variant decides on the machine (`core.origin.is_local`
 criteria, dosing and naive Bayes, or a composite of only those). A configuration that is not
 local names its remote types, the types it calls off the machine. CQL is deterministic but
 remote: it calls Mendari's own CQL engine (`MENDARI_CQL_URL`), not a model. An arm none of a
-pack's configurations reaches is `not applicable`. A pack with more than 10,000 configurations is
+agent's configurations reaches is `not applicable`. An agent with more than 10,000 configurations is
 refused, never listed.
 
 The report holds `format`, `pack` (its `id`, `version` and `digest`), `configurations` (how many
-the pack has) and `arms`: for each arm, in the order above, its `name`, its `status`
+the agent has) and `arms`: for each arm, in the order above, its `name`, its `status`
 (`applicable` or `not applicable`) and its `configurations`. Each configuration has `providers`
 (slot to variant, in the manifest's order), `local` and `remote_types` (sorted, and empty when it
 is local). The command line writes each configuration as `mendari leaderboard --run` takes it
-(`slot=variant,slot=variant`). The report names the pack, its slots and their variants, never a
+(`slot=variant,slot=variant`). The report names the agent, its slots and their variants, never a
 case.
 
-The five reference packs' arms, from their manifests:
+The bundled demo agent's arms, from its manifest (`mendari scoreboard arms
+agents/portal-message-agent`):
 
-| Pack | Mendari only | + specialised classifier | + general LLM | + both |
+| Agent | Mendari only | + specialised classifier | + general LLM | + both |
 |---|---|---|---|---|
-| ai-guard | 1 | 2 | 2 | not applicable |
-| clinical-trial-prescreener | 2 (one is `structured=cql`) | 4 | 4 | not applicable |
-| patient-inbox-router | 2 (`router` is `naive_bayes` or `rules`) | 10 | 7 | 6 |
-| prior-auth-preflight | 1 | 2 | 2 | not applicable |
-| referral-router | 1 | 8 | 5 | 6 |
+| portal-message-agent | 1 (`reader=rules`) | not applicable | 1 (`reader=agent`, remote: `agent`) | not applicable |
 
-No variant in these packs asks both Jev and an LLM, so "+ both" takes two slots, and only the
-inbox and referral packs have it.
+An `agent` variant is classed with the general model (`MODEL_CLASSES` in `evals/arms.py`).
 
 ## Scoreboard entries: `mendari.scoreboard/1`
 
@@ -440,11 +434,11 @@ its SHA-256). The same inputs give the same bytes, and every bootstrap is the me
 resamples, seed 0, at 95%. Where `mendari.eval/2`'s result already holds a figure, the entry
 reuses it. No format on this page changes. Entries are kept in the
 [results store](#the-results-store-scoreboard), and the
-[early scoreboard](../grading/scoreboard.md) is generated from it.
+early scoreboard is generated from it.
 
 An entry is refused, with a message that names ids and hashes and never a case, when:
 
-- the ledger is of another pack (its id, version or digest) or another dataset (its name,
+- the ledger is of another agent (its id, version or digest) or another dataset (its name,
   SHA-256, size or `limit`), holds another number of cases than the dataset, or its case hashes
   are not the dataset's cases in the dataset's order;
 - the configuration is not the ledger's (slot by slot), or not in the arm named;
@@ -464,8 +458,8 @@ An entry is refused, with a message that names ids and hashes and never a case, 
 | `supersedes` | The earlier result this one supersedes in the results store, `sha256:` and its body's SHA-256, or null. It is part of the body, so its hash and any signature cover it. |
 | `body_sha256` | `sha256:` and the SHA-256 of the entry's canonical JSON without `body_sha256` and `signature`. |
 
-The scope holds the pack (`id`, `version`, `digest`) and its `status` line (the synthetic-example
-label for a pack built from synthetic data); the `set` (`kind`, `public` for every shipped set;
+The scope holds the agent (`id`, `version`, `digest`) and its `status` line (the synthetic-example
+label for an agent built from synthetic data); the `set` (`kind`, `public` for every shipped set;
 `name`, `sha256`, `n`, `distinct_inputs` and `norm`, the `norm/v1` rule they are counted under);
 the ledger's `providers`; the `models` as reported (`answered`, the ledger's list, and `by_type`,
 the run record's); the `method` (`version`, `sha256`, and `in_effect` on the date measured, false
@@ -498,13 +492,13 @@ again.
   group is a positive of a critical label when any of its cases is, and detected only when every
   positive case in it is.
 - **The grade's bound:** the Clopper-Pearson interval of the detected groups over the positive
-  groups, at the simultaneous level `1 - 0.05/L` for a pack with L critical labels, stored with
+  groups, at the simultaneous level `1 - 0.05/L` for an agent with L critical labels, stored with
   its `level` and `labels`. It is shown as "lower bound X at Y%, simultaneous across L labels".
 - **Evidence:** a critical label has enough when its distinct positives reach
   `method.min_positives(0.95, L)`: 100 for L of 1 to 4, and 107 for the Clinical Trial
   Prescreener's 6. Every critical label needs enough, not just one.
 - **Cost** is priced from the run record's tokens, per case and per model type, and the dated
-  price table. It is never the ledger's cost, a price a pack sets or one built into a provider.
+  price table. It is never the ledger's cost, a price an agent sets or one built into a provider.
   It is "0 (no metered calls)" for a configuration that calls no model (CQL included), or whose
   model types made no call on the set (a cascade whose first member was sure of every case). It
   is "unknown" when any provider call failed, or a type that spent tokens reported no model (a
@@ -532,12 +526,12 @@ again.
   Refused:
   replicates of a local configuration (it is deterministic: one replicate, no flips), more than
   5, a headline that is not replicate 1, replicates out of order or of another day, and a
-  replicate of another pack, set or configuration, or of other cases.
+  replicate of another agent, set or configuration, or of other cases.
 
 ### The board
 
-`board(entries, current)` shows entries one table per pack and set, in a listing order (by arm,
-then configuration, then date), never an order of any figure. `current` is, per pack, its
+`board(entries, current)` shows entries one table per agent and set, in a listing order (by arm,
+then configuration, then date), never an order of any figure. `current` is, per agent, its
 digest, its arms' statuses and its sets' SHA-256 (`Current.of(pack)`). It reads each entry as its
 canonical JSON holds it (keys sorted), so entries just built and the same entries read back from
 a store give the same board. A configuration is written `slot=variant`, its slots in sorted
@@ -548,17 +542,17 @@ order. Each table holds:
 - the insufficient-evidence banner when any published entry's critical label is short of
   evidence, naming each such label, its distinct positives and the minimum (an entry whose
   disclosure is pending shows none of its figures, so it is left out);
-- each arm's status: measured, "not measured", or "not applicable" for an arm the pack cannot
+- each arm's status: measured, "not measured", or "not applicable" for an arm the agent cannot
   build; and each configuration of a measured arm that has no entry in the table (`not_measured`,
   "not measured yet");
 - each entry with its marks, worked out when the board is built and never stored: "unsigned"
-  (no signature), "method draft, not in effect", "stale: pack changed", "stale: set changed" or
+  (no signature), "method draft, not in effect", "stale: agent changed", "stale: set changed" or
   "stale: method changed" (its digest, set SHA-256 or method SHA-256 is not the current one),
   "stale: another model reported" (its replicates reported more than one model of a type, or a
-  run of the same model type, an entry's or a canary's, of any pack or configuration, measured
+  run of the same model type, an entry's or a canary's, of any agent or configuration, measured
   the same day or later, reports another model of a type its runs reported; a run that reported
   no model of a type, its calls failed, reports no other), "stale: canary drift" (a canary of
-  its pack's arm shows drift, and it is a remote configuration's result of that arm, on any set,
+  its agent's arm shows drift, and it is a remote configuration's result of that arm, on any set,
   measured before the canary's day or no later than the replicates it was compared with; a local
   configuration's never is), and "stale after DATE", 45 days after it was
   measured. No clock is read, so the date is shown and never checked. `board(entries, current,
@@ -685,7 +679,7 @@ cases, and:
 - **its models:** every model it names is one the ledger's answers name (an answer's model, or a
   composite member's in the answer's `member:model`), and every model the ledger's answers name
   is in it, unless it is a deterministic provider's: its type, `@` and the fingerprint of its
-  pack file (`rules@…`, `cql:<library>@…`). Jev's and the LLM's model ids never hold an `@`.
+  agent file (`rules@…`, `cql:<library>@…`). Jev's and the LLM's model ids never hold an `@`.
 
 An entry is never made from a record that does not agree, so its tokens are never priced as
 another model's.
@@ -694,7 +688,7 @@ another model's.
 
 A price table is a dated file outside Mendari's code (`scoreboard/prices/<YYYY-MM-DD>.json`),
 cited by the SHA-256 of its bytes. A table read from the package, the repository's `src/` or a
-pack's directory is refused before it is read.
+agent's directory is refused before it is read.
 
 | Field | What it holds |
 |---|---|
@@ -709,14 +703,14 @@ refusal of either names a key the input chose as `<key>`, as a run record's does
 
 ## Declarations and canaries: `mendari.declared/1` and `mendari.canary/1`
 
-A pack's declaration (`scoreboard/declared/<pack name>.json`, LP-17h; the method's section 3)
+An agent's declaration (`scoreboard/declared/<pack name>.json`, LP-17h; the method's section 3)
 names, per arm, the configurations declared before any run. It is a closed schema, read as
 strictly as a run record, and cited by the SHA-256 of its bytes.
 
 | Field | What it holds |
 |---|---|
 | `format` | `mendari.declared/1`. |
-| `pack`, `date` | The pack's id, and the day it was declared. |
+| `pack`, `date` | The agent's id, and the day it was declared. |
 | `arms` | Per arm (`mendari.arms/1`), `remote`: the one remote configuration run on public sets with replicates; and `local`: the one local configuration a hidden set grades. Each is slot to variant, and an arm names one or both. |
 
 A remote configuration is run only as its arm's `remote` configuration, with the declaration
@@ -724,18 +718,18 @@ committed as it is before the run (`mendari scoreboard run` checks git's `HEAD`)
 grades each arm's `local` configuration: a new hidden set's answer is stored only when it cites
 the declaration as the store holds it and grades every arm the declaration names a `local`
 configuration for, with that configuration (LP-17k, "Stored" below). A declaration is refused
-when it names a configuration the pack does not have, one in another arm, or one that is not
+when it names a configuration the agent does not have, one in another arm, or one that is not
 remote (or local) where it says.
 
 A canary (`scoreboard/canaries/<sha256>.json`; the method's section 12) is a seeded draw of 30
-cases of a pack's `test` set, decided once by hand by a remote configuration, and compared with
+cases of an agent's `test` set, decided once by hand by a remote configuration, and compared with
 replicate 1 of its current result there, which holds replicates. The draw takes the cases whose
 SHA-256 of a domain tag, the seed and the case's ledger hash is smallest, in the set's order.
 
 | Field | What it holds |
 |---|---|
 | `format` | `mendari.canary/1`. |
-| `pack`, `set`, `arm`, `configuration` | What it was run on: the replicates' pack (`id`, `version`, `digest`), the `test` set (`name`, `sha256`), the arm and the configuration. |
+| `pack`, `set`, `arm`, `configuration` | What it was run on: the replicates' agent (`id`, `version`, `digest`), the `test` set (`name`, `sha256`), the arm and the configuration. |
 | `draw` | `{size, seed}`: 30 under method 1.0, and the seed. |
 | `measured_on`, `models` | The day it ran, and per model type the models its answers reported. |
 | `inputs` | Its ledger's id, its run record's SHA-256 and the method's SHA-256. |
@@ -747,10 +741,10 @@ SHA-256 of a domain tag, the seed and the case's ledger hash is smallest, in the
 
 ## The results store: `scoreboard/`
 
-Scoreboard results are kept in the repository, under `scoreboard/` at its root
-(`evals/results_store.py`, LP-17f; the [grading method](../grading/method-1.0.md), section 11).
-It is outside the wheel, the sdist and the site: a pack's own `evals/` is in every archive, where
-a publisher's pack could carry a forged result. Each file is named by its content:
+Scoreboard results are kept in a results store, a folder: `scoreboard/` in the working directory
+unless `--store` names another (`evals/results_store.py`, LP-17f; the
+[grading method](../grading/method-1.0.md), section 11). It is never part of an agent: an
+agent's own `evals/` is in every archive, where a publisher's agent could carry a forged result. Each file is named by its content:
 
 | Path | What it holds |
 |---|---|
@@ -759,51 +753,51 @@ a publisher's pack could carry a forged result. Each file is named by its conten
 | `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
 | `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
 | `canaries/<sha256>.json` | A canary (`mendari.canary/1`), named by its body's SHA-256. |
-| `declared/<pack name>.json` | A pack's declared configurations (`mendari.declared/1`). |
+| `declared/<pack name>.json` | An agent's declared configurations (`mendari.declared/1`). |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
 | `disclosures.json` | The disclosures (`mendari.disclosures/1`): no statement yet, so every remote type's is pending. |
 
 - **Append-only.** Nothing stored changes, except that a valid signature may be added to an
   unsigned result whose body stays the same. `mendari scoreboard add FILE [--supersedes HASH]`
   never writes over a file.
-- **Supersedes.** A result may name the earlier result it supersedes: one of the same pack, set,
+- **Supersedes.** A result may name the earlier result it supersedes: one of the same agent, set,
   arm and configuration, measured no later, which no other result supersedes. Both stay. The
-  later is the current one, and one pack, set, arm and configuration has one current result at
+  later is the current one, and one agent, set, arm and configuration has one current result at
   most. A hidden set's answer has no arm or configuration of its own (its arms are in it): one
-  pack and set has one current answer, as
+  agent and set has one current answer, as
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says.
 - **Running.** `mendari scoreboard run PACK [--dataset NAME ...] [--config slot=variant ... |
-  --every-local] [--again]` runs a configuration of a pack Mendari maintains over its public
+  --every-local] [--again]` runs a configuration of an agent Mendari maintains over its public
   scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
   run record (each case's latency and tokens) and the entry, unsigned. A result that is still
-  current (the pack's digest, the set's SHA-256 and the method's unchanged, and not past its
+  current (the agent's digest, the set's SHA-256 and the method's unchanged, and not past its
   stale date) is kept unless `--again` (a board's canary and model marks are not read: a result
   they mark is run again with `--again`); a new one supersedes it. It refuses a fitting set and
-  anything but a set the pack names, so a file or a hidden set is never run. A remote
+  anything but a set the agent names, so a file or a hidden set is never run. A remote
   configuration (LP-17h) is run by hand only: it is refused when `CI` or `GITHUB_ACTIONS` is
-  set, without `--replicates 3` to `5` (a local one runs 1), unless the pack's declaration names
+  set, without `--replicates 3` to `5` (a local one runs 1), unless the agent's declaration names
   it for its arm and is committed as it is, and, when it calls a model, without `--prices FILE`
   (stored under `prices/` when a result is priced from it), all before any call; so is a table
   whose date another stored table holds, and a provider this machine has not set up (its
   preflight: the CQL engine's URL, Jev's endpoint and model, an LLM's model), which would fail
   every case. Every replicate's ledger and run record is stored. `mendari
   scoreboard canary PACK --config ... --size 30 --seed S` runs a canary the same way, by hand, with
-  no schedule. The pack is read from the repository's `packs/` (the bundled packs), never from
+  no schedule. The agent is read from the repository's `agents/` (the bundled agents), never from
   `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
 - **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
-  `reference-pack` job, names each file whose name is not its content's, each result of the base
+  `demo-agent` job, names each file whose name is not its content's, each result of the base
   removed or changed (but for a valid signature added), each `supersedes` link that breaks the
   rules above, and each current result whose signature does not verify against `keys.json`, or
   was made with a publisher's or a registry's key this machine pinned (CI pins none). It
   recomputes every public result from its stored ledger, its dataset (SHA-256 checked), its run
   record, its price table and the method, byte for byte, and re-runs every local ledger on its
-  pack's current digest. A result of an older digest is recomputed and kept, never re-run; one
+  agent's current digest. A result of an older digest is recomputed and kept, never re-run; one
   whose set or method changed is kept as it is, and shown stale. A new result must be on its
-  pack's current digest, set and method, and measured no later than today. A new remote
-  configuration's result must hold 3 to 5 replicates and cite its pack's declaration as the
+  agent's current digest, set and method, and measured no later than today. A new remote
+  configuration's result must hold 3 to 5 replicates and cite its agent's declaration as the
   store holds it, which declares its configuration for its arm: it is recomputed from every
   replicate's ledger and run record, and its ledgers are never re-run, which would call off the
-  machine. Each declaration is checked against its pack; each canary is recomputed from its
+  machine. Each declaration is checked against its agent; each canary is recomputed from its
   ledger, its run record and the result it was compared with (and its draw, while the set is
   the one it was drawn from), and one of the base removed or changed is refused. A remote
   configuration's disclosure is recomputed from `disclosures.json` while its result is new, never
@@ -811,18 +805,18 @@ a publisher's pack could carry a forged result. Each file is named by its conten
   keeps the signature it had, so a key taken out of the keys file leaves what it signed as
   history. These recomputations and the rules for a new result are a public result's: a hidden
   set's answer (`mendari.hidden_scoreboard/1`) has no ledger, run record or dataset to
-  recompute from, may be of any version of a pack Mendari maintains, and is checked as
+  recompute from, may be of any version of an agent Mendari maintains, and is checked as
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says
   ("Stored").
 - **The page.** `scripts/scoreboard_page.py` writes
-  [the early scoreboard](../grading/scoreboard.md) from the current results, through `board`
+  the early scoreboard from the current results, through `board`
   and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
-  `reference-pack`, before `scripts/build-reference-pack.sh` writes the page again) fails when
-  the page is not the store's. Its bytes depend only on the repository: the store and `packs/`.
+  `demo-agent`) fails when the page is not the store's. Its bytes depend only on the repository:
+  the store and `agents/`.
 
 ## Paired comparisons: `mendari.compare/1`
 
-`mendari compare A B --dataset X` compares two runs of one pack on the same dataset, from their
+`mendari compare A B --dataset X` compares two runs of one agent on the same dataset, from their
 ledgers, on the cases both ran. For each figure (each critical label's detection, false
 automation, primary accuracy, automation) it gives each run's k of n with its 95% interval, the
 discordant cases (only A, only B), the exact two-sided McNemar p-value, the p-value adjusted with
@@ -836,13 +830,13 @@ dataset X): critical detections first, then false automation, correctness and au
 
 ## Coverage: `mendari.coverage/1`
 
-`mendari data coverage PACK --dataset NAME|FILE` says what a labelled set covers, for the pack
-whose questions it is labelled for, without running the pack (LP-11). It reads a pack's dataset
-or any JSONL file, and refuses one the pack cannot read as `mendari eval` does (by case id, never
+`mendari data coverage PACK --dataset NAME|FILE` says what a labelled set covers, for the agent
+whose questions it is labelled for, without running the agent (LP-11). It reads an agent's dataset
+or any JSONL file, and refuses one the agent cannot read as `mendari eval` does (by case id, never
 case text).
 
 Two cases are the same case when their inputs are, under one of two forms
-(`evals/canonical.py`, pinned byte for byte, and the forms the hidden-case index and the pack
+(`evals/canonical.py`, pinned byte for byte, and the forms the hidden-case index and the agent
 store's upload check use):
 
 - **exact**: the input's canonical JSON (sorted keys, no spaces, ASCII escapes);
@@ -867,18 +861,18 @@ The report counts duplicates under `norm/v1`, the stricter rule:
 | `duplicates` | Only with `--ids`: the case ids of each duplicate group, for a file a person holds. |
 
 It names labels, counts and attribute values, never a case's input. The evaluation report
-(`mendari.eval/2`) still counts every positive: AI Guard's test set has 164 `verdict=block`
-cases, 30 of them distinct.
+(`mendari.eval/2`) still counts every positive, so a set built from templates can report many
+more positives there than it holds distinct.
 
 ## Rater agreement: `mendari.agreement/1`
 
-How far raters who label the same cases blind agree, per question of the pack (LP-11,
+How far raters who label the same cases blind agree, per question of the agent (LP-11,
 `evals/rater_agreement.py`). The input is each case's first-pass labels by rater: raters label
-the pack's member questions, and a derived question's label for a rater comes from the pack's
+the agent's member questions, and a derived question's label for a rater comes from the agent's
 decision table over that rater's member labels. An adjudicator's label is not a first pass.
 
 The report holds `format`, `pack`, `level` (0.95), `seeds` (`{bootstrap, resamples}`: the seed,
-and 2,000 resamples unless set) and `questions`: for each of the pack's questions, `cases` (the
+and 2,000 resamples unless set) and `questions`: for each of the agent's questions, `cases` (the
 cases with at least one rating) and these:
 
 | Field | What it holds |
@@ -911,9 +905,9 @@ and say nothing of it.
 | `format` | `mendari.hidden_result/1`. |
 | `set`, `commitment` | The set's id, and the salted commitment chained when it froze (never its content hash). |
 | `n`, `run`, `runs_left` | How many cases were graded; this run's number (its chained `evalset.graded`); the runs the rotation rule leaves after it. |
-| `pack`, `providers`, `policy` | As a site report holds them (`mendari.site-report/1`): the pack's id, version and digest; each slot's variant, type and model (local only); the risk level, thresholds and whether a governance override applied (never: a run measures the pack's own policy). |
+| `pack`, `providers`, `policy` | As a site report holds them (`mendari.site-report/1`): the agent's id, version and digest; each slot's variant, type and model (local only); the risk level, thresholds and whether a governance override applied (never: a run measures the agent's own policy). |
 | `seeds` | `{bootstrap, resamples, level}`, as `mendari.eval/2`'s. |
-| `primary` | The pack's primary question. |
+| `primary` | The agent's primary question. |
 | `questions` | Per question, as a site report's: `n`, `accuracy`, `macro_f1`, `per_label` (precision, recall, F1, support), `confusion`, `brier`, `calibration` (`ece` and the equal-width bins of 10 cases or more only); and as `mendari.eval/2`'s, `proportion` (accuracy as k of n) and `brier_interval`, null over fewer than 10 scored cases. |
 | `decisions` | The outcome counts and rates, the abstention rate, automation and review, recommendation accuracy, and per critical label its `question`, `label`, `n`, `detected`, `detection_rate`, `auto_missed` and `proportion` (detection as k of n). |
 | `threshold_sweep` | Per threshold: `threshold`, `coverage`, `accuracy`, `errors`. |
@@ -923,14 +917,14 @@ It MUST NOT hold a case's id or hash, a dataset's name or hash, the ledger's id,
 label's missed cases, misclassified cases, subgroups, equal-mass calibration, latency or cost. A
 calibration bin, and a Brier interval, over fewer than 10 cases is left out, as a site report
 leaves out small bins: over a few cases their figures are single cases'. Rates are rounded to 4
-places and other figures to 3, as a site report's are. It names the pack's labels beside counts
+places and other figures to 3, as a site report's are. It names the agent's labels beside counts
 and rates, never beside a case.
 
 A refused run is answered with a fixed `reason` (`no_set`, `wrong_pack`, `unknown_variant`,
 `remote_provider`, `pack_unavailable`, `not_gradable`, `no_runs_left`, `expired`,
 `set_changed`, `set_unavailable`, `run_failed`) and one fixed sentence, never a store's or a
 run's message: a set whose rows no longer give its commitment is `409` `set_changed`
-([the runbook](../operations/evalsets.md)). A pack whose own names or sizes this schema cannot
+([the runbook](../operations/evalsets.md)). An agent whose own names or sizes this schema cannot
 hold (more than 64 questions, slots or critical labels, a question with more than 64 labels, or
 a question, label, slot or variant name that is not 1 to 64 letters, digits, `_`, `.` or `-`
 starting with a letter or digit) is refused `pack_unavailable` before the set's cases are read,
@@ -941,7 +935,7 @@ so it uses none of the set's runs.
 What the same route answers a run that declares its arms (LP-17k, `evals/hidden.py`; the
 [grading method 1.0](../grading/method-1.0.md), sections 3 to 9). The request sends `arms`, each
 declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`, one to four) with its
-whole configuration (a variant for every slot of the pack, as `variants` names them), and
+whole configuration (a variant for every slot of the agent, as `variants` names them), and
 `declared`, the SHA-256 of the committed declaration
 they come from (64 hex digits), in place of `variants`. `arms` and `declared` come together, and
 never with `variants`. Without `arms`, the answer is `mendari.hidden_result/1`, as above.
@@ -951,7 +945,7 @@ Before any case is read, each declared configuration is resolved and refused as 
 `wrong_arm` when the configuration it would run is not the one sent, slot for slot (a slot left
 out would run the deployment's choice, so one cited declaration would grade other
 configurations on other deployments), or not a configuration of the arm it is declared under,
-and the pack is
+and the agent is
 refused `pack_unavailable` when it has no critical label to attest (or more than 64). Under the
 method 1.0 a hidden set is graded with local providers only (owner decision 2), so only the
 deterministic arm can be declared. Then one grading read hands the cases, in memory, to every
@@ -967,7 +961,7 @@ result does not fit it (`run_failed`), and say nothing of it.
 | Field | What it holds |
 |---|---|
 | `format` | `mendari.hidden_scoreboard/1`. |
-| `scope` | The pack (`id`, `version`, `digest`) and its `status` line; the `set`: `kind` `hidden`, its `id` and freeze `commitment` (never a hash of its content), `n`, `distinct_inputs` and `norm`; the `method` (`version`, `sha256`, `in_effect` on the day measured); `measured_on`, the day of the run (US Eastern); `evaluation`, "engineering evaluation, not clinical validation"; the `disclosure`, "no model provider" with no statements; and `declared`, the declaration's SHA-256 as sent. |
+| `scope` | The agent (`id`, `version`, `digest`) and its `status` line; the `set`: `kind` `hidden`, its `id` and freeze `commitment` (never a hash of its content), `n`, `distinct_inputs` and `norm`; the `method` (`version`, `sha256`, `in_effect` on the day measured); `measured_on`, the day of the run (US Eastern); `evaluation`, "engineering evaluation, not clinical validation"; the `disclosure`, "no model provider" with no statements; and `declared`, the declaration's SHA-256 as sent. |
 | `seeds` | `{bootstrap, resamples, level}`: 0, 2,000 and 0.95. |
 | `arms` | Every arm of the scoreboard, once, in its order: `arm`, its `name`, its `status` and, for a graded arm only, its `configuration` (`providers`, `local`, `remote_types`), `providers` (each slot's variant, type and model), `figures` and `grade`; null for the others. |
 | `banner` | The insufficient-evidence banner, or null: each graded arm's critical label short of evidence, with its configuration, distinct `positives` and the minimum `needed`. |
@@ -976,9 +970,9 @@ result does not fit it (`run_failed`), and say nothing of it.
 | `run` | `{run, runs_left}`: this run's number (its chained `evalset.graded`) and the runs the set has left after it. |
 | `body_sha256` | `sha256:` and the SHA-256 of the answer's canonical JSON without `body_sha256`, `signature` and `run`. |
 
-An arm's status is `graded` when it was declared; `not graded here` when it was not and the pack
+An arm's status is `graded` when it was declared; `not graded here` when it was not and the agent
 builds it (every such configuration calls a remote provider, which a hidden set never runs); and
-`not applicable` when the pack cannot build it. A graded arm's figures are an entry's (see
+`not applicable` when the agent cannot build it. A graded arm's figures are an entry's (see
 [Scoreboard entries](#scoreboard-entries-mendariscoreboard1)) but cost, latency and subgroups:
 `critical` (detection and positives decided AUTO as raw k of n, distinct positives, the grade's
 bound and the evidence), `false_automation`, `auto_error_rate`, `automation` and `accuracy`
@@ -1003,7 +997,7 @@ subgroup's figures on a cell smaller than the subgroup minimum.
 
 It MUST NOT hold cost, latency, subgroups, equal-mass bins, a case's id or hash, a missed or
 misclassified case, the dataset's name or hash, or a ledger's id. Its only `sha256:` values are
-the pack's digest and its own body's. It names the pack's labels beside counts and rates, never
+the agent's digest and its own body's. It names the agent's labels beside counts and rates, never
 beside a case. Residual: when the weighted figures are given, a stratum's figures over 10 cases
 or more can still be worked out from them, as a subgroup's at its minimum could; and two shares
 over overlapping cases (all cases and the labelled ones, say) can be differenced for a count
@@ -1016,11 +1010,11 @@ beside `variants`, an arm that is not one or a declaration that is not 64 lower-
 is a `422` of the body, and nothing is read.
 
 **Stored.** The answer is stored in the [results store](#the-results-store-scoreboard) as it was
-answered (`mendari scoreboard add FILE`), named by its body's SHA-256: one result per pack and
+answered (`mendari scoreboard add FILE`), named by its body's SHA-256: one result per agent and
 set, its arms in it, so a second read of the same set is the same result. The store checks it
-against this closed schema field by field (its values rounded as above), against a pack Mendari
+against this closed schema field by field (its values rounded as above), against an agent Mendari
 maintains (any of its versions) and, when new, the current method, a day no later than today,
-`in_effect` as the method is on that day, and its pack's declaration
+`in_effect` as the method is on that day, and its agent's declaration
 (`scoreboard/declared/<pack name>.json`, `mendari.declared/1`): `declared` is the SHA-256 of the
 declaration as the store holds it, and the graded arms are the arms it names a `local`
 configuration for, each with that configuration, so the store, which the route never reads,
@@ -1034,4 +1028,4 @@ effect, with each graded arm unranked by the safety attestations it did not meet
 otherwise. What no ledger is kept to recompute is kept as it is: each k and n, and a ranking's
 ranks, intervals, bands and tests are the owner's attestation once signed. Its signature
 (LP-17e) covers its body and its run block, so its run's number cannot change unnoticed. The
-[early scoreboard](../grading/scoreboard.md), of public sets, does not show it.
+early scoreboard, of public sets, does not show it.

@@ -100,7 +100,7 @@ from mendari.core.phi import key_id
 from mendari.core.registry import resolve_pack
 from mendari.server import auth as auth_module
 from mendari.server import smart_routes
-from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
+from mendari.server.api_docs import FHIR_EXAMPLE
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.auth import PERMISSIONS, ROLES, permission_for, person_id
 from mendari.server.backend_services import ASSERTION_TYPE, check_jwks, default_scope
@@ -1201,12 +1201,12 @@ def served(world: World, org: Org) -> None:
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+            {"name": "pack", "valueString": INBOX},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
     ok(service, ("POST", "/fhir/$decide"), "/fhir/$decide", 200, json=parameters)
-    packed = f"/api/packs/{FHIR_EXAMPLE_PACK}/fhir/decide"
+    packed = f"/api/packs/{INBOX}/fhir/decide"
     ok(
         reviewer,
         ("POST", "/api/packs/{namespace}/{name}/fhir/decide"),

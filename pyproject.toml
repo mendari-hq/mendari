@@ -63,15 +63,14 @@ requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 # The source distribution holds what a wheel is built from (the package, with its vendored
-# dashboard assets, and the reference packs and datasets it bundles). Nothing else: the tests
+# dashboard assets, and the demo agent it bundles). Nothing else: the tests
 # (many read the workflows, scripts, docs and lock, which are not shipped, so they run from a
 # clone), project notes, agent and CI configuration, deploy templates and the websites stay in
 # the repository. tests/test_packaging.py and scripts/check_sdist.py hold this line.
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
-    "/packs",
-    "/datasets",
+    "/agents",
     "/README.md",
     "/LICENSE",
     "/NOTICE",
@@ -82,8 +81,7 @@ include = [
 packages = ["src/mendari"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"packs" = "mendari/_packs"
-"datasets" = "mendari/_datasets"
+"agents" = "mendari/_agents"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

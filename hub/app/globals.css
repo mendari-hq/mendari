@@ -3,6 +3,35 @@
    Alabaster light / Obsidian dark tokens matching mendari.co and the Mendari dashboard.
    All colour pairs meet WCAG AA (4.5:1 text, 3:1 UI borders) in both themes. No external assets. */
 
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Public Sans";
+  src: url("/fonts/public-sans.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --color-bg: #f4f6fa;
   --color-surface: #ffffff;
@@ -241,10 +270,6 @@ h3 {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-}
-
-.grow {
-  flex: 1;
 }
 
 .break {
@@ -1368,11 +1393,66 @@ h3 {
   stroke-width: 2;
 }
 
-.evidence-mark,
-.standing {
-  display: block;
+/* Verification summary strip & error actions --------------------------------------------------- */
+
+.trust-strip {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3);
+}
+
+.trust-pill {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.trust-pill-ok {
+  border-color: color-mix(in srgb, var(--color-ok) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-ok-soft) 55%, var(--color-surface));
+}
+
+.trust-pill-warn {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning-soft) 55%, var(--color-surface));
+}
+
+.trust-k {
   font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--color-muted);
+}
+
+.trust-v {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.trust-pill-ok .trust-v {
+  color: var(--color-ok-text);
+}
+
+.trust-pill-warn .trust-v {
+  color: var(--color-warning-text);
+}
+
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 /* Tables --------------------------------------------------------------------------------------- */

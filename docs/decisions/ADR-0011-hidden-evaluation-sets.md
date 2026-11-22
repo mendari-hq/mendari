@@ -227,7 +227,8 @@ graded here" when its configurations are remote, or "not applicable".
   Krippendorff's alpha across the pool, with seeded percentile bootstrap intervals) is computed
   by the command line and at freeze and stored sealed; routes serve only the stored aggregates.
 - The coverage report counts distinct positives; the evaluation report (`mendari.eval/2`) still
-  counts every positive (AI Guard's test set: 164 `verdict=block`, 30 distinct). The grading
+  counts every positive (a set built from templates can hold far fewer distinct positives than
+  positives). The grading
   method's evidence rule uses distinct positives (LP-17 decision 3, confirmed by the owner on
   2026-11-07), and `mendari.eval/2` does not change.
 - An organization's administrators can link one case's events by its keyed hash, in the

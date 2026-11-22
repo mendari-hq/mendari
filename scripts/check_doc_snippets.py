@@ -13,8 +13,8 @@ Three passes, each on its own local server (the real app on a free port, with a 
    steps whose calls the key may not make by the route rules (`server/auth.py`): today the
    whole-trail export, which needs an administrator. A request without the key must be refused,
    so the pass proves sign-in was on.
-3. **Each key preset with a snippet** (`server/presets.py`, LP-12i: `rest`, `fhir`, `ai-guard`
-   and `cds-hooks` today), on one server with sign-in on (`encrypt`, as in pass 2): a key made from
+3. **Each key preset with a snippet** (`server/presets.py`, LP-12i: `rest`, `fhir` and
+   `cds-hooks` today), on one server with sign-in on (`encrypt`, as in pass 2): a key made from
    the preset, as an administrator would make it, runs the steps its documentation describes
    (`Preset.examples`), and only those; a step of the same file it does not run is named. The
    presets no snippet documents are proven by tests/test_key_presets.py.
@@ -23,9 +23,9 @@ The servers listen on 127.0.0.1 and the scripts call them there, which is this m
 mode's CDS Hooks services answer them without `MENDARI_CDS_SANDBOX` (LP-23c).
 
 Each file runs under `bash -euo pipefail`, and every curl in it uses `--fail-with-body`, so a
-refusal or an error fails the run with the server's answer printed. The server runs the packs'
-default providers (rules, naive Bayes, criteria) with every `MENDARI_*` setting cleared and no
-Jev or LLM calls allowed: the check costs nothing and sends nothing anywhere. Needs curl and jq.
+refusal or an error fails the run with the server's answer printed. The server runs the bundled
+demo agent on its offline fixture, with every `MENDARI_*` setting cleared (so no live agent) and
+no Jev or LLM calls allowed: the check costs nothing and sends nothing anywhere. Needs curl and jq.
 """
 
 from __future__ import annotations

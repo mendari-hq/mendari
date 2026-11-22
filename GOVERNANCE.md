@@ -9,7 +9,7 @@ aims: move openly, and never trade safety for speed.
 |---|---|---|
 | **Contributors** | Anyone who opens an issue or a pull request | Proposes changes |
 | **Maintainers** | @Junebugg1214 (founder, lead maintainer) | Review and merge, cut releases, enforce the code of conduct, handle security reports |
-| **Clinical reviewers** | Clinicians who volunteer, named in a pack's PR | Review a pack's criteria, risk level and failure modes before it is published as a reference pack |
+| **Clinical reviewers** | Clinicians who volunteer, named in a pack's PR | Review a pack's criteria, risk level and failure modes before Mendari publishes it as one of its own agents |
 
 A contributor becomes a maintainer after sustained, high-quality contributions and reviews, when
 the existing maintainers agree.
@@ -17,7 +17,7 @@ the existing maintainers agree.
 ## How decisions are made
 
 - **Most changes:** a pull request, green CI, and one maintainer's approval.
-- **Changes to the Decision Pack spec, a trust boundary or the risk policy:** an ADR in
+- **Changes to the agent manifest spec, a trust boundary or the risk policy:** an ADR in
   `docs/decisions/`, open for comment for at least a week, then decided by the maintainers.
   Silence counts as agreement, and an objection is answered before merging.
 - **Safety first.** An objection on patient-safety grounds blocks a change until it is resolved:
@@ -27,9 +27,9 @@ the existing maintainers agree.
 - **Disagreements** that review can't settle go to the maintainers. Their decision, and why, is
   written in the PR or the ADR.
 
-## Reference packs and publishers
+## Mendari's agents and publishers
 
-- A **reference pack** (`mendari/…`) needs green CI, including the eval gate, and a clinical
+- An **agent Mendari maintains** (`mendari/…`) needs green CI, including the eval gate, and a clinical
   reviewer's sign-off in the PR. Its Decision Card says honestly what it was and wasn't reviewed
   for.
 - Publishers on the Hub are `community` by default. A publisher becomes **`verified`** when a

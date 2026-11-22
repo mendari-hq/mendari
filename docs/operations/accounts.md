@@ -23,17 +23,17 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   with `MENDARI_INPUT_HASH_KEY` when the deployment has one). An address here is ASCII, and
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
-  `admin`), and may also hold `pack_author`, which grants `author` alone: writing packs in the
-  organization's pack store (LP-20f; memberships mode only, mounted with `MENDARI_PACK_STORE=on`:
-  the routes under `/api/store`, [pack store](pack-store.md); an administrator who writes packs
+  `admin`), and may also hold `pack_author`, which grants `author` alone: writing agents in the
+  organization's agent store (LP-20f; memberships mode only, mounted with `MENDARI_PACK_STORE=on`:
+  the routes under `/api/store`, [agent store](agent-store.md); an administrator who writes agents
   gives themself the role), and `labeller`, which
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
   only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
   [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
-  so, and no packs or review queue. It may also hold `registry_reviewer`, which
+  so, and no agents or review queue. It may also hold `registry_reviewer`, which
   grants `registry_review` alone, and only in the one organization
-  `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the pack registry served under the engine (its
-  routes under `/api/registry/review`, [Running a pack
+  `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the agent registry served under the engine (its
+  routes under `/api/registry/review`, [Running an agent
   registry](registry.md#registry-reviewers)). In any other organization the role is refused
   when an administrator gives it (`422` at an invitation, a role change and a granted request
   to join), and grants nothing if a membership holds it anyway. An administrator manages the organization's hidden sets

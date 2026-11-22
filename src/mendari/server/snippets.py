@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DIRECTORY = Path(__file__).resolve().parent.parent / "dashboard" / "snippets"
-FILES = ("quickstart", "fhir", "cds", "guard", "auth")  # bash, in reading order
-# Python examples, run without a server (`scripts/check_doc_snippets.py`): `<name>.py`.
-PYTHON = ("guard",)
+FILES = ("quickstart", "fhir", "cds", "auth")  # bash, in reading order
+# Python examples, run without a server (`scripts/check_doc_snippets.py`): `<name>.py`. None today.
+PYTHON: tuple[str, ...] = ()
 
 STEP = re.compile(r"^# step: (?P<name>[a-z][a-z0-9-]*) — (?P<title>\S.*)$")
 # A call's URL is always the quoted "$MENDARI/…", so a check can find it and a reader can point
@@ -37,7 +37,7 @@ _VARIABLE = re.compile(r"(?<!\\)\$(?:\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)")
 
 @dataclass(frozen=True)
 class Step:
-    file: str  # "quickstart", "fhir", "cds", "guard" or "auth"
+    file: str  # "quickstart", "fhir", "cds" or "auth"
     name: str
     title: str
     text: str  # the commands, as shown and run (no header, no surrounding blank lines)

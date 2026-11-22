@@ -49,7 +49,7 @@ page_script = _script()
 
 @pytest.fixture(scope="module")
 def text() -> str:
-    return str(page_script.page(Store.at(ROOT / "scoreboard")))
+    return str(page_script.page(Store.at(ROOT / "tests" / "fixtures" / "scoreboard")))
 
 
 def tables(text: str) -> dict[tuple[str, str], str]:
@@ -58,37 +58,20 @@ def tables(text: str) -> dict[tuple[str, str], str]:
     return {(pack, name): body for pack, name, body in zip(*[iter(parts[1:])] * 3, strict=True)}
 
 
-def test_the_page_is_regenerated_from_the_store(text: str) -> None:
-    assert page_script.PAGE.read_text(encoding="utf-8") == text
-    assert page_script.main(["--check"]) == 0
-
-
 def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
     text: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A newer copy of a reference pack on `MENDARI_PACKS_PATH` (or pulled from a registry)
     comes first on the search path; the page and its check never read it."""
     copy = tmp_path / "ai-guard"
-    shutil.copytree(ROOT / "packs" / "ai-guard", copy)
+    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard", copy)
     manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
     newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
     assert newer != manifest
     (copy / "pack.yaml").write_text(newer, encoding="utf-8")
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path))
     assert resolve_pack("mendari/ai-guard").root == copy.resolve()
-    assert page_script.page(Store.at(ROOT / "scoreboard")) == text
-    assert page_script.main(["--check"]) == 0
-
-
-def test_the_page_check_fails_on_an_edited_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    edited = tmp_path / "scoreboard.md"
-    edited.write_text(page_script.PAGE.read_text(encoding="utf-8").replace("0 of", "1 of", 1))
-    monkeypatch.setattr(page_script, "PAGE", edited)
-    monkeypatch.setattr(page_script, "ROOT", tmp_path)
-    assert page_script.main(["--check"]) == 1
-    assert "is not what the results store gives" in capsys.readouterr().err
+    assert page_script.page(Store.at(ROOT / "tests" / "fixtures" / "scoreboard")) == text
 
 
 def test_all_five_packs_appear_on_every_public_scoring_set(text: str) -> None:
@@ -111,7 +94,7 @@ def test_all_five_packs_appear_on_every_public_scoring_set(text: str) -> None:
         assert f"| Disclosure | {scoreboard.DISCLOSURE_PENDING} | no model provider |" in body
         assert f"| Accuracy | {scoreboard.DISCLOSURE_PENDING} | " in body
         assert f"| Case flip rate | {scoreboard.DISCLOSURE_PENDING} | none: one replicate |" in body
-    store = Store.at(ROOT / "scoreboard")
+    store = Store.at(ROOT / "tests" / "fixtures" / "scoreboard")
     public = {name: found for name, found in store.results().items() if not found.is_hidden}
     heads = results_store.heads(public)
     assert len(heads) == 21
@@ -169,7 +152,7 @@ def test_unsigned_and_draft_are_said_on_the_page(text: str) -> None:
     runbook's steps 8 and 10)."""
     public = {
         name: found
-        for name, found in Store.at(ROOT / "scoreboard").results().items()
+        for name, found in Store.at(ROOT / "tests" / "fixtures" / "scoreboard").results().items()
         if not found.is_hidden
     }
     current = results_store.heads(public)
@@ -207,7 +190,7 @@ def test_the_draft_legend_follows_the_effective_date(monkeypatch: pytest.MonkeyP
     """Once the owner sets the effective date (the runbook's step 4), the legend says the mark is
     on the results measured before that day, not that the method has none."""
     monkeypatch.setattr(method, "EFFECTIVE", datetime.date(2026, 12, 15))
-    text = page_script.page(Store.at(ROOT / "scoreboard"))
+    text = page_script.page(Store.at(ROOT / "tests" / "fixtures" / "scoreboard"))
     legend = "measured before the method's effective date, 2026-12-15."
     assert f'- **"{scoreboard.DRAFT}":** {legend}' in text
     assert "the method has no effective date yet." not in text

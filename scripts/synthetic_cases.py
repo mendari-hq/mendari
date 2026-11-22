@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Turn a YAML file of case templates into a JSON Lines dataset, so a pack author makes
-synthetic data without writing Python (docs/guides/contributing-a-pack.md).
+synthetic data without writing Python (docs/guides/contributing-an-agent.md).
 
     uv run python scripts/synthetic_cases.py community-packs/<name>/data/cases.yaml \\
         --out community-packs/<name>/data/examples.jsonl

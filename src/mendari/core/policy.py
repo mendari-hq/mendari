@@ -118,39 +118,40 @@ def apply_policy(
             label_policy = policy.labels.get(primary.label)
             auto_at = policy.thresholds.auto
             if label_policy and label_policy.auto_threshold is not None:
-                auto_at = label_policy.auto_threshold
+                auto_at = max(label_policy.auto_threshold, policy.thresholds.review)
             recommendation = primary.label
-            if primary.confidence >= auto_at:
-                outcome = Outcome.AUTO
-                reasons.append(
-                    f"confidence {primary.confidence:.2f} >= auto threshold {auto_at:.2f}"
-                )
-            elif primary.confidence >= policy.thresholds.review:
-                outcome = Outcome.HUMAN_REVIEW
-                reasons.append(
-                    f"confidence {primary.confidence:.2f} is below the auto threshold "
-                    f"{auto_at:.2f} for {primary.label!r}"
-                )
-            else:
+            if primary.confidence < policy.thresholds.review:
                 outcome, recommendation = Outcome.ABSTAIN, None
                 reasons.append(
                     f"confidence {primary.confidence:.2f} < review threshold "
                     f"{policy.thresholds.review:.2f}"
                 )
+            elif primary.confidence >= auto_at:
+                outcome = Outcome.AUTO
+                reasons.append(
+                    f"confidence {primary.confidence:.2f} >= auto threshold {auto_at:.2f}"
+                )
+            else:
+                outcome = Outcome.HUMAN_REVIEW
+                reasons.append(
+                    f"confidence {primary.confidence:.2f} is below the auto threshold "
+                    f"{auto_at:.2f} for {primary.label!r}"
+                )
 
-    if blocks_to_person and rule_name is not None and outcome is Outcome.BLOCK:
+    was_block = rule_name is not None and outcome is Outcome.BLOCK
+    if blocks_to_person and was_block:
         # A pack from a registry not approved here, or recalled (`core/decision.py`): its own
         # rule's BLOCK, final at once and seen by nobody, goes to a person too.
         reasons.append(f"{blocks_to_person}: a person decides instead of its rule's BLOCK")
         outcome = Outcome.HUMAN_REVIEW
-    if community and rule_name is not None and outcome is Outcome.BLOCK:
+    if community and was_block:
         # A block is final at once and no person sees it; a community pack's rule never decides
         # alone (its load refuses such a rule; this covers a pack loaded by path).
         reasons.append(
             "a community pack (not clinically reviewed) never blocks on its own: a person decides"
         )
         outcome = Outcome.HUMAN_REVIEW
-    if translated and rule_name is not None and outcome is Outcome.BLOCK:
+    if translated and was_block:
         # A rule's BLOCK on an input read through a site's translation (LP-23i): a wrong
         # translation must reach a person, and a block is final at once and seen by nobody.
         reasons.append(
@@ -158,10 +159,13 @@ def apply_policy(
             "rule's BLOCK"
         )
         outcome = Outcome.HUMAN_REVIEW
-    if limits and rule_name is not None and outcome is Outcome.BLOCK:
+    if limits and was_block:
         # A rule's BLOCK on a list the EHR could not give whole: a person decides, as above.
         reasons.extend(f"{limit}: a person decides instead of its rule's BLOCK" for limit in limits)
         outcome = Outcome.HUMAN_REVIEW
+    if outcome is Outcome.AUTO and recommendation is None:
+        outcome = Outcome.ABSTAIN
+        reasons.append("automation requires a recommendation")
     if outcome is Outcome.AUTO:
         outcome = _cap(
             manifest,

@@ -32,10 +32,10 @@ from mendari.evals.result import MIN_POSITIVES, counted, false_automation, norma
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
 PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
-# The early scoreboard's page, where the reference packs' configurations on their public sets
-# are shown with every figure's interval and scope (a URL, so a card links it from anywhere).
-SCOREBOARD = "https://github.com/mendari-hq/mendari/blob/main/docs/grading/scoreboard.md"
 _COMPOSITES = ("any_of", "cascade", "vote")
+
+
+_DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
 
 
 def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
@@ -49,7 +49,12 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
             models = [m.split(":", 1)[1] for m in re.split(r" \+ | → ", model) if ":" in m]
         else:
             models = [model] if model else []
-        remote = [m for m in models if "@" not in m and m not in ("rules", "naive_bayes")]
+        remote = [
+            m
+            for m in models
+            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m)
+            and m not in ("rules", "naive_bayes", "criteria", "dosing")
+        ]
         parts.append(f"{slot}={info['variant']}" + (f" ({', '.join(remote)})" if remote else ""))
     return " · ".join(parts)
 
@@ -187,8 +192,7 @@ def preface() -> str:
         "listing order, not a ranking: those measured on this version of the pack, on records "
         f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
         "critical cases caught first and never accuracy alone; every other row follows, by "
-        f"configuration name. Mendari's [scoreboard]({SCOREBOARD}) shows its reference packs' "
-        "configurations on their public sets, each figure with its interval and scope."
+        "configuration name."
     )
 
 

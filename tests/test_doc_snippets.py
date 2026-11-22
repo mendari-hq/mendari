@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """The API examples have one source, `src/mendari/dashboard/snippets/*.sh` (`server/snippets.py`):
-the README shows their steps verbatim, their bodies are the packs' synthetic examples, and
+the API guide includes them whole, their bodies are the packs' synthetic examples, and
 `scripts/check_doc_snippets.py` (a CI step) runs them against a local server, in open mode and
 with a service key. These tests keep the copies equal and the scripts checkable; the CI step
-proves the calls work."""
+proves the calls work. The README's one call, a decision by the bundled demo agent, is made here
+on a test server."""
 
 from __future__ import annotations
 
@@ -14,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from mendari.core.pack import Pack
 from mendari.core.registry import discover
 from mendari.evals.pack_tests import load_cases
 from mendari.server import api_docs, snippets
+from mendari.server.app import create_app
 from mendari.server.snippets import Step
 from mendari.standards import cds_hooks
 
@@ -71,13 +74,33 @@ def test_a_malformed_step_header_is_refused(tmp_path: Path) -> None:
         snippets.load("x", tmp_path)
 
 
-def test_every_readme_curl_block_is_a_snippet_step() -> None:
-    """GitHub can't include a file, so the README keeps copies; each must be a step exactly."""
+def test_every_readme_curl_block_is_a_snippet_step_or_the_demo_agents_decision(
+    tmp_path: Path,
+) -> None:
+    """GitHub can't include a file, so a step the README copies must be the step exactly. Its
+    quickstart's own call asks the bundled demo agent for a decision on a local server: that one
+    is posted here as written, and answers what the README says it does."""
     texts = {step.text for step in STEPS}
     blocks = _curl_blocks(README)
-    assert len(blocks) >= 8  # the REST quickstart, sign-in, and FHIR in and out
-    for block in blocks:
-        assert block in texts, f"a README curl block is not a snippet step:\n{block}"
+    own = [block for block in blocks if block not in texts]
+    assert len(own) == 1, "a README curl block is neither a snippet step nor the quickstart's call"
+    (call,) = own
+    found = re.fullmatch(
+        r"curl -sS -X POST http://127\.0\.0\.1:8000(/api/packs/mendari/portal-message-agent/decide)"
+        r" \\\n  -H 'content-type: application/json' \\\n  -d '(\{.+\})'",
+        call,
+    )
+    assert found is not None, call
+    # The tests' search path is their fixtures (conftest); the README's is the bundled agent.
+    app = create_app(db_path=tmp_path / "readme.db", packs_paths=[ROOT / "agents"])
+    client = TestClient(app)
+    response = client.post(found.group(1), json=json.loads(found.group(2)))
+    assert response.status_code == 200, response.text
+    decision = response.json()
+    assert (decision["outcome"], decision["priority"]) == ("HUMAN_REVIEW", "urgent")
+    assert '`"outcome": "HUMAN_REVIEW"`, `"priority": "urgent"`' in README
+    assert client.get(f"/api/audit/{decision['id']}").status_code == 200
+    assert [item["id"] for item in client.get("/api/review").json()] == [decision["id"]]
 
 
 def test_the_curl_block_finder_sees_old_style_and_skips_vercel_curl() -> None:
@@ -128,13 +151,15 @@ def _body(step: Step) -> Any:
 
 
 def _packs() -> dict[str, Pack]:
-    return {pack.id: pack for pack in discover().packs}
+    """What a release serves: the bundled demo agent (the tests' own search path is fixtures)."""
+    return {pack.id: pack for pack in discover([ROOT / "agents"]).packs}
 
 
 def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
-    """A decide body is one of the pack's behaviour-test inputs, and the FHIR one is the API
+    """A decide body is one of the demo agent's behaviour-test inputs, and the FHIR one is the API
     reference's example: synthetic, and the same as what "Try it out" offers. The CDS hook's
-    prefetch is that example's patient and message, for the pack it is the example of."""
+    prefetch is that example's patient and message, for the agent it is the example of. Every
+    pack a body names is one a release serves."""
     packs = _packs()
     bodies = 0
     for step in STEPS:
@@ -163,11 +188,11 @@ def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
             assert body["prefetch"] == {"patient": patient, "communication": message}
             assert body["context"] == {"patientId": patient["id"], "communicationId": message["id"]}
             continue
-        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/(?:decide|guard)", path)
+        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/decide", path)
         assert pack_id is not None, f"{step.file}.sh {step.name}: a body for {path}"
         inputs = [case["input"] for case in load_cases(packs[pack_id.group(1)])]
         assert body in inputs, f"{step.file}.sh {step.name}: not one of the pack's examples"
-    assert bodies == 4  # the inbox's decision, the FHIR one, the CDS hook's and the AI Guard's
+    assert bodies == 3  # the demo agent's decision, the FHIR one and the CDS hook's
 
 
 def test_the_key_pass_skips_only_what_a_service_key_may_not_do() -> None:

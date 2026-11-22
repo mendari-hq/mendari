@@ -1,6 +1,6 @@
-# Evaluate a pack at your site
+# Evaluate an agent at your site
 
-A health system can measure how a published pack does on its own chart-reviewed cases, inside
+A health system can measure how a published agent does on its own chart-reviewed cases, inside
 its own environment, and share the result with a registry as signed counts
 ([ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)). No case, case id or
 dataset name leaves your machines, and nothing is shared that a registry could not check.
@@ -54,7 +54,7 @@ mendari eval acme/referral@1.2.0 --dataset reviewed-cases.jsonl --share
 
 `--share` does three things, in order:
 
-1. **Before the run it asks for a ticket**, signed with your key and bound to the pack's
+1. **Before the run it asks for a ticket**, signed with your key and bound to the agent's
    digest, the configuration, the dataset's size and a commitment to your dataset (an HMAC of
    the file under your secret: the registry can tell two runs on the same file apart from runs
    on different ones, and nobody can test a guessed dataset against it). A ticket lasts 30

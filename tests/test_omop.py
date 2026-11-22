@@ -117,7 +117,10 @@ def test_the_population_report_suppresses_small_cells() -> None:
 
 
 def test_a_dataset_evaluates_the_same_through_omop(tmp_path: Path) -> None:
-    source = Path(__file__).resolve().parents[1] / "packs/clinical-trial-prescreener/data"
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tests/fixtures/reference-packs/clinical-trial-prescreener/data"
+    )
     result = omop_check.run(source / "exclusions.jsonl", TRIAL)
     assert result["identical"] is True and result["cases"] == result["people"] > 0
 
@@ -125,7 +128,13 @@ def test_a_dataset_evaluates_the_same_through_omop(tmp_path: Path) -> None:
 def test_cases_it_gets_wrong_are_the_same_cases_through_omop() -> None:
     """The local-site example has misclassified and missed critical cases: each file keys its
     own case hashes, so the check compares them by id (CI's reference-pack job runs it)."""
-    local = Path(__file__).resolve().parents[1] / "datasets" / "trial-local-site-example.jsonl"
+    local = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "fixtures"
+        / "datasets"
+        / "trial-local-site-example.jsonl"
+    )
     result = omop_check.run(local, TRIAL)
     assert result["identical"] is True, result["differences"]
 

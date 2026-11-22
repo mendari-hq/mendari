@@ -166,7 +166,7 @@ def test_a_reserved_name_is_refused_in_words(site: Site) -> None:
         admin.get_by_label("Name", exact=True).fill(name)
         admin.get_by_role("button", name="Claim", exact=True).click()
         expect(admin.locator("#claim-error")).to_have_text(
-            f"“{name}” is reserved for Mendari's own packs. Choose another name."
+            f"“{name}” is reserved for Mendari's own agents. Choose another name."
         )
     expect(admin.locator('[data-table="namespaces"]')).to_have_count(0)
     # Nothing to mint for until a namespace is claimed: the tab says where to claim one.

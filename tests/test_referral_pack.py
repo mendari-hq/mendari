@@ -26,7 +26,7 @@ from mendari.standards import cds_hooks
 from tests.test_site_codes import mapped, maps_of
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "packs" / "referral-router"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "referral-router"
 CHECKLIST = ("recent_visit_note", "ecg_on_file", "imaging_on_file", "recent_labs", "marked_urgent")
 TODAY = date.today()
 LOINC = "http://loinc.org"

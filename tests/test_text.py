@@ -29,7 +29,11 @@ from mendari.providers.base import text_from
 from mendari.providers.naive_bayes import tokenize
 from tests.conftest import ROOT, message
 
-PACKS = sorted(path for path in (ROOT / "packs").iterdir() if (path / "pack.yaml").is_file())
+PACKS = sorted(
+    path
+    for path in (ROOT / "tests" / "fixtures" / "reference-packs").iterdir()
+    if (path / "pack.yaml").is_file()
+)
 
 CURLY = "\N{RIGHT SINGLE QUOTATION MARK}"  # a phone's apostrophe
 NO_BREAK = "\N{NO-BREAK SPACE}"  # a web form's space
@@ -203,7 +207,7 @@ def test_text_that_composing_would_lengthen_stays_as_it_is() -> None:
 def test_the_spec_lists_every_character_the_plain_form_writes_another_way() -> None:
     """Spec §5 names each by its code point (a pack author writes patterns by that list): the
     table's, and the zero-width space, which becomes a space."""
-    spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text(encoding="utf-8")
+    spec = (ROOT / "docs" / "spec" / "agent-manifest-0.2.md").read_text(encoding="utf-8")
     section = spec[spec.index("read it in its **plain form**") : spec.index("A newline stays a")]
     listed: set[int] = set()
     for first, last in re.findall(r"U\+([0-9A-F]{4})(?:\s+to\s+U\+([0-9A-F]{4}))?", section):
@@ -311,7 +315,9 @@ def test_the_classifier_reads_typographic_variants_as_the_same_words(inbox_pack:
     ],
 )
 def test_a_dose_is_read_however_its_range_and_spaces_are_typed(draft: str) -> None:
-    dosing = Decision.from_path(ROOT / "packs" / "ai-guard").providers["dosing"]
+    dosing = Decision.from_path(
+        ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"
+    ).providers["dosing"]
     answer = dosing.answer({"draft": draft}).answers["dose_exceeds_limit"]
     assert answer.label == "yes" and "1000 mg x 6 a day" in " ".join(answer.evidence)
 
@@ -460,7 +466,7 @@ def test_matched_as_received_the_same_retyping_hides_critical_cases(
     name, question, label, how = hidden
     monkeypatch.setattr(base, "plain", lambda text: text)
     monkeypatch.setattr(criteria, "plain", lambda text: text)
-    decision = Decision.from_path(ROOT / "packs" / name)
+    decision = Decision.from_path(ROOT / "tests" / "fixtures" / "reference-packs" / name)
 
     def detects(inputs: Any) -> bool:
         answer = decision.decide(inputs).answers.get(question)

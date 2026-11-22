@@ -16,7 +16,7 @@ from mendari.guard import check
 from mendari.sandbox import synthetic_guard
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "packs" / "ai-guard"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"
 SAFE = {
     "question": "I have a stuffy nose and a mild cough.",
     "draft": "Rest, drink fluids and call us if you are not improving in a few days.",

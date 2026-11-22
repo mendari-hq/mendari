@@ -28,8 +28,7 @@
     </a>
     <nav class="nav" aria-label="Main">
       <a href="/#how">How it works</a>
-      <a href="/#scores">Scores</a>
-      <a href="/#packs">Packs</a>
+      <a href="/#agents">Agents</a>
       <a class="button" href="/#start">Get started</a>
     </nav>
   </header>
@@ -38,7 +37,7 @@
     <p class="eyebrow">Legal</p>
     <h1>Terms of use</h1>
     <p class="draft">Draft, pending legal review. Not yet in effect. This text is a working draft for the project’s owner and counsel; it is not legal advice and creates no agreement. Words in brackets are facts still to be supplied.</p>
-    <p class="muted small">Last updated <time datetime="2026-11-10">10 November 2026</time>.</p>
+    <p class="muted small">Last updated <time datetime="2026-11-21">21 November 2026</time>.</p>
 
     <ul class="contents" aria-label="On this page">
       <li><a href="#cover">1. What these terms cover</a></li>
@@ -60,25 +59,25 @@
     <p>These terms are between you and <span class="placeholder">[legal entity name]</span> (“Mendari”, “we”). They cover the services we run:</p>
     <ul>
       <li>this website, <code>mendari.co</code>;</li>
-      <li>the hosted engine: the API and dashboard we run at <span class="placeholder">[addresses of the hosted services]</span>, where signed-in people try Decision Packs on synthetic data;</li>
-      <li>the pack registry and the Hub website that shows it, once they are open;</li>
+      <li>the hosted engine: the API and dashboard we run at <span class="placeholder">[addresses of the hosted services]</span>, where signed-in people try agents on synthetic data;</li>
+      <li>the agent registry and the Hub website that shows it, once they are open;</li>
       <li>any sandbox or demonstration we host.</li>
     </ul>
     <p>They do not cover the Mendari software itself. The software is open source, and its licence is separate: see <a href="#licence">section 7</a>. A copy of Mendari that you or your organization run on your own servers is yours to run, under that licence and your own agreements, not under these terms.</p>
     <p>Two other pages are part of these terms: the <a href="/privacy">privacy notice</a>, which says what the services collect, and the <a href="/acceptable-use">acceptable use policy</a>, which says what you may not do with them.</p>
 
     <h2 id="is-not">2. What Mendari is, and what it is not</h2>
-    <p>Mendari packages everyday decisions in healthcare operations, such as routing a patient’s message or checking a referral, as Decision Packs that can be tested and compared. It is a research preview.</p>
+    <p>Mendari governs AI agents that make everyday decisions in healthcare operations, such as routing a patient’s message or checking a referral, so that they can be tested and compared. It is a research preview.</p>
     <ul>
       <li><strong>Not a medical device.</strong> Mendari is not a medical device and makes no clinical claims.</li>
       <li><strong>Not medical advice.</strong> Nothing the services show or return is medical advice, a diagnosis or a treatment recommendation.</li>
       <li><strong>Not for patient care.</strong> The hosted services are for evaluation and development. Do not use anything they return to make a decision about a real patient.</li>
       <li><strong>Not for emergencies.</strong> The services are not monitored for emergencies. A patient with an emergency should call 911.</li>
-      <li><strong>Synthetic data.</strong> The demos, the reference packs, their data and their scores are synthetic. The hosted services are for synthetic data only.</li>
-      <li><strong>Packs are not clinically reviewed unless they say so.</strong> A pack is not clinically reviewed, and is not for patient care, unless its Decision Card states that it was reviewed, by whom and for what. A publisher’s type on the Hub (community, verified or institutional) says who publishes a pack. It does not say the pack is clinically validated.</li>
+      <li><strong>Synthetic data.</strong> The demos, the demo agent and its data are synthetic. The hosted services are for synthetic data only.</li>
+      <li><strong>Agents are not clinically reviewed unless they say so.</strong> An agent is not clinically reviewed, and is not for patient care, unless its Decision Card states that it was reviewed, by whom and for what. A publisher’s type on the Hub (community, verified or institutional) says who publishes an agent. It does not say the agent is clinically validated.</li>
       <li><strong>Scores are engineering evaluations.</strong> A score on synthetic data overstates real-world accuracy. It is a check that the software behaves as written, not clinical validation.</li>
     </ul>
-    <p>A pack’s outcome (automated, human review, abstained or blocked) is the output of software. You, and the qualified people in your organization, remain responsible for every decision.</p>
+    <p>An agent’s outcome (automated, human review, abstained or blocked) is the output of software. You, and the qualified people in your organization, remain responsible for every decision.</p>
 
     <h2 id="who">3. Who may use the services</h2>
     <p>You may use the services if you are at least <span class="placeholder">[minimum age]</span> years old and able to agree to these terms. If you use them for an organization, you confirm that you may agree for it, and “you” includes that organization.</p>
@@ -95,19 +94,19 @@
 
     <h2 id="data">5. What you put in</h2>
     <p><strong>Enter synthetic data only.</strong> Never enter a real patient’s name, record, message or details, or any other protected health information, into the hosted services. Business associate agreements for the hosted services: <span class="placeholder">[whether a business associate agreement is offered]</span>.</p>
-    <p>What you put in (cases, packs, labels, review notes) stays yours. You give us permission to store and process it as far as running the services for you needs, as the <a href="/privacy">privacy notice</a> describes. You confirm that you have the right to put it in, and that it contains no one’s personal or health information.</p>
+    <p>What you put in (cases, agents, labels, review notes) stays yours. You give us permission to store and process it as far as running the services for you needs, as the <a href="/privacy">privacy notice</a> describes. You confirm that you have the right to put it in, and that it contains no one’s personal or health information.</p>
     <p>If you find you have entered real patient data by mistake, tell us at once through the route in <a href="#law">section 13</a> so it can be removed.</p>
 
     <h2 id="registry">6. The registry and the Hub</h2>
-    <p>The registry keeps signed pack archives with versions that never change, and the Hub is the website that shows them. This section applies once they are open.</p>
+    <p>The registry keeps signed agent archives with versions that never change, and the Hub is the website that shows them. This section applies once they are open.</p>
     <ul>
       <li><strong>Publishing.</strong> You publish with a publisher token that belongs to you and your organization, to a namespace your organization holds. A token ends on its expiry date and can be revoked. A new namespace may wait for a reviewer’s approval before anything in it is listed.</li>
-      <li><strong>What is public.</strong> What you publish is public: the pack’s archive and its files, its name, namespace and versions, the licence and risk level you declare, your signing keys’ public halves, your publisher type, and the Decision Card and checks the registry computes from the pack. Publish nothing you are not free to make public, and never patient data.</li>
-      <li><strong>Your licence to others.</strong> You publish each pack under the licence its manifest names, and you confirm you have the right to. You also let us store, check, display and distribute it through the registry and the Hub.</li>
+      <li><strong>What is public.</strong> What you publish is public: the agent’s archive and its files, its name, namespace and versions, the licence and risk level you declare, your signing keys’ public halves, your publisher type, and the Decision Card and checks the registry computes from the agent. Publish nothing you are not free to make public, and never patient data.</li>
+      <li><strong>Your licence to others.</strong> You publish each agent under the licence its manifest names, and you confirm you have the right to. You also let us store, check, display and distribute it through the registry and the Hub.</li>
       <li><strong>Versions are permanent.</strong> A published version cannot be changed or replaced. You can recall a version you published; a recalled version stops being offered as the latest and stops automating on servers that read the registry, but stays available by its exact version with the recall’s reason.</li>
-      <li><strong>What we may do.</strong> We may review a pack, recall it, refuse it, or delete a version that must not be served (for example one that holds patient data, infringes someone’s rights or is unsafe), and we may change or remove a publisher type. The record of each of these acts is kept.</li>
+      <li><strong>What we may do.</strong> We may review an agent, recall it, refuse it, or delete a version that must not be served (for example one that holds patient data, infringes someone’s rights or is unsafe), and we may change or remove a publisher type. The record of each of these acts is kept.</li>
       <li><strong>The record.</strong> Every write to the registry (a publish, a key, a token made or revoked, a review, a recall, a deletion) is added to an append-only record that names who acted. That record is not edited or erased.</li>
-      <li><strong>Using a pack from the registry.</strong> A listing is not an endorsement. The registry shows what it checked apart from what the publisher claims. A pulled pack does not automate anything on a Mendari server until that server’s organization approves its exact version, and you must validate it on your own data before any use.</li>
+      <li><strong>Using an agent from the registry.</strong> A listing is not an endorsement. The registry shows what it checked apart from what the publisher claims. A pulled agent does not automate anything on a Mendari server until that server’s organization approves its exact version, and you must validate it on your own data before any use.</li>
     </ul>
 
     <h2 id="licence">7. The open-source licence and these terms</h2>
@@ -116,7 +115,7 @@
     <p>The Apache licence does not grant permission to use the Mendari name or marks, beyond describing where the software came from. Third-party material in the project keeps its own terms, listed in <code>NOTICE</code>.</p>
 
     <h2 id="contributions">8. Contributions</h2>
-    <p>Contributions to the project (code, documentation, packs) are made in its repository and follow its contribution guide, not these terms. In short:</p>
+    <p>Contributions to the project (code, documentation, agents) are made in its repository and follow its contribution guide, not these terms. In short:</p>
     <ul>
       <li>you license what you contribute under Apache-2.0, the same licence the project gives everyone;</li>
       <li>you sign off every commit, certifying the <a href="https://developercertificate.org" rel="noopener noreferrer">Developer Certificate of Origin</a>: that you wrote it or have the right to submit it. There is no separate contributor agreement;</li>
@@ -125,12 +124,12 @@
     </ul>
 
     <h2 id="models">9. Models and other providers</h2>
-    <p>A pack may answer its questions with a model run by someone else, such as a hosted language model. When a pack you run on the hosted services uses one, the fields of the case that the pack selects are sent to that provider. The <a href="/privacy">privacy notice</a> names the providers. This is one more reason to enter synthetic data only.</p>
+    <p>An agent may answer its questions with a model run by someone else, such as a hosted language model. When an agent you run on the hosted services uses one, the fields of the case that the agent selects are sent to that provider. The <a href="/privacy">privacy notice</a> names the providers. This is one more reason to enter synthetic data only.</p>
     <p>We do not control those providers’ models and do not promise what they return.</p>
 
     <h2 id="limits">10. Limits, suspension and ending</h2>
     <ul>
-      <li><strong>Limits.</strong> The services have rate limits and daily budgets, and safety limits on what a pack may automate. We may change them. The <a href="/acceptable-use">acceptable use policy</a> says more.</li>
+      <li><strong>Limits.</strong> The services have rate limits and daily budgets, and safety limits on what an agent may automate. We may change them. The <a href="/acceptable-use">acceptable use policy</a> says more.</li>
       <li><strong>A preview.</strong> The services may change, be unavailable, or stop, and data in them may be removed, with or without notice. Do not rely on them to keep the only copy of anything.</li>
       <li><strong>Suspension.</strong> We may suspend or end your access, revoke credentials, or recall or remove what you published, if you break these terms or the acceptable use policy, if your use puts the services or other people at risk, or if the law requires it.</li>
       <li><strong>Leaving.</strong> You may stop using the services at any time. Your organization’s administrators can remove your membership. Records in the audit trail and the registry’s record stay, as the <a href="/privacy">privacy notice</a> explains.</li>

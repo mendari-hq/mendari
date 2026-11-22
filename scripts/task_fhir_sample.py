@@ -3,8 +3,8 @@
 trail as served under `/fhir`, for the HL7 validator (CI job `fhir-conformance`), which checks
 them against Mendari's terminology (`--ig`).
 
-A throwaway store gets synthetic decisions from the inbox pack, its urgency screen run with an
-in-process Jev (`sample_jev`), so a routine message is automated:
+A throwaway store gets synthetic decisions from the test fixtures' portal-message agent, its
+urgency screen run with an in-process Jev (`sample_jev`), so a routine message is automated:
 
 - `task-reviewed-v1.json` … `-v3.json`: a HUMAN_REVIEW decision, overridden in review (version
   2), rated (no version), then given a downstream outcome (version 3);

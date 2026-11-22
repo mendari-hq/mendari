@@ -278,7 +278,15 @@ def first_input(path: Path) -> dict[str, Any]:
 def public_input() -> dict[str, Any]:
     """A reference pack's case that no generator makes (the red flags are written by hand), so
     only the bundled data refuses it."""
-    return first_input(ROOT / "packs" / "patient-inbox-router" / "data" / "red_flags.jsonl")
+    return first_input(
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "reference-packs"
+        / "patient-inbox-router"
+        / "data"
+        / "red_flags.jsonl"
+    )
 
 
 def shouted(value: dict[str, Any]) -> dict[str, Any]:
@@ -414,7 +422,7 @@ def test_the_bundled_data_is_refused_without_the_generators(
     ):
         monkeypatch.setattr(generator, "public_splits", lambda: {})
         monkeypatch.setattr(generator, "local_site", lambda: [])
-    example = first_input(ROOT / "datasets" / "local-site-example.jsonl")
+    example = first_input(ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl")
     evalsets_module._public_forms.cache_clear()
     try:
         for value in (public_input(), shouted(public_input()), example):
@@ -972,7 +980,11 @@ def test_a_cases_file_in_the_package_or_a_checkout_is_refused(
     refused = "kept outside Mendari's package and any checkout"
     for path in (
         inside,
-        ROOT / "datasets" / "local-site-example.jsonl",  # this repository's checkout
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "datasets"
+        / "local-site-example.jsonl",  # this repository's checkout
     ):
         code, _, err = run(capsys, "evalset", "add", str(uuid.uuid4()), str(path), "--db", db)
         assert code == 1 and refused in err, path

@@ -1255,6 +1255,32 @@ class AuditStore(RateBuckets):
                 "then run this again (`mendari audit verify` reads it as it is)"
             )
 
+    def _protected_on(
+        self, db: _Session, marks: bool = True, *, bind_org: bool = False
+    ) -> tuple[str | None, bool]:
+        if "settings" in self.unmigrated:
+            return None, False
+        if marks and self.phi.mode != "off":
+            _mark(db, PROTECTED, self.phi.mode)
+        if marks and self.phi.mode == "encrypt":
+            taken = _evalset_marked(db, self.phi.ring_ids)
+            for known in sorted(self.phi.ring_ids - taken):
+                _mark(db, KNOWN + known, _now())
+            if self.phi.read_keys:
+                _mark(db, PHI_TOKENS_V2, "1")
+        if marks and bind_org:
+            _mark(db, ORG_BOUND, _now())
+        found = {
+            row["name"]: str(row["value"])
+            for row in db.all(
+                "SELECT name, value FROM settings WHERE name IN (?, ?, ?)",
+                (PROTECTED, PHI_TOKENS_V2, ORG_BOUND),
+            )
+        }
+        if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
+            self.phi = replace(self.phi, tag_tokens=True)
+        return found.get(PROTECTED), ORG_BOUND in found
+
     def _protected(self, marks: bool = True, *, bind_org: bool = False) -> tuple[str | None, bool]:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
         (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
@@ -1267,26 +1293,7 @@ class AuditStore(RateBuckets):
         if "settings" in self.unmigrated:
             return None, False  # an older database, read as it is: nothing marked it
         with self._db.session(exclusive=False) as db:
-            if marks and self.phi.mode != "off":
-                _mark(db, PROTECTED, self.phi.mode)
-            if marks and self.phi.mode == "encrypt":
-                taken = _evalset_marked(db, self.phi.ring_ids)
-                for known in sorted(self.phi.ring_ids - taken):
-                    _mark(db, KNOWN + known, _now())
-                if self.phi.read_keys:
-                    _mark(db, PHI_TOKENS_V2, "1")
-            if marks and bind_org:
-                _mark(db, ORG_BOUND, _now())
-            found = {
-                row["name"]: str(row["value"])
-                for row in db.all(
-                    "SELECT name, value FROM settings WHERE name IN (?, ?, ?)",
-                    (PROTECTED, PHI_TOKENS_V2, ORG_BOUND),
-                )
-            }
-        if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
-            self.phi = replace(self.phi, tag_tokens=True)
-        return found.get(PROTECTED), ORG_BOUND in found
+            return self._protected_on(db, marks=marks, bind_org=bind_org)
 
     def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
         """A payload as chained: with the organization of the row it is about (`org`, which the
@@ -1439,6 +1446,18 @@ class AuditStore(RateBuckets):
             self._append(db, KEYS_CHAIN, "input_hash.epoch", {"key_id": current})
         return current
 
+    def _refuse_plaintext(self, db: _Session) -> None:
+        if self.phi.mode != "off":
+            return
+        if self.protected is None:
+            self.protected = self._protected_on(db)[0]
+        if self.protected:
+            raise MendariError(
+                f"This database is protected (first kept under PHI mode {self.protected}): run "
+                "with the deployment's PHI mode, hash or encrypt, and its keys. A protected "
+                "database never takes plaintext again."
+            )
+
     def refuse_plaintext(self) -> None:
         """Mode `off` keeps no input text (an input in its record, a note) in a database a
         protected mode kept: the server refuses to start so, and a decision or a write here
@@ -1500,6 +1519,8 @@ class AuditStore(RateBuckets):
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
         org = tenancy.current() or tenancy.DEFAULT_ORG  # the row's, and its events' when bound
         with self._db.session(exclusive=True) as db:
+            if in_record:
+                self._refuse_plaintext(db)
             if keep and self.phi.mode == "encrypt":
                 self._refuse_retired(db)
             epoch = self._mark_hash_epoch(db) if self.phi.hash_key else None
@@ -2132,7 +2153,7 @@ class AuditStore(RateBuckets):
         """Keep a note in the session that chains its event; its `note_ref`, or None."""
         if text is None:
             return None
-        self.refuse_plaintext()  # under `off` a note is kept as it is
+        self._refuse_plaintext(db)  # under `off` a note is kept as it is (on the open session)
         if self.phi.mode == "encrypt":
             self._refuse_retired(db)
         note_id = note_id or str(uuid.uuid4())
@@ -2933,7 +2954,9 @@ class AuditStore(RateBuckets):
                 params.append(value)
         where = f"WHERE {' AND '.join(clauses)}"
         order = (
-            f"{_PRIORITY_ORDER}, created_at" if review_status == "pending" else "created_at DESC"
+            f"{_PRIORITY_ORDER}, created_at, id"
+            if review_status == "pending"
+            else "created_at DESC, id DESC"
         )
         with self._db.session(exclusive=False) as db:
             rows = db.all(

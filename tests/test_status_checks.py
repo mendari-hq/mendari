@@ -31,6 +31,10 @@ from tests.conftest import ROOT
 from tests.test_auth import FakeIdp, key_for, signing_in_with
 from tests.test_readiness import break_sqlite
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+# The bundled demo agent the status check decides with, beside the tests' fixture agents.
+SERVED = [ROOT_DIR / "agents", ROOT_DIR / "tests" / "fixtures" / "reference-packs"]
+
 KEY = "STATUS_DECIDE_KEY"
 
 
@@ -60,6 +64,7 @@ def test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_f
     checks = script()
     monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
     idp = FakeIdp()
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "agents"))  # the agent it decides with
     with signing_in_with(idp, tmp_path, monkeypatch) as site:
         key = key_for(site, idp)
         clients = {"api": site, "registry": elsewhere(200), "hub": elsewhere(200)}
@@ -91,7 +96,9 @@ def test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_f
 
 def test_a_check_is_skipped_without_its_base_its_key_or_sign_in(tmp_path: Path) -> None:
     checks = script()
-    site = TestClient(create_app(db_path=tmp_path / "a.db"))  # open mode: no sign-in
+    site = TestClient(
+        create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
+    )  # open mode: no sign-in
     results = checks.run(checks.load(), {"api": str(site.base_url)}, lambda base: site, {})
     assert outcomes(results) == {
         "readiness": "ok",
@@ -127,7 +134,7 @@ def test_sign_in_is_skipped_when_health_does_not_say(tmp_path: Path) -> None:
     """Open mode in an outage: /api/health reads the database there and fails, so whether
     sign-in is on is not known; the check says so rather than failing."""
     checks = script()
-    app = create_app(db_path=tmp_path / "a.db")
+    app = create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
     break_sqlite(tmp_path / "a.db", "garbage")
     site = TestClient(app, raise_server_exceptions=False)
     results = checks.run(checks.load(), {"api": str(site.base_url)}, lambda base: site, {})
@@ -333,7 +340,9 @@ def test_the_body_keyword_is_in_a_real_decision_and_not_in_an_answer_without_one
 ) -> None:
     checks = script()
     (entry,) = [e for e in checks.export(checks.load(), {"api": API})[0] if e["name"] == "decide"]
-    site = TestClient(create_app(db_path=tmp_path / "a.db"))  # open mode: no key needed
+    site = TestClient(
+        create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
+    )  # open mode: no key needed
     answer = site.post(entry["url"].removeprefix(API), json=entry["json_body"])
     assert answer.status_code == 200 and entry["body_keyword"] in answer.text
     assert entry["body_keyword"] not in json.dumps({"id": "d1", "note": "outcome"})
@@ -418,7 +427,9 @@ def test_the_registry_check_reads_the_mounted_registry(
         monkeypatch.setenv("MENDARI_REGISTRY", "on")
     else:
         monkeypatch.delenv("MENDARI_REGISTRY", raising=False)
-    app = create_app(db_path=tmp_path / "a.db")  # open mode: the registry needs no sign-in
+    app = create_app(
+        db_path=tmp_path / "a.db", packs_paths=SERVED
+    )  # open mode: the registry needs no sign-in
     try:
         with TestClient(app) as site:
             api = str(site.base_url)

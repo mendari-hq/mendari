@@ -1,19 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from "next/link";
-import { RISK_WORDS, search, type PackSummary } from "@/lib/registry";
+import { RegistryUnavailable, RISK_WORDS, search, type PackSummary } from "@/lib/registry";
+
+import { SearchBar } from "./search-bar";
 
 export const dynamic = "force-dynamic";
 
 type Params = { q?: string; risk?: string; standard?: string; publisher_type?: string };
 
+const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
+
 export default async function Home({ searchParams }: { searchParams: Promise<Params> }) {
   const filters = await searchParams;
-  const packs = await search(filters);
+  let packs: PackSummary[] = [];
+  let unavailable = false;
+  try {
+    packs = await search(filters);
+  } catch (error) {
+    if (error instanceof RegistryUnavailable) unavailable = true;
+    else throw error;
+  }
   const filtered = Boolean(filters.q || filters.risk || filters.standard || filters.publisher_type);
   const filterKey = `${filters.q ?? ""}|${filters.risk ?? ""}|${filters.standard ?? ""}|${filters.publisher_type ?? ""}`;
-  const verifiedCount = packs.filter(
-    (item) => item.checked.publisher_type === "verified" || item.checked.publisher_type === "institutional",
-  ).length;
+  const verifiedPublishers = new Set(
+    packs
+      .filter((item) => item.checked.publisher_type === "verified" || item.checked.publisher_type === "institutional")
+      .map((item) => item.namespace),
+  ).size;
   const standardsCount = new Set(packs.flatMap((item) => item.standards)).size;
 
   return (
@@ -33,15 +46,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <dl className="hero-metrics" aria-label="Registry summary">
                 <div className="hero-metric">
                   <dt>{filtered ? "Matching agents" : "Published agents"}</dt>
-                  <dd>{packs.length}</dd>
+                  <dd>{unavailable ? "—" : packs.length}</dd>
                 </div>
                 <div className="hero-metric">
                   <dt>Verified publishers</dt>
-                  <dd>{verifiedCount}</dd>
+                  <dd>{unavailable ? "—" : verifiedPublishers}</dd>
                 </div>
                 <div className="hero-metric">
                   <dt>EHR standards</dt>
-                  <dd>{standardsCount}</dd>
+                  <dd>{unavailable ? "—" : standardsCount}</dd>
                 </div>
               </dl>
             </div>
@@ -53,8 +66,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <pre>
                 <code>
                   <span className="comment"># Hospital IT: pull &amp; shadow-test locally</span>{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/referral-router{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/referral-router --dataset your-cases.jsonl{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/portal-message-agent{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/portal-message-agent --dataset your-cases.jsonl{"\n"}
                   <span className="comment"># AI Builders: wrap an agent &amp; publish scorecard</span>{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari new --agent my-agent --id my-org/my-agent{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari push my-agent --key keys/publisher.key
@@ -64,48 +77,28 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
           </div>
 
           <div className="search-shell">
-            <form key={filterKey} className="search" role="search" action="/">
-              <label>
-                Search agents
-                <input name="q" type="search" defaultValue={filters.q ?? ""} placeholder="referral, prior authorization, triage…" />
-              </label>
-              <label>
-                Risk level
-                <select name="risk" defaultValue={filters.risk ?? ""}>
-                  <option value="">Any</option>
-                  {[0, 1, 2, 3, 4].map((level) => (
-                    <option key={level} value={level}>{level}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Standard
-                <select name="standard" defaultValue={filters.standard ?? ""}>
-                  <option value="">Any</option>
-                  <option value="FHIR">FHIR R4</option>
-                  <option value="CDS Hooks">CDS Hooks</option>
-                </select>
-              </label>
-              <label>
-                Publisher
-                <select name="publisher_type" defaultValue={filters.publisher_type ?? ""}>
-                  <option value="">Any</option>
-                  <option value="verified">Verified</option>
-                  <option value="institutional">Institutional</option>
-                  <option value="community">Community</option>
-                </select>
-              </label>
-              <div className="search-actions">
-                <button type="submit">Search</button>
-                {filtered ? <Link href="/" className="clear-filters">Clear</Link> : null}
-              </div>
-            </form>
+            <SearchBar
+              filterKey={filterKey}
+              q={filters.q}
+              risk={filters.risk}
+              standard={filters.standard}
+              publisherType={filters.publisher_type}
+              filtered={filtered}
+            />
           </div>
         </div>
       </section>
 
       <section className="wrap catalog-section">
-        {packs.length ? (
+        {unavailable ? (
+          <div className="empty-state" role="alert">
+            <p className="section-kicker">Registry temporarily unreachable</p>
+            <p className="empty">
+              The Hub couldn&apos;t load the live catalog right now. You can still pull known agents via the CLI above, or{" "}
+              <Link href="/">reload the catalog</Link>.
+            </p>
+          </div>
+        ) : packs.length ? (
           <>
             <div className="catalog-bar">
               <h2 className="sr-only">Published agents</h2>
@@ -164,22 +157,33 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
 function PackCard({ item }: { item: PackSummary }) {
   const starterLabel =
     item.namespace === "mendari"
-      ? item.name === "patient-inbox-router"
+      ? item.name === "portal-message-agent"
         ? "Demo agent"
         : "Starter template"
+      : null;
+
+  const publisherBadgeClass =
+    item.checked.publisher_type && PUBLISHER_BADGE.has(item.checked.publisher_type)
+      ? item.checked.publisher_type
       : null;
 
   return (
     <li className="card">
       <div className="card-top">
         <div className="card-heading">
-          <h3><Link href={`/packs/${item.namespace}/${item.name}`}>{item.pack_name}</Link></h3>
+          <h3>
+            <Link href={`/packs/${encodeURIComponent(item.namespace)}/${encodeURIComponent(item.name)}`}>
+              {item.pack_name}
+            </Link>
+          </h3>
           <p className="card-id mono muted">{item.id}@{item.version}</p>
         </div>
         <div className="card-badges">
           {starterLabel ? <span className="badge demo-tag">{starterLabel}</span> : null}
           {item.checked.publisher_type ? (
-            <span className={`badge ${item.checked.publisher_type}`}>{item.checked.publisher_type}</span>
+            <span className={publisherBadgeClass ? `badge ${publisherBadgeClass}` : "badge"}>
+              {item.checked.publisher_type}
+            </span>
           ) : null}
           <span
             className={`badge risk-${item.claimed.risk.level}`}

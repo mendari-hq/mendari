@@ -231,7 +231,7 @@ def check_text(
         named = [name for name, pattern in patterns.items() if pattern.search(sentence)]
         if named:
             current = named
-        elif len(current) == 1 and _AMOUNT.search(sentence):
+        elif len(current) == 1 and (_AMOUNT.search(sentence) or _COUNT_ONLY.search(sentence)):
             named = current
         for name in named:
             finding = _check_sentence(name, table.medicines[name], sentence)

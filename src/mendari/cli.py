@@ -1041,14 +1041,26 @@ def _read_store(target: str, *, phi: Any = None) -> AuditStore:
         raise
 
 
+_LIBPQ_SECRET = re.compile(
+    r"(?i)\b(password|pass|passwd|sslpassword)\s*=\s*(?:'(?:\\.|[^'])*'|\S+)"
+)
+
+
 def _shown(target: str) -> str:
-    """A database target as it is printed: a URL without its password, anywhere in it."""
+    """A database target as it is printed: a URL or libpq DSN without its password."""
     if "://" not in target:
-        return target
+        return _LIBPQ_SECRET.sub(r"\1=***", target)
     parts = urlsplit(target)
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc = f"{netloc}:{parts.port}"
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = host
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port:
+        netloc = f"{netloc}:{port}"
     if parts.username:
         netloc = f"{parts.username}@{netloc}"
     query = "&".join(
@@ -1551,12 +1563,28 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
 
 
 SANDBOX_KINDS = {
-    # kind: (default pack directory, default local-site output)
-    "inbox": ("packs/patient-inbox-router", "datasets/local-site-example.jsonl"),
-    "trial": ("packs/clinical-trial-prescreener", "datasets/trial-local-site-example.jsonl"),
-    "referral": ("packs/referral-router", "datasets/referral-local-site-example.jsonl"),
-    "prior-auth": ("packs/prior-auth-preflight", "datasets/prior-auth-local-site-example.jsonl"),
-    "guard": ("packs/ai-guard", "datasets/guard-local-site-example.jsonl"),
+    # kind: (default agent directory, default local-site output). The synthetic EHR's agents
+    # are test fixtures; the sandbox (docker-compose.yml) mounts them.
+    "inbox": (
+        "tests/fixtures/reference-packs/patient-inbox-router",
+        "tests/fixtures/datasets/local-site-example.jsonl",
+    ),
+    "trial": (
+        "tests/fixtures/reference-packs/clinical-trial-prescreener",
+        "tests/fixtures/datasets/trial-local-site-example.jsonl",
+    ),
+    "referral": (
+        "tests/fixtures/reference-packs/referral-router",
+        "tests/fixtures/datasets/referral-local-site-example.jsonl",
+    ),
+    "prior-auth": (
+        "tests/fixtures/reference-packs/prior-auth-preflight",
+        "tests/fixtures/datasets/prior-auth-local-site-example.jsonl",
+    ),
+    "guard": (
+        "tests/fixtures/reference-packs/ai-guard",
+        "tests/fixtures/datasets/guard-local-site-example.jsonl",
+    ),
 }
 
 
@@ -2709,7 +2737,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
     if pack.bounded:
         print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
     else:
-        print("  runs on the maintained engine: a copy of the reference pack in this release")
+        print("  runs on the maintained engine: a copy of an agent this release bundles")
     print(
         "  served, it never automates until your organization approves this digest "
         "(POST /api/registry-approvals); `mendari test` and `eval` check its own policy"
@@ -3427,9 +3455,11 @@ COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_
 # Laid over TEMPLATE by `mendari new --agent`: an AI agent pack with an offline mock fixture.
 AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
-AUTHORING_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md"
+AUTHORING_GUIDE = (
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
+)
 COMMUNITY_GUIDE = (
-    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md"
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md"
 )
 
 
@@ -3437,7 +3467,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
     With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
     also passes `mendari community-check`, its benchmark and card written.
-    With `--agent`, an AI agent Decision Pack with an offline mock fixture that switches to a
+    With `--agent`, an AI agent with an offline mock fixture that switches to a
     live agent endpoint when `MENDARI_AGENT_URL` is set."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
@@ -3464,7 +3494,17 @@ def cmd_new(args: argparse.Namespace) -> int:
     if not _PACK_ID.match(pack_id):
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
     name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
-    values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    raw_values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    yaml_values = {
+        "{{id}}": pack_id,
+        "{{name}}": json.dumps(name, ensure_ascii=False),
+        "{{publisher}}": json.dumps(args.publisher, ensure_ascii=False),
+    }
+    placeholder_re = re.compile("|".join(re.escape(k) for k in raw_values))
+
+    def fill(text: str, values: dict[str, str]) -> str:
+        return placeholder_re.sub(lambda match: values[match.group(0)], text)
+
     if args.community:
         templates = [TEMPLATE, COMMUNITY_TEMPLATE]
     elif args.agent:
@@ -3475,9 +3515,8 @@ def cmd_new(args: argparse.Namespace) -> int:
         for source in sorted(template.rglob("*")):
             if not source.is_file():
                 continue
-            text = source.read_text(encoding="utf-8")
-            for placeholder, value in values.items():
-                text = text.replace(placeholder, value)
+            values = yaml_values if source.suffix in (".yaml", ".yml") else raw_values
+            text = fill(source.read_text(encoding="utf-8"), values)
             destination = target / source.relative_to(template)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(text, encoding="utf-8")
@@ -3545,7 +3584,17 @@ def cmd_community_check(args: argparse.Namespace) -> int:
 def cmd_demo(args: argparse.Namespace) -> int:
     from mendari.sandbox.demo import run_demo
 
-    run_demo(datasets_dir=example_datasets_dir())
+    run_demo()
+    return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from mendari.core.phi import phi_policy
+    from mendari.mcp import McpServer, serve
+
+    # Decisions are recorded under the PHI mode set here, as `mendari decide --db` records them.
+    with AuditStore(args.db or ":memory:", phi=phi_policy()) as store:
+        serve(McpServer(store), sys.stdin, sys.stdout)
     return 0
 
 
@@ -3633,7 +3682,7 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="mendari", description="Package, evaluate and deploy healthcare Decision Packs."
+        prog="mendari", description="Evaluate, govern and deploy healthcare AI agents."
     )
     parser.add_argument("--version", action="version", version=f"mendari {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -3959,7 +4008,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         action="append",
         metavar="SLOT=VARIANT",
-        help="instead of $MENDARI_PROVIDERS; with Jev set up, the reference packs run Mendari + "
+        help="instead of $MENDARI_PROVIDERS; with Jev set up, the bundled agents run Mendari + "
         "Jev in every slot these choose nothing for",
     )
     serve.add_argument(
@@ -4184,9 +4233,11 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(
         dest="sandbox_command", required=True
     )
-    generate = sandbox.add_parser("generate", help="regenerate a reference pack's synthetic data")
+    generate = sandbox.add_parser(
+        "generate", help="regenerate a test-fixture agent's synthetic data"
+    )
     generate.add_argument("--kind", choices=sorted(SANDBOX_KINDS), default="inbox")
-    generate.add_argument("--pack-dir", help="default: the kind's reference pack")
+    generate.add_argument("--pack-dir", help="default: the kind's agent in the test fixtures")
     generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
     generate.set_defaults(handler=cmd_sandbox_generate)
     seed = sandbox.add_parser("seed", help="load synthetic cases into FHIR as US Core resources")
@@ -4201,7 +4252,7 @@ def build_parser() -> argparse.ArgumentParser:
             "mendari/prior-auth-preflight",
             "ehr-profile",
         ],
-        help="whose local-site cases (default: the inbox's messages), or ehr-profile: the "
+        help="whose local-site cases (default: portal messages), or ehr-profile: the "
         "vendor-shaped EHR profile (LP-23e), under its own ids (--count does not apply)",
     )
     seed.add_argument("--count", type=int, default=40)
@@ -4276,7 +4327,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="the v0.6 pilot: sign-in, API keys, PHI mode, review, governance, monitoring",
     )
     pilot.add_argument("--engine", required=True, help="engine URL (its MENDARI_PUBLIC_URL)")
-    pilot.add_argument("--messages", type=int, default=12, help="inbox messages to decide")
+    pilot.add_argument("--messages", type=int, default=12, help="portal messages to decide")
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
     payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
     payer.add_argument("--host", default="127.0.0.1")
@@ -5048,6 +5099,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo
     )
+    mcp = sub.add_parser(
+        "mcp",
+        help="serve governed decisions to other AI agents as MCP tools (stdio)",
+        description="A Model Context Protocol server on stdin/stdout: list_agents, decide, "
+        "review_queue and verify_audit. Every decide call runs under the agent's policy and is "
+        "written to the audit trail.",
+    )
+    mcp.add_argument("--db", help="audit database to record decisions in (default: in memory)")
+    mcp.set_defaults(handler=cmd_mcp)
     return parser
 
 
@@ -5077,7 +5137,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BrokenPipeError:
         # The reader of the output closed it (`mendari audit export | head`): not an error.
         # Later writes go nowhere, so the interpreter's own flush at exit stays silent.
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
         return 141
     except Exception as error:
         if debug:

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Publish the five reference packs to a registry (local development, CI, the clean-machine check).
+"""Publish the agents on the search path to a registry (local development, CI, the clean-machine
+check).
 
 As the registry's operator, on its database (`--db`, as `mendari registry ...` acts; there is no
 shared administrator token since LP-19g): claims the `mendari` namespace for the `mendari`
@@ -9,7 +10,7 @@ namespace, and records it as a verified publisher. Prints the token and key id; 
 it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
 community publisher, a pack whose text tries to run a script and a `javascript:` link (the
 Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
-(LP-22) evaluate the Referral Router on its synthetic test cases and share signed counts, so
+(LP-22) evaluate the demo agent on its synthetic test cases and share signed counts, so
 the Hub's Site evidence section has something to show.
 
     uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db
@@ -35,6 +36,7 @@ from mendari.hub.registry import REVIEWER, RegistryStore
 
 OPERATOR = "operator (scripts/hub_seed.py)"  # who the chain names for what this script does
 
+DEMO_AGENT = "mendari/portal-message-agent"  # the agent this release bundles (agents/)
 HOSTILE_ID = "hub-test/hostile-text"
 # Publisher text that would run in a page that rendered it as HTML.
 HOSTILE_SCRIPT = "<script>window.__hostile = 1</script>"
@@ -89,7 +91,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
     private, public = archive.generate_key()
     key = archive.load_private_key(private)
-    inbox = resolve_pack("mendari/patient-inbox-router")
+    inbox = resolve_pack(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
@@ -139,7 +141,7 @@ SITES = (
 
 def sites_example(registry: str, store: RegistryStore) -> None:
     """Two synthetic sites, registered and verified by the operator, each with a key made here
-    (thrown away after), share a signed evaluation of the Referral Router on the first cases of
+    (thrown away after), share a signed evaluation of the demo agent on the first cases of
     its synthetic test split (LP-22): a ticket, the run, the signed counts."""
     from mendari.core.decision import Decision
     from mendari.evals import resolve_dataset
@@ -147,7 +149,7 @@ def sites_example(registry: str, store: RegistryStore) -> None:
     from mendari.evals.share import shareable
     from mendari.hub import site_signing
 
-    pack = resolve_pack("mendari/referral-router")
+    pack = resolve_pack(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch, RegistryClient(registry) as client:
         for org, name, cases in SITES:
             record = store.register_site(org=org, name=name, by=OPERATOR, reason="seeded")
@@ -161,13 +163,14 @@ def sites_example(registry: str, store: RegistryStore) -> None:
             )
             site = site_signing.Site(where)
             dataset = resolve_dataset(pack, "test").head(cases)
-            report = shareable(evaluation(Decision(pack), dataset).ledger)
+            # The agent is a provider off the site's machines: the site consents to that.
+            report = shareable(evaluation(Decision(pack), dataset).ledger, remote_consent=True)
             request = site.sign(
                 site_signing.TICKET_REQUEST,
                 {
                     "pack": report["pack"],
                     "configuration": {s: p["variant"] for s, p in report["providers"].items()},
-                    "remote_consent": False,
+                    "remote_consent": True,
                     "commitment": site.commitment(f"{org}:{cases}".encode()),
                     "n": report["dataset"]["n"],
                 },
@@ -196,7 +199,7 @@ def main() -> int:
     parser.add_argument(
         "--sites",
         action="store_true",
-        help="also have two synthetic sites share signed counts of the Referral Router",
+        help="also have two synthetic sites share signed counts of the demo agent",
     )
     args = parser.parse_args()
     with RegistryStore(args.db) as store:
@@ -205,7 +208,7 @@ def main() -> int:
 
 
 def seed(args: argparse.Namespace, store: RegistryStore) -> None:
-    token = namespace(store, args.namespace, "Mendari reference packs")
+    token = namespace(store, args.namespace, "Mendari")
     hostile = (
         namespace(store, HOSTILE_ID.split("/")[0], "Hub test publisher")
         if args.hostile_example

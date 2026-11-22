@@ -167,8 +167,8 @@ Each bullet is one control; the threat model names the row and the tests behind 
 - **Rate limits and quotas.** Two layers. In the app (`MENDARI_RATE_LIMITS`: `on` by default
   with sign-in, `off` in open mode, `log` to count without refusing), the costly routes are
   limited per caller (decisions 600 a minute with bursts of 100 at every entry point, each
-  draft order of a CDS Hooks order hook one decision and at most 50 a request; the AI guard 60
-  a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
+  draft order of a CDS Hooks order hook one decision and at most 50 a request; the guard route
+  60 a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
   bursts of 120, never below the edge's limit: a hospital signs in from one address), the token
   endpoint per address (60 a minute), and failed assertions per address and client (10 in 10
   minutes),
@@ -268,17 +268,17 @@ webhooks.
 
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
 running it: installing a pack means trusting its author, as with any plugin. The patterns of the
-packs a deployment owns (the reference packs, and its own local packs) run on Python `re` with
-no time limit, so such a pack can slow or stall a worker; on `re`, a crafted 10,000-character
-message to the inbox pack can hold the interpreter for about 0.55 s (the rate limits bound how
-often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
+packs a deployment owns (the agents bundled with the release, and its own local packs) run on
+Python `re` with no time limit, so such a pack can slow or stall a worker; on `re`, a crafted
+10,000-character message against a pattern that backtracks can hold the interpreter (the rate
+limits bound how often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
 deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
 reference back to itself but a recursive list's or tree's. Packs the deployment does not own run
 on the community engine instead
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)):
-community packs, and packs pulled from a registry unless one is a copy of a reference pack of
+community packs, and packs pulled from a registry unless one is a copy of an agent bundled with
 the installed release, chosen by the digest of its files, never by its manifest or the registry.
-A pack from a registry never takes a reference pack's place: one with a reference pack's id and
+A pack from a registry never takes a bundled agent's place: one with a bundled agent's id and
 version but other files is refused at publish, pull and load. Their patterns run on RE2, which
 never backtracks, within caps, input limits and a CPU budget per decision (below), in the
 server's process: there is no isolated worker process. To trust a pulled pack, copy it into
@@ -306,7 +306,7 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   whose registry it could not read for a day. A decision for one of the registry's packs starts
   that read once the last is five minutes old (unless set), and it and any made while the read
   runs use the list read before; a hold stops a pack within seconds. Nothing in a pack lifts
-  this, a copy of a reference pack included. The runbook is
+  this, a copy of a bundled agent included. The runbook is
   [`docs/operations/registry.md`](docs/operations/registry.md).
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.
@@ -349,11 +349,11 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   memory. `mendari pull` (and `Decision.from_hub`) builds no cache path from what the registry
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
-  outside the cache. Nor can a pulled pack take a reference pack's place: one with the id of a
+  outside the cache. Nor can a pulled pack take a bundled agent's place: one with the id of a
   pack this release bundles and a version equal to its (`0.4.1-x` and `0.04.1` are `0.4.1`), but
   other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
   refuses it before it is cached, and one cached before is listed under `/api/health`
-  `invalid`, with the directory to remove, while the reference pack is served.
+  `invalid`, with the directory to remove, while the bundled agent is served.
 - A pack cannot reach another pack's CQL. The engine at `MENDARI_CQL_URL` is shared, so a pack's
   library is uploaded under a resource id and a declared name that end in a hash of the pack id
   and of the library's text: a library that declares another pack's library name and version
@@ -425,11 +425,11 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
 
 Outside developers contribute packs by pull request, into `community-packs/<name>/` with the id
 `community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-packs-by-pull-request.md); the
-contributor's guide is [`docs/guides/contributing-a-pack.md`](docs/guides/contributing-a-pack.md)).
+contributor's guide is [`docs/guides/contributing-an-agent.md`](docs/guides/contributing-an-agent.md)).
 They are not clinically reviewed, so the runtime limits what they can do, whatever their
 manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
 the patterns on RE2 with their caps and budget, also hold every pack pulled from a registry
-that is not a copy of a reference pack of the installed release
+that is not a copy of an agent bundled with the installed release
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md),
 threat model D8 and S15): they are the limits of community and registry packs. The others are
 the community packs' alone: a pulled pack is labelled "From a registry", and it automates
@@ -516,7 +516,7 @@ threat, its mitigation and the test that checks it. The CI job `security` runs:
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail (the
   rate limits run in `log` mode there, so the scan is counted, not refused).
 
-The job `hub-site` builds the Hub website against a registry holding the five reference packs
+The job `hub-site` builds the Hub website against a registry holding the bundled agent
 and one whose text tries to run a script (`scripts/hub_seed.py --hostile-example`), runs its
 Playwright tests (every page's headers by exact value, the publisher's text shown as text),
 then an OWASP ZAP baseline scan of every page (the pinned image), where medium and high risks

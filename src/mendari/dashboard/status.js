@@ -13,8 +13,8 @@ import { esc, OWN_REQUEST } from "./ui.js";
 const EVERY_MS = 30_000;
 const TIMEOUT_MS = 10_000;
 const STATES = {
-  ready: { tone: "", title: "Working", text: "The service answers and its packs are loaded." },
-  degraded: { tone: "warning", title: "Working, with a problem", text: "The service answers, but a pack did not load." },
+  ready: { tone: "", title: "Working", text: "The service answers and its agents are loaded." },
+  degraded: { tone: "warning", title: "Working, with a problem", text: "The service answers, but an agent did not load." },
   unready: { tone: "danger", title: "Not working", text: "The service cannot take decisions now." },
   silent: { tone: "danger", title: "Not answering", text: "The service did not answer." },
 };
@@ -50,7 +50,7 @@ function show(answer) {
     </div>
     <dl class="facts">
       <dt>Database</dt><dd data-check="database">${esc(DATABASE[checks.database] ?? "Unknown")}</dd>
-      <dt>Packs</dt><dd data-check="packs">${esc(PACKS[checks.packs] ?? "Unknown")}</dd>
+      <dt>Agents</dt><dd data-check="packs">${esc(PACKS[checks.packs] ?? "Unknown")}</dd>
       <dt>Version</dt><dd>${esc(answer?.version ?? "Unknown")}</dd>
       <dt>Checked</dt><dd>${esc(when)}, again every 30 seconds</dd>
     </dl>`;

@@ -4,7 +4,7 @@ Two things tell people whether Mendari is working:
 
 - **The deployment's own status page**, `/status`. It is public and static, and reads this
   deployment's readiness (`/api/health/ready`) in the browser every 30 seconds: whether the
-  database answers and the packs loaded. It is served by the deployment it reports on, so an
+  database answers and the agents loaded. It is served by the deployment it reports on, so an
   outage that stops the deployment answering at all takes the page down with it.
 - **An external status page**: a status provider that checks the deployment from outside,
   several times an hour from more than one region, and keeps a public page and a history that
@@ -19,18 +19,18 @@ checks](#exporting-the-checks) prints them ready to copy):
 
 | Check | Request | Up when | Why |
 |---|---|---|---|
-| Readiness | `GET /api/health/ready` | `200` | The database answers and the packs loaded. `503` when not. |
+| Readiness | `GET /api/health/ready` | `200` | The database answers and the agents loaded. `503` when not. |
 | Sign-in | `GET /auth/login?next=%2F`, redirects not followed | `302` to the identity provider (another host) | Sign-in works. Only with sign-in on. |
-| Decide | `POST /api/packs/mendari/ai-guard/decide` with the status key and the file's case | `200` with an `outcome` | A decision is made and recorded, end to end. |
-| Registry | `GET <registry>/v1/health` | `200` | Packs can be published and pulled. A registry under the engine (`MENDARI_REGISTRY=on`) has the base `<engine>/registry`, so the check is `GET <engine>/registry/v1/health`. |
+| Decide | `POST /api/packs/mendari/portal-message-agent/decide` with the status key and the file's synthetic message | `200` with an `outcome` | A decision is made and recorded, end to end. |
+| Registry | `GET <registry>/v1/health` | `200` | Agents can be published and pulled. A registry under the engine (`MENDARI_REGISTRY=on`) has the base `<engine>/registry`, so the check is `GET <engine>/registry/v1/health`. |
 | Hub | `GET <hub>/` | `200` | The Hub's site loads. |
 
 Never use `/api/health` for any of them. With sign-in on, it answers `ok` without touching the
 database, so it stays green through a database outage. It is for liveness probes, which should
 not restart a server over its database.
 
-A readiness answer of `200` with `status: degraded` means a pack did not load or build: the
-deployment works, and signed-in `/api/health` lists the pack under `invalid`. Treat it as up.
+A readiness answer of `200` with `status: degraded` means an agent did not load or build: the
+deployment works, and signed-in `/api/health` lists the agent under `invalid`. Treat it as up.
 To be told about it as well, add a keyword check for `"status":"ready"`.
 
 Five minutes apart is enough for each check. Each instance reads the database at most once
@@ -47,8 +47,8 @@ browser there, and that move is not the identity provider answering (the script 
 ## The status key
 
 The decide check needs a key of its own, and nothing more. Its decisions are real: they are
-recorded and chained, and each waits in its organization's review queue (AI Guard sends every
-case to a person until an approval says otherwise). So give the key:
+recorded and chained, and each waits in its organization's review queue (the demo agent sends a
+message that asks for no refill or appointment to the front desk). So give the key:
 
 - **its own organization**, so its decisions never reach anyone else's review queue, quotas or
   monitoring view. Something like `status`, and nothing else in it. Two things still count it
@@ -56,14 +56,14 @@ case to a person until an approval says otherwise). So give the key:
   monitor and `--each-org` leave it out once `MENDARI_STATUS_ORG` names it), and the
   deployment's daily call budgets;
 - **the decide scope only**: `role` `service` with `scope`
-  `https://mendari.co/fhir/scope/decide`. It can then decide and list the packs, and nothing
+  `https://mendari.co/fhir/scope/decide`. It can then decide and list the agents, and nothing
   else.
 
-The check sends a fixed synthetic case to AI Guard, which runs its local rules even where Jev is
-set up, so it spends no model calls. (The inbox router would not do: with Jev set up it asks Jev,
-and every check would spend a call of the daily Jev budget all organizations share, 288 a day
-from one region at five minutes apart.) If your provider settings name a model for one of AI
-Guard's slots, each check spends a call of that budget too.
+The check sends a fixed synthetic message to the bundled demo agent. Offline (no
+`MENDARI_AGENT_URL`) it answers from its canned responses and calls nothing. With
+`MENDARI_AGENT_URL` set, every check calls that agent: 288 calls a day from one region at five
+minutes apart, so set the agent's own rate limits with that in mind, or choose its `rules`
+variant for the status organization's deployment (`MENDARI_PROVIDERS=reader=rules`).
 
 **One organization.** In claims mode without an organization claim (`MENDARI_OIDC_ORG_CLAIM`
 unset, as with Google sign-in), every person and key belongs to `default`: there is no second

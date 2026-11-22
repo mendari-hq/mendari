@@ -4,7 +4,7 @@
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
-import { $, api, copyText, download, emptyState, esc, figureHtml, fileSlug, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
+import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const packId = state.packId;
@@ -346,11 +346,11 @@ function improvementLens(brief, detail) {
   const cli = `mendari eval ${detail.id} --dataset ${name}-overrides.jsonl`;
   const table = clusters.length
     ? `<div class="table-wrap mt-3"><table class="compact">
-        <thead><tr><th scope="col">Pack recommended</th><th scope="col">Clinician chose</th><th scope="col" class="num">Overrides</th><th scope="col" class="num">Of overrides</th></tr></thead>
+        <thead><tr><th scope="col">Agent recommended</th><th scope="col">Clinician chose</th><th scope="col" class="num">Overrides</th><th scope="col" class="num">Of overrides</th></tr></thead>
         <tbody>${clusters.map((c) => `<tr><td><code>${esc(c.recommended)}</code></td><td><code>${esc(c.chosen)}</code></td><td class="num">${c.count}</td><td class="num">${c.count} of ${brief.volume.overrides}</td></tr>`).join("")}</tbody>
       </table></div>`
     : `<p class="muted mt-3">No human overrides recorded in the last ${brief.window_days} days. As clinicians override decisions in the Review queue, recurring disagreement patterns cluster here for targeted recalibration.</p>`;
-  return `<p class="muted mt-2">Close the loop from clinician overrides to measurable pack improvements: export overridden cases as a local validation set, test a recalibrated threshold or stronger provider, and compare before promotion.</p>
+  return `<p class="muted mt-2">Close the loop from clinician overrides to measurable agent improvements: export overridden cases as a local validation set, test a recalibrated threshold or stronger provider, and compare before promotion.</p>
     ${table}
     <div class="row mt-3">
       ${may("admin") ? `<button type="button" class="primary" id="export-overrides">${icon("download")} Export overrides (JSONL)</button>` : ""}
@@ -382,29 +382,35 @@ function wireCommandCenter(main, brief, detail) {
   const section = main.querySelector(".command-center");
   if (!section) return;
   const bindBody = () => {
-    section.querySelector("#shadow-start")?.addEventListener("click", (event) =>
-      whileBusy(event.currentTarget, "Starting…", async () => {
+    const targetPack = state.packId;
+    section.querySelector("#shadow-start")?.addEventListener("click", (event) => {
+      const btn = event.currentTarget;
+      whileBusy(btn, "Starting…", async () => {
         try {
           await api("/api/holds", {
             method: "POST",
-            body: JSON.stringify({ pack_id: state.packId, reason: "shadow pilot: 7-day validation against clinicians" }),
+            body: JSON.stringify({ pack_id: targetPack, reason: "shadow pilot: 7-day validation against clinicians" }),
           });
           toast("Shadow pilot started: automation held for clinician comparison");
-          if (main.isConnected) render();
+          if (btn.isConnected && state.packId === targetPack) render();
         } catch (error) {
           toastError(error.message);
         }
-      }));
+      });
+    });
     section.querySelector("#shadow-stop")?.addEventListener("click", (event) => {
-      const holdId = event.currentTarget.dataset.hold;
-      whileBusy(event.currentTarget, "Ending…", async () => {
-        try {
+      const btn = event.currentTarget;
+      const holdId = btn.dataset.hold;
+      actionDialog({
+        title: "End shadow pilot?",
+        body: "Ending the shadow pilot lifts its automation hold and allows live automation again within this agent's risk policy.",
+        action: "End shadow pilot",
+        danger: true,
+        run: async () => {
           await api(`/api/holds/${encodeURIComponent(holdId)}`, { method: "DELETE" });
           toast("Shadow pilot ended");
-          if (main.isConnected) render();
-        } catch (error) {
-          toastError(error.message);
-        }
+          if (btn.isConnected && state.packId === targetPack) render();
+        },
       });
     });
     section.querySelector("#roi-mins")?.addEventListener("change", (event) => {
@@ -416,8 +422,7 @@ function wireCommandCenter(main, brief, detail) {
     section.querySelector("#brief-download")?.addEventListener("click", (event) => {
       const m = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       whileBusy(event.currentTarget, "Building…", () =>
-        download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`)
-          .catch((err) => toastError(err.message)));
+        download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`));
     });
     section.querySelector("#brief-copy")?.addEventListener("click", () => {
       const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;

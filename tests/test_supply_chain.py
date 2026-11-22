@@ -462,6 +462,8 @@ def test_the_inferno_harness_reaches_only_its_own_services() -> None:
         "MENDARI_CDS_SANDBOX",  # Inferno calls it from another machine (LP-23c)
         "MENDARI_PACKS",
         "MENDARI_PUBLIC_URL",
+        "MENDARI_PACKS_PATH",  # the example agents, mounted read-only from the test fixtures
+        "MENDARI_DATASETS_PATH",
     }
     assert environment["MENDARI_CDS_SANDBOX"] == "1"
     assert environment["MENDARI_PHI_MODE"] == "off"
@@ -491,6 +493,8 @@ def test_the_scripted_harness_reaches_only_its_own_services() -> None:
         "MENDARI_FHIR_ALLOWED_SERVERS",
         "MENDARI_SMART_CLIENT_ID",
         "MENDARI_SMART_SCOPES",
+        "MENDARI_PACKS_PATH",  # the example agents, mounted read-only from the test fixtures
+        "MENDARI_DATASETS_PATH",
     }
     assert engine["environment"]["MENDARI_PHI_MODE"] == "off"
     signin = services["engine-signin"]

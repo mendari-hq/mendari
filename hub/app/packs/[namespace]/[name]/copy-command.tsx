@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function CopyCommand({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   async function onCopy() {
+    if (timerRef.current) clearTimeout(timerRef.current);
     try {
       await navigator.clipboard.writeText(command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      setStatus("copied");
     } catch {
-      setCopied(false);
+      setStatus("failed");
     }
+    timerRef.current = setTimeout(() => setStatus("idle"), 1800);
   }
 
   return (
@@ -23,7 +31,7 @@ export function CopyCommand({ command }: { command: string }) {
         <code className="pull">{command}</code>
       </div>
       <button type="button" onClick={onCopy} aria-live="polite">
-        {copied ? "Copied" : "Copy"}
+        {status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : "Copy"}
       </button>
     </div>
   );

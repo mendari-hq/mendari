@@ -10,7 +10,7 @@ for patient records with many Conditions, Observations or MedicationStatements. 
 Bundle, a single resource, or a CDS Hooks prefetch object whose values may themselves be search
 Bundles; all of them are flattened, and resources are de-duplicated by type and id.
 
-Spec 0.3 (docs/spec/decision-pack-0.3.md, LP-23g) adds, for a pack that declares it: the
+Spec 0.3 (docs/spec/agent-manifest-0.3.md, LP-23g) adds, for a pack that declares it: the
 ``[system=<uri>]`` predicate, which keeps the items of one code system (a coding, an
 identifier); `paths`, tried in order until one gives a value; `follow`, one reference hop
 resolved inside the record and never fetched (a path of the field's own type read in place,
@@ -248,7 +248,7 @@ class TaskTemplate(_Model):
     code_text: str
     performer_system: str
     # Templates (core/templates.py): `{recommendation}`, `{priority}`, `{<question>}`.
-    # The default description is the inbox's routing wording.
+    # The default description is a message-routing wording.
     description: str = "Route to {recommendation}"
     performer: str | None = None  # a performer code (template); default: the recommendation
 

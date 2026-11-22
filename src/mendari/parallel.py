@@ -24,14 +24,14 @@ def parallel_map(fn: Callable[[T], R], items: Iterable[T], workers: int) -> list
     error or Ctrl-C while waiting cancels what has not started (a remote provider is not called
     for the rest of a dataset) and waits only for what is running."""
     items = list(items)
-    if workers <= 1:
+    if workers <= 1 or len(items) <= 1:
         return [fn(item) for item in items]
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = [pool.submit(contextvars.copy_context().run, fn, item) for item in items]
         results = [future.result() for future in futures]
     except BaseException:
-        pool.shutdown(wait=False, cancel_futures=True)
+        pool.shutdown(wait=True, cancel_futures=True)
         raise
     pool.shutdown()
     return results

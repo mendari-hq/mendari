@@ -184,27 +184,6 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
     assert own["status"] in ("ok", "warning", "degraded") and "baseline" in own
 
 
-def test_the_demo_never_compares_a_pulled_copy_with_the_benchmark_it_carries(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The LP-18h review: `mendari demo` takes its pack from the search path, the pack cache
-    first, and compared a pulled copy of the reference pack with the benchmark the copy carries,
-    whatever its publisher put there. Now it says the copy is not compared; the bundled pack is
-    compared as before."""
-    from mendari.evals.compare import FROM_REGISTRY
-    from mendari.sandbox.demo import PACK_ID, run_demo
-
-    run_demo(example_datasets_dir())
-    assert "Public benchmark (test, n=600):" in capsys.readouterr().out
-    # The reference pack's own bytes, in the cache: not refused as a shadow, and from a registry.
-    shutil.copytree(INBOX_DIR, client.packs_cache() / PACK_ID / SHIPPED)
-    assert resolve_pack(PACK_ID).origin == "hub"
-    run_demo(example_datasets_dir())
-    shown = capsys.readouterr().out
-    assert f"Comparison unavailable: {FROM_REGISTRY}" in shown
-    assert "Public benchmark" not in shown and "degradation" not in shown
-
-
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -335,7 +314,7 @@ def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> 
         pull("mendari/referral-router", signed)
     assert not isinstance(refused.value, PatternsRefused)
     (problem,) = refused.value.problems
-    assert "never takes a reference pack's place" in problem and "remove" not in problem
+    assert "never takes a bundled agent's place" in problem and "remove" not in problem
     cache = client.packs_cache()
     assert not (cache / "mendari" / "referral-router" / reference.version).exists()
     assert list(cache.rglob(".mendari-verified")) == []
@@ -374,7 +353,7 @@ def test_pulling_a_reference_pack_keeps_the_maintained_engine(
     capsys.readouterr()
     assert main(["pull", "mendari/referral-router"]) == 0
     out = capsys.readouterr().out
-    assert "runs on the maintained engine: a copy of the reference pack in this release" in out
+    assert "runs on the maintained engine: a copy of an agent this release bundles" in out
     cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
     pack = Decision.from_path(cached).pack
     assert (pack.origin, pack.bounded, pack.digest) == ("hub", False, reference.digest)

@@ -509,9 +509,10 @@ def _legend_positions(legend: dict[str, Any], levels: list[str]) -> dict[str, in
 def _distribution(key: str, probabilities: dict[str, Any]) -> dict[str, float]:
     if not all(map(_probability, probabilities.values())):
         raise _invalid(f"answer {key!r} has malformed probabilities")
-    if abs(sum(probabilities.values()) - 1) > PROBABILITY_SUM_TOLERANCE:
+    total = sum(float(p) for p in probabilities.values())
+    if abs(total - 1) > PROBABILITY_SUM_TOLERANCE or total <= 0:
         raise _invalid(f"answer {key!r} probabilities do not sum to 1")
-    return {label: float(p) for label, p in probabilities.items()}
+    return {label: float(p) / total for label, p in probabilities.items()}
 
 
 def _probability(value: Any) -> bool:

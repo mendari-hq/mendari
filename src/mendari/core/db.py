@@ -176,12 +176,57 @@ class SqliteBackend(Backend):
             self._memory.close()
 
 
+def _pg_sql(sql: str, has_params: bool) -> str:
+    """Translate SQLite `?` bind placeholders to psycopg `%s`, ignoring `?` inside single-quoted
+    string literals and SQL comments, and escaping literal `%` when parameters are supplied."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'":
+                    if j + 1 < n and sql[j + 1] == "'":
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                j += 1
+            segment = sql[i:j]
+            out.append(segment.replace("%", "%%") if has_params else segment)
+            i = j
+        elif ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            j = sql.find("\n", i + 2)
+            j = n if j == -1 else j + 1
+            segment = sql[i:j]
+            out.append(segment.replace("%", "%%") if has_params else segment)
+            i = j
+        elif ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            j = sql.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            segment = sql[i:j]
+            out.append(segment.replace("%", "%%") if has_params else segment)
+            i = j
+        elif ch == "?":
+            out.append("%s")
+            i += 1
+        elif ch == "%" and has_params:
+            out.append("%%")
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 class PostgresSession(Session):
     def __init__(self, connection: Any):
         self.connection = connection
 
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        cursor = self.connection.execute(sql.replace("?", "%s"), tuple(params))
+        bound = tuple(params)
+        cursor = self.connection.execute(_pg_sql(sql, bool(bound)), bound)
         return list(cursor.fetchall()) if cursor.description else []
 
     def columns(self, table: str) -> set[str]:
@@ -276,7 +321,7 @@ class PostgresBackend(Backend):
         milliseconds = max(1, round(timeout_s * 1000))
         with self._pool.connection(timeout=timeout_s) as connection, connection.transaction():
             connection.execute(f"SET LOCAL statement_timeout = {milliseconds}")
-            connection.execute(sql.replace("?", "%s"))
+            connection.execute(_pg_sql(sql, False))
 
     def close(self) -> None:
         self._pool.close()

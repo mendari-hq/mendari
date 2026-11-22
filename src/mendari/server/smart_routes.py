@@ -15,7 +15,7 @@
   origin and its label), so a browser that only launched opens the dashboard on the patient
   view alone.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
-- `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their inbox
+- `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their portal
   messages, their referrals).
 - `POST /api/smart/decide`: decide one of them, with the record fetched through the pack's own
   prefetch templates; the decision is audited like any other.
@@ -272,7 +272,8 @@ def add_smart_routes(
         org = registration.org if registration is not None and auth.enabled else None
         security_log.event("smart.launch.ok", actor=actor, org=org)
         pack = quote(pending["pack"], safe="/")
-        opened = f"{public_url(request)}/?pack={pack}#patient/{session['launch_id']}"
+        base = options.public_url or ""
+        opened = f"{base}/?pack={pack}#patient/{session['launch_id']}"
         response = RedirectResponse(opened, status_code=302)
         sessions.set_cookie(response, request, COOKIE, sid)
         sessions.clear_cookie(response, request, sessions.LAUNCH)  # used: one launch, once

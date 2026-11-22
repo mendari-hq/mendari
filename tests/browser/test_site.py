@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The public page (web/) in a real browser: its scores table on a phone (LP-17g). The page is
+"""The public page (web/) in a real browser: it reflows on a phone (LP-17g). The page is
 served from the repository's web/ directory on a routed origin; nothing is deployed, and every
 request to any other origin is refused."""
 
 from __future__ import annotations
 
 import mimetypes
-import re
 from collections.abc import Iterator
 
 import pytest
@@ -44,39 +43,20 @@ def site(browser: Browser) -> Iterator[Page]:
     context.close()
 
 
-def scores(page: Page, width: int) -> None:
+def home(page: Page, width: int) -> None:
     page.set_viewport_size({"width": width, "height": 800})
     page.goto(f"{ORIGIN}/")
-    page.locator("#scores table").wait_for()
+    page.locator("main").wait_for()
 
 
 @pytest.mark.parametrize("width", [320, 390])
 def test_the_page_never_scrolls_sideways_on_a_phone(site: Page, width: int) -> None:
     """WCAG 1.4.10 (reflow): at 320 CSS px, and at a common phone's 390, the page is no wider
-    than the screen. The score table scrolls in its own region, which clips everything it holds,
-    the visually hidden header text ("Automated") included."""
-    scores(site, width)
+    than the screen."""
+    home(site, width)
     assert site.evaluate("document.documentElement.scrollWidth") == width
     site.evaluate("window.scrollTo(100, 0)")
     assert site.evaluate("window.scrollX") == 0
-
-
-def test_each_scores_row_header_stays_in_view_as_its_figures_scroll(site: Page) -> None:
-    """On a phone the figures do not all fit, so they scroll sideways in their region; each row's
-    header (its arm and configuration) stays at the region's left edge, and the last column, a
-    critical label's figure, comes fully into view beside it."""
-    scores(site, 390)
-    region = site.get_by_role("region", name=re.compile("^Scores for the"))
-    assert region.evaluate("(el) => el.scrollWidth > el.clientWidth")
-    header = region.locator("tbody th").first
-    assert header.evaluate("(th) => getComputedStyle(th).position") == "sticky"
-    region.evaluate("(el) => { el.scrollLeft = el.scrollWidth; }")
-    area, held = region.bounding_box(), header.bounding_box()
-    last = region.locator("thead th").last.bounding_box()
-    assert area is not None and held is not None and last is not None
-    assert abs(held["x"] - area["x"]) < 1  # held at the left edge
-    assert last["x"] >= held["x"] + held["width"] - 1  # not under the held header
-    assert last["x"] + last["width"] <= area["x"] + area["width"] + 1  # in view
 
 
 @pytest.mark.parametrize("name", ["terms", "privacy", "acceptable-use"])

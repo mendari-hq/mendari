@@ -25,21 +25,35 @@ const humanize = (key) => {
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const safeKey = (key) => typeof key === "number" || (typeof key === "string" && !FORBIDDEN_KEYS.has(key));
+const intAttr = (name, v) => (Number.isInteger(v) && v >= 0 ? ` ${name}="${v}"` : "");
+const numAttr = (name, v) => (typeof v === "number" && Number.isFinite(v) ? ` ${name}="${v}"` : "");
+
 // "#/$defs/items" -> the definition, keeping the referring schema's own description.
 function resolveSchema(schema, root) {
   if (!schema?.$ref) return schema ?? {};
-  const target = schema.$ref.replace(/^#\//, "").split("/").reduce((node, key) => node?.[key], root) ?? {};
+  const target = schema.$ref.replace(/^#\//, "").split("/").reduce(
+    (node, key) => (node && safeKey(key) && Object.hasOwn(node, key) ? node[key] : undefined),
+    root,
+  ) ?? {};
   return { ...target, description: schema.description ?? target.description };
 }
 
 function getAt(value, path) {
-  return path.reduce((node, key) => (node === undefined || node === null ? undefined : node[key]), value);
+  return path.reduce((node, key) => {
+    if (node === undefined || node === null || !safeKey(key)) return undefined;
+    return Object.hasOwn(node, key) ? node[key] : undefined;
+  }, value);
 }
 
 function setAt(model, path, value) {
+  if (!path.length || !path.every(safeKey)) return;
   let node = model;
   path.slice(0, -1).forEach((key, i) => {
-    if (node[key] === undefined || node[key] === null) node[key] = typeof path[i + 1] === "number" ? [] : {};
+    if (!Object.hasOwn(node, key) || node[key] === undefined || node[key] === null) {
+      node[key] = typeof path[i + 1] === "number" ? [] : {};
+    }
     node = node[key];
   });
   const last = path[path.length - 1];
@@ -95,18 +109,18 @@ export function schemaForm(schema, record, prefix) {
       control = `<select ${common}${numeric}><option value=""></option>${node.enum.map((option) =>
         `<option ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}</select>`;
     } else if (kind === "text") {
-      control = `<textarea ${common} rows="3" maxlength="${node.maxLength}">${esc(value ?? "")}</textarea>`;
+      control = `<textarea ${common} rows="3"${intAttr("maxlength", node.maxLength)}>${esc(value ?? "")}</textarea>`;
     } else if (kind === "boolean") {
       control = `<input type="checkbox" ${common} ${value ? "checked" : ""}>`;
     } else if (kind === "integer" || kind === "number") {
-      const bounds = `${node.minimum !== undefined ? ` min="${node.minimum}"` : ""}${node.maximum !== undefined ? ` max="${node.maximum}"` : ""}`;
+      const bounds = `${numAttr("min", node.minimum)}${numAttr("max", node.maximum)}`;
       control = `<input type="number" step="${kind === "integer" ? 1 : "any"}"${bounds} ${common} value="${esc(value ?? "")}">`;
     } else if (kind === "date") {
       control = `<input type="date" ${common} value="${esc(value ?? "")}">`;
     } else if (kind === "json") {
       control = `<textarea class="code sf-json" ${common} rows="3" spellcheck="false">${esc(value === undefined ? "" : JSON.stringify(value, null, 2))}</textarea>`;
     } else {
-      control = `<input type="text" ${common} value="${esc(value ?? "")}"${node.maxLength ? ` maxlength="${node.maxLength}"` : ""}>`;
+      control = `<input type="text" ${common} value="${esc(value ?? "")}"${intAttr("maxlength", node.maxLength)}>`;
     }
     if (!labelled) return control;
     return `<div class="sf-field${kind === "text" || kind === "json" ? " wide" : ""}">

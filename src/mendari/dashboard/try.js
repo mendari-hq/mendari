@@ -22,7 +22,7 @@ const SAMPLES = [
 views.try = async (main) => {
   if (!may("decide")) {
     main.innerHTML = `<h1>Try it</h1>${emptyState({
-      icon: "user", title: "Trying the pack is for reviewers",
+      icon: "user", title: "Trying the agent is for reviewers",
       text: "Decisions made here are recorded, so your role can read them but not make them.",
     })}`;
     return;
@@ -54,7 +54,7 @@ const pressMode = (main, mode) =>
 // FHIR input: pasted JSON, checked to parse before it is sent; a refusal stays under it.
 const fhirBox = () => `<div id="fhir-input" class="sf-field">
     <label for="fhir-json">FHIR R4 JSON</label>
-    <span class="sf-hint" id="fhir-hint">A Bundle, one resource, or a CDS Hooks prefetch object: the pack's FHIR mapping turns it into the pack's input. Synthetic data only.</span>
+    <span class="sf-hint" id="fhir-hint">A Bundle, one resource, or a CDS Hooks prefetch object: the agent's FHIR mapping turns it into the agent's input. Synthetic data only.</span>
     <textarea id="fhir-json" class="code" spellcheck="false" aria-describedby="fhir-hint fhir-error"></textarea>
     <p class="error" id="fhir-error" role="alert" hidden></p>
   </div>`;
@@ -142,7 +142,7 @@ async function tryRecord(main) {
   const guard = guardsReplies();
   main.innerHTML = `
     <h1>Try it</h1>
-    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the pack's tests and change any field.${guard ? " Check the AI reply says whether the draft may be sent to the patient as written." : ""}</p>
+    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.${guard ? " Check the AI reply says whether the draft may be sent to the patient as written." : ""}</p>
     ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="panel">
@@ -210,14 +210,20 @@ async function tryRecord(main) {
     const example = examples[index];
     load(example?.input ?? {});
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
-    $("#expected").textContent = example && expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
+    $("#expected").textContent = example && expected(example) ? `The agent's test expects: ${expected(example)}.` : "";
   };
-  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
+    if (mode === "fhir") mode = recordView;
     load(replay);
     $("#record").value = JSON.stringify(replay, null, 2);
-    $("#expected").textContent = "Loaded from the audit trail: edit any field and decide to compare.";
+    const orig = replayMeta?.original;
+    const origNote = orig?.outcome
+      ? ` (original: ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})`
+      : "";
+    $("#expected").textContent = `Loaded from the audit trail${origNote}: edit any field and decide to compare.`;
     toast("Loaded case from audit trail");
   } else {
     choose(0);
@@ -307,10 +313,11 @@ async function tryMessage(main) {
     storageSet("oh.try.mode", mode);
     showMode();
   }));
-  showMode();
-  const replay = state.replayDraft?.packId === state.packId ? state.replayDraft.input : null;
+  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
+    if (mode === "fhir") mode = "form";
     const msg = isObject(replay.message) ? replay.message : {};
     const pat = isObject(replay.patient) ? replay.patient : {};
     if (typeof msg.body === "string") $("#body").value = msg.body;
@@ -318,8 +325,11 @@ async function tryMessage(main) {
     if (fields.channel && typeof msg.channel === "string") $("#channel").value = msg.channel;
     if (fields.language && typeof pat.preferred_language === "string") $("#language").value = pat.preferred_language;
     if (fields.age && typeof pat.age_band === "string") $("#age").value = pat.age_band;
-    toast("Loaded case from audit trail");
+    const orig = replayMeta?.original;
+    const origNote = orig?.outcome ? ` (was ${orig.outcome}${orig.recommendation ? ` · ${orig.recommendation}` : ""})` : "";
+    toast(`Loaded case from audit trail${origNote}`);
   }
+  showMode();
   main.querySelectorAll("button[data-sample]").forEach((b) => b.addEventListener("click", () => {
     const s = SAMPLES[Number(b.dataset.sample)];
     $("#body").value = s.body;
@@ -405,7 +415,7 @@ function decisionView(r, { guard = null, task = null, request = null } = {}) {
   // The confidence is the primary answer's: said only of the label the engine chose, not of one a
   // rule set instead.
   const chosen = r.recommendation && r.recommendation === r.answers[r.primary]?.label;
-  const certainty = !r.recommendation ? "" : chosen && r.confidence !== null ? ` · ${pct(r.confidence)} sure` : r.rule ? " · set by the pack's rule" : "";
+  const certainty = !r.recommendation ? "" : chosen && r.confidence !== null ? ` · ${pct(r.confidence)} sure` : r.rule ? " · set by the agent's rule" : "";
   const headIcon = guard ? GUARD_ICON[guard.status] ?? RESULT_ICON[r.outcome] : RESULT_ICON[r.outcome];
   return `<section class="panel result" aria-labelledby="result-title">
     <div class="result-head ${urgent ? "tone-solid" : `tone-${esc(r.outcome)}`}">

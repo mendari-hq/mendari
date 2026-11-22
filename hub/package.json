@@ -1,7 +1,7 @@
 {
   "name": "mendari-hub-site",
   "private": true,
-  "description": "The Mendari Hub website: search Decision Packs, read their cards, benchmarks and site reports. Reads the registry API.",
+  "description": "The Mendari Hub website: search agents, read their cards, benchmarks and site reports. Reads the registry API.",
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",
@@ -11,7 +11,7 @@
     "test": "playwright test"
   },
   "dependencies": {
-    "next": "16.4.3",
+    "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
@@ -19,10 +19,10 @@
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
-    "@types/node": "22.20.5",
+    "@types/node": "^24.0.0",
     "@types/react": "19.3.0",
     "eslint": "10.14.0",
-    "eslint-config-next": "16.4.3",
+    "eslint-config-next": "16.4.6",
     "typescript": "6.0.3"
   }
 }

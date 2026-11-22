@@ -654,8 +654,8 @@ def test_a_publish_that_shadows_a_reference_pack_is_refused(
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
     assert reason.startswith("the pack does not load: ")
-    assert f"{INBOX.id}@{INBOX.version} has the id and version of a reference pack" in reason
-    assert "never takes a reference pack's place" in reason and "remove" not in reason
+    assert f"{INBOX.id}@{INBOX.version} has the id and version of an agent this release" in reason
+    assert "never takes a bundled agent's place" in reason and "remove" not in reason
     assert registry.client.get("/v1/search").json() == []
     assert (
         registry.publish(_at_version(tmp_path / "new", load_pack(root), "9.9.9")).status_code == 201

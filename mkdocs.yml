@@ -2,7 +2,7 @@
 #   uv sync --group docs && uv run mkdocs serve      # http://127.0.0.1:8000
 #   uv run mkdocs build --strict                      # what CI runs: a broken link fails
 site_name: Mendari
-site_description: Open, auditable Decision Packs for healthcare
+site_description: Open governance and evaluation for healthcare AI agents
 # Where the docs workflow (.github/workflows/docs.yml) publishes the site: GitHub Pages by
 # default, until the owner names the host (tasks/todo.md, LP-15c); a custom domain changes this
 # line. Links inside docs/ stay relative.
@@ -56,11 +56,11 @@ validation:
 nav:
   - Home: index.md
   - Guides:
-      - Writing a Decision Pack: guides/authoring-a-pack.md
-      - Contributing a community pack: guides/contributing-a-pack.md
+      - Authoring an agent: guides/authoring-an-agent.md
+      - Contributing an agent: guides/contributing-an-agent.md
       - Using the API: guides/api.md
       - Connecting an EHR: guides/connecting-an-ehr.md
-      - Evaluating a pack at your site: guides/evaluate-at-your-site.md
+      - Evaluating an agent at your site: guides/evaluate-at-your-site.md
       - Deploying with real patient data: deploying-with-phi.md
       - Holding automation: operations/automation-hold.md
       - Revoking access: operations/revoking-access.md
@@ -68,18 +68,17 @@ nav:
       - Status checks: operations/status-checks.md
       - Hidden evaluation sets: operations/evalsets.md
       - Running the scoreboard: operations/scoreboard.md
-      - Running a pack registry: operations/registry.md
-      - The pack store: operations/pack-store.md
+      - Running a registry: operations/registry.md
+      - Agent store: operations/agent-store.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
-      - Decision Pack spec 0.3 (FHIR mapping): spec/decision-pack-0.3.md
-      - Decision Pack spec 0.2: spec/decision-pack-0.2.md
+      - Agent manifest spec 0.3 (FHIR mapping): spec/agent-manifest-0.3.md
+      - Agent manifest spec 0.2: spec/agent-manifest-0.2.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md
-      - Decision Pack spec 0.1: spec/decision-pack-0.1.md
+      - Agent manifest spec 0.1: spec/agent-manifest-0.1.md
       - Architecture: architecture.md
   - Grading:
       - Grading method 1.0 (draft): grading/method-1.0.md
-      - Scoreboard (public sets): grading/scoreboard.md
       - Verifying a scoreboard result: grading/verifying.md
   - Security:
       - Threat model: security/threat-model.md

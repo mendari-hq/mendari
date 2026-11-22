@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Any
 
 import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.errors import FhirError, MendariError
 from mendari.standards.fhir import FhirAdapter
@@ -66,7 +68,16 @@ def backend_token(
     endpoint = config.get("token_endpoint")
     if not isinstance(endpoint, str):
         raise BulkError("the server's SMART configuration has no token_endpoint")
-    algorithm = "ES384" if "BEGIN EC PRIVATE KEY" in private_key else "RS384"
+    try:
+        loaded_key = serialization.load_pem_private_key(private_key.encode("utf-8"), password=None)
+    except (ValueError, TypeError):
+        loaded_key = None
+    if isinstance(loaded_key, ec.EllipticCurvePrivateKey):
+        algorithm = "ES384"
+    elif isinstance(loaded_key, rsa.RSAPrivateKey):
+        algorithm = "RS384"
+    else:
+        algorithm = "ES384" if "BEGIN EC PRIVATE KEY" in private_key else "RS384"
     issued = int(now())
     claims: dict[str, Any] = {"iss": client_id, "sub": client_id, "aud": endpoint}
     claims |= {"exp": issued + 300, "iat": issued, "jti": str(uuid.uuid4())}
@@ -132,7 +143,8 @@ def export(
         http.download(
             output["url"], path, headers=auth if needs_token else {}, max_bytes=MAX_FILE_BYTES
         )
-        lines = sum(1 for line in path.read_bytes().splitlines() if line.strip())
+        with path.open("rb") as fh:
+            lines = sum(1 for line in fh if line.strip())
         if isinstance(output.get("count"), int) and output["count"] != lines:
             raise BulkError(f"{path.name}: the manifest says {output['count']} lines, got {lines}")
         output["file"], output["count"] = path.name, lines

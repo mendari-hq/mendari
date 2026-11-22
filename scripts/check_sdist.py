@@ -21,9 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # What pyproject.toml includes, as top-level names inside the archive's single root folder.
-INCLUDED = frozenset(
-    {"src", "packs", "datasets", "README.md", "LICENSE", "NOTICE", "pyproject.toml"}
-)
+INCLUDED = frozenset({"src", "agents", "README.md", "LICENSE", "NOTICE", "pyproject.toml"})
 # Written by the build backend itself.
 GENERATED = frozenset({"PKG-INFO", ".gitignore"})
 

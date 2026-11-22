@@ -9,7 +9,7 @@ privacy officer's review) come first.
 
 Run Mendari inside your organization's network or an approved cloud account:
 - the engine's container image, or a per-pack image that serves only one pack
-  (`docker build --build-arg PACK=mendari/patient-inbox-router .`, which sets
+  (`docker build --build-arg PACK=mendari/portal-message-agent .`, which sets
   `MENDARI_PACKS`);
 - Postgres (not SQLite) for the audit store.
 
@@ -208,7 +208,6 @@ Give each key the least it needs:
 |---|---|---|---|---|
 | `rest` | REST API | `service` | none: the role's own | `GET /api/packs`<br>`POST /api/packs/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
 | `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
-| `ai-guard` | AI Guard | `service` | `https://mendari.co/fhir/scope/decide` | `POST /api/packs/{namespace}/{name}/guard` |
 | `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}`<br>`POST /cds-services/{service_id}/feedback` |
 | `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/packs/{namespace}/{name}/pas` |
 | `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
@@ -281,10 +280,9 @@ set of its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate i
 map per organization, read and checked at startup. Each FHIR decision records its
 organization's map by version and SHA-256, and a decision that read a value through a
 translation never automates: it goes to a person, and so does a pack rule's BLOCK on it, until
-your site validates the map on its own chart-reviewed data. Of the reference packs, the
-Referral Router declares code sets (since LP-23k: the referral code its `focus_where` reads, and
-the document and report codes of its checklist); set it for that pack, or a pack of your own
-that declares one ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
+your site validates the map on its own chart-reviewed data. The bundled demo agent declares no
+code set: set it for a pack of your own that declares one
+([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)).
 
 **What your EHR does not offer (optional, off by default).** A pack may read one list from
 several resource types, and an EHR may not offer one of them at all (Epic has no R4
@@ -725,7 +723,7 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | The token endpoint, before its body is read | client address | 60 a minute |
 | Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
 | Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
-| The AI guard (an LLM call) | API key, client or person | 60 a minute |
+| The guard route (an LLM call) | API key, client or person | 60 a minute |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
 | A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained) | person | 60 a minute, 30 at once |
@@ -822,7 +820,7 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only (a pack you own that declares none sends the whole input; a community or registry pack must declare them) |
+| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): a pack listed in the Jev defaults (none in a release) then runs Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only (a pack you own that declares none sends the whole input; a community or registry pack must declare them) |
 | Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only (as for Jev) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
@@ -864,16 +862,14 @@ start-up. Unset, there is no such list. Signed in, `/api/health` shows it
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
-that covers PHI. Setting up Jev sends Jev the inbox messages, the referral reasons (and the
-patient's age) and the prior-auth notes those packs read, in every slot `MENDARI_PROVIDERS`
-chooses nothing for (README, "Jev"). To keep a slot on site, set it there: `notes=rules` keeps
-the prior-auth notes local, and that pack then automates nothing. The trial prescreener and AI
-Guard send Jev nothing unless `MENDARI_PROVIDERS` names a Jev reader for them. A deployment that
-already had Jev set up for some slots runs it in these too after the upgrade.
+that covers PHI. A release names no pack in the Jev defaults, so setting up Jev turns on no
+slot by itself: a slot calls Jev only where its pack's default variant, or `MENDARI_PROVIDERS`,
+chooses a Jev variant (README, "Jev"). To keep a slot on site, set it there (for example
+`reader=rules`).
 
-Unless the screen (or the notes) is the keyword rules plus a model (`rules_and_jev` or
-`rules_and_llm`), the inbox, referral and prior-auth packs automate nothing, and AI Guard
-releases nothing: every case goes to a person, and each decision's reasons say what is missing.
+A pack whose policy's `automation_requires` names the variants a slot must run (a model beside
+the keyword rules, say) automates nothing while that slot runs another: every case goes to a
+person, and each decision's reasons say what is missing.
 Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
 defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
 Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
@@ -1076,7 +1072,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…`, and its evaluations' calls `eval_jev=…,eval_llm=…` | 4 |
 | `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
-| `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
+| `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: a pack listed in the Jev defaults (none in a release) sends its `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
 | `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |
 | `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; the three packs' Jev calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
@@ -1095,9 +1091,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 
 - [ ] Validate the pack on your own data, with the providers your server runs:
       `mendari eval <pack> --dataset local.jsonl --provider <slot>=<variant> ...` (with Jev set
-      up, e.g. `--provider safety_screen=rules_and_jev --provider router=cascade` for the inbox;
-      the command alone runs the pack's offline defaults), or run it from the dashboard's
-      Evaluations view, which uses the deployed providers. With Jev, the dataset goes to Jev.
+      up, name its Jev variants, e.g. `--provider <slot>=<jev variant>`; the command alone runs
+      the pack's offline defaults, and `--provider reader=rules` runs the demo agent's rules),
+      or run it from the dashboard's Evaluations view, which uses the deployed providers. With Jev, the dataset goes to Jev.
       Bulk FHIR: `mendari bulk export` then `bulk dataset`. Compare with the benchmark.
 - [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.
 - [ ] `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` come from your secret manager, and they

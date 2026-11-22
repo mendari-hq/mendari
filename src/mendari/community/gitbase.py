@@ -25,6 +25,8 @@ def _git(repo: Path, *args: str) -> bytes:
         )
     except FileNotFoundError:
         raise MendariError("git is not installed; it is needed to compare with --base") from None
+    except subprocess.TimeoutExpired:
+        raise MendariError(f"git {args[0]} timed out after 120s") from None
     except subprocess.CalledProcessError as error:
         detail = error.stderr.decode("utf-8", "replace").strip().splitlines()
         raise MendariError(

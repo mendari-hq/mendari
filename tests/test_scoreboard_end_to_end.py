@@ -93,7 +93,7 @@ def on_this_machine(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def a_store(root: Path) -> results_store.Store:
     """An empty results store at `root`, with the repository's keys file (no key yet)."""
     root.mkdir(parents=True)
-    shutil.copy(ROOT / "scoreboard" / "keys.json", root / "keys.json")
+    shutil.copy(ROOT / "tests" / "fixtures" / "scoreboard" / "keys.json", root / "keys.json")
     return results_store.Store.at(root)
 
 

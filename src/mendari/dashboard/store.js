@@ -39,7 +39,7 @@ const cellTable = ({ id, columns, rows }) =>
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
 
 const TABS = [
-  { key: "packs", label: "Packs", shown: () => may("author") },
+  { key: "packs", label: "Agents", shown: () => may("author") },
   { key: "results", label: "Results", shown: () => may("author") },
   { key: "compare", label: "Compare", shown: () => may("author") },
   { key: "promote", label: "Promote", shown: () => may("promote") },
@@ -66,9 +66,9 @@ views.store = async (main, params = []) => {
   if (tab === "version" && rest[0]) return showVersion(main, rest[0]);
   const tabs = TABS.filter((t) => t.shown());
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
-  main.innerHTML = `<h1>Pack store</h1>
-    <p class="muted">Your organization's own versions of packs: written, checked and evaluated here, and served to your organization only once someone who did not write them promotes them.</p>
-    <nav class="segmented tabs" aria-label="Pack store views">${tabs
+  main.innerHTML = `<h1>Agent store</h1>
+    <p class="muted">Your organization's own versions of agents: written, checked and evaluated here, and served to your organization only once someone who did not write them promotes them.</p>
+    <nav class="segmented tabs" aria-label="Agent store views">${tabs
       .map((t) => `<a href="#store/${t.key}" data-tab="${t.key}"${t === current ? ' aria-current="page"' : ""}>${esc(t.label)}</a>`)
       .join("")}</nav>
     <section id="store-body" aria-busy="true"></section>`;
@@ -100,15 +100,15 @@ async function showPacks(body) {
   const lineages = await api("/api/store/packs");
   const list = lineages.length
     ? lineages.map(lineageHtml).join("")
-    : emptyState({ icon: "package", title: "No pack in your store yet", text: "Copy a pack this deployment serves, or upload a signed archive." });
+    : emptyState({ icon: "package", title: "No agent in your store yet", text: "Copy an agent this deployment serves, or upload a signed archive." });
   body.innerHTML = `${list}
     <form class="panel admin-form" id="copy-form" novalidate>
-      <h2>Copy a pack</h2>
-      <p class="muted">A draft of a pack this deployment serves, under your organization's name. It runs on the engine for packs the deployment does not own.</p>
-      <label for="copy-pack">Pack</label>
-      <input id="copy-pack" name="pack" required placeholder="mendari/patient-inbox-router" autocomplete="off">
+      <h2>Copy an agent</h2>
+      <p class="muted">A draft of an agent this deployment serves, under your organization's name. It runs on the engine for agents the deployment does not own.</p>
+      <label for="copy-pack">Agent to copy</label>
+      <input id="copy-pack" name="pack" required placeholder="mendari/portal-message-agent" autocomplete="off">
       <label for="copy-name">Name of the copy</label>
-      <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="inbox-router">
+      <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="portal-agent">
       <button type="submit" class="primary">Copy</button>
     </form>
     <form class="panel admin-form" id="upload-form" novalidate>
@@ -123,8 +123,11 @@ async function showPacks(body) {
   $("#copy-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
+    const pack = form.pack.value.trim();
+    const name = form.name.value.trim();
+    if (!pack || !name) return toastError("Enter both the source agent and a name for the copy.");
     whileBusy(form.querySelector("button"), "Copying…", async () => {
-      const made = await post("/api/store/copies", { pack: form.pack.value.trim(), name: form.name.value.trim() });
+      const made = await post("/api/store/copies", { pack, name });
       toast(`Copied into a draft: ${made.pack_id}`);
       location.hash = `#store/version/${encodeURIComponent(made.digest)}`;
     }).catch((error) => toastError(error.message));
@@ -210,7 +213,7 @@ function uploadedHtml({ ok, body }) {
 async function showVersion(main, digest) {
   const version = await api(`/api/store/versions/${encodeURIComponent(digest)}`);
   const held = version.state === "held";
-  main.innerHTML = `<p><a href="#store/packs">← Pack store</a></p>
+  main.innerHTML = `<p><a href="#store/packs">← Agent store</a></p>
     <h1><code>${esc(version.pack_id)}</code> ${esc(version.version)}</h1>
     <p>${stateBadge(version.state)} ${digestCode(version.digest)}</p>
     ${held ? '<div class="callout neutral" role="status">Held for the operator\'s review. Nothing more is shown until the operator answers.</div>' : versionBody(version)}`;
@@ -320,9 +323,9 @@ async function showResults(body) {
       <h2>Make an evaluation job</h2>
       <label for="job-version">Version</label>
       <select id="job-version" name="version">${versions.map((v) => `<option value="${esc(v.digest)}">${esc(v.pack_id)} ${esc(v.version)} (${short(v.digest)})</option>`).join("")}
-        <option value="">The pack it was copied from</option></select>
-      <label for="job-pack">Or a pack served here (the current one)</label>
-      <input id="job-pack" name="pack" placeholder="mendari/patient-inbox-router">
+        <option value="">The agent it was copied from</option></select>
+      <label for="job-pack">Or an agent served here (the current one)</label>
+      <input id="job-pack" name="pack" placeholder="mendari/portal-message-agent">
       <label for="job-dataset">Dataset</label>
       <select id="job-dataset" name="source">${datasets.filter((d) => d.state !== "held").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
         <option value="name:test">The version's own test set</option></select>
@@ -347,14 +350,19 @@ async function showResults(body) {
     body.dataset.resultsWired = "1";
     body.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-advance]");
-      if (button) whileBusy(button, "Running…", () => runJob(button.dataset.advance)).then(() => showResults(body).then(() => wire(body))).catch((error) => toastError(error.message));
+      if (button) {
+        whileBusy(button, "Running…", () => runJob(button.dataset.advance, body))
+          .then(() => (body.isConnected ? showResults(body).then(() => wire(body)) : undefined))
+          .catch((error) => toastError(error.message));
+      }
     });
   }
 }
 
-async function runJob(id) {
+async function runJob(id, anchor) {
   const jobId = encodeURIComponent(id);
   for (let i = 0; i < 1000; i += 1) {
+    if (anchor && !anchor.isConnected) return;
     const job = await post(`/api/store/jobs/${jobId}/advance`, {});
     if (job.state !== "queued" && job.state !== "running") {
       toast(job.state === "done" ? "Job done: its report is kept" : `Job ${job.state}: ${job.error ?? ""}`);
@@ -413,7 +421,7 @@ async function showPromote(body) {
   const serving = inForce.length
     ? cellTable({
         id: "promotions",
-        columns: ["Pack", "Version", "Promoted", ""],
+        columns: ["Agent", "Version", "Promoted", ""],
         rows: inForce.map((p) => [
           { html: `<code>${esc(p.pack_id)}</code>` },
           { html: `${esc(p.version)} ${digestCode(p.digest)}` },
@@ -437,7 +445,7 @@ async function showPromote(body) {
       const promoId = encodeURIComponent(button.dataset.retire);
       actionDialog({
         title: "Stop serving this version?",
-        body: `<p>Your organization is then served no version of this pack until another is promoted.</p>`,
+        body: `<p>Your organization is then served no version of this agent until another is promoted.</p>`,
         action: "Stop serving",
         danger: true,
         run: () => post(`/api/store/promotions/${promoId}/retire`, {}),
@@ -471,7 +479,7 @@ async function promote(form) {
   const org = state.memberships?.find((m) => m.org === state.me?.org)?.name ?? state.me?.org ?? "your organization";
   return actionDialog({
     title: "Serve this version?",
-    body: `<p>From now on, <code>${esc(form.dataset.pack)}</code> ${esc(form.dataset.version)} answers every decide request for this pack made in <b>${esc(org)}</b>, by people, keys, clients and the EHR, and no other organization's. The version served before it is retired. It recommends; it automates only where its risk level and the automation approval allow.</p>`,
+    body: `<p>From now on, <code>${esc(form.dataset.pack)}</code> ${esc(form.dataset.version)} answers every decide request for this agent made in <b>${esc(org)}</b>, by people, keys, clients and the EHR, and no other organization's. The version served before it is retired. It recommends; it automates only where its risk level and the automation approval allow.</p>`,
     action: "Promote",
     run: () =>
       post("/api/store/promotions", {

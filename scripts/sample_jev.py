@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """A Jev that finds no emergency, for the FHIR samples only: it answers in this process and
-nothing is sent anywhere. The inbox automates a routine message only while a model screens it for
-urgency (its policy's `automation_requires`), and the HL7 validator should see automated
-decisions too.
+nothing is sent anywhere. The test fixtures' portal-message agent automates a routine message
+only while a model screens it for urgency (its policy's `automation_requires`), and the HL7
+validator should see automated decisions too.
 
     with calm_jev() as providers:
-        decide = Decision.from_hub("mendari/patient-inbox-router", providers=providers)
+        decide = Decision.from_hub(pack_id, providers=providers)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ SETTINGS = {
     "JEV_MODEL": "jev-sample",
     "JEV_API_KEY": "sample",
 }
-# The inbox providers whose decisions may be automated.
+# The portal-message agent's providers whose decisions may be automated.
 SCREENED = {"safety_screen": "rules_and_jev"}
 
 

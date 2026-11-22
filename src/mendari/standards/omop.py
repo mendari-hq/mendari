@@ -25,6 +25,7 @@ trip and be checked in CI.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import date
@@ -330,19 +331,25 @@ def write(
     return len(records)
 
 
+_SCHEMA_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
+
+
 def _prefix(schema: str) -> str:
     if not schema:
         return ""
-    if not schema.isidentifier():
+    if not _SCHEMA_RE.fullmatch(schema):
         raise MendariError(f"{schema!r} is not a schema name")
     return f"{schema}."
 
 
 def _grouped(session: Session, sql: str, ids: list[int]) -> dict[int, list[dict[str, Any]]]:
-    rows = session.all(sql.replace("{ids}", ", ".join("?" for _ in ids)), ids)
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[row["person_id"]].append(row)
+    chunk_size = 500
+    for start in range(0, len(ids), chunk_size):
+        chunk = ids[start : start + chunk_size]
+        rows = session.all(sql.replace("{ids}", ", ".join("?" for _ in chunk)), chunk)
+        for row in rows:
+            grouped[row["person_id"]].append(row)
     return grouped
 
 
@@ -366,10 +373,14 @@ def _patient(person: Mapping[str, Any], as_of: date) -> dict[str, Any]:
         patient["sex"] = sex
     year = int(person["year_of_birth"] or 0)
     if year:
-        birth = date(year, int(person["month_of_birth"] or 7), int(person["day_of_birth"] or 1))
-        patient["age"] = (
-            as_of.year - birth.year - ((as_of.month, as_of.day) < (birth.month, birth.day))
-        )
+        try:
+            birth = date(year, int(person["month_of_birth"] or 7), int(person["day_of_birth"] or 1))
+        except ValueError:
+            birth = None
+        if birth is not None:
+            patient["age"] = (
+                as_of.year - birth.year - ((as_of.month, as_of.day) < (birth.month, birth.day))
+            )
     return patient
 
 

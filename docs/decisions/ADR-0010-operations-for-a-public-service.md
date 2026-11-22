@@ -82,8 +82,8 @@ Anonymous `/api/health` stays three fields with no database work.
      described in `docs/operations/status-checks.md`) covers:
      - readiness;
      - the sign-in redirect, which must reach the identity provider (another host);
-     - a synthetic decide on AI Guard, which runs local rules even where Jev is set up (the
-       inbox would spend a call of the deployment's shared Jev budget at every check), by a
+     - a synthetic decide on a bundled agent that spends no call of the deployment's shared
+       Jev budget (a model-backed decide would spend one at every check), by a
        decide-only key in an organization of its own, read from `STATUS_DECIDE_KEY`, never the
        file; on a deployment with one organization (claims mode without an organization
        claim) the check waits until there is a second;

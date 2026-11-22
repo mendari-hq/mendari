@@ -7,7 +7,7 @@ export default function NotFound() {
       <div className="empty-state">
         <p className="section-kicker">404 · Not found</p>
         <h1>Not found</h1>
-        <p className="muted">No pack or publisher by that name. <Link href="/">Search the packs</Link>.</p>
+        <p className="muted">No agent or publisher by that name. <Link href="/">Search the agents</Link>.</p>
       </div>
     </div>
   );

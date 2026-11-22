@@ -16,12 +16,12 @@ const PERIODS = [30, 90, 180];
 const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 // Why the benchmark is not compared (`benchmark.reason`).
 const NOT_COMPARED = {
-  from_registry: "the pack is from a registry, and the benchmark it carries is its publisher's upload, never a reference",
-  no_benchmark: "the pack has no benchmark",
-  another_build: "the benchmark measured another build of the pack",
+  from_registry: "the agent is from a registry, and the benchmark it carries is its publisher's upload, never a reference",
+  no_benchmark: "the agent has no benchmark",
+  another_build: "the benchmark measured another build of the agent",
   other_providers: "the benchmark ran other providers or models than this deployment",
   providers_unknown: "which providers and models run here is not known",
-  other_policy: "the benchmark measured the pack under other governance (an approval in force here and not there, or the reverse)",
+  other_policy: "the benchmark measured the agent under other governance (an approval in force here and not there, or the reverse)",
 };
 const ALERT_TITLES = {
   accuracy: "Accuracy below the benchmark",
@@ -40,7 +40,8 @@ const took = (ms) => {
 };
 
 views.monitoring = async (main) => {
-  const days = Number(storageGet("oh.monitoring.days", "30"));
+  const storedDays = Number(storageGet("oh.monitoring.days", "30"));
+  const days = PERIODS.includes(storedDays) ? storedDays : 30;
   const packId = state.packId;
   const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(packId)}&days=${days}`);
   if (state.packId !== packId) return;
@@ -79,7 +80,7 @@ views.monitoring = async (main) => {
     <h2>Week by week</h2>
     ${report.weeks.some((w) => w.decisions) ? `${trendChart(report)}${weeksTable(report.weeks)}` : emptyState({
       icon: "clock", title: `No decisions${othersOf(report) ? " of this version" : ""} in the last ${days} days`,
-      text: "Monitoring fills in as the pack decides and people review, record outcomes or rate its answers.",
+      text: "Monitoring fills in as the agent decides and people review, record outcomes or rate its answers.",
       action: { href: "#try", label: "Try it" },
     })}`;
   wire(main);
@@ -104,8 +105,8 @@ function comparedNote(report) {
   }
   if (others) {
     parts.push(others === 1
-      ? "1 decision of another version of the pack is not counted."
-      : `${others} decisions of other versions of the pack are not counted.`);
+      ? "1 decision of another version of the agent is not counted."
+      : `${others} decisions of other versions of the agent are not counted.`);
   }
   return parts.length ? `<p class="muted">${parts.join(" ")}</p>` : "";
 }
@@ -133,7 +134,7 @@ function trendChart(report) {
     series: [{ key: "accuracy", label: "Observed accuracy", swatch: "c1" }, { key: "overrides", label: "Overrides", swatch: "c2", dashed: true }],
     directLabels: true,
     legend: [{ swatch: "line c1", label: "Observed accuracy" }, { swatch: "line c2 dashed", label: "Overrides" }],
-    note: "Observed accuracy compares the pack's recommendation with what a person or a downstream system said.",
+    note: "Observed accuracy compares the agent's recommendation with what a person or a downstream system said.",
     points: weeks.map((w, i) => ({
       x: i, title: `${day(w.from)} to ${day(w.to)}`,
       values: { accuracy: share(w.figures.accuracy), overrides: share(w.figures.overrides) },

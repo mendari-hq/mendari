@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
@@ -60,7 +59,7 @@ CRON = "a-cron-secret-of-some-length-0123456789"
 
 @pytest.fixture(scope="module")
 def trial() -> Pack:
-    return load_pack(ROOT / "packs" / "clinical-trial-prescreener")
+    return load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
 
 
 def policy(mode: PhiMode) -> PhiPolicy:
@@ -268,54 +267,17 @@ def test_the_signed_in_templates_choose_a_mode() -> None:
     assert '"MENDARI_PHI_MODE"] = "encrypt"' in snippets and '= "off"' not in snippets
 
 
-def readme_key_step() -> str:
-    """The README's one-time step that writes the signed-in sandbox's keys into `.env`."""
-    lines = (ROOT / "README.md").read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith('[ -n "$(tail -c1 .env'))
-    end = lines.index("done", start)
-    return "\n".join(lines[start : end + 1]) + "\n"
-
-
-@pytest.mark.parametrize(
-    "before",
-    [
-        "",
-        "JEV_MODEL=jev-1",
-        "JEV_MODEL=jev-1\n",
-        "MENDARI_PHI_KEY=kept\n",
-        "MENDARI_INPUT_HASH_KEY=kept",
-    ],
-)
-def test_the_sandbox_key_step_adds_each_missing_key_once(tmp_path: Path, before: str) -> None:
-    """Rerun, the README's step changes nothing; it never glues a key onto a last line left
-    without its newline, and adds only the key `.env` lacks (a second hash key would be a new
-    input-hash epoch)."""
-    env_file = tmp_path / ".env"
-    if before:
-        env_file.write_text(before)
-    step = readme_key_step()
-    for _ in range(2):
-        subprocess.run(["bash", "-c", step], cwd=tmp_path, check=True)
-    text = env_file.read_text()
-    kept, lines = before.splitlines(), text.splitlines()
-    assert text.endswith("\n") and lines[: len(kept)] == kept  # what was there, untouched
-    keys = {"MENDARI_PHI_KEY", "MENDARI_INPUT_HASH_KEY"}
-    names = [line.split("=", 1)[0] for line in lines]
-    assert sorted(names) == sorted({line.split("=", 1)[0] for line in kept} | keys)
-    for line in lines[len(kept) :]:
-        assert len(base64.b64decode(line.split("=", 1)[1], validate=True)) == 32
-
-
 def test_the_signed_in_sandbox_resets_alone() -> None:
     """Starting the signed-in sandbox over removes its engine and volume only: `down -v` would
     also remove `mendari-data`, the open engine's database and the registry's packs. The volume's
     name follows the compose project's."""
     compose = (ROOT / "docker-compose.yml").read_text()
     assert "\nname: mendari\n" in compose and "  mendari-signin-data:\n" in compose
-    for text in (compose, (ROOT / "README.md").read_text()):
-        assert "rm -sf engine-signin" in text
-        assert "docker volume rm mendari_mendari-signin-data" in text
-        assert "--profile signin down -v" not in text
+    assert "rm -sf engine-signin" in compose
+    assert "docker volume rm mendari_mendari-signin-data" in compose
+    assert "--profile signin down -v" not in compose
+    # The README no longer describes the sandbox; it must not teach the reset that removes more.
+    assert "--profile signin down -v" not in (ROOT / "README.md").read_text()
 
 
 # -- decisions recorded under `off`, read under `encrypt` ------------------------------------

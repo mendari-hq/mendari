@@ -84,9 +84,9 @@ def test_a_community_pack_is_labelled_wherever_it_shows_and_readably(
     show(site, "card")
     expect(site.locator("main .community-notice")).to_contain_text(LABEL)
     expect(site.locator("#card-facts .badge.origin-community")).to_have_text(LABEL)
-    expect(site.locator("#card-facts")).to_contain_text("Never: a community pack recommends")
+    expect(site.locator("#card-facts")).to_contain_text("Never: a community agent recommends")
     expect(site.locator("#card-facts")).to_contain_text("(community, self-declared)")
-    expect(site.locator("#card-approval")).to_contain_text("A community pack is never automated")
+    expect(site.locator("#card-approval")).to_contain_text("A community agent is never automated")
     pairs += site.evaluate(CONTRAST, "main .community-notice, main .badge.origin-community")
 
     show(site, "try")

@@ -7,14 +7,13 @@ out", is `/docs/reference`.
 
 Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, included here as
 it is. CI runs them against a local server, once in open mode and once with a `service` key
-(`scripts/check_doc_snippets.py`), so they work as written; the Python example runs as a
-program. They need `curl` and `jq`, and every body is synthetic.
+(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and every body is synthetic.
 
 ## Before you start
 
 In a clone, `uv sync` installs Mendari with the server (without uv: `pip install '.[server]'`;
-the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the reference
-packs; to serve your own too, set `MENDARI_PACKS_PATH` to their folders (`:`-separated, searched
+the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the bundled
+demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_PACKS_PATH` to their folders (`:`-separated, searched
 first). `MENDARI_PACKS` (comma-separated ids) then narrows what is served to those packs, which
 must be on the path.
 
@@ -36,8 +35,8 @@ Each script runs as a whole (`bash quickstart.sh`), or step by step: copy the li
 
 ## Quickstart in three calls
 
-List the packs, decide on a synthetic patient message (one of the pack's behaviour tests), and read
-the decision's audit record:
+List the packs, ask the demo agent for a decision on a synthetic patient message (one of its
+behaviour tests), and read the decision's audit record:
 
 <!-- check: include quickstart.sh -->
 ```bash
@@ -96,8 +95,8 @@ deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to 
 the audit trail (which needs a Mendari sign-in), `source.url` is the pack's card, and, when SMART
 is on and your `fhirServer` is registered for launches in your organization, a `smart` link
 opens the pack. Without it, the reasons are in the detail, but for the confidence thresholds',
-whose figures carry no interval. The prior authorization service is a
-Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
+whose figures carry no interval. A service whose pack maps recommendations to coverage
+information (`cds_hooks.coverage_information`) is a Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
 and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
 cards and no system actions, while each order is still decided and recorded.
 
@@ -114,7 +113,7 @@ the daily cap.
 
 <!-- check: skip placeholder: the card's uuid is one a hook gave your EHR -->
 ```bash
-curl -s -X POST "$MENDARI/cds-services/mendari.referral-router/feedback" \
+curl -s -X POST "$MENDARI/cds-services/mendari.portal-message-agent/feedback" \
   -H "authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
   -d '{"feedback": [{"card": "<card uuid>", "outcome": "overridden",
        "overrideReason": {"reason": {"system": "https://mendari.co/fhir/CodeSystem/card-override-reasons",
@@ -123,7 +122,7 @@ curl -s -X POST "$MENDARI/cds-services/mendari.referral-router/feedback" \
 # {"recorded": 1}
 ```
 
-List the services and call the inbox's hook, with a synthetic patient and message as prefetch.
+List the services and call the demo agent's hook, with a synthetic patient and message as prefetch.
 With sign-in off, the CDS services answer on this machine only (`127.0.0.1`, `localhost`): from
 anywhere else they are a `403`, whatever the request carries.
 
@@ -149,23 +148,12 @@ or `null` without one ([Connecting an EHR](connecting-an-ehr.md#site-codes)).
 
 ## Guarding a model's replies
 
-A pack with a `guard` section, such as the AI Guard reference pack, checks a model's draft before
-a patient reads it. `POST /api/packs/{id}/guard` answers `{status, reply, outcome, recommendation,
+A pack with a `guard` section checks a model's draft before a patient reads it. `POST /api/packs/{id}/guard` answers `{status, reply, outcome, recommendation,
 reasons, fallback, decision_id}` and the whole `decision`: the draft is `released` only when the
 decision is automated with a release recommendation; otherwise it is `held_for_review` or
-`blocked`. Never send a blocked draft: act on `fallback`. Here a dose above the daily maximum is blocked:
-
-<!-- check: include guard.sh -->
-```bash
---8<-- "guard.sh"
-```
-
-The same check in Python, without a server:
-
-<!-- check: include guard.py -->
-```python
---8<-- "guard.py"
-```
+`blocked`. Never send a blocked draft: act on `fallback`. The same check runs in Python without
+a server (`mendari.guard.check`). The bundled demo agent declares no `guard` section, so this
+guide has no example to run here: an agent of your own that declares one is checked this way.
 
 ## Authentication
 
@@ -233,7 +221,7 @@ in [Deploying with real patient data](../deploying-with-phi.md).
 
 Where the operator turns it on (`MENDARI_PACK_STORE=on`, memberships mode), a person who holds
 `pack_author` in an organization keeps that organization's own versions of packs under
-`/api/store` ([the pack store](../operations/pack-store.md)). Every route acts for the
+`/api/store` ([the pack store](../operations/agent-store.md)). Every route acts for the
 organization the person acts for; no key or client reaches them.
 
 | Route | What it does |

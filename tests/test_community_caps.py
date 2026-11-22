@@ -238,8 +238,8 @@ def test_the_cap_message_names_patternproperties_with_additionalproperties(
         "searches them and for its error message), and a $ref, allOf, anyOf or oneOf that "
         "reaches the same pattern more than once multiplies it)"
     )
-    guide = " ".join((ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text().split())
-    spec = " ".join((ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text().split())
+    guide = " ".join((ROOT / "docs" / "guides" / "contributing-an-agent.md").read_text().split())
+    spec = " ".join((ROOT / "docs" / "spec" / "agent-manifest-0.2.md").read_text().split())
     for text in (guide, spec):
         assert "each `patternProperties` pattern counts three times where" in text
 

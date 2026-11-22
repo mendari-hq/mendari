@@ -62,7 +62,7 @@ export function shown(p) {
 // The same text as HTML, the interval set smaller (its text is unchanged for screen readers).
 export function figureHtml(p) {
   if (p === null || p === undefined || !p.n) return esc(shown(p));
-  return `${p.k} of ${p.n} <span class="interval">[${bounds(p)}%]</span>`;
+  return `${esc(p.k)} of ${esc(p.n)} <span class="interval">[${esc(bounds(p))}%]</span>`;
 }
 
 // k / n, for sorting, tone and geometry only (never shown as a number).
@@ -132,7 +132,7 @@ export const outcomeBadge = (o) => `<span class="badge o-${esc(o)}" title="${esc
 export const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="priority: ${esc(p)}">${esc(PRIORITY_TEXT[p] ?? p)}</span>`;
 
 // Icons come from the sprite in index.html; they are decorative, so the text beside them names them.
-export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${esc(name)}"/></svg>`;
 
 // Memberships mode: the organization this window shows goes with each request, so one meant for
 // it never lands in another chosen since in a second window (the server answers 409).
@@ -219,7 +219,7 @@ export function today() {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-// A file name's part from an id ("mendari/patient-inbox-router" → "mendari-patient-inbox-router").
+// A file name's part from an id ("mendari/portal-message-agent" → "mendari-portal-message-agent").
 export const fileSlug = (id) => String(id ?? "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "all";
 
 // A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or
@@ -346,13 +346,13 @@ export const MEMBERSHIP_ROLES = [
   { key: "viewer", label: "Viewer", text: "reads decisions and the audit trail" },
   { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
-  { key: "governance", label: "Governance", text: "approves packs and holds automation" },
+  { key: "governance", label: "Governance", text: "approves agents and holds automation" },
   { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
-  { key: "pack_author", label: "Pack author", text: "writes packs in the organization's pack store, where it is on" },
+  { key: "pack_author", label: "Agent author", text: "writes agents in the organization's agent store, where it is on" },
   { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
   // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
   // where the server says this organization is that one (`me.registry_review_org`).
-  { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the pack registry: namespace claims, recalls and deletions", reviewOrg: true },
+  { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the agent registry: namespace claims, recalls and deletions", reviewOrg: true },
 ];
 
 // The roles this organization's administrators may give: every one, but the registry
@@ -523,7 +523,10 @@ export function actionDialog({ title, body, action, danger = false, run }) {
 
 // Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
 // (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
-export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
+export const slotText = (slot) => {
+  const s = String(slot ?? "");
+  return s ? `${s[0].toUpperCase()}${s.slice(1).replaceAll("_", " ")}` : "";
+};
 
 // An empty view or section: an icon, what is (not) here in one line, and the one thing to do next.
 // `text` is trusted HTML (it may link somewhere).

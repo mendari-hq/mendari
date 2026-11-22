@@ -249,6 +249,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
     "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
+    "mcp": (["--db", "{not_db}"], {}),
 }
 
 

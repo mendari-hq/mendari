@@ -20,8 +20,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra server --no-editable --no-install-project
 COPY README.md LICENSE NOTICE ./
 COPY src ./src
-COPY packs ./packs
-COPY datasets ./datasets
+COPY agents ./agents
 RUN uv sync --frozen --no-dev --extra server --no-editable
 
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS runtime
@@ -56,12 +55,12 @@ RUN useradd --create-home --uid 10001 mendari && mkdir /data && chown mendari /d
 USER mendari
 WORKDIR /home/mendari
 
-# A per-pack image serves only its pack: docker build --build-arg PACK=mendari/referral-router .
+# A per-pack image serves only its pack: docker build --build-arg PACK=mendari/portal-message-agent .
 ARG PACK=""
 ENV MENDARI_PACKS=${PACK}
 # `licenses` names Mendari's own licence only; the description says the rest is under others.
 LABEL org.opencontainers.image.title="Mendari engine" \
-      org.opencontainers.image.description="Decision Packs: REST, FHIR, CDS Hooks, review queue, audit, dashboard. Mendari application code: Apache-2.0. Container includes third-party software under additional licenses. See /licenses and /licenses/THIRD_PARTY_NOTICES.md." \
+      org.opencontainers.image.description="Governance and evaluation engine for healthcare AI agents: REST, FHIR, CDS Hooks, review queue, audit, dashboard. Mendari application code: Apache-2.0. Container includes third-party software under additional licenses. See /licenses and /licenses/THIRD_PARTY_NOTICES.md." \
       org.opencontainers.image.licenses="Apache-2.0"
 
 EXPOSE 8000

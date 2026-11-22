@@ -98,6 +98,7 @@ from tests.conftest import (
     evalset_on,
     launched,
     member,
+    runbook_body,
     signed_in,
     without_request_id,
 )
@@ -930,7 +931,9 @@ def test_the_runbooks_grading_runs_as_written(
     key = json.loads(capsys.readouterr().out)
     found = re.findall(r"curl -sS -X POST \"\$MENDARI/api/evalsets/<set id>/runs\".*", text)
     (posted,) = [line for line in found if '"arms"' not in line]  # the scoreboard's is LP-17k's
-    body = json.loads(shlex.split(posted)[-1])
+    body = runbook_body(
+        json.loads(shlex.split(posted)[-1]), world.pack.id, variants={"router": "rules"}
+    )
     answered = world.client.post(
         url(set_id), json=body, headers={"authorization": f"Bearer {key['key']}"}
     )

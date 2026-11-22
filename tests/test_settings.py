@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import Decision
+from mendari import settings as mendari_settings
 from mendari.cli import main
 from mendari.core.registry import discover
 from mendari.errors import MendariError
@@ -21,8 +22,8 @@ from mendari.evals.pack_tests import load_cases
 from mendari.providers import jev, slots_without_model
 from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
-from mendari.settings import JEV_DEFAULTS, default_providers, parse_providers, providers_for
-from tests.conftest import INBOX_DIR
+from mendari.settings import default_providers, parse_providers, providers_for
+from tests.conftest import INBOX_DIR, ROOT
 
 FIXTURES = Path(__file__).parent / "fixtures" / "packs"
 INBOX_SLOTS = {
@@ -89,7 +90,32 @@ def test_the_cli_refuses_settings_that_cannot_apply(
     assert "warning: MENDARI_PROVIDERS: provider setting router=jev" in capsys.readouterr().err
 
 
-# -- with Jev set up, the reference packs run Mendari + Jev --------------------------------------
+# -- with Jev set up, the packs JEV_DEFAULTS names run Mendari + Jev ------------------------------
+
+# A release names no Jev defaults: its one bundled agent has no Jev slot. The mechanism is tested
+# with the defaults the fixture packs had when they shipped, set in place of the product's.
+JEV_DEFAULTS: dict[str, dict[str, str]] = {
+    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
+    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "cascade"},
+    "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
+}
+PRODUCT_JEV_DEFAULTS = mendari_settings.JEV_DEFAULTS  # read before any test sets the fixtures'
+# The subprocess in test_the_vercel_app_runs_the_jev_defaults sets them the same way.
+_SET_DEFAULTS = f"import mendari.settings as s; s.JEV_DEFAULTS.update({JEV_DEFAULTS!r}); "
+
+
+@pytest.fixture(autouse=True)
+def _fixture_jev_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mendari_settings, "JEV_DEFAULTS", JEV_DEFAULTS)
+
+
+def test_a_release_names_no_jev_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bundled demo agent has no Jev slot, so with Jev set up a release still runs no Jev
+    default: a deployment chooses its own packs' variants (MENDARI_PROVIDERS)."""
+    assert PRODUCT_JEV_DEFAULTS == {}
+    monkeypatch.setattr(mendari_settings, "JEV_DEFAULTS", PRODUCT_JEV_DEFAULTS)
+    set_up_jev(monkeypatch, JEV_API_KEY="test-key")
+    assert default_providers() == {}
 
 
 def set_up_jev(monkeypatch: pytest.MonkeyPatch, **settings: str) -> None:
@@ -277,8 +303,10 @@ def test_the_vercel_app_runs_the_jev_defaults(
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
+    # A process of its own does not see the tests' fixture packs unless told where they are.
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-packs"))
     script = (
-        "import json; from fastapi.testclient import TestClient; "
+        _SET_DEFAULTS + "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "
         "print(json.dumps(TestClient(app).get('/api/health').json()['providers']))"
     )

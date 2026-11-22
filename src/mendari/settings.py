@@ -240,7 +240,7 @@ def community_packs_enabled() -> bool:
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     """`slot=variant` pairs from flags, falling back to $MENDARI_PROVIDERS (comma-separated).
 
-    A setting can be scoped to one pack: `mendari/clinical-trial-prescreener:notes=jev`.
+    A setting can be scoped to one pack: `mendari/portal-message-agent:reader=rules`.
     """
     items = list(values or [])
     if not items and os.environ.get("MENDARI_PROVIDERS"):
@@ -256,18 +256,12 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
-# With Jev set up, a server runs the reference packs that automate under their own policy (risk
-# levels 0-1) as Mendari + Jev: each policy's `automation_requires` asks for a model in its
-# screen, and Jev reads there beside the keyword rules, so the rules still answer when Jev
-# cannot. The inbox's router and the referral's specialty reader are naive Bayes, asking Jev when
-# unsure (`cascade`): when Jev cannot answer, they still suggest a team or a specialty. At risk
-# level 2 (the trial prescreener, AI Guard) automation rests on an approval of the
-# configuration that runs, so a deployment names those packs' readers itself.
-JEV_DEFAULTS: dict[str, dict[str, str]] = {
-    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
-    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "cascade"},
-    "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
-}
+# With Jev set up, a server runs these variants, by pack, in each slot its provider settings
+# choose nothing for: for a pack whose policy's `automation_requires` asks for a model in its
+# screen, Jev reading there beside the keyword rules, so the rules still answer when Jev cannot.
+# The bundled demo agent has no Jev slot, so a release names none; a deployment that serves its
+# own packs chooses their variants with MENDARI_PROVIDERS.
+JEV_DEFAULTS: dict[str, dict[str, str]] = {}
 
 
 def default_providers() -> dict[str, dict[str, str]]:

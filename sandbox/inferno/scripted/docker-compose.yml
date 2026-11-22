@@ -59,6 +59,12 @@ services:
       MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
       MENDARI_SMART_CLIENT_ID: mendari-sandbox
       MENDARI_SMART_SCOPES: launch patient/*.rs
+      # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
+    volumes:
+      - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_ENGINE_PORT:-8090}:8000"
 
@@ -86,6 +92,11 @@ services:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
+    volumes:
+      - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_SIGNIN_PORT:-8091}:8000"
 

@@ -25,7 +25,7 @@ HL7 FHIR R4 and US Core 6.1.0
   HL7 and FHIR are registered trademarks of Health Level Seven International.
 
 LOINC
-  LOINC codes in the synthetic reference packs and datasets (packs/, datasets/)
+  LOINC codes in the sandbox's synthetic FHIR records (src/mendari/sandbox/fhir_records.py) and in tests
   Licence: the LOINC License (https://loinc.org/license).
   This material contains content from LOINC® (http://loinc.org). LOINC is copyright © 1995-2026,
   Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC)
@@ -33,14 +33,14 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 RxNorm
-  RxNorm codes in the Clinical Trial Prescreener's synthetic data and tests (packs/clinical-trial-prescreener)
+  RxNorm codes in the sandbox's synthetic EHR profile (src/mendari/sandbox/ehr_profile.py) and in tests
   Licence: public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes).
   This product uses publicly available data courtesy of the U.S. National Library of Medicine
   (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
   responsible for the product and does not endorse or recommend this or any other product.
 
 ICD-10-CM
-  ICD-10-CM codes in the synthetic reference packs and datasets
+  ICD-10-CM codes in the sandbox's synthetic records and in tests
   Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes.
 
 ICD-10-PCS

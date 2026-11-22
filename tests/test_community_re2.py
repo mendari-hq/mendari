@@ -236,7 +236,7 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
     (root / SCHEMA).write_text(json.dumps(document))
     load_pack(root)  # any other pack: as before
     # Written down where a contributor reads the limits.
-    for doc in ("docs/guides/contributing-a-pack.md", "docs/spec/decision-pack-0.2.md"):
+    for doc in ("docs/guides/contributing-an-agent.md", "docs/spec/agent-manifest-0.2.md"):
         text = " ".join((ROOT / doc).read_text().split())
         assert "`unevaluatedProperties`" in text and "`unevaluatedItems`" in text, doc
 
@@ -258,7 +258,7 @@ def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, n
     which matches "ab", and a negative lookbehind's advice never named negation_cues."""
     problem = patterns.problem(pattern, patterns.RULES_FLAGS, community=True)
     assert problem is not None and says in problem and never not in problem
-    assert problem.endswith('(see "Patterns run on RE2" in docs/guides/contributing-a-pack.md)')
+    assert problem.endswith('(see "Patterns run on RE2" in docs/guides/contributing-an-agent.md)')
 
 
 def test_a_deployment_without_community_packs_never_imports_re2(tmp_path: Path) -> None:
@@ -400,7 +400,7 @@ def test_the_differences_left_are_the_ones_written_down(
     written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
     assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
     assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
-    guide = " ".join((ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text().split())
+    guide = " ".join((ROOT / "docs" / "guides" / "contributing-an-agent.md").read_text().split())
     assert '`\\bpie` also matches in "épie"' in guide
     assert '`\\bрак\\b` (cancer) also matches inside "практика"' in guide  # noqa: RUF001
     assert "work as in `re`" not in guide  # the claim the last check disproved
@@ -459,7 +459,9 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
 
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:
     """Every maintained pattern, with the texts of its pack's datasets and examples."""
-    packs = discover([SearchPath(ROOT / "packs", "maintained")]).packs
+    packs = discover(
+        [SearchPath(ROOT / "tests" / "fixtures" / "reference-packs", "maintained")]
+    ).packs
     cases = []
     for pack in packs:
         texts: list[str] = []

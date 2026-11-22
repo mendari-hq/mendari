@@ -13,8 +13,8 @@ Mendari records what people say about its decisions and never used it:
 - `mendari feedback export` wrote thumbs-down cases for a person to label and turn into tests.
 - Monitoring alerts when reviewers override more or observed accuracy falls. It changes nothing.
 
-So a pack's built-in classifier stays what its author trained it on. Measured on the Patient
-Inbox Router, whose model was trained on 1,500 synthetic template messages: it sends 99.3% of
+So a pack's built-in classifier stays what its author trained it on. Measured on a message
+router of the time, whose model was trained on 1,500 synthetic template messages: it sends 99.3% of
 its own test to the right team, 93.2% of the local-site example, and 73.9% of the harder draft's
 held-out messages (a draft, not clinically reviewed), where 12 of its 197 answers at 0.90 or
 more are wrong. Its own card says the benchmark overstates what a site will see.
@@ -66,7 +66,7 @@ The engine learns, and what it learned is a proposal.
    model in the pack and the cases it learned from at the end of the pack's own training and
    calibration datasets, so `mendari train` rebuilds the model byte for byte. The three files
    change together or not at all, and a run is kept once.
-6. **Only in a pack of one's own.** A reference pack of the release, a community pack of the
+6. **Only in a pack of one's own.** A pack bundled with the release, a community pack of the
    repository and a pack pulled from a registry are never changed in place, by the directory
    the pack is in, however its path is spelt.
 7. **A person promotes.** What `--write` leaves is a changed pack with a new digest: a version
@@ -75,7 +75,7 @@ The engine learns, and what it learned is a proposal.
 
 ## Consequences
 - A site can close the loop on its own pack with three commands, and see why a candidate was
-  or was not kept. On the inbox router, with the harder draft's train split standing in for
+  or was not kept. On that message router, with the harder draft's train split standing in for
   reviewed cases: 102 of 145 held-out messages right before, 138 after; of its confident
   answers, 10 of 71 wrong before and 1 of 116 after; and 322 to 354 of the draft's other 436
   messages, which share nothing with what it learned.
@@ -121,8 +121,8 @@ The engine learns, and what it learned is a proposal.
   cases a site labelled itself, a case retyped into a pack or copied without its `attributes`,
   a copy compressed or in another encoding. And a file that only quotes a mark is refused like
   one that holds a case.
-- Reviews label the primary question only. A classifier that answers another question (the
-  Referral Router's specialty reader) learns from cases labelled for that question: ratings
+- Reviews label the primary question only. A classifier that answers another question (a
+  specialty reader, say) learns from cases labelled for that question: ratings
   that say the right answer, or a site's own labelled data.
 - A run is judged with the providers that decide on the machine. A candidate's effect on a
   deployment whose safety screen includes a model is not measured, though that screen and the

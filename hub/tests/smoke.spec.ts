@@ -3,23 +3,18 @@ import { readFileSync } from "node:fs";
 
 import { expect, test, type Page } from "@playwright/test";
 
-// The registry the tests run against holds the five reference packs (verified publisher) and,
-// from a community publisher, a pack whose text tries to run a script (scripts/hub_seed.py
-// --hostile-example). Search lists them by id.
-const PACKS = [
-  "Hostile Text Example",
-  "AI Guard",
-  "Clinical Trial Prescreener",
-  "Patient Inbox Router",
-  "Prior Authorization Preflight",
-  "Referral Router",
-];
+// The registry the tests run against holds the demo agent this release bundles (verified
+// publisher) and, from a community publisher, a copy of it whose text tries to run a script
+// (scripts/hub_seed.py --hostile-example). Search lists them by id.
+const AGENTS = ["Hostile Text Example", "Portal Message Agent"];
+const DEMO = "/packs/mendari/portal-message-agent";
 
-// The referral pack's version as it ships: the registry the tests run against publishes it.
+// The demo agent's version as it ships: the registry the tests run against publishes it.
 // `npm test` runs in hub/.
-function shippedVersion(pack: string): string {
-  const version = /^version: (.+)$/m.exec(readFileSync(`../packs/${pack}/pack.yaml`, "utf8"))?.[1];
-  if (!version) throw new Error(`no version in packs/${pack}/pack.yaml`);
+function shippedVersion(): string {
+  const manifest = "../agents/portal-message-agent/pack.yaml";
+  const version = /^version: (.+)$/m.exec(readFileSync(manifest, "utf8"))?.[1];
+  if (!version) throw new Error(`no version in ${manifest}`);
   return version;
 }
 
@@ -32,51 +27,52 @@ function watchConsole(page: Page): string[] {
   return errors;
 }
 
-test("the home page lists every published pack, with no uploaded figure", async ({ page }) => {
+test("the home page lists every published agent, with no uploaded figure", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare AI Agents");
-  await expect(page.getByRole("list", { name: "Agents" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
-  await expect(page.locator(".badge.verified")).toHaveCount(5);
+  await expect(page.getByRole("list", { name: "Agents" }).getByRole("heading", { level: 3 })).toHaveText(AGENTS);
+  await expect(page.locator(".badge.verified")).toHaveCount(1);
   // The risk level is the publisher's own word, and nothing the publisher uploaded is a figure here.
-  await expect(page.getByText(/^Risk \d \(declared\)$/)).toHaveCount(PACKS.length);
+  await expect(page.getByText(/^Risk \d \(declared\)$/)).toHaveCount(AGENTS.length);
   await expect(page.getByText(/Benchmark accuracy/)).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
-test("search narrows by words, risk level and standard", async ({ page }) => {
-  await page.goto("/?q=referral+specialty");
-  await expect(page.locator(".results h3")).toHaveText(["Referral Router"]);
+test("search narrows by words and risk level", async ({ page }) => {
+  await page.goto("/?q=hostile");
+  await expect(page.locator(".results h3")).toHaveText(["Hostile Text Example"]);
+  await page.goto("/?risk=0");
+  await expect(page.locator(".results h3")).toHaveText(AGENTS);
   await page.goto("/?risk=2");
-  await expect(page.locator(".results h3")).toHaveText(["AI Guard", "Clinical Trial Prescreener"]);
-  await page.goto("/?standard=CDS+Hooks&q=authorization");
-  await expect(page.locator(".results h3")).toHaveText(["Prior Authorization Preflight"]);
+  await expect(page.getByText("No agent matches these filters.")).toBeVisible();
   await page.goto("/?q=nothing-matches-this");
   await expect(page.getByText("No agent matches these filters.")).toBeVisible();
 });
 
-test("a pack page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
+test("an agent page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
-  await page.getByRole("link", { name: "Referral Router" }).click();
-  await expect(page).toHaveURL(/\/packs\/mendari\/referral-router$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral Router");
-  await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
-  await expect(page.locator(".fact").first()).toContainText(shippedVersion("referral-router"));
+  await page.getByRole("link", { name: "Portal Message Agent" }).click();
+  await expect(page).toHaveURL(/\/packs\/mendari\/portal-message-agent$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Portal Message Agent");
+  await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/portal-message-agent");
+  await expect(page.locator(".fact").first()).toContainText(shippedVersion());
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
   const checked = page.getByRole("region", { name: "Checked by the registry" });
-  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Regression check", "Counter-signature"]);
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Agent digest", "Engine", "Decision Card", "Review", "Regression check", "Counter-signature"]);
   await expect(checked).toContainText("verified at publish");
   // The CI registry has no signing key, so it counter-signs nothing, and the page says so.
   await expect(checked).toContainText("Not counter-signed");
   await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
-  await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
+  await expect(checked).toContainText("The maintained engine: a copy of an agent the registry's own release bundles");
   await expect(checked).toContainText("Rendered by the registry from the files the digest covers");
   await expect(checked).toContainText("Not reviewed by the registry");
   // The registry's own check on the publisher's set, labelled: never a ranking.
   await expect(checked).toContainText("publisher's own test set: regression check, not a ranking", { ignoreCase: true });
-  await expect(checked).toContainText(/Accuracy \d+ of \d+ \[[<\d.]+-[>\d.]+%\] on its set \w+; nothing earlier to compare with/);
+  // The demo agent's default configuration calls an agent, and the registry calls none.
+  await expect(checked).toContainText("Not run: its default providers call a model, which the registry does not");
 
   const claimed = page.getByRole("region", { name: "Claimed by the publisher" });
   await expect(claimed.locator("dt")).toHaveText(["Publisher", "Risk level", "Licence", "Summary"]);
@@ -91,7 +87,7 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await expect(page.getByRole("heading", { name: "Decision Card", exact: true })).toBeVisible();
   const card = page.locator("article.markdown");
   await expect(card.locator("table").first()).toBeVisible();
-  await expect(card.getByRole("cell", { name: /^1, clinical information processing .*\(declared by the publisher\)$/ })).toBeVisible();
+  await expect(card.getByRole("cell", { name: /^0, .*\(declared by the publisher\)$/ })).toBeVisible();
   await expect(card).toContainText("Rendered by the registry from the pack's own files");
   await expect(card).not.toContainText("|---|");
   expect(errors).toEqual([]);
@@ -137,15 +133,15 @@ test("publisher text is shown as text: no script runs and no unsafe link is made
   expect(errors).toEqual([]);
 });
 
-test("a publisher page lists its packs and signing keys", async ({ page }) => {
+test("a publisher page lists its agents and signing keys", async ({ page }) => {
   await page.goto("/publishers/mendari");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mendari reference packs");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mendari");
   await expect(page.getByText("Verified publisher")).toBeVisible();
-  await expect(page.locator("ul").first().getByRole("link")).toHaveCount(5);
+  await expect(page.locator("ul").first().getByRole("link")).toHaveCount(1);
   await expect(page.locator("li.mono")).toHaveCount(1);
 });
 
-test("an unknown pack is a 404 page", async ({ page }) => {
+test("an unknown agent is a 404 page", async ({ page }) => {
   const response = await page.goto("/packs/mendari/no-such-pack");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
@@ -153,23 +149,25 @@ test("an unknown pack is a 404 page", async ({ page }) => {
 
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/", "/packs/mendari/referral-router", "/packs/hub-test/hostile-text", "/publishers/mendari"]) {
+  for (const path of ["/", DEMO, "/packs/hub-test/hostile-text", "/publishers/mendari"]) {
     await page.goto(path);
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     expect(fits, path).toBe(true);
   }
 });
 
-// Site evidence (LP-22h): two synthetic sites shared signed counts of the Referral Router
+// Site evidence (LP-22h): two synthetic sites shared signed counts of the demo agent
 // (scripts/hub_seed.py --sites); its own section, apart from the registry's checks and any rank.
-test("a pack page shows site evidence in its own section: sites, cases, a plot and its table", async ({ page }) => {
+test("an agent page shows site evidence in its own section: sites, cases, a plot and its table", async ({ page }) => {
   const errors = watchConsole(page);
-  await page.goto("/packs/mendari/referral-router");
+  await page.goto(DEMO);
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence: 2 sites, 900 cases");
   await expect(section).toContainText("not part of any hidden-set result or rank");
-  await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText("2 sites, 900 cases");
-  const plot = section.getByRole("img", { name: /accuracy of next_step: 2 sites/ });
+  await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText(
+    "2 sites, 900 cases (a configuration with remote providers, consented)",
+  );
+  const plot = section.getByRole("img", { name: /accuracy of request: 2 sites/ });
   await expect(plot).toBeVisible();
   const table = section.getByRole("table").first();
   await expect(table.getByRole("rowheader")).toHaveText([
@@ -187,8 +185,8 @@ test("a pack page shows site evidence in its own section: sites, cases, a plot a
   expect(errors).toEqual([]);
 });
 
-test("a pack no site has evaluated says so in words", async ({ page }) => {
-  await page.goto("/packs/mendari/ai-guard");
+test("an agent no site has evaluated says so in words", async ({ page }) => {
+  await page.goto("/packs/hub-test/hostile-text");
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence");
   await expect(section).toContainText("No site has shared signed counts for version");

@@ -11,7 +11,7 @@ body:
     id: pack
     attributes:
       label: Pack and version
-      placeholder: mendari/patient-inbox-router@0.4.0
+      placeholder: mendari/portal-message-agent@0.1.0
     validations:
       required: true
   - type: textarea

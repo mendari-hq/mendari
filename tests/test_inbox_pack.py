@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import re
-from pathlib import Path
 from typing import Any
 
 from mendari import Decision, Outcome, Pack, Priority
@@ -17,7 +15,6 @@ from mendari.standards import cds_hooks
 from tests.conftest import message
 from tests.test_fhir import COMMUNICATION, PATIENT
 
-ROOT = Path(__file__).resolve().parents[1]
 REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
 EMERGENCY = "I've had crushing chest pain for 30 minutes and it's going down my left arm."
 GATE = "automation requires safety_screen = rules_and_jev or rules_and_llm (running: rules)"
@@ -127,22 +124,3 @@ def test_a_message_with_no_team_has_one_summary_and_its_detail_says_why(
     assert (abstained["summary"], abstained["indicator"]) == (NO_TEAM, "warning")
     assert cds_hooks.OUTCOME_SENTENCES[Outcome.ABSTAIN] in abstained["detail"]
     assert cds_hooks.OUTCOME_SENTENCES[Outcome.BLOCK] not in abstained["detail"]
-
-
-def test_the_landing_pages_example_is_this_versions_decision(router: Decision) -> None:
-    """The public page's example decision (web/index.html) is typed in by hand: it names the
-    pack's current version, and it is what that version decides on the message it shows."""
-    site = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    figure = site[site.index('<figure class="decision"') : site.index("</figure>")]
-    named = re.search(r"mendari/patient-inbox-router (\S+) · rules \+ naive Bayes", figure)
-    assert named is not None and named.group(1) == router.pack.version
-    body = re.search(r"<blockquote>“(.+?)”</blockquote>", figure)
-    assert body is not None
-    shown = dict(re.findall(r"<div><dt>(\w+)</dt><dd>(\w+)</dd></div>", figure))
-    result = router.decide(message(body.group(1)))
-    assert {question: answer.label for question, answer in result.answers.items()} == {
-        "destination": shown["Destination"],
-        "urgency": shown["Urgency"],
-    }
-    assert f'<span class="chip chip-review">{result.outcome.value}</span>' in figure
-    assert result.confidence is not None and f"Confident ({result.confidence:.2f})" in figure

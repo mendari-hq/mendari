@@ -14,6 +14,7 @@ slot's answer in the same call was unusable.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -28,6 +29,7 @@ _ACTIVE: ContextVar[dict[int, _Group] | None] = ContextVar("mendari_batch", defa
 class _Group:
     def __init__(self, members: list[Provider]):
         self.members = members
+        self._lock = threading.Lock()
         self._outputs: dict[int, ProviderOutput | ProviderError] | None = None
         self._error: ProviderError | None = None
 
@@ -41,14 +43,15 @@ class _Group:
         return len(asked) + len(provider.questions) <= head.max_batch_questions
 
     def answer(self, provider: Provider, inputs: Mapping[str, Any]) -> ProviderOutput:
-        if self._outputs is None and self._error is None:
-            order = [provider, *(member for member in self.members if member is not provider)]
-            try:
-                outputs = provider.answer_batch(order, inputs)
-            except ProviderError as error:
-                self._error = error
-            else:
-                self._outputs = {id(m): out for m, out in zip(order, outputs, strict=True)}
+        with self._lock:
+            if self._outputs is None and self._error is None:
+                order = [provider, *(member for member in self.members if member is not provider)]
+                try:
+                    outputs = provider.answer_batch(order, inputs)
+                except ProviderError as error:
+                    self._error = error
+                else:
+                    self._outputs = {id(m): out for m, out in zip(order, outputs, strict=True)}
         if self._error is not None:
             raise ProviderError(self._error.code, self._error.detail)
         return unwrap((self._outputs or {})[id(provider)])

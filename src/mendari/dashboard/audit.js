@@ -71,7 +71,7 @@ views.audit = async (main, params) => {
     const filtered = auditRows.filter((r) => {
       if (priority && r.priority !== priority) return false;
       if (!query) return true;
-      const hay = `${r.id} ${r.recommendation ?? ""} ${r.final_label ?? ""} ${r.observed_label ?? ""} ${r.review_status ?? ""} ${r.priority ?? ""} ${r.outcome ?? ""}`.toLowerCase();
+      const hay = `${r.id} ${r.recommendation ?? ""} ${r.final_label ?? ""} ${r.observed_label ?? ""} ${r.reviewed_by ?? ""} ${r.reviewer ?? ""} ${r.review_status ?? ""} ${r.priority ?? ""} ${r.outcome ?? ""}`.toLowerCase();
       return hay.includes(query);
     });
     visibleIds = filtered.map((r) => r.id);
@@ -120,8 +120,8 @@ views.audit = async (main, params) => {
       const out = $("#verify-result");
       if (!out?.isConnected) return;
       out.innerHTML = result.ok
-        ? `<span class="badge s-ok">verified · ${result.events} events</span>`
-        : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
+        ? `<span class="badge s-ok">verified · ${esc(result.events)} events</span>`
+        : `<span class="badge s-degraded">broken at event ${esc(result.broken_at)}</span>`;
     } catch (error) {
       toastError(error.message);
     }
@@ -222,7 +222,7 @@ async function openRecord(id) {
   try {
     found = await api(`/api/audit/${encodeURIComponent(id)}`);
   } catch (error) {
-    if (asked !== recordAsked) return;
+    if (asked !== recordAsked || route().view !== "audit" || route().params[0] !== id) return;
     closeDrawer({ restoreFocus: true, closedByUser: false });
     toastError(error.message);
     location.hash = "#audit";
@@ -278,7 +278,11 @@ async function openRecord(id) {
   if (!shown) return;
   shown.querySelector("[data-copy-id]")?.addEventListener("click", () => copyText(id, "Decision ID copied"));
   shown.querySelector("[data-replay]")?.addEventListener("click", () => {
-    state.replayDraft = { packId: state.packId, input: r.input };
+    state.replayDraft = {
+      packId: state.packId,
+      input: r.input,
+      original: { id: r.decision_id, outcome: r.decision?.outcome, recommendation: r.decision?.recommendation },
+    };
     closeDrawer({ restoreFocus: false, closedByUser: false });
     location.hash = "#try";
   });
@@ -362,7 +366,7 @@ function coveragePanel(id, coverage, declared) {
   const dash = `<span class="muted">–</span>`;
   return `<section class="coverage" aria-labelledby="coverage-${esc(id)}">
     <h3 id="coverage-${esc(id)}">What it read</h3>
-    <p class="muted">From the FHIR record, for each field and list the pack maps: counts only, never a value. Could not read, in all: ${total}.</p>
+    <p class="muted">From the FHIR record, for each field and list the agent maps: counts only, never a value. Could not read, in all: ${total}.</p>
     ${tableHtml({
       id: `coverage-table-${id}`,
       caption: `<span class="sr-only">What the decision read from the FHIR record, by field</span>`,

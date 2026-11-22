@@ -168,7 +168,7 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     checked = "\n".join(step.get("run", "") for step in verify["steps"])
     assert "--index-url https://test.pypi.org/simple/" in checked and "--no-deps" in checked
     assert 'cmp "$served"' in checked and "--require-hashes" in checked
-    assert "mendari test mendari/patient-inbox-router" in checked
+    assert "mendari test mendari/portal-message-agent" in checked
     assert "extra-index-url" not in RELEASE.read_text()  # no name on TestPyPI stands in for one
 
 
@@ -639,7 +639,7 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     find = next(step for step in steps if step.get("name") == "Find the changed packs")
     assert "no pack changes" in find["run"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    assert 'case "$dir" in packs/*)' in maintained["run"]  # community packs go the other way
+    assert 'case "$dir" in agents/*)' in maintained["run"]  # community packs go the other way
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
     # Who made the change reaches the script through `env` only. The author is the pull
     # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
@@ -677,17 +677,22 @@ def test_ci_runs_every_community_packs_tests() -> None:
 
 
 def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
-    for pack in ("packs/inbox", "packs/my pack; $(touch x)", "packs/group/nested", "packs/a/b/c"):
+    for pack in (
+        "agents/inbox",
+        "agents/my pack; $(touch x)",
+        "agents/group/nested",
+        "agents/a/b/c",
+    ):
         (tmp_path / pack).mkdir(parents=True)
         (tmp_path / pack / "pack.yaml").write_text("id: x/y\n")
     changed = [
-        "packs/inbox/rules/red_flags.yaml",
-        "packs/inbox/pack.yaml",
-        "packs/my pack; $(touch x)/tests/cases.yaml",
-        "packs/group/nested/data/test.jsonl",
-        "packs/a/b/c/d/e/deep.yaml",  # deeper than a pack.yaml can be: belongs to packs/a/b/c
-        "packs/removed/pack.yaml",  # gone from the tree: reported as its top folder
-        "packs/README.md",  # directly in packs/: no pack
+        "agents/inbox/rules/red_flags.yaml",
+        "agents/inbox/pack.yaml",
+        "agents/my pack; $(touch x)/tests/cases.yaml",
+        "agents/group/nested/data/test.jsonl",
+        "agents/a/b/c/d/e/deep.yaml",  # deeper than a pack.yaml can be: belongs to agents/a/b/c
+        "agents/removed/pack.yaml",  # gone from the tree: reported as its top folder
+        "agents/README.md",  # directly in agents/: no pack
         "src/mendari/cli.py",
         "community-packs/visit-sorter/logic/rules.yaml",
         "community-packs/visit-sorter/nested/pack.yaml",  # one folder is one community pack
@@ -695,11 +700,11 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "community-packs/MAINTAINERS.yaml",  # directly in community-packs/: no pack
     ]
     assert _changed_packs().pack_dirs(changed, tmp_path) == [
+        "agents/a/b/c",
+        "agents/group/nested",
+        "agents/inbox",
+        "agents/my pack; $(touch x)",
+        "agents/removed",
         "community-packs/gone; $(touch x)",
         "community-packs/visit-sorter",
-        "packs/a/b/c",
-        "packs/group/nested",
-        "packs/inbox",
-        "packs/my pack; $(touch x)",
-        "packs/removed",
     ]

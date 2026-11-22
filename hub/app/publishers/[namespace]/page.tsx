@@ -18,9 +18,12 @@ const TYPE_WORDS: Record<string, string> = {
   institutional: "Institutional publisher: a health organization, checked by the registry.",
 };
 
+const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
+
 export default async function PublisherPage({ params }: { params: Promise<Params> }) {
   const found = await getNamespace((await params).namespace);
   if (!found) notFound();
+  const badgeClass = PUBLISHER_BADGE.has(found.publisher_type) ? found.publisher_type : null;
   return (
     <div className="wrap page-body">
       <nav className="breadcrumb muted" aria-label="Breadcrumb">
@@ -30,7 +33,7 @@ export default async function PublisherPage({ params }: { params: Promise<Params
       <header className="pack-hero">
         <div className="pack-hero-meta row">
           <span className="mono pack-id-pill">@{found.name}</span>
-          <span className={`badge ${found.publisher_type}`}>{found.publisher_type}</span>
+          <span className={badgeClass ? `badge ${badgeClass}` : "badge"}>{found.publisher_type}</span>
         </div>
         <h1>{found.display_name}</h1>
         <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
@@ -44,14 +47,19 @@ export default async function PublisherPage({ params }: { params: Promise<Params
         <h2 id="publisher-packs-heading">Published agents</h2>
         {found.packs.length ? (
           <ul className="publisher-packs">
-            {found.packs.map((id) => (
-              <li key={id}>
-                <Link href={`/packs/${id}`} className="publisher-pack-link">
-                  <span className="mono">{id}</span>
-                  <span className="card-cta" aria-hidden="true">Inspect →</span>
-                </Link>
-              </li>
-            ))}
+            {found.packs.map((id) => {
+              const [ns = found.name, ...rest] = id.split("/");
+              const packName = rest.join("/");
+              const href = `/packs/${encodeURIComponent(ns)}/${encodeURIComponent(packName)}`;
+              return (
+                <li key={id}>
+                  <Link href={href} className="publisher-pack-link">
+                    <span className="mono">{id}</span>
+                    <span className="card-cta" aria-hidden="true">Inspect →</span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="muted">Nothing published yet.</p>

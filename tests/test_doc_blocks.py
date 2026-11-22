@@ -35,7 +35,7 @@ BLOCKS = doc_blocks.every()
 
 
 def test_the_blocks_are_found() -> None:
-    assert len(BLOCKS) > 40
+    assert len(BLOCKS) > 20
     assert {block.file for block in BLOCKS} == set(doc_blocks.DOCS)
 
 
@@ -83,13 +83,12 @@ def test_every_curl_to_the_server_is_a_snippet_ci_runs() -> None:
 
 
 def test_every_snippet_step_is_shown_where_the_docs_promise() -> None:
-    """The README shows every API step but the FHIR export's admin pass and the steps the API
-    guide includes whole; the API guide includes every snippet file."""
-    shown = {block.arg for block in BLOCKS if block.kind == "snippet"}
-    for step in snippets.every():
-        assert f"{step.file}.sh/{step.name}" in shown, f"{step.file}.sh/{step.name}"
-    for step in snippets.python_steps():
-        assert f"{step.file}.py/{step.name}" in shown
+    """The API guide includes every snippet file whole, so every step is shown there. The README
+    links to the guide rather than copying the steps; a step it does copy (a `snippet` block) is
+    one that exists, and the marker test above keeps its text the step's."""
+    steps = {f"{step.file}.sh/{step.name}" for step in snippets.every()}
+    steps |= {f"{step.file}.py/{step.name}" for step in snippets.python_steps()}
+    assert {block.arg for block in BLOCKS if block.kind == "snippet"} <= steps
     included = {block.arg for block in BLOCKS if block.kind == "include"}
     expected = {f"{file}.sh" for file in snippets.FILES} | {f"{f}.py" for f in snippets.PYTHON}
     assert included == expected

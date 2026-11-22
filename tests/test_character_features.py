@@ -24,7 +24,9 @@ from mendari.providers.base import softmax, text_from
 from mendari.providers.naive_bayes import FORMAT, FORMAT_CHARACTERS, log_posterior, tokenize, train
 from tests.conftest import INBOX_DIR, ROOT, message
 
-HARDER = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+HARDER = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+)
 MODEL = "models/destination-nb.json"
 TOY = [
     ("please refill my prescription", "medical_assistant"),
@@ -234,7 +236,9 @@ def test_a_range_that_is_not_one_is_refused(
 
 def test_the_reference_models_are_words_alone() -> None:
     """So `mendari train` rebuilds them byte for byte, as CI checks."""
-    for model in sorted((ROOT / "packs").glob("*/models/*-nb.json")):
+    for model in sorted(
+        (ROOT / "tests" / "fixtures" / "reference-packs").glob("*/models/*-nb.json")
+    ):
         assert json.loads(model.read_text())["format"] == FORMAT, model
 
 

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, MACHINE_ROLES
 from mendari.server import presets, snippets
-from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
+from mendari.server.api_docs import FHIR_EXAMPLE
 from mendari.server.app import create_app
 from mendari.server.auth import (
     PEOPLE_ONLY,
@@ -180,7 +180,7 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+            {"name": "pack", "valueString": INBOX},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
@@ -188,9 +188,6 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     assert client.post("/fhir/$decide", json=parameters, headers=fhir).status_code == 200
     for path in ("/fhir/Task", "/fhir/AuditEvent", "/fhir/Provenance"):
         assert client.get(path, headers=fhir).status_code == 200, path
-    guard = {"question": "Headache?", "draft": "Rest and drink water."}
-    answer = client.post("/api/packs/mendari/ai-guard/guard", json=guard, headers=keys["ai-guard"])
-    assert answer.status_code == 200
     hooks = keys["cds-hooks"]
     assert client.get("/cds-services", headers=hooks).status_code == 200
     from tests.test_limits import order_sign

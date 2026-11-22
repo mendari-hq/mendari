@@ -7,7 +7,7 @@
 3. the signature is by a key of the pack's namespace;
 4. the extracted pack loads with the signed digest, as a pack from a registry: on the community
    engine (RE2, the caps, the input limits and a CPU budget per decision) unless it is a copy of
-   a reference pack of this release (ADR-0009). A pack that does not load there is not cached.
+   a bundled agent of this release (ADR-0009). A pack that does not load there is not cached.
 
 Nothing the registry answers chooses where a pack is written: the namespace, name and version
 must be a pack id and a semantic version before any cache path is built, the path must stay

@@ -10,7 +10,7 @@
   EHR: `mock_ehr_bundle`, those patients and what they refer to); and the specific coverage
   answers of group 4: one patient's order with Inferno's FHIR server failing (Technical Issues),
   and patients without a member id, without a Coverage, and with a cancelled Coverage, made
-  here from the first patient. The other packs' services (trial, referral and inbox) are on the
+  here from the first patient. The other test-fixture agents' services are on the
   ignore list: their hooks are not CRD's order hooks.
 - `smart` (`smart_client_stu2_2`, public client, Inferno as the EHR): the engine's client id,
   launch URL and redirect URI, and a synthetic patient as the launch's context, which Inferno's

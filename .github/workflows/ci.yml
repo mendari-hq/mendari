@@ -78,16 +78,12 @@ jobs:
       - name: The API examples work, in open mode and with a service key (README, snippets)
         if: matrix.python == '3.12'
         run: uv run python scripts/check_doc_snippets.py
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/patient-inbox-router
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/clinical-trial-prescreener
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/referral-router
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/prior-auth-preflight
-      - if: matrix.python == '3.12'
-        run: uv run mendari test mendari/ai-guard
+      - name: The test fixtures' agents pass their behaviour tests
+        if: matrix.python == '3.12'
+        env:
+          MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+          MENDARI_DATASETS_PATH: tests/fixtures/datasets
+        run: for agent in tests/fixtures/reference-packs/*/; do uv run mendari test "$agent"; done
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
         if: matrix.python == '3.12'
         run: |
@@ -116,40 +112,28 @@ jobs:
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m browser
 
-  reference-pack:
-    # Derived pack artifacts (synthetic data, trained model) must be reproducible from source,
-    # and the scoreboard's results store append-only and recomputable (LP-17f).
+  demo-agent:
+    # The bundled demo agent's data is reproducible from its script, and the agent validates,
+    # passes its behaviour tests, evaluates and runs the offline demo.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0  # the base commit, for the results store's check
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
-      - name: The scoreboard's page is the results store's (LP-17f)
-        # Before the build, which writes the page again.
-        run: uv run python scripts/scoreboard_page.py --check
-      - run: ./scripts/build-reference-pack.sh
-      - name: Data, models and ledgers are byte-identical, and the build made nothing new
+      - name: The demo agent's test set is its script's, byte for byte
+        run: uv run python scripts/demo_agent_data.py --check
+      - name: The demo agent validates, passes its behaviour tests and evaluates
         run: |
-          git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
-          made=$(git status --porcelain --untracked-files=all -- packs datasets | grep '^??' || true)
-          test -z "$made" || { echo "::error::the build made files that are not committed: $made"; exit 1; }
-      - name: Each benchmark's result is the committed one, byte for byte, and its ledger's (LP-10)
-        run: uv run python scripts/check_eval_results.py
-      - name: The trial pack's local-site example evaluates identically through OMOP CDM
-        run: uv run mendari sandbox omop-check --dataset datasets/trial-local-site-example.jsonl
-      - name: The scoreboard's results store is append-only, and each result is what its inputs give (LP-17f)
-        # Against the pull request's base, or on a push the commit it was pushed onto: nothing
-        # stored there is removed or changed but a valid signature added to an unsigned result.
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: uv run python scripts/check_scoreboard.py --base "$BASE"
-
+          uv run mendari validate agents/portal-message-agent
+          uv run mendari test agents/portal-message-agent
+          uv run mendari eval agents/portal-message-agent --dataset test > /dev/null
+      - name: The offline demo runs end to end
+        run: uv run mendari demo
   r4-structure:
     # The structural R4 gate's rules are derived from HL7's R4 JSON Schema, pinned by digest:
     # regenerating them must change nothing. The download is cached by that digest, so an
@@ -185,6 +169,9 @@ jobs:
     env:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
+      # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
+      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+      MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -289,29 +276,29 @@ jobs:
           done
           docker compose logs workflow
           exit 1
-      - name: SMART launch, referral pack
+      - name: SMART launch, a test-fixture agent on referrals
         run: >-
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/referral-router
-      - name: SMART launch, inbox pack
+      - name: SMART launch, a test-fixture agent on portal messages
         run: >-
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/patient-inbox-router
       - name: The launcher, as `mendari smart check` sees it with sign-in on
         run: docker compose exec -T engine-signin mendari smart check http://launcher/v/r4/fhir
-      - name: SMART launch with sign-in on, referral pack, in the registered organization
+      - name: SMART launch with sign-in on, the agent on referrals, in the registered organization
         run: >-
           docker compose exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/referral-router --expect-org pilot --db /data/mendari.db
-      - name: SMART launch with sign-in on, inbox pack, in the registered organization
+      - name: SMART launch with sign-in on, the agent on portal messages, in the registered organization
         run: >-
           docker compose exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/patient-inbox-router --expect-org pilot --db /data/mendari.db
-      - name: Bulk export -> dataset -> mendari eval (referral pack)
+      - name: Bulk export -> dataset -> mendari eval (the agent on referrals)
         # The export's cases must evaluate exactly like the same cases read from the dataset file.
         run: >-
           docker compose exec -T engine mendari sandbox bulk-check
@@ -326,7 +313,7 @@ jobs:
         run: docker compose --profile signin logs --tail 200
 
   hub-site:
-    # The Hub website (hub/, Next.js) against a real registry holding the five reference packs.
+    # The Hub website (hub/, Next.js) against a real registry holding the demo agent.
     runs-on: ubuntu-latest
     env:
       REGISTRY_URL: http://127.0.0.1:8100
@@ -339,7 +326,7 @@ jobs:
           version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
-      - name: Start a registry and publish the five packs, and one whose text tries to run a script
+      - name: Start a registry and publish the demo agent, and a copy whose text tries to run a script
         # Background servers run from the venv, not `uv run`: a live `uv run` process holds the uv
         # cache lock, and the setup-uv post step then times out pruning the cache (uv 0.12).
         run: |
@@ -383,7 +370,7 @@ jobs:
 
   hub-e2e:
     # The v0.5 exit: on a clean machine, `pip install mendari && mendari pull
-    # mendari/referral-router` works. The wheel, built from the sdist, stands in for PyPI until
+    # mendari/portal-message-agent` works. The wheel, built from the sdist, stands in for PyPI until
     # the release.
     runs-on: ubuntu-latest
     steps:
@@ -395,7 +382,7 @@ jobs:
           version: "0.13.6"
           python-version: "3.12"
       - run: uv sync --locked
-      - name: Start a registry and publish the five packs
+      - name: Start a registry and publish the demo agent
         run: |
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
@@ -410,33 +397,36 @@ jobs:
           uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
           python3 scripts/check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
           uv run python scripts/check_snomed.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
-      - name: A clean virtual environment installs mendari, pulls a pack and tests it
+      - name: A clean virtual environment installs mendari, pulls the demo agent and tests it
         env:
           HOME: /tmp/clean-home
           MENDARI_REGISTRY_URL: http://127.0.0.1:8100
         run: |
           python3 -m venv /tmp/clean
           /tmp/clean/bin/pip install --quiet /tmp/dist/*.whl
-          /tmp/clean/bin/mendari pull mendari/referral-router > /tmp/pull.txt
+          /tmp/clean/bin/mendari pull mendari/portal-message-agent > /tmp/pull.txt
           cat /tmp/pull.txt
-          # The wheel's bundled pack is the checkout's: the pulled copy keeps the maintained
-          # engine (ADR-0009), which the referral pack's lookahead needs.
-          grep -q "a copy of the reference pack in this release" /tmp/pull.txt
-          version=$(sed -n 's/^version: //p' packs/referral-router/pack.yaml)
-          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/referral-router/$version/pack.yaml"
-          /tmp/clean/bin/mendari test mendari/referral-router
-          /tmp/clean/bin/mendari search --risk 2
+          # The wheel's bundled agent is the checkout's: the pulled copy keeps the maintained
+          # engine (ADR-0009).
+          grep -q "a copy of an agent this release bundles" /tmp/pull.txt
+          version=$(sed -n 's/^version: //p' agents/portal-message-agent/pack.yaml)
+          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/portal-message-agent/$version/pack.yaml"
+          /tmp/clean/bin/mendari test mendari/portal-message-agent
+          /tmp/clean/bin/mendari demo
+          /tmp/clean/bin/mendari search --risk 0
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router
           /tmp/clean/bin/mendari test /tmp/refill-router
 
   cql:
-    # v0.7: the trial pack's criteria in CQL (logic/criteria.cql) must answer exactly like the
+    # v0.7: a test-fixture agent's criteria in CQL (logic/criteria.cql) must answer exactly like the
     # `criteria` provider on every test and dataset case, on HAPI FHIR's Clinical Reasoning module.
     runs-on: ubuntu-latest
     env:
       # Port 18090 stays outside Linux's 32768-60999 ephemeral range (58090 collided with
       # outbound sockets during image pull).
       MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
+      # The agent with CQL beside its criteria is served from the test fixtures.
+      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -471,7 +461,7 @@ jobs:
         run: >-
           uv run mendari agreement mendari/clinical-trial-prescreener
           --slot structured --variants criteria cql
-          --dataset datasets/trial-local-site-example.jsonl
+          --dataset tests/fixtures/datasets/trial-local-site-example.jsonl
       - name: The pack's behaviour tests pass with the CQL variant deployed
         run: uv run mendari test mendari/clinical-trial-prescreener --provider structured=cql
       - if: failure()
@@ -623,11 +613,11 @@ jobs:
         run: uv run python scripts/doc_blocks.py run python
       - name: A new virtual environment installs from the clone, with the server extra
         run: python3 scripts/doc_blocks.py run install
-      - name: A REST, a FHIR and an AI Guard decision by the documented commands, and the commands on the server's database
+      - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
 
   pilot-check:
-    # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,
+    # The v0.6 exit: a pilot organization runs a portal-message agent with its own identity provider,
     # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party
     # OpenID Connect implementation (navikt/mock-oauth2-server) with a scriptable sign-in form.
     runs-on: ubuntu-latest
@@ -644,6 +634,8 @@ jobs:
       MENDARI_OIDC_ROLE_MAP: informatics=admin,clinicians=reviewer,front-desk=viewer,ai-committee=governance
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
+      # The pilot runs a portal-message agent of the test fixtures.
+      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -691,19 +683,15 @@ jobs:
       # bump that changes what the image bundles fails here first (licenses/image, CONTRIBUTING.md).
       - name: The image carries every licence and notice, and Debian's copyright files
         run: python3 scripts/check_image_licences.py --image mendari-engine:ci
-      - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
-      - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
-      - run: docker run --rm mendari-engine:ci mendari test mendari/referral-router
-      - run: docker run --rm mendari-engine:ci mendari test mendari/prior-auth-preflight
-      - run: docker run --rm mendari-engine:ci mendari test mendari/ai-guard
-      - name: A per-pack image serves only its pack
+      - run: docker run --rm mendari-engine:ci mendari test mendari/portal-message-agent
+      - run: docker run --rm mendari-engine:ci mendari demo
+      - name: The image serves the demo agent alone
         run: |
-          docker build --build-arg PACK=mendari/referral-router -t mendari-referral:ci .
-          docker run --rm mendari-referral:ci python -c "
+          docker run --rm mendari-engine:ci python -c "
           from fastapi.testclient import TestClient
           from mendari.server.app import create_app
           packs = TestClient(create_app(db_path='/tmp/a.db')).get('/api/packs').json()
-          assert [p['id'] for p in packs] == ['mendari/referral-router'], packs
+          assert [p['id'] for p in packs] == ['mendari/portal-message-agent'], packs
           print('serves', packs[0]['id'])
           "
 

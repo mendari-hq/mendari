@@ -990,7 +990,7 @@ def test_a_cds_client_may_still_send_a_declared_key(monkeypatch: pytest.MonkeyPa
 
 # -- the setting, checked at startup -------------------------------------------------------------
 
-REFERENCE_PACKS = ROOT / "packs"
+REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
 REGISTERED = {EHR: Registration(base=EHR, org=DEFAULT_ORG, level="decide")}
 
 

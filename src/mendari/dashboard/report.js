@@ -4,7 +4,7 @@
 import { chartHtml } from "./charts.js";
 import { criticalText } from "./pack.js";
 import { tableHtml } from "./table.js";
-import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, time } from "./ui.js";
+import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, storageGet, time } from "./ui.js";
 
 // A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
 export const runOf = (r) => r.run ?? r;
@@ -141,7 +141,7 @@ function reliabilityChart(calibration, figures, id) {
   return chartHtml({
     id: `reliability-${id}`,
     type: "scatter",
-    ariaLabel: `Reliability diagram: ${bins.length} confidence bins over ${cases} cases, expected calibration error ${num(calibration.ece)}. ${overconfident} of ${bins.length} bins sit below the diagonal, where the pack is more confident than accurate.`,
+    ariaLabel: `Reliability diagram: ${bins.length} confidence bins over ${cases} cases, expected calibration error ${num(calibration.ece)}. ${overconfident} of ${bins.length} bins sit below the diagonal, where the agent is more confident than accurate.`,
     square: true,
     diagonal: true,
     sizeBy: true,
@@ -176,7 +176,7 @@ function sweepChart(sweep, figures, autoThreshold, nothingAutomated, id) {
   return chartHtml({
     id: `sweep-${id}`,
     type: "lines",
-    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} automates ${shown(first.automated)} cases at first and ${shown(last.automated)} at last; of those, ${shown(first.correct)} and ${shown(last.correct)} are correct.${typeof autoThreshold === "number" ? ` The pack's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
+    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} automates ${shown(first.automated)} cases at first and ${shown(last.automated)} at last; of those, ${shown(first.correct)} and ${shown(last.correct)} are correct.${typeof autoThreshold === "number" ? ` The agent's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
     x: { title: "Automate when confidence is at least", format: threshold },
     series: [{ key: "coverage", label: "Would be automated", swatch: "c1" }, { key: "accuracy", label: "Of those, correct", swatch: "c2", dashed: true }],
     directLabels: true,
@@ -239,6 +239,10 @@ function thresholdSimulator(sweep, figures, autoThreshold, id) {
 }
 
 export function wireSimulators(root) {
+  // Drop entries for simulators no longer in the document so repeated navigation never leaks.
+  for (const key of SIMULATORS.keys()) {
+    if (!document.querySelector(`[data-simulator="${CSS.escape(key)}"]`)) SIMULATORS.delete(key);
+  }
   root.querySelectorAll("[data-simulator]").forEach((section) => {
     if (section.dataset.wired) return;
     section.dataset.wired = "1";
@@ -253,14 +257,16 @@ export function wireSimulators(root) {
       const th = row.threshold.toFixed(2);
       const delta = entry.current !== null ? row.threshold - entry.current : null;
       const deltaText = delta === null ? ""
-        : Math.abs(delta) < 0.001 ? " (pack default)"
+        : Math.abs(delta) < 0.001 ? " (agent default)"
           : ` (${delta > 0 ? "+" : ""}${delta.toFixed(2)} vs default)`;
       out.textContent = `${th}${deltaText}`;
       const autoN = row.automated?.n ?? 0;
       const autoK = row.automated?.k ?? 0;
       const reviewK = Math.max(0, autoN - autoK);
       const autoShare = share(row.automated);
-      const hrsPer1k = autoShare !== null ? ((autoShare * 1000 * 3.5) / 60).toFixed(1) : "n/a";
+      const storedMins = Number(storageGet("oh.roi.mins", "4"));
+      const minsPerCase = Number.isFinite(storedMins) ? Math.min(60, Math.max(0.5, storedMins)) : 4;
+      const hrsPer1k = autoShare !== null ? ((autoShare * 1000 * minsPerCase) / 60).toFixed(1) : "n/a";
       const wrongAuto = row.correct && row.correct.n ? row.correct.n - row.correct.k : 0;
       metrics.innerHTML = `
         <div class="sim-metric"><span class="muted">Would automate</span><b>${figureHtml(row.automated)}</b></div>
@@ -289,7 +295,7 @@ function confusionView(confusion, figures, id) {
   return `<details class="mt-3"><summary>Confusion matrix</summary>
     ${tableHtml({
       id: `confusion-${id}`,
-      caption: "Rows are the true label, columns the pack's answer. Mistakes are shaded: amber, or red when they are a tenth of the row or more.",
+      caption: "Rows are the true label, columns the agent's answer. Mistakes are shaded: amber, or red when they are a tenth of the row or more.",
       rows,
       stickyFirst: true,
       columns: [

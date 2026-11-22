@@ -23,7 +23,7 @@ from mendari.standards import cds_hooks
 from tests.test_fhir_client import allow_ehr, fhir_json
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "packs" / "prior-auth-preflight"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "prior-auth-preflight"
 STRUCTURED = ("service", "payer", "diagnosis_supports", "prior_imaging")
 TODAY = date.today()
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"

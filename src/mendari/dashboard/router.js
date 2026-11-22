@@ -14,9 +14,13 @@ export const views = {};
 // picks an evaluation view, "#patient/<launch id>" the patient of that EHR launch. A browser that
 // only launched (no one signed in) has the patient view and nothing else, still pinned to the
 // window's own launch when the address no longer names it.
+const safeDecode = (s) => {
+  try { return decodeURIComponent(s); } catch { return s; }
+};
+
 export function route() {
   const [name = "overview", ...params] = (location.hash || "#overview").slice(1).split("/");
-  const named = params.filter(Boolean).map(decodeURIComponent);
+  const named = params.filter(Boolean).map(safeDecode);
   // Memberships mode, a person acting for no organization: the access page (access.js) and
   // nothing else, beside a launch's patient if the browser holds one; reached no other way.
   if (state.noAccess && (!state.launchOnly || name === "access")) return { view: "access", params: [state.noAccess] };
@@ -151,7 +155,7 @@ function updateCrossPackStat(summary, currentPackId) {
   const packName = state.packs.find((p) => p.id === first.pack_id)?.name ?? first.pack_id;
   pill.textContent = others.length === 1
     ? `${totalStat} stat in ${packName}`
-    : `${totalStat} stat in other packs`;
+    : `${totalStat} stat in other agents`;
   pill.title = `Open urgent review queue for ${packName}`;
   pill.onclick = () => {
     const select = $("#pack-select");

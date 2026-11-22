@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Decision Pack manifest, spec versions 0.1, 0.2 and 0.3.
+"""Agent manifest, spec versions 0.1, 0.2 and 0.3.
 
 A pack declares *questions* (a fixed set of labels, each with human-readable criteria).
 Providers answer questions with probability distributions; the policy turns answers into
 one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *derived*
-questions computed from other answers by a decision table. See docs/spec/decision-pack-0.2.md.
-Spec 0.3 changes the FHIR mapping (docs/spec/decision-pack-0.3.md), which
+questions computed from other answers by a decision table. See docs/spec/agent-manifest-0.2.md.
+Spec 0.3 changes the FHIR mapping (docs/spec/agent-manifest-0.3.md), which
 `standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
 `cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest.
 """
@@ -59,11 +59,11 @@ _THO = r"terminology\.hl7\.org/CodeSystem/"
 LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
     "http://www.ama-assn.org/go/cpt": (
         "CPT (American Medical Association)",
-        re.compile(r"ama-assn\.org/go/cpt|" + _oid("2.16.840.1.113883.6.12")),
+        re.compile(r"ama-assn\.org/go/cpt|" + _oid("2.16.840.1.113883.6.12"), re.IGNORECASE),
     ),
     "http://snomed.info/sct": (
         "SNOMED CT (SNOMED International)",
-        re.compile(r"snomed\.info/(?:x?sct|id/)|" + _oid("2.16.840.1.113883.6.96")),
+        re.compile(r"snomed\.info/(?:x?sct|id/)|" + _oid("2.16.840.1.113883.6.96"), re.IGNORECASE),
     ),
     "http://terminology.hl7.org/CodeSystem/mdr": (
         "MedDRA (ICH)",
@@ -74,7 +74,8 @@ LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
             + "|"
             + _oid("2.16.840.1.113883.6.164")
             + "|"
-            + _oid("2.16.840.1.113883.6.165")
+            + _oid("2.16.840.1.113883.6.165"),
+            re.IGNORECASE,
         ),
     ),
     "https://codesystem.x12.org": (
@@ -83,12 +84,16 @@ LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
             r"(?:codesystem|valueset)\.x12\.org|x12\.org/codes/|"
             + _THO
             + r"X12\.|"
-            + _oid("2.16.840.1.113883.6.255")
+            + _oid("2.16.840.1.113883.6.255"),
+            re.IGNORECASE,
         ),
     ),
     "http://www.ada.org/cdt": (
         "CDT (American Dental Association)",
-        re.compile(r"ada\.org/cdt|" + _THO + r"CD2(?![\w-])|" + _oid("2.16.840.1.113883.6.13")),
+        re.compile(
+            r"ada\.org/cdt|" + _THO + r"CD2(?![\w-])|" + _oid("2.16.840.1.113883.6.13"),
+            re.IGNORECASE,
+        ),
     ),
 }
 # Text that every spelling above contains, with no slash (a file may escape slashes): a file
@@ -553,6 +558,15 @@ class Policy(_Strict):
     automation_requires: dict[str, list[str]] = {}
     fallback: str
     default_priority: Priority = Priority.ROUTINE
+
+    @model_validator(mode="after")
+    def _label_thresholds_ordered(self) -> Policy:
+        for label, lp in self.labels.items():
+            if lp.auto_threshold is not None and lp.auto_threshold < self.thresholds.review:
+                raise ValueError(
+                    f"policy.labels.{label}.auto_threshold must be >= thresholds.review"
+                )
+        return self
 
 
 class CriticalLabel(_Strict):

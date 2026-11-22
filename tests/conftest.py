@@ -27,6 +27,9 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import sandbox as _sandbox
+from mendari.core import reference as _reference
+from mendari.core import registry as _registry
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.pack import pack_digest
 from mendari.core.phi import PhiPolicy
@@ -41,8 +44,15 @@ from mendari.server import sessions
 from mendari.server.origin import OWN_REQUEST
 
 ROOT = Path(__file__).resolve().parents[1]
-INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
-LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
+# The packs the tests decide with are fixtures, not part of the product: here they stand where a
+# release's bundled agents do, so they load with the maintained origin. Both names are read when
+# called, never copied, so setting them here reaches every module.
+REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
+_reference.BUNDLED_DIRS = (REFERENCE_PACKS,)
+_registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
+_sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
+INBOX_DIR = REFERENCE_PACKS / "patient-inbox-router"
+LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
 _BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
@@ -120,7 +130,11 @@ def _the_repositorys_own_packs_are_as_they_were() -> Iterator[None]:
     """No test changes a pack of the repository: each works on a copy. One did once (it applied
     a run of `mendari improve` to packs/patient-inbox-router), and every test that read the pack
     after it read another pack. A run that leaves one changed fails here, at its end."""
-    packs = sorted(path for path in (ROOT / "packs").iterdir() if (path / "pack.yaml").is_file())
+    packs = sorted(
+        path
+        for path in (ROOT / "tests" / "fixtures" / "reference-packs").iterdir()
+        if (path / "pack.yaml").is_file()
+    )
     before = {path: pack_digest(path) for path in packs}
     yield
     changed = [path.name for path, digest in before.items() if pack_digest(path) != digest]
@@ -745,3 +759,37 @@ def launched(
     session, expires_at = sessions.begin(row, now, sessions.Lifetime(), ends_by=now + 3600)
     store.smart_put(sid, "session", session, expires_at)
     return {"cookie": f"{sessions.cookie_name(sessions.SMART, host)}={sid}", **DASHBOARD}
+
+
+DEMO_AGENT_DIR = ROOT / "agents" / "portal-message-agent"
+
+
+def runbook_body(
+    body: dict[str, Any],
+    pack_id: str,
+    *,
+    variants: dict[str, str] | None = None,
+    arms: dict[str, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """A grading body from docs/operations/evalsets.md, sent to a test's own agent. The runbook
+    writes it for the bundled demo agent, which a hidden set made of these tests' cases cannot
+    grade: so the body's agent, slots and variants are checked against the demo agent's
+    manifest (each named slot and variant exists and runs locally), then its `pack` and its
+    `variants` or `arms` are put in for the test's agent, the rest of the body kept as written."""
+    from mendari.core.pack import load_pack
+
+    demo = load_pack(DEMO_AGENT_DIR)
+    assert body["pack"] == demo.id, body["pack"]
+    named = [body.get("variants") or {}, *(body.get("arms") or {}).values()]
+    for slots in named:
+        for slot, variant in slots.items():
+            spec = demo.manifest.providers[slot].variants[variant]
+            assert spec.type not in ("agent", "jev", "llm"), (slot, variant)  # local only
+    sent = {**body, "pack": pack_id}
+    if "variants" in body:
+        assert variants is not None
+        sent["variants"] = variants
+    if "arms" in body:
+        assert arms is not None
+        sent["arms"] = arms
+    return sent

@@ -197,7 +197,7 @@ def test_a_0_1_pack_with_a_0_3_key_is_refused_too(tmp_path: Path) -> None:
     }
     _, dataset, build = script.CASES["mendari/patient-inbox-router"]
     with script.on_the_day():
-        for record in load_dataset(ROOT / "datasets" / dataset).records:
+        for record in load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records:
             bundle = {"resourceType": "Bundle", "type": "collection", "entry": build(record)}
             assert input_hash(adapter.to_input(adapter.index(bundle))) == want[record["id"]]
 
@@ -242,8 +242,7 @@ def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
     moved to spec 0.3, which load held to its bounds and bare placeholders too; and the four
     reference packs with a FHIR mapping decide every case of the 23a golden as it says, input
     hash included (the mapping read the same input, byte for byte)."""
-    roots = [p.parent for p in sorted((ROOT / "packs").glob("*/pack.yaml"))]
-    roots += sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
+    roots = sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
     mapped = 0
     newer = set()
     for root in roots:

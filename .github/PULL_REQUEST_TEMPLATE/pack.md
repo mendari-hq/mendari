@@ -1,5 +1,5 @@
 <!-- A community pack: community-packs/<name>/, id community/<name>. The guide:
-     docs/guides/contributing-a-pack.md. Change only your pack's folder and its entry in
+     docs/guides/contributing-an-agent.md. Change only your pack's folder and its entry in
      community-packs/MAINTAINERS.yaml, and sign off every commit (git commit -s).
      Never paste real patient data here or anywhere in the pack. -->
 

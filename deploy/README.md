@@ -13,9 +13,8 @@ first: it explains every setting below and the checks to run before go-live.
 
 Images are published to GitHub Container Registry by a release (workflow `release`, started by
 a maintainer, never by a tag push alone), for linux/amd64 and linux/arm64: `mendari-engine` (every
-pack) or one image per pack, such as
-`mendari-referral-router`, which serves only that pack. No release has been tagged yet, so
-build your own until then: `docker build --build-arg PACK=mendari/referral-router .`.
+bundled agent), or an image that serves only one agent. No release has been tagged yet, so build your own until
+then: `docker build --build-arg PACK=mendari/portal-message-agent .`.
 
 The image installs exactly the dependencies in `uv.lock`, on a base image pinned by digest.
 **Deploy by digest, not by tag**: `ghcr.io/mendari-hq/mendari-engine:v0.1.0@sha256:<digest>`

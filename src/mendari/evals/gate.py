@@ -64,15 +64,22 @@ def gate(
 
     new_auto = report["decisions"]["automation"]
     old_auto = (main or {}).get("decisions", {}).get("automation", {})
+    new_far = new_auto.get("false_automation_rate")
+    old_far = old_auto.get("false_automation_rate")
     metric(
         "false automation rate (of automated)",
-        new_auto.get("false_automation_rate"),
-        old_auto.get("false_automation_rate"),
+        new_far,
+        old_far,
         higher_is_better=False,
         of=(old_auto.get("n"), new_auto.get("n")),
     )
-    if main is not None and rows[-1]["worse_by"] is not None and rows[-1]["worse_by"] > tolerance:
-        failures.append(f"the false automation rate rose by more than {tolerance:.0%}")
+    if main is not None:
+        worse_far = rows[-1]["worse_by"]
+        if worse_far is None and old_far is None and new_far is not None:
+            worse_far = new_far
+            rows[-1]["worse_by"] = worse_far
+        if worse_far is not None and worse_far > tolerance:
+            failures.append(f"the false automation rate rose by more than {tolerance:.0%}")
 
     old_critical = {
         (c["question"], c["label"]): c
@@ -92,7 +99,11 @@ def gate(
         rows[-1]["positives"] = item.get("n")
         if before is None:
             continue
-        if (item.get("detection_rate") or 0) < (before.get("detection_rate") or 0) - EPSILON:
+        before_rate = before.get("detection_rate")
+        now_rate = item.get("detection_rate")
+        if before_rate is not None and now_rate is None:
+            failures.append(f"{name}: no longer measured")
+        elif before_rate is not None and now_rate is not None and now_rate < before_rate - EPSILON:
             failures.append(f"{name}: fewer critical cases found")
         if item.get("auto_missed", 0) > before.get("auto_missed", 0):
             failures.append(f"critical {key[0]}={key[1]}: a critical case was automated")
