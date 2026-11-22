@@ -502,10 +502,28 @@ def _huge_figure(name: str) -> Callable[[Path], None]:
     return edit
 
 
+def _pack_block(value: Any) -> Callable[[Path], None]:
+    """The shipped benchmark with its `pack` block replaced (`...`: removed). The card reads it
+    for the version it was measured on, after the shape check that left it out."""
+
+    def edit(pack: Path) -> None:
+        path = pack / "evals" / "benchmark.json"
+        data = json.loads(path.read_text())
+        if value is ...:
+            del data["pack"]
+        else:
+            data["pack"] = value
+        path.write_text(json.dumps(data))
+
+    return edit
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
         (_write_eval("benchmark.json", "{"), "benchmark"),
+        (_pack_block(...), "benchmark"),
+        (_pack_block(5), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -518,6 +536,8 @@ def _huge_figure(name: str) -> Callable[[Path], None]:
     ],
     ids=[
         "benchmark-not-json",
+        "benchmark-without-pack",
+        "benchmark-pack-not-object",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

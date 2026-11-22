@@ -61,12 +61,26 @@ def read_benchmark(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
         return None, problem
     if isinstance(report, dict):
         report = normalize(report)  # either format; v1's time and latency in its run block
+    return _shown(report)
+
+
+def _shown(report: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """`report`, or None and why the card cannot show it: everything the card reads of it
+    (`_last_validation`, `_validation`, and the version it was measured on) is read once here,
+    so a missing key or a wrong type is never met while the card is rendered."""
     try:
         _last_validation(report)
         _validation(report)
+        _measured_on(report)
     except _SHAPE_ERRORS as error:
         return None, f"not an evaluation report ({type(error).__name__})"
     return report, None
+
+
+def _measured_on(report: Mapping[str, Any]) -> tuple[Any, Any]:
+    """The version and digest of the pack a benchmark was measured on."""
+    measured = report["pack"]
+    return measured.get("version"), measured.get("digest")
 
 
 # What `render_card` reads an attestation from: the pack's own file, or what the caller gives
@@ -249,10 +263,8 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         )
     else:
         out.append("No published benchmark.")
-    if report and report["pack"].get("digest") != pack.digest:
-        measured = ranking.measured_on(
-            report["pack"].get("version"), report["pack"].get("digest"), pack.version
-        )
+    if report and (on := _measured_on(report))[1] != pack.digest:
+        measured = ranking.measured_on(*on, pack.version)
         out += [
             "",
             f"This benchmark was measured on {measured}; evaluate it again before relying on it.",
@@ -378,13 +390,7 @@ def _attested_benchmark(pack: Pack, given: Attested) -> tuple[dict[str, Any] | N
         return read_benchmark(pack)
     if given is None:
         return None, None
-    report = normalize(dict(given))
-    try:
-        _last_validation(report)
-        _validation(report)
-    except _SHAPE_ERRORS as error:
-        return None, f"not an evaluation report ({type(error).__name__})"
-    return report, None
+    return _shown(normalize(dict(given)))
 
 
 def _attested_leaderboard(pack: Pack, given: Attested) -> tuple[dict[str, Any] | None, str | None]:
