@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CDS Hooks: the services, one per pack that declares a hook, and a call to the demo agent's
+# CDS Hooks: the services, one per agent that declares a hook, and a call to the demo agent's
 # (the Portal Message Agent's) with a synthetic patient and message as prefetch (the API reference's own FHIR example,
 # server/api_docs.py FHIR_EXAMPLE), answered with cards.
 #

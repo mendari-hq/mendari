@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mendari's REST API in three calls: list the packs, ask the bundled demo agent for a decision on a
+# Mendari's REST API in three calls: list the agents, ask the bundled demo agent for a decision on a
 # synthetic patient message, and read the decision's audit record. The body is synthetic, one of
 # the agent's own behaviour tests.
 #
@@ -8,7 +8,7 @@
 # jq. Each "# step:" is shown on its own (the README has them verbatim), and CI runs this file
 # against a local server, in open mode and with a service key (scripts/check_doc_snippets.py).
 
-# step: packs — List the packs this server runs
+# step: packs — List the agents this server runs
 curl -sS --fail-with-body "$MENDARI/api/packs" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '.[] | {id, version, risk}'
 
