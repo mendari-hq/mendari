@@ -127,7 +127,9 @@ export type Namespace = {
   display_name: string;
   publisher_type: string;
   created_at: string;
-  keys: { key_id: string; created_at: string }[];
+  // `revoked_at`: when the registry's operator revoked the key, null while it is live (a registry
+  // from before it sends none: read as live).
+  keys: { key_id: string; created_at: string; revoked_at?: string | null }[];
   packs: string[];
 };
 

@@ -33,6 +33,8 @@ export default async function PublisherPage({ params }: { params: Promise<Params
   }
   if (!found) notFound();
   const badgeClass = PUBLISHER_BADGE.has(found.publisher_type) ? found.publisher_type : null;
+  const revoked = found.keys.filter((key) => key.revoked_at).length;
+  const live = found.keys.length - revoked;
   return (
     <div className="wrap page-body">
       <nav className="breadcrumb muted" aria-label="Breadcrumb">
@@ -47,8 +49,9 @@ export default async function PublisherPage({ params }: { params: Promise<Params
         <h1>{found.display_name}</h1>
         <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
         <p className="publisher-meta muted">
-          {found.packs.length} published {found.packs.length === 1 ? "agent" : "agents"} · {found.keys.length} signing{" "}
-          {found.keys.length === 1 ? "key" : "keys"}
+          {found.packs.length} published {found.packs.length === 1 ? "agent" : "agents"} · {live} signing{" "}
+          {live === 1 ? "key" : "keys"}
+          {revoked ? <> ({revoked} revoked)</> : null}
         </p>
       </header>
 
@@ -78,11 +81,15 @@ export default async function PublisherPage({ params }: { params: Promise<Params
       <section className="panel" aria-labelledby="signing-keys-heading">
         <h2 id="signing-keys-heading">Signing keys</h2>
         <p className="muted group-sub">
-          Every archive from this publisher is signed by one of these keys; <code>mendari pull</code> checks it.
+          Every archive from this publisher is signed by one of these keys; <code>mendari pull</code> checks it. A revoked
+          key signs nothing after it was revoked: only what the registry received before then still verifies.
         </p>
         <ul className="key-list">
           {found.keys.map((key) => (
-            <li key={key.key_id} className="mono">{key.key_id}</li>
+            <li key={key.key_id} className={key.revoked_at ? "revoked" : undefined}>
+              <span className="mono">{key.key_id}</span>
+              {key.revoked_at ? <span className="badge severity-high">Revoked {key.revoked_at.slice(0, 10)}</span> : null}
+            </li>
           ))}
         </ul>
       </section>

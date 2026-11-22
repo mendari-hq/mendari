@@ -638,8 +638,10 @@ class RegistryStore(
         return self.namespace(name, REVIEWER)
 
     def namespace(self, name: str, viewer: Viewer = PUBLIC) -> dict[str, Any]:
-        """A namespace and its keys, with whether it is `listed`. Its `claim` is shown to its own
-        token and to a reviewer only (None to the public, and for a namespace with none)."""
+        """A namespace and its keys, with whether it is `listed`. Each key carries `revoked_at`:
+        when `revoke_key` revoked it, None while it is live (it signs nothing after that time).
+        Its `claim` is shown to its own token and to a reviewer only (None to the public, and for
+        a namespace with none)."""
         with self._db.session(exclusive=False) as db:
             row = db.one("SELECT * FROM hub_namespaces WHERE name = ?", (name,))
             unlisted = self._unlisted(db)
@@ -650,6 +652,16 @@ class RegistryStore(
                 "ORDER BY created_at",
                 (name,),
             )
+            revoked: dict[str, str] = {}
+            if db.columns("hub_key_revocations"):  # a database from before revocations has none
+                revoked = {
+                    str(r["key_id"]): str(r["created_at"])
+                    for r in db.all(
+                        "SELECT key_id, created_at FROM hub_key_revocations WHERE namespace = ?",
+                        (name,),
+                    )
+                }
+            keys = [{**key, "revoked_at": revoked.get(str(key["key_id"]))} for key in keys]
             claim = None
             if (viewer.reviewer or viewer.namespace == name) and self._has_claims(db):
                 claim = db.one("SELECT * FROM hub_claims WHERE namespace = ?", (name,))
@@ -2127,6 +2139,32 @@ class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
 
+class PublisherKey(BaseModel):
+    """One of a namespace's publisher keys, as `GET /v1/namespaces/{namespace}` lists it."""
+
+    key_id: str
+    public_pem: str
+    created_at: str
+    revoked_at: str | None = Field(
+        description="When the operator revoked the key (`mendari registry revoke-key`), null "
+        "while it is live. A revoked key signs nothing after that time: trust it only for what "
+        "was published or signed before it."
+    )
+
+
+class NamespaceAnswer(BaseModel):
+    """A namespace as `GET /v1/namespaces/{namespace}` answers it (described, not enforced)."""
+
+    name: str
+    publisher_type: str
+    display_name: str
+    created_at: str
+    keys: list[PublisherKey]
+    listed: bool
+    claim: dict[str, Any] | None
+    packs: list[str]
+
+
 # The key route's body, described by reference as FastAPI would (`_registry_app` adds the schema).
 _KEY_REQUEST_BODY = {
     "requestBody": {
@@ -2379,7 +2417,11 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         )
         return {"namespace": namespace, "key_id": key_id}
 
-    @app.get("/v1/namespaces/{namespace}")
+    @app.get(  # described by its model; answered as the store reads it
+        "/v1/namespaces/{namespace}",
+        response_model=None,
+        responses={200: {"model": NamespaceAnswer, "description": "The namespace and its keys"}},
+    )
     def namespace(request: Request, namespace: str) -> dict[str, Any]:
         viewer = viewer_of(request)
         found = store.namespace(namespace, viewer)

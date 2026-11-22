@@ -485,6 +485,16 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
     keys = schema["paths"]["/registry/v1/namespaces/{namespace}/keys"]
     assert "#/components/schemas/Registry" in json.dumps(keys)
     assert "RegistryKeyRequest" in schema["components"]["schemas"]
+    # A namespace's keys are described, each with `revoked_at` (null while it is live).
+    answer = schema["paths"]["/registry/v1/namespaces/{namespace}"]["get"]["responses"]["200"]
+    assert answer["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RegistryNamespaceAnswer"
+    }
+    listed = schema["components"]["schemas"]["RegistryPublisherKey"]
+    assert (
+        "revoked_at" in listed["required"]
+        and "revoked" in listed["properties"]["revoked_at"]["description"]
+    )
 
 
 def test_an_archive_over_the_engines_body_limit_is_a_413_that_names_it(

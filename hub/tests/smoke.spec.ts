@@ -138,7 +138,8 @@ test("a publisher page lists its agents and signing keys", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mendari");
   await expect(page.getByText("Verified publisher")).toBeVisible();
   await expect(page.locator("ul").first().getByRole("link")).toHaveCount(1);
-  await expect(page.locator("li.mono")).toHaveCount(1);
+  await expect(page.locator(".key-list li")).toHaveCount(1);
+  await expect(page.locator(".key-list li.revoked")).toHaveCount(0); // a live key carries no mark
 });
 
 test("an unknown agent is a 404 page", async ({ page }) => {

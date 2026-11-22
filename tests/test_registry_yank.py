@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -244,6 +245,35 @@ def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
     shown = recall_of(meta, hub.client(), other)
     assert shown is not None and shown["problem"] == "it is about another pack, version or build"
     assert recall_of({**meta, "yank": None}, hub.client(), pack) is None
+
+
+def test_a_recall_by_a_revoked_key_verifies_only_when_signed_before_it(
+    hub: Hub,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    token, key = hub.namespace("site-a")
+    pack = copy_pack(tmp_path, "site-a/inbox")
+    hub.client(token).push(pack, key)
+    hub.client(token).yank("site-a", "inbox", pack.version, reason="misroutes", severity="high",
+                           key=key)  # fmt: skip
+    key_id = archive.key_id(key.public_key())
+    with RegistryStore(hub.db) as store:
+        store.revoke_key("site-a", key_id, reason="lost laptop", by="operator")
+    meta = hub.client().version("site-a", "inbox", pack.version)
+    shown = recall_of(meta, hub.client(), pack)  # signed before the key was revoked
+    assert shown is not None and shown["verified"] and shown["problem"] is None
+    # The same key's record dated after it was revoked (one the registry would refuse): still a
+    # recall, never a verified one.
+    revoked_at = next(k["revoked_at"] for k in hub.client().namespace("site-a")["keys"])
+    later = (datetime.fromisoformat(revoked_at) + timedelta(seconds=1)).isoformat()
+    record = yank.sign(
+        pack=pack.id, version=pack.version, digest=meta["digest"],
+        archive_sha256=meta["archive_sha256"], reason="misroutes", severity="high",
+        signer="publisher", key=key, key_id=key_id, at=later.replace("+00:00", "Z"),
+    )  # fmt: skip
+    shown = recall_of({**meta, "yank": record}, hub.client(), pack)
+    assert shown is not None and not shown["verified"]
+    assert "lists as revoked since" in str(shown["problem"])
 
 
 def test_a_deleted_version_is_removed_from_the_cache_and_never_pulled(
