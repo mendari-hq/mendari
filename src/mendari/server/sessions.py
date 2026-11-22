@@ -19,13 +19,13 @@ and an EHR launch's (`/smart/launch`) follow the same rules.
   `__Host-` cookie only from this exact host, Secure, with `Path=/` and no `Domain`, so a sibling
   subdomain cannot set or shadow one. Loopback and dotless hosts (`localhost`, `127.0.0.1`, a
   compose service) keep the plain names, which browsers may refuse the prefix on over plain http.
-  For one release the plain name is still read on other hosts, for rows from before it only
-  (rows without `v`, which end within 8 hours of the deploy); removing that is on the todo list.
+  On any other host the plain name is never read: a cookie a sibling subdomain planted under it
+  names nothing here (the names from before Phase 4b, read for one release, ended 2026-11-22).
 - **Sign-in and launch binding** (RFC 6749 §10.12: login CSRF). `/auth/login` and `/smart/launch`
   set a random `__Host-mendari_signin` (or `__Host-mendari_launch`) cookie for ten minutes and
   keep its SHA-256 in the pending row; the callback compares them in constant time. A callback URL
   sent to someone else's browser then fails there, instead of signing them in as the sender.
-  A pending row from before this release has no digest and is accepted, once, as before.
+  A pending sign-in without a digest (none is made so since Phase 4b) is refused.
   The cookie is host-only, so both start on `MENDARI_PUBLIC_URL`, where the callback comes back:
   started on another name (a `*.vercel.app` alias, a second DNS name), they first send the
   browser there (`to_public_url`).
@@ -54,8 +54,6 @@ SMART = "mendari_smart"  # an EHR launch's, from /smart/callback
 SIGNIN = "mendari_signin"  # ties /auth/login to /auth/callback
 LAUNCH = "mendari_launch"  # ties /smart/launch to /smart/callback
 HOST_PREFIX = "__Host-"
-# Rows made under the `__Host-` names carry `v`: the plain name never reaches them.
-VERSION = 2
 PENDING_SECONDS = 600  # a binding cookie lasts as long as the pending row it binds
 # Marks the one redirect to MENDARI_PUBLIC_URL (`to_public_url`), so a proxy that rewrites the
 # Host header (the request then never looks like it is for the public name) cannot loop it.
@@ -120,16 +118,10 @@ def cookie_name(base: str, host: str | None) -> str:
     return base if local(host) else HOST_PREFIX + base
 
 
-def read(request: Request, base: str) -> tuple[str | None, bool]:
-    """Cookie `base`'s value and whether it came under the old plain name on a host that now uses
-    `__Host-` (accepted for rows from before this release only)."""
-    if local(request.url.hostname):
-        return request.cookies.get(base) or None, False
-    value = request.cookies.get(HOST_PREFIX + base)
-    if value:
-        return value, False
-    legacy = request.cookies.get(base) or None
-    return legacy, legacy is not None
+def read(request: Request, base: str) -> str | None:
+    """Cookie `base`'s value, under its name on this host only: on a host that uses `__Host-`,
+    a cookie under the plain name is never read."""
+    return request.cookies.get(cookie_name(base, request.url.hostname)) or None
 
 
 def set_cookie(
@@ -149,9 +141,14 @@ def set_cookie(
 
 
 def clear_cookie(response: Response, request: Request, base: str) -> None:
-    """Delete cookie `base` under its name here, and under the old plain name too."""
-    for name in dict.fromkeys((cookie_name(base, request.url.hostname), base)):
-        response.delete_cookie(name, path="/", secure=True, httponly=True, samesite="lax")
+    """Delete cookie `base` under its name here."""
+    response.delete_cookie(
+        cookie_name(base, request.url.hostname),
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
 
 
 # -- sessions -------------------------------------------------------------------------------
@@ -160,26 +157,23 @@ def clear_cookie(response: Response, request: Request, base: str) -> None:
 def begin(
     data: Mapping[str, Any], now: int, lifetime: Lifetime, *, ends_by: int | None = None
 ) -> tuple[dict[str, Any], int]:
-    """A new session row's data (marked `v`, with its `absolute_at`) and its first expiry."""
+    """A new session row's data (with its `absolute_at`) and its first expiry."""
     expires_at, absolute_at = lifetime.start(now, ends_by=ends_by)
-    return {**data, "v": VERSION, "absolute_at": absolute_at}, expires_at
+    return {**data, "absolute_at": absolute_at}, expires_at
 
 
 def resume(
     store: AuditStore, request: Request, base: str, kind: str, lifetime: Lifetime
 ) -> tuple[dict[str, Any] | None, bool]:
     """The session this request's cookie names, its idle expiry pushed forward when due, and
-    whether a cookie was sent at all. None for no row, an ended one, or a row made under the
-    `__Host-` name reached through the plain one."""
-    value, legacy = read(request, base)
+    whether a cookie was sent at all. None for no row or an ended one."""
+    value = read(request, base)
     if value is None:
         return None, False
     row = store.smart_read(value, kind)
     if row is None:
         return None, True
     data, expires_at = row
-    if legacy and data.get("v"):
-        return None, True
     now = int(time.time())
     absolute_at = data.get("absolute_at")
     if isinstance(absolute_at, int) and now >= absolute_at:
@@ -216,12 +210,10 @@ def binding(request: Request, base: str) -> str | None:
 
 
 def bound(request: Request, base: str, pending: Mapping[str, Any]) -> bool:
-    """Whether this browser started the sign-in `pending` records. A pending row from before
-    this release keeps no digest: accepted (it is taken once, and ends in ten minutes). (A
-    pending launch needs no digest: it is sealed under the cookie, and opens only with it.)"""
+    """Whether this browser started the sign-in `pending` records: its cookie's digest is the
+    one the row keeps. A row without one is refused. (A pending launch needs no digest: it is
+    sealed under the cookie, and opens only with it.)"""
     expected = pending.get("browser")
-    if expected is None:
-        return True
     value = binding(request, base)
     if not value or not isinstance(expected, str):
         return False

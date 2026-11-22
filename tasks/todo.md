@@ -4399,8 +4399,9 @@ About 18 days of work.
 - Deferred: a PHI keyring and `rekey`, database tables for security events, limits on reads,
   sealing the EHR token and a Mendari principal for `/api/smart/decide` (before the SMART launch
   is turned on with sign-in)
-- Next release: stop reading the old cookie names (`mendari_session`, `mendari_smart`) on hosts
-  that use `__Host-` names (`server/sessions.py`)
+- [x] Stop reading the old cookie names (`mendari_session`, `mendari_smart`) on hosts that use
+  `__Host-` names, and refuse a pending sign-in without a browser digest (`server/sessions.py`;
+  done 2026-11-22, owner decision)
 
 ## Plan: docs experience, Phase 5 (2026-10-02)
 From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stages C and G.

@@ -55,8 +55,8 @@ def test_a_public_logout_deletes_only_its_own_kind_of_row(
         store.smart_put(value, kind, data, later, secret=binding.get(kind))
     crafted = ["state-abc", '"client-1\\012jti-abc"']
     logouts = {
-        "/auth/logout": ("mendari_session", "smart-sid"),  # a person's: names a launch's row
-        "/api/smart/logout": ("mendari_smart", "user-sid"),  # a launch's: names a person's
+        "/auth/logout": ("__Host-mendari_session", "smart-sid"),  # a person's: names a launch's row
+        "/api/smart/logout": ("__Host-mendari_smart", "user-sid"),  # a launch's: names a person's
     }
     for path, (cookie, other) in logouts.items():
         for value in [*crafted, other]:
@@ -67,8 +67,8 @@ def test_a_public_logout_deletes_only_its_own_kind_of_row(
         assert store.smart_get(value, kind, secret=binding.get(kind)) == data, (value, kind)
     # Each logout still ends its own kind of session.
     signed_in.cookies.clear()
-    signed_in.post("/auth/logout", headers={"cookie": "mendari_session=user-sid"})
-    signed_in.post("/api/smart/logout", headers={"cookie": "mendari_smart=smart-sid"})
+    signed_in.post("/auth/logout", headers={"cookie": "__Host-mendari_session=user-sid"})
+    signed_in.post("/api/smart/logout", headers={"cookie": "__Host-mendari_smart=smart-sid"})
     assert store.smart_get("user-sid", "user") is None
     assert store.smart_get("smart-sid", "session") is None
     assert store.smart_get("state-abc", "oidc-pending") == {"next": "/"}

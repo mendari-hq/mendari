@@ -161,7 +161,7 @@ def add_smart_routes(
         except FhirError as error:
             if error.status != 401:
                 raise
-            sid, _ = sessions.read(request, COOKIE)
+            sid = sessions.read(request, COOKIE)
             if sid:
                 store.smart_delete(sid, "session")
             raise SmartError(
@@ -264,7 +264,7 @@ def add_smart_routes(
         )
         # One browser, one launch: the launch this browser held until now ends here, so a copy
         # of its cookie reaches nothing and signing out leaves no launch behind.
-        replaced, _ = sessions.read(request, COOKIE)
+        replaced = sessions.read(request, COOKIE)
         if replaced:
             store.smart_delete(replaced, "session")
         sid = secrets.token_urlsafe(32)
@@ -321,7 +321,7 @@ def add_smart_routes(
     )
     def smart_logout(request: Request) -> Response:
         """Forget the EHR launch (its tokens are deleted)."""
-        sid, _ = sessions.read(request, COOKIE)
+        sid = sessions.read(request, COOKIE)
         if sid:
             store.smart_delete(sid, "session")
         response = Response(status_code=204)

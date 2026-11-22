@@ -472,7 +472,7 @@ def test_a_replayed_assertion_is_refused_and_a_jti_is_per_client(server: Server)
     assert ask(server.http, assertion(RSA_KEY, first, jti="once")).status_code == 401
     assert ask(server.http, assertion(RSA_KEY, second, jti="once")).status_code == 200
     # A logout cannot erase a claim (stage 1): the cookie names a row of its own kind only.
-    cookie = {"cookie": f'mendari_session="{first}\\012once"'}
+    cookie = {"cookie": f'__Host-mendari_session="{first}\\012once"'}
     assert server.http.post("/auth/logout", headers=cookie).status_code == 204
     assert ask(server.http, signed).status_code == 401
 

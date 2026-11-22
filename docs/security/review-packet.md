@@ -305,8 +305,6 @@ From the threat model's residual risks, and the plan's deferred list:
   who asked for it in the chain (threat R1). The launch is off unless configured, and runs in
   a new window or the EHR's embedded window (an iframe launch fails safely); it ends with the
   EHR's token. The design is in the [addendum](#addendum-the-ehr-launch-gated-2026-10-03).
-- **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
-  `__Host-` names, for sessions from before Phase 4b only; the next release stops.
 - **Erasing a note is not instant everywhere:** backups, the database's point-in-time history
   and earlier exports keep it until they expire.
 - **Records chained before Phase 4b** keep what they had (notes in the chain, unkeyed hashes,

@@ -1529,7 +1529,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             int(time.time()),
             auth.lifetime,
         )
-        previous, _ = sessions.read(request, COOKIE)
+        previous = sessions.read(request, COOKIE)
         if previous:  # this browser's earlier session ends: one browser, one person
             store.smart_delete(previous, "user")
         sid = secrets.token_urlsafe(32)
@@ -1584,7 +1584,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             int(time.time()),
             auth.lifetime,
         )
-        previous, _ = sessions.read(request, COOKIE)
+        previous = sessions.read(request, COOKIE)
         if previous:  # this browser's earlier session ends: one browser, one person
             store.smart_delete(previous, MEMBER)
         sid = secrets.token_urlsafe(32)
@@ -1598,8 +1598,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     @app.post("/auth/logout", include_in_schema=False)
     def logout(request: Request) -> Response:
         """Sign out, and end this browser's EHR launch too (a shared workstation)."""
-        sid, _ = sessions.read(request, COOKIE)
-        launch, _ = sessions.read(request, sessions.SMART)
+        sid = sessions.read(request, COOKIE)
+        launch = sessions.read(request, sessions.SMART)
         if sid:
             store.smart_delete(sid, MEMBER if auth.memberships else "user")
             security_log.event("auth.logout")
@@ -1795,7 +1795,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
     def member_session(request: Request) -> tuple[Principal, str, dict[str, Any]]:
         principal = auth.acting(request)
         session: dict[str, Any] | None = getattr(request.state, "member_session", None)
-        sid, _ = sessions.read(request, COOKIE)
+        sid = sessions.read(request, COOKIE)
         if principal.kind != "user" or session is None or sid is None:
             raise AuthError("sign in first", 401, challenge=challenge())
         return principal, sid, session
