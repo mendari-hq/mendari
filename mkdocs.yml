@@ -103,5 +103,6 @@ nav:
       - "ADR-0017: A site network of signed counts": decisions/ADR-0017-a-site-network-of-signed-counts.md
       - "ADR-0018: Local providers read text in its plain form": decisions/ADR-0018-local-providers-read-plain-text.md
       - "ADR-0019: The engine learns from review, and a person promotes": decisions/ADR-0019-the-engine-learns-and-a-person-promotes.md
+      - "ADR-0020: Publisher evaluations, signed and checked": decisions/ADR-0020-publisher-evaluations.md
   - Project:
       - Roadmap: roadmap.md

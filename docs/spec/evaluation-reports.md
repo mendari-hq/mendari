@@ -334,6 +334,50 @@ it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 - **Never in a rank.** Site evidence is shown apart (`note`): sites choose their own cases, and
   a ticket binds a dataset before its run, not how its cases were chosen.
 
+## Publisher evaluations: `mendari.publisher-evaluation/1`
+
+A publisher's signed evaluation of one listed version on one of its own public datasets, in one
+configuration ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md), `hub/evaluations.py`),
+sent by `mendari eval AGENT --dataset NAME --publish --key publisher.key`:
+
+```json
+{"format": "mendari.publisher-evaluation/1",
+ "pack": {"id": "mendari/portal-message-agent", "version": "0.1.1", "digest": "sha256:…"},
+ "configuration": {"reader": "rules"},
+ "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600},
+ "report": {"format": "mendari.site-report/2", "…": "…"},
+ "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.06, "cost_usd_per_decision": 0.0},
+ "models": ["rules@33463eddba9c"],
+ "created_at": "2026-11-22T12:00:00Z",
+ "key_id": "ed25519:<16 hex>",
+ "signature": "<base64>"}
+```
+
+- **Closed.** No other field is taken; every name is one the agent defines.
+- **`configuration`** names a variant for every provider slot. **`dataset`** is a dataset the
+  manifest declares (never a path), its file's SHA-256 and its number of cases (at least 100).
+- **`report`** is the run's [`mendari.site-report/2`](#shared-site-reports-mendarisite-report2)
+  counts (`counted_report`): whole, with no cell suppressed, as a public set holds no patient.
+  `remote_consent` is whether the configuration calls a provider off the machine (a type that is
+  not `rules`, `criteria`, `dosing` or `naive_bayes`, or a composite with one).
+  `governance_override` is false: an evaluation measures the agent's own policy.
+- **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD)
+  and **`models`** (the models that answered, as the ledger names them) are the publisher's own
+  word, shown labelled so; they are not counts.
+- **Signature.** Ed25519 with one of the namespace's publisher keys over
+  `mendari-publisher-evaluation-v1\0`, the format, `\0`, then the canonical JSON of every other
+  field (sorted keys, no spaces, ASCII). The evaluation's id is the SHA-256 of the canonical JSON
+  of the whole record.
+
+The registry serves the live evaluations of a version as `mendari.publisher-evaluations/1`
+(`GET /v1/packs/{namespace}/{name}/{version}/evaluations`): each with `rerun` (`matched`: the
+registry ran the configuration again and counted the same; `calls_a_model`: not re-run),
+`excluded` (`"key revoked"`, or null) and `figures`, worked out from the counts: per critical
+label `detected` and `automated` (k of n, with `automated_misses` the count) and
+`insufficient_evidence` under 100 positives, then `accuracy` (the primary question's right of
+n), `false_automation` (of the primary question's n) and each outcome's count and share. Every
+share is k of n with its exact 95% interval; none is a rate the publisher sent.
+
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
 A leaderboard row carries its agent's version and digest, the dataset's name, hash, size and

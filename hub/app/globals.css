@@ -1235,6 +1235,39 @@ h3 {
   border-left: 4px solid var(--color-danger);
 }
 
+/* Published evaluations (ADR-0020): the publisher's word, re-run where the registry can. */
+.group.published-evals {
+  border-left: 4px solid var(--color-warning);
+}
+
+.published-evals th[scope="row"] .eval-sub,
+.published-evals .eval-line {
+  display: block;
+}
+
+.published-evals th,
+.published-evals td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.published-evals th[scope="row"] {
+  min-width: 14rem;
+}
+
+.published-evals .eval-status {
+  min-width: 11rem;
+}
+
+.published-evals .eval-interval {
+  white-space: nowrap;
+}
+
+.published-evals .eval-sub {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
 .group dl {
   margin: 0;
   display: grid;

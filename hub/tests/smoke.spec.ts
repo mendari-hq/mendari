@@ -192,3 +192,45 @@ test("an agent no site has evaluated says so in words", async ({ page }) => {
   await expect(section).toContainText("No site has shared signed counts for version");
   await expect(section.getByRole("img")).toHaveCount(0);
 });
+
+// Published evaluations (ADR-0020): the publisher's signed evaluations of the demo agent, one per
+// configuration (scripts/hub_seed.py --evaluations); apart from the registry's checks and from
+// site evidence, never ranked.
+test("an agent page shows the publisher's evaluations side by side, one row per configuration", async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.goto(DEMO);
+  const section = page.getByRole("region", { name: "Published evaluations" });
+  await expect(section.getByRole("heading", { level: 2 })).toHaveText("Published evaluations");
+  await expect(section).toContainText("own public dataset: test (600 cases)");
+  await expect(section).toContainText("can be tuned to a set its publisher chose");
+  await expect(section).toContainText("site evidence and hidden sets are stronger evidence");
+  const table = section.getByRole("table");
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "Configuration (latency and cost as reported by the publisher)",
+    "Status",
+    "Critical detection (urgent_symptoms=yes)",
+    "Automated misses (urgent_symptoms=yes)",
+    "Accuracy (request)",
+    "False automation",
+  ]);
+  const rows = table.locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(table.getByRole("rowheader").locator(".mono")).toHaveText(["reader=agent", "reader=rules"]);
+  await expect(rows.nth(0)).toContainText("Signed by the publisher; not re-run: calls a model");
+  await expect(rows.nth(0)).toContainText("Models: mock-portal-agent");
+  await expect(rows.nth(1)).toContainText("Re-run by the registry: matched");
+  await expect(rows.nth(1).locator("td").nth(1)).toHaveText(/^\d+ of \d+ \[[<\d.]+-[>\d.]+%\]$/);
+  await expect(rows.nth(1)).toContainText(/\d+ of 600 \[[<\d.]+-[>\d.]+%\]/);
+  // No row is marked best, and no share is a bare percentage: each is k of n with its interval.
+  await expect(section).not.toContainText(/best/i);
+  const text = (await section.innerText()).replace(/\[[^[\]]*\]/g, "");
+  expect(text.split("\n").filter((line) => line.includes("%"))).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("an agent with no published evaluation says so in words", async ({ page }) => {
+  await page.goto("/packs/hub-test/hostile-text");
+  const section = page.getByRole("region", { name: "Published evaluations" });
+  await expect(section).toContainText("The publisher has published no evaluation of version 1.0.0");
+  await expect(section.getByRole("table")).toHaveCount(0);
+});

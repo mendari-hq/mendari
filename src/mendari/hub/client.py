@@ -354,6 +354,23 @@ class RegistryClient:
         response = self._http.post(f"/v1/namespaces/{namespace}/keys", json=body)
         return str(self._json(response)["key_id"])
 
+    def publish_evaluation(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """Send a signed `mendari.publisher-evaluation/1` (ADR-0020, `mendari eval --publish`)
+        with this namespace's publisher token: the registry's answer names its id and whether
+        it re-ran it."""
+        from mendari.hub.evaluations import parse
+
+        pack = parse(record).pack  # the path is built from it: only the record's own pack
+        namespace, name = pack.id.split("/")
+        response = self._http.post(
+            f"/v1/packs/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
+        )
+        return dict(self._json(response))
+
+    def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """A version's live publisher evaluations, with the registry's figures."""
+        return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}/evaluations"))
+
     def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
         namespace, name = pack.id.split("/")
         data = archive.build(pack, key)

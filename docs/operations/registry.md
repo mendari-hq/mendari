@@ -257,6 +257,53 @@ a regression, never rank. An agent whose default providers call a model is not m
 (`needs_remote`). At most two checks run at once; a publish past that is told to try again
 (`503`).
 
+## Publisher evaluations
+
+A publisher publishes its evaluations of a listed version, one per configuration and public
+dataset ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)): `mendari eval AGENT
+--dataset NAME --publish --key publisher.key` sends a `mendari.publisher-evaluation/1` record
+([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation1))
+to `POST /v1/packs/{namespace}/{name}/{version}/evaluations` with the namespace's publisher
+token, which is checked before the body is read (at most 256 KB; writes count against the
+namespace's `registry_write` rate). Then, in order, each refusal naming the field and never a
+value:
+
+1. the record's shape (closed), its time (within 10 minutes of the registry's clock), and that
+   it names this route's agent and version;
+2. the key: one of the namespace's, not revoked, and the signature over the record's own
+   prefix and format (no other Mendari signature is over those bytes);
+3. the version: listed (not recalled, deleted, or in a namespace whose claim is not approved),
+   the evaluation's digest the version's; every slot with a variant the version declares, and
+   the counts' names the agent's;
+4. the dataset: one the manifest declares, in the signed archive, with the SHA-256 and n given;
+   the counts whole (no null cell: a public set is not suppressed), adding up, under the
+   agent's own policy, and `remote_consent` exactly whether the configuration calls a model;
+5. a configuration whose every provider is local is run again in the regression check's
+   isolated child (`hub/regression.py` `rerun`: same limits, at most two at once, `503` past
+   that) and refused unless its counts are the publisher's exactly. With the check off
+   (`MENDARI_REGISTRY_REGRESSION=off`) such a configuration is refused, never taken unchecked.
+   One that calls a model (`agent`, `jev`, `llm`; an `agent` variant that answers offline from
+   its `mock_file` too, as the registry goes by the provider's type) is not run again.
+
+One evaluation is live per version, configuration and dataset. A later one supersedes it:
+chained `evaluation.published` (with the evaluation's id, the SHA-256 of the signed record, its
+configuration, dataset, key and whether it was re-run) and `evaluation.superseded`; both rows
+stay. The same signed record sent again is answered as it was while it is live and refused
+once superseded; one signed before the live evaluation is refused.
+
+`GET /v1/packs/{namespace}/{name}/{version}/evaluations` (`mendari.publisher-evaluations/1`)
+lists the live ones, ordered by configuration, never by a figure: each with its configuration,
+dataset (name, n, SHA-256), key, the models and latency and cost the publisher reported, whether
+the registry re-ran it, and the figures the registry works out from the counts, each k of n with
+its exact interval: each critical label's detection and automated misses, the primary question's
+accuracy, false automation, and the outcomes. The Agent Hub shows them as "Published
+evaluations", apart from what the registry checked and from site evidence.
+
+A publisher key that is lost is revoked by the operator: `mendari registry revoke-key NAMESPACE
+KEY_ID --reason "..." --db …` (chained `key.revoked`). It signs no archive, recall or evaluation
+after; the versions it signed stay, and its evaluations stay listed with `excluded: "key
+revoked"`, out of the comparison.
+
 ## Publisher tokens that belong to someone
 
 A publisher token made with `mendari registry token` belongs to an organization, ends, and can

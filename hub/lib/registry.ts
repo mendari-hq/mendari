@@ -245,3 +245,51 @@ export type SiteEvidence = { format: string; pack: string; note: string; alpha: 
 
 export const siteEvidence = (namespace: string, name: string) =>
   get<SiteEvidence>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);
+
+// Publisher evaluations (mendari.publisher-evaluations/1, ADR-0020): the publisher's signed
+// evaluations of one version, one per configuration and public dataset. Every share is the
+// registry's, from counts; latency, cost and models are the publisher's own word.
+export type EvaluationCritical = {
+  question: string;
+  label: string;
+  detected: Figure;
+  automated_misses: number;
+  automated: Figure;
+  insufficient_evidence: boolean;
+};
+export type EvaluationFigures = {
+  format: string;
+  n: number;
+  primary: string;
+  critical: EvaluationCritical[];
+  accuracy: Figure | null;
+  false_automation: Figure | null;
+  outcomes: Record<string, { count: number; share: Figure | null }>;
+};
+export type PublisherEvaluation = {
+  id: string;
+  configuration: Record<string, string>;
+  dataset: { name: string; n: number; sha256: string };
+  rerun: "matched" | "calls_a_model";
+  rerun_words: string;
+  key_id: string;
+  models: string[];
+  claimed: { latency_ms_p50?: number | null; latency_ms_p95?: number | null; cost_usd_per_decision?: number | null };
+  created_at: string;
+  excluded: string | null; // "key revoked": listed, left out of the comparison
+  figures: EvaluationFigures | null;
+};
+export type PublisherEvaluations = {
+  format: string;
+  pack: string;
+  version: string;
+  note: string;
+  evaluations: PublisherEvaluation[];
+  superseded: number;
+};
+
+// null: no such version, or a registry from before publisher evaluations (no such route).
+export const publisherEvaluations = (namespace: string, name: string, version: string) =>
+  get<PublisherEvaluations>(
+    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/evaluations`,
+  );

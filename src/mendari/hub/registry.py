@@ -121,6 +121,7 @@ from mendari.evals.share import (
 )
 from mendari.hub import acceptance, archive, regression, site_evidence, site_signing, yank
 from mendari.hub import checkpoint as chain_checkpoint
+from mendari.hub import evaluations as publisher_evaluations
 from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
 from mendari.server.app import HSTS, SECURITY_HEADERS
@@ -261,6 +262,7 @@ CREATE TABLE IF NOT EXISTS hub_acceptances (
 """
     + site_store.SCHEMA
     + site_report_store.SCHEMA
+    + publisher_evaluations.SCHEMA
     + RATE_SCHEMA
 )
 
@@ -357,6 +359,9 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     "tickets": ("hub_tickets", lambda row: str(row["id"])),  # LP-22e
     "site_reports": ("hub_site_reports", lambda row: str(row["id"])),  # LP-22f
     "corrections": ("hub_ticket_corrections", lambda row: str(row["ticket"])),
+    # Publisher evaluations and revoked publisher keys (ADR-0020, hub/evaluations.py).
+    "evaluations": ("hub_evaluations", lambda row: str(row["id"])),
+    "key_revocations": ("hub_key_revocations", lambda row: str(row["key_id"])),
 }
 
 
@@ -518,7 +523,12 @@ def stated_head(statement: Any, public: Ed25519PublicKey | None = None) -> str:
     return str(statement["head"])
 
 
-class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteReportStore):
+class RegistryStore(
+    RateBuckets,
+    site_store.SiteStore,
+    site_report_store.SiteReportStore,
+    publisher_evaluations.EvaluationStore,
+):
     def __init__(
         self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
     ):
@@ -785,6 +795,35 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
                 )
         return key_id
 
+    def revoke_key(self, namespace: str, key_id: str, *, reason: str, by: str) -> dict[str, Any]:
+        """Revoke one of a namespace's publisher keys (the operator's `mendari registry
+        revoke-key`): it signs no archive, recall or evaluation after, and the evaluations it
+        signed leave the Hub's comparison and stay listed (ADR-0020). Its row stays, so what it
+        signed before still verifies. Chained `key.revoked`; a key is revoked once (409)."""
+        reason = _label(reason, "why the key is revoked", yank.MAX_REASON)
+        self.namespace(namespace, REVIEWER)
+        with self._db.session(exclusive=True) as db:
+            if not db.one(
+                "SELECT key_id FROM hub_keys WHERE key_id = ? AND namespace = ?",
+                (key_id, namespace),
+            ):
+                raise HubError("no such key of this namespace", 404)
+            if db.one("SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (key_id,)):
+                raise HubError("that key is revoked already", 409)
+            db.all(
+                "INSERT INTO hub_key_revocations (key_id, namespace, reason, revoked_by, "
+                "created_at) VALUES (?, ?, ?, ?, ?)",
+                (key_id, namespace, reason, by, _now_ms()),
+            )
+            record_event(
+                db,
+                "key.revoked",
+                f"namespace:{namespace}",
+                {"namespace": namespace, "key_id": key_id, "reason": reason, "by": by},
+                row=("key_revocations", "key_id = ?", (key_id,)),
+            )
+        return {"namespace": namespace, "key_id": key_id, "revoked": True}
+
     def mint_token(
         self,
         namespace: str,
@@ -943,9 +982,11 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
     def publish(
         self, namespace: str, name: str, version: str, data: bytes, *, by: str = "operator"
     ) -> dict[str, Any]:
+        revoked = self.revoked_keys(namespace)
         keys = {
             k["key_id"]: archive.load_public_key(k["public_pem"].encode())
             for k in self.namespace(namespace, REVIEWER)["keys"]
+            if k["key_id"] not in revoked
         }
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
@@ -1376,7 +1417,7 @@ class RegistryStore(RateBuckets, site_store.SiteStore, site_report_store.SiteRep
                 k["key_id"]: k["public_pem"] for k in self.namespace(namespace, REVIEWER)["keys"]
             }
             key_id = str(record["key_id"])
-            if key_id not in keys:
+            if key_id not in keys or key_id in self.revoked_keys(namespace):
                 raise HubError("the yank is signed by a key that is not this namespace's")
             public = archive.load_public_key(keys[key_id].encode())
         problem = yank.problem(record, public, key_id)
@@ -2453,6 +2494,38 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
                 by=f"site:{ticket['site']}",
             )
         )
+
+    @app.post("/v1/packs/{namespace}/{name}/{version}/evaluations", status_code=201)
+    async def publish_evaluation(
+        request: Request, namespace: str, name: str, version: str
+    ) -> dict[str, Any]:
+        """A publisher publishes an evaluation of a listed version (ADR-0020): a
+        `mendari.publisher-evaluation/1` record signed with one of the namespace's keys, sent
+        with its publisher token, read up to `evaluations.MAX_BYTES` once the token is checked.
+        Every check of `hub/evaluations.py`, a local configuration re-run off the event loop.
+        Nothing refused is echoed. Chained `evaluation.published` and `evaluation.superseded`."""
+        await run_in_threadpool(require_publisher, request, namespace)
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > publisher_evaluations.MAX_BYTES:
+                raise HTTPException(413, "the evaluation is too large")
+        try:
+            parsed = from_json(bytes(body), allow_inf_nan=False)
+        except ValueError:
+            problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
+            raise RequestValidationError([problem]) from None
+        return await run_in_threadpool(
+            lambda: store.publish_evaluation(namespace, name, version, parsed, by=actor(request))
+        )
+
+    @app.get("/v1/packs/{namespace}/{name}/{version}/evaluations")
+    def evaluations(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """A version's live publisher evaluations (`mendari.publisher-evaluations/1`), each
+        with the figures the registry works out from its counts, whether it re-ran it, and
+        the publisher's own latency, cost and models, labelled. Never a ranking."""
+        store.version(namespace, name, version, viewer_of(request))  # 404 as the version
+        return store.evaluations(namespace, name, version)
 
     async def site_record_body(request: Request, format: str) -> dict[str, Any]:
         """A site's signed record, read up to `site_store.MAX_TICKET_BYTES`, then its key and

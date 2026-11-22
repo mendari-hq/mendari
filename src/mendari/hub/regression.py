@@ -105,7 +105,17 @@ def check(pack_dir: Path, previous: Mapping[str, Any] | None) -> dict[str, Any]:
     return shown
 
 
-def _isolated(pack_dir: Path) -> dict[str, Any]:
+def rerun(pack_dir: Path, configuration: Mapping[str, str], dataset: str) -> dict[str, Any]:
+    """The counts of the pack at `pack_dir` run on its dataset `dataset` with `configuration`
+    (slot -> variant, every slot), in the isolated child: `{"status": "measured", "counts":
+    ...}`, or `{"status": "failed", "reason": ...}` (`needs_remote` for a configuration that
+    calls anything off the machine, which the child never runs)."""
+    return _isolated(
+        pack_dir, "--evaluation", dataset, json.dumps(dict(configuration), sort_keys=True)
+    )
+
+
+def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as home:
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -116,7 +126,7 @@ def _isolated(pack_dir: Path) -> dict[str, Any]:
         }
         try:
             child = subprocess.Popen(
-                [sys.executable, "-I", "-m", "mendari.hub.regression", str(pack_dir)],
+                [sys.executable, "-I", "-m", "mendari.hub.regression", str(pack_dir), *extra],
                 env=env,
                 cwd=home,
                 stdin=subprocess.DEVNULL,
@@ -196,14 +206,39 @@ def summary(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rerun_main(pack_dir: str, dataset: str, configuration: str) -> dict[str, Any]:
+    """In the child: a publisher's evaluation run again (`rerun`)."""
+    from mendari.core.decision import Decision
+    from mendari.core.pack import load_pack
+    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.share import counted_report
+
+    pack = load_pack(Path(pack_dir), origin="hub")
+    if dataset not in pack.manifest.evaluation.datasets:  # never a path: the pack's own sets
+        return {"status": "failed", "reason": "no_such_dataset"}
+    decision = Decision(pack, providers=json.loads(configuration), origin_cap=False)
+    if decision.is_remote:
+        return {"status": "needs_remote"}
+    run = evaluation(decision, resolve_dataset(pack, dataset))
+    return {"status": "measured", "counts": counted_report(run.ledger)}
+
+
 def _main(argv: list[str]) -> int:
-    """The child: evaluate the pack at argv[0] on its own test set, print the summary."""
+    """The child: evaluate the pack at argv[0] on its own test set, print the summary; or, with
+    `--evaluation DATASET CONFIGURATION`, run a publisher's evaluation again (`rerun`)."""
     from mendari.core.decision import Decision
     from mendari.core.pack import load_pack
     from mendari.evals.harness import evaluation, resolve_dataset
 
     if os.name == "posix":
         _limits()  # before anything of the pack is read
+    if len(argv) == 4 and argv[1] == "--evaluation":
+        try:
+            again = _rerun_main(argv[0], argv[2], argv[3])
+        except Exception as error:  # the publisher's content: named by its type alone
+            again = {"status": "failed", "reason": type(error).__name__}
+        sys.stdout.write(json.dumps(again))
+        return 0
     try:
         pack = load_pack(Path(argv[0]), origin="hub")
         test_set = pack.manifest.evaluation.benchmark_dataset

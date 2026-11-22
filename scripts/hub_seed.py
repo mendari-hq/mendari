@@ -11,7 +11,11 @@ it keeps the key pair for later pushes. With `--hostile-example` it also publish
 community publisher, a pack whose text tries to run a script and a `javascript:` link (the
 Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
 (LP-22) evaluate the demo agent on its synthetic test cases and share signed counts, so
-the Hub's Site evidence section has something to show.
+the Hub's Site evidence section has something to show. With `--evaluations` the publisher
+publishes its signed evaluations of the demo agent on its test set (ADR-0020), one per
+configuration: `reader=rules`, local, which the registry re-runs and must match; and
+`reader=agent`, which answers offline from its mock file but whose provider type is a model's,
+so the registry does not re-run it and the Hub says so.
 
     uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db
 """
@@ -183,6 +187,26 @@ def sites_example(registry: str, store: RegistryStore) -> None:
             print(f"site {name} shared report {shared['id']} on {cases} cases")
 
 
+EVALUATED = ("rules", "agent")  # the demo agent's `reader` variants, in the order published
+
+
+def evaluations_example(registry: str, token: str, key: archive.Ed25519PrivateKey) -> None:
+    """The publisher's signed evaluations of the demo agent on its synthetic test set, one per
+    configuration of its `reader` slot, as `mendari eval --publish` sends them."""
+    from mendari.core.decision import Decision
+    from mendari.evals import resolve_dataset
+    from mendari.evals.harness import evaluation
+    from mendari.hub import evaluations
+
+    pack = resolve_pack(DEMO_AGENT)
+    with RegistryClient(registry, token) as client:
+        for variant in EVALUATED:
+            decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
+            run = evaluation(decision, resolve_dataset(pack, "test"))
+            published = client.publish_evaluation(evaluations.build(pack, run, key=key))
+            print(f"published evaluation reader={variant}: {published['rerun_words']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--registry", required=True, help="the registry's URL, to publish to")
@@ -200,6 +224,12 @@ def main() -> int:
         "--sites",
         action="store_true",
         help="also have two synthetic sites share signed counts of the demo agent",
+    )
+    parser.add_argument(
+        "--evaluations",
+        action="store_true",
+        help="also publish the publisher's signed evaluations of the demo agent, one per "
+        "configuration (reader=rules, re-run by the registry; reader=agent, not re-run)",
     )
     args = parser.parse_args()
     with RegistryStore(args.db) as store:
@@ -235,6 +265,8 @@ def seed(args: argparse.Namespace, store: RegistryStore) -> None:
         hostile_example(args.registry, hostile, store)
     if args.sites:
         sites_example(args.registry, store)
+    if args.evaluations and args.namespace == DEMO_AGENT.split("/")[0]:
+        evaluations_example(args.registry, token, key)
     print(f"token {token}\nkey {key_id}")
 
 

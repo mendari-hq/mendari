@@ -9,6 +9,8 @@ import {
   acceptanceWords,
   ENGINE_WORDS,
   pack,
+  publisherEvaluations,
+  type PublisherEvaluations,
   type Recalled,
   regressionWords,
   reviewWords,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/registry";
 
 import { CopyCommand } from "./copy-command";
+import { PublishedEvaluationsSection } from "./evaluations";
 import { EvidenceGroupView } from "./forest";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +65,14 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <Recalls recalled={recalled} />
       </div>
     );
+  }
+  // One read, for the version shown. A registry from before them answers 404 (null).
+  let evaluations: PublisherEvaluations | null = null;
+  let evaluationsUnavailable = false;
+  try {
+    evaluations = await publisherEvaluations(namespace, name, latest.version);
+  } catch {
+    evaluationsUnavailable = true;
   }
   const evidence = evidenceResult.status === "fulfilled" ? evidenceResult.value : null;
   const evidenceError = evidenceResult.status === "rejected";
@@ -233,6 +244,13 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           </dl>
         </section>
       </div>
+
+      <PublishedEvaluationsSection
+        evaluations={evaluations}
+        unavailable={evaluationsUnavailable}
+        version={latest.version}
+        packId={detail.id}
+      />
 
       <SiteEvidenceSection evidence={evidence} evidenceError={evidenceError} version={latest.version} packId={detail.id} />
 

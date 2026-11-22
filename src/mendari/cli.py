@@ -198,6 +198,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
     sharing = bool(args.share or args.share_out)
     issued: dict[str, Any] | None = None
+    publisher_key = _publishing(args, sharing)
     if sharing:
         # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
         # configuration (the deterministic arm unless --provider names one), then the run.
@@ -250,6 +251,21 @@ def cmd_eval(args: argparse.Namespace) -> int:
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
+    if publisher_key is not None:
+        from mendari.hub import evaluations
+
+        # Counts only (mendari.publisher-evaluation/1), signed with a namespace key, sent with
+        # its publisher token: the registry re-runs a local configuration and refuses counts
+        # that are not its own (ADR-0020).
+        record = evaluations.build(pack, run, key=publisher_key)
+        with _registry_client(args) as registry:
+            published = registry.publish_evaluation(record)
+        print(
+            f"published evaluation {published['id']} of {published['pack']}@"
+            f"{published['version']} ({_configuration_words(published['configuration'])}, "
+            f"dataset {published['dataset']}): {published['rerun_words']}",
+            file=sys.stderr,
+        )
     if issued is not None:
         from mendari.evals.share import shareable
         from mendari.hub import site_signing
@@ -289,6 +305,38 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(f"\nReport written to {args.out}")
     degraded = comparison is not None and comparison["status"] == "degraded"
     return EXIT_DEGRADED if degraded and args.fail_on_degradation else 0
+
+
+def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
+    """`--publish`: the publisher key to sign with, once what a published evaluation cannot be
+    is refused, before the run (ADR-0020): it is the publisher's, never a site's share; it
+    covers the whole dataset; and the dataset is one the agent's manifest declares (a public set
+    in its signed archive, never a file). None without `--publish`."""
+    if not args.publish:
+        if args.key:
+            raise MendariError("--key signs a published evaluation: add --publish")
+        return None
+    from mendari.hub import archive
+
+    if sharing:
+        raise MendariError("--publish is a publisher's evaluation and --share a site's: choose one")
+    if args.limit:
+        raise MendariError("a published evaluation covers the whole dataset: drop --limit")
+    if not args.key:
+        raise MendariError("--publish signs with a namespace's publisher key: --key FILE")
+    pack = resolve_pack(args.pack)
+    declared = pack.manifest.evaluation.datasets
+    if args.dataset not in declared:
+        named = ", ".join(declared) or "none"
+        raise MendariError(
+            "--publish: the dataset is one the agent's manifest declares, in its signed archive "
+            f"({named}), never a file"
+        )
+    return archive.load_private_key(Path(args.key).read_bytes())
+
+
+def _configuration_words(configuration: Mapping[str, str]) -> str:
+    return ", ".join(f"{slot}={variant}" for slot, variant in sorted(configuration.items()))
 
 
 def _character_ngrams(given: str | None) -> Any:
@@ -2620,6 +2668,23 @@ def cmd_registry_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_revoke_key(args: argparse.Namespace) -> int:
+    """Revoke one of a namespace's publisher keys as the operator (ADR-0020): it signs no
+    archive, recall or evaluation after, and the evaluations it signed stay listed, left out of
+    the comparison. Once. Chained (`key.revoked`) with who ran this."""
+    from mendari.hub.registry import RegistryStore
+
+    with RegistryStore(_existing_registry(args.db)) as store:
+        revoked = store.revoke_key(
+            args.namespace,
+            args.key_id,
+            reason=_registry_reason(args.reason, "--reason"),
+            by=_command_line_actor(),
+        )
+    _print_json(revoked)
+    return 0
+
+
 def cmd_registry_claims(args: argparse.Namespace) -> int:
     """The namespace claims in a registry's database, read-only: each one's organization, who
     claimed it, its status, and who decided it, when and why."""
@@ -3747,7 +3812,18 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--supersedes", metavar="REPORT", help="a shared run corrects this report of the site's"
     )
-    evaluate.add_argument("--registry", help="registry URL for --share (default: logged into)")
+    evaluate.add_argument(
+        "--registry", help="registry URL for --share or --publish (default: logged into)"
+    )
+    evaluate.add_argument(
+        "--publish",
+        action="store_true",
+        help="publish this run as the publisher's signed evaluation (counts only) of the listed "
+        "version, on one of the agent's own datasets (ADR-0020)",
+    )
+    evaluate.add_argument(
+        "--key", metavar="FILE", help="the namespace's publisher key that signs --publish"
+    )
     evaluate.add_argument(
         "--share-out",
         metavar="FILE",
@@ -4772,6 +4848,16 @@ def build_parser() -> argparse.ArgumentParser:
     delete_version.add_argument("--db", default="var/registry.db", help=registry_db)
     delete_version.add_argument("--reason", required=True, help="why (chained and kept; one line)")
     delete_version.set_defaults(handler=cmd_registry_delete)
+    revoke_key = registry_cmd.add_parser(
+        "revoke-key",
+        help="revoke a namespace's publisher key: it signs nothing more, and its published "
+        "evaluations leave the Hub's comparison (chained)",
+    )
+    revoke_key.add_argument("namespace")
+    revoke_key.add_argument("key_id", help="ed25519:<16 hex>")
+    revoke_key.add_argument("--db", default="var/registry.db", help=registry_db)
+    revoke_key.add_argument("--reason", required=True, help="why (chained and kept; one line)")
+    revoke_key.set_defaults(handler=cmd_registry_revoke_key)
     countersign = registry_cmd.add_parser(
         "countersign",
         help="counter-sign the listed versions that have no record "
