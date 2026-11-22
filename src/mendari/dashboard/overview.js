@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Overview: what is deployed, the numbers people act on, outcome mix and decisions per day.
 
+import { adoptionPath } from "./adoption.js";
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
@@ -37,6 +38,7 @@ views.overview = async (main) => {
       </div>
       ${packHeader(d, holds)}
     </section>
+    ${adoptionPath(stats, brief, d)}
     ${total ? `
       <div class="period-row">
         <span class="muted" id="period-name">Period</span>
