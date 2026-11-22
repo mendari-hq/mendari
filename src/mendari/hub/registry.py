@@ -991,6 +991,10 @@ class RegistryStore(
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
         own = _signing_key()  # a key that is set and is not one fails here, before any work
+        try:  # so does a setting that is not one: the operator's to fix, never the pack's
+            checks = regression.enabled()
+        except MendariError as error:
+            raise HubError(f"the registry cannot check versions: {error}", 503) from None
         self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
@@ -1008,7 +1012,7 @@ class RegistryStore(
                 # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
                 _refuse_invalid(pack)
                 metadata = describe(pack, verified)
-                if regression.enabled():  # in a child process of its own (`hub/regression.py`)
+                if checks:  # in a child process of its own (`hub/regression.py`)
                     with regression.slot():  # at most a few at once; else 503, try again
                         metadata["regression"] = regression.check(
                             Path(scratch) / "pack", self._previous_check(namespace, name, version)

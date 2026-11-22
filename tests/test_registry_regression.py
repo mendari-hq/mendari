@@ -247,3 +247,18 @@ def test_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "sometimes")
     with pytest.raises(MendariError, match="on or off"):
         regression.enabled()
+
+
+def test_a_setting_that_is_not_one_is_the_operators_never_the_packs(
+    registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registry whose MENDARI_REGISTRY_REGRESSION is neither on nor off answers 503 with what
+    the setting must be, before any work: never "the pack does not load", which sent the
+    publisher to fix a pack with nothing wrong with it. Nothing is published."""
+    monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "sometimes")
+    refused = registry.publish(_copy(tmp_path, "9.9.7"))
+    assert refused.status_code == 503, refused.text
+    detail = refused.json()["detail"]
+    assert "cannot check versions" in detail and "on or off" in detail
+    assert "does not load" not in detail
+    assert registry.client.get(f"/v1/packs/{INBOX.id}/9.9.7").status_code == 404
