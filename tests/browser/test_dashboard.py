@@ -1779,6 +1779,31 @@ def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_serve
     assert [s["final_label"] for s in sent] == ["physician"]
 
 
+def test_g_then_c_goes_to_the_card_without_confirming_a_review(
+    page: Page, live_server: str
+) -> None:
+    """The chord "G C" goes to the Decision Card; "C" alone confirms the focused review. The
+    queue's own handler saw the chord's C too, and confirmed a review on the way out."""
+    decision = decide_inbox(live_server, "Crushing chest pain, sweating, cannot breathe well")
+    resolved: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            resolved.append(r.url) if r.method == "POST" and "/api/review/" in r.url else None
+        ),
+    )
+    open_pack(page, INBOX, "review")
+    card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
+    card.focus()
+    page.keyboard.press("g")
+    page.keyboard.press("c")
+    expect(page.locator('.nav a[data-view="card"]')).to_have_class(re.compile("active"))
+    page.wait_for_timeout(500)
+    assert resolved == []
+    pending = httpx.get(f"{live_server}/api/review", params={"pack_id": INBOX, "limit": 500}).json()
+    assert decision["id"] in [item["id"] for item in pending]
+
+
 def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -> None:
     decision = decide_inbox(live_server, "Crushing chest pain once more, sweating")
     open_pack(page, INBOX, "review")

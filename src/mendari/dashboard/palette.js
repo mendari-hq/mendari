@@ -60,12 +60,12 @@ export function setupPalette({ onSelectPack }) {
     }
     const key = event.key.toLowerCase();
     if (waitingForG) {
+      // The key after G belongs to the chord, whatever it names: a view's own keys (the review
+      // queue's C confirms) leave a key whose default is prevented alone.
       clearChord();
+      event.preventDefault();
       const view = VIEW_SHORTCUTS[key];
-      if (view && isViewVisible(view)) {
-        event.preventDefault();
-        location.hash = `#${view}`;
-      }
+      if (view && isViewVisible(view)) location.hash = `#${view}`;
       return;
     }
     if (key === "g" && !event.shiftKey) {
@@ -306,6 +306,7 @@ function openShortcuts() {
         ${row(["G", "T"], "Go to Try it")}
         ${row(["J", "K"], "Review queue: next / previous card")}
         ${row(["C"], "Review queue: confirm focused recommendation")}
+        ${row(["Z"], "Review queue: undo an override in its 5 seconds")}
         ${row(["[", "]"], "Audit drawer: previous / next decision")}
         ${row(["⌘↵ / Ctrl+↵"], "Try it: submit decision")}
       </tbody>
