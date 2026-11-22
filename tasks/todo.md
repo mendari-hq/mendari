@@ -1,5 +1,24 @@
 # Mendari: task tracking
 
+## North star (owner, 2026-11-21)
+An open-source platform where **developers build agents**, run them through Mendari's governance
+engine, and **publish every evaluation, including which models and configurations work best**;
+**hospital IT adopts agents already vetted**, with evals and a governance structure in place,
+tries them against real patient workflows (shadow first), and **publishes its own evaluations
+back**. Hospitals stop starting from zero with each vendor. Every change is judged by whether it
+makes that loop easier, clearer or more trustworthy: A+, high IQ, high EQ, easy to use.
+
+The loop, and where the platform stands:
+1. **Build:** `mendari new --agent`, the agent HTTP contract, `mendari mcp`. Next: starters for
+   common stacks (an LLM API, LangGraph, a plain HTTP service).
+2. **Govern:** policy, risk caps, review queue, audit chain: in place.
+3. **Evaluate and publish "what works best":** `mendari eval`, configuration comparison
+   (`mendari leaderboard`), signed archives on the Agent Hub. Next: a publisher's signed eval
+   card per agent on the Hub, comparing its configurations and models.
+4. **Adopt:** Agent Hub search, verified publishers, registry review. Next: one guided path in
+   the dashboard: discover, pull, shadow on real workflows, validate locally, approve.
+5. **Share back:** site evidence (signed counts, never cases): in place on the Hub.
+
 ## Plan: agents only (2026-11-21, owner decision), the current work
 
 **Objective.** The product ships no Decision Packs. The engine stays whole (policy caps, audit
