@@ -29,6 +29,11 @@ the branch `archive/decision-packs`. Branch: `feat/agents-only-remove-packs`.
 **Verification.** After each step: ruff, mypy, the full suite, the Hub's Playwright tests on a
 seeded registry, the dashboard's browser tests.
 
+**Owner decisions (2026-11-21, later).** No scoreboard for the demo agent: the product's store,
+page and site scores are gone. Every mention of the five former packs leaves the product.
+**Next job, after this one:** make the demo agent strong: a real model-backed agent behind
+`MENDARI_AGENT_URL`, the canned `mock_file` kept as the offline fallback only.
+
 **Governing plan:** the vision plan below (2026-10-06): the launch plan as corrected by
 `notes/vision-audit.md`, built as prompts LP-01 to LP-23; its gates are `launch/gates.yaml`
 (`uv run python scripts/check_gates.py`).
