@@ -137,12 +137,15 @@ change and no agent carries a patient's input.
 
 | Setting | Default | What it bounds |
 |---|---|---|
-| `MENDARI_STORE_ORG_BYTES` | 256 MiB | The bytes of files one organization's store keeps, each file counted once |
+| `MENDARI_STORE_ORG_BYTES` | 256 MiB | The bytes of files and datasets one organization's store keeps, each file counted once, each dataset as kept (sealed, under `encrypt`) |
 | `MENDARI_ORG_DAILY_LIMITS` `store_uploads=N` | no limit | The versions an organization adds a day |
+| `MENDARI_ORG_DAILY_LIMITS` `store_datasets=N` | no limit | The datasets an organization adds a day, uploaded or built from its reviewed decisions |
 | `MENDARI_ORG_DAILY_LIMITS` `store_jobs=N` | no limit | The evaluation jobs an organization makes a day |
 | `MENDARI_STORE_MAX_ARCHIVE_BYTES` | 32 MiB | An archive, sent in parts each under `MENDARI_MAX_BODY_BYTES` |
 
-A version has at most 2,000 files of at most 50 MB each, an archive's own limits. A withdrawn
+Past a day's quota a version or a dataset is refused with `429` (the quota is checked before the
+archive or the dataset is loaded and checked, and again as it is written); past the bytes, with
+`413`. A version has at most 2,000 files of at most 50 MB each, an archive's own limits. A withdrawn
 version's files are freed 30 days after it was withdrawn (`mendari store purge`); its row and
 events stay.
 

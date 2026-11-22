@@ -679,6 +679,7 @@ CREATE TABLE IF NOT EXISTS store_usage (
     uploads  INTEGER NOT NULL,
     bytes    INTEGER NOT NULL,
     jobs     INTEGER NOT NULL DEFAULT 0,
+    datasets INTEGER,
     PRIMARY KEY (org, day)
 );
 CREATE TABLE IF NOT EXISTS store_keys (
@@ -721,6 +722,7 @@ CREATE TABLE IF NOT EXISTS store_datasets (
     data        TEXT NOT NULL,
     sealed      INTEGER NOT NULL,
     report      TEXT NOT NULL,
+    size        INTEGER,
     kind        TEXT NOT NULL DEFAULT 'upload',
     created_by  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
@@ -872,6 +874,11 @@ _ADDED_COLUMNS = (
     # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
     # NULL: none, or a row from before.
     ("decision_inputs", "details", "TEXT"),
+    # A pack store's datasets count against its organization's quotas: the datasets it adds a
+    # day (NULL: none yet that day) and each dataset's bytes as kept (NULL on rows from before
+    # it, counted by their length).
+    ("store_usage", "datasets", "INTEGER"),
+    ("store_datasets", "size", "INTEGER"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
