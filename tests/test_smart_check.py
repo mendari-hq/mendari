@@ -138,6 +138,9 @@ def test_settings_that_would_refuse_a_launch_fail(
     ("overrides", "failed"),
     [
         ({"code_challenge_methods_supported": ["plain"]}, "PKCE S256"),
+        # Not a list: a string passed by substring, a number crashed the command (TypeError).
+        ({"code_challenge_methods_supported": "S256-not"}, "PKCE S256"),
+        ({"code_challenge_methods_supported": 256}, "PKCE S256"),
         ({"jwks_uri": None}, "JWKS"),
         ({"jwks_uri": f"{EHR}/no-keys-here"}, "JWKS"),  # 404
         ({"jwks_uri": "https://keys.example.net/jwks"}, "JWKS"),  # off the allow-list

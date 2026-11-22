@@ -446,6 +446,40 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
     assert wrong.status_code == 422
 
 
+def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: FakeEhr) -> None:
+    """`$` matches before a final newline: `ref-sr1\\n` passed, was read as `ref-sr1` and went on
+    into the decision's context with its newline."""
+    full_launch(app, ehr)
+    focus = "ServiceRequest/ref-sr1\n"
+    refused = app.post("/api/smart/decide", json={"pack_id": REFERRAL, "focus": focus})
+    assert refused.status_code == 422
+
+
+def test_an_ehr_answer_of_the_wrong_shape_shows_less_never_a_500(
+    app: TestClient, ehr: FakeEhr
+) -> None:
+    """Items that are not objects where FHIR has objects raised AttributeError (a 500)."""
+    full_launch(app, ehr)
+    wrong = {
+        "Patient": {"name": ["Jane"]},
+        "ServiceRequest": {"code": ["x"], "reasonCode": ["x"], "subject": "Patient/ref-p1"},
+    }
+    # New objects, never the fixture's own, which other tests read after this one.
+    ehr.resources = [{**r, **wrong.get(r["resourceType"], {})} for r in ehr.resources]
+    patient = app.get("/api/smart/patient")
+    assert patient.status_code == 200 and patient.json()["name"] is None
+    focus = app.get("/api/smart/focus", params={"pack_id": REFERRAL})
+    assert focus.status_code == 200
+    assert smart_routes.patient_summary({"name": [{"given": "Jane", "family": "Doe"}]}) == {
+        "id": None,
+        "name": "Doe",  # never "J a n e Doe"
+        "gender": None,
+        "birthDate": None,
+    }
+    message = {"resourceType": "Communication", "id": "c1", "payload": ["x"], "topic": "x"}
+    assert smart_routes._summary(message)["title"] == "Message"
+
+
 def test_launch_state_and_session_ids_are_stored_hashed(
     app: TestClient, ehr: FakeEhr, tmp_path: Path
 ) -> None:

@@ -220,6 +220,9 @@ def _pkce(config: dict[str, Any], say: Say) -> None:
     methods = config.get("code_challenge_methods_supported")
     if methods is None:
         say("warn", "PKCE S256", "not advertised: Mendari sends S256, the EHR must accept it")
+    elif not isinstance(methods, list):
+        # A string would answer `in` by substring ("S256x"), anything else not at all.
+        say("fail", "PKCE S256", "code_challenge_methods_supported is not a list")
     elif "S256" in methods:
         say("ok", "PKCE S256", "supported")
     else:
@@ -232,7 +235,8 @@ def _jwks(config: dict[str, Any], http: GuardedHttp, say: Say) -> None:
         say("fail", "JWKS", "the SMART configuration has no jwks_uri: no id_token can be verified")
         return
     try:
-        keys = [k for k in http.get_json(uri).get("keys", []) if isinstance(k, dict)]
+        listed = http.get_json(uri).get("keys", [])
+        keys = [k for k in listed if isinstance(k, dict)] if isinstance(listed, list) else []
     except FhirError as error:
         say("fail", "JWKS", f"{uri}: {error}")
         return
