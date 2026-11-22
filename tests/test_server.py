@@ -627,3 +627,9 @@ def test_a_negative_limit_is_not_no_limit(client: TestClient) -> None:
         assert listed.status_code == 200, path
         assert listed.json() == [], path  # clamped to 0, never "no limit"
     assert len(client.get("/api/audit", params={"limit": 2}).json()) == 2
+
+
+def test_an_offset_past_any_integer_is_clamped_never_a_500(client: TestClient) -> None:
+    """`offset` was clamped below only: 20 digits overflowed the database driver's integer."""
+    huge = client.get("/api/audit", params={"offset": "9" * 20})
+    assert huge.status_code == 200 and huge.json() == []

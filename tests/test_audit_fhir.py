@@ -7,6 +7,7 @@ import ast
 import itertools
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -198,6 +199,24 @@ def test_the_api_serves_a_bundle_and_ndjson(tmp_path: Path, inbox_pack: Pack) ->
         "Provenance",
     ]
     assert client.get("/api/audit/export/fhir", params={"until": "2000-01-01"}).text == ""
+
+
+def test_the_exports_bounds_are_read_as_times_not_text(tmp_path: Path, inbox_pack: Pack) -> None:
+    """`since` with another offset was compared as text with the stored UTC times, so an hour
+    after the decision, written at -05:00, still exported it; `zzz` exported nothing, silently."""
+    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(EMERGENCY))
+    export = client.get("/api/audit/export/fhir").text.splitlines()
+    recorded = datetime.fromisoformat(json.loads(export[0])["recorded"])
+    later = (recorded + timedelta(hours=1)).astimezone(timezone(timedelta(hours=-5)))
+    after = client.get("/api/audit/export/fhir", params={"since": later.isoformat()})
+    assert after.status_code == 200 and after.text == ""
+    before = (recorded - timedelta(hours=1)).astimezone(timezone(timedelta(hours=-5)))
+    assert client.get("/api/audit/export/fhir", params={"since": before.isoformat()}).text
+    assert client.get("/api/audit/export/fhir", params={"since": "2000-01-01"}).text
+    for bad in ("zzz", "2026-13-01", "2026-10-01T00:00:00"):  # the last: a local time
+        refused = client.get("/api/audit/export/fhir", params={"until": bad})
+        assert refused.status_code == 400 and "until is a UTC day" in refused.text
 
 
 def test_the_cli_writes_ndjson(
