@@ -251,6 +251,13 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
         if not sep or not slot.strip() or not variant.strip():
             raise MendariError(f"provider override {item!r} must look like slot=variant")
         pack, scoped, name = slot.strip().rpartition(":")
+        if scoped and (not pack.strip() or not name.strip()):
+            # `:reader=rules` or `ns/name:=rules` names no pack or no slot: it would apply nowhere
+            # and say nothing, so a typo would leave the default variant running unnoticed.
+            raise MendariError(
+                f"provider override {item!r} must look like slot=variant or "
+                "namespace/name:slot=variant"
+            )
         key = f"{current_pack_id(pack.strip())}:{name.strip()}" if scoped else name.strip()
         overrides[key] = variant.strip()
     return overrides
@@ -283,7 +290,7 @@ def daily_limits() -> dict[str, int | None]:
         ("jev", "MENDARI_JEV_DAILY_LIMIT", DEFAULT_JEV_DAILY_LIMIT),
         ("llm", "MENDARI_LLM_DAILY_LIMIT", DEFAULT_LLM_DAILY_LIMIT),
     ):
-        raw = os.environ.get(variable, str(default)).strip()
+        raw = os.environ.get(variable, "").strip() or str(default)  # empty: unset, as elsewhere
         if raw.lower() == "none":
             limits[provider] = None
         elif _is_whole(raw):
