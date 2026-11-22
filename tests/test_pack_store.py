@@ -75,6 +75,27 @@ def test_a_version_is_keyed_by_the_digest_the_loader_hashed_and_never_one_it_is_
     assert [v["digest"] for v in packs.versions(ORG_A)] == [other.digest, stored.digest]
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"docs": b"a file", "docs/notes.md": b"and a file in it"},
+        {"docs/notes.md": b"a file in a directory", "docs": b"and a file of that name"},
+        {"docs/" + "n" * 300 + ".md": b"a name longer than a filesystem takes"},
+    ],
+    ids=["file-then-directory", "directory-then-file", "name-too-long"],
+)
+def test_files_that_cannot_be_written_are_refused_never_a_crash(
+    packs: PackStore, tmp_path: Path, extra: dict[str, bytes]
+) -> None:
+    """A path that cannot be a file on disk is a `StoreError` (a route's 422), as the archive's
+    own extraction refuses one, never an `OSError` (a 500); nothing is stored."""
+    files = {**files_of(renamed(tmp_path)), **extra}
+    with pytest.raises(StoreError, match="cannot be written") as refused:
+        packs.put(ORG_A, files, by="user-1", source="upload")
+    assert refused.value.status == 422
+    assert packs.versions(ORG_A) == []
+
+
 def test_a_stored_version_never_changes(
     packs: PackStore, store: AuditStore, tmp_path: Path
 ) -> None:
