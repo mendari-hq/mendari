@@ -86,8 +86,9 @@ Validation rules (all MUST hold):
   questions and labels; `min_score`/`max_score` conditions reference score questions. Rule
   recommendations and `policy.labels` keys are labels of the primary question.
 - Derived questions satisfy §4.3.
-- An agent declaring `spec_version: "0.1"` MUST NOT use `type`, `levels`, `derive`,
-  `min_probability`, `min_score` or `max_score`.
+- An agent declaring `spec_version: "0.1"` MUST NOT use `type` (other than `choice`), `levels`,
+  `derive`, `min_probability`, `min_score`, `max_score`, `guard`, a question's `display` or
+  `names`, or `card.provenance`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Agents at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - `version` is a semantic version of at most 64 characters.
@@ -120,8 +121,9 @@ Validation rules (all MUST hold):
 - Every file an agent decides or tests with MUST be one its digest hashes (§11). The manifest
   fields naming one are `inputs.schema`, `inputs.fhir`, `policy` (when it names a file),
   `tests`, `evaluation.datasets.<name>`, and, in a provider variant or a composite member,
-  `config`, `library`, `model_file` and `calibration`. Such a path MUST NOT go through a hidden
-  entry or `__pycache__` (as written or once links are resolved) nor be in `evals/` or a
+  `config`, `library`, `model_file`, `calibration` and `mock_file`. Such a path MUST be one a
+  file can have (no NUL character, no name longer than the filesystem allows), and MUST NOT go
+  through a hidden entry or `__pycache__` (as written or once links are resolved) nor be in `evals/` or a
   `DECISION_CARD.md`, and the file it reaches MUST be one the digest hashes, compared as a file
   on disk rather than by spelling: on a case-insensitive filesystem `EVALS/rules.yaml` is
   `evals/rules.yaml`, and is refused. A file read under any other key is held to the same rule
@@ -182,16 +184,7 @@ Its answer carries `value`, the **expected score** Σ p(label) × score(label), 
 act on graded severity without collapsing the distribution to one label (§6). Criteria are taken
 from the levels.
 
-```
-
-**Status line.** Every surface that shows a pack (its Decision Card's first line, the dashboard,
-Try it, the review queue, CDS Hooks discovery and cards, the registry and the Hub) shows a line
-derived from `card.provenance`, never written by the pack: with `synthetic`, "Synthetic example.
-Not clinically reviewed. Not for patient care."; otherwise "Not clinically reviewed." There is
-not yet a way to record a clinician's review of a pack's digest, so no pack can claim one.
-**Display names.** `display` names a question and `names` its labels for the people who read
-them; without them a key reads as words (`medical_assistant`: "Medical assistant"). They change
-no decision.yaml
+```yaml
 severity:
   type: score
   instructions: How severe is the diabetes?
@@ -200,6 +193,17 @@ severity:
     moderate: {score: 2, criterion: Partially controlled.}
     severe: {score: 3, criterion: Uncontrolled or complicated.}
 ```
+
+**Status line.** Every surface that shows an agent (its Decision Card's first line, the
+dashboard, Try it, the review queue, CDS Hooks discovery and cards, the registry and the Hub)
+shows a line derived from `card.provenance`, never written by the agent: with `synthetic`,
+"Synthetic example. Not clinically reviewed. Not for patient care."; otherwise "Not clinically
+reviewed." There is not yet a way to record a clinician's review of an agent's digest, so no
+agent can claim one.
+
+**Display names.** `display` names a question and `names` its labels for the people who read
+them; without them a key reads as words (`medical_assistant`: "Medical assistant"). They change
+no decision.
 
 ### 4.2 Answers
 
@@ -345,8 +349,10 @@ model file, which `mendari train` writes, MAY also count the runs of characters 
 `character_ngrams: [shortest, longest]`, each from 2 to 8, and then names the format
 `mendari.naive_bayes/2`, so that an engine that does not count them refuses the file), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
-calibrated per question), and three
-composites whose inline `members` are other (non-composite) variants: `any_of` (the most
+calibrated per question), `agent` (an external HTTP agent service, sent the slot's questions
+and the input, or only its `state_fields`, whose structured answers are checked against the
+questions; offline, with no service configured, it answers from the agent's `mock_file`), and
+three composites whose inline `members` are other (non-composite) variants: `any_of` (the most
 alarming answer wins; for safety screens), `cascade` (members in order, the first whose
 confidence on every slot question is ≥ `accept_at` is accepted; the last always is) and `vote`
 (a weighted average of the members' distributions). A failed member of a composite is
@@ -426,9 +432,10 @@ agent (its digest): any other is invalid, since it would be served in the bundle
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
 `JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
-`cql`: `MENDARI_CQL_URL`). A variant MUST NOT name the variables a provider reads: a `jev` or
-`llm` variant (or composite member) that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`,
-`local_key_env` or `model_env` is invalid, whatever the agent's `spec_version`. A deployment MAY
+`agent`: `MENDARI_AGENT_URL`, `MENDARI_AGENT_TOKEN`; `cql`: `MENDARI_CQL_URL`). A variant MUST
+NOT name the variables a provider reads: a `jev`, `llm` or `agent` variant (or composite member)
+that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`, `local_key_env`,
+`model_env` or `token_env` is invalid, whatever the agent's `spec_version`. A deployment MAY
 also list the origins its providers may be called at (in the reference runtime,
 `MENDARI_PROVIDER_ALLOWED_ORIGINS`): a call to any other is not made, and the question fails
 (`invalid_endpoint`). A variant MAY pin
