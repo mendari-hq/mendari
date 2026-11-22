@@ -32,7 +32,7 @@ from mendari.providers.base import (
     closed_problems,
     fingerprint,
     read_problems,
-    softmax,
+    scored,
     text_from,
 )
 
@@ -42,7 +42,9 @@ _REGEX_ESCAPE = re.compile(r"\\[A-Za-z]")
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # A weight, score or temperature that is not finite would make every decision's softmax
+    # raise: refused when the file is read, as the criteria and dosing files' numbers are.
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
 class Pattern(_Model):
@@ -203,7 +205,7 @@ class RulesProvider(Provider):
                     if self._matches(regex, text, pattern.negatable):
                         scores[label] += pattern.weight
                         evidence.append(f"{label}:{pattern.name}")
-            probabilities = softmax(scores, self.rules.temperature)
+            probabilities = scored(scores, self.rules.temperature)
             answers[question] = self.make_answer(
                 question, probabilities, tuple(evidence + corrections)
             )

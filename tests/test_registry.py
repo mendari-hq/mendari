@@ -70,6 +70,29 @@ def test_publishing_needs_the_namespaces_token(registry: Registry) -> None:
     assert registry.publish(token="ohr_made_up").status_code == 403
 
 
+def test_a_keys_body_is_read_only_for_the_namespaces_token_and_only_so_much(
+    registry: Registry,
+) -> None:
+    """Registering a key reads its body after the token is checked, as every other write does:
+    without the namespace's token any body is a 403 (it was parsed first, so a body that is not
+    a key was a 422 to anyone), and with it a body past `MAX_SMALL_BYTES` is a 413."""
+    path = "/v1/namespaces/mendari/keys"
+    for headers in ({}, {"authorization": f"Bearer {registry.namespace('other')}"}):
+        for content in (b"{" * 100, json.dumps({"public_pem": "x" * 50}).encode()):
+            answer = registry.client.post(path, content=content, headers=headers)
+            assert answer.status_code == 403, answer.text
+    owner = {"authorization": f"Bearer {registry.token}"}
+    large = json.dumps({"public_pem": "x" * registry_module.MAX_SMALL_BYTES}).encode()
+    assert registry.client.post(path, content=large, headers=owner).status_code == 413
+    not_a_key = registry.client.post(path, json={"public_pem": "x" * 50}, headers=owner)
+    assert not_a_key.status_code == 422 and "not a PEM public key" in not_a_key.text
+    short = registry.client.post(path, json={"public_pem": "x"}, headers=owner)
+    assert short.status_code == 422
+    public = archive.generate_key()[1].decode()
+    added = registry.client.post(path, json={"public_pem": public}, headers=owner)
+    assert added.status_code == 201 and added.json()["key_id"].startswith("ed25519:")
+
+
 def test_an_archive_signed_by_an_unregistered_key_is_refused(registry: Registry) -> None:
     stranger = archive.load_private_key(archive.generate_key()[0])
     refused = registry.publish(key=stranger)

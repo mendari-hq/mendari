@@ -422,6 +422,10 @@ def test_a_port_that_is_not_a_number_is_refused_not_a_crash(
     [
         ("fhirAuthorization", "a-token", "fhirAuthorization must be an object"),
         ("fhirAuthorization", {"access_token": 7}, "access_token must be a string"),
+        # Sent as a header: a line break or a space was read as "network" (the server
+        # "could not be reached"), and the decision abstained, for the client's own fault.
+        ("fhirAuthorization", {"access_token": "tok\r\nx-a: b"}, "not a valid OAuth token"),
+        ("fhirAuthorization", {"access_token": "two words"}, "not a valid OAuth token"),
         ("context", [], "context must be an object"),
         ("prefetch", "x", "prefetch must be an object"),
     ],
@@ -439,3 +443,22 @@ def test_a_malformed_cds_request_is_a_client_error(
     assert response.status_code == 422, response.text
     assert said in response.text
     assert seen == []
+
+
+def test_a_context_id_with_a_trailing_line_break_does_not_fill_a_template() -> None:
+    """`$` matches before a final newline: `ref-p1\\n` passed as a FHIR id and reached the
+    query as `ref-p1%0A`."""
+    template = "Patient/{{context.patientId}}"
+    assert cds_hooks.fill_template(template, {"patientId": "ref-p1"}) == "Patient/ref-p1"
+    with pytest.raises(FhirError, match=r"context\.patientId"):
+        cds_hooks.fill_template(template, {"patientId": "ref-p1\n"})
+
+
+def test_a_value_that_is_not_text_is_off_the_allow_list() -> None:
+    """A configuration may name a number or a list where a URL belongs: refused, never a crash
+    (`.strip()` raised AttributeError)."""
+    http = fhir_client.GuardedHttp(allowed={"https://ehr.test"})
+    for value in (123, None, ["https://ehr.test"]):
+        assert fhir_client.origin_of(value) is None  # type: ignore[arg-type]
+        with pytest.raises(FhirError, match="allow-list"):
+            http.check(value)  # type: ignore[arg-type]

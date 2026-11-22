@@ -184,14 +184,15 @@ def test_postgres_store_survives_server_closed_connections(db_target: str) -> No
     import psycopg
 
     with AuditStore(db_target) as store:
-        store.stats()  # the pool now holds an open, idle connection
+        # The pool now holds an open, idle connection: this store's own, the one ended below
+        # (never every `mendari` connection on the server, which other tests are using).
+        with store._db.session(exclusive=False) as db:
+            own = db.one("SELECT pg_backend_pid() AS pid")
+        assert own is not None
         admin_url = db_target.split("?")[0]
         with psycopg.connect(admin_url, autocommit=True) as admin:
-            killed = admin.execute(
-                "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
-                "WHERE application_name = 'mendari' AND pid <> pg_backend_pid()"
-            ).fetchone()
-        assert killed is not None and killed[0] >= 1
+            killed = admin.execute("SELECT pg_terminate_backend(%s)", (own["pid"],)).fetchone()
+        assert killed is not None and killed[0] is True
         assert store.stats()["decisions"] == 0  # served by a fresh connection, no error
 
 

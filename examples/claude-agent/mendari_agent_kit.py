@@ -235,12 +235,12 @@ def create_app(
     async def decide(request: Request) -> JSONResponse:
         if not _authorized(request.headers.get("authorization")):
             return _error(401, "unauthorized")
-        raw = await request.body()
-        if len(raw) > MAX_BODY_BYTES:
+        raw = await _bounded_body(request)
+        if raw is None:
             return _error(413, "the request is too large")
         try:
             body = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):  # nested past the parser's depth too
             return _error(400, "the request is not JSON")
         try:
             case = Case.parse(body)
@@ -272,6 +272,20 @@ def _authorized(header: str | None, environ: Mapping[str, str] = os.environ) -> 
     return scheme.lower() == "bearer" and hmac.compare_digest(
         given.strip().encode(), token.encode()
     )
+
+
+async def _bounded_body(request: Request) -> bytes | None:
+    """The request's body, or None once it is larger than `MAX_BODY_BYTES`: read as it arrives
+    and never held past the limit (a declared length over it is refused before any is read)."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdecimal() and int(declared) > MAX_BODY_BYTES:
+        return None
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY_BYTES:
+            return None
+    return bytes(body)
 
 
 def _error(status: int, message: str) -> JSONResponse:

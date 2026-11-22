@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -93,12 +94,21 @@ class Ledger:
             and header["primary"] in header["questions"]
         ):
             raise MendariError(f"{where}: its header is not a {FORMAT} header")
+        if not _labelled(header):
+            raise MendariError(f"{where}: its header is not a {FORMAT} header")
         if not all(
-            isinstance(case, dict) and "r" in case and _shaped(case, _CASE) for case in cases
+            isinstance(case, dict)
+            and "r" in case
+            and _shaped(case, _CASE)
+            and _entries(case, header)
+            for case in cases
         ):
             raise MendariError(f"{where}: a case line is not a ledger case")
         if header["cases"].get("n") != len(cases):
             raise MendariError(f"{where}: its header and its cases disagree on how many there are")
+        # A case twice would count twice in every figure, and pair twice in a comparison.
+        if len({case["c"] for case in cases}) != len(cases):
+            raise MendariError(f"{where}: two cases have the same hash")
         return cls(header, cases)
 
 
@@ -112,6 +122,69 @@ _CASE = {"c": str, "o": str, "q": dict, "k": list, "u": list, "a": dict}
 
 def _shaped(line: Mapping[str, Any], shape: Mapping[str, type]) -> bool:
     return all(isinstance(line.get(key), kind) for key, kind in shape.items())
+
+
+def _labelled(header: Mapping[str, Any]) -> bool:
+    """Each question's labels are names, each critical label is one of its question's, and
+    each model is a name: what a case's entries are read against."""
+    questions = header["questions"]
+    return (
+        all(
+            isinstance(labels, list) and all(isinstance(label, str) for label in labels)
+            for labels in questions.values()
+        )
+        and all(
+            isinstance(item, list)
+            and len(item) == 2
+            and item[0] in questions
+            and item[1] in questions[item[0]]
+            for item in header["critical"]
+        )
+        and all(isinstance(model, str) for model in header["models"])
+    )
+
+
+def _number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _index(value: Any, size: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < size
+
+
+def _entries(case: Mapping[str, Any], header: Mapping[str, Any]) -> bool:
+    """A case's figures are of the header's questions, labels, critical labels and models: each
+    `q` entry its six fields (a label or null, a confidence in [0, 1] or null, one probability
+    per label or null, a model's index or null, an error code or null), each of `k` a critical
+    label's index once, `u` its cost and tokens. A reader indexes into all of them."""
+    questions = header["questions"]
+    if case["r"] is not None and not isinstance(case["r"], str):
+        return False
+    for question, entry in case["q"].items():
+        labels = questions.get(question)
+        if labels is None or not isinstance(entry, list) or len(entry) != 6:
+            return False
+        truth, predicted, confidence, probabilities, model, error = entry
+        if any(label is not None and label not in labels for label in (truth, predicted)):
+            return False
+        if confidence is not None and not (_number(confidence) and 0.0 <= confidence <= 1.0):
+            return False
+        if probabilities is not None and not (
+            isinstance(probabilities, list)
+            and len(probabilities) == len(labels)
+            and all(_number(p) for p in probabilities)
+        ):
+            return False
+        if model is not None and not _index(model, len(header["models"])):
+            return False
+        if error is not None and not isinstance(error, str):
+            return False
+    critical = case["k"]
+    if len(set(map(repr, critical))) != len(critical) or not all(
+        _index(i, len(header["critical"])) for i in critical
+    ):
+        return False
+    return len(case["u"]) == 3
 
 
 def _rounded(value: float | None) -> float | None:

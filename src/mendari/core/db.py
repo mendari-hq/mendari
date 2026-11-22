@@ -32,6 +32,10 @@ Migrate = Callable[["Session"], None]
 
 
 class Session(ABC):
+    # Whether this session is an exclusive one (`Backend.session`): the hash chain is appended
+    # to in such a session only (`AuditStore._append_many` refuses any other).
+    exclusive: bool = False
+
     @abstractmethod
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         """Run a statement and return its rows as dicts (empty for statements without rows)."""
@@ -67,8 +71,9 @@ class Backend(ABC):
 
 
 class SqliteSession(Session):
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, exclusive: bool = False):
         self.connection = connection
+        self.exclusive = exclusive
 
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         return [dict(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
@@ -145,7 +150,7 @@ class SqliteBackend(Backend):
             # IMMEDIATE takes the write lock up front so hash-chain appends are serialised.
             connection.execute("BEGIN IMMEDIATE")
             try:
-                yield SqliteSession(connection)
+                yield SqliteSession(connection, exclusive=True)
                 connection.execute("COMMIT")
             except BaseException:
                 if connection.in_transaction:
@@ -221,8 +226,9 @@ def _pg_sql(sql: str, has_params: bool) -> str:
 
 
 class PostgresSession(Session):
-    def __init__(self, connection: Any):
+    def __init__(self, connection: Any, *, exclusive: bool = False):
         self.connection = connection
+        self.exclusive = exclusive
 
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         bound = tuple(params)
@@ -282,8 +288,9 @@ class PostgresBackend(Backend):
                 "prepare_threshold": None,
                 "application_name": "mendari",
             },
-            # Read-only: every transaction is READ ONLY, so the server itself refuses a write.
-            configure=_read_only_connection if read_only else None,
+            # READ COMMITTED whatever the server's default (`_read_committed`); read-only: every
+            # transaction is READ ONLY too, so the server itself refuses a write.
+            configure=_read_only_connection if read_only else _read_committed,
             open=True,
         )
         if read_only:
@@ -295,16 +302,15 @@ class PostgresBackend(Backend):
             serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
             blob="BYTEA",
         )
-        with (
-            psycopg.connect(
-                migrate_url or url, prepare_threshold=None, row_factory=dict_row
-            ) as connection,
-            connection.transaction(),
-        ):
-            connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
-            if ddl.strip():
-                connection.execute(ddl)
-            migrate(PostgresSession(connection))
+        with psycopg.connect(
+            migrate_url or url, prepare_threshold=None, row_factory=dict_row
+        ) as connection:
+            _read_committed(connection)
+            with connection.transaction():
+                connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
+                if ddl.strip():
+                    connection.execute(ddl)
+                migrate(PostgresSession(connection, exclusive=True))
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[Session]:
@@ -313,7 +319,7 @@ class PostgresBackend(Backend):
         with self._pool.connection() as connection, connection.transaction():
             if exclusive:
                 connection.execute("SELECT pg_advisory_xact_lock(%s)", (self.lock_key,))
-            yield PostgresSession(connection)
+            yield PostgresSession(connection, exclusive=exclusive)
 
     def ping(self, sql: str, timeout_s: float) -> None:
         # The pool verifies the connection it hands out (`check_connection`); the statement then
@@ -358,5 +364,18 @@ def connect(
     return SqliteBackend(target, schema=schema, migrate=migrate, read_only=read_only)
 
 
+def _read_committed(connection: Any) -> None:
+    """Every transaction READ COMMITTED, whatever the server's or the role's default
+    (`default_transaction_isolation`). An exclusive session's first statement waits for the
+    advisory lock; under REPEATABLE READ or SERIALIZABLE its snapshot is taken as that statement
+    starts, before the lock is held, so it would read the chain's head as it was before the
+    writer it waited for committed, and chain a second event after the same one (a fork that
+    `verify` breaks at). Under READ COMMITTED each statement after the lock sees that commit."""
+    from psycopg import IsolationLevel
+
+    connection.isolation_level = IsolationLevel.READ_COMMITTED
+
+
 def _read_only_connection(connection: Any) -> None:
+    _read_committed(connection)
     connection.read_only = True

@@ -47,6 +47,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.core.templates import (
     UNKNOWN,
+    expansion_count,
     expansions,
     fill,
     template_problems,
@@ -69,20 +70,20 @@ DISPLAY_LIMIT = 250
 # `[system=<uri>]`, a uri as `code_systems` declares one.
 _SEGMENT = re.compile(
     r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)"
-    r"(?:\[(?:(?P<index>\*|\d+)|system=(?P<system>(?:https?://|urn:)[^\s\[\]]+))\])?$"
+    r"(?:\[(?:(?P<index>\*|\d+)|system=(?P<system>(?:https?://|urn:)[^\s\[\]]+))\])?\Z"
 )
-_RESOURCE_TYPE = re.compile(r"^[A-Z][A-Za-z]{0,63}$")
+_RESOURCE_TYPE = re.compile(r"^[A-Z][A-Za-z]{0,63}\Z")
 # A relative reference inside the record: `Type/id`, optionally of one version.
 _RELATIVE = re.compile(
-    r"^(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})(?:/_history/[A-Za-z0-9.-]{1,64})?$"
+    r"^(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})(?:/_history/[A-Za-z0-9.-]{1,64})?\Z"
 )
-_CODE_SET = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_CODE_SET = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
 # A reference a runtime may read from a FHIR server (LP-23h, `link_target`): `Type/id`,
 # optionally of one version, relative or ending an absolute http(s) URL with no query. A URL's
 # scheme matches in any case, as RFC 3986 has it (and as `_ABSOLUTE` matches it).
 _LINK = re.compile(
     r"^(?:(?i:https?)://[^\s?#]+/)?(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})"
-    r"(?:/_history/[A-Za-z0-9.-]{1,64})?$"
+    r"(?:/_history/[A-Za-z0-9.-]{1,64})?\Z"
 )
 _ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 
@@ -92,6 +93,11 @@ SPEC_03 = "0.3"  # the spec version whose mapping keys this module adds
 # every pack: what it reaches is never followed further.
 MAX_PATHS = 4
 MAX_CODE_SET_CODES = 200
+# The codes a `task.performer` template may expand to (`FhirAdapter.performer_codes`), for every
+# pack: each is a concept of the performer CodeSystem built in memory (`terminology.py`), so a
+# template such as "{a}{b}{c}{d}" over questions of 255 labels (4 billion codes) is refused at
+# load rather than exhausting the server when the terminology is built.
+MAX_PERFORMER_CODES = 10_000
 
 # `medication_period` (spec 0.3 §2.7, LP-23 conflict 39, with the changes the owner, a
 # physician, chose on 2026-11-07 in answer to notes/clinician-review-medication-period.md):
@@ -425,6 +431,15 @@ class MappedInput:
     translated: tuple[str, ...]
 
 
+def _performer_choices(manifest: PackManifest) -> dict[str, list[str]]:
+    """What each placeholder of a `task.performer` template can read (`performer_codes`)."""
+    return {
+        "recommendation": [*manifest.labels(manifest.policy.primary), MANUAL_TRIAGE],
+        "priority": [priority.value for priority in Priority],
+        **{question: [*manifest.labels(question), UNKNOWN] for question in manifest.questions},
+    }
+
+
 class FhirAdapter:
     def __init__(self, pack: Pack, mapping: FhirMapping):
         self.pack = pack
@@ -456,6 +471,15 @@ class FhirAdapter:
             f"{relative}: {problem}"
             for problem in mapping_problems(mapping, pack.manifest, held=held)
         ]
+        performer = mapping.task.performer or "{recommendation}"
+        if not unknown_placeholders(performer, questions):
+            count = expansion_count(performer, _performer_choices(pack.manifest))
+            if count > MAX_PERFORMER_CODES:
+                problems.append(
+                    f"{relative}: task.performer can give {count:,} codes (every combination of "
+                    f"its placeholders' labels); a performer template gives at most "
+                    f"{MAX_PERFORMER_CODES:,}: use fewer placeholders"
+                )
         if problems:
             raise PackValidationError(pack.id, problems)
         return cls(pack, mapping)
@@ -598,12 +622,7 @@ class FhirAdapter:
     def performer_codes(self) -> dict[str, dict[str, str]]:
         """Every code `to_task` can put in `performerType`, each with the placeholder values that
         give it (the first found), for the pack's performer CodeSystem (`terminology.py`)."""
-        manifest = self.pack.manifest
-        choices = {
-            "recommendation": [*manifest.labels(manifest.policy.primary), MANUAL_TRIAGE],
-            "priority": [priority.value for priority in Priority],
-            **{question: [*manifest.labels(question), UNKNOWN] for question in manifest.questions},
-        }
+        choices = _performer_choices(self.pack.manifest)
         codes: dict[str, dict[str, str]] = {}
         for code, values in expansions(self.performer_template, choices):
             codes.setdefault(code, values)

@@ -1333,6 +1333,18 @@ def test_the_digest_copies(page: Page) -> None:
     assert page.evaluate("navigator.clipboard.readText()").startswith("sha256:")
 
 
+def test_a_digest_that_cannot_be_copied_says_what_to_select(page: Page) -> None:
+    """The card names what to select by hand; copyText dropped that message for a generic one."""
+    page.add_init_script(
+        "navigator.clipboard.writeText = () => Promise.reject(new Error('denied'))"
+    )
+    open_pack(page, INBOX, "card")
+    page.get_by_role("button", name="Copy the digest").click()
+    expect(page.locator("#toast")).to_have_text(
+        "Copying isn't available here: select the digest and copy it"
+    )
+
+
 def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
     def remote(route: Route) -> None:
         body = route.fetch().json()
@@ -1765,6 +1777,31 @@ def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_serve
     page.clock.run_for(5000)
     expect(card).to_have_count(0)
     assert [s["final_label"] for s in sent] == ["physician"]
+
+
+def test_g_then_c_goes_to_the_card_without_confirming_a_review(
+    page: Page, live_server: str
+) -> None:
+    """The chord "G C" goes to the Decision Card; "C" alone confirms the focused review. The
+    queue's own handler saw the chord's C too, and confirmed a review on the way out."""
+    decision = decide_inbox(live_server, "Crushing chest pain, sweating, cannot breathe well")
+    resolved: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            resolved.append(r.url) if r.method == "POST" and "/api/review/" in r.url else None
+        ),
+    )
+    open_pack(page, INBOX, "review")
+    card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
+    card.focus()
+    page.keyboard.press("g")
+    page.keyboard.press("c")
+    expect(page.locator('.nav a[data-view="card"]')).to_have_class(re.compile("active"))
+    page.wait_for_timeout(500)
+    assert resolved == []
+    pending = httpx.get(f"{live_server}/api/review", params={"pack_id": INBOX, "limit": 500}).json()
+    assert decision["id"] in [item["id"] for item in pending]
 
 
 def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -> None:

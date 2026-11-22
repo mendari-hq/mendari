@@ -181,3 +181,49 @@ def test_mendari_mcp_runs_as_a_command(tmp_path: Path) -> None:
     with AuditStore(db) as store:
         recorded = store.get(decided["id"])
         assert recorded is not None and recorded["outcome"] == "HUMAN_REVIEW"
+
+
+def test_input_no_parser_should_take_is_a_parse_error_and_the_session_goes_on(
+    server: McpServer,
+) -> None:
+    """Nested past the recursion limit, an integer past Python's digit limit, `NaN`: each was
+    an uncaught exception (RecursionError, ValueError) that ended the stdio session."""
+    lines = [
+        "[" * 100_000,
+        "1" * 5_000,
+        '{"jsonrpc": "2.0", "id": NaN, "method": "ping"}',
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}),
+    ]
+    out = io.StringIO()
+    serve(server, io.StringIO("\n".join(lines) + "\n"), out)
+    answers = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [a.get("error", {}).get("code") for a in answers] == [-32700] * 3 + [None]
+    assert answers[-1] == {"jsonrpc": "2.0", "id": 1, "result": {}}
+
+
+@pytest.mark.parametrize("ident", [{"a": 1}, [1], True])
+def test_an_id_that_is_not_a_string_or_number_is_an_invalid_request(
+    server: McpServer, ident: Any
+) -> None:
+    answer = server.handle({"jsonrpc": "2.0", "id": ident, "method": "ping"})
+    assert answer == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32600, "message": "id must be a string or a number"},
+    }
+
+
+def test_an_unexpected_failure_logs_its_type_never_its_message(
+    server: McpServer, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(message: Any) -> None:
+        raise RuntimeError("patient Jane Example says chest pain")
+
+    monkeypatch.setattr(server, "handle", broken)
+    out = io.StringIO()
+    serve(
+        server, io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 7, "method": "ping"}) + "\n"), out
+    )
+    assert json.loads(out.getvalue())["error"]["code"] == -32603
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err and "chest pain" not in err

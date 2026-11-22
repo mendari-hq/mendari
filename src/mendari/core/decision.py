@@ -586,6 +586,10 @@ class Decision:
                 finally:
                     METER.reset(metering)
                     OVER_QUOTA.reset(over)
+                if any(m.calls > m.priced for m in meter.totals().values()):
+                    # A call sent that no answer priced (it failed, or its answer was refused)
+                    # may still be billed: the cost is unknown, never zero (as in the ledger).
+                    cost = None
                 try:
                     complete_answers(manifest, answers, failures)
                 except OutOfTime:

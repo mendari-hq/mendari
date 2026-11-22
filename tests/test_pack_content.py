@@ -25,15 +25,19 @@ from mendari.evals.harness import load_dataset
 from mendari.evals.pack_tests import load_cases
 from mendari.server import api_docs
 from mendari.server.app import create_app
-from tests.test_pack_isolation import PACKS, TRIAL_DIR, _append, _outsider, _with_schema_property
+from tests.test_pack_isolation import (
+    PACKS,
+    TRIAL_DIR,
+    _append,
+    _outsider,
+    _set_key,
+    _set_line,
+    _with_schema_property,
+)
 
 REFERRAL_DIR = PACKS / "referral-router"
 REFERRAL = "outsider/referral-router"
 INPUT = "{as_of: '2026-01-01', referral: {reason: hi}}"
-
-
-def _lines(path: Path) -> int:
-    return path.read_text(encoding="utf-8").count("\n")
 
 
 def _no_traceback(capsys: pytest.CaptureFixture[str], *argv: str) -> str:
@@ -209,8 +213,9 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     pack failed; a variant's `!!binary` extra and a rule's surrogate name made the pack's detail
     and decisions 500. `mendari validate` said ok. Refused at load, by file and place."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, _append(relative, f"\n{line}\n"), REFERRAL_DIR)
-    problem = f"{relative}: {reason} (line {_lines(pack / relative)}, column {column})"
+    pack = _outsider(outside, _set_line(relative, line), REFERRAL_DIR)
+    at = (pack / relative).read_text(encoding="utf-8").splitlines().index(line) + 1
+    problem = f"{relative}: {reason} (line {at}, column {column})"
     with pytest.raises(PackValidationError) as raised:
         load_pack(pack)
     assert raised.value.problems == [problem]
@@ -220,6 +225,56 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     assert listed.status_code == 200
     assert REFERRAL not in [p["id"] for p in listed.json()] and len(listed.json()) >= 5
     assert problem in client.get("/api/health").json()["invalid"][str(pack.resolve())]
+
+
+@pytest.mark.parametrize(
+    ("relative", "text"),
+    [
+        ("pack.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
+        ("policy.yaml", "primary: next_step\n"),
+        ("fhir/mapping.yaml", "focus: ServiceRequest\n"),
+    ],
+    ids=["manifest", "policy", "mapping"],
+)
+def test_a_key_given_twice_is_refused_at_load_with_both_places(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], relative: str, text: str
+) -> None:
+    """The safe loader kept the last of two equal keys, silently: a manifest could show `risk:`
+    near its top and be decided by a second `risk:` further down, and a reviewer reading the
+    first was misled. Refused, by file and the line and column of both."""
+    key = text.split(":", 1)[0]
+    pack = _outsider(tmp_path, _append(relative, "\n" + text), REFERRAL_DIR)
+    lines = (pack / relative).read_text(encoding="utf-8").splitlines()
+    first, second = [n + 1 for n, line in enumerate(lines) if line.startswith(f"{key}:")]
+    problem = (
+        f"{relative}: a key given twice (line {second}, column 1; first at line {first}, column 1)"
+    )
+    with pytest.raises(PackValidationError) as raised:
+        if relative == "fhir/mapping.yaml":  # an owned pack's mapping is read where it is used
+            from mendari.standards.fhir import FhirAdapter
+
+            FhirAdapter.for_pack(load_pack(pack))
+        else:
+            load_pack(pack)
+    assert raised.value.problems == [problem]
+    assert problem in _no_traceback(capsys, "validate", str(pack))
+
+
+def test_a_merged_key_may_be_set_again_and_equal_keys_in_two_mappings_are_two_keys() -> None:
+    """YAML's merge (`<<`) gives defaults the mapping may override: not a key given twice."""
+    from mendari.core.pack import parse_yaml
+
+    text = b"base: &b {level: 1, note: a}\nother:\n  <<: *b\n  level: 2\nlevel: 3\n"
+    assert parse_yaml(text, "x.yaml", "x") == {
+        "base": {"level": 1, "note": "a"},
+        "other": {"level": 2, "note": "a"},
+        "level": 3,
+    }
+    with pytest.raises(PackValidationError) as raised:
+        parse_yaml(b"a:\n  b: 1\n  c: 2\n  b: 3\n", "x.yaml", "x")
+    assert raised.value.problems == [
+        "x.yaml: a key given twice (line 4, column 3; first at line 2, column 3)"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -469,7 +524,7 @@ def test_the_benchmark_must_be_in_evals(tmp_path: Path, capsys: pytest.CaptureFi
     a JSONDecodeError traceback and the pack's detail answered 500."""
     pack = _outsider(
         tmp_path,
-        _append("pack.yaml", "\nevaluation: {benchmark: DECISION_CARD.md}\n"),
+        _set_key("pack.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
         REFERRAL_DIR,
     )
     problem = "evaluation.benchmark: path 'DECISION_CARD.md' is not in evals/"
@@ -502,10 +557,28 @@ def _huge_figure(name: str) -> Callable[[Path], None]:
     return edit
 
 
+def _pack_block(value: Any) -> Callable[[Path], None]:
+    """The shipped benchmark with its `pack` block replaced (`...`: removed). The card reads it
+    for the version it was measured on, after the shape check that left it out."""
+
+    def edit(pack: Path) -> None:
+        path = pack / "evals" / "benchmark.json"
+        data = json.loads(path.read_text())
+        if value is ...:
+            del data["pack"]
+        else:
+            data["pack"] = value
+        path.write_text(json.dumps(data))
+
+    return edit
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
         (_write_eval("benchmark.json", "{"), "benchmark"),
+        (_pack_block(...), "benchmark"),
+        (_pack_block(5), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -518,6 +591,8 @@ def _huge_figure(name: str) -> Callable[[Path], None]:
     ],
     ids=[
         "benchmark-not-json",
+        "benchmark-without-pack",
+        "benchmark-pack-not-object",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

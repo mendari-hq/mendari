@@ -344,3 +344,10 @@ def test_each_local_condition_code_says_what_its_record_says() -> None:
     ]
     assert len(codings) >= 150
     assert [c for c in codings if c.get("display") != display[c["code"]]] == []
+
+
+def test_a_code_with_a_trailing_line_break_is_not_read_as_icd10() -> None:
+    """`$` matches before a final newline: `E11.9\\n` was coded as ICD-10-CM, a code no system
+    holds, in a Condition the record builds."""
+    assert record_fhir.condition_system("E11.9") == record_fhir.ICD10
+    assert record_fhir.condition_system("E11.9\n") != record_fhir.ICD10

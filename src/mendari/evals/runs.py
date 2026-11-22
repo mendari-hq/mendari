@@ -527,17 +527,6 @@ def disclosures(raw: bytes, *, where: str = "disclosures") -> Disclosures:
     return Disclosures(found.date, dict(sorted(found.statements.items())))
 
 
-def load_disclosures(path: str | Path) -> Disclosures:
-    where = Path(path)
-    try:
-        raw = where.read_bytes()
-    except OSError as error:
-        raise MendariError(
-            f"{where.name}: cannot read the disclosures ({error.strerror})"
-        ) from None
-    return disclosures(raw, where=where.name)
-
-
 # --------------------------------------------------------------------------------------------
 # The declarations
 # --------------------------------------------------------------------------------------------

@@ -420,14 +420,15 @@ export function watchEdges(el) {
   edges();
 }
 
-// Copy text to clipboard with consistent feedback (used across card, audit, try, admin).
-export async function copyText(text, label = "Copied") {
+// Copy text to clipboard with consistent feedback (used across card, audit, try, admin);
+// `failed` says what to select by hand when the browser refuses.
+export async function copyText(text, label = "Copied", failed = "Copying isn't available here: select the text and copy it") {
   try {
     await navigator.clipboard.writeText(text);
     toast(label);
     return true;
   } catch {
-    toastError("Copying isn't available here: select the text and copy it");
+    toastError(failed);
     return false;
   }
 }

@@ -646,6 +646,7 @@ def test_append_many_writes_the_chain_n_appends_write(
 class _Counted(Session):
     def __init__(self, inner: Session, seen: list[str]):
         self.inner, self.seen = inner, seen
+        self.exclusive = inner.exclusive  # the chain is appended to in an exclusive one only
 
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         self.seen.append(sql)

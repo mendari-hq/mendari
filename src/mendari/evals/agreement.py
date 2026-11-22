@@ -42,27 +42,33 @@ def agreement(
     # report would call two variants equal when one never ran.
     for leaf in (*first.leaves(), *second.leaves()):
         leaf.preflight()
-    differences: list[dict[str, str]] = []
+    differences: list[dict[str, Any]] = []
     counted = 0
     for case_id, inputs in cases:
         counted += 1
-        a, b = first.answer(inputs).answers, second.answer(inputs).answers
-        for question in sorted(a):
-            if a[question].label != b[question].label:
-                differences.append(
-                    {
-                        "case": case_id,
-                        "question": question,
-                        left: a[question].label,
-                        right: b[question].label,
-                    }
-                )
+        ran = {left: first.answer(inputs), right: second.answer(inputs)}
+        asked = {q for output in ran.values() for q in (*output.answers, *output.failures)}
+        for question in sorted(asked):
+            labels = {
+                name: output.answers[question].label if question in output.answers else None
+                for name, output in ran.items()
+            }
+            # A question one variant left unanswered, or answered with a member down (a
+            # composite's partial failure), is not agreement: a port is shown faithful only
+            # where both variants ran whole and gave the same label.
+            failed = [name for name, output in ran.items() if question in output.failures]
+            if labels[left] != labels[right] or failed:
+                difference: dict[str, Any] = {"case": case_id, "question": question, **labels}
+                if failed:
+                    difference["failed"] = failed
+                differences.append(difference)
     return {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
         "slot": slot,
         "variants": [left, right],
         "cases": counted,
         "questions": sorted(first.questions),
-        "agree": not differences,
+        # No case compared is no evidence: agreement is never claimed on none.
+        "agree": counted > 0 and not differences,
         "differences": differences,
     }

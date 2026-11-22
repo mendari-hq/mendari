@@ -70,6 +70,37 @@ def _append(relative: str, text: str) -> Callable[[Path], None]:
     return edit
 
 
+def _set_line(relative: str, line: str) -> Callable[[Path], None]:
+    """`line` (a top-level `key: value`) in place of the line that sets that key, or appended
+    when none does: a YAML file of a pack may not give a key twice."""
+    key = line.split(":", 1)[0]
+
+    def edit(pack: Path) -> None:
+        path = pack / relative
+        lines = path.read_text().splitlines()
+        held = [n for n, text in enumerate(lines) if text.split(":", 1)[0] == key]
+        if held:
+            lines[held[0]] = line
+        else:
+            lines.append(line)
+        path.write_text("\n".join(lines) + "\n")
+
+    return edit
+
+
+def _set_key(relative: str, key: str, value: Any) -> Callable[[Path], None]:
+    """A YAML file of a pack with its top-level `key` set to `value` (loaded, set and written
+    again): a YAML file of a pack may not give a key twice, so an override is never appended."""
+
+    def edit(pack: Path) -> None:
+        path = pack / relative
+        data = yaml.safe_load(path.read_text())
+        data[key] = value
+        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+
+    return edit
+
+
 def laughs(levels: int, leaf: str = "{a: 1}") -> str:
     """A YAML key whose value is 10**levels leaves, in a few hundred bytes of anchors."""
     lines = [f"x_junk:\n  l0: &l0 [{', '.join([leaf] * 10)}]"]

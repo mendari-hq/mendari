@@ -75,6 +75,43 @@ def test_within_one_edit(a: str, b: str, expected: bool) -> None:
     assert within_one_edit(a, b) is expected
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("weight: 6\n", "weight: .inf\n"),
+        ("default_score: 2.0", "default_score: .nan"),
+        ("temperature: 1.0", "temperature: .inf"),
+    ],
+)
+def test_a_rules_file_with_a_number_that_is_not_finite_is_refused_when_built(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    # Each one made every decision that ran the rules raise (the softmax refuses a score or a
+    # temperature that is not finite), so the decision had no outcome and no audit record.
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    rules = root / "logic" / "red_flags.yaml"
+    text = rules.read_text()
+    assert old in text
+    rules.write_text(text.replace(old, new, 1))
+    pack = load_pack(root)
+    assert any("red_flags.yaml" in warning for warning in pack.warnings)
+    with pytest.raises(PackValidationError, match=r"red_flags\.yaml"):
+        build_provider(pack, "safety_screen", "rules")
+
+
+def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> None:
+    # Each weight is finite, so the file loads; two of them on one label add up to infinity,
+    # which the softmax refuses. It is the provider's failure (the decision goes to a person).
+    from mendari.errors import ProviderError
+    from mendari.providers.base import scored
+
+    with pytest.raises(ProviderError) as raised:
+        scored({"yes": 1e308 + 1e308, "no": 0.0}, 1.0)
+    assert raised.value.code == "invalid_response"
+    assert scored({"yes": 0.0, "no": 0.0}, 1.0) == {"yes": 0.5, "no": 0.5}
+
+
 # -- naive Bayes -------------------------------------------------------------------------------
 
 

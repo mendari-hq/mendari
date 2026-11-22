@@ -386,7 +386,10 @@ def _oauth(body: bytes) -> str:
 
 def origin_of(url: str) -> str | None:
     """`scheme://host[:port]` as the allow-list compares origins (the host in lower case, the
-    port as written), or None for anything else, a port that is not a number included."""
+    port as written), or None for anything else, a port that is not a number included (and a
+    value that is not text, such as a server's configuration may name)."""
+    if not isinstance(url, str):
+        return None
     try:
         return _origin(url)
     except ValueError:

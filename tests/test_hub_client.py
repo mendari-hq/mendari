@@ -590,3 +590,58 @@ def test_a_saved_http_registry_is_refused_with_what_to_do(
     assert main(["search", "inbox"]) == 1
     error = capsys.readouterr().err
     assert "reached over https" in error and "mendari login --registry https://" in error
+
+
+def test_an_archive_larger_than_any_archive_is_refused_as_it_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registry that streams more than an archive may hold is cut off past the cap, before
+    the whole body is in memory (verify would refuse it, but only after holding all of it)."""
+    monkeypatch.setattr(archive, "MAX_ARCHIVE_BYTES", 1024)
+    sent: list[int] = []
+
+    def chunks() -> Iterator[bytes]:
+        for _ in range(64):  # 64 KB in all, sent 1 KB at a time
+            sent.append(1)
+            yield b"\0" * 1024
+
+    def endless(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=chunks())
+
+    with (
+        RegistryClient("https://registry.example", transport=httpx.MockTransport(endless)) as hub,
+        pytest.raises(HubError, match="larger than 1024 bytes"),
+    ):
+        hub.archive("site-a", "inbox", "1.0.0")
+    assert len(sent) < 64  # it stopped reading
+
+    def small(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * 1024)
+
+    with RegistryClient("https://registry.example", transport=httpx.MockTransport(small)) as hub:
+        assert hub.archive("site-a", "inbox", "1.0.0") == b"x" * 1024
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (500, b'["not", "an", "object"]', "the registry answered HTTP 500"),
+        (404, b"<html>gone</html>", "the registry answered HTTP 404"),
+        (200, b"<html>sign in to the wifi</html>", "answered with something that is not JSON"),
+    ],
+)
+def test_an_answer_that_is_not_the_registrys_json_is_a_clear_error(
+    status: int, body: bytes, expected: str
+) -> None:
+    """An error body that is JSON but not an object, and a page that is not JSON (a captive
+    portal, a proxy), are a `HubError` that says so, never an AttributeError or a JSON error."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, content=body)
+
+    transport = httpx.MockTransport(answer)
+    with RegistryClient("https://registry.example", transport=transport) as hub:
+        with pytest.raises(HubError, match=expected):
+            hub.search(q="inbox")
+        with pytest.raises(HubError, match=expected):
+            hub.archive("site-a", "inbox", "1.0.0") if status >= 400 else hub.health()

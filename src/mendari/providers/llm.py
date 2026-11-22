@@ -408,7 +408,7 @@ def parse_response(
         cleaned = inner.rsplit("```", 1)[0].strip()
     try:
         parsed = json.loads(cleaned)
-    except ValueError:
+    except (ValueError, RecursionError):  # not JSON, over 4,300 digits, or nested too deep
         raise invalid("content is not JSON") from None
     if not isinstance(parsed, dict) or set(parsed) != set(questions):
         raise invalid("answers do not match the questions asked")

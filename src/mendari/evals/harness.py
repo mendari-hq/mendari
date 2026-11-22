@@ -200,9 +200,3 @@ def build_evaluation(
         for provider_type, metered in res.usage.items():
             usage.setdefault(provider_type, Metered()).add(metered)
     return Evaluation(report, ledger, dict(sorted(usage.items())))
-
-
-def build_report(
-    decision: Decision, dataset: Dataset, results: list[DecisionResult]
-) -> dict[str, Any]:
-    return build_evaluation(decision, dataset, results).report

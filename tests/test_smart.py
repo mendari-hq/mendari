@@ -446,6 +446,40 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
     assert wrong.status_code == 422
 
 
+def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: FakeEhr) -> None:
+    """`$` matches before a final newline: `ref-sr1\\n` passed, was read as `ref-sr1` and went on
+    into the decision's context with its newline."""
+    full_launch(app, ehr)
+    focus = "ServiceRequest/ref-sr1\n"
+    refused = app.post("/api/smart/decide", json={"pack_id": REFERRAL, "focus": focus})
+    assert refused.status_code == 422
+
+
+def test_an_ehr_answer_of_the_wrong_shape_shows_less_never_a_500(
+    app: TestClient, ehr: FakeEhr
+) -> None:
+    """Items that are not objects where FHIR has objects raised AttributeError (a 500)."""
+    full_launch(app, ehr)
+    wrong: dict[str, dict[str, Any]] = {
+        "Patient": {"name": ["Jane"]},
+        "ServiceRequest": {"code": ["x"], "reasonCode": ["x"], "subject": "Patient/ref-p1"},
+    }
+    # New objects, never the fixture's own, which other tests read after this one.
+    ehr.resources = [{**r, **wrong.get(r["resourceType"], {})} for r in ehr.resources]
+    patient = app.get("/api/smart/patient")
+    assert patient.status_code == 200 and patient.json()["name"] is None
+    focus = app.get("/api/smart/focus", params={"pack_id": REFERRAL})
+    assert focus.status_code == 200
+    assert smart_routes.patient_summary({"name": [{"given": "Jane", "family": "Doe"}]}) == {
+        "id": None,
+        "name": "Doe",  # never "J a n e Doe"
+        "gender": None,
+        "birthDate": None,
+    }
+    message = {"resourceType": "Communication", "id": "c1", "payload": ["x"], "topic": "x"}
+    assert smart_routes._summary(message)["title"] == "Message"
+
+
 def test_launch_state_and_session_ids_are_stored_hashed(
     app: TestClient, ehr: FakeEhr, tmp_path: Path
 ) -> None:
@@ -1018,3 +1052,62 @@ def test_a_configuration_whose_issuer_is_not_a_string_is_refused() -> None:
         with pytest.raises(AuthError, match="another issuer"):
             oidc.discover("https://idp.test", Http(issuer))  # type: ignore[arg-type]
     assert oidc.discover("https://idp.test", Http("https://idp.test/"))["issuer"]  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"jwks_uri": 123},  # raised AttributeError (a 500) in the allow-list check
+        {"jwks_uri": ["https://ehr.example.org/keys"]},
+        {"code_challenge_methods_supported": 5},  # raised TypeError
+        {"code_challenge_methods_supported": "S256-in-a-string"},  # passed as if it listed S256
+    ],
+)
+def test_a_smart_configuration_of_the_wrong_shape_is_refused(
+    app: TestClient, ehr: FakeEhr, change: dict[str, Any]
+) -> None:
+    ehr.config_overrides = change
+    response = launch(app)
+    assert response.status_code == 400, response.text
+
+
+def test_a_jwk_bound_to_another_algorithm_does_not_verify_an_id_token() -> None:
+    """RFC 7517 4.4: a key whose `alg` names one algorithm is used with that one only."""
+    from mendari.errors import AuthError
+    from mendari.standards import oidc
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
+    claims = {"iss": ISS, "aud": CLIENT, "exp": int(time.time()) + 300, "nonce": "n"}
+    token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "k1"})
+
+    def verify(alg: str) -> dict[str, Any]:
+        keys = {"keys": [{**jwk, "kid": "k1", "alg": alg}]}
+        transport = httpx.MockTransport(lambda _: httpx.Response(200, json=keys))
+        with GuardedHttp(allowed={EHR}, transport=transport) as http:
+            return oidc.verify_id_token(
+                token, issuer=ISS, audience=CLIENT, nonce="n", jwks_uri=f"{EHR}/keys", http=http
+            )
+
+    assert verify("RS256")["nonce"] == "n"
+    with pytest.raises(AuthError, match="no key"):
+        verify("RS512")
+
+
+def test_granted_scopes_that_are_not_text_are_the_scopes_asked_for() -> None:
+    """A token response's `scope` is text (RFC 6749 5.1); a list was kept in the session."""
+    from mendari.standards import smart
+
+    body = {"access_token": "a-1", "token_type": "Bearer", "patient": "p1", "scope": ["x"]}
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    pending = {
+        "iss": ISS,
+        "token_endpoint": f"{EHR}/auth/token",
+        "verifier": "v",
+        "redirect_uri": f"{APP}/smart/callback",
+        "scopes": "launch patient/*.rs",
+    }
+    settings = smart.SmartSettings(CLIENT, None, "launch patient/*.rs", None)
+    with GuardedHttp(allowed={EHR}, transport=transport) as http:
+        session = smart.complete(pending, "code", settings=settings, http=http)
+    assert session["scope"] == "launch patient/*.rs"

@@ -112,6 +112,27 @@ def test_a_cost_is_unknown_unless_every_call_was_priced(
     assert row["cost_usd"] is None
 
 
+@pytest.mark.parametrize("status", [500, 200])
+def test_a_decision_whose_sent_call_failed_has_an_unknown_cost_never_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """The call was sent (and may be billed) but no answer priced it: the decision's own
+    `cost_usd`, like the ledger, is unknown. It said 0.0, as if the call were free."""
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")
+    # A server error, or an answer that is not the contract (refused after it was sent).
+    install(monkeypatch, lambda request: httpx.Response(status, json=completion("not json")))
+    pack = pack_with_llm(tmp_path)
+    result = Decision(pack, providers={"router": "llm", "safety_screen": "llm"})(
+        message("Refill please.")
+    )
+    assert result.errors and result.usage["llm"].calls == 1
+    assert result.usage["llm"].priced == 0
+    assert result.cost_usd is None
+    # Local providers alone still cost nothing, known.
+    assert Decision(pack)(message("Refill please.")).cost_usd == 0.0
+
+
 def test_a_call_the_budget_or_a_quota_refused_is_not_counted(
     db_target: str, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -12,6 +12,7 @@ import {
   publisherEvaluations,
   type PublisherEvaluations,
   type Recalled,
+  RegistryUnavailable,
   regressionWords,
   reviewWords,
   RISK_WORDS,
@@ -19,6 +20,8 @@ import {
   siteEvidence,
   type SiteEvidence,
 } from "@/lib/registry";
+
+import { RegistryUnavailablePage } from "@/app/registry-unavailable";
 
 import { CopyCommand } from "./copy-command";
 import { PublishedEvaluationsSection } from "./evaluations";
@@ -45,7 +48,12 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
     pack(namespace, name),
     siteEvidence(namespace, name),
   ]);
-  if (packResult.status === "rejected") throw packResult.reason;
+  if (packResult.status === "rejected") {
+    if (packResult.reason instanceof RegistryUnavailable) {
+      return <RegistryUnavailablePage retry={`/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`} />;
+    }
+    throw packResult.reason;
+  }
   const detail = packResult.value;
   if (!detail) notFound();
   const recalled = detail.recalled ?? [];

@@ -33,7 +33,7 @@ ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 SNOMED = "http://snomed.info/sct"
 LOINC = "http://loinc.org"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
-_ICD10_CODE = re.compile(r"^[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$")
+_ICD10_CODE = re.compile(r"^[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?\Z")
 _CLINICAL_STATUS = {"active", "recurrence", "relapse", "inactive", "remission", "resolved"}
 _MEDICATION_STATUS = {
     "active",

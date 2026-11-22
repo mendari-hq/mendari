@@ -35,7 +35,7 @@ from mendari.core import audit as audit_module
 from mendari.core import evalsets as evalsets_module
 from mendari.core.audit import EVALSET_RETIRED, EVALSET_TARGET, KEYS_CHAIN, RETIRED
 from mendari.core.evalset_keys import EvalsetKeys
-from mendari.core.evalsets import EXPORT_FORMAT, SEALED_COLUMNS, EvalsetStore
+from mendari.core.evalsets import EXPORT_FORMAT, SEALED_COLUMNS, EvalsetStore, StaleIndex
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.errors import MendariError
 from mendari.standards import audit_fhir, fhir_structure
@@ -688,7 +688,10 @@ def test_the_reindex_is_atomic_and_never_mixes_key_ids(
     renewed = EvalsetStore(store, renewed_keys)
     renewed.add_cases(sets[0], [hand_written("A case under the new index key")])
     assert index_key_ids(store) == {key_id(first), key_id(second)}  # until the reindex
-    assert renewed.hidden_matches(probe) == []  # the old cases are under the old index key
+    # The old cases are under the old index key, where the new one finds nothing: until the
+    # reindex the lookup refuses (the upload check fails closed), never an empty answer.
+    with pytest.raises(StaleIndex, match=rf"under index key\(s\) {key_id(first)}, not"):
+        renewed.hidden_matches(probe)
     checked = renewed.check()
     assert not checked["ready"]
     assert {f["key"] for f in checked["failed"]} == {"index"}
@@ -791,6 +794,8 @@ def test_an_index_key_a_reindex_replaced_indexes_nothing_more(
         renewed.reindex()
         assert renewed.check()["ready"]
         assert len(renewed.hidden_matches(earlier["input"])) == 1  # indexed under the new key
+        with pytest.raises(StaleIndex, match="replaced by a reindex"):  # finds nothing now
+            stale.hidden_matches(earlier["input"])
         state = everything(store)
         replaced = (
             f"evaluation-set index key {key_id(previous)} was replaced by a reindex: deploy the "

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import secrets
 import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.pack import load_pack
+from mendari.core.phi import key_id
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.hub import archive
@@ -249,6 +251,33 @@ def test_an_upload_containing_a_hidden_set_case_is_quarantined(
     listed = world.client.get("/api/store/packs", headers=world.as_(ORG_A, "pack_author"))
     assert set_id not in listed.text and "held for the operator's review" in listed.text
     assert world.db.verify()["ok"]
+
+
+def test_an_upload_is_refused_while_the_hidden_case_index_is_under_another_index_key(
+    world: Store,
+) -> None:
+    """A new index key deployed before `mendari evalset reindex` (the runbook's window): the
+    hidden cases are indexed under the old key, where a lookup under the new one finds nothing.
+    The upload check fails closed (503, nothing stored, no key named) instead of storing a pack
+    holding a hidden case as a draft; once the index is rebuilt, the same upload is held."""
+    old = EvalsetKeys(world.keys.key, secrets.token_bytes(32))  # the index key before this one
+    hidden = EvalsetStore(world.db, old)
+    made = hidden.create_set(
+        ORG_B, resolve_pack("mendari/patient-inbox-router"), "set", created_by="op"
+    )
+    hidden.add_cases(made["set"], [hand_written(HIDDEN_BODY)])
+    root = pack_dir(world.tmp, case={"message": {"body": HIDDEN_BODY, "channel": "portal"}})
+    refused = upload(world, root)
+    assert refused.status_code == 503, refused.text
+    assert "rebuilds the hidden-case index" in refused.json()["detail"]
+    assert key_id(old.index_key) not in refused.text
+    assert key_id(world.keys.index_key) not in refused.text
+    with world.db._db.session(exclusive=False) as db:
+        assert db.one("SELECT COUNT(*) AS n FROM store_versions")["n"] == 0
+    EvalsetStore(world.db, world.keys).reindex()
+    with world.db._db.session(exclusive=False) as db:
+        case = db.one("SELECT id FROM evalset_cases WHERE set_id = ?", (made["set"],))
+    _held_answer_says_nothing_more(world, upload(world, root), made["set"], str(case["id"]))
 
 
 def test_a_reworded_hidden_case_is_held_under_norm_v1(world: Store) -> None:

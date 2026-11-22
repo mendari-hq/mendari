@@ -75,7 +75,7 @@ STORE_RESERVED = ("mendari", "openhealth", "community")
 class StoreError(MendariError):
     """A store request refused: `status` is the HTTP status a route answers with (404 no such
     version of this organization, 409 a conflict with what is stored, 413 over a limit, 429
-    over a quota, 422 otherwise)."""
+    over a quota, 503 a check that cannot run now, 422 otherwise)."""
 
     def __init__(self, message: str, status: int = 422):
         self.status = status
@@ -119,14 +119,21 @@ def _check_path(path: str) -> None:
 
 
 def _write(files: Mapping[str, bytes], root: Path) -> None:
+    """Write a pack's files under `root`. A path that cannot be a file there (a file that is
+    also another's directory, a name longer than the filesystem takes) is a `StoreError` naming
+    it, as `archive.extract` refuses one, never an `OSError` a route answers with a 500."""
     root.mkdir(parents=True, exist_ok=True)
     base = root.resolve()
     for path, data in files.items():
         target = (base / path).resolve()
         if target == base or not target.is_relative_to(base):
             raise StoreError(f"{path}: not a path inside a pack")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as error:
+            shown = path if path.isprintable() else ascii(path)
+            raise StoreError(f"{shown}: cannot be written ({type(error).__name__})") from None
 
 
 def _load(root: Path) -> Pack:
@@ -266,11 +273,21 @@ def _dataset_reports(pack: Pack) -> list[dict[str, Any]]:
 
 def _hidden_matches(cases: list[Any], hidden: Any) -> list[dict[str, str]]:
     """The hidden cases, of every organization's sets, equal to one of `cases` under either
-    canonical form (`EvalsetStore.hidden_matches`), by set and case id."""
+    canonical form (`EvalsetStore.hidden_matches`), by set and case id. An index this check
+    cannot trust (`StaleIndex`: under another index key until `mendari evalset reindex`) refuses
+    the upload (503), naming no key: it never passes a case it could not look up."""
+    from mendari.core.evalsets import StaleIndex
+
     found: dict[tuple[str, str], dict[str, str]] = {}
     for value in cases:
         try:
             matched = hidden.hidden_matches(value)
+        except StaleIndex:
+            raise StoreError(
+                "the hidden-set check cannot run until the operator rebuilds the hidden-case "
+                "index: nothing was stored; try again later",
+                503,
+            ) from None
         except MendariError:
             continue  # not JSON a case can hold: the validation names it
         for match in matched:

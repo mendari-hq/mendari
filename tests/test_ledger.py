@@ -184,6 +184,49 @@ def test_a_ledger_with_a_case_of_another_shape_or_count_is_refused(runs: Any) ->
         Ledger.loads("\n".join(lines[:-1]).encode())
 
 
+def test_a_ledger_with_a_case_twice_is_refused(runs: Any) -> None:
+    """Before, a ledger holding one case's line twice loaded, and `mendari compare` paired the
+    case twice: every count and its McNemar p-value were of a doubled case."""
+    run, _, _ = runs
+    lines = run.ledger.dumps().decode().splitlines()
+    header = json.loads(lines[0])
+    header["cases"]["n"] = len(lines)  # the count agrees: only the hash repeats
+    doubled = [canonical(header), *lines[1:], lines[1]]
+    with pytest.raises(MendariError, match="two cases have the same hash"):
+        Ledger.loads("\n".join(doubled).encode())
+
+
+def _with_entry(run: Any, change: Any) -> bytes:
+    """The run's ledger with its first answered entry changed by `change(entry)`."""
+    lines = run.ledger.dumps().decode().splitlines()
+    for number, line in enumerate(lines[1:], start=1):
+        case = json.loads(line)
+        if case["q"]:
+            change(next(iter(case["q"].values())))
+            lines[number] = canonical(case)
+            break
+    return "\n".join(lines).encode()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda entry: entry.pop(),  # five fields, not six
+        lambda entry: entry.__setitem__(1, "not one of its labels"),
+        lambda entry: entry.__setitem__(2, 1.5),  # a confidence over 1
+        lambda entry: entry.__setitem__(3, [0.5]),  # one probability for several labels
+        lambda entry: entry.__setitem__(4, 99),  # a model the header does not list
+    ],
+)
+def test_a_case_entry_a_reader_would_index_wrongly_is_refused(runs: Any, change: Any) -> None:
+    """Before, these loaded and failed later: an IndexError or a ValueError in the comparison
+    (a strict zip over the probabilities), or a confidence outside every calibration bin that
+    still counted in its n."""
+    run, _, _ = runs
+    with pytest.raises(MendariError, match="a case line is not a ledger case"):
+        Ledger.loads(_with_entry(run, change))
+
+
 def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
     assert normalize(V1)["run"]["id"] == V1["id"]
     assert leaderboard.row(V1)["report_id"] == V1["id"]

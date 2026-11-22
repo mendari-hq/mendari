@@ -7,7 +7,8 @@ one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
 
 Inside a decision, every attempt waits at most what remains of its deadline
 (`providers/deadline.py`): its timeout is clamped to it, no retry is waited past it, and a
-response read in chunks stops at it (`timeout`).
+response read in chunks stops at it (`timeout`). Inside a decision or not, an attempt ends at its
+own timeout as a whole, never only at each read's.
 
 A deployment may also list the origins its remote providers may be called at
 (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, comma-separated, read as `MENDARI_FHIR_ALLOWED_SERVERS` is).
@@ -170,7 +171,7 @@ def post_json(
     try:
         for attempt in range(retries + 1):
             try:
-                return _post_once(session, endpoint, body, headers, timeout, max_bytes)
+                return _post_once(session, endpoint, body, headers, timeout_s, max_bytes)
             except _Retryable as retry:
                 delay = retry.delay if retry.delay is not None else BACKOFF_S * 2**attempt
                 left = deadline.remaining()
@@ -181,7 +182,6 @@ def post_json(
                 ):
                     raise retry.error from None
                 _sleep(delay)
-                timeout = httpx.Timeout(deadline.clamp(timeout_s))
         raise AssertionError("unreachable")  # pragma: no cover
     finally:
         if own:
@@ -227,9 +227,15 @@ def _post_once(
     endpoint: str,
     body: Mapping[str, Any],
     headers: Mapping[str, str],
-    timeout: httpx.Timeout,
+    timeout_s: float,
     max_bytes: int,
 ) -> Any:
+    """One attempt, which ends at its timeout (or what remains of the deadline) as a whole:
+    httpx's timeout bounds each read, so an answer arriving a little inside each wait would
+    otherwise hold the caller as long as the server likes."""
+    allowed = deadline.clamp(timeout_s)
+    timeout = httpx.Timeout(allowed)
+    stop_at = time.monotonic() + allowed
     try:
         with session.stream(
             "POST", endpoint, json=body, headers=dict(headers), timeout=timeout
@@ -247,6 +253,8 @@ def _post_once(
             chunks, size = [], 0
             for chunk in response.iter_bytes():
                 deadline.refuse_if_past()  # a slow answer stops at the decision's deadline
+                if time.monotonic() > stop_at:  # and at its own timeout
+                    raise ProviderError("timeout", "the answer took longer than its timeout")
                 size += len(chunk)
                 if size > max_bytes:
                     raise ProviderError("invalid_response", "response too large")

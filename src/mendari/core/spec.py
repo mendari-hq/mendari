@@ -404,14 +404,20 @@ class Question(_Strict):
         if not isinstance(data, dict):
             return data
         data = dict(data)
+        # A `criteria` or `levels` that is not a mapping is left as written, for the field's own
+        # check to name ("Input should be a valid dictionary"), never a raw error.
         if data.get("type") == "boolean":
             given = data.get("criteria") or {}
+            if not isinstance(given, dict):
+                return data
             extra = set(given) - {"yes", "no"}
             if extra:
                 raise ValueError(f"a boolean question only has labels yes/no, not {sorted(extra)}")
             data["criteria"] = {"yes": given.get("yes", "Yes."), "no": given.get("no", "No.")}
         elif data.get("type") == "score" and "criteria" not in data:
             levels = data.get("levels") or {}
+            if not isinstance(levels, dict):
+                return data
             data["criteria"] = {
                 label: level.get("criterion", "") if isinstance(level, dict) else ""
                 for label, level in levels.items()

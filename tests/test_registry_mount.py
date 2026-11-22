@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +28,7 @@ from mendari import AuditStore
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.hub import archive
-from mendari.hub.registry import HSTS, REGISTRY_HEADERS, RegistryStore, _rate_class
+from mendari.hub.registry import HSTS, REGISTRY_HEADERS, REVIEWER, RegistryStore, _rate_class
 from mendari.server import registry_routes
 from mendari.server.app import create_app
 from mendari.server.auth import person_id
@@ -631,6 +633,50 @@ def test_an_organization_makes_a_bounded_number_of_tokens_and_keys(
         headers=admin,
     )
     assert third.status_code == 409 and "2 publisher keys" in third.json()["detail"]
+
+
+def test_requests_at_once_never_pass_an_organizations_caps(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The caps on keys, working tokens, tokens a day and sites were counted in a read before
+    the write: requests at once all read a count under the cap, and all wrote. Each write is
+    slowed here so the reads land together; the count is made in the write's own exclusive
+    session, so no cap is passed however many come at once."""
+    monkeypatch.setattr(registry_routes, "MAX_KEYS", 2)
+    monkeypatch.setattr(registry_routes, "MAX_LIVE_TOKENS", 2)
+    monkeypatch.setattr(registry_routes, "MAX_SITES", 2)
+    admin = world.person()
+    world.claim()
+    backend = world.registry._db
+    plain = backend.session
+
+    @contextmanager
+    def slowed(*, exclusive: bool) -> Iterator[Any]:
+        with plain(exclusive=exclusive) as db:
+            if exclusive:
+                time.sleep(0.05)
+            yield db
+
+    monkeypatch.setattr(backend, "session", slowed)
+
+    def at_once(path: str, bodies: list[dict[str, Any]]) -> list[int]:
+        with ThreadPoolExecutor(len(bodies)) as pool:
+            sent = [pool.submit(world.http.post, path, json=b, headers=admin) for b in bodies]
+            return sorted(future.result().status_code for future in sent)
+
+    keys = [{"public_pem": archive.generate_key()[1].decode()} for _ in range(6)]
+    assert at_once("/api/registry/namespaces/acme/keys", keys) == [201] * 2 + [409] * 4
+    assert len(world.registry.namespace("acme", REVIEWER)["keys"]) == 2
+    tokens = [{"namespace": "acme", "name": f"ci{n}"} for n in range(6)]
+    assert at_once("/api/registry/tokens", tokens) == [201] * 2 + [409] * 4
+    assert len(world.registry.tokens(org="acme")) == 2
+    monkeypatch.setattr(registry_routes, "MAX_LIVE_TOKENS", 100)
+    monkeypatch.setattr(registry_routes, "MAX_TOKENS_A_DAY", 4)
+    assert at_once("/api/registry/tokens", tokens) == [201] * 2 + [429] * 4
+    assert len(world.registry.tokens(org="acme")) == 4
+    sites = [{"name": f"Site {n}"} for n in range(6)]
+    assert at_once("/api/registry/sites", sites) == [201] * 2 + [409] * 4
+    assert len(world.registry.sites(org="acme")) == 2
 
 
 def test_a_namespaces_tokens_share_one_write_budget(

@@ -288,6 +288,44 @@ _TOKEN_FIELDS = (
 )
 
 
+def _check_token_caps(
+    db: Session,
+    namespace: str,
+    org: str,
+    *,
+    now: str,
+    live_most: int | None,
+    day_most: int | None,
+) -> None:
+    """`mint_token`'s caps, read inside its exclusive session (`HubError` 409 or 429)."""
+    moment = datetime.fromisoformat(now)
+    rows = db.all(
+        "SELECT namespace, created_at, expires_at, revoked_at FROM hub_publisher_tokens "
+        "WHERE org = ?",
+        (org,),
+    )
+    if live_most is not None:
+        live = [
+            row
+            for row in rows
+            if row["namespace"] == namespace
+            and row["revoked_at"] is None
+            and datetime.fromisoformat(str(row["expires_at"])) > moment
+        ]
+        if len(live) >= live_most:
+            raise HubError(
+                f"a namespace has {live_most} working tokens at most: revoke one first", 409
+            )
+    if day_most is not None:
+        today = [
+            row
+            for row in rows
+            if moment - datetime.fromisoformat(str(row["created_at"])) < timedelta(days=1)
+        ]
+        if len(today) >= day_most:
+            raise HubError(f"an organization mints {day_most} tokens a day at most", 429)
+
+
 def _label(value: str, what: str, most: int) -> str:
     """One printable line of at most `most` characters (a token's name, owner or organization,
     and why an operator acted), or a `HubError` naming `what`."""
@@ -768,11 +806,27 @@ class RegistryStore(
                 f"SELECT * FROM hub_claims{where} ORDER BY created_at, namespace", tuple(params)
             )
 
-    def add_key(self, namespace: str, public_pem: str, *, by: str = "operator") -> str:
+    def add_key(
+        self,
+        namespace: str,
+        public_pem: str,
+        *,
+        by: str = "operator",
+        most: int | None = None,
+    ) -> str:
+        """Register a publisher key for `namespace`; with `most`, refused (409) once the
+        namespace has that many keys, counted in the write's own exclusive session so two
+        requests at once cannot both pass the count."""
         key = archive.load_public_key(public_pem.encode())
         key_id = archive.key_id(key)
         self.namespace(namespace, REVIEWER)
         with self._db.session(exclusive=True) as db:
+            if most is not None:
+                held = db.one(
+                    "SELECT COUNT(*) AS n FROM hub_keys WHERE namespace = ?", (namespace,)
+                )
+                if held is not None and int(held["n"]) >= most:
+                    raise HubError(f"a namespace has {most} publisher keys at most", 409)
             owner = db.one("SELECT namespace FROM hub_keys WHERE key_id = ?", (key_id,))
             if owner and owner["namespace"] != namespace:
                 raise HubError("that key belongs to another namespace", 409)
@@ -780,6 +834,16 @@ class RegistryStore(
                 "SELECT key_id FROM hub_site_keys WHERE key_id = ?", (key_id,)
             ):  # one key never signs in two roles (LP-22d)
                 raise HubError("that key is a site's key: a publisher key signs packs only", 409)
+            if (
+                owner is not None
+                and db.columns("hub_key_revocations")
+                and db.one("SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (key_id,))
+            ):  # registered again, it would still sign nothing: said so, never a quiet 201
+                raise HubError(
+                    "that key was revoked and signs nothing again: make a new key "
+                    "(`mendari keys generate`) and register it",
+                    409,
+                )
             if owner is None:
                 db.all(
                     "INSERT INTO hub_keys (key_id, namespace, public_pem, created_at) "
@@ -834,11 +898,18 @@ class RegistryStore(
         days: int,
         by: str,
         reason: str | None = None,
+        live_most: int | None = None,
+        day_most: int | None = None,
     ) -> dict[str, Any]:
         """A publisher token for `namespace` that belongs to `owner` in `org`, lives `days`
         (1 to `MAX_TOKEN_DAYS`) and can be revoked (LP-19b). The answer holds the token, the one
         time it is shown: the store keeps its SHA-256. Chained `token.issued` with the
-        organization, the owner and the expiry (and why, when an operator minted it)."""
+        organization, the owner and the expiry (and why, when an operator minted it).
+
+        With `live_most`, refused (409) when `org` has that many working tokens (not revoked,
+        not expired) for `namespace`; with `day_most`, refused (429) when `org` minted that
+        many in the last 24 hours. Both are counted in the write's own exclusive session, so
+        requests at once cannot all pass the count."""
         self.namespace(namespace, REVIEWER)
         if isinstance(days, bool) or not 1 <= days <= MAX_TOKEN_DAYS:
             raise HubError(f"a token lives 1 to {MAX_TOKEN_DAYS} days")
@@ -853,6 +924,10 @@ class RegistryStore(
             timespec="seconds"
         )
         with self._db.session(exclusive=True) as db:
+            if live_most is not None or day_most is not None:
+                _check_token_caps(
+                    db, namespace, org, now=created, live_most=live_most, day_most=day_most
+                )
             db.all(
                 "INSERT INTO hub_publisher_tokens (id, token_sha256, namespace, org, owner, "
                 "name, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -991,6 +1066,10 @@ class RegistryStore(
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
         own = _signing_key()  # a key that is set and is not one fails here, before any work
+        try:  # so does a setting that is not one: the operator's to fix, never the pack's
+            checks = regression.enabled()
+        except MendariError as error:
+            raise HubError(f"the registry cannot check versions: {error}", 503) from None
         self._refuse_existing(namespace, name, version)  # before any work on the archive
         verified = archive.verify(data, keys)
         if (verified.manifest.get("id"), verified.manifest.get("version")) != (
@@ -1008,7 +1087,7 @@ class RegistryStore(
                 # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
                 _refuse_invalid(pack)
                 metadata = describe(pack, verified)
-                if regression.enabled():  # in a child process of its own (`hub/regression.py`)
+                if checks:  # in a child process of its own (`hub/regression.py`)
                     with regression.slot():  # at most a few at once; else 503, try again
                         metadata["regression"] = regression.check(
                             Path(scratch) / "pack", self._previous_check(namespace, name, version)
@@ -2048,6 +2127,15 @@ class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
 
+# The key route's body, described by reference as FastAPI would (`_registry_app` adds the schema).
+_KEY_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KeyRequest"}}},
+    }
+}
+
+
 # The registry answers JSON and archives, never a page: its CSP loads nothing and no one frames
 # it. With the engine's own (`server/app.py` `SECURITY_HEADERS`).
 REGISTRY_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
@@ -2164,6 +2252,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     )
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan, **pages)
     limiter = Limiter(store, registry_limit_settings())
+    described = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        """FastAPI's description, with the key route's body (read by the route itself, so
+        FastAPI does not list its model) among the schemas it references."""
+        schema = described()
+        schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+        schemas.setdefault("KeyRequest", KeyRequest.model_json_schema())
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
     def publisher_namespace(token: str, *, used: bool = False) -> str | None:
         """The namespace an owned token publishes to, while it is neither revoked nor expired;
@@ -2269,10 +2368,15 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "packs": len(store.latest()),
         }
 
-    @app.post("/v1/namespaces/{namespace}/keys", status_code=201)
-    def add_key(request: Request, namespace: str, body: KeyRequest) -> dict[str, str]:
-        require_publisher(request, namespace)
-        key_id = store.add_key(namespace, body.public_pem, by=actor(request))
+    @app.post("/v1/namespaces/{namespace}/keys", status_code=201, openapi_extra=_KEY_REQUEST_BODY)
+    async def add_key(request: Request, namespace: str) -> dict[str, str]:
+        """Register a publisher key: its body read only once the token is the namespace's, and
+        at most `MAX_SMALL_BYTES` (a body FastAPI parses is read before the route runs)."""
+        await run_in_threadpool(require_publisher, request, namespace)
+        body = await small_body(request, KeyRequest)
+        key_id = await run_in_threadpool(
+            store.add_key, namespace, body.public_pem, by=actor(request)
+        )
         return {"namespace": namespace, "key_id": key_id}
 
     @app.get("/v1/namespaces/{namespace}")

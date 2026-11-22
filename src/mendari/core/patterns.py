@@ -157,13 +157,23 @@ def _options() -> Any:
     return options
 
 
+# The most copies of characters, classes and `.`s (`re2_syntax.size`) a pattern may make for RE2.
+# Past it, a pattern never fits `RE2_MAX_MEMORY` (`a{1000000}` does not), and it is refused
+# before it is written out for RE2: a count over RE2's 1,000 is spelt out as counts one after
+# another, so `(?:(?:a{99999}){99999}){99999}`, a few characters, would be written out as
+# gigabytes.
+MAX_RE2_SIZE = 1_000_000
+
+
 @functools.lru_cache(maxsize=4_096)
 def _re2(text: str, flags: int) -> _Re2Pattern:
     """`text` compiled for RE2, once: raises `re.error`, `Unsupported` or `re2.error`."""
     import re2
 
-    from mendari.core.re2_syntax import translate
+    from mendari.core.re2_syntax import Unsupported, size, translate
 
+    if size(text, flags) > MAX_RE2_SIZE:
+        raise Unsupported(_too_large())
     return _Re2Pattern(re2.compile(translate(text, flags), _options()))
 
 
@@ -224,11 +234,15 @@ def _re2_problem(message: str) -> str:
             "allows (e.g. (?:a{1,50}){1,50}): use smaller counts"
         )
     if "too large" in message:
-        return (
-            f"too large for RE2 ({_RE2_ENGINE}) once compiled: use smaller counts and classes, or "
-            "split it into several rules"
-        )
+        return _too_large()
     return f"RE2 ({_RE2_ENGINE}) cannot compile it"
+
+
+def _too_large() -> str:
+    return (
+        f"too large for RE2 ({_RE2_ENGINE}) once compiled: use smaller counts and classes, or "
+        "split it into several rules"
+    )
 
 
 def rules_patterns(rules: Any) -> Iterator[tuple[str, str]]:

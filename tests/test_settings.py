@@ -342,3 +342,22 @@ def test_a_slot_runs_without_a_model_only_where_its_pack_offers_one() -> None:
     assert slots_without_model(inbox, {"safety_screen": "rules_and_llm", "router": "llm"}) == []
     referral = packs["mendari/referral-router"]
     assert "checklist" not in slots_without_model(referral, {})  # computed in code: no model to add
+
+
+@pytest.mark.parametrize("item", [":reader=rules", "mendari/portal-message-agent:=rules"])
+def test_a_scoped_override_with_no_pack_or_no_slot_is_refused(item: str) -> None:
+    """It applied nowhere and was never reported as skipped: a typo left the default running."""
+    with pytest.raises(MendariError, match="namespace/name:slot=variant"):
+        parse_providers([item])
+
+
+def test_an_empty_daily_limit_is_unset_not_a_startup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every other setting reads an empty value as unset; these two refused to start."""
+    monkeypatch.setenv("MENDARI_JEV_DAILY_LIMIT", "")
+    monkeypatch.setenv("MENDARI_LLM_DAILY_LIMIT", "  ")
+    assert mendari_settings.daily_limits() == {
+        "jev": mendari_settings.DEFAULT_JEV_DAILY_LIMIT,
+        "llm": mendari_settings.DEFAULT_LLM_DAILY_LIMIT,
+    }

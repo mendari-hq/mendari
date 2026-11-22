@@ -19,7 +19,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
 from html import escape
 from pathlib import Path
@@ -2372,7 +2372,7 @@ def create_app(
             outcome=outcome,
             review_status=review_status,
             limit=min(max(limit, 0), 500),
-            offset=max(offset, 0),
+            offset=min(max(offset, 0), MAX_OFFSET),
         )
         return store.withhold_inputs(listed)
 
@@ -2446,7 +2446,9 @@ def create_app(
         until: str | None = None,
     ) -> StreamingResponse:
         """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
-        streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
+        streamed in chain order; `since` / `until` bound the event time: a UTC day (`2026-09-01`)
+        or an instant with its offset, else a `400`."""
+        since, until = export_bound("since", since), export_bound("until", until)
         log_event(request, "export.audit")  # its filters are query values: not logged
         org = scope_of(auth.acting(request))  # resolved before the stream starts
 
@@ -4183,6 +4185,9 @@ OPERATORS_CHAIN = (
     "your organization's own events are at /api/audit/administrative"
 )
 _HASH = re.compile(r"[0-9a-f]{64}")
+# The furthest a list's `offset` reaches: past any trail, and within a 64-bit integer, which a
+# larger value overflowed in the database driver (a 500).
+MAX_OFFSET = 2**31
 
 
 def administrative_cursor(text: str | None) -> tuple[str, str] | None:
@@ -4237,6 +4242,31 @@ def instant(name: str, value: str | None) -> str | None:
     except (ValueError, OverflowError):  # not an instant, or past datetime's range in UTC
         pass
     raise HTTPException(400, f"{name} is an instant with its offset: 2026-10-01T00:00:00Z")
+
+
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def export_bound(name: str, value: str | None) -> str | None:
+    """An audit export's `since` / `until`: a UTC day (`2026-09-01`), or an instant with its
+    offset, as stored (`instant`); else a `400`. The store compares them as text with its UTC
+    times, so an unchecked value with another offset cut the window hours off, and one that
+    is no time at all exported nothing, both silently."""
+    if value is None:
+        return None
+    if _DAY.fullmatch(value):
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            pass
+        else:
+            return value
+    try:
+        return instant(name, value)
+    except HTTPException:
+        raise HTTPException(
+            400, f"{name} is a UTC day (2026-10-01) or an instant with its offset"
+        ) from None
 
 
 def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:

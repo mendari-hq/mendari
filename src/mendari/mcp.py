@@ -136,6 +136,9 @@ class McpServer:
             )
         if "id" not in message:  # a notification (notifications/initialized, cancelled, ...)
             return None
+        if isinstance(ident, bool) or not isinstance(ident, str | int | float | None):
+            # JSON-RPC 2.0: an id is a string, a number or null, never repeated back otherwise.
+            return _error(None, INVALID_REQUEST, "id must be a string or a number")
         params = message.get("params")
         params = {} if params is None else params
         if not isinstance(params, dict):
@@ -286,20 +289,29 @@ def _error(ident: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": ident, "error": {"code": code, "message": message}}
 
 
+def _not_json(constant: str) -> Any:
+    """`NaN`, `Infinity` and `-Infinity`, which Python's parser takes and JSON does not."""
+    raise ValueError(f"{constant} is not JSON")
+
+
 def serve(server: McpServer, reader: IO[str], writer: IO[str]) -> None:
     """MCP's stdio transport: one JSON message per line in, one per line out, until EOF."""
     for line in reader:
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
+            message = json.loads(line, parse_constant=_not_json)
+        except (ValueError, RecursionError):
+            # Not JSON, and also JSON no answer could repeat: nested past the interpreter's
+            # recursion limit, an integer past its digit limit, `NaN` or `Infinity`. Each is
+            # this one message's parse error, never the end of the session.
             answer: dict[str, Any] | None = _error(None, PARSE_ERROR, "not JSON")
         else:
             try:
                 answer = server.handle(message)
             except Exception as error:  # never let one message end the session
-                print(f"mendari mcp: {type(error).__name__}: {error}", file=sys.stderr)
+                # The type only: an exception's message may quote the input (case text).
+                print(f"mendari mcp: internal error ({type(error).__name__})", file=sys.stderr)
                 ident = message.get("id") if isinstance(message, dict) else None
                 answer = _error(ident, -32603, "internal error")
         if answer is not None:

@@ -48,3 +48,13 @@ def test_the_path_fits_a_phone(page: Page) -> None:
     path = page.get_by_role("region", name="Adoption path")
     expect(path).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth") <= 390
+
+
+def test_the_shadow_pilot_action_lands_on_the_command_center(page: Page) -> None:
+    """The step links to "#cc-title", which is no view: followed as a route, it rendered the
+    Overview again from the top, so "Start a shadow pilot" went nowhere. It scrolls to the
+    section and focuses its heading."""
+    open_pack(page, INBOX, "overview")
+    page.get_by_role("link", name="Start a shadow pilot").click()
+    expect(page.locator("#cc-title")).to_be_focused()
+    expect(page.locator("#cc-title")).to_be_in_viewport()

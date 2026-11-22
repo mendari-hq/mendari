@@ -463,7 +463,13 @@ def _weekly(rows: Sequence[Row], now: datetime, weeks: int) -> list[dict[str, An
 
 def _psi(bins: Sequence[Row], rows: Sequence[Row]) -> float | None:
     """Population stability index of recent confidences against the benchmark's, over tenths."""
-    values = [float(r["confidence"]) for r in rows if r["confidence"] is not None]
+    # A stored confidence that is not a share is no evidence of drift: a NaN has no tenth, and a
+    # negative one would index a tenth from the end of the list.
+    values = [
+        float(r["confidence"])
+        for r in rows
+        if r["confidence"] is not None and 0.0 <= float(r["confidence"]) <= 1.0
+    ]
     usable = [b for b in bins if isinstance(b, Mapping) and _number(b.get("low")) is not None]
     total = sum(_whole(b.get("n")) for b in usable)
     if not values or not total:

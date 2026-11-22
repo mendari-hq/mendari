@@ -245,6 +245,98 @@ def test_files_on_another_server_are_not_downloaded(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("manifest", "said"),
+    [
+        ({"output": [{"type": "Patient"}]}, "not a file with a url"),  # KeyError
+        ({"output": ["https://ehr.example.org/files/Patient.ndjson"]}, "not a file with a url"),
+        ({"output": {"type": "Patient"}}, "not a file with a url"),  # iterated its keys
+        ({"output": [{"type": "Patient", "url": 7}]}, "not a file with a url"),
+    ],
+)
+def test_a_manifest_of_the_wrong_shape_fails_before_any_download(
+    tmp_path: Path, manifest: dict[str, Any], said: str
+) -> None:
+    fake = FakeBulk({}, pending=0)
+    fake.manifest_extra = manifest
+    with pytest.raises(BulkError, match=said):
+        run(fake, tmp_path)
+    assert not [r for r in fake.requests if "/files/" in str(r.url)]
+
+
+@pytest.mark.parametrize("body", [b"[1, 2]", b"[" * 100_000])
+def test_a_manifest_that_is_not_a_json_object_fails(tmp_path: Path, body: bytes) -> None:
+    """A list raised AttributeError; nesting past the parser's depth raised RecursionError."""
+
+    class Odd(FakeBulk):
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            if str(request.url) == STATUS:
+                return httpx.Response(200, content=body)
+            return super().__call__(request)
+
+    with pytest.raises(BulkError, match="manifest"):
+        run(Odd({}, pending=0), tmp_path)
+
+
+def test_an_export_with_more_files_than_the_cap_downloads_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest listing a million files (each up to the per-file cap) had no bound at all."""
+    monkeypatch.setattr(bulk, "MAX_FILES", 2)
+    fake = FakeBulk({}, pending=0)
+    fake.manifest_extra = {
+        "output": [
+            {"type": "Patient", "url": f"https://ehr.example.org/files/Patient{n}.ndjson"}
+            for n in range(3)
+        ]
+    }
+    with pytest.raises(BulkError, match="lists 3 files; at most 2"):
+        run(fake, tmp_path)
+    assert not [r for r in fake.requests if "/files/" in str(r.url)]
+
+
+def test_an_export_larger_than_the_cap_together_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each file under the per-file cap, the files together over the export's."""
+    rows = [{"resourceType": "Patient", "id": f"p{n}"} for n in range(3)]
+    size = len("\n".join(json.dumps(r) for r in rows) + "\n")
+    monkeypatch.setattr(bulk, "MAX_EXPORT_BYTES", size + 10)
+    fake = FakeBulk({"Patient": rows, "Group": rows}, pending=0)
+    with pytest.raises(BulkError, match=r"larger than .* together"):
+        run(fake, tmp_path)
+
+
+def test_lines_are_counted_a_part_at_a_time(tmp_path: Path) -> None:
+    path = tmp_path / "x.ndjson"
+    for text, lines in (("", 0), ("a", 1), ("a\n", 1), ("a\n\n  \nb", 2), ("\n a \n", 1)):
+        path.write_text(text)
+        assert bulk._lines(path) == lines
+    path.write_bytes(b"x" * (3 * 1024 * 1024) + b"\n" + b" " * (1024 * 1024) + b"\ny")
+    assert bulk._lines(path) == 2
+
+
+@pytest.mark.parametrize("access", ["two words", "line\r\nbreak", 7])
+def test_a_backend_services_token_that_cannot_be_a_header_is_refused(access: Any) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("smart-configuration"):
+            return httpx.Response(
+                200, json={"token_endpoint": "https://ehr.example.org/auth/token"}
+            )
+        return httpx.Response(200, json={"access_token": access, "token_type": "bearer"})
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode()
+    with http_for(handler) as http, pytest.raises(BulkError, match="not a valid OAuth token"):
+        bulk.backend_token(
+            FHIR, client_id="site-app", private_key=pem, key_id="k1", scope="s", http=http
+        )
+
+
+@pytest.mark.parametrize(
     ("value", "seconds"), [("7", 7.0), ("0", 1.0), ("99999", 120.0), (None, None), ("soon", None)]
 )
 def test_retry_after_is_kept_sensible(value: str | None, seconds: float | None) -> None:

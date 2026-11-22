@@ -76,7 +76,7 @@ views.review = async (main) => {
   // Keyboard triage: J/K step through visible cards, C confirms the focused card's recommendation,
   // Z cancels a held override. Ignored when typing or inside a modal dialog.
   keyHandler = (event) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return; // taken (a G chord)
     if (document.querySelector("dialog[open], .drawer-open")) return;
     const key = event.key.toLowerCase();
     if (!["j", "k", "c", "z"].includes(key)) return;

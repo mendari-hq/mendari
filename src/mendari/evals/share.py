@@ -124,11 +124,6 @@ def composite_members(provider: SharedProvider) -> list[str] | None:
     return [part.split(":", 1)[0] for part in provider.model.split(joiner)]
 
 
-def failed_members(error: str) -> list[str]:
-    """The composite members an error key names (none for a plain error code)."""
-    return [part.split(":", 1)[0] for part in error.split(", ") if ":" in part]
-
-
 class SharedThresholds(_Closed):
     auto: Rate
     review: Rate

@@ -22,6 +22,7 @@ review, not in the EHR, so the export supplies the inputs and the site supplies 
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -40,6 +41,10 @@ from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import GuardedHttp
 
 MAX_FILE_BYTES = 1024 * 1024 * 1024  # one NDJSON file
+MAX_FILES = 1000  # the files one export's manifest may list
+MAX_EXPORT_BYTES = 16 * MAX_FILE_BYTES  # one export's files together
+MAX_TOKEN_CHARS = 16 * 1024
+_TOKEN = re.compile(r"[\x21-\x7e]+")  # RFC 6749 VSCHAR without the space: safe in a header
 MAX_WAIT_SECONDS = 3600
 _ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 # What became of the request to delete a finished export (`export`'s `delete`): the server
@@ -95,9 +100,12 @@ def backend_token(
         token = http.post_form(endpoint, form, {"accept": "application/json"})
     except FhirError as error:
         raise BulkError(f"the backend-services token request failed: {error}") from None
-    if not token.get("access_token"):
+    access = token.get("access_token")
+    if not access:
         raise BulkError("the token response has no access_token")
-    return str(token["access_token"])
+    if not isinstance(access, str) or len(access) > MAX_TOKEN_CHARS or not _TOKEN.fullmatch(access):
+        raise BulkError("the token response's access_token is not a valid OAuth token")
+    return access
 
 
 def export(
@@ -131,25 +139,61 @@ def export(
         raise BulkError(f"the server did not start an export (HTTP {status}){_diagnostics(body)}")
     status_url = answer["content-location"]
     manifest = _wait(status_url, http=http, auth=auth, sleep=sleep, limit=max_wait)
+    outputs = _outputs(manifest)
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = defaultdict(int)
-    for output in manifest.get("output", []):
+    left = MAX_EXPORT_BYTES
+    for output in outputs:
         kind = str(output.get("type", "Resource"))
-        if not kind.isalnum():
+        if not (kind.isascii() and kind.isalnum()):
             raise BulkError(f"the manifest names an odd resource type {kind!r}")
         counts[kind] += 1
         path = out / f"{kind}.{counts[kind]:03d}.ndjson"
         needs_token = manifest.get("requiresAccessToken", False)
-        http.download(
-            output["url"], path, headers=auth if needs_token else {}, max_bytes=MAX_FILE_BYTES
-        )
-        with path.open("rb") as fh:
-            lines = sum(1 for line in fh if line.strip())
+        most = min(MAX_FILE_BYTES, left)
+        try:
+            left -= http.download(
+                output["url"], path, headers=auth if needs_token else {}, max_bytes=most
+            )
+        except FhirError as error:
+            if error.reason == "too_large" and most < MAX_FILE_BYTES:
+                raise BulkError(
+                    f"the export's files are larger than {MAX_EXPORT_BYTES} bytes together"
+                ) from None
+            raise
+        lines = _lines(path)
         if isinstance(output.get("count"), int) and output["count"] != lines:
             raise BulkError(f"{path.name}: the manifest says {output['count']} lines, got {lines}")
         output["file"], output["count"] = path.name, lines
     manifest["delete"] = _delete(status_url, http=http, auth=auth)
     return manifest
+
+
+def _outputs(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The manifest's `output`: a list of at most `MAX_FILES` objects, each with a `url`, or a
+    `BulkError` before any file is downloaded."""
+    outputs = manifest.get("output", [])
+    if not isinstance(outputs, list) or not all(
+        isinstance(output, dict) and isinstance(output.get("url"), str) for output in outputs
+    ):
+        raise BulkError("the export's manifest has an output that is not a file with a url")
+    if len(outputs) > MAX_FILES:
+        raise BulkError(f"the export's manifest lists {len(outputs)} files; at most {MAX_FILES}")
+    return outputs
+
+
+def _lines(path: Path) -> int:
+    """The NDJSON lines in a file that hold anything but whitespace, read a part at a time (a
+    file of one long line is never read whole)."""
+    lines, blank = 0, True
+    with path.open("rb") as fh:
+        while part := fh.read(1024 * 1024):
+            for index, piece in enumerate(part.split(b"\n")):
+                if index:  # a line ended before this piece
+                    lines += not blank
+                    blank = True
+                blank = blank and not piece.strip()
+    return lines + (not blank)
 
 
 def _delete(status_url: str, *, http: GuardedHttp, auth: Mapping[str, str]) -> str:
@@ -182,8 +226,10 @@ def _wait(
         if status == 200:
             try:
                 manifest: dict[str, Any] = json.loads(body)
-            except ValueError:
+            except (ValueError, RecursionError):
                 raise BulkError("the export's manifest is not JSON") from None
+            if not isinstance(manifest, dict):
+                raise BulkError("the export's manifest is not a JSON object")
             if manifest.get("error"):
                 raise BulkError(f"the export reported {len(manifest['error'])} error file(s)")
             return manifest

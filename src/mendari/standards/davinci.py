@@ -15,6 +15,7 @@ Coverage itself was read.
 from __future__ import annotations
 
 import copy
+import re
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import date
@@ -29,16 +30,25 @@ from mendari.standards.fhir import display
 
 CRD = "http://hl7.org/fhir/us/davinci-crd"
 COVERAGE_INFORMATION = f"{CRD}/StructureDefinition/ext-coverage-information"
+_FHIR_ID = re.compile(r"[A-Za-z0-9\-.]{1,64}")
 
 
 def coverage_reference(prefetch: Mapping[str, Any]) -> dict[str, str] | None:
-    """The patient's Coverage from the `coverage` prefetch (a resource or a search Bundle)."""
+    """The patient's Coverage from the `coverage` prefetch: the resource, or a search Bundle's
+    first Coverage (whatever entries come before it: an `outcome` warning, an included
+    resource); None without one that has a FHIR id."""
     found = prefetch.get("coverage")
+    candidates = [found]
     if isinstance(found, Mapping) and found.get("resourceType") == "Bundle":
-        entries = [e.get("resource") for e in found.get("entry") or [] if isinstance(e, Mapping)]
-        found = next((r for r in entries if isinstance(r, Mapping)), None)
-    if isinstance(found, Mapping) and found.get("resourceType") == "Coverage" and found.get("id"):
-        return {"reference": f"Coverage/{found['id']}"}
+        entries = found.get("entry")
+        if isinstance(entries, list):
+            candidates = [e.get("resource") for e in entries if isinstance(e, Mapping)]
+    for resource in candidates:
+        if not (isinstance(resource, Mapping) and resource.get("resourceType") == "Coverage"):
+            continue
+        resource_id = resource.get("id")
+        if isinstance(resource_id, str) and _FHIR_ID.fullmatch(resource_id):
+            return {"reference": f"Coverage/{resource_id}"}
     return None
 
 

@@ -434,10 +434,28 @@ def error_page(message: str, status: int) -> HTMLResponse:
 # -- the patient's context ----------------------------------------------------------------------
 
 
+def _object(value: Any) -> Mapping[str, Any]:
+    """`value` when the EHR sent a JSON object there, else an empty one."""
+    return value if isinstance(value, Mapping) else {}
+
+
+def _objects(value: Any) -> list[Mapping[str, Any]]:
+    """The JSON objects of a list the EHR sent; anything else (not a list, an item that is not an
+    object) is left out. The EHR's answers are read as they come: a shape FHIR does not allow
+    shows less, never fails the request."""
+    return [item for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+
+def _string(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def patient_summary(patient: Mapping[str, Any]) -> dict[str, Any]:
-    names = patient.get("name") or [{}]
-    name = names[0] if isinstance(names, list) and names else {}
-    display = name.get("text") or " ".join([*name.get("given", []), name.get("family", "")]).strip()
+    name = next(iter(_objects(patient.get("name"))), {})
+    given = name.get("given")
+    parts = [part for part in given if isinstance(part, str)] if isinstance(given, list) else []
+    family = _string(name.get("family")) or ""
+    display = _string(name.get("text")) or " ".join([*parts, family]).strip()
     return {
         "id": patient.get("id"),
         "name": display or None,
@@ -459,7 +477,7 @@ def focus_items(
     if kind == "Patient":
         return [_summary(fhir.read(f"Patient/{patient_id}"))]
     bundle = fhir.read(f"{kind}?patient={quote(patient_id, safe='')}&_count={MAX_FOCUS}")
-    resources = [e.get("resource") or {} for e in bundle.get("entry") or []]
+    resources = [_object(e.get("resource")) for e in _objects(bundle.get("entry"))]
     found = adapter.focus_resources(
         [r for r in resources if r.get("resourceType") == kind], site_codes=site_codes
     )
@@ -486,7 +504,7 @@ def decide_for(
     here (`EhrDeclaration.skipped`): the decision records so, and never automates."""
     adapter = FhirAdapter.for_pack(decision.pack)
     kind, _, resource_id = focus_ref.partition("/")
-    if kind != adapter.mapping.focus or not _ID.match(resource_id):
+    if kind != adapter.mapping.focus or not _ID.fullmatch(resource_id):
         raise FhirError(f"this pack decides about a {adapter.mapping.focus}, not {focus_ref!r}")
     focus = fhir.read(f"{kind}/{resource_id}")
     about = focus.get("id") if kind == "Patient" else _subject_id(focus)
@@ -527,7 +545,7 @@ def _ended(error: FhirError) -> bool:
 
 
 def _subject_id(resource: Mapping[str, Any]) -> str | None:
-    reference = str((resource.get("subject") or {}).get("reference") or "")
+    reference = _string(_object(resource.get("subject")).get("reference")) or ""
     return reference.rsplit("Patient/", 1)[-1] if "Patient/" in reference else None
 
 
@@ -535,18 +553,20 @@ def _summary(resource: Mapping[str, Any]) -> dict[str, Any]:
     kind = resource.get("resourceType")
     item: dict[str, Any] = {"ref": f"{kind}/{resource.get('id')}", "status": resource.get("status")}
     if kind == "Communication":
-        payload = next((p.get("contentString") for p in resource.get("payload") or []), None)
+        payload = next((p.get("contentString") for p in _objects(resource.get("payload"))), None)
         item |= {
-            "title": (resource.get("topic") or {}).get("text") or "Message",
-            "text": (payload or "")[:280],
+            "title": _string(_object(resource.get("topic")).get("text")) or "Message",
+            "text": (_string(payload) or "")[:280],
             "date": resource.get("sent"),
         }
     elif kind == "ServiceRequest":
-        code = resource.get("code") or {}
-        reasons = [r.get("text") for r in resource.get("reasonCode") or [] if r.get("text")]
+        code = _object(resource.get("code"))
+        reasons = [
+            r["text"] for r in _objects(resource.get("reasonCode")) if _string(r.get("text"))
+        ]
         item |= {
-            "title": code.get("text")
-            or next((c.get("display") for c in code.get("coding", [])), None),
+            "title": _string(code.get("text"))
+            or next((c.get("display") for c in _objects(code.get("coding"))), None),
             "text": " ".join(reasons)[:280],
             "date": resource.get("authoredOn"),
             "priority": resource.get("priority"),
