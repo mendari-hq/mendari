@@ -329,6 +329,19 @@ def test_a_slow_response_stops_at_the_deadline() -> None:
     assert took < 2.5  # the deadline, one chunk, and room for a busy runner; not 5 s
 
 
+def test_a_slow_response_stops_at_its_own_timeout_outside_a_decision() -> None:
+    """httpx's timeout is per read, so an answer that drips a byte inside each wait held the
+    caller (a calibration, `mendari calibrate`) for as long as the server liked: each attempt
+    now ends at its timeout, whole."""
+    client = mock_client(lambda request: httpx.Response(200, stream=Dripping()))
+    started = time.monotonic()
+    with pytest.raises(ProviderError) as error:
+        http.post_json(client, URL, {}, headers={}, timeout_s=0.3)
+    took = time.monotonic() - started
+    assert error.value.code == "timeout"
+    assert took < 2.5  # the timeout, one chunk, and room for a busy runner; not 5 s
+
+
 # -- the CQL engine ----------------------------------------------------------------------------
 
 
