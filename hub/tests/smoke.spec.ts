@@ -27,7 +27,7 @@ function watchConsole(page: Page): string[] {
   return errors;
 }
 
-test("the home page lists every published pack, with no uploaded figure", async ({ page }) => {
+test("the home page lists every published agent, with no uploaded figure", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare AI Agents");
@@ -50,7 +50,7 @@ test("search narrows by words and risk level", async ({ page }) => {
   await expect(page.getByText("No agent matches these filters.")).toBeVisible();
 });
 
-test("a pack page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
+test("an agent page shows what the registry checked apart from what the publisher claims", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/");
   await page.getByRole("link", { name: "Portal Message Agent" }).click();
@@ -61,12 +61,12 @@ test("a pack page shows what the registry checked apart from what the publisher 
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
 
   const checked = page.getByRole("region", { name: "Checked by the registry" });
-  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Pack digest", "Engine", "Decision Card", "Review", "Regression check", "Counter-signature"]);
+  await expect(checked.locator("dt")).toHaveText(["Signature", "Publisher type", "Archive", "Agent digest", "Engine", "Decision Card", "Review", "Regression check", "Counter-signature"]);
   await expect(checked).toContainText("verified at publish");
   // The CI registry has no signing key, so it counter-signs nothing, and the page says so.
   await expect(checked).toContainText("Not counter-signed");
   await expect(checked).toContainText(/sha256 [0-9a-f]{64}/);
-  await expect(checked).toContainText("The maintained engine: a copy of a reference pack");
+  await expect(checked).toContainText("The maintained engine: a copy of an agent the registry's own release bundles");
   await expect(checked).toContainText("Rendered by the registry from the files the digest covers");
   await expect(checked).toContainText("Not reviewed by the registry");
   // The registry's own check on the publisher's set, labelled: never a ranking.
@@ -133,7 +133,7 @@ test("publisher text is shown as text: no script runs and no unsafe link is made
   expect(errors).toEqual([]);
 });
 
-test("a publisher page lists its packs and signing keys", async ({ page }) => {
+test("a publisher page lists its agents and signing keys", async ({ page }) => {
   await page.goto("/publishers/mendari");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mendari");
   await expect(page.getByText("Verified publisher")).toBeVisible();
@@ -141,7 +141,7 @@ test("a publisher page lists its packs and signing keys", async ({ page }) => {
   await expect(page.locator("li.mono")).toHaveCount(1);
 });
 
-test("an unknown pack is a 404 page", async ({ page }) => {
+test("an unknown agent is a 404 page", async ({ page }) => {
   const response = await page.goto("/packs/mendari/no-such-pack");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
@@ -158,7 +158,7 @@ test("pages fit a phone", async ({ page }) => {
 
 // Site evidence (LP-22h): two synthetic sites shared signed counts of the demo agent
 // (scripts/hub_seed.py --sites); its own section, apart from the registry's checks and any rank.
-test("a pack page shows site evidence in its own section: sites, cases, a plot and its table", async ({ page }) => {
+test("an agent page shows site evidence in its own section: sites, cases, a plot and its table", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto(DEMO);
   const section = page.getByRole("region", { name: /^Site evidence/ });
@@ -185,7 +185,7 @@ test("a pack page shows site evidence in its own section: sites, cases, a plot a
   expect(errors).toEqual([]);
 });
 
-test("a pack no site has evaluated says so in words", async ({ page }) => {
+test("an agent no site has evaluated says so in words", async ({ page }) => {
   await page.goto("/packs/hub-test/hostile-text");
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence");

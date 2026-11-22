@@ -195,7 +195,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
               {checked.publisher_type ?? "Not set"}: set by the registry&apos;s reviewers for this namespace (as it stands now)
             </Item>
             <Item term="Archive"><span className="mono break">sha256 {checked.archive_sha256}</span></Item>
-            <Item term="Pack digest"><span className="mono break">{checked.digest}</span></Item>
+            <Item term="Agent digest"><span className="mono break">{checked.digest}</span></Item>
             <Item term="Engine">
               {checked.engine ? ENGINE_WORDS[checked.engine] : "Not recorded (published before the registry recorded it)"}
               {checked.engine_release ? ` (registry release ${checked.engine_release})` : null}

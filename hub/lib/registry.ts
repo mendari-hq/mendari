@@ -47,7 +47,7 @@ export type Regression = {
 };
 
 const REGRESSION_STATUS: Record<string, string> = {
-  no_test_set: "Not run: the pack names no test set",
+  no_test_set: "Not run: the agent names no test set",
   needs_remote: "Not run: its default providers call a model, which the registry does not",
   failed: "Not run: the check could not finish",
 };
@@ -184,8 +184,8 @@ export const RISK_WORDS: Record<number, string> = {
 };
 
 export const ENGINE_WORDS: Record<string, string> = {
-  bounded: "The engine for packs from a registry: RE2 patterns, input limits and a 1 s CPU budget per decision",
-  maintained: "The maintained engine: a copy of a reference pack of the registry's own release",
+  bounded: "The engine for agents from a registry: RE2 patterns, input limits and a 1 s CPU budget per decision",
+  maintained: "The maintained engine: a copy of an agent the registry's own release bundles",
 };
 
 // What the registry's review says of a version, in a sentence.
