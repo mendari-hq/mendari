@@ -20,6 +20,9 @@ the deployment's own database, in the `evalset_` tables of `core/audit.py`, and 
   so `mendari audit verify --evalsets` checks each sealed row against it and the chain says
   nothing of the case.
 - A draft's case can be removed (`remove_case`), with its index rows: `evalset.case_removed`.
+  Once the set has a draw, its drawn cases are re-weighted as if the case had never been there
+  (the stratum's size and draw without it) and the new weights committed to as a draw commits
+  to them: `evalset.sampled {set, org, n: 0, weight_refs}`, every salt new.
 - The hidden-case index (`hidden_matches`) answers, across every organization, which cases have
   an input equal to a value under either form, for the pack store's upload check (LP-20); it is
   read here only, never by a route or a command.
@@ -558,7 +561,12 @@ class EvalsetStore:
     def remove_case(self, set_id: str, case: str) -> dict[str, Any]:
         """Remove a case of a draft set (named by its case hash, as `add_cases` gave it, or by
         its id), with its index rows, and its assignments and labels (LP-11h: an unresolved case
-        is removed so its set can freeze); `evalset.case_removed` is chained."""
+        is removed so its set can freeze); `evalset.case_removed` is chained. When the set has
+        a draw, every drawn case left is re-sealed with the weight N_h / n_h its stratum now
+        gives (the case gone from N_h, and from n_h if it was drawn) and a new salt, and
+        `evalset.sampled` chained with `n` 0 and each drawn case's weight's commitment, as
+        `sample` does: so freezing next commits to the weights of a set that never held the
+        case, and the chain does not show which weights changed."""
         keys = self._ring()
         _check_set_id(set_id)
         if not (_CASE_HASH.fullmatch(case) or _is_uuid(case)):
@@ -575,13 +583,27 @@ class EvalsetStore:
             )
             if row is None:
                 raise MendariError(f"no case {case} in evaluation set {set_id}")
+            committed = _latest_draw(db, set_id)
             db.all("DELETE FROM evalset_index WHERE case_id = ?", (row["id"],))
             db.all("DELETE FROM evalset_labels WHERE case_id = ?", (row["id"],))
             db.all("DELETE FROM evalset_assignments WHERE case_id = ?", (row["id"],))
             db.all("DELETE FROM evalset_cases WHERE id = ?", (row["id"],))
+            org = str(head["org"])
             payload = {"set": set_id, "case": str(row["case_hash"])}
-            chained = self.store._bound("evalset.case_removed", payload, str(head["org"]))
+            chained = self.store._bound("evalset.case_removed", payload, org)
             self.store._append(db, f"evalset:{set_id}", "evalset.case_removed", chained)
+            if committed != {}:  # the set has a draw: its weights are as if the case never was
+                left = db.all(
+                    "SELECT id, case_hash, status, attributes FROM evalset_cases "
+                    "WHERE set_id = ? ORDER BY id",
+                    (set_id,),
+                )
+                bodies, hashes = _opened_attributes(keys, set_id, left)
+                drawn = _drawn(left, hashes, committed)
+                weights = _reweigh(db, keys, set_id, _strata(left, bodies), drawn, bodies, hashes)
+                redrawn = {"set": set_id, "n": 0, "weight_refs": weights}
+                chained = self.store._bound("evalset.sampled", redrawn, org)
+                self.store._append(db, f"evalset:{set_id}", "evalset.sampled", chained)
         return {"set": set_id, "removed": str(row["case_hash"])}
 
     def _mark_index_epoch(self, db: Session, keys: EvalsetKeys) -> str | None:
@@ -652,23 +674,9 @@ class EvalsetStore:
             )
             if not rows:
                 raise MendariError(f"evaluation set {set_id} holds no case to draw")
-            bodies = {
-                str(row["id"]): keys.open(
-                    "attributes", str(row["attributes"]), set_id, str(row["id"])
-                )[0]
-                for row in rows
-            }
-            hashes = {str(row["id"]): str(row["case_hash"]) for row in rows}
-            committed = _latest_draw(db, set_id)
-            drawn_before = (
-                {str(row["id"]) for row in rows if row["status"] != DRAFT}
-                if committed is None  # a draw from before its commitments: the statuses say
-                else {case for case, hashed in hashes.items() if hashed in committed}
-            )
-            strata: dict[str, list[str]] = {}
-            for row in rows:
-                stratum = str(bodies[str(row["id"])]["attributes"]["stratum"])
-                strata.setdefault(stratum, []).append(str(row["id"]))
+            bodies, hashes = _opened_attributes(keys, set_id, rows)
+            drawn_before = _drawn(rows, hashes, _latest_draw(db, set_id))
+            strata = _strata(rows, bodies)
             left = {
                 h: [c for c in ids if c not in drawn_before] for h, ids in sorted(strata.items())
             }
@@ -693,28 +701,8 @@ class EvalsetStore:
                     (SAMPLED, *batch),
                 )
             every = drawn_before | set(drawn)
-            weights: dict[str, str] = {}  # each drawn case's weight's commitment, by its hash
-            for ids in strata.values():
-                chosen = [case for case in ids if case in every]
-                if not chosen:
-                    continue
-                weight = len(ids) / len(chosen)
-                for case in chosen:
-                    salt = secrets.token_bytes(32)
-                    body = {
-                        **bodies[case],
-                        "weight": weight,
-                        "weight_salt": base64.b64encode(salt).decode(),
-                    }
-                    resealed = keys.seal("attributes", body, set_id, case)
-                    db.all("UPDATE evalset_cases SET attributes = ? WHERE id = ?", (resealed, case))
-                    weights[hashes[case]] = weight_ref(salt, set_id, case, weight)
-            payload = {
-                "set": set_id,
-                "n": len(drawn),
-                "seed": seed,
-                "weight_refs": dict(sorted(weights.items())),
-            }
+            weights = _reweigh(db, keys, set_id, strata, every, bodies, hashes)
+            payload = {"set": set_id, "n": len(drawn), "seed": seed, "weight_refs": weights}
             chained = self.store._bound("evalset.sampled", payload, str(head["org"]))
             self.store._append(db, f"evalset:{set_id}", "evalset.sampled", chained)
         return {"set": set_id, "drawn": len(drawn), "sampled": len(every), "seed": seed}
@@ -3200,6 +3188,68 @@ def _intact(
 
 
 # -- a draft's draws and statuses, and every set's aggregates, committed to (LP-11p) -------------
+
+
+def _opened_attributes(
+    keys: EvalsetKeys, set_id: str, rows: Sequence[Mapping[str, Any]]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Each case's opened attributes and its keyed hash, by its id."""
+    bodies = {
+        str(row["id"]): keys.open("attributes", str(row["attributes"]), set_id, str(row["id"]))[0]
+        for row in rows
+    }
+    return bodies, {str(row["id"]): str(row["case_hash"]) for row in rows}
+
+
+def _drawn(
+    rows: Sequence[Mapping[str, Any]], hashes: Mapping[str, str], committed: Any
+) -> set[str]:
+    """The ids of the cases the set's latest draw (`_latest_draw`: its commitments) took; for a
+    draw from before its commitments (None), those whose status says they were drawn."""
+    if committed is None:
+        return {str(row["id"]) for row in rows if row["status"] != DRAFT}
+    return {case for case, hashed in hashes.items() if hashed in committed}
+
+
+def _strata(rows: Sequence[Mapping[str, Any]], bodies: Mapping[str, Any]) -> dict[str, list[str]]:
+    """The cases' ids by stratum, in the rows' order."""
+    strata: dict[str, list[str]] = {}
+    for row in rows:
+        stratum = str(bodies[str(row["id"])]["attributes"]["stratum"])
+        strata.setdefault(stratum, []).append(str(row["id"]))
+    return strata
+
+
+def _reweigh(
+    db: Session,
+    keys: EvalsetKeys,
+    set_id: str,
+    strata: Mapping[str, Sequence[str]],
+    drawn: set[str],
+    bodies: Mapping[str, Any],
+    hashes: Mapping[str, str],
+) -> dict[str, str]:
+    """Re-seal every drawn case with its weight N_h / n_h (its stratum's cases over those drawn
+    from it) and a new 32-byte salt, beside its attributes; each one's weight's commitment
+    (`weight_ref`), by its keyed hash, in order: what `evalset.sampled` chains (`weight_refs`).
+    Every salt is new, so the chain does not show which weights changed."""
+    weights: dict[str, str] = {}
+    for ids in strata.values():
+        chosen = [case for case in ids if case in drawn]
+        if not chosen:
+            continue
+        weight = len(ids) / len(chosen)
+        for case in chosen:
+            salt = secrets.token_bytes(32)
+            body = {
+                **bodies[case],
+                "weight": weight,
+                "weight_salt": base64.b64encode(salt).decode(),
+            }
+            resealed = keys.seal("attributes", body, set_id, case)
+            db.all("UPDATE evalset_cases SET attributes = ? WHERE id = ?", (resealed, case))
+            weights[hashes[case]] = weight_ref(salt, set_id, case, weight)
+    return dict(sorted(weights.items()))
 
 
 def weight_refs_of(payload: Mapping[str, Any]) -> dict[str, str] | None:

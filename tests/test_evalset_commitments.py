@@ -653,6 +653,77 @@ def test_a_draw_takes_what_the_chain_drew_never_a_status_edited_by_sql(world: Wo
     assert world.verified()["ok"]
 
 
+# Seven cases: five routine, two urgent; six: the same without one routine case.
+WITH_ONE_MORE = ("routine", "routine", "urgent", "routine", "routine", "urgent", "routine")
+WITHOUT_IT = ("routine", "routine", "urgent", "routine", "urgent", "routine")
+
+
+def drawn_weights(world: World, set_id: str) -> list[tuple[str, float]]:
+    """Each case of a set as (stratum, weight), sorted: what its weighted figures are made of."""
+    found = []
+    for row in rows(world.store, "evalset_cases", set_id=set_id):
+        body, _ = world.keys.open("attributes", row["attributes"], set_id, row["id"])
+        found.append((body["attributes"]["stratum"], body["weight"]))
+    return sorted(found)
+
+
+def routine_share(weights: list[tuple[str, float]]) -> float | None:
+    """A weighted figure: the weighted share of routine cases (Hajek's estimate)."""
+    from mendari.evals.stats import weighted_proportion
+
+    hits = [stratum == "routine" for stratum, _ in weights]
+    return weighted_proportion(hits, [weight for _, weight in weights]).estimate
+
+
+def test_removing_a_drawn_case_reweighs_its_stratum_as_if_it_never_was(world: World) -> None:
+    """A drawn case removed: its stratum's other drawn cases are re-weighted at once (N_h and n_h
+    without it), every drawn case re-sealed with a new salt and the new weights committed to as a
+    draw does (`evalset.sampled`, `n` 0), so a freeze straight after commits to the weights, and
+    gives the weighted figures, of a set that never held the case. Before, the weights stayed
+    those of the draw (5/3 for routine) until the next draw."""
+    world.users = labellers(world.store, 2)
+    other = a_set(world.hidden, world.pack)
+    # The set that held it: 3 of 5 routine drawn (5/3), both urgent (1); a routine one removed.
+    world.hidden.add_cases(world.set_id, cases(7, strata=WITH_ONE_MORE))
+    world.hidden.sample(world.set_id, per_stratum=3)
+    removed = next(
+        row
+        for row in rows(world.store, "evalset_cases", set_id=world.set_id, status="sampled")
+        if attributes(world, row)["attributes"]["stratum"] == "routine"
+    )
+    # The set that never held it: 2 of 4 routine drawn (2), both urgent (1).
+    world.hidden.add_cases(other, cases(6, start=100, strata=WITHOUT_IT))
+    world.hidden.sample(other, per_stratum=2)
+    for set_id in (world.set_id, other):
+        world.hidden.assign(set_id, world.users)
+    label_all(world.hidden, world.users)
+    drawn_before = events(world.store, "evalset.sampled")[0]["payload"]["weight_refs"]
+    world.hidden.remove_case(world.set_id, removed["case_hash"])
+    redrawn = events(world.store, "evalset.sampled")[-1]
+    assert redrawn["decision_id"] == f"evalset:{world.set_id}" and redrawn["payload"]["n"] == 0
+    refs = redrawn["payload"]["weight_refs"]
+    assert set(refs) == set(drawn_before) - {removed["case_hash"]}
+    assert not set(refs.values()) & set(drawn_before.values())  # every commitment new
+    assert world.verified()["ok"] and world.hidden.check()["ready"]
+    for set_id in (world.set_id, other):
+        world.hidden.freeze(set_id, max_runs=3, max_age_days=30, drop_unsampled=True, resamples=20)
+    held, never = drawn_weights(world, world.set_id), drawn_weights(world, other)
+    assert held == never == [("routine", 2.0), ("routine", 2.0), ("urgent", 1.0), ("urgent", 1.0)]
+    assert routine_share(held) == routine_share(never) == 2 / 3
+    assert world.verified()["ok"]
+
+
+def test_removing_an_undrawn_case_reweighs_its_stratum_too(world: World) -> None:
+    """An undrawn case removed from a set with a draw leaves its stratum smaller: N_h without it."""
+    world.hidden.add_cases(world.set_id, cases(4))
+    world.hidden.sample(world.set_id, cases=2)
+    undrawn = rows(world.store, "evalset_cases", set_id=world.set_id, status="draft")[0]
+    world.hidden.remove_case(world.set_id, undrawn["case_hash"])
+    drawn = rows(world.store, "evalset_cases", set_id=world.set_id, status="sampled")
+    assert [attributes(world, row)["weight"] for row in drawn] == [1.5, 1.5]  # 3 / 2, not 4 / 2
+    assert world.verified()["ok"] and world.hidden.check()["ready"]
+
+
 # -- every set's stored aggregates ----------------------------------------------------------------
 
 

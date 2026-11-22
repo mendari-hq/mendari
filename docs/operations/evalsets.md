@@ -79,7 +79,7 @@ chain id (`evalset:<set id>`):
 | `evalset_index.epoch` | the index key's id, the first time a case is indexed under it (a deployment event, under `keys`) |
 | `evalset.rotated` | one batch of a key rotation: the key re-sealed under (`to`), how many values each other key had sealed (`from`), and how many rows of each table (`counts`) (a deployment event, under `keys`) |
 | `evalset_index.rebuilt` | the hidden-case index rebuilt: the index key's id and how many cases (a deployment event, under `keys`) |
-| `evalset.sampled` | the set, the organization, how many cases were drawn, the draw's seed, and each drawn case's weight's commitment by its keyed hash (`weight_refs`: the SHA-256 of a fixed prefix, a salt new at each draw and the case's set, id and weight), every drawn case at every draw (never a stratum or a weight) |
+| `evalset.sampled` | the set, the organization, how many cases were drawn, the draw's seed, and each drawn case's weight's commitment by its keyed hash (`weight_refs`: the SHA-256 of a fixed prefix, a salt new at each draw and the case's set, id and weight), every drawn case at every draw (never a stratum or a weight); also chained, with `n` 0 and no seed, when a case is removed from a set that has a draw, for the weights that removal changes |
 | `evalset.assigned` | the set, the organization, the case's keyed hash, the assignment's id, the labeller's user id and the round (`first` or `adjudication`) |
 | `evalset.case_read` | the set, the organization, the case's keyed hash, the assignment and the labeller: each time a labeller is shown a case |
 | `evalset.labelled` | the set, the organization, the case's keyed hash, the labeller, the round and the label's commitment (`label_ref`: the label's id and the SHA-256 of a fixed prefix, the label's salt and its set, case, id, assignment and values) |
@@ -209,7 +209,12 @@ the case's `attributes`. Keep it outside Mendari's package and any checkout of i
 `add` takes the whole file or nothing: a refused line refuses it all, named by its line number,
 never its text. It prints each case's line and keyed hash; `remove-case` takes that hash, and
 works on a draft set only. Removing a case removes its index rows and chains
-`evalset.case_removed`.
+`evalset.case_removed`. Once the set has a draw, removing a case (drawn or not) also weighs every
+drawn case again as if the removed one had never been in the set: its stratum's N_h without it,
+and its n_h too if it was drawn. Each drawn case is re-sealed with its weight and a new salt, and
+the new weights are committed to as a draw commits to them (`evalset.sampled` with `n` 0), so a
+freeze straight after a removal commits to the weights of a set that never held the case, and
+the chain does not show which weights changed.
 
 `list` prints every set (or `--org`'s) with its state and number of cases. It reads only, and
 needs no key.
@@ -439,7 +444,9 @@ waits for its two first-pass labels), disputed (it waits for its adjudicator) or
 (remove it with `mendari evalset remove-case`). A case never drawn refuses it too: draw and
 label it, or add `--drop-unsampled`, which removes each undrawn case (with its index rows) in
 the freeze's own transaction, chaining `evalset.case_removed` for each. The drawn cases keep
-the weights their draws gave them, so the weights still stand for the cases left out.
+the weights their draws gave them, so the weights still stand for the cases left out (unlike
+`remove-case`, which takes a case out of the set's population: see
+[Making a set and adding its cases](#making-a-set-and-adding-its-cases)).
 
 `--max-runs` and `--max-age-days` are the [rotation rule](#the-rotation-rule): both are
 required, and the command has no default. The 20 runs and 180 days above are the owner's numbers
