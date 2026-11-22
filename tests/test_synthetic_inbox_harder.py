@@ -28,7 +28,7 @@ from mendari.evals.harness import evaluate, record_problems, resolve_dataset
 from mendari.sandbox import synthetic_inbox_harder as harder
 from tests.conftest import ROOT
 
-PACK_DIR = ROOT / "packs" / harder.PACK_NAME
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / harder.PACK_NAME
 DRAFT_DIR = ROOT / harder.DRAFT_DIR
 Splits = dict[str, list[dict[str, Any]]]
 

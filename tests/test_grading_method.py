@@ -255,7 +255,11 @@ def test_the_documents_evidence_table_is_what_the_code_gives() -> None:
         assert row == [method.min_positives(floor, count) for count in labels], floor
     # The packs' critical labels, and what each needs at the floor of 0.95.
     for pack, count in CRITICAL_LABELS.items():
-        manifest = yaml.safe_load((ROOT / "packs" / pack.split("/")[1] / "pack.yaml").read_text())
+        manifest = yaml.safe_load(
+            (
+                ROOT / "tests" / "fixtures" / "reference-packs" / pack.split("/")[1] / "pack.yaml"
+            ).read_text()
+        )
         assert manifest["id"] == pack and len(manifest["evaluation"]["critical"]) == count
     assert [method.min_positives(0.95, count) for count in (1, 2, 4, 6)] == [100, 100, 100, 107]
     assert "Prescreener needs 107" in " ".join(evidence.split())

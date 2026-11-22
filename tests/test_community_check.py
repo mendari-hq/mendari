@@ -437,7 +437,7 @@ def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> No
     """Before, CI passed a pack whose performer system was the inbox router's: its definitions
     were then served in Mendari's CodeSystem."""
     pack = repo / "community-packs" / "inbox-copy"
-    shutil.copytree(ROOT / "packs" / "patient-inbox-router", pack)
+    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-packs" / "patient-inbox-router", pack)
     edit_manifest(pack, lambda m: m.update(id="community/inbox-copy"))
     report = run(pack, base=None)
     assert has(report, "identity", "task.performer_system is 'https://mendari.co/fhir/CodeSystem")

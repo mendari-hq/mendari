@@ -39,6 +39,7 @@ from mendari.sandbox.fhir_records import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
+PACKS = ROOT / "tests" / "fixtures" / "reference-packs"  # the fixture packs the golden pins
 GOLDEN = ROOT / "tests" / "fixtures" / "fhir" / "decisions-golden.json"
 FORMAT = "mendari.fhir-decisions-golden/1"
 # The day the cases sit at, and the day the packs decide on (`clock.today`).
@@ -100,9 +101,9 @@ def golden() -> dict[str, Any]:
     packs: dict[str, Any] = {}
     with on_the_day():
         for pack_id, (directory, dataset, build) in CASES.items():
-            decision = Decision.from_path(ROOT / "packs" / directory)  # no store: unkeyed hashes
+            decision = Decision.from_path(PACKS / directory)  # no store: unkeyed hashes
             if decision.pack.id != pack_id or decision.is_remote:
-                raise SystemExit(f"packs/{directory}: not {pack_id} on local providers")
+                raise SystemExit(f"{directory}: not {pack_id} on local providers")
             records = load_dataset(ROOT / "datasets" / dataset).records
             packs[pack_id] = {
                 "dataset": f"datasets/{dataset}",

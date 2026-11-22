@@ -45,12 +45,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from mendari.core.reference import bundled_dir
 from mendari.evals import results_store, signing
 from mendari.hub.client import config_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / results_store.ROOT
-PACKS = ROOT / "packs"
+PACKS = bundled_dir() or ROOT / "agents"
 
 
 def base_results(

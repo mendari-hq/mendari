@@ -194,7 +194,9 @@ def test_every_shipped_block_rule_targets_the_primary_question() -> None:
     match while the primary went unanswered: that policy BLOCK would render and search as a
     refused input. No shipped pack has one; a pack that adds one needs a `rejected` column."""
     blocks = 0
-    for manifest_path in sorted((ROOT / "packs").glob("*/pack.yaml")):
+    for manifest_path in sorted(
+        (ROOT / "tests" / "fixtures" / "reference-packs").glob("*/pack.yaml")
+    ):
         policy = load_pack(manifest_path.parent).manifest.policy
         for rule in policy.rules:
             if rule.outcome is Outcome.BLOCK:

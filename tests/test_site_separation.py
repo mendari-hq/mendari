@@ -43,7 +43,7 @@ def test_the_ranking_modules_import_no_site_code() -> None:
 def test_site_evidence_never_enters_the_hidden_set_rank(registry: Registry, tmp_path: Path) -> None:
     """The scoreboard's page and its board, made before and after sites share signed reports
     of a reference pack, are the same bytes: they read the repository's results store only."""
-    store = Store.at(ROOT / "scoreboard")
+    store = Store.at(ROOT / "tests" / "fixtures" / "scoreboard")
     before = page_script.page(store)
     assert registry.publish().status_code == 201
     for org in ("north-health", "south-clinic"):

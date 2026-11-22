@@ -1,0 +1,25 @@
+# Keyword rules for the `rules` provider. Each matching pattern adds its weight to a label's
+# score; the default label starts at `default_score`. Patterns are regular expressions,
+# matched case-insensitively. Name every pattern: the audit record says which one matched.
+text_fields: [message.subject, message.body]
+negation_cues: ["no", "not", "denies", "without", "never"]
+negation_window: 30
+
+questions:
+  request:
+    default: other
+    default_score: 1.0
+    labels:
+      refill:
+        - {name: refill, pattern: "refill|renew|running (low|out)|ran out", weight: 4}
+        - {name: pharmacy, pattern: "pharmacy|prescription", weight: 2}
+      appointment:
+        - {name: booking, pattern: "appointment|book|schedule|reschedule|cancel (my|the) visit", weight: 4}
+  urgent_symptoms:
+    default: "no"
+    default_score: 2.0
+    labels:
+      "yes":
+        - {name: chest-pain, pattern: "chest (pain|pressure|tightness)", weight: 6, negatable: true}
+        - {name: breathing, pattern: "(can'?t|trouble|hard to) breathe?|short(ness)? of breath", weight: 6, negatable: true}
+        - {name: stroke-signs, pattern: "face (is )?droop|slurred|sudden(ly)? (weak|numb)", weight: 6, negatable: true}

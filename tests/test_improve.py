@@ -549,7 +549,7 @@ def test_the_command_says_so_before_it_runs(
 
 def test_a_pack_with_no_classifier_has_nothing_to_improve(harder: Dataset) -> None:
     with pytest.raises(MendariError, match="no naive_bayes"):
-        improve(load_pack(ROOT / "packs" / "ai-guard"), [harder])
+        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"), [harder])
 
 
 def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Dataset) -> None:

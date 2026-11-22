@@ -278,7 +278,15 @@ def first_input(path: Path) -> dict[str, Any]:
 def public_input() -> dict[str, Any]:
     """A reference pack's case that no generator makes (the red flags are written by hand), so
     only the bundled data refuses it."""
-    return first_input(ROOT / "packs" / "patient-inbox-router" / "data" / "red_flags.jsonl")
+    return first_input(
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "reference-packs"
+        / "patient-inbox-router"
+        / "data"
+        / "red_flags.jsonl"
+    )
 
 
 def shouted(value: dict[str, Any]) -> dict[str, Any]:

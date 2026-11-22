@@ -195,7 +195,7 @@ def test_every_shipped_input_schema_is_self_contained() -> None:
 
 # -- the expansion bounds on a schema the deployment owns (LP-16f) --------------------------------
 
-ROOT = INBOX_DIR.parents[1]
+ROOT = INBOX_DIR.parents[3]
 APPLICATIONS = (
     "schemas (at most 1,000): a $ref, allOf, anyOf or oneOf that reaches the same schema more "
     "than once multiplies it"
@@ -450,7 +450,7 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
     chain (16) and 2 schema objects on one value (1,000)."""
     found = sorted(
         [
-            *ROOT.glob("packs/*/schemas/*.json"),
+            *ROOT.glob("tests/fixtures/reference-packs/*/schemas/*.json"),
             *ROOT.glob("src/mendari/templates/*/schemas/*.json"),
             *ROOT.glob("tests/fixtures/**/schemas/*.json"),
         ]

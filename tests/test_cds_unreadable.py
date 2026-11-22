@@ -234,7 +234,7 @@ def test_a_note_that_is_only_a_link_or_does_not_decode_abstains(
 
 def patient_view(resources: list[dict[str, Any]]) -> dict[str, Any]:
     """A trial patient-view request with every prefetch key sent."""
-    pack = load_pack(ROOT / "packs" / "clinical-trial-prescreener")
+    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
     return {
         "hook": "patient-view",
         "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
@@ -430,7 +430,9 @@ def _cases() -> list[tuple[str, dict[str, Any]]]:
     found = []
     with script.on_the_day():
         for pack_id, (directory, dataset, build) in script.CASES.items():
-            decision = Decision.from_path(ROOT / "packs" / directory)
+            decision = Decision.from_path(
+                ROOT / "tests" / "fixtures" / "reference-packs" / directory
+            )
             records = script.load_dataset(ROOT / "datasets" / dataset).records
             chosen = None
             for record in records:
@@ -531,7 +533,7 @@ def test_an_unreadable_abstain_shows_a_card_whatever_show_says(app: TestClient) 
     """The trial pack shows cards for `candidate` and `needs_review` only, so an ABSTAIN (no
     recommendation) would be silent; over unreadable data it shows an `info` card, so the
     clinician knows the record was not checked (owner decision 6)."""
-    pack = load_pack(ROOT / "packs" / "clinical-trial-prescreener")
+    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
     hooks = pack.manifest.cds_hooks
     assert hooks is not None and hooks.card is not None and hooks.card.show is not None
     assert "none" not in hooks.card.show

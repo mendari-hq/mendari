@@ -60,7 +60,7 @@ CRON = "a-cron-secret-of-some-length-0123456789"
 
 @pytest.fixture(scope="module")
 def trial() -> Pack:
-    return load_pack(ROOT / "packs" / "clinical-trial-prescreener")
+    return load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
 
 
 def policy(mode: PhiMode) -> PhiPolicy:

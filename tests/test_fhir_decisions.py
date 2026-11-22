@@ -63,7 +63,10 @@ def test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says() -> No
     changed case in the pull request."""
     mapped = {
         pack.id
-        for pack in (load_pack(path.parent) for path in sorted(ROOT.glob("packs/*/pack.yaml")))
+        for pack in (
+            load_pack(path.parent)
+            for path in sorted(ROOT.glob("tests/fixtures/reference-packs/*/pack.yaml"))
+        )
         if pack.manifest.inputs.fhir is not None
     }
     assert set(script.CASES) == mapped and len(mapped) == 4
@@ -138,7 +141,9 @@ def test_the_new_synthetic_fhir_decides_as_its_record_does(pack_id: str) -> None
     path finds no order to decide (its `focus_where`), where the record is decided as `other`,
     at HUMAN_REVIEW."""
     dataset, build = BUILT[pack_id]
-    decision = Decision.from_path(ROOT / "packs" / pack_id.split("/")[1])
+    decision = Decision.from_path(
+        ROOT / "tests" / "fixtures" / "reference-packs" / pack_id.split("/")[1]
+    )
     adapter = FhirAdapter.for_pack(decision.pack)
     focus = adapter.mapping.focus_where
     refused = 0

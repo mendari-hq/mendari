@@ -30,7 +30,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=harder.DEFAULT_SEED)
     args = parser.parse_args(argv)
 
-    draft = harder.build(ROOT / "packs" / harder.PACK_NAME, seed=args.seed)
+    draft = harder.build(
+        ROOT / "tests" / "fixtures" / "reference-packs" / harder.PACK_NAME, seed=args.seed
+    )
     if args.check:
         problems = harder.check_files(args.out, draft)
     else:

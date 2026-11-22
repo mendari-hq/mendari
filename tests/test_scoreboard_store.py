@@ -276,7 +276,7 @@ def test_each_committed_result_is_what_its_inputs_give() -> None:
     local ledger on its pack's current digest re-runs to the same bytes (or the result is kept,
     saying why: its pack, set or method changed since). A hidden set's answer, which the owner
     adds at the runbook's step 9, is kept as it is: no ledger of it is kept."""
-    store = Store.at(ROOT / "scoreboard")
+    store = Store.at(ROOT / "tests" / "fixtures" / "scoreboard")
     base = files(store)
     found = results_store.check(store, base=base)
     assert found.problems == []

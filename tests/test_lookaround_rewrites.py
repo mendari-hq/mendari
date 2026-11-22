@@ -36,7 +36,7 @@ from mendari.providers.base import ProviderOutput
 from tests.conftest import ROOT
 from tests.test_registry_engine import copied, jsonl, one_more_line
 
-PACKS = ROOT / "packs"
+PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
 
 # The four reference-pack patterns with a lookaround, as they were, by (pack, rules file, rule).
 ORIGINALS: dict[tuple[str, str, str], str] = {

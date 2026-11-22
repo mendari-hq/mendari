@@ -1163,7 +1163,9 @@ def test_canary_drift_marks_its_arms_remote_results_up_to_its_day(
     trial = results_store.maintained_pack("mendari/clinical-trial-prescreener")
     committed = [
         found.result
-        for found in results_store.heads(Store.at(ROOT / "scoreboard").results()).values()
+        for found in results_store.heads(
+            Store.at(ROOT / "tests" / "fixtures" / "scoreboard").results()
+        ).values()
         if found.pack_id == trial.id and not found.is_hidden
     ]
     # Dated the day after the latest of them, whenever they were measured (the runbook's step 8
@@ -1205,6 +1207,7 @@ def test_the_page_publishes_against_the_disclosures_file_as_it_is(
     from tests.test_scoreboard_page import page_script
 
     fake_jev(monkeypatch)
+    monkeypatch.setattr(page_script, "WEB_PACK", "mendari/patient-inbox-router")
     monkeypatch.setattr(page_script, "WEB_SET", SET)  # the site's set, as this result's
     statement = "No commercial relationship (a test's statement)."
     path = store.root / "disclosures.json"

@@ -21,7 +21,7 @@ from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "packs" / "clinical-trial-prescreener"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener"
 TODAY = clock.today()  # the engine's day (the display time zone), not the system's
 
 

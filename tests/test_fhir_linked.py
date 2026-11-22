@@ -858,7 +858,7 @@ def test_a_0_1_or_0_2_pack_reads_no_link(tmp_path: Path) -> None:
     drug); the referral router follows none."""
     request = {"fhirServer": EHR}
     linking = set()
-    for root in sorted((ROOT / "packs").glob("*/pack.yaml")):
+    for root in sorted((ROOT / "tests" / "fixtures" / "reference-packs").glob("*/pack.yaml")):
         found = load_pack(root.parent)
         if found.manifest.inputs.fhir is None or found.manifest.cds_hooks is None:
             continue

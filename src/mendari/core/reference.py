@@ -28,8 +28,8 @@ from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import PackValidationError
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
-# Where the reference packs are: bundled in the wheel, or the repository's `packs/` in a checkout.
-BUNDLED_DIRS = (_PACKAGE_DIR / "_packs", _PACKAGE_DIR.parents[1] / "packs")
+# Where the bundled agents are: in the wheel, or the repository's `agents/` in a checkout.
+BUNDLED_DIRS: tuple[Path, ...] = (_PACKAGE_DIR / "_agents", _PACKAGE_DIR.parents[1] / "agents")
 
 
 def bundled_dir() -> Path | None:

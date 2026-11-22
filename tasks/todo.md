@@ -1,5 +1,34 @@
 # Mendari: task tracking
 
+## Plan: agents only (2026-11-21, owner decision), the current work
+
+**Objective.** The product ships no Decision Packs. The engine stays whole (policy caps, audit
+chain, evaluation, sign-in, tenancy, FHIR / CDS Hooks / SMART, registry); what it governs is an
+AI agent, and the one thing bundled is a demo agent that runs offline. Everything as it was is on
+the branch `archive/decision-packs`. Branch: `feat/agents-only-remove-packs`.
+
+- [x] **1. Packs out of the product.** `packs/` → `tests/fixtures/reference-packs/` (fixtures the
+  tests of kept features still decide with; `tests/conftest.py` stands them where bundled agents
+  are). The bundled directory is `agents/`, holding `agents/portal-message-agent`
+  (`mendari new --agent`, as scaffolded). The five packs' committed scoreboard results →
+  `tests/fixtures/scoreboard/`; the product's `scoreboard/` store is empty, and the site and the
+  docs page say so.
+- [ ] **2. Product defaults.** `mendari demo`, the server's default example, the docs snippets,
+  the Hub seed, the CLI's `sandbox` kinds, `settings.JEV_DEFAULTS`, the `ai-guard` key preset:
+  each names a removed pack and moves to the demo agent or goes.
+- [ ] **3. Packaging and CI.** `pyproject.toml` (wheel and sdist ship `agents/`, not `packs/`),
+  `Dockerfile`, `scripts/check_sdist.py`, `scripts/check_snomed.py`, the `packs.yml` workflow and
+  the steps of `ci.yml` that build, seed or compare the five packs; `datasets/`.
+- [ ] **4. Front ends.** mendari.co, the Agent Hub and the dashboard say agent, never pack: copy,
+  the Pack store screen's name, role names; the browser tests that assert the text change with it.
+- [ ] **5. Docs.** README, `docs/` and the guides describe agents and the demo agent; pages
+  about the five packs go.
+- [ ] **6. Trim.** Tests of kept features move from the fixture packs to the demo agent; then the
+  fixtures, the five packs' synthetic generators and what only they used are deleted.
+
+**Verification.** After each step: ruff, mypy, the full suite, the Hub's Playwright tests on a
+seeded registry, the dashboard's browser tests.
+
 **Governing plan:** the vision plan below (2026-10-06): the launch plan as corrected by
 `notes/vision-audit.md`, built as prompts LP-01 to LP-23; its gates are `launch/gates.yaml`
 (`uv run python scripts/check_gates.py`).

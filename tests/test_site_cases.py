@@ -252,7 +252,7 @@ def test_a_record_is_read_for_the_marks_it_carries() -> None:
 
 
 def test_no_pack_of_the_repository_holds_one() -> None:
-    packs = sorted(path.parent for path in ROOT.glob("*packs/*/pack.yaml"))
+    packs = sorted(path.parent for path in ROOT.glob("tests/fixtures/reference-packs/*/pack.yaml"))
     assert len(packs) >= 5 and INBOX_DIR in packs
     for root in packs:
         assert site_cases.marked_files(as_archived(root)) == {}, root.name

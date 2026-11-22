@@ -22,7 +22,7 @@ from mendari.providers import jev, slots_without_model
 from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
 from mendari.settings import JEV_DEFAULTS, default_providers, parse_providers, providers_for
-from tests.conftest import INBOX_DIR
+from tests.conftest import INBOX_DIR, ROOT
 
 FIXTURES = Path(__file__).parent / "fixtures" / "packs"
 INBOX_SLOTS = {
@@ -277,6 +277,8 @@ def test_the_vercel_app_runs_the_jev_defaults(
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
+    # A process of its own does not see the tests' fixture packs unless told where they are.
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-packs"))
     script = (
         "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "

@@ -459,7 +459,9 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
 
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:
     """Every maintained pattern, with the texts of its pack's datasets and examples."""
-    packs = discover([SearchPath(ROOT / "packs", "maintained")]).packs
+    packs = discover(
+        [SearchPath(ROOT / "tests" / "fixtures" / "reference-packs", "maintained")]
+    ).packs
     cases = []
     for pack in packs:
         texts: list[str] = []

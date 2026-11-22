@@ -45,7 +45,15 @@ PACKS = {
     "referral": "mendari/referral-router",
     "trial": "mendari/clinical-trial-prescreener",
 }
-RECORDS = ROOT / "packs" / "clinical-trial-prescreener" / "data" / "test.jsonl"
+RECORDS = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "reference-packs"
+    / "clinical-trial-prescreener"
+    / "data"
+    / "test.jsonl"
+)
 SERVER = "https://mendari.example"  # a reserved name: the samples' links point nowhere real
 FORM = {"content-type": "application/x-www-form-urlencoded"}
 # The CapabilityStatement cites DTR 2.2.0's $questionnaire-package, so it goes with the Da Vinci
