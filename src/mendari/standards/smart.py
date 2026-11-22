@@ -140,12 +140,17 @@ def discover(iss: str, http: GuardedHttp) -> dict[str, Any]:
             raise SmartError(f"the SMART configuration has no {key}", reason="configuration")
         http.check(config[key])  # every endpoint on the allow-list, not just the FHIR base
     methods = config.get("code_challenge_methods_supported")
-    if methods is not None and "S256" not in methods:
+    if methods is not None and (not isinstance(methods, list) or "S256" not in methods):
         raise SmartError(
             "the authorization server does not support PKCE with S256", reason="configuration"
         )
-    if config.get("jwks_uri"):
-        http.check(config["jwks_uri"])
+    jwks_uri = config.get("jwks_uri")
+    if jwks_uri is not None:
+        if not isinstance(jwks_uri, str) or not jwks_uri.strip():
+            raise SmartError(
+                "the SMART configuration's jwks_uri must be a URL", reason="configuration"
+            )
+        http.check(jwks_uri)
     declared_issuer = config.get("issuer")
     if declared_issuer is not None:
         if not isinstance(declared_issuer, str) or not declared_issuer.strip():
@@ -282,7 +287,10 @@ def complete(
     session = {
         "iss": pending["iss"],
         "access_token": access,
-        "scope": token.get("scope") or pending["scopes"],
+        # The scopes granted, as text (RFC 6749 5.1); anything else, or none, is what was asked.
+        "scope": token["scope"]
+        if isinstance(token.get("scope"), str) and token["scope"].strip()
+        else pending["scopes"],
         "patient": token["patient"],
         "encounter": token.get("encounter") if isinstance(token.get("encounter"), str) else None,
         "fhir_user": user,

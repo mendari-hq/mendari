@@ -380,3 +380,10 @@ def test_display_shortens_on_a_word_boundary() -> None:
     assert len(unbroken) == DISPLAY_LIMIT and unbroken.endswith("x…")
     exact = "y" * DISPLAY_LIMIT
     assert display(exact) == exact
+
+
+def test_a_resource_id_with_a_trailing_line_break_is_not_a_fhir_id() -> None:
+    """`$` matches before a final newline, so `outcome\\n` passed the id check."""
+    terminology._check([{"resourceType": "CodeSystem", "id": "outcome", "url": "urn:x:1"}])
+    with pytest.raises(MendariError, match="not a FHIR id"):
+        terminology._check([{"resourceType": "CodeSystem", "id": "outcome\n", "url": "urn:x:2"}])

@@ -894,3 +894,19 @@ def test_the_record_holds_what_was_read_by_its_link_only(pack: Decision) -> None
     indexed = adapter.index(bundle(coverage("Organization/o1")))
     Linker.of(ehr.client()).read(adapter.mapping, indexed)
     assert "Organization" not in indexed and list(indexed.linked) == ["Organization/o1"]
+
+
+def test_a_reference_with_a_trailing_line_break_is_neither_a_link_nor_a_resolved_reference() -> (
+    None
+):
+    """`$` matches before a final newline: `Binary/b1\\n` was a link to read and resolved to
+    `Binary/b1` inside the record, though it is not a FHIR reference."""
+    from mendari.standards.fhir import link_target, resolve
+
+    record = {"Binary": [{"resourceType": "Binary", "id": "b1"}]}  # a record by type
+    assert link_target("Binary/b1") == ("Binary", "b1")
+    assert link_target(f"{EHR}/Binary/b1/_history/2") == ("Binary", "b1")
+    assert link_target("Binary/b1\n") is None
+    assert link_target(f"{EHR}/Binary/b1\n") is None
+    assert resolve({"reference": "Binary/b1"}, None, record) is not None
+    assert resolve({"reference": "Binary/b1\n"}, None, record) is None

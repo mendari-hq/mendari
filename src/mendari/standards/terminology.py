@@ -69,7 +69,7 @@ from mendari.standards.fhir import (
 PUBLISHER = "Mendari"
 NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
 _OWN = "https://mendari.co/fhir/CodeSystem/"
-_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
+_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}\Z")
 
 OUTCOMES: dict[Outcome, tuple[str, str]] = {
     Outcome.AUTO: (

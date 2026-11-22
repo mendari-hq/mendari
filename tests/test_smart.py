@@ -1052,3 +1052,62 @@ def test_a_configuration_whose_issuer_is_not_a_string_is_refused() -> None:
         with pytest.raises(AuthError, match="another issuer"):
             oidc.discover("https://idp.test", Http(issuer))  # type: ignore[arg-type]
     assert oidc.discover("https://idp.test", Http("https://idp.test/"))["issuer"]  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"jwks_uri": 123},  # raised AttributeError (a 500) in the allow-list check
+        {"jwks_uri": ["https://ehr.example.org/keys"]},
+        {"code_challenge_methods_supported": 5},  # raised TypeError
+        {"code_challenge_methods_supported": "S256-in-a-string"},  # passed as if it listed S256
+    ],
+)
+def test_a_smart_configuration_of_the_wrong_shape_is_refused(
+    app: TestClient, ehr: FakeEhr, change: dict[str, Any]
+) -> None:
+    ehr.config_overrides = change
+    response = launch(app)
+    assert response.status_code == 400, response.text
+
+
+def test_a_jwk_bound_to_another_algorithm_does_not_verify_an_id_token() -> None:
+    """RFC 7517 4.4: a key whose `alg` names one algorithm is used with that one only."""
+    from mendari.errors import AuthError
+    from mendari.standards import oidc
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
+    claims = {"iss": ISS, "aud": CLIENT, "exp": int(time.time()) + 300, "nonce": "n"}
+    token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "k1"})
+
+    def verify(alg: str) -> dict[str, Any]:
+        keys = {"keys": [{**jwk, "kid": "k1", "alg": alg}]}
+        transport = httpx.MockTransport(lambda _: httpx.Response(200, json=keys))
+        with GuardedHttp(allowed={EHR}, transport=transport) as http:
+            return oidc.verify_id_token(
+                token, issuer=ISS, audience=CLIENT, nonce="n", jwks_uri=f"{EHR}/keys", http=http
+            )
+
+    assert verify("RS256")["nonce"] == "n"
+    with pytest.raises(AuthError, match="no key"):
+        verify("RS512")
+
+
+def test_granted_scopes_that_are_not_text_are_the_scopes_asked_for() -> None:
+    """A token response's `scope` is text (RFC 6749 5.1); a list was kept in the session."""
+    from mendari.standards import smart
+
+    body = {"access_token": "a-1", "token_type": "Bearer", "patient": "p1", "scope": ["x"]}
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    pending = {
+        "iss": ISS,
+        "token_endpoint": f"{EHR}/auth/token",
+        "verifier": "v",
+        "redirect_uri": f"{APP}/smart/callback",
+        "scopes": "launch patient/*.rs",
+    }
+    settings = smart.SmartSettings(CLIENT, None, "launch patient/*.rs", None)
+    with GuardedHttp(allowed={EHR}, transport=transport) as http:
+        session = smart.complete(pending, "code", settings=settings, http=http)
+    assert session["scope"] == "launch patient/*.rs"

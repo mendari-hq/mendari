@@ -101,8 +101,10 @@ ORDER_HOOKS = ("order-select", "order-sign")
 # a chained record), so an unbounded list would multiply one request's cost.
 MAX_ORDERS = 50
 MAX_FEEDBACK = 50  # the most cards one feedback request may name
+MAX_TOKEN_CHARS = 16 * 1024  # a fhirAuthorization access token, as SMART takes one
+_BEARER = re.compile(r"[\x21-\x7e]+")  # RFC 6749 VSCHAR without the space: safe in a header
 _TOKEN = re.compile(r"\{\{\s*context\.(\w+)\s*\}\}")
-_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")  # a FHIR id
+_ID = re.compile(r"[A-Za-z0-9\-.]{1,64}")  # a FHIR id (whole: `fullmatch`)
 # What an ABSTAIN over a record that could not be read says on its card (owner decision 6): fixed
 # words, then each key and its reason; never a URL, a query or what a server answered.
 UNREADABLE_SUMMARY = "No recommendation: part of the record could not be read"
@@ -426,6 +428,10 @@ def _token(request: Mapping[str, Any]) -> str | None:
     token = authorization.get("access_token")
     if token is not None and not isinstance(token, str):
         raise FhirError("fhirAuthorization.access_token must be a string")
+    if token and (len(token) > MAX_TOKEN_CHARS or not _BEARER.fullmatch(token)):
+        # Sent as a header: a space, a line break or a control character is the client's fault,
+        # refused here, not a read that "could not reach" the server.
+        raise FhirError("fhirAuthorization.access_token is not a valid OAuth token")
     if token and str(authorization.get("token_type", "Bearer")).lower() != "bearer":
         raise FhirError("fhirAuthorization must be a Bearer token")
     return token
@@ -542,7 +548,7 @@ def fill_template(template: str, context: Mapping[str, Any]) -> str:
 
     def value(match: re.Match[str]) -> str:
         filled = context.get(match.group(1))
-        if not isinstance(filled, str) or not _ID.match(filled):
+        if not isinstance(filled, str) or not _ID.fullmatch(filled):
             raise FhirError(f"context.{match.group(1)} is needed to fetch {template.split('?')[0]}")
         return quote(filled, safe="")
 

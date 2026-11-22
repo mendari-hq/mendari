@@ -69,20 +69,20 @@ DISPLAY_LIMIT = 250
 # `[system=<uri>]`, a uri as `code_systems` declares one.
 _SEGMENT = re.compile(
     r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)"
-    r"(?:\[(?:(?P<index>\*|\d+)|system=(?P<system>(?:https?://|urn:)[^\s\[\]]+))\])?$"
+    r"(?:\[(?:(?P<index>\*|\d+)|system=(?P<system>(?:https?://|urn:)[^\s\[\]]+))\])?\Z"
 )
-_RESOURCE_TYPE = re.compile(r"^[A-Z][A-Za-z]{0,63}$")
+_RESOURCE_TYPE = re.compile(r"^[A-Z][A-Za-z]{0,63}\Z")
 # A relative reference inside the record: `Type/id`, optionally of one version.
 _RELATIVE = re.compile(
-    r"^(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})(?:/_history/[A-Za-z0-9.-]{1,64})?$"
+    r"^(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})(?:/_history/[A-Za-z0-9.-]{1,64})?\Z"
 )
-_CODE_SET = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_CODE_SET = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
 # A reference a runtime may read from a FHIR server (LP-23h, `link_target`): `Type/id`,
 # optionally of one version, relative or ending an absolute http(s) URL with no query. A URL's
 # scheme matches in any case, as RFC 3986 has it (and as `_ABSOLUTE` matches it).
 _LINK = re.compile(
     r"^(?:(?i:https?)://[^\s?#]+/)?(?P<type>[A-Z][A-Za-z]{0,63})/(?P<id>[A-Za-z0-9.-]{1,64})"
-    r"(?:/_history/[A-Za-z0-9.-]{1,64})?$"
+    r"(?:/_history/[A-Za-z0-9.-]{1,64})?\Z"
 )
 _ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 

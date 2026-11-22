@@ -78,6 +78,9 @@ def _valid_jwk(jwk: Mapping[str, Any], alg: str) -> bool:
     use = jwk.get("use")
     if use is not None and use != "sig":
         return False
+    declared = jwk.get("alg")  # a key bound to one algorithm (RFC 7517 4.4) signs only with it
+    if declared is not None and declared != alg:
+        return False
     kty = jwk.get("kty")
     if alg.startswith("RS") and kty != "RSA":
         return False
