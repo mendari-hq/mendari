@@ -382,6 +382,53 @@ def test_a_bad_request_is_refused_before_the_handler_runs(token: str) -> None:
     assert calls == []
 
 
+def test_a_large_body_is_refused_as_it_arrives_and_deep_json_is_not_json(token: str) -> None:
+    """A body with no declared length is read only up to the limit, never held whole; a
+    declared length over it is refused before any is read; JSON nested past the parser's depth
+    is a 400 like any other request that is not JSON, never a 500."""
+    calls: list[Case] = []
+    app = create_app(lambda case: calls.append(case) or answering(case))  # type: ignore[func-returns-value]
+
+    # Straight through ASGI (the test client reads a body whole before the app sees it): 6.4 MB
+    # sent 64 KB at a time with no content-length.
+    received: list[int] = []
+    answered: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        received.append(1)
+        return {"type": "http.request", "body": b" " * 65_536, "more_body": len(received) < 100}
+
+    async def send(message: dict[str, Any]) -> None:
+        answered.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/decide",
+        "raw_path": b"/decide",
+        "query_string": b"",
+        "headers": [(b"authorization", AUTH.encode())],
+        "http_version": "1.1",
+        "scheme": "http",
+        "server": ("test", 80),
+        "client": ("test", 1),
+        "root_path": "",
+    }
+    asyncio.run(app(scope, receive, send))
+    assert answered[0]["status"] == 413
+    assert len(received) < 100  # it stopped reading past the limit
+
+    client = TestClient(app)
+    headers = {"authorization": AUTH}
+    declared = client.post(
+        "/decide", content=b"{}", headers={**headers, "content-length": "1000001"}
+    )
+    assert declared.status_code == 413
+    deep = client.post("/decide", content=b"[" * 200_000 + b"]" * 200_000, headers=headers)
+    assert (deep.status_code, deep.json()) == (400, {"error": "the request is not JSON"})
+    assert calls == []
+
+
 def test_an_agent_error_returns_its_status_and_message(token: str) -> None:
     def handler(case: Case) -> dict[str, Any]:
         raise AgentError(422, "the agent cannot answer this kind of case")
