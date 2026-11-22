@@ -1563,12 +1563,28 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
 
 
 SANDBOX_KINDS = {
-    # kind: (default pack directory, default local-site output)
-    "inbox": ("packs/patient-inbox-router", "datasets/local-site-example.jsonl"),
-    "trial": ("packs/clinical-trial-prescreener", "datasets/trial-local-site-example.jsonl"),
-    "referral": ("packs/referral-router", "datasets/referral-local-site-example.jsonl"),
-    "prior-auth": ("packs/prior-auth-preflight", "datasets/prior-auth-local-site-example.jsonl"),
-    "guard": ("packs/ai-guard", "datasets/guard-local-site-example.jsonl"),
+    # kind: (default agent directory, default local-site output). The synthetic EHR's example
+    # agents are test fixtures; the sandbox (docker-compose.yml) mounts them.
+    "inbox": (
+        "tests/fixtures/reference-packs/patient-inbox-router",
+        "tests/fixtures/datasets/local-site-example.jsonl",
+    ),
+    "trial": (
+        "tests/fixtures/reference-packs/clinical-trial-prescreener",
+        "tests/fixtures/datasets/trial-local-site-example.jsonl",
+    ),
+    "referral": (
+        "tests/fixtures/reference-packs/referral-router",
+        "tests/fixtures/datasets/referral-local-site-example.jsonl",
+    ),
+    "prior-auth": (
+        "tests/fixtures/reference-packs/prior-auth-preflight",
+        "tests/fixtures/datasets/prior-auth-local-site-example.jsonl",
+    ),
+    "guard": (
+        "tests/fixtures/reference-packs/ai-guard",
+        "tests/fixtures/datasets/guard-local-site-example.jsonl",
+    ),
 }
 
 
