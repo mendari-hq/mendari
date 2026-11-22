@@ -242,13 +242,21 @@ class RegistryClient:
     def _json(self, response: httpx.Response) -> Any:
         if response.status_code >= 400:
             try:
-                detail = response.json().get("detail")
+                body = response.json()
             except ValueError:
-                detail = None
+                body = None
+            # A proxy's or a hostile registry's error page need not be an object.
+            detail = body.get("detail") if isinstance(body, dict) else None
             status = response.status_code
             message = f"the registry answered HTTP {status}" + (f": {detail}" if detail else "")
             raise HubError(message, status if status in (404, 409, 410) else 422)
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:  # a captive portal's or a proxy's page: said so, never a traceback
+            raise HubError(
+                f"the registry at {_shown_url(self.url)} answered with something that is not "
+                "JSON: check the registry's address"
+            ) from None
 
     def health(self) -> dict[str, Any]:
         try:
@@ -311,10 +319,21 @@ class RegistryClient:
         return dict(self._json(response))
 
     def archive(self, namespace: str, name: str, version: str) -> bytes:
-        response = self._http.get(f"/v1/packs/{namespace}/{name}/{version}/archive")
-        if response.status_code >= 400:
-            self._json(response)
-        return response.content
+        """The archive's bytes, read as they come and refused past `archive.MAX_ARCHIVE_BYTES`
+        (what `archive.verify` takes): a registry cannot make a pull hold more in memory."""
+        path = f"/v1/packs/{namespace}/{name}/{version}/archive"
+        with self._http.stream("GET", path) as response:
+            if response.status_code >= 400:
+                response.read()
+                self._json(response)
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data += chunk
+                if len(data) > archive.MAX_ARCHIVE_BYTES:
+                    raise HubError(
+                        f"the registry's archive is larger than {archive.MAX_ARCHIVE_BYTES} bytes"
+                    )
+        return bytes(data)
 
     def search(self, **filters: Any) -> list[dict[str, Any]]:
         return list(self._get("/v1/search", **filters))
