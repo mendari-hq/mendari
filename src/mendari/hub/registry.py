@@ -780,6 +780,16 @@ class RegistryStore(
                 "SELECT key_id FROM hub_site_keys WHERE key_id = ?", (key_id,)
             ):  # one key never signs in two roles (LP-22d)
                 raise HubError("that key is a site's key: a publisher key signs packs only", 409)
+            if (
+                owner is not None
+                and db.columns("hub_key_revocations")
+                and db.one("SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (key_id,))
+            ):  # registered again, it would still sign nothing: said so, never a quiet 201
+                raise HubError(
+                    "that key was revoked and signs nothing again: make a new key "
+                    "(`mendari keys generate`) and register it",
+                    409,
+                )
             if owner is None:
                 db.all(
                     "INSERT INTO hub_keys (key_id, namespace, public_pem, created_at) "

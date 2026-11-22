@@ -222,6 +222,15 @@ def test_a_revoked_keys_evaluations_are_listed_and_left_out(published: Registry)
     [event] = events(published, "key.revoked")
     assert event["key_id"] == record["key_id"]
     assert published.operator.verify()["ok"]
+    # Registering it again says it is revoked, rather than a 201 for a key that signs nothing.
+    public = archive.public_pem(published.key.public_key()).decode()
+    again = published.client.post(
+        "/v1/namespaces/mendari/keys",
+        json={"public_pem": public},
+        headers={"authorization": f"Bearer {published.token}"},
+    )
+    assert again.status_code == 409 and "revoked" in again.json()["detail"]
+    assert "mendari keys generate" in again.json()["detail"]
 
 
 def test_the_same_body_again_is_idempotent_and_a_superseded_one_is_refused(
