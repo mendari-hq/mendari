@@ -85,6 +85,10 @@ MENDARI_AGENT_URL=http://127.0.0.1:8787/decide MENDARI_AGENT_TOKEN=a-long-random
   uv run mendari eval agents/portal-message-agent --dataset test --limit 50
 ```
 
+Until a deployment with sign-in on sets `MENDARI_AGENT_URL`, the demo agent answers there from
+its canned fixture and none of its decisions automate: each that would be `AUTO` goes to a
+person, with the reason `canned answers: MENDARI_AGENT_URL is not set; a person decides`.
+
 On Vercel, `vercel deploy` from this folder, with `ANTHROPIC_API_KEY` and `AGENT_TOKEN` set as
 sensitive environment variables. Settings: `AGENT_MODEL` (default `claude-opus-5-5`) and
 `AGENT_EFFORT` (default `low`).

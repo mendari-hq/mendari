@@ -313,6 +313,14 @@ MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval my-agent --data
   fallback "The front desk reads the message."
   ```
 
+- **Canned answers never automate on a server with sign-in.** While `MENDARI_AGENT_URL` is
+  unset, the agent answers from its `mock_file`. That is fine on your machine (`mendari demo`,
+  `mendari test`, `mendari eval`, and `mendari serve` in open mode decide as before), but a
+  server with sign-in on (as every production deployment is) never automates on those answers:
+  an `AUTO` decision becomes `HUMAN_REVIEW`, and its reasons end with
+  `canned answers: MENDARI_AGENT_URL is not set; a person decides`, in the dashboard and the
+  audit trail alike. Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
+
 An agent you publish to a registry or contribute as a community agent is one the deployment
 that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the
 deployment's `MENDARI_AGENT_URL` is used), and its `timeout_seconds` is held to at most 15

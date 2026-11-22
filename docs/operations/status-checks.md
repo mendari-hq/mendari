@@ -60,7 +60,9 @@ message that asks for no refill or appointment to the front desk). So give the k
   else.
 
 The check sends a fixed synthetic message to the bundled demo agent. Offline (no
-`MENDARI_AGENT_URL`) it answers from its canned responses and calls nothing. With
+`MENDARI_AGENT_URL`) it answers from its canned responses and calls nothing, and with sign-in
+on none of those decisions automates (each goes to a person, reason `canned answers:
+MENDARI_AGENT_URL is not set; a person decides`). With
 `MENDARI_AGENT_URL` set, every check calls that agent: 288 calls a day from one region at five
 minutes apart, so set the agent's own rate limits with that in mind, or choose its `rules`
 variant for the status organization's deployment (`MENDARI_PROVIDERS=reader=rules`).

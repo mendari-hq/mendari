@@ -51,7 +51,8 @@ uv run mendari test triage-agent
 The demo agent, `mendari/portal-message-agent`, routes synthetic patient portal messages and
 sends anything that may describe same-day symptoms to a nurse. It runs offline on canned answers;
 set `MENDARI_AGENT_URL` to your agent's endpoint and the same commands call the live agent, and
-an agent that fails or times out never automates.
+an agent that fails or times out never automates. On a server with sign-in on, canned answers
+never automate either: without `MENDARI_AGENT_URL`, its decisions go to a person.
 
 `uv sync` installs the server too (without uv: `pip install '.[server]'` in the clone); then
 `uv run mendari serve` serves the demo agent, with the dashboard, on `http://127.0.0.1:8000`, and

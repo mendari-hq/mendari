@@ -160,6 +160,11 @@ With `MENDARI_AGENT_URL` set, the same commands call your agent instead of the f
 MENDARI_AGENT_URL=https://your-agent.example/decide uv run mendari eval my-agent --dataset examples
 ```
 
+Without it, a server with sign-in on never automates on the fixture's canned answers: each
+decision that would be `AUTO` goes to a person (`HUMAN_REVIEW`), with the reason
+`canned answers: MENDARI_AGENT_URL is not set; a person decides`. Locally, in open mode, the
+fixture decides as a live agent would.
+
 Mendari sends one `POST` per decision with a JSON body: `pack_id` (the agent's id), `slot`,
 `agent_id`, `system_prompt`, the `questions` (each with its `key`, `instructions`, `choices` and
 `criteria`) and the `input`, limited to the fields the manifest lists under `state_fields`. Your

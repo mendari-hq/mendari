@@ -163,6 +163,7 @@ class CompositeProvider(Provider):
             }
             if failed
             else {},
+            canned=next((o.canned for o in outputs.values() if o.canned is not None), None),
         )
 
 
