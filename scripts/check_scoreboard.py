@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The results store is append-only and every result in it is what its inputs give (LP-17f,
-ADR-0013; the grading method's section 11), checked in CI's required `reference-pack` job
+ADR-0013; the grading method's section 11), checked in CI's required `demo-agent` job
 against the commit a change is made on (`mendari.evals.results_store.check`):
 
 - each file's name is its content's hash (a result's body, a ledger's id, a run record's bytes);
@@ -41,6 +41,7 @@ It needs no secret and writes nothing. Exit 1, naming each problem, never a case
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -85,24 +86,55 @@ def base_results(
     return found
 
 
+RETIRED = STORE / "retired.json"
+
+
+def unretired(found: dict[str, bytes], kind: str) -> tuple[dict[str, bytes], list[str]]:
+    """The base's files less those of a retired agent (scoreboard/retired.json), and a problem for
+    each retired file that is not kept, byte for byte, in the retirement's archive: a retired
+    agent's results leave the store only to be kept there, never dropped."""
+    if not RETIRED.is_file():
+        return found, []
+    retired = json.loads(RETIRED.read_text(encoding="utf-8"))
+    agents, archive = set(retired.get("agents", {})), ROOT / retired["archive"] / kind
+    kept, problems = {}, []
+    for name, body in found.items():
+        try:
+            agent = json.loads(body)["scope"]["pack"]["id"]
+        except (ValueError, KeyError, TypeError):
+            agent = None
+        if agent not in agents:
+            kept[name] = body
+            continue
+        copy = archive / f"{name}.json"
+        if not copy.is_file() or copy.read_bytes() != body:
+            problems.append(f"{kind}/{name}.json: of retired {agent}, but not kept in {archive}")
+    return kept, problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", required=True, help="the commit the change is made on")
     args = parser.parse_args(argv)
     store = results_store.Store.at(STORE)
+    base, retired = unretired(base_results(args.base), results_store.RESULTS)
+    canaries, retired_canaries = unretired(
+        base_results(args.base, kind=results_store.CANARIES), results_store.CANARIES
+    )
     found = results_store.check(
         store,
-        base=base_results(args.base),
-        base_canaries=base_results(args.base, kind=results_store.CANARIES),
+        base=base,
+        base_canaries=canaries,
         publisher_ids=signing.read_pins(config_dir() / "trusted_keys.json"),
         packs=lambda ref: results_store.maintained_pack(ref, PACKS),
     )
     for line in found.kept:
         print(f"kept: {line}")
-    for problem in found.problems:
+    problems = [*retired, *retired_canaries, *found.problems]
+    for problem in problems:
         print(f"error: {problem}", file=sys.stderr)
-    if found.problems:
-        print(f"{len(found.problems)} problems in {store.root.name}/", file=sys.stderr)
+    if problems:
+        print(f"{len(problems)} problems in {store.root.name}/", file=sys.stderr)
         return 1
     print(f"ok  {found.summary}")
     return 0

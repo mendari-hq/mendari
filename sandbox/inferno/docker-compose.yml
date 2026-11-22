@@ -45,6 +45,12 @@ services:
       MENDARI_CDS_SANDBOX: "1"
       MENDARI_PACKS: mendari/prior-auth-preflight
       MENDARI_PUBLIC_URL: http://engine:8000
+      # The example agents are test fixtures, mounted read-only (the image ships the demo agent).
+      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_DATASETS_PATH: /sandbox/datasets
+    volumes:
+      - ../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_ENGINE_PORT:-8090}:8000"
 

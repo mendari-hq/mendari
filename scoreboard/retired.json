@@ -1,0 +1,11 @@
+{
+  "format": "mendari.retired-agents/1",
+  "archive": "tests/fixtures/scoreboard",
+  "agents": {
+    "mendari/ai-guard": {"retired": "2026-11-21", "reason": "agents only: the example Decision Packs left the product (archive/decision-packs)"},
+    "mendari/clinical-trial-prescreener": {"retired": "2026-11-21", "reason": "agents only: the example Decision Packs left the product (archive/decision-packs)"},
+    "mendari/patient-inbox-router": {"retired": "2026-11-21", "reason": "agents only: the example Decision Packs left the product (archive/decision-packs)"},
+    "mendari/prior-auth-preflight": {"retired": "2026-11-21", "reason": "agents only: the example Decision Packs left the product (archive/decision-packs)"},
+    "mendari/referral-router": {"retired": "2026-11-21", "reason": "agents only: the example Decision Packs left the product (archive/decision-packs)"}
+  }
+}

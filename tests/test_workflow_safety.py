@@ -168,7 +168,7 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     checked = "\n".join(step.get("run", "") for step in verify["steps"])
     assert "--index-url https://test.pypi.org/simple/" in checked and "--no-deps" in checked
     assert 'cmp "$served"' in checked and "--require-hashes" in checked
-    assert "mendari test mendari/patient-inbox-router" in checked
+    assert "mendari test mendari/portal-message-agent" in checked
     assert "extra-index-url" not in RELEASE.read_text()  # no name on TestPyPI stands in for one
 
 

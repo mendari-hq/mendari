@@ -75,7 +75,7 @@ jobs:
         run: |
           python3 -m venv /tmp/clean
           /tmp/clean/bin/pip install --quiet dist/*.whl
-          /tmp/clean/bin/mendari test mendari/patient-inbox-router
+          /tmp/clean/bin/mendari test mendari/portal-message-agent
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router
           /tmp/clean/bin/mendari test /tmp/refill-router
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -85,7 +85,7 @@ jobs:
           retention-days: 7
 
   images:
-    # The engine with every pack, and one image per pack, each built once from the run's commit
+    # The engine with its bundled agents, built once from the run's commit
     # (the tagged one the build checked) for linux/amd64 and linux/arm64 into one OCI archive,
     # with BuildKit's SBOM of each finished image attached (its generator pinned by digest), then
     # each architecture's image taken from that archive, tested and checked: the publishing job
@@ -96,12 +96,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: mendari-engine, pack: mendari/patient-inbox-router, only: ""}
-          - {name: mendari-patient-inbox-router, pack: mendari/patient-inbox-router, only: mendari/patient-inbox-router}
-          - {name: mendari-referral-router, pack: mendari/referral-router, only: mendari/referral-router}
-          - {name: mendari-prior-auth-preflight, pack: mendari/prior-auth-preflight, only: mendari/prior-auth-preflight}
-          - {name: mendari-clinical-trial-prescreener, pack: mendari/clinical-trial-prescreener, only: mendari/clinical-trial-prescreener}
-          - {name: mendari-ai-guard, pack: mendari/ai-guard, only: mendari/ai-guard}
+          - {name: mendari-engine, pack: mendari/portal-message-agent, only: ""}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -227,11 +222,6 @@ jobs:
       matrix:
         name:
           - mendari-engine
-          - mendari-patient-inbox-router
-          - mendari-referral-router
-          - mendari-prior-auth-preflight
-          - mendari-clinical-trial-prescreener
-          - mendari-ai-guard
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -330,4 +320,4 @@ jobs:
           /tmp/clean/bin/pip install --quiet --require-hashes -r /tmp/requirements.txt
           /tmp/clean/bin/pip install --quiet --no-deps "$served"
           /tmp/clean/bin/mendari --version
-          /tmp/clean/bin/mendari test mendari/patient-inbox-router
+          /tmp/clean/bin/mendari test mendari/portal-message-agent
