@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: Apache-2.0
+// The adoption path: the six steps from finding an agent to running it on evidence, at the top of
+// the Overview. Each step's state comes from what the page already reads (the agent's detail, its
+// decision counts and the validation brief's gates); nothing here is stored or computed anew.
+
+import { esc, icon } from "./ui.js";
+
+const MIN_PILOT_CASES = 30; // the validation brief's pilot minimum (core/validation_brief.py)
+
+const gate = (brief, key) => (brief?.gates ?? []).find((g) => g.key === key);
+const passed = (g) => g?.status === "pass";
+
+const SOURCE = {
+  hub: "Pulled from a registry and verified. Its Hub page shows the publisher's signed evaluations and sites' evidence.",
+  maintained: "Bundled with Mendari.",
+  local: "Your organization's own agent, served from this deployment.",
+  store: "From your organization's agent store, promoted by someone who did not write it.",
+  community: "A community agent: it recommends, and a person confirms every decision.",
+};
+
+// [state, evidence, action] for each step; state is "done", "todo" or "blocked".
+function steps(stats, brief, detail) {
+  const total = stats?.decisions ?? 0;
+  const pilot = brief?.shadow_pilot ?? {};
+  const pilotCases = brief?.volume?.total ?? 0;
+  const safety = gate(brief, "safety");
+  const agreement = gate(brief, "agreement");
+  const governance = gate(brief, "governance");
+  const drift = gate(brief, "drift");
+  return [
+    {
+      key: "source",
+      title: "Know where it came from",
+      state: detail?.origin ? "done" : "todo",
+      evidence: SOURCE[detail?.origin] ?? "Its source is shown on its Decision Card.",
+      action: { href: "#card", label: "Decision Card" },
+    },
+    {
+      key: "try",
+      title: "Try it on synthetic cases",
+      state: total > 0 ? "done" : "todo",
+      evidence: total > 0
+        ? `${total} decision${total === 1 ? "" : "s"} made so far.`
+        : "See what it decides, and why, before it touches a workflow.",
+      action: { href: "#try", label: "Try it" },
+    },
+    {
+      key: "shadow",
+      title: "Shadow it on real workflows",
+      state: pilot.active && pilotCases >= MIN_PILOT_CASES ? "done" : "todo",
+      evidence: pilot.active
+        ? `Shadow pilot running: ${pilotCases} of the ${MIN_PILOT_CASES} cases the brief asks for, automation held while clinicians decide.`
+        : "Run it beside clinicians with automation held, so its answers are compared with theirs before it acts alone.",
+      action: { href: "#cc-title", label: pilot.active ? "Shadow pilot" : "Start a shadow pilot" },
+    },
+    {
+      key: "validate",
+      title: "Validate it on your own cases",
+      state: passed(safety) && passed(agreement) ? "done" : "todo",
+      // What still stands in the way, or that both gates pass.
+      evidence: ([safety, agreement].find((g) => g && !passed(g))?.detail)
+        ?? (safety && agreement ? "Safe on your cases, and clinicians agree with it."
+          : "Evaluate it on your organization's labelled cases and compare with the publisher's evaluations."),
+      action: { href: "#evals", label: "Evaluations" },
+    },
+    {
+      key: "approve",
+      title: "Approve it",
+      state: passed(governance) ? "done" : "todo",
+      evidence: governance?.detail ?? "Record who approved this exact version, and for what.",
+      action: { href: "#card/approval", label: "Governance" },
+    },
+    {
+      key: "monitor",
+      title: "Monitor it and share back",
+      // Quiet monitoring is only evidence once the agent has been validated on real cases.
+      state: passed(safety) && passed(agreement) && passed(drift) && total > 0 ? "done" : "todo",
+      evidence: drift?.detail
+        ? `${drift.detail} Then share signed counts with the registry, so the next hospital starts from evidence.`
+        : "Watch drift and overrides, and share signed counts so the next hospital starts from evidence.",
+      action: { href: "#monitoring", label: "Monitoring" },
+    },
+  ];
+}
+
+export function adoptionPath(stats, brief, detail) {
+  const list = steps(stats, brief, detail);
+  const next = list.findIndex((step) => step.state !== "done");
+  const doneCount = list.filter((step) => step.state === "done").length;
+  return `<section class="panel adoption" aria-labelledby="adoption-title">
+    <div class="row adoption-head">
+      <h2 id="adoption-title">Adoption path</h2>
+      <span class="muted">${doneCount} of ${list.length} steps done</span>
+    </div>
+    <ol class="adoption-steps">${list.map((step, index) => {
+      const current = index === next;
+      return `<li class="adoption-step ${step.state}${current ? " current" : ""}" ${current ? 'aria-current="step"' : ""} data-step="${step.key}">
+        <span class="adoption-mark" aria-hidden="true">${step.state === "done" ? icon("check") : index + 1}</span>
+        <div class="adoption-body">
+          <p class="adoption-title"><b>${esc(step.title)}</b>
+            <span class="sr-only">${step.state === "done" ? "(done)" : current ? "(next step)" : "(to do)"}</span></p>
+          <p class="muted">${esc(step.evidence)}</p>
+        </div>
+        <a class="button${current ? " primary" : ""} adoption-action" href="${step.action.href}">${esc(step.action.label)}</a>
+      </li>`;
+    }).join("")}</ol>
+  </section>`;
+}

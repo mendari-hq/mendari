@@ -110,11 +110,11 @@ ORIGIN_LABELS: Mapping[Origin, str] = {
     "maintained": "Maintained by Mendari",
     "community": COMMUNITY_LABEL,
     "hub": "From a registry",
-    "local": "Local pack",
+    "local": "Local agent",
     "store": "From this organization's store",
 }
 # What a community pack does with a decision, wherever it says so.
-COMMUNITY_AUTOMATION = "Never: a community pack recommends, and a person confirms every decision."
+COMMUNITY_AUTOMATION = "Never: a community agent recommends, and a person confirms every decision."
 
 
 # Beside a pulled pack in the registry cache: where it came from (LP-18d, `hub/client.py`
@@ -211,7 +211,7 @@ def rule_problems(manifest: PackManifest) -> list[str]:
     """Why a community pack's policy rules cannot stand: none of them blocks, since a blocked
     case is final at once and no person sees it."""
     return [
-        f"policy rule {rule.name!r} has outcome BLOCK; a community pack recommends and a person "
+        f"policy rule {rule.name!r} has outcome BLOCK; a community agent recommends and a person "
         "confirms every decision: use HUMAN_REVIEW (with a priority) instead"
         for rule in manifest.policy.rules
         if rule.outcome is Outcome.BLOCK

@@ -641,7 +641,7 @@ def test_a_pack_in_the_community_namespace_is_labelled_community_wherever_it_was
 def test_the_decision_card_labels_a_community_pack_and_says_it_never_automates() -> None:
     card = render_card(load_pack(SORTER, origin="community"))
     assert f"| Source | {COMMUNITY_LABEL} |" in card
-    assert "| Automation | Never: a community pack recommends, and a person confirms" in card
+    assert "| Automation | Never: a community agent recommends, and a person confirms" in card
     assert "AUTO permitted" not in card
     assert "published by Mendari tests (community, self-declared)" in card
     # The policy section says the same: never "AUTO when confidence >= 0.90".
