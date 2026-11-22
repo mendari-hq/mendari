@@ -632,7 +632,7 @@ def test_clopper_pearson_over_a_wide_grid() -> None:
 def test_a_bootstrap_without_resamples_or_a_level_in_0_1_is_refused(call: Any) -> None:
     """Before, no resample raised an IndexError deep in `percentile`, and a level of 1.5 gave
     'bounds' with the low above the high."""
-    with pytest.raises(ValueError, match="resamples must be|level must be"):
+    with pytest.raises(ValueError, match=r"resamples must be|level must be"):
         call()
 
 
