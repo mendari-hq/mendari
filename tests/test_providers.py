@@ -96,7 +96,7 @@ def test_a_rules_file_with_a_number_that_is_not_finite_is_refused_when_built(
     rules.write_text(text.replace(old, new, 1))
     pack = load_pack(root)
     assert any("red_flags.yaml" in warning for warning in pack.warnings)
-    with pytest.raises(PackValidationError, match="red_flags.yaml"):
+    with pytest.raises(PackValidationError, match=r"red_flags\.yaml"):
         build_provider(pack, "safety_screen", "rules")
 
 
