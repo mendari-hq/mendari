@@ -406,6 +406,17 @@ def mean(values: Sequence[float]) -> float:
     return math.fsum(values) / len(values)
 
 
+def _tail(resamples: int, level: float) -> float:
+    """A percentile interval's tail, (1 - level) / 2, once its resamples are a positive whole
+    number and its level is in (0, 1): with no resample there is no percentile (an IndexError
+    deep in `percentile`), and a level outside (0, 1) gives bounds that are not an interval."""
+    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 1:
+        raise ValueError("resamples must be a positive integer")
+    if not 0.0 < level < 1.0:
+        raise ValueError("level must be in (0, 1)")
+    return (1.0 - level) / 2.0
+
+
 def bootstrap(
     values: Sequence[float],
     statistic: Callable[[Sequence[float]], float] = mean,
@@ -417,11 +428,11 @@ def bootstrap(
     n = len(values)
     if n == 0:
         raise ValueError("no values")
+    tail = _tail(resamples, level)
     estimate = statistic(values)
     stats = sorted(
         statistic([values[i] for i in row]) for row in resample_indices(n, resamples, seed)
     )
-    tail = (1.0 - level) / 2.0
     return estimate, percentile(stats, tail), percentile(stats, 1.0 - tail)
 
 
@@ -440,6 +451,7 @@ def bootstrap_defined(
     n = len(records)
     if n == 0:
         raise ValueError("no records")
+    tail = _tail(resamples, level)
     estimate = statistic(records)
     values: list[float] = []
     dropped = 0
@@ -452,7 +464,6 @@ def bootstrap_defined(
     if not values:
         return estimate, None, None, dropped
     values.sort()
-    tail = (1.0 - level) / 2.0
     return estimate, percentile(values, tail), percentile(values, 1.0 - tail), dropped
 
 
@@ -472,12 +483,12 @@ def paired_bootstrap(
     n = len(a)
     if n == 0 or len(b) != n:
         raise ValueError("a and b must be the same non-zero length (paired cases)")
+    tail = _tail(resamples, level)
     estimate = statistic(a) - statistic(b)
     diffs = sorted(
         statistic([a[i] for i in row]) - statistic([b[i] for i in row])
         for row in resample_indices(n, resamples, seed)
     )
-    tail = (1.0 - level) / 2.0
     at_or_below = sum(1 for d in diffs if d <= 0.0)
     at_or_above = sum(1 for d in diffs if d >= 0.0)
     p_value = min(1.0, 2 * min(1 + at_or_below, 1 + at_or_above) / (resamples + 1))
@@ -520,12 +531,12 @@ def stratified_bootstrap(
         raise ValueError("no records")
     if len(strata) != n:
         raise ValueError("records and strata differ in length")
+    tail = _tail(resamples, level)
     estimate = statistic(records)
     values = sorted(
         statistic([records[i] for i in row])
         for row in stratified_resample_indices(strata, resamples, seed)
     )
-    tail = (1.0 - level) / 2.0
     return estimate, percentile(values, tail), percentile(values, 1.0 - tail)
 
 
@@ -549,6 +560,12 @@ def equal_mass_ece(
     n = len(confidences)
     if len(correct) != n:
         raise ValueError("confidences and correct differ in length")
+    if bins < 1 or min_bin_size < 1:
+        raise ValueError("bins and min_bin_size must be at least 1")
+    # A NaN never equals itself: its tie group would be empty (a division by zero), and sorted
+    # leaves the cases around it in no order at all.
+    if not all(math.isfinite(c) for c in confidences):
+        raise ValueError("confidences must be finite")
     base = {"method": "equal-mass", "bins_requested": bins, "min_bin_size": min_bin_size, "n": n}
     if n // bins < min_bin_size:
         return {

@@ -616,3 +616,32 @@ def test_clopper_pearson_over_a_wide_grid() -> None:
             low, high = stats.clopper_pearson(k, n)
             model_low, model_high = proportion_confint(k, n, alpha=0.05, method="beta")
             assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (k, n)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: stats.bootstrap([1.0, 2.0], resamples=0),
+        lambda: stats.bootstrap_defined([1.0, 2.0], stats.mean, resamples=0),
+        lambda: stats.paired_bootstrap([1.0], [2.0], resamples=0),
+        lambda: stats.stratified_bootstrap([1.0, 2.0], ["a", "b"], stats.mean, resamples=0),
+        lambda: stats.bootstrap([1.0, 2.0], level=1.5),
+        lambda: stats.paired_bootstrap([1.0], [2.0], level=0.0),
+    ],
+)
+def test_a_bootstrap_without_resamples_or_a_level_in_0_1_is_refused(call: Any) -> None:
+    """Before, no resample raised an IndexError deep in `percentile`, and a level of 1.5 gave
+    'bounds' with the low above the high."""
+    with pytest.raises(ValueError, match="resamples must be|level must be"):
+        call()
+
+
+def test_equal_mass_ece_refuses_no_bins_and_a_confidence_that_is_not_a_number() -> None:
+    """Before, bins=0 raised ZeroDivisionError, and a NaN confidence made an empty tie group
+    (NaN != NaN): another ZeroDivisionError, with the cases around it in no order."""
+    with pytest.raises(ValueError, match="bins and min_bin_size"):
+        stats.equal_mass_ece([0.5] * 10, [True] * 10, bins=0)
+    with pytest.raises(ValueError, match="bins and min_bin_size"):
+        stats.equal_mass_ece([], [], min_bin_size=0)
+    with pytest.raises(ValueError, match="finite"):
+        stats.equal_mass_ece([math.nan] + [0.5] * 99, [True] * 100, bins=2, min_bin_size=1)
