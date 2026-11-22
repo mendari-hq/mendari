@@ -89,7 +89,6 @@ def build(
     weekly_hours = round((weekly_auto * minutes_per_case) / 60.0, 1)
 
     high_alerts = [a for a in monitoring_alerts if a.get("severity") == "high"]
-    drift_alerts = [a for a in monitoring_alerts if a.get("kind") == "drift"]
 
     # Five transparent go-live readiness gates.
     gates: list[dict[str, Any]] = []
@@ -226,7 +225,7 @@ def build(
             }
         )
 
-    if not drift_alerts and not monitoring_alerts:
+    if not monitoring_alerts:
         gates.append(
             {
                 "key": "drift",
