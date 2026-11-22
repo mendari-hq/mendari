@@ -306,7 +306,7 @@ def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:
         raise ProviderError("provider_unavailable", f"HTTP {response.status_code}")
     try:
         body = response.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         raise ProviderError("invalid_response", "the model list is not JSON") from None
     models = body.get("models") if isinstance(body, dict) else None
     if not isinstance(models, list):

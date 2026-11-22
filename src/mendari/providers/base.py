@@ -354,6 +354,15 @@ def softmax(scores: Mapping[str, float], temperature: float = 1.0) -> dict[str, 
     return {label: value / total for label, value in exps.items()}
 
 
+def scored(scores: Mapping[str, float], temperature: float) -> dict[str, float]:
+    """The softmax of a local model's scores, or ProviderError when they are not finite: finite
+    weights can still add up past a float (two of 1e308), and the decision then fails closed
+    for that slot instead of raising out of it."""
+    if not all(math.isfinite(score) for score in scores.values()):
+        raise ProviderError("invalid_response", "the model's scores are not finite numbers")
+    return softmax(scores, temperature)
+
+
 def get_path(data: Any, dotted: str) -> Any:
     """Read `a.b.c` from nested mappings; missing keys yield None."""
     current = data

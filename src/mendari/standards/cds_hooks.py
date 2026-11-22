@@ -303,6 +303,7 @@ def invoke(
             unreadable[key] = "unsupported_type"
         prefetch[key] = value
     prefetch.update(found)
+    _require_one_patient(request, prefetch)
     templates = hooks.prefetch
     linking = linker(decision, request)
     with linking if linking is not None else nullcontext():
@@ -507,6 +508,32 @@ def _no_data(value: Any) -> bool:
         and value.get("resourceType") == "Bundle"
         and not value.get("entry")
     )
+
+
+def _require_one_patient(request: Mapping[str, Any], prefetch: Mapping[str, Any]) -> None:
+    """Every Patient in the prefetch (a resource, or a search's entry) is the hook's own
+    `context.patientId`: a decision is never made on one patient's record for another. A
+    mismatch is the client's error, refused before anything is decided."""
+    context = request.get("context")
+    patient = context.get("patientId") if isinstance(context, Mapping) else None
+    if not isinstance(patient, str) or not patient:
+        return
+    for key, value in prefetch.items():
+        resources = [value]
+        if isinstance(value, Mapping) and value.get("resourceType") == "Bundle":
+            entries = value.get("entry")
+            resources = (
+                [entry.get("resource") for entry in entries if isinstance(entry, Mapping)]
+                if isinstance(entries, list)
+                else []
+            )
+        for resource in resources:
+            if (
+                isinstance(resource, Mapping)
+                and resource.get("resourceType") == "Patient"
+                and resource.get("id") != patient
+            ):
+                raise FhirError(f"prefetch {key!r} holds a Patient other than context.patientId")
 
 
 def _require_r4(sent: Mapping[str, Any]) -> None:

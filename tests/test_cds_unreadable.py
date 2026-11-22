@@ -690,3 +690,24 @@ def test_audit_verify_passes_after_an_abstain(
     capsys.readouterr()
     assert main(["audit", "verify", "--db", db_target]) == 0
     assert '"ok": true' in capsys.readouterr().out
+
+
+def test_a_prefetch_patient_other_than_the_hooks_patient_is_refused(app: TestClient) -> None:
+    """A decision is never made on one patient's record for another: a Patient in the prefetch,
+    read or in a search, that is not `context.patientId` refuses the request, and nothing is
+    decided or recorded."""
+    body = patient_view(trial_record("Seen for diabetes follow-up."))
+    assert app.post(TRIAL, json=body).status_code == 200
+    for key, value in body["prefetch"].items():
+        if isinstance(value, dict) and value.get("resourceType") == "Patient":
+            other = copy.deepcopy(body)
+            other["prefetch"][key]["id"] = "someone-else"
+            refused = app.post(TRIAL, json=other)
+            assert refused.status_code == 422
+            assert "context.patientId" in refused.text and "someone-else" not in refused.text
+            break
+    else:
+        raise AssertionError("the trial request holds no Patient")
+    search = copy.deepcopy(body)
+    search["prefetch"]["extra"] = _bundle({"resourceType": "Patient", "id": "p2"})
+    assert app.post(TRIAL, json=search).status_code == 422

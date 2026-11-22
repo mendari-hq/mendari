@@ -100,6 +100,18 @@ def test_a_rules_file_with_a_number_that_is_not_finite_is_refused_when_built(
         build_provider(pack, "safety_screen", "rules")
 
 
+def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> None:
+    # Each weight is finite, so the file loads; two of them on one label add up to infinity,
+    # which the softmax refuses. It is the provider's failure (the decision goes to a person).
+    from mendari.errors import ProviderError
+    from mendari.providers.base import scored
+
+    with pytest.raises(ProviderError) as raised:
+        scored({"yes": 1e308 + 1e308, "no": 0.0}, 1.0)
+    assert raised.value.code == "invalid_response"
+    assert scored({"yes": 0.0, "no": 0.0}, 1.0) == {"yes": 0.5, "no": 0.5}
+
+
 # -- naive Bayes -------------------------------------------------------------------------------
 
 

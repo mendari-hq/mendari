@@ -32,7 +32,7 @@ from mendari.providers.base import (
     closed_problems,
     fingerprint,
     read_problems,
-    softmax,
+    scored,
     text_from,
 )
 
@@ -205,7 +205,7 @@ class RulesProvider(Provider):
                     if self._matches(regex, text, pattern.negatable):
                         scores[label] += pattern.weight
                         evidence.append(f"{label}:{pattern.name}")
-            probabilities = softmax(scores, self.rules.temperature)
+            probabilities = scored(scores, self.rules.temperature)
             answers[question] = self.make_answer(
                 question, probabilities, tuple(evidence + corrections)
             )

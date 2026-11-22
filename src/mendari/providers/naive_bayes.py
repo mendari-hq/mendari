@@ -40,7 +40,7 @@ from mendari.providers.base import (
     fingerprint,
     once,
     read_problems,
-    softmax,
+    scored,
     text_from,
 )
 from mendari.providers.calibration import fit_temperature
@@ -173,7 +173,7 @@ class NaiveBayesProvider(Provider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         words = tokenize(text_from(inputs, self.text_fields), self._character_ngrams)
         logits = log_posterior(self.labels, self._log_prior, self._tokens, words)
-        probabilities = softmax(logits, self.temperature)
+        probabilities = scored(logits, self.temperature)
         return ProviderOutput(
             answers={self.question: self.make_answer(self.question, probabilities)}
         )
