@@ -38,7 +38,7 @@ from tests.test_community_budget import BOUND_S, EMOJI, fan_out, long_message, s
 from tests.test_community_caps import sorter
 
 PACKS = INBOX_DIR.parent
-DATASETS = ROOT / "datasets"
+DATASETS = ROOT / "tests" / "fixtures" / "datasets"
 BILL = {"message": "I have a question about my last bill."}
 BLOCK_RULE = {
     "name": "blk",

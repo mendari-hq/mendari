@@ -42,9 +42,13 @@ from mendari.hub import client as hub_client
 from mendari.sandbox import synthetic_inbox
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT
 
-HARDER = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+HARDER = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+)
 # The draft's other split: 436 messages that share no family, paraphrase or sentence with HARDER.
-UNSEEN = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+UNSEEN = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+)
 MODEL = "models/destination-nb.json"
 TRAIN = "data/train.jsonl"
 CALIBRATION = "data/calibration.jsonl"

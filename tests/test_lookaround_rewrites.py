@@ -109,7 +109,9 @@ def shipped_inputs(pack: Pack) -> list[dict[str, Any]]:
     inputs = [case["input"] for case in load_cases(pack)]
     for path in sorted((GUARD_DIR / "data").glob("*.jsonl")):
         inputs += jsonl(path)
-    return inputs + jsonl(ROOT / "datasets" / "guard-local-site-example.jsonl")
+    return inputs + jsonl(
+        ROOT / "tests" / "fixtures" / "datasets" / "guard-local-site-example.jsonl"
+    )
 
 
 def decided(result: Any) -> dict[str, Any]:

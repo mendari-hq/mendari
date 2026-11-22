@@ -104,7 +104,7 @@ def golden() -> dict[str, Any]:
             decision = Decision.from_path(PACKS / directory)  # no store: unkeyed hashes
             if decision.pack.id != pack_id or decision.is_remote:
                 raise SystemExit(f"{directory}: not {pack_id} on local providers")
-            records = load_dataset(ROOT / "datasets" / dataset).records
+            records = load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records
             packs[pack_id] = {
                 "dataset": f"datasets/{dataset}",
                 "cases": [decided(decision, record, build) for record in records],

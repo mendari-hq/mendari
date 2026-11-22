@@ -54,7 +54,7 @@ REVIEW_STATUS = "Draft, not clinically reviewed"
 VERSION = "harder-inbox/1"
 DEFAULT_SEED = 20261107
 PACK_NAME = "patient-inbox-router"
-DRAFT_DIR = Path("datasets") / "drafts" / "patient-inbox-harder"
+DRAFT_DIR = Path("tests") / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder"
 FILES = ("train.jsonl", "heldout.jsonl", "REPORT.md", "FAMILIES.md")
 LANGUAGES = ("en", "es")
 

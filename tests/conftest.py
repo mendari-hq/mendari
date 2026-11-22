@@ -27,6 +27,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import sandbox as _sandbox
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
@@ -49,8 +50,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
 _reference.BUNDLED_DIRS = (REFERENCE_PACKS,)
 _registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
+_sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
 INBOX_DIR = REFERENCE_PACKS / "patient-inbox-router"
-LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
+LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
 _BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()

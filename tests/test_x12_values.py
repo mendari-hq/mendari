@@ -31,7 +31,7 @@ from mendari.standards import pas
 
 ROOT = Path(__file__).resolve().parents[1]
 # The image also takes its licence notices, built by scripts/image_notices.py (Dockerfile).
-SHIPPED_TREES = ("src", "packs", "datasets", "licenses/image")
+SHIPPED_TREES = ("src", "agents", "licenses/image")
 SHIPPED_FILES = ("README.md", "NOTICE", "scripts/image_notices.py")
 X12_SYSTEMS = "https://codesystem.x12.org"
 # The X12 values Mendari filled in, gave as examples or answered with before the decision: the

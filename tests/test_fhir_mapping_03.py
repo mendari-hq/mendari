@@ -1109,7 +1109,7 @@ def test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike() -> 
             rewritten = FhirAdapter(pack, mapping)
             want = {case["id"]: case.get("input_hash") for case in pinned[pack_id]["cases"]}
             read = 0
-            for record in load_dataset(ROOT / "datasets" / dataset).records:
+            for record in load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records:
                 if want[record["id"]] is None:
                     continue  # refused through FHIR (an order with no requirement set)
                 entries = {"resourceType": "Bundle", "type": "collection", "entry": build(record)}

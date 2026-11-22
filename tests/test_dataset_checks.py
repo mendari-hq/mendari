@@ -186,7 +186,7 @@ def _shipped() -> list[tuple[Pack, Dataset]]:
         pack = load_pack(folder)
         for name in pack.manifest.evaluation.datasets:
             found.append((pack, resolve_dataset(pack, name)))
-        example = ROOT / "datasets" / EXAMPLES[folder.name]
+        example = ROOT / "tests" / "fixtures" / "datasets" / EXAMPLES[folder.name]
         found.append((pack, load_dataset(example)))
     return found
 

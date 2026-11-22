@@ -171,7 +171,7 @@ def test_a_stored_report_figures_cannot_be_read_from_is_served_with_none(
 ) -> None:
     from mendari import AuditStore
 
-    odd = json.loads((LOCAL_DATASET.parents[1] / "tests/fixtures/eval-v1-inbox.json").read_text())
+    odd = json.loads((LOCAL_DATASET.parents[1] / "eval-v1-inbox.json").read_text())
     odd["decisions"]["critical"][0]["detected"] = 99  # more than its 23 positives
     AuditStore(db_target).save_report(odd)
     (listed,) = client.get("/api/evals").json()

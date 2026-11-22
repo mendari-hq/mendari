@@ -20,8 +20,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra server --no-editable --no-install-project
 COPY README.md LICENSE NOTICE ./
 COPY src ./src
-COPY packs ./packs
-COPY datasets ./datasets
+COPY agents ./agents
 RUN uv sync --frozen --no-dev --extra server --no-editable
 
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS runtime

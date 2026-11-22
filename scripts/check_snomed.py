@@ -76,7 +76,7 @@ _VERHOEFF_P = (
 # sdist's packs/ and datasets/), where any number written as a concept id is read as one. Not the
 # packages' metadata (a wheel's RECORD lists file sizes) nor the vendored third-party code, shipped
 # as it is, whose numbers are not codes: there only `CONCEPT_IDS` are looked for.
-OWN_FILES = ("mendari/", "packs/", "datasets/")
+OWN_FILES = ("mendari/", "agents/")
 VENDORED = "mendari/dashboard/vendor/"
 # Numbers in Mendari's own files written as a concept id that are not one, each with why.
 NOT_CONCEPT_IDS: dict[str, str] = {}

@@ -36,7 +36,9 @@ from mendari.hub.client import RegistryClient
 from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR, ROOT, Registry, message
 
-HARDER = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+HARDER = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
+)
 MODEL = "models/destination-nb.json"
 TRAIN = "data/train.jsonl"
 CALIBRATION = "data/calibration.jsonl"

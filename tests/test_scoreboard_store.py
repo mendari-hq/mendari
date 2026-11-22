@@ -495,7 +495,9 @@ def test_running_a_remote_configuration_without_replicates_is_refused(
     with pytest.raises(MendariError, match="train fits mendari/patient-inbox-router's models"):
         results_store.refuse_unmeasurable(inbox, "train", naive_bayes(inbox))
     with pytest.raises(MendariError, match="never a file, and no hidden set is run here"):
-        results_store.refuse_unmeasurable(inbox, str(ROOT / "datasets" / "x.jsonl"), jev)
+        results_store.refuse_unmeasurable(
+            inbox, str(ROOT / "tests" / "fixtures" / "datasets" / "x.jsonl"), jev
+        )
     shutil.copytree(inbox.root, tmp_path / "copy")
     with pytest.raises(MendariError, match="not a pack Mendari maintains"):
         results_store.refuse_unmeasurable(load_pack(tmp_path / "copy"), SET, naive_bayes(inbox))

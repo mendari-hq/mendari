@@ -24,7 +24,9 @@ from mendari.providers.base import softmax, text_from
 from mendari.providers.naive_bayes import FORMAT, FORMAT_CHARACTERS, log_posterior, tokenize, train
 from tests.conftest import INBOX_DIR, ROOT, message
 
-HARDER = ROOT / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+HARDER = (
+    ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "heldout.jsonl"
+)
 MODEL = "models/destination-nb.json"
 TOY = [
     ("please refill my prescription", "medical_assistant"),

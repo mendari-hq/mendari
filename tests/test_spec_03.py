@@ -197,7 +197,7 @@ def test_a_0_1_pack_with_a_0_3_key_is_refused_too(tmp_path: Path) -> None:
     }
     _, dataset, build = script.CASES["mendari/patient-inbox-router"]
     with script.on_the_day():
-        for record in load_dataset(ROOT / "datasets" / dataset).records:
+        for record in load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records:
             bundle = {"resourceType": "Bundle", "type": "collection", "entry": build(record)}
             assert input_hash(adapter.to_input(adapter.index(bundle))) == want[record["id"]]
 

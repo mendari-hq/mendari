@@ -433,7 +433,9 @@ def _cases() -> list[tuple[str, dict[str, Any]]]:
             decision = Decision.from_path(
                 ROOT / "tests" / "fixtures" / "reference-packs" / directory
             )
-            records = script.load_dataset(ROOT / "datasets" / dataset).records
+            records = script.load_dataset(
+                ROOT / "tests" / "fixtures" / "datasets" / dataset
+            ).records
             chosen = None
             for record in records:
                 bundle = {"resourceType": "Bundle", "type": "collection", "entry": build(record)}

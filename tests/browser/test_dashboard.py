@@ -95,7 +95,9 @@ def counted_board(pack_id: str, *, positives: int | None = None) -> dict[str, An
     primary = pack.manifest.policy.primary
     rows = []
     for row in board["rows"]:
-        local = ROOT / "datasets" / f"{row['dataset']}.jsonl"  # a local-site example
+        local = (
+            ROOT / "tests" / "fixtures" / "datasets" / f"{row['dataset']}.jsonl"
+        )  # a local-site example
         name = str(local) if local.is_file() else row["dataset"]
         dataset = resolve_dataset(pack, name).head(row["n"])
         labelled = sum(r.get("labels", {}).get(primary) is not None for r in dataset.records)

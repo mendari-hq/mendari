@@ -36,7 +36,7 @@ from mendari.standards.record_fhir import _ICD10_CODE
 from mendari.standards.terminology import sandbox_resources
 
 ROOT = Path(__file__).resolve().parents[1]
-TREES = ("agents", "community-packs", "datasets", "tests/fixtures")
+TREES = ("agents", "community-packs", "tests/fixtures")
 # What the wheel, the sdist and the images are built from: the wheel from src/, packs/ and
 # datasets/; the sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the
 # same trees and carry /licenses (#180): LICENSE, NOTICE and what the build writes from
@@ -44,7 +44,6 @@ TREES = ("agents", "community-packs", "datasets", "tests/fixtures")
 SHIPPED = (
     "src",
     "agents",
-    "datasets",
     "README.md",
     "LICENSE",
     "NOTICE",
@@ -154,7 +153,7 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
     found: set[str] = set()
     for path in [
         *sorted((pack / "data").glob("*.jsonl")),
-        ROOT / "datasets" / "prior-auth-local-site-example.jsonl",
+        ROOT / "tests" / "fixtures" / "datasets" / "prior-auth-local-site-example.jsonl",
     ]:
         for line in path.read_text().splitlines():
             record = json.loads(line).get("input", {})
@@ -244,9 +243,9 @@ def test_the_package_scan_finds_snomed_ct_however_it_is_written(tmp_path: Path) 
     allowed = "mendari-0.1.0/src/mendari/core/spec.py"
     assert check.package_path(allowed) == "mendari/core/spec.py"
     assert check.findings(allowed, '"http://snomed.info/sct"') == []
-    assert check.findings("mendari-0.1.0/packs/x/spec.py", '"http://snomed.info/sct"') != []
-    # The sdist's and the tree's packs and datasets are Mendari's own files as well.
-    for name in ("mendari-0.1.0/packs/x/a.yaml", "packs/x/a.yaml", "datasets/a.jsonl"):
+    assert check.findings("mendari-0.1.0/agents/x/spec.py", '"http://snomed.info/sct"') != []
+    # The sdist's and the tree's bundled agents are Mendari's own files as well.
+    for name in ("mendari-0.1.0/agents/x/a.yaml", "agents/x/a.yaml"):
         assert check.findings(name, "73211009") == [f"{name}: 73211009 {shaped}"]
 
 
@@ -295,7 +294,9 @@ def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
     assert listed == cql == set(CONDITIONS)
     used = {
         condition["code"]
-        for line in (ROOT / "datasets" / "trial-local-site-example.jsonl").read_text().splitlines()
+        for line in (ROOT / "tests" / "fixtures" / "datasets" / "trial-local-site-example.jsonl")
+        .read_text()
+        .splitlines()
         for condition in json.loads(line)["input"].get("conditions", [])
     }
     generated = {code for codes in synthetic_trial.LOCAL.values() for code in codes}
@@ -333,7 +334,9 @@ def test_each_local_condition_code_says_what_its_record_says() -> None:
     display = {concept["code"]: concept["display"] for concept in published["concept"]}
     codings = [
         coding
-        for line in (ROOT / "datasets" / "trial-local-site-example.jsonl").read_text().splitlines()
+        for line in (ROOT / "tests" / "fixtures" / "datasets" / "trial-local-site-example.jsonl")
+        .read_text()
+        .splitlines()
         for entry in record_fhir.bundle(json.loads(line)["input"], synthetic_trial.AS_OF)["entry"]
         if entry["resource"]["resourceType"] == "Condition"
         for coding in entry["resource"].get("code", {}).get("coding", [])

@@ -53,7 +53,7 @@ def bundle(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def records(dataset: str) -> list[dict[str, Any]]:
-    return load_dataset(ROOT / "datasets" / dataset).records
+    return load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records
 
 
 def test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says() -> None:
