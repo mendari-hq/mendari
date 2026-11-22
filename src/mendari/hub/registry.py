@@ -2062,6 +2062,15 @@ class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
 
+# The key route's body, described by reference as FastAPI would (`_registry_app` adds the schema).
+_KEY_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KeyRequest"}}},
+    }
+}
+
+
 # The registry answers JSON and archives, never a page: its CSP loads nothing and no one frames
 # it. With the engine's own (`server/app.py` `SECURITY_HEADERS`).
 REGISTRY_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
@@ -2178,6 +2187,17 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     )
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan, **pages)
     limiter = Limiter(store, registry_limit_settings())
+    described = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        """FastAPI's description, with the key route's body (read by the route itself, so
+        FastAPI does not list its model) among the schemas it references."""
+        schema = described()
+        schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+        schemas.setdefault("KeyRequest", KeyRequest.model_json_schema())
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
     def publisher_namespace(token: str, *, used: bool = False) -> str | None:
         """The namespace an owned token publishes to, while it is neither revoked nor expired;
@@ -2283,9 +2303,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "packs": len(store.latest()),
         }
 
-    @app.post(
-        "/v1/namespaces/{namespace}/keys", status_code=201, openapi_extra=_body_of(KeyRequest)
-    )
+    @app.post("/v1/namespaces/{namespace}/keys", status_code=201, openapi_extra=_KEY_REQUEST_BODY)
     async def add_key(request: Request, namespace: str) -> dict[str, str]:
         """Register a publisher key: its body read only once the token is the namespace's, and
         at most `MAX_SMALL_BYTES` (a body FastAPI parses is read before the route runs)."""
