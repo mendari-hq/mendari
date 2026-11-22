@@ -313,11 +313,19 @@ class SiteStore:
         return row
 
     def register_site(
-        self, *, org: str, name: str, by: str, reason: str | None = None
+        self,
+        *,
+        org: str,
+        name: str,
+        by: str,
+        reason: str | None = None,
+        most: int | None = None,
     ) -> dict[str, Any]:
         """Register a site for an organization: `pending` until a reviewer or the operator
         verifies it. Chained `site.registered` with the organization (and why, when the
-        operator registered it)."""
+        operator registered it). With `most`, refused (409) once the organization has that
+        many sites, counted in the write's own exclusive session so requests at once cannot
+        all pass the count."""
         from mendari.hub.registry import _label, _now, record_event
 
         org, by = _label(org, "the organization", 200), _label(by, "who registers", 200)
@@ -327,6 +335,10 @@ class SiteStore:
             payload["reason"] = _label(reason, "the reason", 200)
         site_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
+            if most is not None:
+                held = db.one("SELECT COUNT(*) AS n FROM hub_sites WHERE org = ?", (org,))
+                if held is not None and int(held["n"]) >= most:
+                    raise HubError(f"an organization has {most} sites at most", 409)
             db.all(
                 "INSERT INTO hub_sites (id, org, name, status, created_at, created_by) "
                 "VALUES (?, ?, ?, 'pending', ?, ?)",
