@@ -1,5 +1,7 @@
 # ADR-0012: A registry that shows only what it checked
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Accepted (2026-11-07, the owner: "the patent gate is clear and I approve everything on my part",
 which confirms each default below). Proposed 2026-10-09. Built (LP-18, 18a to 18h and the

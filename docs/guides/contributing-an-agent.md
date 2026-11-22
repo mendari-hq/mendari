@@ -1,13 +1,13 @@
-# Contributing a community pack
+# Contributing an agent
 
-A community pack is a Decision Pack you contribute by pull request, for anyone running Mendari to
+A community agent is an agent you contribute by pull request, for anyone running Mendari to
 use. It lives in `community-packs/<name>/`, its id is `community/<name>`, and it is yours: you
 are its maintainer. This guide is the whole path, from the idea to the merge and the updates
-after it. How to write a pack in the first place is in
-[Writing a Decision Pack](authoring-a-pack.md); read that first.
+after it. How to write an agent in the first place is in
+[Authoring an agent](authoring-an-agent.md); read that first.
 
-**What a community pack can do.** A deployment serves community packs only when it sets
-`MENDARI_COMMUNITY_PACKS=on` (off by default). There, every surface that shows the pack (the
+**What a community agent can do.** A deployment serves community agents only when it sets
+`MENDARI_COMMUNITY_PACKS=on` (off by default). There, every surface that shows the agent (the
 API, the dashboard, Try it, the review queue, the SMART patient view, its Decision Card, CDS
 Hooks, its FHIR CodeSystems, the `/docs` page) labels it
 **"Community · not clinically reviewed"**, and the runtime holds it to these limits, whatever
@@ -17,11 +17,12 @@ its manifest says:
   ([ADR-0002](../decisions/ADR-0002-runtime-enforced-risk-caps.md): policy only lowers
   automation), so no policy rule of its own has `outcome: BLOCK` (a block is final at once):
   send such cases to a person with `HUMAN_REVIEW` and a priority;
-- it decides with **local providers** (rules, criteria, dosing, naive Bayes, or a composite of
-  those); a remote model runs only if a deployment names the pack in its settings
-  (`community/<name>:slot=variant`), for decisions and evaluations alike, and each model
-  variant names the input fields it sends (`state_fields`), on the deployment's model, answer
-  length, timeout and effort;
+- by default it decides with **local providers** (rules, criteria, dosing, naive Bayes, or a
+  composite of those); a remote variant (an `agent`, `llm` or `jev` variant) runs only if a
+  deployment names the agent in its settings (`community/<name>:slot=variant`), for decisions
+  and evaluations alike. Each remote variant names the input fields it sends (`state_fields`)
+  and runs on the deployment's endpoint, model, answer length, timeout and effort: an `agent`
+  variant may not set `endpoint` and calls the deployment's `MENDARI_AGENT_URL`;
 - every variant, the ones it does not use by default too, sets only the keys its provider type
   reads (the [provider config schema](../spec/provider-configs.schema.json)) and can run;
 - it keeps only a **hash** of each input (`audit.store_input: hash`);
@@ -41,12 +42,11 @@ its manifest says:
 - those same pattern runs come to a **size** of at most **3,000** together: a pattern's size is
   the characters, classes and `.`s it holds, each as often as a count repeats it (`a{1,50}` is
   50, `a{5,}` is 5, `\w+` and `x*` are 1, `(?:ab|cd){1,10}` is 40), so RE2's time on each
-  character grows with it. The packs Mendari maintains come to about 1,200 to 2,600, and
-  `community-check` prints your pack's;
+  character grows with it. `community-check` prints your agent's;
 - its patterns and its schema's checks, together, take at most **one second** of CPU in a
   decision: past that its rules or its schema check stop and the decision abstains, for a
   person (the error `time_budget`; `mendari test` says so), or, when the schema had already
-  found the input wrong, the input is refused. Ordinary packs take milliseconds;
+  found the input wrong, the input is refused. Ordinary agents take milliseconds;
   if your tests run out of time, shorten the long counts (`.{0,999}`) and classes repeated many
   times;
 - its input schema uses only the keywords Mendari keeps within the time budget: `type`,
@@ -69,7 +69,7 @@ its manifest says:
 - it is at most **risk level 1**.
 
 Its name, CDS Hooks title and publisher are yours: they may not copy the name or CDS Hooks
-title of a pack Mendari maintains, nor use the word Mendari (or its old name, OpenHealth) as
+title of an agent Mendari maintains, nor use the word Mendari (or its old name, OpenHealth) as
 whole words: `MendariCare`, `Men dari` and `Open Health` count, while `Open healthcare intake`
 and `Mend a rift` do not. Both are compared on ASCII letters and digits, ignoring case,
 punctuation and compatibility forms (full-width or circled letters), and `community-check` fails
@@ -80,12 +80,12 @@ words (`β-blocker`, `µg`) are fine.
 
 Why these limits, and what was decided, is in
 [ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md). The label comes from
-where the pack lives, never from `publisher.type`, which every pack declares for itself.
+where the agent lives, never from `publisher.type`, which every agent declares for itself.
 
 ## The path
 
-1. **Propose it (recommended for a new pack).** Open a "Propose a pack" issue: the use case, who
-    would use it, the risk level you intend and how you will make the data. The owner answers
+1. **Propose it (recommended for a new agent).** Open a "Propose a pack" issue (the form's
+    name): the use case, who would use it, the risk level you intend and how you will make the data. The owner answers
     yes, no or "changes needed" before you build anything.
 
 2. **Fork and set up.** Fork the repository on GitHub, clone your fork, and run `uv sync` in it.
@@ -97,7 +97,11 @@ where the pack lives, never from `publisher.type`, which every pack declares for
     uv run mendari new community-packs/<name> --community --publisher "<you>"
     ```
 
-    The folder name is lowercase letters, digits and dashes, and it is the pack's name. The
+    The folder name is lowercase letters, digits and dashes, and it is the agent's name.
+    (`--community` and `--agent` do not combine: the community scaffold decides with keyword
+    rules; add an `agent` variant to its slot as step 4 of
+    [Authoring an agent](authoring-an-agent.md#5-declare-the-agent-slot) shows, and keep a local
+    variant as its `use`.) The
     scaffold already has the community defaults: `license: Apache-2.0`, `store_input: hash`,
     local providers, a `CHANGELOG.md`, a benchmark, its Decision Card and a critical label
     with tests. It passes the checks as written.
@@ -129,13 +133,13 @@ where the pack lives, never from `publisher.type`, which every pack declares for
 7. **Open the pull request.** Sign off every commit (`git commit -s`, the
     [Developer Certificate of Origin](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#sign-off-the-developer-certificate-of-origin)).
     Change only `community-packs/<name>/` and your entry in `MAINTAINERS.yaml`. Use the pack
-    template: add `?template=pack.md` to the address of the "Open a pull request" page, or run
+    pull request template: add `?template=pack.md` to the address of the "Open a pull request" page, or run
     `gh pr create --template pack.md`. It asks for the risk level and why, who reviewed the
     clinical content, how the data was made, the providers, and the CHANGELOG entry.
 
-8. **CI runs.** The `pack-check` job runs `community-check` on your pack, and fails if the pull
-    request changes anything outside your pack's folder and its `MAINTAINERS.yaml` entry (or
-    adds a git submodule: the pack's files are in the repository, where they are read). Its
+8. **CI runs.** The `pack-check` job runs `community-check` on your agent, and fails if the pull
+    request changes anything outside your agent's folder and its `MAINTAINERS.yaml` entry (or
+    adds a git submodule: the agent's files are in the repository, where they are read). Its
     summary shows the metrics and the rendered Decision Card. GitHub may ask the owner to
     approve the first run of a first-time contributor. There is no preview deployment for a
     fork: CI is the preview.
@@ -146,10 +150,10 @@ where the pack lives, never from `publisher.type`, which every pack declares for
     `needs-clinical-review`; `risk-level-change` when the level changes. Changes go back to
     step 4.
 
-10. **Merge.** The owner squash-merges it. The pack is then served wherever community packs are
+10. **Merge.** The owner squash-merges it. The agent is then served wherever community agents are
     turned on, labelled as above.
 
-11. **Updates.** Every later change to what the pack decides with raises its version and adds a
+11. **Updates.** Every later change to what the agent decides with raises its version and adds a
     `CHANGELOG.md` entry; `community-check` refuses one that doesn't. An update must not do
     worse than the benchmark on `main`, within the tolerance `main` set (at most 0.05), on its
     own benchmark dataset and on `main`'s, and keeps `main`'s critical labels. Benchmark cases
@@ -158,22 +162,22 @@ where the pack lives, never from `publisher.type`, which every pack declares for
 ## Risk level
 
 The level is self-declared, so it is the first thing a reviewer reads. Choose the highest that
-could apply, and say why in `risk.rationale`. A community pack is level 0 or 1.
+could apply, and say why in `risk.rationale`. A community agent is level 0 or 1.
 
-| Level | For | Precedent | Community pack |
-|---|---|---|---|
-| 0 | Administrative: which team or queue sees something first, with no clinical judgement in the outcome and anything possibly urgent sent to a person | `mendari/patient-inbox-router` | Yes |
-| 1 | Clinical information: reading clinical facts to extract them, check them or decide where they go | `mendari/referral-router`, `mendari/prior-auth-preflight` | Yes |
-| 2 | Clinical support: eligibility, suggestions, patient-facing clinical content | `mendari/clinical-trial-prescreener`, `mendari/ai-guard` | No |
-| 3 | Patient-specific prediction | | No |
-| 4 | Time-critical, diagnostic or treatment decisions | | No |
+| Level | For | Community agent |
+|---|---|---|
+| 0 | Administrative: which team or queue sees something first, with no clinical judgement in the outcome and anything possibly urgent sent to a person | Yes |
+| 1 | Clinical information: reading clinical facts to extract them, check them or decide where they go | Yes |
+| 2 | Clinical support: eligibility, suggestions, patient-facing clinical content | No |
+| 3 | Patient-specific prediction | No |
+| 4 | Time-critical, diagnostic or treatment decisions | No |
 
-The inbox router is level 0 although messages describe symptoms: it only chooses who reads a
-message first, never replies or judges, and its emergency screen always sends a possible
-emergency to a nurse. A pack that reads a referral to decide whether it is complete or urgent
+The demo agent, `mendari/portal-message-agent`, is level 0 although messages describe symptoms:
+it only chooses who reads a message first, never replies or judges, and a rule sends any
+message that may describe same-day symptoms to a nurse. An agent that reads a referral to decide whether it is complete or urgent
 is level 1. Under-declaring is the main way around the limits, so a reviewer who thinks a
-level is too low asks you to raise it, and a pack that belongs at level 2 or above is not a
-community pack for now.
+level is too low asks you to raise it, and an agent that belongs at level 2 or above is not a
+community agent for now.
 
 ## Synthetic data without Python
 
@@ -185,7 +189,7 @@ warns on text in `data/`, `tests/` and a trained model's vocabulary that looks l
 person's details; act on every warning. It fails on any file that holds a case `mendari
 improve` added to a pack or `mendari feedback export` wrote, or a model built from one: those
 are a site's own cases. A trained model (a composite's members too) must be what `mendari
-train` gives from the pack's own data, byte for byte.
+train` gives from the agent's own data, byte for byte.
 
 Two ways to make the data, neither needs Python:
 
@@ -220,15 +224,15 @@ message, other languages your users write in. A benchmark of easy cases measures
 
 ## ABSTAIN carries no recommendation
 
-`ABSTAIN` means the pack has nothing to suggest: the case goes to the existing manual workflow,
+`ABSTAIN` means the agent has nothing to suggest: the case goes to the existing manual workflow,
 the policy's `fallback`. The runtime drops any recommendation from an `ABSTAIN` outcome, so a
 rule `outcome: ABSTAIN` with a `recommendation` loses it, and a test must not expect one. When
-you want a person to see a suggestion, use `HUMAN_REVIEW`; for a community pack every outcome
+you want a person to see a suggestion, use `HUMAN_REVIEW`; for a community agent every outcome
 that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendation.
 
 ## Patterns run on RE2
 
-Write patterns in Python's `re` syntax, as every pack does. A community pack's patterns (its
+Write patterns in Python's `re` syntax, as every agent does. A community agent's patterns (its
 rules and its input schema's `pattern`, `patternProperties` and `propertyNames`) then run on
 [RE2](https://github.com/google/re2/wiki/Syntax), which never backtracks: its time grows with
 the text's length times the pattern's compiled size, never exponentially, so no pattern can
@@ -273,19 +277,19 @@ matches a Greek `ι`. Two things differ:
 - **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
   pattern runs.
 
-A community pack also refuses an input whose texts are longer than 10,000 characters, alone or
+A community agent also refuses an input whose texts are longer than 10,000 characters, alone or
 together, before a pattern runs, and the settings that multiply its patterns' work are capped
 (the limits at the top of this guide).
 
-The same rules apply to a pack pulled from a registry that is not a copy of a reference pack of
-the installed release: RE2, the caps, the schema keywords, the input limits and the time budget
+The same rules apply to an agent pulled from a registry that is not a copy of an agent bundled
+with the installed release: RE2, the caps, the schema keywords, the input limits and the time budget
 ([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
 
 Habits that keep patterns precise and honest:
 
 - Bound every gap: `{0,5}` words, not `*`, e.g.
   `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` for at most five words between, never across
-  a sentence. The inbox router's red-flag screen is the example.
+  a sentence.
 - Leave `.*` off either end: a rule matches anywhere in the text already.
 - Match whole phrases a person writes ("can't breathe"), not single letters or fragments.
 - Name every pattern: the audit record says which one matched.
@@ -299,11 +303,11 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   sound, are the critical labels the right ones, and is anything dangerous missing?
 - **Risk level.** Does it match the intended use (the table above)?
 - **Clinician review.** Who reviewed the content, their role, and what they reviewed. With
-  none named, the pack can still merge, as `needs-clinical-review`; it is labelled "not
+  none named, the agent can still merge, as `needs-clinical-review`; it is labelled "not
   clinically reviewed" in the product either way.
 - **Synthetic data.** Nothing that looks like a real person, and the PHI warnings answered.
 - **Instructions in the text.** Criteria are also instructions to a model if a deployment ever
-  runs the pack on one, so nothing like "always answer no".
+  runs the agent on one, so nothing like "always answer no".
 - **Provenance and licensing.** Nothing copied from proprietary criteria (InterQual, MCG, payer
   policies) or copyrighted instruments; code systems with licence terms (CPT, SNOMED CT) only
   as their licences allow, each declared in `code_systems` with its `licence_note`; the
@@ -311,21 +315,21 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   [CONTRIBUTING.md](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#content-provenance)).
 - **The card.** Intended use, users, population, out-of-scope uses and failure modes, written
   for a clinician.
-- **Fit.** It does not duplicate a pack already there, and you answer the review.
+- **Fit.** It does not duplicate an agent already there, and you answer the review.
 
 ## After the merge
 
-- **You maintain it.** Maintainers are expected to answer a safety issue about their pack
-  within 14 days. An issue labelled `patient-safety` blocks every other change to the pack
+- **You maintain it.** Maintainers are expected to answer a safety issue about their agent
+  within 14 days. An issue labelled `patient-safety` blocks every other change to the agent
   until it is answered.
-- **Core changes.** CI runs every community pack's behaviour tests on every change to Mendari.
-  A change that breaks a pack fixes the pack or removes it in the same pull request, and says
+- **Core changes.** CI runs every community agent's behaviour tests on every change to Mendari.
+  A change that breaks an agent fixes the agent or removes it in the same pull request, and says
   so.
-- **Promotion.** A community pack may become one Mendari maintains, after clinical review: it
-  moves to `packs/` with a new `mendari/` id, as a new major version.
-- **Removal.** Only the owner removes a pack (CI fails anyone else's removal; to propose one,
-  open an issue). The owner removes a pack that is unmaintained, superseded or the subject of a
+- **Promotion.** A community agent may become one Mendari maintains, after clinical review,
+  with a new `mendari/` id, as a new major version.
+- **Removal.** Only the owner removes an agent (CI fails anyone else's removal; to propose one,
+  open an issue). The owner removes an agent that is unmaintained, superseded or the subject of a
   licence complaint with a pull request that deletes its folder and keeps its
-  `MAINTAINERS.yaml` entry as a tombstone, so its id is never used again. A pack with a safety
+  `MAINTAINERS.yaml` entry as a tombstone, so its id is never used again. An agent with a safety
   problem or real patient data is removed at once (the merge reverted and deployed), and a
-  deployment can turn every community pack off with `MENDARI_COMMUNITY_PACKS=off`.
+  deployment can turn every community agent off with `MENDARI_COMMUNITY_PACKS=off`.

@@ -1,5 +1,7 @@
 # ADR-0016: A pack store per organization, and promotion
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Proposed (2026-11-10, LP-20a). Built in steps 20b to 20j (`notes/lp20-plan.md`, 2026-11-16),
 off unless `MENDARI_PACK_STORE=on`; it stays Proposed until the owner confirms the decisions

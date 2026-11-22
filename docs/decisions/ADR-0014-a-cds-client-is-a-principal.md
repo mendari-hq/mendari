@@ -1,5 +1,7 @@
 # ADR-0014: A CDS client is a principal, and a record it cannot read abstains
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (2026-11-06, LP-23m). Proposed 2026-10-17. It amends
 [ADR-0006](ADR-0006-an-ehr-launch-is-a-principal.md)'s rule that the narrow EHR principal exists

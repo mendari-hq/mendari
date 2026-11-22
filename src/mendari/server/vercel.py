@@ -57,7 +57,7 @@ Configuration comes from the environment:
   (`vercel.json`, 300 s; the check stops at 180). The order to turn these on, and the Hub's
   own project, are in deploy/vercel/README.md ("Registry and Hub").
 - `MENDARI_PACK_STORE`: `on` serves organizations' pack stores at `/api/store/...` (LP-20f;
-  memberships mode only, docs/operations/pack-store.md). Unset (the default): nothing is
+  memberships mode only, docs/operations/agent-store.md). Unset (the default): nothing is
   mounted. `MENDARI_STORE_ORG_BYTES` (256 MiB unset) bounds what one organization keeps;
   `MENDARI_STORE_MAX_ARCHIVE_BYTES` (32 MiB unset) an archive, sent in parts each under
   `MENDARI_MAX_BODY_BYTES`.

@@ -147,10 +147,9 @@ The agent's manifest (`pack.yaml`) declares **questions, not models**: each ques
 set of answers with criteria written in words, and the policy is written against those answers.
 Edit the questions, the policy, the examples and the tests for your own task; `mendari validate`
 says what is wrong, by file and field. Every section of the manifest is explained in the
-[authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md)
+[authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md)
 and specified in
-[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (both
-still use the manifest's older name, Decision Pack).
+[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md).
 
 ### Point it at a live agent
 
@@ -341,7 +340,7 @@ uv run mkdocs build --strict
 
 | If you want to | Read |
 |---|---|
-| write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md) |
+| write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | connect an EHR | [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md) |
 | run it at your organization | [Deploying with real patient data](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md) |

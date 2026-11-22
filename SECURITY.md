@@ -425,7 +425,7 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
 
 Outside developers contribute packs by pull request, into `community-packs/<name>/` with the id
 `community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-packs-by-pull-request.md); the
-contributor's guide is [`docs/guides/contributing-a-pack.md`](docs/guides/contributing-a-pack.md)).
+contributor's guide is [`docs/guides/contributing-an-agent.md`](docs/guides/contributing-an-agent.md)).
 They are not clinically reviewed, so the runtime limits what they can do, whatever their
 manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
 the patterns on RE2 with their caps and budget, also hold every pack pulled from a registry

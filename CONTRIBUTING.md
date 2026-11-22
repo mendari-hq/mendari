@@ -19,7 +19,7 @@ never in a public issue. Most contributions will be one of these:
 
 Fork the repository, clone your fork and run `uv sync` in it (Mendari is not on PyPI yet; see
 [Install](README.md#install)). Start with `uv run mendari new <dir> --id <namespace>/<name>` and
-the [pack-authoring guide](docs/guides/authoring-a-pack.md), which needs no programming. Commands
+the [pack-authoring guide](docs/guides/authoring-an-agent.md), which needs no programming. Commands
 take the pack's folder (`uv run mendari test <dir>`); to try it in the dashboard, put its parent
 folder on the search path: `MENDARI_PACKS_PATH=<parent> uv run mendari serve`. A pack is ready
 for review when:
@@ -38,7 +38,7 @@ pack is built. Their reviewer is the owner, a physician, and each review record 
 the reviewer is also the author. Every other pack keeps the rule above.
 
 A pack contributed for others to use goes in `community-packs/<name>/` with the id
-`community/<name>`. [Contributing a community pack](docs/guides/contributing-a-pack.md) is the
+`community/<name>`. [Contributing a community pack](docs/guides/contributing-an-agent.md) is the
 whole path: propose it with a "Propose a pack" issue, start it with
 `uv run mendari new community-packs/<name> --community`, check it with
 `uv run mendari community-check community-packs/<name> --base origin/main` (the checks CI runs,
@@ -164,7 +164,7 @@ Packs carry clinical content, so where it comes from matters as much as the code
 
 - **No real patient data**, anywhere: not in data, tests, issues or pull requests, not even
   de-identified. Write synthetic cases yourself
-  ([how](docs/guides/contributing-a-pack.md#synthetic-data-without-python)).
+  ([how](docs/guides/contributing-an-agent.md#synthetic-data-without-python)).
 - **No proprietary criteria or copyrighted instruments.** Do not copy text from InterQual, MCG,
   payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
   your own words from public sources (guidelines, published papers, regulations), and cite

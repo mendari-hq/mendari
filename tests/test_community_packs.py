@@ -704,10 +704,11 @@ def test_the_contribution_forms_and_guide_hang_together() -> None:
     template = (ROOT / ".github/PULL_REQUEST_TEMPLATE/pack.md").read_text()
     assert "git commit -s" in template and "community-check" in template
     nav = (ROOT / "mkdocs.yml").read_text()
-    assert "guides/contributing-a-pack.md" in nav
+    assert "guides/contributing-an-agent.md" in nav
     assert "decisions/ADR-0007-community-packs-by-pull-request.md" in nav
-    guide = (ROOT / "docs/guides/contributing-a-pack.md").read_text()
-    assert COMMUNITY_LABEL in guide and "`mendari/patient-inbox-router` | Yes" in guide
+    guide = (ROOT / "docs/guides/contributing-an-agent.md").read_text()
+    assert COMMUNITY_LABEL in guide and "| 0 | Administrative:" in guide
+    assert "anything possibly urgent sent to a person | Yes |" in guide
 
 
 # -- FHIR terminology: its own url, labelled (B3) -----------------------------------------------

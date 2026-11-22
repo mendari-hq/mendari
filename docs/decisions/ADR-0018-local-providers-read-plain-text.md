@@ -1,5 +1,7 @@
 # ADR-0018: Local providers read text in its plain form
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Proposed (2026-11-10). Built on the branch that proposes it; it changes what a pack decides on
 some inputs, so merging it is the owner's decision.

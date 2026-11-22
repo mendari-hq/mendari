@@ -1,5 +1,7 @@
 # ADR-0009: Bounded evaluation for packs the deployment does not own
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Accepted (2026-10-07, the owner's decision: LP-16, Option A scoped). Built in steps
 (`tasks/todo.md`, LP-16 build): 16a, the engine choice and the registry's check; 16b, a

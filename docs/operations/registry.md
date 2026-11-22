@@ -1,11 +1,11 @@
-# Running a pack registry
+# Running a registry
 
-A **registry** keeps signed pack archives with immutable versions, and anyone can pull and
+A **registry** keeps signed agent archives with immutable versions, and anyone can pull and
 verify them. It shows only what it checked
 ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it renders
 each version's Decision Card itself, never shows the card, benchmark or leaderboard a publisher
 uploads, and answers what it verified (`checked`) apart from what the publisher says
-(`claimed`). This page is for whoever runs a registry, and for a deployment that serves packs
+(`claimed`). This page is for whoever runs a registry, and for a deployment that serves agents
 pulled from one.
 
 There is no public registry yet. A registry of its own has no accounts and no shared secret
@@ -89,7 +89,7 @@ decision for a deployment, and no release turns it on.
   there only where the registry is on; a reserved or taken name is refused in words.
 - **A request body is the engine's limit at most** (`MENDARI_MAX_BODY_BYTES`, 4 MiB by default;
   a host may allow less): a larger archive is a `413` that says so. A registry of its own takes
-  100 MB. Larger archives under the engine wait for the pack store (LP-20).
+  100 MB. Larger archives under the engine wait for the agent store (LP-20).
 - **Limits and logs.** The registry's own rate limits apply (`MENDARI_REGISTRY_RATE_LIMITS`,
   above), counted in the engine's database. Requests under `/registry/` get an access line in
   the engine's security log with the route's template (`/registry/v1/packs/{namespace}/{name}`),
@@ -152,14 +152,15 @@ command and, where the command asks for one, why ([The chain](#the-chain)).
 | Register, verify, key, revoke, close or list sites | `mendari registry site`, `site-verify`, `site-key`, `site-revoke-key`, `site-close`, `sites` ([below](#sites)) |
 
 Every command takes `--db` (a SQLite path or a `postgresql://` URL). `scripts/hub_seed.py`
-does the first steps for the reference packs (claim `mendari`, mint, publish, approve).
+does the first steps for the bundled agents, today the demo agent (claim `mendari`, mint,
+publish, approve).
 
 A publisher, with its token, registers its keys (`mendari keys register`), publishes
 (`mendari push`) and recalls its own versions (`mendari yank`, signed with one of its keys). A publish
 that `mendari validate` would refuse is refused (`422`, naming up to five problems by file and
 place, never a case; nothing is stored): the registry runs the same validation function as the
 command line and the community check. A
-publish whose archive holds cases `mendari improve` added to a pack or `mendari feedback
+publish whose archive holds cases `mendari improve` added to an agent or `mendari feedback
 export` wrote, or a model built from them, is refused (`422`, naming the files with how many
 times each is marked, never a case): they are a site's cases, which `mendari push` refuses to
 send, and the registry keeps nothing of one sent by a client that did not look. A review shows
@@ -168,7 +169,7 @@ shown. A review's note stays in the chain for good.
 
 ## Recalls and deletions
 
-A recall (`mendari.yank/1`) names one version exactly (pack, version, digest, archive), with a
+A recall (`mendari.yank/1`) names one version exactly (agent, version, digest, archive), with a
 reason, a severity, who signed it and when. A version is recalled once. A recalled version
 leaves the latest version, search and the namespace's list; it is still served by its exact
 version, with the record, and its archive stays. `GET /v1/yanks` lists every recall.
@@ -178,17 +179,17 @@ reason, its bytes go once no version that is not deleted needs them, and its row
 tombstone stay, so the version is never published again. `mendari pull` refuses a deleted
 version and removes a cached copy.
 
-### When a pack must stop
+### When an agent must stop
 
 1. **Recall it.** The publisher runs
    `mendari yank ns/name@1.2.0 --reason "misroutes refills" --severity high --key keys/publisher.key`,
    or the registry recalls it, signed with its own key: a reviewer under the engine, or the
    operator's `mendari registry recall ns/name@1.2.0 --severity high --reason …`.
 2. **Servers stop automating it, from their next read.** A server reads `GET /v1/yanks` of a
-   registry its served packs came from in a thread of its own. A decision for one of that
-   registry's packs starts the read, once the last one is older than
+   registry its served agents came from in a thread of its own. A decision for one of that
+   registry's agents starts the read, once the last one is older than
    `MENDARI_REGISTRY_RECALL_CHECK_S` (300 s unless set); that decision, and any made while the
-   read runs, use the list read before. From then on a recalled pack no longer automates, and
+   read runs, use the list read before. From then on a recalled agent no longer automates, and
    its own rule's BLOCK goes to a person, whether or not its organization approved it, and each
    held decision says why in its reasons. A server that decides all day has the recall within
    about five minutes; on a quiet one, the first decision after the recall can still automate.
@@ -198,15 +199,15 @@ version and removes a cached copy.
    whether it publishes a signing key (`signs`; see the known limits below). The
    Decision Card shows a recall the last pull recorded; one read since shows in health and in
    the decisions' reasons.
-3. **Not soon enough, or a quiet server?** Hold the pack on each deployment now
+3. **Not soon enough, or a quiet server?** Hold the agent on each deployment now
    ([Holding automation](automation-hold.md)): a hold takes effect within seconds, with no read.
-4. **Afterwards**, remove the recalled version from each server's pack cache
+4. **Afterwards**, remove the recalled version from each server's agent cache
    (`packs/<namespace>/<name>/<version>` under `MENDARI_CACHE_DIR`), or pull a fixed version.
    A new version has a new digest, so it waits for its organization's approval.
 5. **If it must never be served,** delete it as well.
 
 A recall a server cannot verify is still honoured: it only lowers automation. A serverless
-instance starts unread and holds its pulled packs until its first read. `mendari decide` and
+instance starts unread and holds its pulled agents until its first read. `mendari decide` and
 `Decision.from_hub` know only the recall the last pull recorded.
 
 ## Reaching a registry
@@ -218,9 +219,9 @@ publisher token never crosses a network in clear. Plain http is allowed to this 
 docker sandbox use. An address with a user or a password in it is refused. Put a registry that
 other machines use behind TLS.
 
-## Serving pulled packs
+## Serving pulled agents
 
-A pack pulled from a registry never automates until your organization approves its exact
+An agent pulled from a registry never automates until your organization approves its exact
 digest, at every risk level (2 and 3 need their governance approval too, and 4 never
 automates); until then its own rule's BLOCK goes to a person. Approve it on its Decision Card
 (the Automation approval section: where it came from, the digest served, any recall, then a
@@ -231,28 +232,28 @@ lasts until revoked. It never lifts a recall, a hold or a risk level's cap.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How old a server's last read of a registry's recalls may be before a decision for one of its packs starts another (that decision uses the last list) |
-| `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (at least twice the check) | After this long without a successful read, every pack from that registry is held |
+| `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How old a server's last read of a registry's recalls may be before a decision for one of its agents starts another (that decision uses the last list) |
+| `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (at least twice the check) | After this long without a successful read, every agent from that registry is held |
 
-These reads go only to the registry a pack's verified marker names, over https (plain http to
+These reads go only to the registry an agent's verified marker names, over https (plain http to
 this machine), with no redirects, 5 s per step, 20 s for the whole answer and 5 MB at most.
-They are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`. A pack pulled before LP-18d names no
+They are not under `MENDARI_PROVIDER_ALLOWED_ORIGINS`. An agent pulled before LP-18d names no
 registry and is held until it is pulled again.
 
-A pulled pack is shown with the registry's card. Its uploaded benchmark is never a reference
+A pulled agent is shown with the registry's card. Its uploaded benchmark is never a reference
 here: the Monitoring view says it is not compared (`benchmark.reason: from_registry`) and runs
 only the checks that need no benchmark, and an evaluation says it is not compared with the
-benchmark the pack carries. Give `mendari eval --baseline report.json` a report of your own to
+benchmark the agent carries. Give `mendari eval --baseline report.json` a report of your own to
 compare with.
 
 ## The regression check
 
 On every publish the registry evaluates the version on its own test set
 (`evaluation.benchmark_dataset`), in a child process with no credential, local providers only
-and 180 s at most, and compares it with the newest earlier version's check (the pack gate). It
+and 180 s at most, and compares it with the newest earlier version's check (the agent gate). It
 shows the result as `checked.regression`, labelled "publisher's own test set: regression check,
 not a ranking", and never refuses a version for it. The publisher chose the set, so it can show
-a regression, never rank. A pack whose default providers call a model is not measured
+a regression, never rank. An agent whose default providers call a model is not measured
 (`needs_remote`). At most two checks run at once; a publish past that is told to try again
 (`503`).
 
@@ -307,7 +308,7 @@ Namespaces made before stay listed (they have no claim), and nothing in the data
 A claim links a namespace to an organization. It is `pending` until it is approved or refused,
 once, and until it is approved nothing of the namespace is served to anyone but its own token
 and a reviewer: to everyone else it answers as a namespace that does not exist (the same `404`),
-in every read, search, the recall list and health's pack count. A namespace with no claim (one
+in every read, search, the recall list and health's agent count. A namespace with no claim (one
 from before claims, which an administrator made over HTTP until LP-19g) is listed as before.
 
 ```bash
@@ -329,7 +330,7 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
   decided on its first publish. With a pending claim the publisher registers keys and
   publishes as usual, the regression check runs, and its own token reads what it published
   (`listed: false` on the namespace and on each version), so `mendari push` confirms.
-- **Approved**, the namespace's later versions and new pack names are listed at once. A
+- **Approved**, the namespace's later versions and new agent names are listed at once. A
   decision is final: an approved claim is not refused later (recall or delete a version
   instead), and a refused one is never approved.
 - **Refused**, nothing is removed: its versions and archives stay in the database, served only
@@ -342,7 +343,7 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
 
 ## Sites
 
-A site is a health system that evaluates packs on its own chart-reviewed data and shares signed
+A site is a health system that evaluates agents on its own chart-reviewed data and shares signed
 counts (LP-22, [ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)). It is a
 record owned by an organization, `pending` until it is verified, once, by a registry reviewer or
 by the operator's command with how it was checked; `refused` or `closed` sites stay stored and
@@ -373,14 +374,14 @@ mendari registry sites --db var/registry.db [--org ORG] [--status pending]   # r
 verified, and its keys' ids with their dates and whether each was revoked as compromised (a
 reader can then tell which signed reports leave the pool). A pending, refused or closed site answers as one
 that does not exist. Check who an organization is outside Mendari before verifying its site:
-a site's name is as good as that check. A site whose organization holds a pack's namespace (its
-claim) is the publisher's own site for that pack: its reports are listed and left out of the
+a site's name is as good as that check. A site whose organization holds an agent's namespace (its
+claim) is the publisher's own site for that agent: its reports are listed and left out of the
 pool.
 
 ### Tickets
 
-Before a site evaluates a pack it asks for a ticket (`mendari site ticket`, LP-22e): a
-`mendari.site-ticket-request/1` signed with one of its live keys, bound to the pack's digest,
+Before a site evaluates an agent it asks for a ticket (`mendari site ticket`, LP-22e): a
+`mendari.site-ticket-request/1` signed with one of its live keys, bound to the agent's digest,
 the configuration (each slot's variant), the dataset's size and a keyed commitment to the
 dataset (an HMAC under a secret that never leaves the site; the dataset's own hash is never
 sent). `POST /v1/tickets` reads at most 8 KB and checks, in order: the key is a live key of a
@@ -417,7 +418,7 @@ A verified site answers one ticket with a `mendari.site-submission/1` it signed 
 bearer credential: the registry finds the ticket by the secret's SHA-256 before it reads the
 body, then reads at most 2 MB and checks that the ticket is the record's and still open (not
 expired, withdrawn or reported), that the key is a live key of the ticket's site, the signature
-over the exact fields, the nonce, that the report's pack, digest, configuration, size and
+over the exact fields, the nonce, that the report's agent, digest, configuration, size and
 consent are the ticket's, its names, and that suppression changes nothing. The report and the
 ticket's `reported` status are written in one transaction, chained `report.shared` (with the
 site, key, ticket and the body's SHA-256) and `site.ticket_reported`. A publisher token no
@@ -518,7 +519,7 @@ reviewer role sees this screen alone. Through the API:
   `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
   `admin.registry_pack.reviewed|recalled|deleted`, with ids only.
 - Notes and reasons are one printable line, 300 characters at most, kept for good: about the
-  pack or the publisher, never case text.
+  agent or the publisher, never case text.
 
 Where nobody signs in, or there is no review organization, the operator does the same on the
 database, each chained with who ran the command:
@@ -533,7 +534,7 @@ mendari registry delete acme/inbox@1.2.0 --db var/registry.db --reason "carried 
 ## The counter-signature
 
 With `MENDARI_REGISTRY_SIGNING_KEY` set, the registry signs a record for each version when it
-becomes listed (`mendari.registry-acceptance/1`: the pack, version, digest, archive SHA-256, the
+becomes listed (`mendari.registry-acceptance/1`: the agent, version, digest, archive SHA-256, the
 publisher key that signed the archive, the registry's key id and the time). It does so at
 publish in a listed namespace, and at approval for every version published while the claim was
 pending. A version of a refused namespace is never counter-signed, nor a deleted one. The record
@@ -545,7 +546,7 @@ before it fetches the archive:
 
 | The registry | The version's record | The pull |
 |---|---|---|
-| publishes a key this machine trusts | verifies, and names exactly this pack, version, digest, archive and publisher key | pulled; the marker beside the pack records `accepted: true` |
+| publishes a key this machine trusts | verifies, and names exactly this agent, version, digest, archive and publisher key | pulled; the marker beside the agent records `accepted: true` |
 | publishes a key this machine trusts | missing, does not verify, or names something else | **refused**, nothing cached |
 | publishes no key, and never did to this machine | (none) | pulled as before; `accepted: null`, and `mendari pull` says it is not counter-signed |
 | published a key before, and now publishes none or another | (any) | **refused**, as a changed host key is |
@@ -591,7 +592,7 @@ signature on a version it never accepted. It therefore:
   since are read: take a fresh checkpoint (with `--previous`) just before, or read them;
 - checks each version again from what is stored before it signs: its archive is there and
   hashes to its name, is signed by a key of its namespace, and its signed manifest names this
-  pack, version and digest. One that fails is skipped and printed with why, and the command
+  agent, version and digest. One that fails is skipped and printed with why, and the command
   exits 1. An approval makes the same check on the versions published while the claim was
   pending;
 - prints the versions it signed, chains each record (`pack.accepted`) with who ran it, and signs
@@ -620,7 +621,7 @@ Known limits, stated plainly:
   the client, and `required` for a self-hosted registry that has a key. A value that is not one
   of the three refuses every pull.
 - **A cached copy is re-checked by a running server, not by the command line.** A server
-  asks each registry its packs came from whether it publishes a signing key, in the same read
+  asks each registry its agents came from whether it publishes a signing key, in the same read
   as its recalls ([above](#recalls-and-deletions)). Once the registry has one, a copy pulled
   while it had none (`accepted: null`), or before counter-signatures, stops automating: its
   decisions go to a person with a reason that says to pull it again, and `mendari pull` of the

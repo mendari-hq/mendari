@@ -1,5 +1,7 @@
 # ADR-0005: Before PHI, the chain commits to what it must not copy, and limits come in two layers
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (Phase 4b, 2026-10-02)
 

@@ -3455,9 +3455,11 @@ COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_
 # Laid over TEMPLATE by `mendari new --agent`: an AI agent pack with an offline mock fixture.
 AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
-AUTHORING_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md"
+AUTHORING_GUIDE = (
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
+)
 COMMUNITY_GUIDE = (
-    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md"
+    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md"
 )
 
 

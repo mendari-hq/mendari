@@ -422,7 +422,7 @@ def _pattern_notes(ctx: _Context, pack: Pack) -> None:
                 "ASCII, or a class that may match one: RE2 counts only ASCII letters, digits and "
                 f"_ as word characters just outside a match, so \\b{_CANCER}\\b also matches "
                 f'inside "{_PRACTICE}". Write (?:^|\\W){_CANCER}(?:\\W|$) instead (see "Patterns '
-                'run on RE2" in docs/guides/contributing-a-pack.md)',
+                'run on RE2" in docs/guides/contributing-an-agent.md)',
             )
 
 

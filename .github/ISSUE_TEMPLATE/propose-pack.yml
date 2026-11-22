@@ -7,7 +7,7 @@ body:
       value: >-
         A community pack lives in `community-packs/<name>/` with the id `community/<name>`, is at
         most risk level 1, and recommends without automating (see
-        docs/guides/contributing-a-pack.md). Never paste real patient data: describe cases in
+        docs/guides/contributing-an-agent.md). Never paste real patient data: describe cases in
         your own words.
   - type: input
     id: name

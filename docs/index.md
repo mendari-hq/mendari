@@ -19,7 +19,7 @@ governed agent is a folder of plain text:
 
 | If you want to | Read |
 |---|---|
-| write an agent's manifest (`pack.yaml`), without programming | [The authoring guide](guides/authoring-a-pack.md) |
+| wrap your agent: its manifest (`pack.yaml`) and HTTP contract | [Authoring an agent](guides/authoring-an-agent.md) |
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
 | let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
 | evaluate an agent on your own site's cases | [Evaluating at your site](guides/evaluate-at-your-site.md) |
@@ -30,9 +30,8 @@ governed agent is a folder of plain text:
 | review its security | [Threat model](security/threat-model.md) |
 | see where the project is going | [Roadmap](roadmap.md) |
 
-These pages are still being moved to agent wording: several call a governed agent by its
-manifest's older name, a Decision Pack, and some describe example material that is no longer
-bundled.
+The decision records predate the agents-only change and keep their older wording; each says
+so under its title.
 
 ## In one minute
 

@@ -1,5 +1,7 @@
 # ADR-0017: A site network of signed counts
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Proposed (2026-11-10, LP-22a). Nothing in it is built yet. It is built in steps planned in
 `notes/lp22-plan.md` (22a to 22j), most of them after

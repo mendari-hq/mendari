@@ -1,5 +1,7 @@
 # ADR-0010: Operations for a public service
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (2026-11-07, the owner: "the patent gate is clear and I approve everything on my part",
 which confirms each default below and 21n's merge). Proposed 2026-10-08. Built: 21a to 21n,

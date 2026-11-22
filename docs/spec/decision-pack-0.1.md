@@ -1,4 +1,6 @@
-# Decision Pack Specification, version 0.1
+# Agent manifest spec 0.1
+
+(formerly the Decision Pack spec; the format is unchanged)
 
 Status: draft. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (manifest) and `mendari.core.policy` (semantics).
@@ -7,21 +9,21 @@ to be normative.
 
 ## 1. Purpose
 
-A Decision Pack packages one healthcare decision so it can be executed, evaluated, governed
-and shared independently of the models that implement it. A pack MUST be self-describing: a
+An agent packages one healthcare decision so it can be executed, evaluated, governed
+and shared independently of the models that implement it. An agent MUST be self-describing: a
 reviewer can determine what it decides, for whom, with what inputs, under what automation
 limits, and how well it performed on which data, without reading code.
 
 ## 2. Layout
 
-A pack is a directory containing `pack.yaml`. All paths in the manifest are relative to the
-pack directory and MUST NOT resolve outside it.
+An agent is a directory containing `pack.yaml`. All paths in the manifest are relative to the
+agent directory and MUST NOT resolve outside it.
 
 | Path (conventional) | Required | Content |
 |---|---|---|
 | `pack.yaml` | yes | Manifest (§3) |
 | `policy.yaml` | no | Policy (§6). It may instead be inline in `pack.yaml` |
-| `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the pack input |
+| `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the agent input |
 | `fhir/mapping.yaml` | no | FHIR R4 mapping (§9) |
 | `logic/`, `models/` | per provider | Provider configuration and artifacts |
 | `data/*.jsonl` | no | Evaluation datasets (§8) |
@@ -68,8 +70,8 @@ Validation rules (all MUST hold):
 - `policy.primary` is a question. Rule conditions reference existing questions and labels.
   Rule recommendations and `policy.labels` keys are labels of the primary question.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
-- Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
-- Every referenced file exists inside the pack.
+- Agents at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
+- Every referenced file exists inside the agent.
 
 ## 4. Questions
 
@@ -88,7 +90,7 @@ a provider error with a stable, audit-safe code (e.g. `timeout`, `rate_limited`,
 credentials or remote error bodies.
 
 Variants of a slot are interchangeable implementations of the same contract. Selecting a
-variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, policy or
+variant (`providers={"router": "jev"}`) MUST NOT change the agent's questions, policy or
 tests.
 
 Built-in types in v0.1: `rules` (deterministic patterns with negation handling and optional
@@ -131,15 +133,15 @@ Evaluation order (MUST):
 | 4 | Time-critical / diagnostic / treatment | AUTO always capped; no override |
 
 A governance override is supplied by the *deploying* organization at runtime, never by the
-pack. It names an approver and a reference, and it is recorded in every affected decision.
+agent. It names an approver and a reference, and it is recorded in every affected decision.
 
 ## 8. Evaluation
 
-Dataset format: JSON Lines. Each line has an `input` (the pack input), optional `labels`
+Dataset format: JSON Lines. Each line has an `input` (the agent input), optional `labels`
 (`{question: label}`), optional `attributes` (subgroup metadata such as `language` or
 `site`), and an optional `id`.
 
-An evaluation report (`format: mendari.eval/1`) MUST include the pack id, version and
+An evaluation report (`format: mendari.eval/1`) MUST include the agent id, version and
 digest; the provider variant and model of each slot; the dataset name, SHA-256 and size; per
 question accuracy, macro-F1, per-label precision/recall/F1, confusion matrix, ECE with
 reliability bins, and Brier score; outcome rates; automation accuracy and false automation
@@ -148,7 +150,7 @@ count and the number of true critical cases that were automated; latency percent
 subgroup metrics for each configured attribute; and a threshold sweep. Reports MUST NOT
 contain case inputs.
 
-**Local validation** compares a report on local data with the pack's published benchmark. It
+**Local validation** compares a report on local data with the agent's published benchmark. It
 MUST report the overall delta of primary accuracy and SHOULD localize degradation by label
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
 a finding.
@@ -163,7 +165,7 @@ for AUTO or `requested` otherwise, `priority` from the decision, `businessStatus
 outcome, `focus` and `for` references, the recommendation as `performerType`, and the
 decision id as an identifier.
 
-A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). v0.1
+An agent with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). v0.1
 requires all declared prefetch keys and never queries the caller's FHIR server.
 
 ## 10. Behaviour tests
@@ -175,14 +177,14 @@ safety behaviour.
 
 ## 11. Identity and versioning
 
-The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
-except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack. Every decision
+The agent digest is the SHA-256 over every file in the agent (path and content, in sorted order)
+except `evals/` and `DECISION_CARD.md`, which are attestations *about* the agent. Every decision
 and evaluation report records the digest, so an audit record identifies the exact behaviour
 that produced it.
 
 ## 12. Audit records
 
-Every decision produces a record with id, timestamp, pack id/version/digest, input (or only its
+Every decision produces a record with id, timestamp, agent id/version/digest, input (or only its
 hash when `audit.store_input: hash`), per-answer provider type/variant/model, label, confidence,
 probabilities and evidence, outcome, recommendation, priority, reasons, fallback, provider
 errors, latency, cost and token usage, and any governance override. Human review results and

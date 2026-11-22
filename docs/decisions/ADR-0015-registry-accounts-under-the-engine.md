@@ -1,5 +1,7 @@
 # ADR-0015: Registry accounts, under the engine
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (2026-11-15, the owner, in chat: "Accept all defaults", which accepts each of the ten
 defaults in `notes/lp19-plan.md`, "Owner decisions still open"). Proposed 2026-11-09 (LP-19a).

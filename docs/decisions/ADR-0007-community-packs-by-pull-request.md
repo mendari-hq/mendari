@@ -1,5 +1,7 @@
 # ADR-0007: Community packs come by pull request, and where a pack lives is its label
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Accepted (2026-10-04). The code, checks and docs are built; the GitHub settings (labels, the DCO
 app, `pack-check` and DCO as required checks, the code-owner ruleset) and turning community

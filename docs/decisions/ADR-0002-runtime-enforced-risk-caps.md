@@ -1,5 +1,7 @@
 # ADR-0002: Automation limits are enforced by the runtime, and lifted only by the deployer
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (v0.1)
 

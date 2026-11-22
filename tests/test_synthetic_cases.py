@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """`scripts/synthetic_cases.py`: synthetic data from templates, for pack authors who do not write
-Python (docs/guides/contributing-a-pack.md)."""
+Python (docs/guides/contributing-an-agent.md)."""
 
 from __future__ import annotations
 

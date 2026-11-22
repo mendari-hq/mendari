@@ -1,7 +1,7 @@
 # Hidden evaluation sets
 
-A **hidden evaluation set** is a set of hand-written cases that a pack's authors never see, kept
-to measure the pack honestly (LP-11,
+A **hidden evaluation set** is a set of hand-written cases that an agent's authors never see, kept
+to measure the agent honestly (LP-11,
 [ADR-0011](../decisions/ADR-0011-hidden-evaluation-sets.md)). Clinicians label its cases blind,
 and a grading run answers aggregates only. This runbook covers all of LP-11 (11a to 11o): the
 owner's steps for the keys; making a set, adding and removing its cases,
@@ -11,7 +11,7 @@ it, retiring it, listing sets and verifying them, rotating the keys, rebuilding 
 index and the sealed export, all from the key holder's command line; how a labeller labels,
 through their own routes (LP-11j); how an organization's administrators list and read its sets
 and draw, assign and adjudicate their cases through theirs (LP-11k); how the organization's
-grading key grades a pack against a frozen set through its route (LP-11l); and the dashboard's
+grading key grades an agent against a frozen set through its route (LP-11l); and the dashboard's
 Labelling and Hidden sets screens over the labellers' and curators' routes (LP-11m, LP-11n).
 
 ## A set from start to end
@@ -55,13 +55,13 @@ in this order, through the command line and the routes, on SQLite and Postgres.
 
 Sets live only in the deployment's own database (locally, a developer's SQLite or Postgres with
 synthetic sets), in the tables `evalset_sets`, `evalset_cases`, `evalset_index`,
-`evalset_assignments` and `evalset_labels`: never in this repository, a pack directory, a
-shipped fixture or a pack digest. Each set belongs to one organization and one pack.
+`evalset_assignments` and `evalset_labels`: never in this repository, an agent directory, a
+shipped fixture or an agent digest. Each set belongs to one organization and one agent.
 
 Everything about a case is sealed with AES-256-GCM under `MENDARI_EVALSET_KEY`, each value bound
 to its kind, its set and its case: its input, and its attributes (the author, language, stratum
 and source, the id its author gave it, an intended label if any) with a 32-byte salt. A set's
-header (the pack's id, the set's name, the pack's questions with their labels and its critical
+header (the agent's id, the set's name, the agent's questions with their labels and its critical
 labels) is sealed too, and so is each label, bound to its own id as well, the set's measured
 agreement and coverage, and, once it is frozen, its freeze record (the salt and the content hash
 behind its commitment). What stays in the clear is ids, states, a case's status, times, keyed
@@ -86,13 +86,13 @@ chain id (`evalset:<set id>`):
 | `evalset.measured` | the set, the organization, how many cases its agreement and coverage were measured over, and their commitment (`aggregates_ref`: the SHA-256 of a fixed prefix, the aggregates' salt and the set's id and aggregates) |
 | `evalset.frozen` | the set, the organization, its commitment (the SHA-256 of a fixed prefix, the freeze salt and the content hash), how many cases it holds, its rotation rule (`max_runs`, `max_age_days`), and the commitment to the aggregates freezing stored (`aggregates_ref`) |
 | `evalset.activated` | the set and the organization: its first grading read made it active |
-| `evalset.graded` | the set, the organization, its commitment, the grading key (`key:<id>`), the digest of the pack graded, how many cases, and the run's number: each grading read, before its run receives the cases |
+| `evalset.graded` | the set, the organization, its commitment, the grading key (`key:<id>`), the digest of the agent graded, how many cases, and the run's number: each grading read, before its run receives the cases |
 | `evalset.retired` | the set, the organization and its commitment |
 
 An organization's administrators see their own sets' events in the administrative list and its
 FHIR export, as ids and hashes: they can tell that cases were added, removed, read and labelled,
 by whom (a user id), and which went to adjudication, when a set was frozen, graded (by which
-grading key, for which pack digest) and retired, never what they hold or how anyone labelled
+grading key, for which agent digest) and retired, never what they hold or how anyone labelled
 them. The command line prints ids, line numbers, case hashes and counts, never a case's text or
 a set's name; only `evalset agreement`, `evalset coverage`, `evalset freeze` and `evalset show`
 name labels (counts and coefficients by label) and `evalset coverage` and `evalset show` the
@@ -174,35 +174,35 @@ first real set:
 Each command takes the server's database from `--db` or `$DATABASE_URL`. Each one that writes
 (every `mendari evalset` command but `list`, `progress`, `show`, `export` and `rotate --check`)
 refuses a database that is not the server's: one that never held a decision, a deployment, a
-hold or a set (a server records its deployment at its first decision with a pack). `list`
+hold or a set (a server records its deployment at its first decision with an agent). `list`
 opens it read-only and refuses one that is not Mendari's; an unused one lists nothing.
 
 ```bash
-mendari evalset create mendari/patient-inbox-router --org clinic-a --name "Inbox, spring" --db "$DATABASE_URL"
-mendari evalset add <set id> ~/hidden/inbox-spring.jsonl --db "$DATABASE_URL"
+mendari evalset create mendari/portal-message-agent --org clinic-a --name "Portal, spring" --db "$DATABASE_URL"
+mendari evalset add <set id> ~/hidden/portal-spring.jsonl --db "$DATABASE_URL"
 mendari evalset remove-case <set id> <case hash> --db "$DATABASE_URL"
 mendari evalset list --db "$DATABASE_URL"
 ```
 
 `create` prints the set's id. The organization must have a record if the database has any.
 
-A file of cases is JSON Lines, one case a line, as a pack's dataset is: the pack's `input`, and
+A file of cases is JSON Lines, one case a line, as an agent's dataset is: the agent's `input`, and
 the case's `attributes`. Keep it outside Mendari's package and any checkout of its repository:
 `add` refuses a file there, before reading it.
 
 ```json
-{"id": "inbox-u01", "input": {"message": {"body": "...", "channel": "portal"}}, "labels": {"urgency": "routine"}, "attributes": {"author": "a-clinician", "language": "en", "stratum": "routine", "source": "hand_written", "template": null}}
+{"id": "portal-u01", "input": {"message": {"body": "..."}}, "labels": {"request": "appointment", "urgent_symptoms": "no"}, "attributes": {"author": "a-clinician", "language": "en", "stratum": "routine", "source": "hand_written", "template": null}}
 ```
 
 - `attributes.source` is `hand_written`: de-identified cases wait for B20.
 - `attributes.template` is null or left out: a case written from a template is refused.
 - `attributes.author`, `attributes.language` and `attributes.stratum` are given.
-- `id` (the author's own) and `labels` (an intended label, of the pack's questions) are optional;
+- `id` (the author's own) and `labels` (an intended label, of the agent's questions) are optional;
   both are kept sealed among the attributes.
 - A `system` or `feedback` block, as `mendari feedback export` writes, is refused: it holds what
   a model decided or what people rated.
 - An input equal to a public case's is refused, exactly or once its text is folded (`norm/v1`):
-  the reference packs' data and the example datasets as this release bundles them, and each
+  the bundled agents' data and the example datasets as this release bundles them, and each
   synthetic generator's output at its default seed. A paraphrase of a public case passes this
   check: the author's care and review stand in for it.
 
@@ -321,7 +321,7 @@ labellers and Krippendorff's alpha across them, with seeded bootstrap intervals
 case's, a resolved case's majority): distinct cases and positives, the warning under 100
 distinct positives of a critical label, and the mix of languages, sources and strata
 (`mendari.coverage/1`). Both name labels and counts, never a case; `coverage` also names the
-strata and languages, so keep its output as you would the set. The pack is the one the set was
+strata and languages, so keep its output as you would the set. The agent is the one the set was
 made for, found by its id; give `--pack` (an id or a directory) if it does not resolve where you
 run the command. `coverage` uses seed 0 and 2,000 resamples for the agreement it stores beside
 it: run `agreement` afterwards to store other settings. A set whose drawn cases or labels change
@@ -403,7 +403,7 @@ Each write works on a draft set only (a frozen, active or retired one is refused
 same refusals as its command: a labeller who does not hold the labeller role in the organization,
 or who is one of its administrators (the caller too: an administrator is never assigned), refuses
 the whole run (`400`, naming the user id), as does a case left without enough labellers who qualify
-(`400`, naming no case), and nothing is written. The aggregates name the pack's labels, strata and
+(`400`, naming no case), and nothing is written. The aggregates name the agent's labels, strata and
 languages beside counts and coefficients, never a case: keep what the set's answer shows as you
 would the set. The notice does not gate these routes: they take no data in and mint no credential.
 Like an administrator's other writes, they have no rate-limit class. The security log says
@@ -447,8 +447,8 @@ for every set (owner decision 2): give both at each freeze. Keep them with the s
 beside its commitment; `evalset.frozen` chains them and `show` reads them back.
 
 Freezing takes each case's final labels (an agreed case's, a resolved case's majority on each
-question) and the labels the pack derives from them, and hashes the set's content
-(`mendari.evalset/1`, in canonical JSON): the pack's id, its questions with their labels, its
+question) and the labels the agent derives from them, and hashes the set's content
+(`mendari.evalset/1`, in canonical JSON): the agent's id, its questions with their labels, its
 derived questions and critical labels, the rotation rule and when the set froze, then every case by
 id with its input, its final labels, its status (agreed or resolved) and its source, stratum,
 weight, language, author and template. The set's name is not part of it. A 32-byte salt is drawn,
@@ -462,7 +462,7 @@ No signature is made of the commitment: the grading key does not sign a freeze c
 a signed hidden-set result carries the commitment instead (the
 [grading method](../grading/method-1.0.md), section 11).
 
-The pack is the one the set was made for, found by its id (give `--pack` if it does not resolve
+The agent is the one the set was made for, found by its id (give `--pack` if it does not resolve
 where you run the command); a later version of it grades the set too, since the content keeps
 the derived labels as they were. A set whose cases or labels change while it is being frozen is
 refused: run it again.
@@ -471,7 +471,7 @@ refused: run it again.
 left out, its rotation rule, and the distinct positives of each critical label. A critical label
 with fewer than 100 distinct positives is a warning (too few to measure it), never a refusal:
 the set freezes, and LP-17 decides what may be published from it. Keep the commitment with the
-set's records. The output names the pack's labels, as `evalset coverage` does, and no case.
+set's records. The output names the agent's labels, as `evalset coverage` does, and no case.
 
 ```bash
 mendari evalset show <set id> --db "$DATABASE_URL"
@@ -487,7 +487,7 @@ chains nothing and needs no key.
 
 ## The rotation rule
 
-A frozen set grades a limited number of times, for a limited time, so a pack is never tuned
+A frozen set grades a limited number of times, for a limited time, so an agent is never tuned
 against it by grading it again and again. Both limits are fixed at freeze, kept in the clear on
 the set and inside its content (so editing them breaks its commitment), and chained:
 
@@ -503,7 +503,7 @@ many runs are left and until when, and each run's answer how many are left after
 
 ## Grading a hidden set
 
-An organization's grading key grades a pack against one of its frozen or active sets through one
+An organization's grading key grades an agent against one of its frozen or active sets through one
 route of the server (LP-11l), mounted with both evaluation-set keys in either account mode. Only
 that key reaches it, and only the operator makes one, from the command line:
 
@@ -528,22 +528,27 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   -d '{"pack": "mendari/patient-inbox-router", "variants": {"router": "naive_bayes"}}'
 ```
 
-- `pack` is the id of the pack the set was made for, as this server serves it. A later version
+The body names `mendari/patient-inbox-router`, a former example agent (on the branch
+`archive/decision-packs`), because the test suite runs this command as written against its test
+fixture. For a set made for the demo agent, the body is
+`{"pack": "mendari/portal-message-agent", "variants": {"reader": "rules"}}`.
+
+- `pack` is the id of the agent the set was made for, as this server serves it. A later version
   of it grades the set too, as long as it asks the set's questions with their labels and
   critical labels.
-- `variants` may name a variant for any of the pack's provider slots; the others run the
-  deployment's choice, else the pack's default. **Every slot runs a local variant** (rules,
+- `variants` may name a variant for any of the agent's provider slots; the others run the
+  deployment's choice, else the agent's default. **Every slot runs a local variant** (rules,
   criteria, dosing, naive Bayes, or a composite of those only): a hidden set's cases never leave
   the server. Under the grading method 1.0 a hidden set is graded with local providers only
   (LP-17's owner decision 2). Where the deployment runs a slot remotely (Jev, an LLM), name a
   local variant for it here.
 
-Before any case is read, the set's header is checked against the pack asked for, and each slot's
+Before any case is read, the set's header is checked against the agent asked for, and each slot's
 variant is checked to be local. Then, in one exclusive transaction, the store's grading read
 checks that the set is frozen or active and that its [rotation rule](#the-rotation-rule) allows
 another run, recomputes its content against the commitment chained when it froze, makes a frozen
 set `active` on its first run (`evalset.activated`) and chains the read (`evalset.graded`: the
-grading key, the pack's digest, how many cases and the run's number). Reads made at the same time
+grading key, the agent's digest, how many cases and the run's number). Reads made at the same time
 never exceed `--max-runs`: each one's check and its chained read are one transaction. Only then
 are the cases handed, in memory, to the run, named by their case hashes: each decided with no
 store, so no decision is recorded, no report saved (`/api/evals` does not change), no ledger kept
@@ -552,13 +557,13 @@ and nothing spent. A run that fails still counts.
 The answer is `mendari.hidden_result/1` ([the evaluation reports'
 spec](../spec/evaluation-reports.md)), unless the run declares its arms
 ([the hidden-set scoreboard](#the-hidden-set-scoreboard)): the set's id and commitment, how many
-cases were graded, this run's number and the runs left, the pack and its providers, and
+cases were graded, this run's number and the runs left, the agent and its providers, and
 aggregates only: each
 question's metrics (its accuracy as k of n, per-label precision, recall and F1, the confusion
 matrix, the Brier score and its interval, calibration bins of 10 cases or more), the outcome
 counts and rates, each critical label's counts, the threshold sweep and error counts. Never a
 case, its id or hash, a missed or misclassified case, a subgroup, or the dataset's or the
-ledger's identity. It names the pack's labels beside counts and rates: keep it as you would the
+ledger's identity. It names the agent's labels beside counts and rates: keep it as you would the
 set's aggregates.
 
 A refusal is answered with its fixed `reason` and one sentence, never more (a store's message
@@ -567,11 +572,11 @@ names the set, and a run's could name a case):
 | `reason` | Status | Why |
 |---|---|---|
 | `no_set` | 404 | No set of the key's organization has that id: another organization's set, an unknown id and a malformed one are one answer, naming no id. |
-| `wrong_pack` | 422 | `pack` is not the set's, or the pack served here no longer asks the set's questions. |
-| `unknown_variant` | 422 | `variants`, or an arm in `arms`, names a slot or a variant the pack does not have. |
+| `wrong_pack` | 422 | `pack` is not the set's, or the agent served here no longer asks the set's questions. |
+| `unknown_variant` | 422 | `variants`, or an arm in `arms`, names a slot or a variant the agent does not have. |
 | `remote_provider` | 422 | A slot would run a remote provider. |
-| `wrong_arm` | 422 | A scoreboard run's declared arm does not name a variant for every slot of the pack, or its configuration is not of the arm it is declared under ([below](#the-hidden-set-scoreboard)). |
-| `pack_unavailable` | 409 | The set's pack is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. For a scoreboard run, also a pack with no critical label (or more than 64): a grade attests its critical labels. |
+| `wrong_arm` | 422 | A scoreboard run's declared arm does not name a variant for every slot of the agent, or its configuration is not of the arm it is declared under ([below](#the-hidden-set-scoreboard)). |
+| `pack_unavailable` | 409 | The set's agent is not served here, its providers do not build, or what it names does not fit `mendari.hidden_result/1` (more than 64 questions, slots or critical labels, a question with more than 64 labels, or a question, label, slot or variant name the result does not take), so no run of it could be answered. For a scoreboard run, also an agent with no critical label (or more than 64): a grade attests its critical labels. |
 | `not_gradable` | 409 | The set is a draft, or retired (its chain's word, whatever its row says). |
 | `no_runs_left` | 409 | The set has had its `--max-runs`: retire it and freeze another. |
 | `expired` | 409 | The set froze `--max-age-days` days ago or more: retire it and freeze another. |
@@ -603,8 +608,11 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   > scoreboard-answer.json
 ```
 
+As above, the body names the former inbox example agent because the tests run it as written; for
+the demo agent, `arms` is `{"deterministic": {"reader": "rules"}}`.
+
 - `arms` names each declared arm (`deterministic`, `classifier`, `llm` or `classifier_and_llm`)
-  with its whole configuration: a variant for every slot of the pack, since a slot left out
+  with its whole configuration: a variant for every slot of the agent, since a slot left out
   would run the deployment's choice, and the same declaration would grade other configurations
   on other deployments. Each is checked as `variants` is, before any case is read, and must name
   every slot and be of the arm it is declared under (`wrong_arm`). Under the method 1.0 only the

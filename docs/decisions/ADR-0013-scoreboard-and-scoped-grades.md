@@ -1,5 +1,7 @@
 # ADR-0013: A scoreboard and scoped grades
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
 planned in `notes/lp17-plan.md`). What landed, in the order it was built:

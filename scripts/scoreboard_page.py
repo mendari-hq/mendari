@@ -61,8 +61,8 @@ WEB_INDENT = " " * 6  # inside <section id="scores">
 # page is made from the repository alone, so it names no registry's address (conflict 6 of
 # notes/lp22-plan.md: the sentence, and no link).
 SITE_EVIDENCE = (
-    "Sites' own evaluations of a pack, shared as signed counts, are shown on the Hub, in each "
-    "pack's Site evidence section. None of them is on this page, in any table or any grade: "
+    "Sites' own evaluations of an agent, shared as signed counts, are shown on the Hub, in each "
+    "agent's Site evidence section. None of them is on this page, in any table or any grade: "
     "sites choose their own cases, and a ticket binds a dataset before its run, not how its "
     "cases were chosen."
 )
@@ -113,7 +113,7 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         GENERATED,
         "",
         "The early scoreboard (stage 3 of the [grading method](method-1.0.md), section 14): every "
-        "local configuration of each reference pack, on each of its public scoring sets (its "
+        "local configuration of each bundled agent, on each of its public scoring sets (its "
         "`test` set, its enriched set and that set's holdout), and each remote configuration "
         "run by hand as its arm's declared one (section 10). This page is generated from the "
         "results store, `scoreboard/` in the repository, and from nothing else, so the same "

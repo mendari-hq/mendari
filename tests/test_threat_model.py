@@ -2,7 +2,7 @@
 """The threat model stays true to the code (docs/security/threat-model.md): every threat has one
 id, the rows run in STRIDE order with numbers in order, and every test a row names as "Checked
 by" exists. Parallel lanes once added rows with the same id; this catches that and a test that
-was renamed or removed. Its "Pack content" part (LP-16g) names every input a pack has, and cites
+was renamed or removed. Its "Agent content" part (LP-16g) names every input a pack has, and cites
 only rows and tests that exist."""
 
 from __future__ import annotations
@@ -17,8 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 THREAT_MODEL = ROOT / "docs" / "security" / "threat-model.md"
 ROW = re.compile(r"^\| ([STRIDE])(\d+) \|")
 STRIDE = "STRIDE"
-PACK_CONTENT = "## Pack content"
-PACK_CONTENT_PARTS = ["Inputs", "Trust boundary", "What a pack can do", "What a pack cannot do"]
+PACK_CONTENT = "## Agent content"
+PACK_CONTENT_PARTS = [
+    "Inputs",
+    "Trust boundary",
+    "What an agent can do",
+    "What an agent cannot do",
+]
 CITED_ROW = re.compile(r"\b[STRIDE]\d+\b")
 PROVIDER_TABLE = "| Provider type | Decides | Variant keys |"
 
@@ -33,7 +38,7 @@ def defined_tests() -> set[str]:
 
 
 def pack_content() -> str:
-    """The "Pack content" part: from its heading to the next part's."""
+    """The "Agent content" part: from its heading to the next part's."""
     text = THREAT_MODEL.read_text()
     start = text.index(f"\n{PACK_CONTENT}\n")
     return text[start : text.index("\n## ", start + 1)]

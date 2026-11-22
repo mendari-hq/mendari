@@ -4,13 +4,20 @@ _Approved 2026-09-28. Living document: update it as milestones land._
 
 ## Context
 
-The goal is an open infrastructure layer, a "Hugging Face for healthcare decisions": Decision
-Packs that are packaged, evaluated, shared, versioned, governed and deployed across rules, Jev,
-ML, local models, LLMs and combinations of them, with healthcare standards, human deferral and
+The goal is an open infrastructure layer for healthcare AI agents: agents that are wrapped,
+evaluated, shared, versioned, governed and deployed across rules, Jev, ML, local models, LLMs,
+external HTTP agents and combinations of them, with healthcare standards, human deferral and
 local validation built in.
 
-v0.1 is done and running in production on Vercel. Decisions for what follows: **packs
-first** (the Hub only matters once it has five strong packs), **LLMs through Vercel AI Gateway**
+**Agents only (2026-11-21).** The product now bundles one demo agent,
+`mendari/portal-message-agent`. The five example agents built in v0.2 and v0.3 (Patient Inbox
+Router, Referral Router, Prior Authorization Preflight, Clinical Trial Prescreener, AI Guard)
+were removed from the product; they remain as test fixtures (`tests/fixtures/reference-packs/`)
+and on the branch `archive/decision-packs`. The milestones below are kept as they shipped, and
+name them.
+
+v0.1 is done and running in production on Vercel. Decisions for what follows: **agents
+first** (the Hub only matters once it has five strong agents), **LLMs through Vercel AI Gateway**
 (OIDC, no stored keys), and a **public open-source launch at v1.0**.
 
 **Progress (2026-09-30):**
@@ -27,7 +34,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 
 - **v0.6 Readiness for health organizations ✅** ([plan][plan-v0.6],
   #83–#89): sign-in with the organization's identity provider, roles, API keys and tenancy;
-  governance approvals and the deployment registry; monitoring with alerts; PHI mode; per-pack
+  governance approvals and the deployment registry; monitoring with alerts; PHI mode; per-agent
   images and on-prem templates. The pilot runs in CI against a real OpenID Connect provider
   (`pilot-check`). Nothing is switched on in production, which stays behind Vercel
   Authentication.
@@ -35,7 +42,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 - **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
   - a CQL provider, with the trial criteria in CQL agreeing with `criteria` on every case;
   - OMOP CDM inputs with population reports;
-  - Da Vinci CRD, DTR and PAS around the PA pack, each profile-validated against its guide in
+  - Da Vinci CRD, DTR and PAS around the PA agent, each profile-validated against its guide in
     CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
     produces. How DTR's `$questionnaire-package` behaves is checked weekly by the Inferno DTR
     payer suite v0.18.0, with the gaps it lists (`sandbox/inferno/`). Neither shows whether a
@@ -56,17 +63,17 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 
 | Goal area | Status | Main gap |
 |---|---|---|
-| Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
+| Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
-| Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark |
-| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack; monitoring over time with drift and alerts | ✅ | A harder benchmark |
+| Bundled agents | ✅ the demo agent (the five example agents archived, 2026-11-21) | A harder, clinician-reviewed benchmark |
+| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every agent; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
 | FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
-| Dashboard (every pack; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
+| Dashboard (every agent; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
-| Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release and the first published images (both at a release tag) |
+| Developer experience (`pip install`, `from_hub`, `pull`, container per agent) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
 | Community (contribution flow, verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
 
@@ -75,14 +82,14 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 Each milestone gets its own detailed plan for your approval before any code is written, and
 ships as several reviewed PRs.
 
-### v0.2 Model-agnostic core (foundation for the new packs) ✅
+### v0.2 Model-agnostic core (foundation for the new agents) ✅
 _Done 2026-09-29. Question groups shipped as derived questions (decision tables with exact
 probabilities). The harder inbox benchmark did not ship and is an open item in
 `tasks/todo.md`._
 - **Spec 0.2:** new question types `boolean` (maps to Jev `noul`) and `score` alongside
   `choice`; **question groups with aggregation policies** (e.g. "any criterion = no → not
-  eligible; any = unknown → review"), which the trial, PA and AI Guard packs all need; derived
-  outputs. Migrate the inbox pack, with a spec migration note.
+  eligible; any = unknown → review"), which the trial, PA and AI Guard agents all need; derived
+  outputs. Migrate the inbox agent, with a spec migration note.
 - **LLM provider** through Vercel AI Gateway (OIDC, as the Jev connector already works): Claude
   by default (removed in LP-10c: the deployment's `LLM_MODEL` names the model), with
   structured output of per-label probabilities, calibration fitted on a held-out split, and
@@ -94,15 +101,15 @@ probabilities). The harder inbox benchmark did not ship and is an open item in
   emergency screen make 2), run slots in parallel, and support the `noul` and `score` types.
 - **Harder inbox benchmark:** paraphrased messages reviewed by a clinician, plus held-out splits
   for every critical label (from lesson 2026-09-28).
-- **Exit:** a provider leaderboard for the inbox pack (rules vs NB vs Jev vs Claude vs a local
+- **Exit:** a provider leaderboard for the inbox agent (rules vs NB vs Jev vs Claude vs a local
   model, with accuracy, calibration, false automation, cost and latency); one Jev call per
   decision; all red-flag sets fully caught with the deployed provider mix.
 
-### v0.3 The other four reference packs (content release) ✅
-_Done 2026-09-29: all five packs deployed with provider leaderboards and the providers chosen
+### v0.3 The other four example agents (content release) ✅
+_Done 2026-09-29: all five agents deployed with provider leaderboards and the providers chosen
 from them. Risk levels as shipped: Referral Router L1, Prior Authorization Preflight L1,
 Clinical Trial Prescreener L2, AI Guard L2 (`POST /api/packs/{id}/guard`)._
-Each pack gets questions and criteria, rules + Jev + LLM variants, a policy with a justified
+Each agent gets questions and criteria, rules + Jev + LLM variants, a policy with a justified
 risk level, synthetic data (public, local-shift and held-out safety sets), behaviour tests, a
 benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
 - **Referral Router** (L0–1): ServiceRequest + Condition + DocumentReference. Answers
@@ -119,12 +126,12 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
 - **AI Guard** (L1–2): a question, an LLM draft reply and optional context. Checks for unsafe
   advice, dosing errors, missing emergency escalation, scope violations and claims unsupported
   by the context. Outcome is pass / review / **block**. Exposed as an API middleware.
-- **Exit:** all five packs pass tests, benchmarks and held-out safety sets, and run through the
+- **Exit:** all five agents pass tests, benchmarks and held-out safety sets, and run through the
   same runtime, API, dashboard (multi-pack) and deployment.
 
 ### v0.4 Healthcare standards ✅
 _Done 2026-09-30 (#66–#74). Both exits run in CI on every change: a scripted SMART launch of the
-inbox and referral packs against HAPI and the SMART launcher, and a Bulk export whose evaluation
+inbox and referral agents against HAPI and the SMART launcher, and a Bulk export whose evaluation
 must be identical to the same cases read from the dataset file._
 - US Core profile validation of FHIR inputs; audit export as FHIR AuditEvent + Provenance.
 - **SMART on FHIR** EHR launch (the dashboard opens in patient/encounter context), using
@@ -132,7 +139,7 @@ must be identical to the same cases read from the dataset file._
 - **CDS Hooks** that fetch from `fhirServer` with `fhirAuthorization` (SMART backend services,
   with a server allow-list against SSRF), in addition to prefetch.
 - **Bulk FHIR** `$export` ingestion into local-validation datasets.
-- Exit: the inbox and referral packs run from a SMART launch against the HAPI sandbox; Bulk
+- Exit: the inbox and referral agents run from a SMART launch against the HAPI sandbox; Bulk
   export → `mendari eval` works end to end.
 
 ### v0.5 The Hub (the "Hugging Face" part) ✅
@@ -141,37 +148,37 @@ publisher types, keys, immutable versions, search), `login / push / pull / searc
 and pinned pulls, shared site reports, and the Next.js website. CI runs the exit on a clean
 virtual environment. It is not deployed publicly: that needs production signing keys and the
 go-ahead to publish (see the overnight log)._
-- A pack distribution format: an immutable, versioned archive with a digest and signature.
+- An agent distribution format: an immutable, versioned archive with a digest and signature.
   `mendari login / push / pull / search`; `Decision.from_hub` fetches, verifies and caches
-  remote packs.
+  remote agents.
 - **Registry service** (FastAPI + Neon + Vercel Blob) with namespaces and publisher types
   (**community / verified / institutional**), plus a verification process.
 - **Hub website** (Next.js on Vercel: a public, searchable site where React is the right tool)
-  with pages for packs (Decision Card, versions, benchmarks and provider leaderboards),
+  with pages for agents (Decision Card, versions, benchmarks and provider leaderboards),
   datasets, eval suites, policies, evidence and FHIR mappings, and search by task, risk level,
   standard and publisher.
 - Shareable local-validation reports (metrics only; reports already contain no case text), for
   site-to-site comparison.
-- Exit: the five packs are published; on a clean machine
+- Exit: the five agents are published; on a clean machine
   `pip install mendari && mendari pull mendari/referral-router` works.
 
 ### v0.6 Readiness for health organizations ✅
 _Built and verified 2026-09-30 (#83–#89). Every control is off until configured. The exit runs
 in CI (`pilot-check`): through a real OpenID Connect provider, an admin creates a key, a worker
 decides with it, a reviewer reads encrypted inputs (logged) and resolves, a viewer can't, the
-committee approves a level 2 pack, and monitoring and the chain check out._
+committee approves a level 2 agent, and monitoring and the chain check out._
 - OIDC login with roles (viewer / reviewer / admin / governance), per-organization tenancy, and
   API keys for machine clients. This replaces relying only on Vercel SSO. Running an evaluation
   becomes admin-only in the dashboard and the API (today it asks for confirmation when it would
   call remote models; dashboard decision 4).
-- A deployment registry (which pack version runs where), and **governance approvals in the UI**
+- A deployment registry (which agent version runs where), and **governance approvals in the UI**
   (level 2–3 AUTO overrides recorded; level 4 locked).
 - **Monitoring:** confidence drift and observed accuracy over time (from reviews, outcomes and
   👎), alerts, site-specific performance, override trends, and cost per decision from provider
   pricing.
 - **PHI mode:** hash-only or encrypted inputs, retention policies, access logging, and a
   deployment guide.
-- A container image per pack (GHCR) and on-prem templates.
+- A container image per agent (GHCR) and on-prem templates.
 - Exit: a pilot organization could run the inbox router with its own IdP, PHI-safe settings,
   monitoring and governance approvals.
 
@@ -179,8 +186,8 @@ committee approves a level 2 pack, and monitoring and the chain check out._
 _Built and verified 2026-09-30 (#90–#95). The CQL port agrees with `criteria` on 750 cases in
 CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples are profile-validated
 against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
-- A **CQL** provider (a CQL engine as a pack provider type).
-- **OMOP** CDM → pack inputs, for population-level evaluation.
+- A **CQL** provider (a CQL engine as an agent provider type).
+- **OMOP** CDM → agent inputs, for population-level evaluation.
 - **Da Vinci CRD / DTR / PAS** wired into PA Preflight. Since 2026-10-17, DTR's
   `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
   questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
@@ -196,19 +203,19 @@ quickstart run in CI; `docker compose up` runs in `sandbox-e2e`. Left for the ow
 repository public, the PyPI release (trusted publishing is set up in `release.yml`), and hosting
 the Hub and the docs site._
 - Security review (threat model, dependency audit, API penetration test).
-- A docs site, including a **YAML-first pack-authoring guide for clinicians**.
-- A contribution flow: pack PRs are automatically validated, tested, evaluated and given a card.
+- A docs site, including a **YAML-first authoring guide for clinicians**.
+- A contribution flow: agent PRs are automatically validated, tested, evaluated and given a card.
 - CODE_OF_CONDUCT and community governance.
 - PyPI release, public GitHub repo, launch.
 - Exit: a new user goes from README to their own local validation in under 10 minutes; the
-  sandbox runs with `docker compose up`; the Hub is live with five packs.
+  sandbox runs with `docker compose up`; the Hub is live with five agents.
 
 ## How every milestone is built
 - **PR flow:** branch → PR → required CI checks → preview on its own Neon branch → verification
   → merge → production smoke tests, as we do today.
-- **Eval gates:** no merge that regresses a pack's critical metrics, and every critical label
+- **Eval gates:** no merge that regresses an agent's critical metrics, and every critical label
   has a held-out set that is never tuned on.
-- **Feedback loop:** 👎 feedback and reported misses become behaviour tests, then a new pack
+- **Feedback loop:** 👎 feedback and reported misses become behaviour tests, then a new agent
   version.
 - **Record keeping:** `tasks/todo.md` tracks the plan; `tasks/lessons.md` records every
   correction.
@@ -216,24 +223,24 @@ the Hub and the docs site._
 ## Risks
 - **Synthetic data flatters models**, as we saw with the red-flag screen. Mitigation: held-out
   sets, paraphrase sets, clinician review.
-- **Clinical correctness of pack content.** Clinician reviewers are needed for trial criteria,
+- **Clinical correctness of agent content.** Clinician reviewers are needed for trial criteria,
   AI Guard checks and red flags.
-- **LLM calibration and cost.** These are measured per pack; cascades and budgets control them.
-- **Regulatory positioning** (FDA CDS guidance) for L2+ packs. Mitigation: clinician-facing,
+- **LLM calibration and cost.** These are measured per agent; cascades and budgets control them.
+- **Regulatory positioning** (FDA CDS guidance) for L2+ agents. Mitigation: clinician-facing,
   human review by default, and documented intended use.
 - **PHI and security** once real organizations pilot. That is v0.6, and the repo stays private
   and synthetic-only until then.
 
 ## Open needs (not blocking v0.2's first PRs)
 - Enable Vercel AI Gateway on the team, for the LLM provider.
-- Clinician reviewers for pack content (by v0.3).
+- Clinician reviewers for agent content (by v0.3).
 - Later: a Hub domain name and a publisher-verification policy.
 
 ## Next step
 Publish the v1.0 open-source release (public repository, PyPI package, container images, and
 hosted docs/Hub) and focus on real-world adoption of Mendari as an open-source healthcare AI
 governance and evaluation platform — clinician-reviewed evaluation sets, transparent provider
-benchmarking, auditable human-in-the-loop policies, and community-contributed Decision Packs.
+benchmarking, auditable human-in-the-loop policies, and community-contributed agents.
 
 ## Verification of the roadmap itself
 Each milestone's exit criteria are testable (commands, datasets, metrics). The roadmap counts

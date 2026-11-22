@@ -2,7 +2,7 @@
 # Runs offline out of the box via `fixtures/mock_agent.json`, and switches automatically to any live
 # external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:
-# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
 spec_version: "0.2"
 id: {{id}}
 version: 0.1.0

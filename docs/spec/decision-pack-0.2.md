@@ -1,7 +1,9 @@
-# Decision Pack Specification, version 0.2
+# Agent manifest spec 0.2
 
-Status: draft. Supersedes [0.1](decision-pack-0.1.md); every valid 0.1 pack is a valid 0.2
-pack with unchanged behaviour (§13). [0.3](decision-pack-0.3.md) changes only the FHIR mapping
+(formerly the Decision Pack spec; the format is unchanged)
+
+Status: draft. Supersedes [0.1](decision-pack-0.1.md); every valid 0.1 agent is a valid 0.2
+agent with unchanged behaviour (§13). [0.3](decision-pack-0.3.md) changes only the FHIR mapping
 (§9): what it adds is there, and the rest of this document holds for 0.3 too. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (manifest), `mendari.core.derive` (derived
 questions) and `mendari.core.policy` (semantics).
@@ -10,21 +12,21 @@ to be normative.
 
 ## 1. Purpose
 
-A Decision Pack packages one healthcare decision so it can be executed, evaluated, governed
-and shared independently of the models that implement it. A pack MUST be self-describing: a
+An agent packages one healthcare decision so it can be executed, evaluated, governed
+and shared independently of the models that implement it. An agent MUST be self-describing: a
 reviewer can determine what it decides, for whom, with what inputs, under what automation
 limits, and how well it performed on which data, without reading code.
 
 ## 2. Layout
 
-A pack is a directory containing `pack.yaml`. All paths in the manifest are relative to the
-pack directory and MUST NOT resolve outside it.
+An agent is a directory containing `pack.yaml`. All paths in the manifest are relative to the
+agent directory and MUST NOT resolve outside it.
 
 | Path (conventional) | Required | Content |
 |---|---|---|
 | `pack.yaml` | yes | Manifest (§3) |
 | `policy.yaml` | no | Policy (§6). It may instead be inline in `pack.yaml` |
-| `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the pack input |
+| `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the agent input |
 | `fhir/mapping.yaml` | no | FHIR R4 mapping (§9) |
 | `logic/`, `models/` | per provider | Provider configuration and artifacts |
 | `data/*.jsonl` | no | Evaluation datasets (§8) |
@@ -86,10 +88,10 @@ Validation rules (all MUST hold):
   questions and labels; `min_score`/`max_score` conditions reference score questions. Rule
   recommendations and `policy.labels` keys are labels of the primary question.
 - Derived questions satisfy §4.3.
-- A pack declaring `spec_version: "0.1"` MUST NOT use `type`, `levels`, `derive`,
+- An agent declaring `spec_version: "0.1"` MUST NOT use `type`, `levels`, `derive`,
   `min_probability`, `min_score` or `max_score`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
-- Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
+- Agents at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - `version` is a semantic version of at most 64 characters.
 - `license` is an SPDX license expression of at most 200 characters: identifiers (or
   `LicenseRef-…`, optionally after `DocumentRef-…:`) joined by `AND` and `OR`, an exception after
@@ -97,27 +99,27 @@ Validation rules (all MUST hold):
 - `code_systems` lists each system once: a `url` (`http(s)://…` or any `urn:…`) and a `name`. A
   code system whose codes are licensed rather than free to redistribute everywhere (CPT,
   SNOMED CT, MedDRA, X12's code lists and CDT) MUST have a `licence_note` saying the terms the
-  pack uses it under. A pack any of whose digested files names such a system by its url or OID
+  agent uses it under. An agent any of whose digested files names such a system by its url or OID
   (bare or as `urn:oid:`, a JSON-escaped `\/` read as `/`) MUST declare it so, whatever file
   names it. A bare code value names no system, so no check can find it: declaring the system it
   comes from is the author's to do.
-- A YAML file of the pack (manifest, policy, provider configs, tests) that uses anchors has
+- A YAML file of the agent (manifest, policy, provider configs, tests) that uses anchors has
   at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted as JSON writes them
   (a control character counts six), once every alias is expanded (an alias counts each time it
   is used), and no alias inside its own anchor. A file without an anchor has no alias, and is
   not counted. Every value in it is one the safe loader can build: a value it cannot (a date
-  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid, named by the
+  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the agent invalid, named by the
   file, the error's type and the value's line and column. So does a value JSON cannot carry: a
   string with a lone surrogate (`"\ud800"`), `!!binary`, `!!set`, `!!omap` or `!!pairs`. So does a
   number (an integer or a float, in any base, implicit or tagged) whose text, underscores
   removed, is longer than 4,300 characters or has more than 4 `:` parts (base 60, as in
   `1:30:00`), and an integer of more than 4,300 decimal digits: each is refused before it is
   built.
-- Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
-  that resolves outside the pack's directory. Hidden entries (a name starting with `.`) and
-  `__pycache__` are not part of the pack (not digested, archived or read), so a `.venv` in the
-  pack's folder is fine.
-- Every file a pack decides or tests with MUST be one its digest hashes (§11). The manifest
+- Every referenced file exists inside the agent. A directory agent MUST NOT hold a symbolic link
+  that resolves outside the agent's directory. Hidden entries (a name starting with `.`) and
+  `__pycache__` are not part of the agent (not digested, archived or read), so a `.venv` in the
+  agent's folder is fine.
+- Every file an agent decides or tests with MUST be one its digest hashes (§11). The manifest
   fields naming one are `inputs.schema`, `inputs.fhir`, `policy` (when it names a file),
   `tests`, `evaluation.datasets.<name>`, and, in a provider variant or a composite member,
   `config`, `library`, `model_file` and `calibration`. Such a path MUST NOT go through a hidden
@@ -127,8 +129,8 @@ Validation rules (all MUST hold):
   `evals/rules.yaml`, and is refused. A file read under any other key is held to the same rule
   when it is read. Its content MUST be the content the digest hashed: an implementation reads
   each file once, checks its bytes against the digest's hash of that file and uses those bytes,
-  so a file edited after the pack was loaded is refused until the pack is loaded again.
-- A JSON file of the pack (the input schema, a model, a calibration) is JSON in UTF-8 with no
+  so a file edited after the agent was loaded is refused until the agent is loaded again.
+- A JSON file of the agent (the input schema, a model, a calibration) is JSON in UTF-8 with no
   string holding a lone surrogate, no number that is not finite and no integer too large to be
   a finite number (and so none of more than 4,300 digits); a calibration's `temperatures` is a
   mapping; a `naive_bayes` model has the shape `mendari train` writes; a text file a
@@ -137,14 +139,14 @@ Validation rules (all MUST hold):
   (it may not exist yet; a `DECISION_CARD.md` elsewhere is refused). A leaderboard
   (`evals/leaderboard.json`) and the card (`DECISION_CARD.md`) are read by those fixed names. A
   benchmark or leaderboard that is not JSON, holds what JSON cannot carry or is not the report
-  the Decision Card shows is treated as absent (the card says why), not as an invalid pack.
+  the Decision Card shows is treated as absent (the card says why), not as an invalid agent.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
   only; it holds no `$dynamicAnchor` and no `format: "regex"`. These keys are looked for in the
   whole document, since a `$ref` can make any object in it a schema. Inputs are checked with a
   validator that retrieves nothing, so checking an input never fetches a URL or reads a file.
-- The input schema of a pack the deployment owns (a reference pack, or an operator's local pack;
+- The input schema of an agent the deployment owns (an agent bundled with the release, or an operator's local agent;
   one it does not own has the caps and the time budget of §5 instead) is bounded in shape: its
   document nests objects and lists at most 32 deep; no path through it, following its
   applicators, holds more than 16 `$ref`s; and it applies at most 1,000 schema objects to one
@@ -213,7 +215,7 @@ The provider's `model` is the model that answered:
   when it is well formed; otherwise the configured model, and the call stands.
 - `jev`: the version Jev reports; one missing or malformed is an `invalid_response`, and the
   slot's questions fail (§5).
-- A provider computed from a file in the pack (rules, criteria, naive Bayes, dosing, CQL): the
+- A provider computed from a file in the agent (rules, criteria, naive Bayes, dosing, CQL): the
   fingerprint of that file.
 - A composite: `member:model`, for `any_of` and `cascade` the member whose answer was used, for
   `vote` each member that answered.
@@ -223,7 +225,7 @@ The model asked for stays in the deployment's configured providers.
 ### 4.3 Derived questions
 
 A derived question is computed from other questions' answers by a decision table; no provider
-answers it. It is how a pack expresses one outcome over many criteria (trial eligibility,
+answers it. It is how an agent expresses one outcome over many criteria (trial eligibility,
 prior-authorization completeness, AI output checks) while keeping each criterion a separate,
 separately evaluated question.
 
@@ -290,7 +292,7 @@ result wins, computed over the members' full distributions under the assumption 
 members' answers are **independent**. (The reference implementation walks the members once,
 tracking which rows are satisfied so far and whether each `when` is still open:
 O(members × labels × 4^rows).) Members answered by
-the same provider from the same text are not truly independent, so a pack SHOULD put
+the same provider from the same text are not truly independent, so an agent SHOULD put
 conservative rows first (`not_eligible`, then `needs_review`) and SHOULD evaluate the derived
 question on labelled data like any other.
 
@@ -319,11 +321,11 @@ NOT carry credentials or remote error bodies.
 A decision's remote calls share a wall-clock deadline the deployment sets
 (`MENDARI_DECISION_DEADLINE_S`, default 120 s): a call that would start after it is not made,
 and one under way is cut at it (each wait it makes, a retry included, is bounded by what
-remains); either is the provider error `timeout`. Local providers always answer. A pack cannot
+remains); either is the provider error `timeout`. Local providers always answer. An agent cannot
 set it.
 
 Variants of a slot are interchangeable implementations of the same contract. Selecting a
-variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, policy or
+variant (`providers={"router": "jev"}`) MUST NOT change the agent's questions, policy or
 tests.
 
 Built-in types: `rules` (deterministic patterns with negation handling and optional typo
@@ -333,13 +335,13 @@ item of a given type in any input list within a date window (`exists`, e.g. a do
 file), and a field having one of some values (`value`); missing data answers `unknown`;
 answers MAY be any label of the question, e.g. the service an order code is for, and a check
 MAY carry `when: {field, in}` to apply only while an input field has one of those values),
-`dosing` (dose arithmetic on free text: for each medicine in a pack table, the largest daily
+`dosing` (dose arithmetic on free text: for each medicine in an agent table, the largest daily
 amount a sentence allows, e.g. "1000 mg every 4 hours" = 6000 mg/day, compared with the maximum;
-`yes` / `no` / `unknown`), `cql` (a CQL library in the pack, evaluated on a CQL engine with the
+`yes` / `no` / `unknown`), `cql` (a CQL library in the agent, evaluated on a CQL engine with the
 input as FHIR R4; each answered question maps to a definition whose String result is the label,
 or whose Boolean result is `yes` / `no`, null being `unknown`; the library's declaration,
 `library Name version '...'`, MUST be its first statement, comments aside, and the runtime
-uploads it to the engine under a name and id unique to the pack and the text), `naive_bayes` (local,
+uploads it to the engine under a name and id unique to the agent and the text), `naive_bayes` (local,
 temperature-calibrated text classifier over a text's words and pairs of neighbouring words; its
 model file, which `mendari train` writes, MAY also count the runs of characters inside each word,
 `character_ngrams: [shortest, longest]`, each from 2 to 8, and then names the format
@@ -379,23 +381,23 @@ sign). The plain form is never longer than the text. A pattern that matched the 
 matches its plain form too, but for three cases, each of which decides as the same words typed
 on a keyboard do: words joined by a format character other than the zero-width space, a
 negation cue that a long run of spaces had kept outside a rule's `negation_window`, and a
-pattern or a negation that reached across an ellipsis character. A pack's patterns, a medication check's
+pattern or a negation that reached across an ellipsis character. An agent's patterns, a medication check's
 `names` and a trained model's tokens are matched against it, so they MUST be written in it: a
 character the plain form never holds, such as a curly apostrophe or a no-break space, matches
 nothing. The decision's record, its input hash, the input schema's checks and what a remote
 provider is sent keep the text as it was received.
 
-A pack's patterns (every `rules` pattern, of every variant and composite member, and every
+An agent's patterns (every `rules` pattern, of every variant and composite member, and every
 `pattern` and `patternProperties` key in its input schema) are Python `re` regular expressions,
 run as `re` runs them (rules patterns with case ignored). Each MUST compile and be at most 2,000
-characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
-a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
-can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
-installing a pack means trusting its author. The patterns of a pack the deployment does not own
-(a community pack, id `community/...`, or one pulled from a registry whose digest is not that of
-a reference pack in the installed release) are written the same way but run on RE2, which never
+characters, and an agent MUST hold at most 500 of them; the runtime compiles every one at load, so
+an agent with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
+can take seconds or longer on a crafted input: an agent's patterns are code its author wrote, and
+installing an agent means trusting its author. The patterns of an agent the deployment does not own
+(a community agent, id `community/...`, or one pulled from a registry whose digest is not that of
+an agent bundled with the installed release) are written the same way but run on RE2, which never
 backtracks, rewritten to mean what they mean in `re` (what still differs is listed in
-`core/re2_syntax.py`); such a pack holding a pattern RE2 cannot run (a lookahead or lookbehind,
+`core/re2_syntax.py`); such an agent holding a pattern RE2 cannot run (a lookahead or lookbehind,
 a back reference, a conditional or atomic group, a possessive quantifier, or one too large once
 compiled) is invalid, and so is an input
 schema that uses a keyword outside those whose work Mendari bounds (the contributor's guide
@@ -413,22 +415,22 @@ refers back to itself where patterns run, more than 500 patterns run by its rule
 one value together, or those same runs coming to a size of more than 3,000 together, a pattern's
 size being the characters, classes and `.`s it holds, each as often as a count repeats it
 (`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each character grows
-with it. At run time such a pack refuses an input whose texts are longer than 10,000 characters,
+with it. At run time such an agent refuses an input whose texts are longer than 10,000 characters,
 alone or together, or that holds more than 10,000 values or is nested more than 32 deep, before
 any pattern runs, and its patterns and schema checks share a time budget of one second of CPU
 per decision: past it the decision abstains with the error `time_budget`, for a person (an input
-the schema had already found wrong is refused). Which engine a pack runs on is never read from
-its manifest; the pack format is the same for every pack. A pack from a registry whose id is that
-of a reference pack in the installed release, and whose version is equal to that pack's as
+the schema had already found wrong is refused). Which engine an agent runs on is never read from
+its manifest; the agent format is the same for every agent. An agent from a registry whose id is that
+of an agent bundled with the installed release, and whose version is equal to that agent's as
 versions are ordered (by their numbers: `0.4.1-x` and `0.04.1` equal `0.4.1`), MUST be that
-pack (its digest): any other is invalid, since it would be served in the reference pack's place.
+agent (its digest): any other is invalid, since it would be served in the bundled agent's place.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
 `JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
 `cql`: `MENDARI_CQL_URL`). A variant MUST NOT name the variables a provider reads: a `jev` or
 `llm` variant (or composite member) that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`,
-`local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A deployment MAY
+`local_key_env` or `model_env` is invalid, whatever the agent's `spec_version`. A deployment MAY
 also list the origins its providers may be called at (in the reference runtime,
 `MENDARI_PROVIDER_ALLOWED_ORIGINS`): a call to any other is not made, and the question fails
 (`invalid_endpoint`). A variant MAY pin
@@ -436,17 +438,17 @@ also list the origins its providers may be called at (in the reference runtime,
 `temperature`, `reasoning_effort`).
 
 Each provider type's config is closed: a variant or composite member MUST set only the keys its
-type reads, with values it accepts, and its pack files MUST be ones it can run with (a rules,
+type reads, with values it accepts, and its agent files MUST be ones it can run with (a rules,
 criteria or dosing file of that shape, answering the slot's questions with their labels; a
 trained naive_bayes model or LLM calibration file; a CQL library declared first). The keys of
 every type are published as a JSON Schema,
 [`provider-configs.schema.json`](provider-configs.schema.json), generated from the code.
-Every variant is checked at load, the ones a pack does not use by default too: a pack the
-deployment does not own (a community pack, or one pulled from a registry that is not a
-reference pack) with any problem is invalid; any other loads, with the problems as warnings,
-and `mendari validate` refuses it. For a pack the deployment does not own, every `jev` and `llm`
+Every variant is checked at load, the ones an agent does not use by default too: an agent the
+deployment does not own (a community agent, or one pulled from a registry that is not an
+agent bundled with the release) with any problem is invalid; any other loads, with the problems as warnings,
+and `mendari validate` refuses it. For an agent the deployment does not own, every `jev` and `llm`
 variant and member MUST name its `state_fields` (at least one), and the deployment chooses
-what the pack may only suggest: its `model` is ignored, its `max_tokens` and `timeout_ms` are
+what the agent may only suggest: its `model` is ignored, its `max_tokens` and `timeout_ms` are
 held to the provider defaults (`llm` 4,096 tokens and 30,000 ms, `jev` 5,000 ms; a lower value
 stands), and a `reasoning_effort` above `low` is ignored.
 
@@ -473,7 +475,7 @@ Evaluation order (MUST):
    `when.labels` (if given), and its expected score is ≥ `when.min_score` and ≤
    `when.max_score` (if given; inclusive). With `when.min_probability`, the label test is
    replaced by a probability test: the answer's total probability over `when.labels` MUST be
-   ≥ `min_probability`, whichever label is most likely. This is how a pack escalates on a
+   ≥ `min_probability`, whichever label is most likely. This is how an agent escalates on a
    meaningful chance of a critical label (e.g. P(urgent) ≥ 0.35) rather than only when that
    label wins; `min_probability` needs `labels` and cannot be combined with
    `min_confidence`. A condition needs at least one of `labels`, `min_score` or `max_score`. The first matching rule determines outcome, recommendation
@@ -494,7 +496,7 @@ automation_requires:
 ```
 
 Other variants still answer and decide, but every decision goes to a person. A runtime that
-does not know which variants are running MUST NOT automate such a pack.
+does not know which variants are running MUST NOT automate such an agent.
 6. `ABSTAIN` carries no recommendation. `ABSTAIN` and `BLOCK` carry the policy `fallback`.
 
 ## 7. Risk levels
@@ -507,30 +509,30 @@ does not know which variants are running MUST NOT automate such a pack.
 | 3 | Patient-specific prediction | As level 2 |
 | 4 | Time-critical / diagnostic / treatment | AUTO always capped; no override |
 
-An **automation hold** is the deployment's, never the pack's: while one covers a decision (an
-organization, a pack, a digest, or the whole deployment), an outcome that would be `AUTO` becomes
+An **automation hold** is the deployment's, never the agent's: while one covers a decision (an
+organization, an agent, a digest, or the whole deployment), an outcome that would be `AUTO` becomes
 `HUMAN_REVIEW` with the same recommendation and priority, and nothing else changes. A decision
 over its organization's daily quota is held the same way.
 
 A governance override is supplied by the *deploying* organization at runtime, never by the
-pack. It names an approver and a reference, and it is recorded in every affected decision.
+agent. It names an approver and a reference, and it is recorded in every affected decision.
 
 ## 8. Evaluation
 
-Dataset format: JSON Lines. Each line has an `input` (the pack input), optional `labels`
+Dataset format: JSON Lines. Each line has an `input` (the agent input), optional `labels`
 (`{question: label}`), optional `attributes` (subgroup metadata such as `language` or
 `site`), and an optional `id`.
 
 **Critical labels** (`evaluation.critical`) name the (question, label) pairs whose true cases
-matter most. In the pack's default deployment (no governance approval) a true critical case
+matter most. In the agent's default deployment (no governance approval) a true critical case
 MUST NOT be automated: a person sees every one. Under a governance approval (risk levels 2–3),
-an automated true critical case MUST carry the correct primary recommendation: the trial
-prescreener may automate `not_eligible` on an exclusion it found, never `candidate`. Mendari's
-tests hold every maintained pack to both, in every configuration that runs without calling a
-service, on every dataset the pack declares. Reports, local validation and the pack gate still
+an automated true critical case MUST carry the correct primary recommendation: an eligibility
+screen may automate `not_eligible` on an exclusion it found, never `candidate`. Mendari's
+tests hold every bundled agent to both, in every configuration that runs without calling a
+service, on every dataset the agent declares. Reports, local validation and the agent gate still
 count every automated true critical case.
 
-An evaluation report (`format: mendari.eval/1`) MUST include the pack id, version and
+An evaluation report (`format: mendari.eval/1`) MUST include the agent id, version and
 digest; the provider variant and model of each slot; the dataset name, SHA-256 and size; per
 question accuracy (derived questions included), macro-F1, per-label precision/recall/F1, confusion matrix, ECE with
 reliability bins, and Brier score; outcome rates; automation accuracy and false automation
@@ -542,19 +544,19 @@ ledger and carries each proportion with its exact interval: see
 [Evaluation reports, ledgers and paired comparisons](evaluation-reports.md). A
 `mendari.eval/1` report still loads.
 
-**Local validation** compares a report on local data with the pack's published benchmark. It
+**Local validation** compares a report on local data with the agent's published benchmark. It
 MUST report the overall delta of primary accuracy and SHOULD localize degradation by label
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
-a finding. A pack pulled from a registry MUST NOT be compared with the benchmark it carries,
+a finding. An agent pulled from a registry MUST NOT be compared with the benchmark it carries,
 which is outside its digest and is its publisher's upload
 ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)); a report
 the caller gives MAY be.
 
 A **leaderboard** (`format: mendari.leaderboard/2`) compares provider configurations. Each
 row summarises one report: the configuration (slot variants, naming the model of remote
-providers), the pack version and digest, the dataset with its hash and size, primary accuracy,
+providers), the agent version and digest, the dataset with its hash and size, primary accuracy,
 macro-F1 and ECE, AUTO and false automation, critical detection and automated misses, p50/p95
-latency, cost per decision, error count and the report's ledger. A row is keyed by pack digest,
+latency, cost per decision, error count and the report's ledger. A row is keyed by agent digest,
 dataset hash, size and configuration, and is ranked by one function
 ([`mendari.rank/1`](evaluation-reports.md#leaderboards-mendarileaderboard2-and-mendarirank1)),
 whose order the card, the command line and the dashboard all list the rows in. Every set a
@@ -566,7 +568,7 @@ come from the same records. Like reports, a leaderboard MUST NOT contain case in
 A **shared report** (`format: mendari.site-report/2`) is what a site sends a registry about
 its own evaluation, specified in
 [Evaluation reports](evaluation-reports.md#shared-site-reports-mendarisite-report2). It is a
-closed schema of names, flags and whole counts, counted from the run's ledger: the pack (id,
+closed schema of names, flags and whole counts, counted from the run's ledger: the agent (id,
 version, digest), the providers and policy, per question its labelled and right cases, its
 confusion matrix and confidence deciles, the outcome counts, the false automations, each
 critical label's counts and the dataset's size. It MUST NOT contain a rate, a case id, case
@@ -575,14 +577,14 @@ applied), or subgroup cells. Cells of 1 to 9 are suppressed, with their compleme
 function the sender and the registry both run, and a run on fewer than 100 cases is not
 shared; a registry MUST refuse a payload that function would change, and MUST refuse
 `mendari.site-report/1`. Its question, label, slot, variant and composite member names are the
-published pack's own, and a registry MUST refuse a report that names any other; model names are
+published agent's own, and a registry MUST refuse a report that names any other; model names are
 short ASCII names. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is
-recorded: its model lists every member's as `member:model`, in the pack's order, joined by ` + `
+recorded: its model lists every member's as `member:model`, in the agent's order, joined by ` + `
 (` → ` for a `cascade`). A registry MUST NOT echo what it refuses.
 
 ## 9. FHIR and CDS Hooks
 
-Spec [0.3](decision-pack-0.3.md) extends the mapping below; a 0.2 pack reads as this section
+Spec [0.3](decision-pack-0.3.md) extends the mapping below; a 0.2 agent reads as this section
 says. `fhir/mapping.yaml` declares the `focus` resource type, the required and optional resource
 types, and a mapping from input fields to FHIRPath-subset paths (dotted elements, where a
 list-valued element yields all its items and `[n]` selects one), with optional transforms
@@ -592,7 +594,7 @@ outcome, `focus` and `for` references, the recommendation as `performerType`, an
 decision id as an identifier.
 
 A mapping MAY also declare `lists`: each target becomes a list of objects, one per resource of
-the given type, with field paths relative to the resource. This is how a Patient-focused pack
+the given type, with field paths relative to the resource. This is how a Patient-focused agent
 receives a record with many Conditions, Observations or MedicationStatements:
 
 ```yaml
@@ -623,32 +625,32 @@ it, so each label is its display name (the question's `names`, else the label as
 `lumbar_mri` reads `Lumbar MRI` with `names`, `cardiology` reads `Cardiology`), and no
 recommendation reads `manual triage`; a Task keeps the labels. Every text a card summary can
 give this way MUST be under 140 characters (at most 139), CDS Hooks' limit, checked when the
-pack loads. Any other placeholder is refused when the pack loads. A placeholder is a bare name:
+agent loads. Any other placeholder is refused when the agent loads. A placeholder is a bare name:
 no conversion (`{priority!r}`), format spec (`{priority:>9}`), attribute (`{priority.x}`) or
-index (`{priority[0]}`). A pack the
-deployment does not own (a community pack, or one from a registry that is not a reference pack
-of the release) is invalid with one, its Task text included, or with a card summary that can
-read 140 characters or more; any other pack loads with a warning for either in its card
+index (`{priority[0]}`). An agent the
+deployment does not own (a community agent, or one from a registry that is not an agent
+bundled with the release) is invalid with one, its Task text included, or with a card summary that can
+read 140 characters or more; any other agent loads with a warning for either in its card
 summaries (a card cuts a summary to 139 characters), its Task text renders as it always did, and
 `mendari validate` refuses both.
 
 A mapping MAY declare `focus_where: {path, in: [...]}` to say which resources of the focus type
-the pack is about, e.g. referrals among ServiceRequests (lab orders are ServiceRequests too):
+the agent is about, e.g. referrals among ServiceRequests (lab orders are ServiceRequests too):
 
 ```yaml
 focus: ServiceRequest
 focus_where: {path: category[0].coding[0].code, in: ["FR101"]}  # the code a site marks referrals with
 ```
 
-Other resources of the focus type are ignored. (`FR101` is the Referral Router's fictional
-referral code; a site lists the code its own EHR uses.)
+Other resources of the focus type are ignored. (`FR101` is a fictional referral code, from the
+former Referral Router example; a site lists the code its own EHR uses.)
 
-A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). Each
+An agent with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). Each
 `prefetch` template is a read or a search relative to the EHR's FHIR server: `Type/<id>`,
 `Type/{{context.<name>}}` or `Type?<query>` (a resource type, then at most one id or context
 token, then a query with no `/`, `?`, `#`, backslash or whitespace), with no `..` anywhere: no
-absolute URL, `//`, leading `/`, operation (`$everything`) or fragment. A pack the deployment does
-not own is invalid with any other; any other pack loads with a warning, and `mendari validate`
+absolute URL, `//`, leading `/`, operation (`$everything`) or fragment. An agent the deployment does
+not own is invalid with any other; any other agent loads with a warning, and `mendari validate`
 refuses it. The reference runtime fetches a declared prefetch key the request leaves out (or
 sends empty) only from a `fhirServer` the deployment allows (`MENDARI_FHIR_ALLOWED_SERVERS`); with
 no `fhirServer` the request is refused with `412`, as CDS Hooks 2.0 says. A key whose value is
@@ -662,20 +664,20 @@ made from FHIR records what the mapping looked for and found, as counts (`data_c
 `mendari.data-coverage/1`). For the order
 hooks (`order-select`, `order-sign`), the orders come in `context.draftOrders`: every draft order
 that is a focus resource gets its own decision, with the prefetched record, and its own card. A
-draft with none of them returns no cards. A pack MAY word
+draft with none of them returns no cards. An agent MAY word
 its cards with `cds_hooks.card`: a `summaries` template per recommendation (keys are primary
 labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
 recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
 patients who are clearly not eligible). The reference runtime's cards are CDS Hooks 2.0's: a
 card's `uuid` is its decision's id, its one suggestion lets the clinician take at most one
 (`selectionBehavior: at-most-one`), and it offers Mendari's override reasons. Its detail is the
-pack's status, the notice and one plain sentence for the outcome, never a percentage or the
+agent's status, the notice and one plain sentence for the outcome, never a percentage or the
 confidence; where the deployment has a public address, the reasons are behind a link to the
 decision's record. The EHR MAY send back what the clinician did with each card
 (`POST /cds-services/{id}/feedback`), which is chained on the decision as codes and ids, never a
 comment.
 
-An order-hook pack MAY map recommendations to **Da Vinci CRD coverage information** with
+An order-hook agent MAY map recommendations to **Da Vinci CRD coverage information** with
 `cds_hooks.coverage_information: {<primary label>: {covered, pa_needed, doc_needed, doc_purpose,
 info_needed, reason}}` (CRD's codes; `reason` is plain words and MUST NOT carry case data). It
 needs a `coverage` prefetch. For each decided order whose recommendation is mapped, the response
@@ -687,7 +689,7 @@ its cards says it is `coverage-info` (`source.topic`); a request whose
 `extension.davinci-crd.configuration` sets `coverage-info` to false gets neither its cards nor
 its system actions, and each order is still decided and recorded.
 
-A pack whose primary question is derived MAY serve **Da Vinci DTR** questionnaires with
+An agent whose primary question is derived MAY serve **Da Vinci DTR** questionnaires with
 `cds_hooks.questionnaire: {missing: <primary label>, context: [<questions>], title}`. For the
 answers of the `context` questions (e.g. service and payer), the documentation the payer asks
 for is every member of the primary table that can turn the decision into `missing` (rows gated
@@ -698,7 +700,7 @@ Coverage information for `missing` links the questionnaire.
 
 ### 9.1 Guard
 
-A pack MAY declare `guard: {draft: <input field>, release: [<primary labels>]}` to sit between a
+An agent MAY declare `guard: {draft: <input field>, release: [<primary labels>]}` to sit between a
 language model and its reader, e.g. a patient. The runtime turns each decision into a status:
 `released` (AUTO with a `release` recommendation; the draft is returned to send), `held_for_review`
 (HUMAN_REVIEW or ABSTAIN) or `blocked` (BLOCK; the draft MUST NOT be sent and the policy
@@ -712,33 +714,33 @@ requires a recorded governance override (§7). The reference server exposes this
 mapping, an optional `name` (text) and an `expect` mapping, and no other key. `expect` holds at
 least one of `outcome`, `outcome_in` (a non-empty list), `not_outcome`, `recommendation`,
 `priority` and `answers` (a non-empty mapping of question to label), and nothing else, so a
-misspelt key or an empty expectation cannot pass by accident. Each value is one the pack can
+misspelt key or an empty expectation cannot pass by accident. Each value is one the agent can
 decide: an outcome (`AUTO`, `HUMAN_REVIEW`, `ABSTAIN`, `BLOCK`), a priority (`routine`,
 `urgent`, `asap`, `stat`), a label of the primary question for `recommendation` (or null), and,
-in `answers`, the pack's own questions and their labels. Tests describe behaviour that every
+in `answers`, the agent's own questions and their labels. Tests describe behaviour that every
 provider variant is expected to preserve, especially the safety behaviour. Every case MUST have
 that shape and be JSON once loaded: a date or a number that is not finite (or, refused by the
 loader with its line and column, binary, a set or a string with a lone surrogate) makes the
-tests invalid, named by the case's number (and name) and what is wrong. Running a pack's tests
+tests invalid, named by the case's number (and name) and what is wrong. Running an agent's tests
 when it has none is a failure, not a pass.
 
 `mendari validate` also reads every dataset `evaluation.datasets` declares: each line is JSON
 with an `input` that matches the input schema as a decision checks it, and each record's
-`labels` (if any) map the pack's questions to their labels (§8).
+`labels` (if any) map the agent's questions to their labels (§8).
 
 ## 11. Identity and versioning
 
-The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
-except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack, and hidden
-entries and `__pycache__`, which are not part of it (§3). Every file the pack decides or tests
+The agent digest is the SHA-256 over every file in the agent (path and content, in sorted order)
+except `evals/` and `DECISION_CARD.md`, which are attestations *about* the agent, and hidden
+entries and `__pycache__`, which are not part of it (§3). Every file the agent decides or tests
 with is one the digest hashes, compared as a file on disk, and is used only with the content the
-digest hashed (§3), so the digest covers everything the pack decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
+digest hashed (§3), so the digest covers everything the agent decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
 evaluation report records the digest, so an audit record identifies the exact behaviour that
 produced it.
 
 ## 12. Audit records
 
-Every decision produces a record with id, timestamp, pack id/version/digest, input (or only its
+Every decision produces a record with id, timestamp, agent id/version/digest, input (or only its
 hash when `audit.store_input: hash`), per-answer provider type/variant/model, label, confidence,
 probabilities, evidence and (score questions) value, with derived answers recorded under the
 provider type `derived`, outcome, recommendation, priority, reasons, fallback, provider
@@ -750,15 +752,15 @@ commits to each decision record, so modification or deletion is detectable.
 
 0.2 is backwards compatible. A manifest with `spec_version: "0.1"` still loads, validates and
 produces identical decisions; it simply cannot use the new fields. One restriction applies to
-packs of every version: a `jev` or `llm` variant may not name the environment variables its
-provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
+agents of every version: a `jev` or `llm` variant may not name the environment variables its
+provider reads (§5); a directory agent may not hold a symbolic link out of it, and an input
 schema must be self-contained, a version has at most 64 characters, a YAML file that uses
 anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON and holds no
-number over 4,300 characters or 4 `:` parts (§3), every file the pack decides or tests with is
+number over 4,300 characters or 4 `:` parts (§3), every file the agent decides or tests with is
 one its digest hashes, however a path spells it, and `evaluation.benchmark` is in `evals/` (§3),
 YAML and JSON hold only what JSON can carry (§3), every behaviour test has the shape of §10 and is
 JSON (§10), and every pattern (input-schema `patternProperties` keys
-included) compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any
+included) compiles, at most 2,000 characters and 500 per agent (§5). No published agent did any
 of these.
 
 | Change | Section |
@@ -774,26 +776,26 @@ of these.
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | `dosing` provider; `guard` section and statuses | §5, §9.1 |
-| `cql` provider (a library in the pack, a CQL engine at `$MENDARI_CQL_URL`) | §5 |
+| `cql` provider (a library in the agent, a CQL engine at `$MENDARI_CQL_URL`) | §5 |
 | `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
-| Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| Every agent pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per agent, checked at load (every spec version) | §5 |
 | A `naive_bayes` model file may count runs of characters inside each word (`character_ngrams`, format `mendari.naive_bayes/2`); a model without the key is trained and scored as before (every spec version) | §5 |
-| The built-in types that read free text on the machine (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read it in its plain form: typography only (quotation marks, dashes, white space, line ends, invisible format characters, composed accents), so a pack's patterns, names and tokens are written in it (every spec version) | §5 |
-| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
-| `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |
-| A behaviour test has an `expect` of at least one known key and no other, each value one the pack can decide, and no key beyond `name`, `input` and `expect`; a test run with no test fails; declared datasets are read by `validate` (every spec version) | §10 |
+| The built-in types that read free text on the machine (`rules`, `dosing`, `naive_bayes`, and `criteria` a medication's name) read it in its plain form: typography only (quotation marks, dashes, white space, line ends, invisible format characters, composed accents), so an agent's patterns, names and tokens are written in it (every spec version) | §5 |
+| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file an agent decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
+| `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the agent is declared there with a `licence_note` (every spec version) | §3 |
+| A behaviour test has an `expect` of at least one known key and no other, each value one the agent can decide, and no key beyond `name`, `input` and `expect`; a test run with no test fails; declared datasets are read by `validate` (every spec version) | §10 |
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
-| No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
-| No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
-| Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
-| An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
-| A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
+| No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in an agent's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
+| No symbolic link out of a directory agent; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
+| Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry agent with a problem is invalid, any other is warned; such an agent's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
+| An owned agent's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; an agent from a registry with a reference agent's id and an equal version is that agent (every spec version) | §3, §5 |
+| A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry agent with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
 
-To migrate a pack:
+To migrate an agent:
 
 1. Set `spec_version: "0.2"`.
 2. Optionally turn yes/no questions into `type: boolean` (only if they have no third label such

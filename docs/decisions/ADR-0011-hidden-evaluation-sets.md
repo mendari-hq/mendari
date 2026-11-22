@@ -1,5 +1,7 @@
 # ADR-0011: Hidden evaluation sets, blind labelling and agreement
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now.*
+
 ## Status
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each

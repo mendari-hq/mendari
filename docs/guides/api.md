@@ -221,7 +221,7 @@ in [Deploying with real patient data](../deploying-with-phi.md).
 
 Where the operator turns it on (`MENDARI_PACK_STORE=on`, memberships mode), a person who holds
 `pack_author` in an organization keeps that organization's own versions of packs under
-`/api/store` ([the pack store](../operations/pack-store.md)). Every route acts for the
+`/api/store` ([the pack store](../operations/agent-store.md)). Every route acts for the
 organization the person acts for; no key or client reaches them.
 
 | Route | What it does |

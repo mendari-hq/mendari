@@ -1,7 +1,7 @@
 # {{name}}: a community Decision Pack, written in YAML. Change anything; `mendari validate`
 # checks it, and `mendari community-check` runs every check CI runs on a community pack.
 # The authoring guide walks through every section:
-# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
 #
 # A community pack lives in community-packs/<name>/ with the id community/<name>. It
 # recommends and never automates (a person confirms every decision), decides with local
@@ -22,7 +22,7 @@ risk:
   # 0 administrative, 1 clinical information; a community pack is at most 1. Choosing which
   # team reads a message first, with anything possibly urgent sent to a person, is
   # administrative (0), as for the patient inbox router; reading clinical facts to decide is 1
-  # (docs/guides/contributing-a-pack.md, "Risk level").
+  # (docs/guides/contributing-an-agent.md, "Risk level").
   level: 0
   category: administrative
   rationale: >-

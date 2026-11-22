@@ -310,7 +310,7 @@ _NOT_AFTER = (
     'for "not after a word" (no pain), mark the rule negatable: true and list the word in '
     "negation_cues; otherwise write a second rule for what must not come before"
 )
-_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-a-pack.md'
+_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-an-agent.md'
 _SINGLE = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 _REPEATS = ("MAX_REPEAT", "MIN_REPEAT")
 

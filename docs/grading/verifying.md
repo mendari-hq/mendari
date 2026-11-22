@@ -10,7 +10,7 @@ then every result reads "unsigned".
 
 !!! warning "Engineering evaluation, not clinical validation"
     A signature says that Mendari's owner vouches for a result, exactly as it is. It does not
-    make the figures right, and it does not make a pack fit for patient care. A public set's result
+    make the figures right, and it does not make an agent fit for patient care. A public set's result
     can also be recomputed from its committed inputs; a hidden set's cannot, so its signature is
     the owner's word for it.
 
@@ -72,7 +72,7 @@ Two fields of the result's scope are read:
   key's valid dates.
 
 Every other signature Mendari makes is over canonical JSON with no prefix: the daily checkpoint,
-a pack archive's manifest and a recall. So none of them verifies as a result, even made with the
+an agent archive's manifest and a recall. So none of them verifies as a result, even made with the
 same key, and a result's signature verifies as none of them.
 
 ## The keys file

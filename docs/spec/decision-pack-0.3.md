@@ -1,23 +1,25 @@
-# Decision Pack Specification, version 0.3
+# Agent manifest spec 0.3
+
+(formerly the Decision Pack spec; the format is unchanged)
 
 Status: draft. Supersedes [0.2](decision-pack-0.2.md) for the FHIR mapping, one key of the
-`criteria` provider's medication check (§3) and two card keys (§5) only. Every other part of a
-pack is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with `spec_version: "0.3"`. Every
-valid 0.1 and 0.2 pack is still valid, with unchanged behaviour (§4). The key words MUST,
+`criteria` provider's medication check (§3) and two card keys (§5) only. Every other part of an
+agent is as 0.2 says, and a 0.3 manifest is a 0.2 manifest with `spec_version: "0.3"`. Every
+valid 0.1 and 0.2 agent is still valid, with unchanged behaviour (§4). The key words MUST,
 SHOULD and MAY are used as in RFC 2119. The reference implementation of the mapping is
 `mendari.standards.fhir`.
 
 ## 1. What changes
 
 The mapping part of 0.2 §9 ("FHIR and CDS Hooks"): how `fhir/mapping.yaml` turns FHIR R4
-resources into a pack's input. §2 below states the whole mapping, its 0.2 keys and the new
+resources into an agent's input. §2 below states the whole mapping, its 0.2 keys and the new
 ones. Card templates gain two keys (§5): `refused`, for a decision that refused its input, and
 `also_show`, a card in a policy rule's words for a recommendation `show` leaves out. CDS Hooks,
 the rest of the card template, Task templates, the Task a decision becomes and the guard (§9.1)
 stay as 0.2 says. And one key of the `criteria` provider (0.2 §5), `current_within_days` on a
 medication check (§3).
 
-Real EHR data rarely puts a pack's code first, writes one resource type for one idea, or keeps
+Real EHR data rarely puts an agent's code first, writes one resource type for one idea, or keeps
 a note as plain text. 0.3 adds, each marked (0.3) below:
 
 - a predicate that picks a coding or an identifier by its code system, wherever it is;
@@ -25,7 +27,7 @@ a note as plain text. 0.3 adds, each marked (0.3) below:
 - `follow`: one reference hop, resolved inside the record and never fetched by the mapping (a
   runtime may first read what the record lacks: links, §2.3);
 - the `attachment_text` transform: plain-text and HTML notes, inline or in a Binary;
-- `code_sets` and the `code_set` selector: the pack's own codes, which a site's codes may be
+- `code_sets` and the `code_set` selector: the agent's own codes, which a site's codes may be
   translated into, for a field and for `focus_where`;
 - list `resources`: several resource types into one list, each with its own fields, and the
   `medication_period` derivation for a MedicationRequest;
@@ -80,13 +82,13 @@ A path is a small FHIRPath subset: dotted element names. A list-valued element y
 items, and `[n]` keeps the n-th of everything the path found so far (`[*]` keeps all). (0.3)
 `[system=<uri>]` keeps the items whose `system` is that uri: a coding of one code system
 (`code.coding[system=http://loinc.org].code`), or an identifier (`identifier[system=...]`).
-The uri MUST be one the pack declares in `code_systems` (0.2 §3), so a licensed system is
+The uri MUST be one the agent declares in `code_systems` (0.2 §3), so a licensed system is
 declared with its terms.
 
 A top-level field's path starts with a resource type (`Patient.birthDate`). A list field's
 path is relative to its resource (`code.text`). After a `follow`, a path starts with the type the
 reference reaches (`Medication.code.text`), or with the field's own type (§2.3).
-`focus_where.path` is relative to the focus. In a 0.3 pack every path is checked when the
+`focus_where.path` is relative to the focus. In a 0.3 agent every path is checked when the
 mapping loads.
 
 ### 2.2 Fields
@@ -96,7 +98,7 @@ A field gives one value. It has a `path` or (0.3) `paths`, not both, and optiona
 - `transform`: `join` (every text value, one per line), `age_band`, `age_years` (from a FHIR
   date), `base64_text` (every `data`, decoded and joined, whatever its content type) or (0.3)
   `attachment_text` (§2.4).
-- `map`: what was found, to the pack's value. A value the map does not list gives nothing.
+- `map`: what was found, to the agent's value. A value the map does not list gives nothing.
 - (0.3) `code_set`: §2.5. It takes no `transform`.
 - (0.3) `follow`: §2.3.
 
@@ -199,7 +201,7 @@ reference runtime counts each in the decision's data-coverage record and, as for
 read, and counts for nothing.
 
 **Longer than the input allows.** The texts of all of a record's notes, joined, can be longer
-than the `maxLength` the pack's input schema gives the field. The reference runtime never cuts
+than the `maxLength` the agent's input schema gives the field. The reference runtime never cuts
 the text (a cut could lose the very sentence a question reads) and does not let the schema
 refuse the whole input for it: it leaves the field out of the input and makes the decision
 ABSTAIN with `could not read <field>: too_large`, counted once in the data-coverage record.
@@ -219,18 +221,18 @@ text/plain or text/html rendition that has one, else `unsupported_type`.
 
 ### 2.5 Code sets (0.3)
 
-`code_sets` names sets of the pack's own codes: `{<name>: {system, codes}}`. A name is lower
-case (`^[a-z][a-z0-9_]{0,63}$`). The system MUST be one the pack declares in `code_systems`,
+`code_sets` names sets of the agent's own codes: `{<name>: {system, codes}}`. A name is lower
+case (`^[a-z][a-z0-9_]{0,63}$`). The system MUST be one the agent declares in `code_systems`,
 and a code is listed once.
 
 A field with `code_set: <name>` reads Codings, or CodeableConcepts whose codings it reads. Its
 value is the first coding of the set's system whose code the set lists; another code of that
 system, or the same code in another system, gives nothing. A `map` may then turn the code into
-the pack's value.
+the agent's value.
 
 `focus_where` MAY name a code set (`{path, code_set}`) in place of `in`: a resource of the focus
 type counts when the codings at its path, read as a field's are, give one of the set's codes
-(`category.coding` for a referral's category, wherever the pack's coding sits among the
+(`category.coding` for a referral's category, wherever the agent's coding sits among the
 categories' codings). The set's translations count as a field's do, so a site's own code for
 the focus finds it.
 
@@ -241,9 +243,9 @@ it is: among the codings one path finds, and across a field's `paths`. A path th
 code only through a translation passes to the next, for one of the set's own codes; when no
 path gives one, the first translated code is the field's. A record whose own codes give a
 field its value is so read the same with translations as without. Translations are
-configuration, not part of the pack, so they change no digest. The reference runtime's server
+configuration, not part of the agent, so they change no digest. The reference runtime's server
 reads them from `MENDARI_SITE_CODES`, one map per organization, checked at startup against the
-code sets the packs declare (its command line reads none). A decision records the version and
+code sets the agents declare (its command line reads none). A decision records the version and
 SHA-256 of the map it read with, and one whose input took a value through a translation, or
 whose focus counted only through one, is never AUTO, nor BLOCKed by a rule without a person
 ([Connecting an EHR](../guides/connecting-an-ehr.md#site-codes)).
@@ -266,7 +268,7 @@ list from its other sources, records so, and never automates on it. Without such
 a source that cannot be read makes the decision ABSTAIN. (The reference runtime's server reads
 the declaration from `MENDARI_EHR_DECLARATIONS`, per FHIR base and organization, and applies it
 only to a type that is one of several sources of a list, whose other, undeclared source is read,
-and that the pack reads nowhere else: [Connecting an
+and that the agent reads nowhere else: [Connecting an
 EHR](../guides/connecting-an-ehr.md#what-your-ehr-does-not-offer).)
 
 ### 2.7 A MedicationRequest's period (0.3)
@@ -304,20 +306,20 @@ Only the first dosage instruction (`dosageInstruction[0]`) is read, and of its t
 
 `dispenseRequest.validityPeriod` is the window in which the drug may be dispensed, not when
 the patient takes it, so it is not read. `boundsRange` is not read either. This rule is a
-clinical judgement: a pack that adopts it SHOULD say so in its card's known failure modes, and a
+clinical judgement: an agent that adopts it SHOULD say so in its card's known failure modes, and a
 clinician should review it before real use.
 
-### 2.8 Packs the deployment does not own
+### 2.8 Agents the deployment does not own
 
-A pack the deployment does not own (a community pack, or one from a registry that is not a
-reference pack of the release) is held to bounds at load: at most 4 paths a field, and at most
-200 codes a code set. `mendari validate` holds every pack to them. A `follow` is one hop for
-every pack.
+An agent the deployment does not own (a community agent, or one from a registry that is not an
+agent bundled with the release) is held to bounds at load: at most 4 paths a field, and at most
+200 codes a code set. `mendari validate` holds every agent to them. A `follow` is one hop for
+every agent.
 
 ### 2.9 What a field looks for
 
 A runtime MAY report, for each field and list item key, what it looks for: its paths in the
-order tried, the reference it follows, the code systems it selects on and the pack's own codes
+order tried, the reference it follows, the code systems it selects on and the agent's own codes
 it looks for (its code set's, and its map's keys). Such a report comes from the mapping alone,
 so it holds no patient's value, id or text. The reference runtime's is
 `FhirAdapter.looked_for`, and its data-coverage record (`mendari.data-coverage/1`) counts what
@@ -353,19 +355,20 @@ current answers `unknown`, even when a later item would have decided.
 
 ## 4. Versions
 
-A pack that uses any key marked (0.3) MUST declare `spec_version: "0.3"`. A 0.1 or 0.2 pack with
+An agent that uses any key marked (0.3) MUST declare `spec_version: "0.3"`. A 0.1 or 0.2 agent with
 one is invalid, whatever the key holds (`code_sets: {}` and `current_within_days: null` too), and
 the problem names each key and says to set `spec_version: '0.3'`. It is refused at load,
-wherever it comes from (an owned pack too), and so by `mendari validate`.
+wherever it comes from (an owned agent too), and so by `mendari validate`.
 
-An engine that reads only 0.1 and 0.2 refuses a 0.3 pack, since its `spec_version` is not one
-it knows. Publish a pack as 0.3 only for engines that read 0.3.
+An engine that reads only 0.1 and 0.2 refuses a 0.3 agent, since its `spec_version` is not one
+it knows. Publish an agent as 0.3 only for engines that read 0.3.
 
-Every 0.1 and 0.2 pack loads and maps as before. The reference packs' FHIR decisions are pinned
-case by case, input hash included (`tests/fixtures/fhir/decisions-golden.json`), and a 0.2
-mapping written with `paths` and `resources` reads every case alike. Three reference packs are
-0.3 packs themselves (the Clinical Trial Prescreener, the Prior Authorization Preflight and the
-Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of this section.
+Every 0.1 and 0.2 agent loads and maps as before. The former example agents' FHIR decisions are
+pinned case by case, input hash included (`tests/fixtures/fhir/decisions-golden.json`), and a
+0.2 mapping written with `paths` and `resources` reads every case alike. Three of them are 0.3
+agents (the Clinical Trial Prescreener, the Prior Authorization Preflight and the Referral
+Router, since their 0.3.0): their `fhir/mapping.yaml` files, now test fixtures in
+`tests/fixtures/reference-packs/` and on the archive branch, use most of this section.
 
 ## 5. Cards (0.3)
 
@@ -373,12 +376,12 @@ Referral Router, since their 0.3.0): their `fhir/mapping.yaml` files use most of
 a decision with no recommendation. 0.3 adds two keys, each marked (0.3) as §4 says.
 
 **`refused` (0.3).** The key of a decision that refused its input: a `BLOCK` made before any
-provider ran, because the input failed the pack's input schema or a standards check under
+provider ran, because the input failed the agent's input schema or a standards check under
 `enforce`. A template MAY name it in `summaries`, `indicators` and `show` as it names a label.
-One that names it in none of them keys such a decision `none`, as 0.2 does, so a pack that does
+One that names it in none of them keys such a decision `none`, as 0.2 does, so an agent that does
 not use it is unchanged. A primary question MUST NOT have a label `refused` where the template
 names the key. The reference runtime's card for it does not use the `BLOCK` outcome's sentence
-(that the action must not happen): its detail is the pack's status, the notice, fixed words that
+(that the action must not happen): its detail is the agent's status, the notice, fixed words that
 say the input was refused and nothing was checked, and each reason as the audit record keeps it
 (where in the input and which rule of the schema, a resource by its type and position: never a
 value or an id), whether or not the engine's reasons are behind a link. A reason that is not why
@@ -414,15 +417,16 @@ cds_hooks:
         indicator: critical
 ```
 
-The Prior Authorization Preflight (0.3.1) uses `also_show` for its red-flag rule on an order it
-has no requirement set for (`not_checked`), and the Referral Router (0.3.1) uses `refused`.
+Of the former example agents, the Prior Authorization Preflight (0.3.1) uses `also_show` for its
+red-flag rule on an order it has no requirement set for (`not_checked`), and the Referral Router
+(0.3.1) uses `refused`.
 
 ## 6. Changes from 0.2 and migration
 
 | Change | Section |
 |---|---|
 | `[system=<uri>]` in a path, for a uri `code_systems` declares | §2.1 |
-| A 0.3 pack's paths are checked at load | §2.1 |
+| A 0.3 agent's paths are checked at load | §2.1 |
 | `paths`, tried in order, the first that gives a value winning | §2.2 |
 | `follow`: one reference hop, inside the record, never fetched by the mapping; a path of the field's own type read in place | §2.3 |
 | Links: what a reference or a note's url reaches that the record does not hold, read by the reference runtime on a CDS hook or the SMART launch's decide | §2.3, §2.4 |
@@ -431,15 +435,15 @@ has no requirement set for (`not_checked`), and the Referral Router (0.3.1) uses
 | List `resources`: several resource types into one list | §2.6 |
 | `medication_period` for a MedicationRequest | §2.7 |
 | `current_within_days` on a `criteria` medication check | §3 |
-| Bounds for a pack the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |
+| Bounds for an agent the deployment does not own: 4 paths a field, 200 codes a code set | §2.8 |
 | The card key `refused`, for a decision that refused its input | §5 |
 | `cds_hooks.card.also_show`: a card in a policy rule's words for a recommendation `show` leaves out | §5 |
 
-To migrate a pack:
+To migrate an agent:
 
 1. Set `spec_version: "0.3"`.
 2. Declare in `code_systems` every system a `[system=...]` or a code set names.
 3. Change the paths that need it. A `path` that reads well stays as it is.
-4. Re-run the evaluation. A mapping change changes the pack's digest (0.2 §11), so a
-   governance approval of the old digest no longer applies, and it may change what the pack
+4. Re-run the evaluation. A mapping change changes the agent's digest (0.2 §11), so a
+   governance approval of the old digest no longer applies, and it may change what the agent
    decides through FHIR.

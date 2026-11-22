@@ -7,15 +7,15 @@ recorded; rules still raise priority (a possible emergency still reaches a nurse
 `ABSTAIN` and `BLOCK` are unchanged. A hold only ever lowers automation.
 
 Use one when something looks wrong and you need people to check every decision while you find
-out: a missed emergency, a provider behaving oddly, a pack version you are unsure of, an incident.
+out: a missed emergency, a provider behaving oddly, an agent version you are unsure of, an incident.
 
 ## What a hold covers
 
 | Hold | Covers | Set and lifted |
 |---|---|---|
-| One version of a pack (`pack_id` and `pack_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
-| A pack (`pack_id`) | every version of it, in your organization | the API, the dashboard, the command line |
-| Every pack | every decision in your organization | the API, the command line (lifted in the dashboard too) |
+| One version of an agent (`pack_id` and `pack_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
+| An agent (`pack_id`) | every version of it, in your organization | the API, the dashboard, the command line |
+| Every agent | every decision in your organization | the API, the command line (lifted in the dashboard too) |
 | Every organization (`--all-orgs`) | every decision on the deployment | the command line only |
 
 Holds are rows in the deployment's database, read by each decision (and reused on a server for
@@ -27,10 +27,10 @@ since when; its reason and who set it are the operator's.
 
 ## From the dashboard or the API
 
-Everyone who can read the pack sees the holds in force on its Decision Card, and the overview
-says when one covers the pack. People who may approve automation (signed in with the
-`governance` or `admin` role) can hold the pack there with a reason and lift their
-organization's holds. Holding is one click; lifting asks first, in a dialog that says the pack
+Everyone who can read the agent sees the holds in force on its Decision Card, and the overview
+says when one covers the agent. People who may approve automation (signed in with the
+`governance` or `admin` role) can hold the agent there with a reason and lift their
+organization's holds. Holding is one click; lifting asks first, in a dialog that says the agent
 then decides on its own again. API keys and clients cannot hold or lift (their roles never approve); they
 can read `GET /api/holds`. The routes are `POST /api/holds` (`pack_id`, optional `pack_digest`
 of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
@@ -40,12 +40,12 @@ of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
 The command line writes to the database directly, so it works with the server down or
 unreachable. A hold it sets for every organization can only be lifted there. It takes the
 server's database from `--db` or `$DATABASE_URL`, says which one it wrote to, and refuses one
-that does not exist or has never served a decision (a typo would otherwise hold nothing), a pack
+that does not exist or has never served a decision (a typo would otherwise hold nothing), an agent
 that database never served, and a malformed digest. `mendari decide --db` honours its holds.
 
 ```bash
 mendari automation hold --all-orgs --reason "incident 7" --db "$DATABASE_URL"
-mendari automation hold --org clinic-a --pack mendari/referral-router --reason "checking" --db "$DATABASE_URL"
+mendari automation hold --org clinic-a --pack mendari/portal-message-agent --reason "checking" --db "$DATABASE_URL"
 mendari automation list --db "$DATABASE_URL"
 mendari automation lift <id> --db "$DATABASE_URL"
 ```

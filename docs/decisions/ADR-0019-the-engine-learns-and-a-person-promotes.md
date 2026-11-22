@@ -1,5 +1,7 @@
 # ADR-0019: The engine learns from review, and a person promotes
 
+*Written when agents were called Decision Packs; the decision applies to agents as they are now, and its reference packs are now the agents bundled with the release (the demo agent).*
+
 ## Status
 Proposed (2026-11-10). Built on the branch that proposes it. Nothing in it changes what a pack
 decides until a person runs `mendari improve --write` on a pack of their own and serves the

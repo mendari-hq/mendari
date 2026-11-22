@@ -7,7 +7,7 @@ deployment drops Vercel Authentication. Written at the end of Phase 4b (2026-10-
 
 ## What Mendari is
 
-Mendari runs Decision Packs: versioned bundles of questions, providers (rules, local models,
+Mendari runs agents: versioned bundles of questions, providers (rules, local models,
 remote models) and a policy that turns answers into one of four outcomes (`AUTO`,
 `HUMAN_REVIEW`, `ABSTAIN`, `BLOCK`). Every decision is recorded, and reviews, outcomes and
 approvals are appended to a hash chain. A clinician reviews what the policy does not automate.
@@ -31,9 +31,9 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 | What is logged | `server/security_log.py` |
 | The dashboard and the API reference in the browser: CSP, cookies, the vendored Swagger UI | `src/mendari/dashboard/`, `server/app.py` (`_security_headers`, `versioned_page`) |
 | Outbound calls (SSRF): FHIR servers, the CQL engine, the identity provider, the payer, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
-| The pack registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
-| Pulling and serving a pack from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
-| An organization's pack store (LP-20, [ADR-0016](../decisions/ADR-0016-a-pack-store-per-organization.md), off unless `MENDARI_PACK_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
+| The agent registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
+| Pulling and serving an agent from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
+| An organization's agent store (LP-20, [ADR-0016](../decisions/ADR-0016-a-pack-store-per-organization.md), off unless `MENDARI_PACK_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
 | The Hub website: rendering publisher text, its CSP and headers | the repository's top-level `hub/` (Next.js: `proxy.ts`, `app/`), not `src/mendari/hub/` |
 | The build: CI, pinned actions and images, the Docker image, Dependabot | `.github/`, `Dockerfile`, `deploy/` |
 
@@ -48,15 +48,15 @@ Paths under `src/mendari/` are given without that prefix.
    value, or fetched from its one allow-listed `jwks_uri`).
 3. **Engine → outside servers:** FHIR servers, the CQL engine, the identity provider, the payer
    and alert webhooks, all through one outbound client with an allow-list.
-4. **Engine → model providers:** Jev, and LLMs through a gateway. Only a pack's declared
-   `state_fields` leave; an owned pack that declares none sends the whole input, and a pack the
-   deployment does not own must declare them (refused at load otherwise). For such a pack the
+4. **Engine → model providers:** Jev, and LLMs through a gateway. Only an agent's declared
+   `state_fields` leave; an owned agent that declares none sends the whole input, and an agent the
+   deployment does not own must declare them (refused at load otherwise). For such an agent the
    model is the deployment's and its answer length, timeout and effort are capped
    (`core/origin.py` `deployment_config`). With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, these
    calls (and Vercel Connect's key exchange) reach only the origins it lists
    (`providers/http.py`).
-5. **Registry ↔ clients:** signed pack archives and signed recalls; the Hub website shows the
-   registry's packs to anyone, and a server reads its registries' recalls.
+5. **Registry ↔ clients:** signed agent archives and signed recalls; the Hub website shows the
+   registry's agents to anyone, and a server reads its registries' recalls.
 6. **Engine ↔ database.**
 
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
@@ -67,7 +67,7 @@ every few seconds, whoever asks),
 `/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` (the
 SMART launch and its callback), `GET /api/smart/session` and `POST /api/smart/logout`, static files, `/docs` (the developer landing of Phase 5:
 built once at startup from settings and the example scripts, the same for every request, listing
-no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
+no agent, provider, count or record with sign-in on), the `/redoc` redirect, and
 `/fhir/metadata`, OperationDefinitions and the SMART configuration. The dashboard (`/`) and
 `/docs/reference` are pages: a signed-out browser is sent to sign in. Roles are `viewer`, `reviewer`, `service`, `governance` and
 `admin`. A clinician launched from a registered EHR is a principal of kind `ehr`, with no role:
@@ -222,9 +222,9 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
 ## Where the evidence is
 
 - **The threat model** ([`threat-model.md`](threat-model.md)): every threat by STRIDE id, its
-  mitigation and the tests that check it. Every test it names exists. Its "Pack content" part
-  lists every input a pack supplies, where the deployment's trust in a pack ends (owned or not,
-  by origin and digest), and what a pack can and cannot do, each with its row or residual.
+  mitigation and the tests that check it. Every test it names exists. Its "Agent content" part
+  lists every input an agent supplies, where the deployment's trust in an agent ends (owned or not,
+  by origin and digest), and what an agent can and cannot do, each with its row or residual.
 - **Tests:** `tests/`, about 1,800 on Postgres. The security-relevant files:
   `test_auth.py` (the route × principal matrix), `test_api_keys.py`, `test_scopes.py`,
   `test_backend_services.py` (37 kinds of bad assertion), `test_sessions.py`,
@@ -237,7 +237,7 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   where), and the browser suite in `tests/browser/`.
   Tests marked "SQLite and Postgres" run on both when `MENDARI_TEST_DATABASE_URL` is set.
 - **CI** (`.github/workflows/ci.yml`): the job `security` (pip-audit, npm audit, an OWASP ZAP
-  scan with sign-in on), `hub-site` (the Hub against a seeded registry, a pack whose text
+  scan with sign-in on), `hub-site` (the Hub against a seeded registry, an agent whose text
   tries to run a script among them: its Playwright tests and the OWASP ZAP baseline), `pilot-check` (a pilot organization end to end against a mock identity
   provider, PHI mode `encrypt`), `sandbox-e2e` (SMART launches from smart-launcher-v2, in open
   mode and into an engine with sign-in on and the launcher registered) and `fhir-conformance`
@@ -272,7 +272,7 @@ uv run mendari serve --port 8000 --db var/review.db
 - **The scripted pilot:** in another shell, `uv run mendari sandbox pilot-check --engine
   http://127.0.0.1:8000`. It signs in four people through the real flow, creates a key,
   decides 12 synthetic messages, reads and resolves a review, checks a viewer is refused,
-  approves a pack and verifies the chain.
+  approves an agent and verifies the chain.
 - **In a browser:** open `http://127.0.0.1:8000/` (`MENDARI_PUBLIC_URL`'s host; a sign-in
   started on another, such as `localhost`, is sent there first).
   The provider's form takes any user name and, as claims, for example
@@ -339,12 +339,12 @@ From the threat model's residual risks, and the plan's deferred list:
 
 ## Out of scope
 
-- The clinical content of packs (criteria, thresholds, labels): it needs clinician review, not
+- The clinical content of agents (criteria, thresholds, labels): it needs clinician review, not
   a security review.
 - A pilot site's own infrastructure: TLS, network, the identity provider, the database's
   access control, backups, key custody.
 - Denial of service by volume beyond the limits above.
-- Nothing of the pack store (LP-20) or the registry and the Hub website (LP-19) is deployed
+- Nothing of the agent store (LP-20) or the registry and the Hub website (LP-19) is deployed
   yet: they are in scope above as code, not as a running service.
 - Vercel and Neon themselves, and their business associate agreements.
 
