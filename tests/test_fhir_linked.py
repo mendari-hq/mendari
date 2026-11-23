@@ -759,6 +759,9 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
     assert ehr.requests == []
 
 
+NO_ID = {"resourceType": "Binary", "contentType": "text/plain", "data": b64("Seen today.")}
+
+
 @pytest.mark.parametrize(
     ("reason", "fault"),
     [
@@ -767,6 +770,8 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
         ("unauthorized", lambda r: fhir_json({"error": SERVER_TEXT}, status=403)),
         ("operation_outcome", lambda r: fhir_json({"resourceType": "OperationOutcome"})),
         ("unsupported_type", lambda r: fhir_json({"resourceType": "Patient", "id": "b1"})),
+        ("unsupported_type", lambda r: fhir_json(binary("b2", "Another note."))),  # not b1
+        ("unsupported_type", lambda r: fhir_json(NO_ID)),
         ("not_r4", lambda r: fhir_json({"resourceType": "Binary", "id": "b1", "data": 7})),
     ],
 )
