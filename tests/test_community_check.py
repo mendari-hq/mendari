@@ -134,7 +134,7 @@ def test_a_new_community_pack_passes_as_written(new_pack: Path) -> None:
     assert report.text().endswith("passed: ready for review")
     markdown = report.markdown()
     assert "community-check passed" in markdown
-    assert "| Metric | main | this change |" in markdown and "A new pack" in markdown
+    assert "| Metric | main | this change |" in markdown and "A new agent" in markdown
     assert "<details><summary>Decision Card</summary>" in markdown
     assert report.card is not None and report.card.startswith("# Decision Card: Refill router")
 
@@ -216,13 +216,13 @@ def test_the_pull_request_scope() -> None:
     assert pr_scope_problems(["src/mendari/cli.py"], owner=False) == []  # no community pack
     assert pr_scope_problems([*pack, maintainers_file], owner=False) == []
     (two,) = pr_scope_problems([*pack, "community-packs/b/pack.yaml"], owner=False)
-    assert "2 community packs (a, b)" in two
+    assert "2 community agents (a, b)" in two
     (outside,) = pr_scope_problems(
         [*pack, "src/mendari/cli.py", "community-packs/README.md"], owner=False
     )
     assert "src/mendari/cli.py, community-packs/README.md" in outside
     (alone,) = pr_scope_problems([maintainers_file], owner=False)
-    assert "only together with the pack it lists" in alone
+    assert "only together with the agent it lists" in alone
     assert pr_scope_problems(["community-packs/README.md"], owner=False) == []  # docs only
     assert pr_scope_problems([*pack, "src/mendari/cli.py"], owner=True) == []
 
@@ -285,7 +285,7 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
         text = path.read_text().replace("topic", "sorter_topic")
         path.write_text(text.replace("community/visit-sorter", "community/visit"))
     report = run(sorter, base=None)
-    assert has(report, "identity", "collides with another pack's")
+    assert has(report, "identity", "collides with another agent's")
     assert has(report, "identity", "community-visit-sorter-topic")
 
 
@@ -551,7 +551,7 @@ def _pinned_model(m: dict[str, Any]) -> None:
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
-        (lambda m: m.update(license="MIT"), "a community pack is `license: Apache-2.0`"),
+        (lambda m: m.update(license="MIT"), "a community agent is `license: Apache-2.0`"),
         (lambda m: m["publisher"].update(type="verified"), "says `type: community`"),
         (lambda m: m.update(audit={"store_input": "full"}), "`audit: {store_input: hash}`"),
         (_llm_default, "the default variant 'llm' calls a service"),
@@ -775,7 +775,7 @@ def test_a_benchmark_s_ledger_and_result_hash_are_checked(new_pack: Path) -> Non
 def test_an_edited_or_missing_card_fails(new_pack: Path) -> None:
     card = new_pack / "DECISION_CARD.md"
     card.write_text(card.read_text().replace("Front-desk and nursing staff", "Anyone"))
-    assert has(run(new_pack, base=None), "honest-numbers", "is not the card the pack renders")
+    assert has(run(new_pack, base=None), "honest-numbers", "is not the card the agent renders")
     card.unlink()
     assert has(run(new_pack, base=None), "honest-numbers", "DECISION_CARD.md is missing")
 
@@ -925,7 +925,7 @@ def test_a_pack_with_too_many_patterns_fails_the_patterns_rule(new_pack: Path) -
         rules.read_text().replace("      appointment:\n", many + "      appointment:\n")
     )
     (problem,) = messages(run(new_pack, base=None), "patterns")
-    assert "a pack holds at most 500 patterns" in problem
+    assert "an agent holds at most 500 patterns" in problem
 
 
 @pytest.mark.parametrize(
@@ -954,7 +954,7 @@ def test_size_file_count_binaries_links_and_evals(new_pack: Path) -> None:
     (new_pack / "evals" / "leaderboard.json").write_text("{}\n")
     report = run(new_pack, base=None)
     assert has(report, "hygiene", "at most 200")
-    assert has(report, "hygiene", "a community pack is at most 2 MB")
+    assert has(report, "hygiene", "a community agent is at most 2 MB")
     assert has(report, "hygiene", "remove data/photo.png")
     assert has(report, "hygiene", "replace the symbolic links data/link.jsonl")
     assert has(report, "hygiene", "remove evals/leaderboard.json")

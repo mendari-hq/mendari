@@ -143,7 +143,7 @@ def test_a_rewritten_chain_verifies_alone_and_fails_against_an_earlier_checkpoin
     code, out, err = _run(capsys, "registry", "countersign", "--db", db_target)
     assert json.loads(out) == {
         "signed": [SUBJECT],
-        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another agent or version"],
         "events_since_checkpoint": None,
         "checkpoint": None,
     }

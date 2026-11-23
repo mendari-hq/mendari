@@ -52,10 +52,10 @@ import secrets
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
@@ -85,7 +85,7 @@ MAX_FOCUS = 50
 
 
 class SmartDecideRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200)
+    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
     focus: str = Field(min_length=3, max_length=200, description='e.g. "ServiceRequest/123"')
 
 
@@ -180,7 +180,7 @@ def add_smart_routes(
                 return moved
             pack_id = pack or default_pack
             if pack_id is None:
-                raise SmartError("no pack to launch", 404, reason="pack")
+                raise SmartError("no agent to launch", 404, reason="pack")
             pack_or_404(pack_id)
             redirect_uri = f"{public_url(request)}/smart/callback"
             with GuardedHttp() as http:
@@ -287,10 +287,10 @@ def add_smart_routes(
     def smart_session(request: Request) -> dict[str, Any]:
         """The launch's context, or `{"active": false}` (every dashboard load asks, so no launch
         is an answer, not an error): the EHR, patient and encounter, who launched (`fhir_user`),
-        the scopes, when the EHR's token expires, the pack launched, the launch's id
+        the scopes, when the EHR's token expires, the agent launched, the launch's id
         (`launch_id`: the dashboard window it opened carries it, to tell a replaced launch), and
-        the packs it may use (`packs`: id, name, origin and `origin_label`, which the patient view
-        shows, so a community pack is labelled where a clinician decides)."""
+        the agents it may use (`packs`: id, name, origin and `origin_label`, which the patient view
+        shows, so a community agent is labelled where a clinician decides)."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             return {"active": False}
@@ -350,8 +350,10 @@ def add_smart_routes(
         tags=["SMART on FHIR"],
         summary="Items to decide about",
     )
-    def smart_focus(request: Request, pack_id: str) -> list[dict[str, Any]]:
-        """The patient's resources the pack decides about (e.g. referrals), from the EHR.
+    def smart_focus(
+        request: Request, pack_id: Annotated[str, Query(title="Agent id")]
+    ) -> list[dict[str, Any]]:
+        """The patient's resources the agent decides about (e.g. referrals), from the EHR.
 
         Needs an EHR launch (`/smart/launch`, the `__Host-mendari_smart` cookie; with sign-in on,
         from a registered EHR); without one, `401`, and `401` when the EHR refuses the launch's
@@ -505,7 +507,7 @@ def decide_for(
     adapter = FhirAdapter.for_pack(decision.pack)
     kind, _, resource_id = focus_ref.partition("/")
     if kind != adapter.mapping.focus or not _ID.fullmatch(resource_id):
-        raise FhirError(f"this pack decides about a {adapter.mapping.focus}, not {focus_ref!r}")
+        raise FhirError(f"this agent decides about a {adapter.mapping.focus}, not {focus_ref!r}")
     focus = fhir.read(f"{kind}/{resource_id}")
     about = focus.get("id") if kind == "Patient" else _subject_id(focus)
     if about != patient_id:

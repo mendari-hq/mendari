@@ -271,7 +271,7 @@ def test_a_pack_may_not_choose_the_variables_jev_reads(
     with pytest.raises(PackValidationError) as error:
         jev_provider(inbox_pack, sent.append, **{field: "PACK_SAFETY_CANARY"})
     text = str(error.value)
-    assert "router: a pack may not choose the environment variables" in text
+    assert "router: an agent may not choose the environment variables" in text
     assert text.endswith(f"Remove: {field}")
     assert CANARY not in text and "PACK_SAFETY_CANARY" not in text
     assert sent == []
@@ -325,7 +325,7 @@ def test_a_variant_or_member_naming_the_deployment_s_variables_is_refused_at_loa
     with pytest.raises(PackValidationError) as error:
         load_pack(root)
     assert error.value.problems == [
-        "providers.router.variants.outside: a pack may not choose the environment variables a "
+        "providers.router.variants.outside: an agent may not choose the environment variables a "
         f"provider reads its endpoint, model or key from; these are the deployment's. "
         f"Remove: {refused}"
     ]

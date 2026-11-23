@@ -332,7 +332,7 @@ REFUSED: dict[str, tuple[Any, str]] = {
     ),
     "another question": (
         hand_written("a case") | {"labels": {"mood": "calm"}},
-        "labels name a question the pack does not have",
+        "labels name a question the agent does not have",
     ),
     "another label": (
         hand_written("a case") | {"labels": {"urgency": "whenever"}},

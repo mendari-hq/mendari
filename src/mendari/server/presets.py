@@ -73,7 +73,7 @@ _ALL = [
     Preset(
         id="rest",
         title="REST API",
-        purpose="List the packs, decide on a case and read its audit record: the quickstart's "
+        purpose="List the agents, decide on a case and read its audit record: the quickstart's "
         "three calls. The whole `service` role: no scope reaches Mendari's own audit reads.",
         role="service",
         scope=None,

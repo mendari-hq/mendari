@@ -159,7 +159,7 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
                 continue
             if origin == "community" and (root / ".git").exists():
                 problems[str(root)] = (
-                    "a community pack is a folder of this repository, never a git submodule"
+                    "a community agent is a folder of this repository, never a git submodule"
                 )
                 continue
             try:
@@ -179,7 +179,7 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
             # Any other failure is the pack's content too (an outside pack's): it is listed by
             # its type alone, and the other packs are still found, so a pack never stops a server.
             except Exception as error:
-                problems[str(root)] = f"the pack could not be loaded ({type(error).__name__})"
+                problems[str(root)] = f"the agent could not be loaded ({type(error).__name__})"
     return Discovery(packs=_one_pack_per_id(found, problems), problems=problems)
 
 
@@ -216,8 +216,8 @@ def _one_pack_per_id(found: list[tuple[int, Pack]], problems: dict[str, str]) ->
         for pack in others:
             refused.add(pack.root)
             problems[str(pack.root)] = (
-                f"{pack_id} is not served: the id is already taken by the pack at {first.root} "
-                f"({first.origin}); a pack never replaces another, whatever its version"
+                f"{pack_id} is not served: the id is already taken by the agent at {first.root} "
+                f"({first.origin}); an agent never replaces another, whatever its version"
             )
         problems[str(first.root)] = f"{pack_id} is served from here; also claimed by " + ", ".join(
             f"{pack.root} ({pack.origin})" for pack in others
@@ -246,6 +246,6 @@ def resolve_pack(
         searched = paths if paths is not None else search_paths()
         where = [str(p.path if isinstance(p, SearchPath) else p) for p in searched]
         raise PackNotFoundError(
-            f"no pack {ref!r} on the search path ({', '.join(where) or 'empty'})"
+            f"no agent {ref!r} on the search path ({', '.join(where) or 'empty'})"
         )
     return max(matches, key=lambda pack: version_key(pack.version))

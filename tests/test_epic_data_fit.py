@@ -1088,9 +1088,9 @@ def test_each_declaration_is_checked_against_the_deployment() -> None:
     )
     for kind in ("DocumentReference", "Patient", "Medication", "Condition"):
         message = refusal({EHR: entry(not_offered=[kind])})
-        assert f"not_offered {kind}: no pack found here" in message, kind
+        assert f"not_offered {kind}: no agent found here" in message, kind
     both = {EHR: entry(not_offered=["MedicationRequest", "MedicationStatement"])}
-    assert "not_offered MedicationRequest: no pack found here" in refusal(both)
+    assert "not_offered MedicationRequest: no agent found here" in refusal(both)
 
     # Registered either way, for its organization: checked.
     check(declarations(), packs, signed_in=False, ehrs=REGISTERED, cds=None, allowed={ORIGIN})

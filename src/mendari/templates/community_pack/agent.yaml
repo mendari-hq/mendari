@@ -1,9 +1,9 @@
 # {{name}}: a community agent, written in YAML. Change anything; `mendari validate`
-# checks it, and `mendari community-check` runs every check CI runs on a community pack.
+# checks it, and `mendari community-check` runs every check CI runs on a community agent.
 # The authoring guide walks through every section:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
 #
-# A community pack lives in community-packs/<name>/ with the id community/<name>. It
+# A community agent lives in community-packs/<name>/ with the id community/<name>. It
 # recommends and never automates (a person confirms every decision), decides with local
 # providers, keeps only a hash of its inputs, and is at most risk level 1.
 spec_version: "0.2"
@@ -16,23 +16,23 @@ summary: >-
 publisher:
   name: {{publisher}}
   type: community
-license: Apache-2.0  # every community pack is Apache-2.0
+license: Apache-2.0  # every community agent is Apache-2.0
 
 risk:
-  # 0 administrative, 1 clinical information; a community pack is at most 1. Choosing which
+  # 0 administrative, 1 clinical information; a community agent is at most 1. Choosing which
   # team reads a message first, with anything possibly urgent sent to a person, is
   # administrative (0), as for the demo agent; reading clinical facts to decide is 1
   # (docs/guides/contributing-an-agent.md, "Risk level").
   level: 0
   category: administrative
   rationale: >-
-    The decision is which queue reads a message first. The pack never replies to patients or
+    The decision is which queue reads a message first. The agent never replies to patients or
     makes a clinical judgement, and a message that may describe same-day symptoms always goes to
     a nurse for review.
 
 card:
-  # What the pack's criteria, examples and data were built from: synthetic, de_identified or
-  # site_records. Every surface derives the pack's status line from it.
+  # What the agent's criteria, examples and data were built from: synthetic, de_identified or
+  # site_records. Every surface derives the agent's status line from it.
   provenance: synthetic
   intended_use: >-
     Route portal messages to the refill queue, the scheduling queue or the front desk, and
@@ -49,7 +49,7 @@ inputs:
   schema: schemas/input.schema.json
 
 questions:
-  # Criteria are written for people: they are the pack's documentation and a model's
+  # Criteria are written for people: they are the agent's documentation and a model's
   # instructions.
   request:
     instructions: What does the patient ask for?
@@ -76,7 +76,7 @@ providers:
 policy:
   primary: request
   thresholds:
-    auto: 0.90    # a community pack never automates: above this, a person still confirms
+    auto: 0.90    # a community agent never automates: above this, a person still confirms
     review: 0.50  # below this, no suggestion
   labels:
     other:
@@ -95,7 +95,7 @@ policy:
 evaluation:
   datasets:
     examples: data/examples.jsonl
-  # CI evaluates the pack on this dataset again and compares the result with the benchmark.
+  # CI evaluates the agent on this dataset again and compares the result with the benchmark.
   # Regenerate both after any change:
   #   mendari eval <dir> --dataset examples --baseline none --out <dir>/evals/benchmark.json
   #   mendari card <dir> --write
@@ -105,7 +105,7 @@ evaluation:
   # each, found at least 90% of the time.
   critical:
     - {question: urgent_symptoms, label: "yes"}
-  degradation_tolerance: 0.03  # at most 0.05 for a community pack
+  degradation_tolerance: 0.03  # at most 0.05 for a community agent
 
 audit:
   store_input: hash  # keep only a hash of each input, never the text

@@ -358,7 +358,7 @@ def test_a_registry_packs_remote_variant_needs_state_fields(make: Callable[..., 
         }
     )
     rule = (
-        "a community or registry pack's {} variant must name its state_fields: the input "
+        "a community or registry agent's {} variant must name its state_fields: the input "
         "fields it sends"
     )
     assert refused(root) == [

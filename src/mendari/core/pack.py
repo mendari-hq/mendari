@@ -337,7 +337,7 @@ def load_pack(
     links = _outside_links(root)
     if links:
         raise PackValidationError(
-            str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
+            str(path), [f"{link}: a symbolic link that leads outside the agent" for link in links]
         )
     # By either name, and never both (`manifest_name`).
     manifest_file = manifest_name(root, str(path))
@@ -421,7 +421,7 @@ def load_pack(
         if bounded and not is_community(manifest.id, origin) and namespace in RESERVED_NAMESPACES:
             problems.append(
                 f"{manifest.id}@{manifest.version} is not the copy of it in this release, so it "
-                "runs on the engine for packs from a registry, which cannot run the patterns "
+                "runs on the engine for agents from a registry, which cannot run the patterns "
                 "above: use the copy this release bundles, or a version published for this "
                 "release"
             )
@@ -530,7 +530,7 @@ def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: P
     bundled, short = f"{manifest.id}@{tying[0].version}", digest[: len("sha256:") + 16]
     return (
         f"{manifest.id}@{manifest.version} has the id and version of an agent this "
-        f"release bundles ({bundled}) but other files (digest {short}): a pack from a registry "
+        f"release bundles ({bundled}) but other files (digest {short}): an agent from a registry "
         "never takes a bundled agent's place. Use the copy this release bundles, or publish it "
         f"under another version{_cached(root)}"
     )
@@ -699,7 +699,7 @@ def _pattern_problems(
     found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
-            f"{len(found)} patterns; a pack holds at most {patterns.MAX_PACK_PATTERNS} patterns"
+            f"{len(found)} patterns; an agent holds at most {patterns.MAX_PACK_PATTERNS} patterns"
         ]
     problems = []
     for where, text, flags in found:
@@ -1048,13 +1048,13 @@ def _confined(root: Path, relative: str, label: str, field: str | None = None) -
         problem = f"{where}path {_shown_path(relative)} is not a path a file can have"
         raise PackValidationError(label, [f"{problem} ({type(error).__name__})"]) from None
     if not resolved.is_relative_to(root):
-        raise PackValidationError(label, [f"{where}path {relative!r} escapes the pack directory"])
+        raise PackValidationError(label, [f"{where}path {relative!r} escapes the agent's folder"])
     parts = resolved.relative_to(root).parts
     written = [part for part in Path(relative).parts if part not in (".", "..")]
     if any(_excluded(part) for part in [*written, *parts]):
         problem = (
             f"{where}path {relative!r} goes through a hidden entry or __pycache__, which is not "
-            "part of the pack (nor its digest)"
+            "part of the agent (nor its digest)"
         )
         raise PackValidationError(label, [problem])
     return resolved
@@ -1073,7 +1073,7 @@ def _pack_file(
     if _attestation(resolved.relative_to(root).parts):
         problem = (
             f"{where}path {relative!r} is in evals/ or a DECISION_CARD.md, attestations about the "
-            "pack that are not part of its digest"
+            "agent that are not part of its digest"
         )
         raise PackValidationError(label, [problem])
     try:
@@ -1087,7 +1087,7 @@ def _pack_file(
     if stat.S_ISDIR(status.st_mode) or (status.st_dev, status.st_ino) in digested:
         return resolved
     problem = (
-        f"{where}path {relative!r} is not one of the files the pack's digest covers (it leaves "
+        f"{where}path {relative!r} is not one of the files the agent's digest covers (it leaves "
         "out hidden entries, __pycache__, evals/ and DECISION_CARD.md, however a path spells them)"
     )
     raise PackValidationError(label, [problem])
@@ -1114,8 +1114,8 @@ def _read(
     expected = digested.get((status.st_dev, status.st_ino))
     if expected is None or hashlib.sha256(content).hexdigest() != expected:
         problem = (
-            f"{where}{relative}: changed since the pack's digest was computed (edited or replaced "
-            "after the pack was loaded); load the pack again"
+            f"{where}{relative}: changed since the agent's digest was computed (edited or replaced "
+            "after the agent was loaded); load the agent again"
         )
         raise PackValidationError(label, [problem])
     return content
@@ -1138,7 +1138,7 @@ def _attestation_file(root: Path, relative: str, label: str, field: str | None =
         where = f"{field}: " if field else ""
         problem = (
             f"{where}path {relative!r} is not in evals/ or a DECISION_CARD.md: an attestation "
-            "about the pack is kept outside its digest"
+            "about the agent is kept outside its digest"
         )
         raise PackValidationError(label, [problem])
     return resolved

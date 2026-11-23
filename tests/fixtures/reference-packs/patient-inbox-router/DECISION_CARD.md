@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:d076c4d9e59eda856fa8246daa8e2aea3f5533fe7523daaf61024871f593dfc2` |
+| Agent digest | `sha256:d076c4d9e59eda856fa8246daa8e2aea3f5533fe7523daaf61024871f593dfc2` |
 | Last validation | 2026-11-06 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -191,23 +191,23 @@ Threshold sweep (if everything ≥ threshold were automated):
 
 ## Provider comparison
 
-Public set: regression check, not a ranking. Nothing here is graded: the pack's own sets are public, in the repository and in the package, so a configuration can be tuned to them, and grades and rankings are given only on frozen hidden sets. The rows are a listing order, not a ranking: those measured on this version of the pack, on records where a critical label has at least 100 positives, come first, the critical cases caught first and never accuracy alone; every other row follows, by configuration name.
+Public set: regression check, not a ranking. Nothing here is graded: the agent's own sets are public, in the repository and in the package, so a configuration can be tuned to them, and grades and rankings are given only on frozen hidden sets. The rows are a listing order, not a ranking: those measured on this version of the agent, on records where a critical label has at least 100 positives, come first, the critical cases caught first and never accuracy alone; every other row follows, by configuration name.
 
-Each table below is one dataset at one size, and the configurations in a table that records the dataset's hash ran on exactly the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site. A row measured on an earlier version of the pack says so beside its configuration: its AUTO and false automation followed that version's policy.
+Each table below is one dataset at one size, and the configurations in a table that records the dataset's hash ran on exactly the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site. A row measured on an earlier version of the agent says so beside its configuration: its AUTO and false automation followed that version's policy.
 
 **`red_flags`** (n=38; dataset hash not recorded; k of n [exact 95% interval, Clopper-Pearson])
 
 | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 38 [6.0-31.3%] | 1.000 | 0.069 | 9,502 ms | $0.00461 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 38 [0.6-17.7%] | 1.000 | 0.075 | 2,475 ms | $0.00351 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 27 of 28 [81.7-99.9%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 38 [0.1-13.8%] | 0.880 | 0.184 | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes (version 0.4.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.857 | 0.181 | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules (version 0.4.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.353 | 0.300 | 0.13 ms | $0.00000 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 7 of 38 [7.7-34.3%] | 1.000 | 0.007 | 192 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 38 [6.0-31.3%] | 1.000 | 0.071 | 10,039 ms | $0.00477 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.982 | 0.075 | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 38 [0.1-13.8%] | 0.923 | 0.104 | 1,276 ms | $0.00017 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 38 [6.0-31.3%] | 1.000 | 0.069 | 9,502 ms | $0.00461 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 38 [0.6-17.7%] | 1.000 | 0.075 | 2,475 ms | $0.00351 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 27 of 28 [81.7-99.9%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 38 [0.1-13.8%] | 0.880 | 0.184 | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
+| safety_screen=rules · router=naive_bayes (version 0.4.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.857 | 0.181 | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (version 0.4.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.353 | 0.300 | 0.13 ms | $0.00000 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 7 of 38 [7.7-34.3%] | 1.000 | 0.007 | 192 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 38 [6.0-31.3%] | 1.000 | 0.071 | 10,039 ms | $0.00477 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 38 [0.0-9.3%] | 0.982 | 0.075 | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 38 [0.1-13.8%] | 0.923 | 0.104 | 1,276 ms | $0.00017 | 0 |
 
 Accuracy and false automation are n/a on a row recorded before leaderboards kept the counts they are of (mendari.leaderboard/1).
 
@@ -215,15 +215,15 @@ Accuracy and false automation are n/a on a row recorded before leaderboards kept
 
 | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 30 [7.7-38.6%] | 0.974 | 0.103 | 9,112 ms | $0.00460 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 30 [0.1-17.2%] | 0.974 | 0.071 | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 19 of 20 [75.1-99.9%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 30 [0.8-22.1%] | 0.947 | 0.140 | 1,185 ms | $0.00016 | 0 |
-| safety_screen=rules · router=naive_bayes (version 0.4.0, its pack digest not recorded) | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 30 [0.0-11.6%] | 0.974 | 0.194 | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules (version 0.4.0, its pack digest not recorded) | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 30 [0.0-11.6%] | 0.182 | 0.278 | 0.13 ms | $0.00000 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 8 of 30 [12.3-45.9%] | 1.000 | 0.007 | 172 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 8 of 30 [12.3-45.9%] | 0.974 | 0.031 | 10,327 ms | $0.00452 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 30 [0.1-17.2%] | 1.000 | 0.046 | 2,407 ms | $0.00352 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 30 [0.8-22.1%] | 1.000 | 0.248 | 1,266 ms | $0.00017 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 6 of 30 [7.7-38.6%] | 0.974 | 0.103 | 9,112 ms | $0.00460 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 30 [0.1-17.2%] | 0.974 | 0.071 | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 19 of 20 [75.1-99.9%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 30 [0.8-22.1%] | 0.947 | 0.140 | 1,185 ms | $0.00016 | 0 |
+| safety_screen=rules · router=naive_bayes (version 0.4.0, its agent digest not recorded) | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 30 [0.0-11.6%] | 0.974 | 0.194 | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (version 0.4.0, its agent digest not recorded) | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 30 [0.0-11.6%] | 0.182 | 0.278 | 0.13 ms | $0.00000 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 8 of 30 [12.3-45.9%] | 1.000 | 0.007 | 172 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 8 of 30 [12.3-45.9%] | 0.974 | 0.031 | 10,327 ms | $0.00452 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 1 of 30 [0.1-17.2%] | 1.000 | 0.046 | 2,407 ms | $0.00352 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 2 of 30 [0.8-22.1%] | 1.000 | 0.248 | 1,266 ms | $0.00017 | 0 |
 
 Accuracy and false automation are n/a on a row recorded before leaderboards kept the counts they are of (mendari.leaderboard/1).
 
@@ -231,16 +231,16 @@ Accuracy and false automation are n/a on a row recorded before leaderboards kept
 
 | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 85 of 100 [76.5-91.4%] | 0.968 | 0.034 | 6,206 ms | $0.00413 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 47 of 100 [36.9-57.2%] | 0.989 | 0.112 | 2,365 ms | $0.00362 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 48 of 100 [37.9-58.2%] | 0.961 | 0.086 | 1,237 ms | $0.00017 | 0 |
-| safety_screen=rules · router=cascade (jev-1.13.0) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 98 of 100 [93.0-99.8%] | 1.000 | 0.001 | 0.42 ms | $0.00000 | 0 |
-| safety_screen=rules · router=naive_bayes (version 0.4.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 100 [0.0-3.6%] | 1.000 | 0.001 | 0.16 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules (version 0.4.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 100 [0.0-3.6%] | 0.883 | 0.282 | 0.23 ms | $0.00000 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 91 of 100 [83.6-95.8%] | 0.984 | 0.018 | 205 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 84 of 100 [75.3-90.6%] | 0.984 | 0.043 | 6,916 ms | $0.00423 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 40 of 100 [30.3-50.3%] | 0.974 | 0.116 | 2,402 ms | $0.00361 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its pack digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 47 of 100 [36.9-57.2%] | 0.937 | 0.080 | 1,281 ms | $0.00017 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 85 of 100 [76.5-91.4%] | 0.968 | 0.034 | 6,206 ms | $0.00413 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 47 of 100 [36.9-57.2%] | 0.989 | 0.112 | 2,365 ms | $0.00362 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 48 of 100 [37.9-58.2%] | 0.961 | 0.086 | 1,237 ms | $0.00017 | 0 |
+| safety_screen=rules · router=cascade (jev-1.13.0) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 98 of 100 [93.0-99.8%] | 1.000 | 0.001 | 0.42 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes (version 0.4.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 100 [0.0-3.6%] | 1.000 | 0.001 | 0.16 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (version 0.4.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 0 of 100 [0.0-3.6%] | 0.883 | 0.282 | 0.23 ms | $0.00000 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 91 of 100 [83.6-95.8%] | 0.984 | 0.018 | 205 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 84 of 100 [75.3-90.6%] | 0.984 | 0.043 | 6,916 ms | $0.00423 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 40 of 100 [30.3-50.3%] | 0.974 | 0.116 | 2,402 ms | $0.00361 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (version 0.3.0, its agent digest not recorded) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | n/a | 47 of 100 [36.9-57.2%] | 0.937 | 0.080 | 1,281 ms | $0.00017 | 0 |
 
 Accuracy and false automation are n/a on a row recorded before leaderboards kept the counts they are of (mendari.leaderboard/1).
 

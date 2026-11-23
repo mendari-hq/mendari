@@ -225,11 +225,13 @@ def test_a_pack_may_not_choose_the_variables_an_llm_reads(
     with pytest.raises(PackValidationError) as error:
         pack_with_llm(tmp_path, **{field: "PACK_SAFETY_CANARY"})  # refused at load
     text = str(error.value)
-    assert "providers.router.variants.llm: a pack may not choose the environment variables" in text
+    assert (
+        "providers.router.variants.llm: an agent may not choose the environment variables" in text
+    )
     assert text.endswith(f"Remove: {field}")
     assert CANARY not in text and "PACK_SAFETY_CANARY" not in text
     # The provider refuses it too, for a config that never went through a manifest.
-    with pytest.raises(PackValidationError, match=f"router: a pack may not .* Remove: {field}$"):
+    with pytest.raises(PackValidationError, match=f"router: an agent may not .* Remove: {field}$"):
         router(load_pack(INBOX_DIR), **{field: "PACK_SAFETY_CANARY"})
     assert gateway == []
 

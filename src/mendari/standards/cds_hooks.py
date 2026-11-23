@@ -117,7 +117,7 @@ UNREADABLE_DETAIL = (
 # refused, as the audit record keeps them (where in the input and which rule of the schema, a
 # resource by its type and position: never a value or an id).
 REFUSED_DETAIL = (
-    "Refused: Mendari could not accept the data sent as this pack's input, so it checked "
+    "Refused: Mendari could not accept the data sent as this agent's input, so it checked "
     "nothing and made no recommendation. Why:"
 )
 # What follows that list on those two cards: the decision's other reasons, apart, since they are
@@ -243,7 +243,7 @@ def invoke(
     an OperationOutcome is still `operation_outcome`."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
-        raise FhirError(f"pack {decision.pack.id} is not a CDS service")
+        raise FhirError(f"agent {decision.pack.id} is not a CDS service")
     if request.get("hook") != hooks.hook:
         raise FhirError(f"service expects hook {hooks.hook!r}, got {request.get('hook')!r}")
     orders: list[dict[str, Any]] = []

@@ -52,7 +52,7 @@ class GuardResult:
 def check(decision: Decision, inputs: Mapping[str, Any]) -> GuardResult:
     config = decision.pack.manifest.guard
     if config is None:
-        raise MendariError(f"pack {decision.pack.id} has no `guard` section")
+        raise MendariError(f"agent {decision.pack.id} has no `guard` section")
     result = decision.decide(inputs)
     if result.outcome is Outcome.BLOCK:
         return GuardResult("blocked", None, result)

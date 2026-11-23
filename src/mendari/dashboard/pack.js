@@ -74,8 +74,8 @@ function plainReason(reason, r) {
     [/ is below the auto threshold /, "Not sure enough to act alone, so a person checks."],
     [/^automation requires /, "This deployment's safety screen is not one this agent automates with, so a person checks."],
     [/^risk level \d+ requires human review$/, "This agent's risk level needs a person to check."],
-    [/^a community pack .* never blocks on its own/, "A community agent never blocks on its own: a person decides."],
-    [/^a community pack .* recommends and never automates$/, "A community agent only recommends: a person checks."],
+    [/^a community (?:agent|pack) .* never blocks on its own/, "A community agent never blocks on its own: a person decides."],
+    [/^a community (?:agent|pack) .* recommends and never automates$/, "A community agent only recommends: a person checks."],
   ];
   return said.find(([pattern]) => pattern.test(reason))?.[1] ?? reason;
 }

@@ -225,9 +225,9 @@ def configuration_problem(configuration: Mapping[str, str], names: Mapping[str, 
     once, with a variant the version declares (`names.slots`, recorded at publish)."""
     slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
     if set(configuration) != set(slots):
-        return "must name a variant for each of the pack's provider slots"
+        return "must name a variant for each of the agent's provider slots"
     if any(variant not in slots[slot] for slot, variant in configuration.items()):
-        return "names a variant the pack does not declare"
+        return "names a variant the agent does not declare"
     return None
 
 
@@ -654,8 +654,8 @@ class SiteStore:
             request = TicketRequest.model_validate(record)
         except ValidationError:
             raise HubError(
-                f"not a {site_signing.TICKET_REQUEST} record: its fields are the pack (id, "
-                "version, digest), the configuration, remote_consent, the commitment and n"
+                f"not a {site_signing.TICKET_REQUEST} record: its fields are `pack` (the agent's "
+                "id, version and digest), the configuration, remote_consent, the commitment and n"
             ) from None
         namespace, name = request.pack.id.split("/")
         # Who signed, first, before anything about the pack is answered; the nonce is spent
@@ -834,7 +834,7 @@ class SiteStore:
         (open, or expired with no report) and were withdrawn, with the first and last dates.
         No commitment, no secret. A pack the public cannot read is a 404."""
         if not self.versions(namespace, name):  # type: ignore[attr-defined]
-            raise HubError("no such pack", 404)
+            raise HubError("no such agent", 404)
         with self._db.session(exclusive=False) as db:
             if not db.columns("hub_tickets"):
                 return []

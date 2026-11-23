@@ -172,7 +172,7 @@ def _arm(arm: str) -> str:
 
 def _pack_id(text: str) -> str:
     if not is_pack_id(text):
-        raise ValueError("must be a pack id (namespace/name)")
+        raise ValueError("must be an agent id (namespace/name)")
     return text
 
 
@@ -378,7 +378,7 @@ def record(
     composite never kept is not reported, so a cost that needs it is unknown, never guessed.
     Refused when it would not agree with `ledger` (`disagreement`)."""
     if decision.pack.digest != ledger.header["pack"]["digest"]:
-        raise MendariError("the decision is not of the ledger's pack (another digest)")
+        raise MendariError("the decision is not of the ledger's agent (another digest)")
     if len(results) != len(ledger.cases):
         raise MendariError(f"{len(results)} results for a ledger of {len(ledger.cases)} cases")
     cases = []
@@ -579,7 +579,7 @@ def declaration_problem(
             found = [c for c in configurations if c.providers == dict(providers)]
             written = ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
             if not found:
-                return f"its {where} configuration of {arm}, {written}, is not one of the pack's"
+                return f"its {where} configuration of {arm}, {written}, is not one of the agent's"
             if found[0].arm != arm:
                 return f"its {where} configuration of {arm}, {written}, is in {found[0].arm}"
             if found[0].local != (where == LOCAL):
@@ -646,7 +646,7 @@ def replicates(
         if problem is not None:
             raise MendariError(f"replicate {number}'s run record is not its ledger's: {problem}")
         if not _same_run_of(ledgers[0], ledger):
-            raise MendariError(f"replicate {number} is of another pack, set or configuration")
+            raise MendariError(f"replicate {number} is of another agent, set or configuration")
         if set(readings[number - 1]) != set(readings[0]):
             raise MendariError(f"replicate {number} holds other cases than replicate {HEADLINE}")
         for kind, found in run["models"].items():
@@ -701,7 +701,7 @@ def canary_flips(canary: Ledger, headline: Ledger) -> tuple[int, int]:
         two["primary"],
         variants[1],
     ):
-        raise MendariError("the canary is not of its replicates' pack, set and configuration")
+        raise MendariError("the canary is not of its replicates' agent, set and configuration")
     drawn, held = _primary_readings(canary), _primary_readings(headline)
     if not set(drawn) <= set(held):
         raise MendariError("the canary holds a case its replicates do not")

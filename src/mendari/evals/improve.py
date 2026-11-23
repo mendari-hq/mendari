@@ -258,9 +258,9 @@ def not_writable(pack: Pack) -> str | None:
         return None
     what = {
         "maintained": "an agent this release bundles",
-        "community": "a community pack of this repository",
-        "hub": "a pack pulled from a registry",
-        "store": "a version in a pack store",
+        "community": "a community agent of this repository",
+        "hub": "an agent pulled from a registry",
+        "store": "a version in an agent store",
     }[sorted(where)[0]]
     return f"{what} is not changed in place: copy it, and improve the copy"
 
@@ -291,7 +291,7 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
         raise MendariError(f"nothing to keep: {problem}")
     # The pack as it is on disk now, not as it was when loaded.
     if pack_digest(pack.root) != found.report["pack"]["digest"]:
-        raise MendariError("nothing to keep: the pack has changed since this run judged it")
+        raise MendariError("nothing to keep: the agent has changed since this run judged it")
     declared = pack.manifest.evaluation.datasets
     contents: list[tuple[Path, bytes, bytes]] = []  # the file, what it holds, what it will
     for name, records in (
@@ -300,15 +300,15 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
     ):
         if name not in declared:
             raise MendariError(
-                f"nothing to keep: {name!r} is not one of the pack's datasets, and what a run "
-                "learned from goes into the pack, so that its data gives the model it holds"
+                f"nothing to keep: {name!r} is not one of the agent's datasets, and what a run "
+                "learned from goes into the agent, so that its data gives the model it holds"
             )
         if not all(added(case) for case in records):
             # Read as an archive's builder reads it (`core/site_cases.py`): the one writer checks
             # the mark, so no pack holds a case of a run's that nothing would recognise.
             raise MendariError(
                 "nothing to keep: a case this run would add does not say `mendari improve` "
-                f"added it (`attributes.{ADDED_BY}`), and that is what keeps a pack that holds "
+                f"added it (`attributes.{ADDED_BY}`), and that is what keeps an agent that holds "
                 "a site's cases from being published"
             )
         if records:
@@ -335,7 +335,7 @@ def apply(pack: Pack, found: Improvement) -> list[Path]:
                 target.write_bytes(held)
             raise MendariError(
                 f"nothing was kept: {contents[len(moved)][0].name} could not be written "
-                f"({type(error).__name__}), and the pack is as it was"
+                f"({type(error).__name__}), and the agent is as it was"
             ) from None
     return [target for target, _, _ in contents]
 
@@ -355,7 +355,7 @@ def text(report: Mapping[str, Any]) -> str:
     ]
     if report["verdict"] == TOO_FEW:
         return "\n".join([*lines, f"Not kept: {report['reason']}."])
-    lines.append("Candidates, each against the model in the pack:")
+    lines.append("Candidates, each against the model in the agent:")
     for found in report["candidates"]:
         held = found["held_out"]
         lines.append(
@@ -396,7 +396,7 @@ def _decision(pack: Pack, slot: str, variant: str) -> Decision:
         if provider.remote:
             raise MendariError(
                 f"{pack.id}: {name}={provider.info.variant} calls a model, and a run is judged "
-                "on this machine alone: improve a pack whose other slots decide locally"
+                "on this machine alone: improve an agent whose other slots decide locally"
             )
     return decision
 
@@ -527,7 +527,7 @@ def _judged(
             if _at_least(sure) > _share(was) + tolerance:
                 failures.append(
                     f"confident and wrong more often: {sure['wrong']} of {sure['n']} confident "
-                    f"answers (the model in the pack: {was['wrong']} of {was['n']})"
+                    f"answers (the model in the agent: {was['wrong']} of {was['n']})"
                 )
             if confident["newly_wrong"] > confident["no_longer_wrong"] and confident["p"] < ALPHA:
                 failures.append(

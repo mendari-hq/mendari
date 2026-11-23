@@ -193,7 +193,7 @@ def deployment_env_problem(config: Any) -> str | None:
     if not chosen:
         return None
     return (
-        "a pack may not choose the environment variables a provider reads its endpoint, model "
+        "an agent may not choose the environment variables a provider reads its endpoint, model "
         "or key from; these are the deployment's. Remove: " + ", ".join(chosen)
     )
 
@@ -771,7 +771,7 @@ class PackManifest(_Strict):
                 if use.licence_note is None:
                     raise ValueError(
                         f"code system {use.url} is {LICENSED_CODE_SYSTEMS[url][0]}, whose codes "
-                        "are licensed: give a licence_note saying the terms the pack uses it under"
+                        "are licensed: give a licence_note saying the terms the agent uses it under"
                     )
         return value
 

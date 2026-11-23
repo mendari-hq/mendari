@@ -156,9 +156,9 @@ def refuse_site_cases(files: Mapping[str, bytes]) -> None:
         others = "1 other file" if len(rest) == 1 else f"{len(rest)} other files"
         where += f", and {sum(count for _, count in rest)} more in {others}"
     raise HubError(
-        "the pack holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
+        "the agent holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
         f"model built from them ({where}): a site's cases, which are never published. Keep "
-        "the pack where those cases may be, or take them out before it is built or pushed, "
+        "the agent where those cases may be, or take them out before it is built or pushed, "
         "and where a model was built from them, run `mendari train`, which builds it again "
         "without them."
     )
@@ -278,7 +278,7 @@ def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
     targets = {path: (root / path).resolve() for path in verified.files}
     for path, target in targets.items():
         if target == root or not target.is_relative_to(root):
-            raise HubError(f"{path}: not a path inside the pack")
+            raise HubError(f"{path}: not a path inside the agent")
     for path, data in verified.files.items():
         target = targets[path]
         try:
@@ -293,7 +293,7 @@ def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
         verified.manifest.get("digest"),
     )
     if (pack.id, pack.version, pack.digest) != expected:
-        raise HubError("the extracted pack is not the pack the manifest names")
+        raise HubError("the extracted agent is not the agent the manifest names")
     return pack
 
 
@@ -394,4 +394,4 @@ def _check_name(name: str) -> None:
         or "\\" in name
         or any(part == "" or part.startswith(".") for part in parts)
     ):
-        raise HubError(f"{name}: not a path inside the pack")
+        raise HubError(f"{name}: not a path inside the agent")

@@ -31,7 +31,7 @@ PACKS = (
     "mendari/prior-auth-preflight",
     "mendari/referral-router",
 )
-SCOPE_ROWS = ("Marks", "Pack", "Set", "Method", "Measured on", "Models", "Disclosure", "Status")
+SCOPE_ROWS = ("Marks", "Agent", "Set", "Method", "Measured on", "Models", "Disclosure", "Status")
 
 
 def _script() -> Any:

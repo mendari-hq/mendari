@@ -828,5 +828,5 @@ def test_a_hidden_set_is_ranked_only_from_its_paired_ledgers(
             ledgers=[ledger, both_ledger],
             records=[records[0]] * len(records),
         )
-    with pytest.raises(MendariError, match="one pack, set and method"):
+    with pytest.raises(MendariError, match="one agent, set and method"):
         bands.ranking([deterministic, hidden(holdout.entry())])

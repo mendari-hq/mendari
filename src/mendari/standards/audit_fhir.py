@@ -341,8 +341,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "client.keys_replaced": ("U", "Backend Services client's key set replaced", _CREDENTIALS),
     "governance.approved": ("C", "Automation approved", None),
     "governance.revoked": ("U", "Automation approval revoked", None),
-    "registry_pack.approved": ("C", "Pack from a registry approved", None),
-    "registry_pack.revoked": ("U", "Pack from a registry approval revoked", None),
+    "registry_pack.approved": ("C", "Agent from a registry approved", None),
+    "registry_pack.revoked": ("U", "Agent from a registry approval revoked", None),
     "automation.held": ("C", "Automation held", None),
     "automation.lifted": ("U", "Automation hold lifted", None),
     "eval.recorded": ("C", "Evaluation report recorded", None),
@@ -386,32 +386,32 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     # the size and the run's number are no detail here (`_ADMINISTRATIVE_DETAILS`).
     "evalset.frozen": ("U", "Hidden evaluation set frozen", None),
     "evalset.activated": ("U", "Hidden evaluation set activated by its first grading read", None),
-    "evalset.graded": ("R", "Hidden evaluation set read to grade a pack", None),
+    "evalset.graded": ("R", "Hidden evaluation set read to grade an agent", None),
     "evalset.retired": ("U", "Hidden evaluation set retired", None),
     # A pack store's versions (LP-20e): the digest and who acted, never a file.
-    "pack_version.created": ("C", "Pack store version added", None),
-    "pack_version.held": ("U", "Pack store version held for the operator's review", None),
-    "pack_version.released": ("U", "Pack store version released by the operator", None),
-    "pack_version.withdrawn": ("U", "Pack store version withdrawn", None),
+    "pack_version.created": ("C", "Agent store version added", None),
+    "pack_version.held": ("U", "Agent store version held for the operator's review", None),
+    "pack_version.released": ("U", "Agent store version released by the operator", None),
+    "pack_version.withdrawn": ("U", "Agent store version withdrawn", None),
     # Its authors' keys (LP-20f): the key's id and who acted.
-    "store_key.added": ("C", "Pack store author key registered", None),
-    "store_key.revoked": ("U", "Pack store author key revoked", None),
+    "store_key.added": ("C", "Agent store author key registered", None),
+    "store_key.revoked": ("U", "Agent store author key revoked", None),
     # Its datasets and evaluation jobs (LP-20g): ids, a SHA-256 and counts, never a case.
-    "store_dataset.created": ("C", "Pack store dataset added", None),
-    "store_dataset.held": ("U", "Pack store dataset held for the operator's review", None),
-    "store_job.created": ("C", "Pack store evaluation job made", None),
+    "store_dataset.created": ("C", "Agent store dataset added", None),
+    "store_dataset.held": ("U", "Agent store dataset held for the operator's review", None),
+    "store_job.created": ("C", "Agent store evaluation job made", None),
     # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
-    "pack_version.promoted": ("U", "Pack store version promoted to be served", None),
-    "pack_version.retired": ("U", "Pack store version's promotion retired", None),
+    "pack_version.promoted": ("U", "Agent store version promoted to be served", None),
+    "pack_version.retired": ("U", "Agent store version's promotion retired", None),
     # Proposed tests from reviewers' corrections (LP-20i): the dataset, the case and the digest.
     "store_dataset.proposal_accepted": (
         "U",
-        "Proposed test accepted for a pack store version",
+        "Proposed test accepted for an agent store version",
         None,
     ),
     "store_dataset.proposal_dismissed": (
         "U",
-        "Proposed test dismissed for a pack store version",
+        "Proposed test dismissed for an agent store version",
         None,
     ),
 }

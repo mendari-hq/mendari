@@ -198,7 +198,7 @@ def build(
                 "key": "governance",
                 "label": "Governance & risk gates",
                 "status": "pass",
-                "detail": "Human-in-the-loop permanently enforced by pack origin or risk level.",
+                "detail": "Human-in-the-loop permanently enforced by agent origin or risk level.",
             }
         )
     elif needs_risk_approval or needs_reg_approval:
@@ -341,7 +341,7 @@ def render_markdown(brief: Mapping[str, Any]) -> str:
         "",
         f"*{brief['notice']}*",
         "",
-        f"- **Pack**: `{_md_cell(pack['id'])}` v{_md_cell(pack['version'])} "
+        f"- **Agent**: `{_md_cell(pack['id'])}` v{_md_cell(pack['version'])} "
         f"(`{pack['digest'][:19]}...`)",
         f"- **Risk level**: {pack['risk_level']} ({_md_cell(pack['risk_category'])})",
         f"- **Validation window**: Last {brief['window_days']} days ({brief['generated_at']})",

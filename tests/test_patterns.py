@@ -213,7 +213,7 @@ def test_pattern_properties_keys_are_pack_patterns_counted_and_checked(inbox: Pa
     existing = len(list(patterns.schema_patterns(shipped.input_schema))) + sum(
         len(list(patterns.rules_patterns(data))) for data in shipped.parsed.values()
     )
-    with pytest.raises(PackValidationError, match="501 patterns; a pack holds at most 500"):
+    with pytest.raises(PackValidationError, match="501 patterns; an agent holds at most 500"):
         load_pack(with_pattern_properties(inbox, [f"^k{i}$" for i in range(501 - existing)]))
     long = "^z" + "a" * 2000
     with pytest.raises(PackValidationError) as raised:

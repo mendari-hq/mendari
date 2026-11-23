@@ -105,7 +105,7 @@ def report_text(report: dict[str, Any]) -> str:
     auto = d["automation"]
     providers = "  ".join(f"{slot}={p['variant']}" for slot, p in report["providers"].items())
     lines = [
-        f"Pack        {report['pack']['id']} {report['pack']['version']} "
+        f"Agent       {report['pack']['id']} {report['pack']['version']} "
         f"({report['pack']['digest'][:19]}…)",
         f"Providers   {providers}",
         f"Dataset     {report['dataset']['name']} (n={report['dataset']['n']})",
@@ -299,7 +299,7 @@ def _column(item: Mapping[str, Any], pairs: Sequence[tuple[str, str]]) -> list[t
     scope = item["entry"]["scope"]
     cells = [
         ("Marks", "; ".join(item["marks"])),
-        ("Pack", f"{scope['pack']['version']}, `{scope['pack']['digest']}`"),
+        ("Agent", f"{scope['pack']['version']}, `{scope['pack']['digest']}`"),
         ("Set", _set_text(scope["set"])),
         ("Method", f"{scope['method']['version']}, sha256 `{scope['method']['sha256'][:12]}…`"),
         ("Measured on", scope["measured_on"]),

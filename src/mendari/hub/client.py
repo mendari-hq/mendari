@@ -467,7 +467,7 @@ def pull(
         # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
         pack = archive.extract(verified, staged, origin="hub")
         if accepted and pack.digest != meta["digest"]:
-            raise HubError("the pack is not the build the registry counter-signed")
+            raise HubError("the agent is not the build the registry counter-signed")
         marked = {**meta, "archive_sha256": verified.sha256}
         _write_origin(staged, client, namespace, marked, accepted)
         if target.exists():
@@ -545,7 +545,7 @@ def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> di
         pack.version,
         pack.digest,
     ):
-        problem = "it is about another pack, version or build"
+        problem = "it is about another agent, version or build"
     if problem is None:
         try:
             if record["signer"] == "publisher":

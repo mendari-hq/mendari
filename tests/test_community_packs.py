@@ -152,7 +152,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
         ("visit-sorter", _set(id="someone/visit-sorter"), "has the id community/visit-sorter"),
         ("Visit_Sorter", _set(id="community/visit-sorter"), "must be lowercase letters"),
         ("visit-sorter", _set(id="mendari/visit-sorter"), "namespace mendari/ is reserved"),
-        ("visit-sorter", _set(risk__level=2), "a community pack is at most risk level 1"),
+        ("visit-sorter", _set(risk__level=2), "a community agent is at most risk level 1"),
         ("visit-sorter", _set(audit__store_input="full"), "audit.store_input: hash"),
         (
             "visit-sorter",
@@ -341,7 +341,7 @@ def test_a_community_packs_id_is_never_replaced_whatever_the_version(tmp_path: P
     assert [(pack.id, pack.version, pack.origin) for pack in found.packs] == [
         (SORTER_ID, "0.1.0", "community")
     ]
-    assert "already taken by the pack at" in found.problems[str(later.resolve())]
+    assert "already taken by the agent at" in found.problems[str(later.resolve())]
     first = (base / "visit-sorter").resolve()
     assert "is served from here; also claimed by" in found.problems[str(first)]
 
@@ -426,11 +426,11 @@ def test_a_community_pack_reads_texts_no_longer_than_10000_characters() -> None:
     result = Decision(load_pack(SORTER)).decide(long)
     assert result.outcome is Outcome.BLOCK
     assert result.reasons == (
-        "input rejected: message: longer than 10,000 characters, the most a community pack reads",
+        "input rejected: message: longer than 10,000 characters, the most a community agent reads",
     )
     assert Decision(load_pack(SORTER)).decide({"message": "x" * 2_000}).outcome is not None
     maintained = Decision(load_pack(INBOX_DIR)).decide({"message": {"body": "x" * 10_001}})
-    assert not any("community pack" in reason for reason in maintained.reasons)
+    assert not any("community agent" in reason for reason in maintained.reasons)
 
 
 def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
@@ -440,7 +440,7 @@ def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
     result = Decision(load_pack(SORTER)).decide(halves)
     assert result.reasons == (
         "input rejected: the input's texts together: longer than 10,000 characters, the most a "
-        "community pack reads",
+        "community agent reads",
     )
     assert long_text(["x" * 5_000, "y" * 4_999]) is None
     assert long_text([["x"] * 2_500, "y" * 5_000]) is None  # a separator each
@@ -490,7 +490,7 @@ def test_a_community_pack_recommends_and_never_automates(tmp_path: Path) -> None
         result = Decision(pack).decide(BILL)
         assert result.outcome is Outcome.HUMAN_REVIEW
         assert result.recommendation == "billing"
-        assert "a community pack (not clinically reviewed) recommends and never automates" in (
+        assert "a community agent (not clinically reviewed) recommends and never automates" in (
             result.reasons
         )
 
@@ -736,7 +736,7 @@ def test_a_community_pack_cannot_write_into_a_codesystem_of_mendaris(tmp_path: P
     alone, _ = Terminology.serving([inbox])
     both, problems = Terminology.serving([load_pack(root, origin="community"), inbox])
     assert both.by_url(INBOX_PERFORMERS) == alone.by_url(INBOX_PERFORMERS)
-    assert "a community pack's systems are its own" in problems["community/inbox-copy"]
+    assert "a community agent's systems are its own" in problems["community/inbox-copy"]
 
 
 def test_a_community_packs_codesystems_say_who_published_them_and_that_they_are_unreviewed(

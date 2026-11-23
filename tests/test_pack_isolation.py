@@ -196,7 +196,7 @@ def test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others(
     monkeypatch.setattr(registry_module, "load_pack", load)
     client = TestClient(create_app(db_path=tmp_path / "r.db", packs_paths=[outside, PACKS]))
     assert client.get("/api/health").json()["invalid"] == {
-        str(pack): "the pack could not be loaded (RuntimeError)"
+        str(pack): "the agent could not be loaded (RuntimeError)"
     }
     _shipped_packs_all_decide(client)
 

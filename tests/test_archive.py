@@ -177,7 +177,7 @@ def test_a_file_the_manifest_does_not_list_is_refused(key: archive.Ed25519Privat
 )
 def test_paths_outside_the_pack_are_refused(key: archive.Ed25519PrivateKey, name: str) -> None:
     entries = [*members(archive.build(REFERRAL, key)), (name, b"x")]
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.verify(repack(entries), trusted(key))
 
 
@@ -265,7 +265,7 @@ def test_names_with_empty_or_dot_segments_are_refused(
     # written at the absolute path: a file anywhere on the registry host or a puller's machine.
     outside = tmp_path / "outside" / "pwned.txt"
     name = name.format(outside=outside.as_posix())
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.verify(signed_with(key, name, b"x"), trusted(key))
     assert not outside.exists()
 
@@ -278,7 +278,7 @@ def test_extract_writes_nothing_outside_the_destination(
     good = archive.verify(archive.build(REFERRAL, key), trusted(key))
     files = {**good.files, path.format(outside=outside.as_posix()): b"x"}
     evil = archive.Verified(good.manifest, files, good.key_id, good.sha256)
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.extract(evil, tmp_path / "dest" / "pack", origin="hub")
     assert not outside.exists() and not (tmp_path / "dest" / "escape.txt").exists()
     assert not (tmp_path / "dest" / "pack" / "pack.yaml").exists()  # checked before any write

@@ -363,5 +363,5 @@ def test_runs_on_another_dataset_or_pack_are_refused(runs: Any) -> None:
     with pytest.raises(MendariError, match="A was not run on this dataset"):
         paired.compare(run.ledger, run.ledger, dataset_sha256="0" * 64)
     other = Ledger({**run.ledger.header, "pack": {"id": "x/y"}}, run.ledger.cases)
-    with pytest.raises(MendariError, match="different packs"):
+    with pytest.raises(MendariError, match="different agents"):
         paired.compare(run.ledger, other, dataset_sha256=dataset.sha256)

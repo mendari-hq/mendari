@@ -121,9 +121,7 @@ def test_a_server_serves_what_either_name_asks_for(
         from fastapi.testclient import TestClient
 
         with TestClient(app) as client:
-            assert [agent["id"] for agent in client.get("/api/packs").json()] == [
-                "my-clinic/inbox"
-            ]
+            assert [agent["id"] for agent in client.get("/api/packs").json()] == ["my-clinic/inbox"]
     monkeypatch.setenv("MENDARI_AGENTS", "my-clinic/absent")
     with pytest.raises(MendariError, match=r"^MENDARI_AGENTS: agents not installed here"):
         create_app(db_path=tmp_path / "absent.db")

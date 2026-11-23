@@ -199,7 +199,7 @@ BAD: dict[str, tuple[Any, str]] = {
         mapped({"t2d": [{**T2D, "code": f"S{n}"} for n in range(MAX_TRANSLATIONS + 1)]}),
         "more than 10,000 translations",
     ),
-    "a set no pack declares": (mapped({"payer": [T2D]}), "code set 'payer': no pack"),
+    "a set no pack declares": (mapped({"payer": [T2D]}), "code set 'payer': no agent"),
     "an as the set does not declare": (
         mapped({"t2d": [T2D, {**T2D, "code": OTHER_CODE, "as": "E11.0"}]}),
         "code set 't2d', translation 2: it translates into a code the set does not declare",

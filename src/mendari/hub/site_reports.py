@@ -172,14 +172,14 @@ class SiteReportStore:
         if not isinstance(names, dict):
             raise HubError(
                 f"{namespace}/{name}@{version} was published before site reports were checked "
-                "against their pack; publish a new version to receive them",
+                "against their agent; publish a new version to receive them",
                 409,
             )
         composite = any(composite_members(p) is not None for p in report.providers.values())
         if composite and not isinstance(names.get("members"), dict):
             raise HubError(
                 f"{namespace}/{name}@{version} was published before reports from composite "
-                "providers were checked against their pack; publish a new version to receive them",
+                "providers were checked against their agent; publish a new version to receive them",
                 409,
             )
         # Everything that needs no lock is checked first, outside the registry's write lock
@@ -205,13 +205,13 @@ class SiteReportStore:
             or report.remote_consent != bool(ticket["remote_consent"])
         ):
             raise HubError(
-                "the report is not the ticket's: its pack, digest, configuration, size or "
+                "the report is not the ticket's: its agent, digest, configuration, size or "
                 "consent differ",
                 409,
             )
         unknown = _unknown_names(report, names, found.get("primary"))
         if unknown:
-            raise HubError(f"the report names {unknown} the pack does not have")
+            raise HubError(f"the report names {unknown} the agent does not have")
         if not unchanged_by_suppression(report):
             raise HubError(
                 "the report shares a cell its suppression rule hides, or counts that do not add "

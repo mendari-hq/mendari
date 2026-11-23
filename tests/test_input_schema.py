@@ -92,7 +92,7 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
         load_pack(root)
     assert raised.value.problems == [
         f"input schema: properties/message/properties/body/$ref: {reference!r} is outside the "
-        "schema (a pack input schema may only refer to its own parts, '#...')"
+        "schema (an agent's input schema may only refer to its own parts, '#...')"
     ]
     schema = json.loads((root / "schemas" / "input.schema.json").read_text())
     with pytest.raises(Unresolvable):  # and the validator itself retrieves nothing
@@ -114,7 +114,8 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
         ),
         (
             lambda schema: _body(schema).update({"$dynamicAnchor": "meta"}),
-            "properties/message/properties/body/$dynamicAnchor: not allowed in a pack input schema",
+            "properties/message/properties/body/$dynamicAnchor: not allowed in an agent's input "
+            "schema",
         ),
         (
             lambda schema: _body(schema).update({"$id": DIALECT}),
@@ -123,7 +124,7 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
         (
             lambda schema: _body(schema).update({"$dynamicRef": "https://example.org/x"}),
             "properties/message/properties/body/$dynamicRef: 'https://example.org/x' is outside "
-            "the schema (a pack input schema may only refer to its own parts, '#...')",
+            "the schema (an agent's input schema may only refer to its own parts, '#...')",
         ),
         (
             lambda schema: _body(schema).update({"$ref": "#/$defs/missing"}),
@@ -139,8 +140,8 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
         ),
         (
             lambda schema: _body(schema).update(format="regex"),
-            "properties/message/properties/body/format: format 'regex' is not allowed in a pack "
-            "input schema",
+            "properties/message/properties/body/format: format 'regex' is not allowed in an "
+            "agent's input schema",
         ),
     ],
     ids=[
@@ -168,7 +169,7 @@ def test_format_regex_is_refused_because_it_compiles_the_input(inbox: Path) -> N
     # per case-insensitive class, so one large input held a worker for minutes, and a string too
     # deep or with a huge repeat count raised past jsonschema (a 500 with no decision record).
     assert input_schema.problems({"type": "string", "format": "regex"}) == [
-        "input schema: format: format 'regex' is not allowed in a pack input schema"
+        "input schema: format: format 'regex' is not allowed in an agent's input schema"
     ]
     assert input_schema.problems({"type": "string", "format": "date"}) == []
 

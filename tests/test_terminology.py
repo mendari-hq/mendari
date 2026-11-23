@@ -42,7 +42,8 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # new version.
 PINNED = {
     "0.1.0": {
-        "CodeSystem/decision-outcome": "39fd51215c2eb221",
+        # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
+        "CodeSystem/decision-outcome": "7688b8fb74597a15",
         # Moved in LP-23f, before 0.1.0's release: `card.feedback`.
         "CodeSystem/audit-event": "8e2b2ce5fb759d11",
         # Added in LP-23f, a new url (no earlier content): why a card was overridden.
@@ -61,7 +62,9 @@ PINNED = {
         "CodeSystem/fictional-site-order-types": "21f35b7faf771d51",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
-        "NamingSystem/decision-pack": "677f5f91c8577ec0",
+        # Moved in wave 1, before 0.1.0's release: its title and description say "agent" (its
+        # id and url are as they were: stored resources carry them).
+        "NamingSystem/decision-pack": "0d51891d0f85a216",
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
         # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; in
@@ -74,7 +77,9 @@ PINNED = {
         # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
         # Moved in LP-20h, before 0.1.0's release: a store version's promotion and retirement.
         # Moved in LP-20i, before 0.1.0's release: the improvement dataset and its proposed tests.
-        "CodeSystem/audit-administrative-event": "c53d8e0aa65b0445",
+        # Moved in wave 1, before 0.1.0's release: the displays say "agent" (the codes are as
+        # they were: the chain holds them).
+        "CodeSystem/audit-administrative-event": "b28fb3a352e9243d",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
@@ -398,7 +403,7 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
 
 def test_one_version_of_each_pack(packs: dict[str, Pack]) -> None:
     inbox = packs["mendari/patient-inbox-router"]
-    with pytest.raises(MendariError, match="one version of each pack"):
+    with pytest.raises(MendariError, match="one version of each agent"):
         terminology.resources([inbox, inbox])
 
 

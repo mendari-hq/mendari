@@ -119,9 +119,10 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         _draft_legend(),
         "- **Stale:** each result shows the day it goes stale, "
         f"{method.STALE_AFTER_DAYS} days after it was measured, "
-        'as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: '
-        'method changed" when the pack, the set or the method is no longer the one it was '
-        "measured on. A stale result is run again, never edited, and the new one supersedes it.",
+        f'as "stale after DATE". It reads "{scoreboard.STALE_PACK}", "{scoreboard.STALE_SET}" or '
+        f'"{scoreboard.STALE_METHOD}" when the agent, the set or the method is no longer the one '
+        "it was measured on. A stale result is run again, never edited, and the new one "
+        "supersedes it.",
         "- **Insufficient evidence:** a table whose critical label has fewer distinct positives "
         "than the method's minimum carries the banner, naming each such label.",
         "- **Not measured:** an arm, or a configuration of a measured arm, that no result covers "

@@ -130,7 +130,7 @@ def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
                 # Only what the pack defines is named: a site's label can hold case text.
                 if question not in manifest.questions:
                     problems.append(
-                        f"{where}: labels name a question the pack does not have (its "
+                        f"{where}: labels name a question the agent does not have (its "
                         f"questions: {', '.join(manifest.questions)})"
                     )
                     break
@@ -151,7 +151,7 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
     if Path(ref).is_file():
         return load_dataset(ref)
     known = ", ".join(pack.manifest.evaluation.datasets) or "none"
-    raise MendariError(f"dataset {ref!r} is neither a file nor a pack dataset ({known})")
+    raise MendariError(f"dataset {ref!r} is neither a file nor an agent dataset ({known})")
 
 
 def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[str, Any]:

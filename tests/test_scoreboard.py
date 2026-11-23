@@ -988,7 +988,7 @@ def test_freshness_is_worked_out_when_shown_and_never_stored(
     assert marks([found]) == [fresh]
     assert marks([{**found, "signature": {"key_id": "k", "value": "v"}}]) == [fresh[1:]]
     assert marks([found], replace(current, digest="sha256:" + "0" * 64)) == [
-        [*fresh[:2], "stale: pack changed", fresh[2]]
+        [*fresh[:2], "stale: agent changed", fresh[2]]
     ]
     assert marks(
         [found], replace(current, sets={**current.sets, "red_flags_holdout": "0" * 64})

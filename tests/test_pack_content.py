@@ -66,7 +66,7 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         ("- name: z\n  input: [1]\n", "`input` must be a mapping"),
         ("- name: z\n", "`input` must be a mapping"),
         # Strict since LP-15: a test that cannot fail is refused, named.
-        (f"- name: z\n  input: {INPUT}\n", "no `expect`: say what the pack must decide"),
+        (f"- name: z\n  input: {INPUT}\n", "no `expect`: say what the agent must decide"),
         (f"- name: z\n  input: {INPUT}\n  expect: {{}}\n", "`expect` is empty"),
         (
             f"- name: z\n  input: {INPUT}\n  expect: {{outcom: AUTO}}\n",
@@ -98,7 +98,7 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         ),
         (
             f"- name: z\n  input: {INPUT}\n  expect: {{answers: {{nosuch: x}}}}\n",
-            "`expect.answers` names 'nosuch', which is not one of the pack's questions",
+            "`expect.answers` names 'nosuch', which is not one of the agent's questions",
         ),
     ],
     ids=[
@@ -449,7 +449,7 @@ def _edit_in_place(path: Path, old: str, new: str) -> None:
     assert path.stat().st_ino == before  # the same file on disk: only its content changed
 
 
-CHANGED = "logic/checklist.yaml: changed since the pack's digest was computed"
+CHANGED = "logic/checklist.yaml: changed since the agent's digest was computed"
 
 
 def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Path) -> None:

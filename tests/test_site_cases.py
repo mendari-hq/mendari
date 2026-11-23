@@ -47,7 +47,7 @@ SHIPPED = pack_digest(INBOX_DIR)
 # Not the reference pack's version: at its own, a registry reads a changed copy as a shadow.
 VERSION = "9.9.9"
 REFUSED = (
-    "the pack holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
+    "the agent holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
     "model built from them"
 )
 # What a refusal says of the pack a run was kept in: each file, and how many times it is marked.

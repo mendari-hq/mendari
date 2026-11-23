@@ -81,8 +81,8 @@ def parse(body: Any) -> DecideRequest:
         _refuse(
             "invalid",
             "resourceType",
-            "send a Parameters resource (pack, version, data, focus); to send a bare Bundle, "
-            "use /api/agents/{namespace}/{name}/fhir/decide",
+            "send a Parameters resource (`pack`, `version`, `data`, `focus`); to send a bare "
+            "Bundle, use /api/agents/{namespace}/{name}/fhir/decide",
         )
     malformed = fhir_structure.blocking(fhir_structure.check(body))
     if malformed:
@@ -217,10 +217,10 @@ def operation_definition() -> dict[str, Any]:
         "resourceType": "OperationDefinition",
         "id": "decide",
         "text": narrative(
-            "POST [base]/$decide: decide one case with a Mendari agent. In: pack, "
-            "version, data (a Bundle), focus. Out: a collection Bundle with a GuidanceResponse, "
-            "a RequestGroup and Task, a Parameters, an OperationOutcome when there are findings, "
-            "and a Provenance."
+            "POST [base]/$decide: decide one case with a Mendari agent. In: `pack` (the agent's "
+            "id), `version`, `data` (a Bundle), `focus`. Out: a collection Bundle with a "
+            "GuidanceResponse, a RequestGroup and Task, a Parameters, an OperationOutcome when "
+            "there are findings, and a Provenance."
         ),
         "url": DECIDE_URL,
         "version": __version__,
@@ -235,7 +235,7 @@ def operation_definition() -> dict[str, Any]:
         "code": "decide",
         "comment": "Every call records a decision in Mendari's audit trail, so it is POST only. "
         "This is not PlanDefinition/$apply: agents are not PlanDefinitions, and their "
-        "logic is not expressed in FHIR. Which packs a deployment serves with FHIR input is in "
+        "logic is not expressed in FHIR. Which agents a deployment serves with FHIR input is in "
         "its CapabilityStatement in open mode; with sign-in on, it is for signed-in callers.",
         "system": True,
         "type": False,
@@ -409,18 +409,18 @@ def _parameter(name: str, use: str, minimum: int, kind: str, doc: str) -> dict[s
 _DESCRIPTION = (
     "Runs one Mendari agent on FHIR R4 data the client sends, records the decision in "
     "Mendari's audit trail, and returns it as FHIR. Mendari is a decision engine, not a FHIR "
-    "data server: it reads no data of its own, so everything the pack needs comes in `data`, "
-    "which the pack's FHIR mapping turns into its input. `data` first passes a structural R4 "
+    "data server: it reads no data of its own, so everything the agent needs comes in `data`, "
+    "which the agent's FHIR mapping turns into its input. `data` first passes a structural R4 "
     "check (a 400 otherwise), then R4 and US Core 6.1.0 rules under the deployment's "
     "`fhir_validation` setting (findings are returned; under `enforce` they refuse the input).\n\n"
     "The result is a `collection` Bundle. Its first entry, a `GuidanceResponse`, is the decision: "
-    "`status` is `success` when the pack evaluated the input, whatever the outcome, and "
+    "`status` is `success` when the agent evaluated the input, whatever the outcome, and "
     "`failure` when the input was refused before evaluation (the outcome is then BLOCK). Whether "
     "to act is `outputParameters.outcome` (AUTO, HUMAN_REVIEW, ABSTAIN or BLOCK, in "
     f"{OUTCOME_SYSTEM}), never `status`. `GuidanceResponse.result` is a `RequestGroup` whose one "
-    "action is the `Task` for the work queue; under BLOCK and ABSTAIN that is the pack's "
+    "action is the `Task` for the work queue; under BLOCK and ABSTAIN that is the agent's "
     "fallback, never the blocked action. The `Parameters` carry the recommendation, priority, "
-    "confidence and every question's answer, labels coded in the pack's question CodeSystems. "
+    "confidence and every question's answer, labels coded in the agent's question CodeSystems. "
     "An `OperationOutcome` lists findings and provider failures by path and rule. A `Provenance` "
     "records the engine as author and the input by hash. The Task's `for` and `focus`, and the "
     "`subject` of the GuidanceResponse and RequestGroup, refer to resources in `data` by the "
@@ -430,15 +430,15 @@ _DESCRIPTION = (
     "The input resources are not echoed; an answer's evidence can name what matched in them (a "
     "keyword, a code, a value).\n\n"
     "Errors are an `OperationOutcome`: 400 for a malformed request or FHIR JSON of the wrong "
-    "shape, 404 for an unknown pack or a version this deployment does not serve, 422 when the "
-    "pack takes no FHIR input, when `data` lacks a resource the pack needs, or when it holds "
+    "shape, 404 for an unknown agent or a version this deployment does not serve, 422 when the "
+    "agent takes no FHIR input, when `data` lacks a resource the agent needs, or when it holds "
     "several resources to decide about without `focus`. A provider that cannot answer does not "
     "fail the call: the decision is recorded, the failure is a warning in the OperationOutcome, "
     "and the policy treats the question as unanswered."
 )
 _PACK_DOC = "The agent, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
 _VERSION_DOC = (
-    "The pack version the client expects. When the deployment serves another version, the call "
+    "The agent version the client expects. When the deployment serves another version, the call "
     "fails with 404 and decides nothing."
 )
 _DATA_DOC = (
@@ -448,7 +448,7 @@ _DATA_DOC = (
 )
 _FOCUS_DOC = (
     "`ResourceType/id` of the resource in `data` to decide about, when `data` holds several of "
-    "the pack's focus type (e.g. one of several draft orders)."
+    "the agent's focus type (e.g. one of several draft orders)."
 )
 _RETURN_DOC = (
     "A collection Bundle: GuidanceResponse (first), RequestGroup, Task, Parameters, "

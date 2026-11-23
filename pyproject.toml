@@ -1,12 +1,12 @@
 [project]
 name = "mendari"
 version = "0.1.0"
-description = "Open infrastructure for packaging, evaluating, governing and deploying healthcare decision logic as Decision Packs."
+description = "Open-source governance and evaluation for healthcare AI agents: policy, human review, audit and published evaluations."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [{ name = "Mendari contributors" }]
-keywords = ["healthcare", "fhir", "cds-hooks", "decision-support", "evaluation", "ai-governance"]
+keywords = ["healthcare", "ai-agents", "ai-governance", "evaluation", "fhir", "cds-hooks", "decision-support"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Healthcare Industry",

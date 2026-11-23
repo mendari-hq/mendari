@@ -1378,7 +1378,7 @@ class EvalsetStore:
         if not (isinstance(grader, str) and _GRADER.fullmatch(grader)):
             raise MendariError("a grader is a grading key, named key: and its id")
         if not (isinstance(pack_digest, str) and _PACK_DIGEST.fullmatch(pack_digest)):
-            raise MendariError("a pack digest is sha256: and 64 hex digits")
+            raise MendariError("an agent digest is sha256: and 64 hex digits")
         from mendari.evals.harness import Dataset
 
         with self.store._db.session(exclusive=True) as db:
@@ -2287,7 +2287,7 @@ def _problem(record: Any, header: Mapping[str, Any]) -> str | None:
     for question, label in labels.items():
         # Only what the pack defines is named: a label written here can hold case text.
         if question not in questions:
-            return "labels name a question the pack does not have"
+            return "labels name a question the agent does not have"
         if label not in questions[question]:
             return f"labels.{question} is not one of its labels"
     return None
@@ -2802,8 +2802,8 @@ def pack_problem(pack: Pack, header: Mapping[str, Any]) -> str | None:
     if all(made[name] == header.get(name) for name in made):
         return None
     return (
-        f"pack {pack.id} does not ask the set's questions with their labels and critical "
-        "labels: give the pack the set was made for (--pack)"
+        f"agent {pack.id} does not ask the set's questions with their labels and critical "
+        "labels: give the agent the set was made for (--agent)"
     )
 
 

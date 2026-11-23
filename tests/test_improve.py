@@ -344,7 +344,7 @@ def test_a_pack_it_wrote_to_is_one_train_rebuilds_and_a_second_run_learns_nothin
 
     # The run is kept once: the pack it judged is not the pack on disk any more.
     improved = held(inbox)
-    with pytest.raises(MendariError, match="the pack has changed since this run judged it"):
+    with pytest.raises(MendariError, match="the agent has changed since this run judged it"):
         apply(load_pack(inbox), found)
     assert held(inbox) == improved
     assert not list(inbox.parent.glob(".mendari-improve-*"))  # nothing left beside the pack
@@ -437,7 +437,7 @@ def test_a_candidate_surer_of_wrong_answers_about_emergencies_is_not_kept(inbox:
     assert (words["held_out"]["current"], words["held_out"]["candidate"]) == (95, 98)
     assert words["verdict"] == REGRESSED and words["regressions"] == [
         "red_flags: confident and wrong more often: 4 of 23 confident answers (the model in "
-        "the pack: 0 of 7)"
+        "the agent: 0 of 7)"
     ]
     red_flags = next(found for found in words["datasets"] if found["dataset"] == "red_flags")
     assert red_flags["confident"]["current"] == {"n": 7, "wrong": 0}
@@ -503,10 +503,10 @@ def test_a_run_is_kept_only_in_a_pack_of_ones_own(
         "an agent this release bundles": lambda: monkeypatch.setattr(
             registry, "_BUNDLED_DIRS", [inbox.parent]
         ),
-        "a community pack of this repository": lambda: monkeypatch.setattr(
+        "a community agent of this repository": lambda: monkeypatch.setattr(
             registry, "_COMMUNITY_DIR", inbox.parent
         ),
-        "a pack pulled from a registry": lambda: monkeypatch.setattr(
+        "an agent pulled from a registry": lambda: monkeypatch.setattr(
             hub_client, "packs_cache", lambda: inbox.parent
         ),
     }
@@ -516,7 +516,7 @@ def test_a_run_is_kept_only_in_a_pack_of_ones_own(
             assert registry.origin_of(inbox) != "local"
             with pytest.raises(MendariError, match=f"nothing to keep: {what} is not changed"):
                 apply(load_pack(inbox), found)  # loaded as a local pack, and still refused
-    with pytest.raises(MendariError, match="a pack pulled from a registry is not changed"):
+    with pytest.raises(MendariError, match="an agent pulled from a registry is not changed"):
         apply(load_pack(inbox, origin="hub"), found)  # and as it was loaded, wherever it is
     assert pack_digest(inbox) == SHIPPED
 

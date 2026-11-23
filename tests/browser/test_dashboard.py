@@ -471,7 +471,7 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     table = page.locator("#board table").first  # the per-check table follows it
     assert "Rank" not in table.locator("thead th").all_inner_texts()
     expect(table.locator(".rank, .rank-cell")).to_have_count(0)
-    expect(table.locator("tbody .standing").first).to_contain_text("its pack digest not recorded")
+    expect(table.locator("tbody .standing").first).to_contain_text("its agent digest not recorded")
     # Locally the pack runs its default screen (the keyword rules).
     deployed = table.locator("tbody tr.deployed")
     expect(deployed).to_have_count(1)

@@ -63,12 +63,12 @@ def _case_problem(case: Any) -> str | None:
     if not isinstance(case.get("name", ""), str):
         return "`name` must be text"
     if "expect" not in case:
-        return f"no `expect`: say what the pack must decide ({', '.join(EXPECT_KEYS)})"
+        return f"no `expect`: say what the agent must decide ({', '.join(EXPECT_KEYS)})"
     expect = case["expect"]
     if not isinstance(expect, dict):
         return "`expect` must be a mapping"
     if not expect:
-        return f"`expect` is empty: say what the pack must decide ({', '.join(EXPECT_KEYS)})"
+        return f"`expect` is empty: say what the agent must decide ({', '.join(EXPECT_KEYS)})"
     unknown = sorted(str(key) for key in expect if key not in EXPECT_KEYS)
     if unknown:
         return f"unknown `expect` key {unknown[0]!r} (allowed: {', '.join(EXPECT_KEYS)})"
@@ -102,7 +102,7 @@ def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None
         return f"recommendation {wanted!r} is not a label of {primary!r} ({', '.join(labels)})"
     for question, label in expect.get("answers", {}).items():
         if question not in manifest.questions:
-            return f"`expect.answers` names {question!r}, which is not one of the pack's questions"
+            return f"`expect.answers` names {question!r}, which is not one of the agent's questions"
         if label not in manifest.labels(question):
             return (
                 f"`expect.answers.{question}` is {label!r}, not one of its labels "

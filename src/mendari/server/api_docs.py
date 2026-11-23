@@ -33,7 +33,7 @@ TAGS = [
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
-    {"name": "Governance", "description": "Approvals for higher-risk packs to automate."},
+    {"name": "Governance", "description": "Approvals for higher-risk agents to automate."},
     {
         "name": "Sign-in",
         "description": "Who is calling, API keys for machines, and (memberships mode) members "
@@ -54,7 +54,7 @@ TAGS = [
     },
     {
         "name": "Grading",
-        "description": "A pack graded against one of the organization's hidden evaluation sets, "
+        "description": "An agent graded against one of the organization's hidden evaluation sets, "
         "frozen and committed to, by its grading key only (which only the operator makes): each "
         "run counted against the set's rotation rule and recorded in the audit chain, with "
         "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
@@ -114,7 +114,7 @@ PRODUCT = (
 # OUTCOME_TEXT), and what it means for the caller.
 OUTCOMES = (
     ("AUTO", "Automated", "safe to act on"),
-    ("HUMAN_REVIEW", "Human review", "a person decides, with the pack's recommendation"),
+    ("HUMAN_REVIEW", "Human review", "a person decides, with the agent's recommendation"),
     ("ABSTAIN", "Abstained", "not confident enough to say"),
     ("BLOCK", "Blocked", "the input or a safety rule stops it"),
 )
@@ -173,7 +173,7 @@ in a hash-chained audit trail.
 
 ### A first request
 
-1. `GET /api/agents` lists the packs.
+1. `GET /api/agents` lists the agents.
 2. `GET /api/agents/{pack}/examples` gives synthetic inputs.
 3. `POST /api/agents/{pack}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
@@ -211,7 +211,7 @@ another site cannot sign anyone out). Integrations with a key or token, and scri
 session cookie, are not affected; a script that reads with a person's session cookie sends
 `X-Mendari-Request: 1`, as Mendari's own pages do.
 
-[Open the dashboard](/) to try packs without code. The OpenAPI document itself is
+[Open the dashboard](/) to try agents without code. The OpenAPI document itself is
 [`/openapi.json`](/openapi.json).
 """.strip()
 
@@ -350,15 +350,15 @@ def document(
 REGISTRY_TAGS = [
     {
         "name": "Registry",
-        "description": "The pack registry served under this deployment (`MENDARI_REGISTRY=on`): "
-        "search, a pack's versions, its signed archive, recalls and site reports. Reads need no "
+        "description": "The agent registry served under this deployment (`MENDARI_REGISTRY=on`): "
+        "search, an agent's versions, its signed archive, recalls and site reports. Reads need no "
         "credential. Writes need a publisher token (`Authorization: Bearer ohr_…`), which "
         "publishes to its own namespace only; a session cookie or an API key is never a "
         "credential here. A request body is this deployment's limit at most (a `413` names it).",
     },
     {
         "name": "Registry accounts",
-        "description": "An organization's namespaces and publisher tokens in the pack registry, "
+        "description": "An organization's namespaces and publisher tokens in the agent registry, "
         "managed by its administrators (people only): claim a namespace, register a publisher "
         "key, and mint, list and revoke publisher tokens.",
     },
@@ -513,7 +513,7 @@ def _secure(
     if permission == "registry_review":  # people only, the review organization's reviewers
         operation["security"] = [{"session": []}]
         needed = (
-            "a person who signed in holding the registry_reviewer role in the pack registry's "
+            "a person who signed in holding the registry_reviewer role in the agent registry's "
             "review organization (`registry_review`, memberships mode; never a key, a token "
             "or an administrator of another organization)"
         )

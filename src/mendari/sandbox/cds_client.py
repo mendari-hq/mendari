@@ -8,7 +8,7 @@ describes ("Trusting CDS Clients") and an EHR such as Epic does.
   the engine to fetch as it would an EHR's.
 - It prints the registry entry the engine needs for it (`MENDARI_CDS_CLIENTS`).
 - It checks that the FHIR server it names holds the EHR profile's patients
-  (`sandbox/ehr_profile.py`, `mendari sandbox seed --pack ehr-profile`).
+  (`sandbox/ehr_profile.py`, `mendari sandbox seed --agent ehr-profile`).
 - It reads discovery, then calls each standard hook (`patient-view` and `order-sign`) of each
   service the profile has patients for, once per patient. Each call carries a new ES384 token:
   `iss` its own URL, `aud` the engine's public URL and the path, five minutes, a new `jti`, and
@@ -171,7 +171,7 @@ class SandboxClient:
             if missing:
                 problems.append(
                     f"{fhir} does not hold the EHR profile's patients ({', '.join(missing)}): "
-                    "seed it first (mendari sandbox seed --pack ehr-profile)"
+                    "seed it first (mendari sandbox seed --agent ehr-profile)"
                 )
                 return result
             path = "/cds-services"

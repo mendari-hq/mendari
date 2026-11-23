@@ -183,7 +183,12 @@ SPECS: dict[str, ResourceSearch] = {
                     "Resource-lastUpdated",
                     f"When its latest version was made. {_DATES}",
                 ),
-                _p("_tag", "token", "Resource-tag", f"{PACK_TAG_SYSTEM}|{{pack}}@{{version}}."),
+                _p(
+                    "_tag",
+                    "token",
+                    "Resource-tag",
+                    f"{PACK_TAG_SYSTEM}|{{namespace}}/{{name}}@{{version}}.",
+                ),
             ),
             (("t", "instant"), ("id", "id")),
         ),

@@ -93,7 +93,7 @@ def test_paths_cannot_escape_the_pack(pack_copy: Callable[..., Path]) -> None:
     def edit(m: dict) -> None:
         m["inputs"]["schema"] = "../../etc/passwd"
 
-    with pytest.raises(PackValidationError, match="escapes the pack directory"):
+    with pytest.raises(PackValidationError, match="escapes the agent's folder"):
         load_pack(pack_copy(manifest=edit))
 
 
@@ -144,7 +144,7 @@ def test_a_symbolic_link_out_of_the_pack_is_refused(
     path.symlink_to(outside if link == "notes" else outside / "secret.txt")
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
-    assert raised.value.problems == [f"{link}: a symbolic link that leads outside the pack"]
+    assert raised.value.problems == [f"{link}: a symbolic link that leads outside the agent"]
 
 
 def test_a_virtualenv_or_cache_in_the_pack_folder_is_not_part_of_the_pack(
@@ -172,14 +172,14 @@ def test_a_virtualenv_or_cache_in_the_pack_folder_is_not_part_of_the_pack(
     assert [p.relative_to(root).as_posix() for p in archive.pack_files(root)] == [
         p.relative_to(INBOX_DIR).as_posix() for p in archive.pack_files(INBOX_DIR)
     ]
-    with pytest.raises(PackValidationError, match="escapes the pack directory"):
+    with pytest.raises(PackValidationError, match="escapes the agent's folder"):
         pack.path(".direnv/secret.txt")
     manifest = root / "pack.yaml"
     (outside / "cases.yaml").write_text("[]\n")
     manifest.write_text(
         manifest.read_text().replace("tests: tests/cases.yaml", "tests: .direnv/cases.yaml", 1)
     )
-    with pytest.raises(PackValidationError, match=r"'\.direnv/cases\.yaml' escapes the pack"):
+    with pytest.raises(PackValidationError, match=r"'\.direnv/cases\.yaml' escapes the agent"):
         load_pack(root)
 
 
@@ -216,7 +216,7 @@ def test_a_manifest_path_through_a_hidden_entry_is_refused(inbox_copy: Path, hid
         load_pack(root)
     assert raised.value.problems == [
         f"providers.router.variants.rules.config: path {hidden!r} goes through a hidden entry or "
-        "__pycache__, which is not part of the pack (nor its digest)"
+        "__pycache__, which is not part of the agent (nor its digest)"
     ]
 
 
@@ -232,7 +232,7 @@ def test_a_manifest_path_to_an_attestation_is_refused(inbox_copy: Path, named: s
         load_pack(root)
     assert raised.value.problems == [
         f"providers.router.variants.rules.config: path {named!r} is in evals/ or a "
-        "DECISION_CARD.md, attestations about the pack that are not part of its digest"
+        "DECISION_CARD.md, attestations about the agent that are not part of its digest"
     ]
 
 
@@ -319,7 +319,7 @@ def test_a_case_variant_of_a_left_out_path_is_refused(
         load_pack(root)
     assert raised.value.problems == [
         f"providers.router.variants.rules.config: path {spelled!r} is not one of the files the "
-        "pack's digest covers (it leaves out hidden entries, __pycache__, evals/ and "
+        "agent's digest covers (it leaves out hidden entries, __pycache__, evals/ and "
         "DECISION_CARD.md, however a path spells them)"
     ]
 
@@ -328,7 +328,7 @@ def test_pack_path_refuses_a_case_variant_of_an_attestation(inbox_pack: Pack) ->
     if not _case_insensitive(inbox_pack.root / "logic"):
         pytest.skip("needs a case-insensitive filesystem")
     for spelled in ["EVALS/benchmark.json", "decision_card.md", "Evals/../EVALS/benchmark.json"]:
-        with pytest.raises(PackValidationError, match="not one of the files the pack's digest"):
+        with pytest.raises(PackValidationError, match="not one of the files the agent's digest"):
             inbox_pack.path(spelled)
 
 
@@ -396,7 +396,7 @@ def test_the_benchmark_must_be_an_attestation(inbox_copy: Path) -> None:
         load_pack(inbox_copy)
     assert raised.value.problems == [
         "evaluation.benchmark: path 'logic/benchmark.json' is not in evals/ or a "
-        "DECISION_CARD.md: an attestation about the pack is kept outside its digest"
+        "DECISION_CARD.md: an attestation about the agent is kept outside its digest"
     ]
 
 
@@ -476,7 +476,7 @@ def test_the_card_reads_the_changelog_only_inside_the_pack(
     pack = load_pack(root)
     (root / "CHANGELOG.md").unlink()
     (root / "CHANGELOG.md").symlink_to(secret)  # after the load's own check
-    with pytest.raises(PackValidationError, match="escapes the pack directory"):
+    with pytest.raises(PackValidationError, match="escapes the agent's folder"):
         render_card(pack)
 
 

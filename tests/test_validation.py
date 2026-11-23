@@ -109,7 +109,7 @@ def test_a_publish_the_validator_refuses_stores_nothing_and_names_the_problem(
     refused = registry.publish(pack)
     assert refused.status_code == 422
     detail = refused.json()["detail"]
-    assert detail.startswith("the pack is not valid (`mendari validate`): tests/cases.yaml case ")
+    assert detail.startswith("the agent is not valid (`mendari validate`): tests/cases.yaml case ")
     assert SECRET not in detail
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         assert db.one("SELECT COUNT(*) AS n FROM hub_versions")["n"] == 0

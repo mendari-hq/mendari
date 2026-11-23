@@ -48,7 +48,7 @@ def parse(data: bytes, where: str = FILE) -> dict[str, Entry]:
     if raw is None:
         return {}
     if not isinstance(raw, dict) or not isinstance(raw.get("packs"), list):
-        raise MendariError(f"{where}: expected `packs:` with a list of entries")
+        raise MendariError(f"{where}: expected `packs`, a list of entries")
     entries: dict[str, Entry] = {}
     for number, item in enumerate(raw["packs"], start=1):
         entry = _entry(item, f"{where}: entry {number}")
@@ -66,7 +66,7 @@ def _entry(item: Any, where: str) -> Entry:
         raise MendariError(f"{where}: unknown keys {unknown} (allowed: {sorted(_KEYS)})")
     pack_id = item.get("id")
     if not isinstance(pack_id, str) or not pack_id:
-        raise MendariError(f"{where}: `id` must be the pack's id, e.g. community/<name>")
+        raise MendariError(f"{where}: `id` must be the agent's id, e.g. community/<name>")
     handles = item.get("maintainers")
     if (
         not isinstance(handles, list)
@@ -79,7 +79,7 @@ def _entry(item: Any, where: str) -> Entry:
     removed = item.get("removed")
     reason = item.get("reason")
     if removed is not None and not str(removed).strip():
-        raise MendariError(f"{where} ({pack_id}): `removed` is the date the pack was removed")
+        raise MendariError(f"{where} ({pack_id}): `removed` is the date the agent was removed")
     if reason is not None and not isinstance(reason, str):
         raise MendariError(f"{where} ({pack_id}): `reason` must be text")
     return Entry(

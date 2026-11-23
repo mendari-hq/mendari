@@ -382,7 +382,7 @@ def check(
         for kind in sorted(entry.not_offered):
             if not any(kind in pack_excusable(pack, entry.not_offered) for pack in found):
                 raise MendariError(
-                    f"{where}: not_offered {kind}: no pack found here reads it as one of "
+                    f"{where}: not_offered {kind}: no agent found here reads it as one of "
                     "several sources of a list, beside a source not declared"
                 )
 

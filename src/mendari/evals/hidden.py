@@ -232,7 +232,7 @@ def graded(decision: Decision, dataset: Dataset, read: GradingRead) -> HiddenRes
     if decision.store is not None or decision.is_remote:
         raise MendariError("a hidden set is graded with no store and local providers only")
     if record_problems(decision.pack.manifest, dataset):
-        raise MendariError("the set's cases are not the pack's to evaluate")
+        raise MendariError("the set's cases are not the agent's to evaluate")
     results = [decision.decide(record["input"]) for record in dataset.records]
     return hidden_result(result_from_ledger(ledgers.build(decision, dataset, results)), read)
 
@@ -570,7 +570,7 @@ class GradedConfiguration(_Closed):
 
 
 class ScoredArm(_Closed):
-    """One arm of the pack (`arms.ARMS`): graded here, with its configuration, providers,
+    """One arm of the agent (`arms.ARMS`): graded here, with its configuration, providers,
     figures and grade; or "not graded here" or "not applicable", with none of them."""
 
     arm: Name
@@ -850,9 +850,9 @@ def scoreboard_graded(
         if decision.store is not None or decision.is_remote or not found.configuration.local:
             raise MendariError("a hidden set is graded with no store and local providers only")
         if decision.pack.digest != pack.digest or found.configuration.arm != found.arm:
-            raise MendariError("every arm is of one pack, each in the arm it is declared under")
+            raise MendariError("every arm is of one agent, each in the arm it is declared under")
     if record_problems(pack.manifest, dataset):
-        raise MendariError("the set's cases are not the pack's to evaluate")
+        raise MendariError("the set's cases are not the agent's to evaluate")
     scope = scoreboard.PackScope.of(pack)
     graded = []
     for found in chosen:

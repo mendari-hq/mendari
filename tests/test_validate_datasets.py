@@ -49,7 +49,7 @@ VALID = {"message": {"body": SECRET}}
         ),
         (
             json.dumps({"id": "r3", "input": VALID, "labels": {SECRET: "calm"}}),
-            "case r3: labels name a question the pack does not have",
+            "case r3: labels name a question the agent does not have",
         ),
         (
             json.dumps({"id": "r4", "input": VALID, "labels": ["urgent"]}),

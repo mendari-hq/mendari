@@ -243,7 +243,7 @@ def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
     # A real record about another pack (a registry could serve one): a recall, not verified.
     other = copy_pack(tmp_path / "other", "site-a/other")
     shown = recall_of(meta, hub.client(), other)
-    assert shown is not None and shown["problem"] == "it is about another pack, version or build"
+    assert shown is not None and shown["problem"] == "it is about another agent, version or build"
     assert recall_of({**meta, "yank": None}, hub.client(), pack) is None
 
 

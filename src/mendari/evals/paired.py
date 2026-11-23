@@ -134,12 +134,12 @@ def compare(
         if ledger.header["dataset"]["sha256"] != dataset_sha256:
             raise MendariError(f"{name} was not run on this dataset (its sha256 differs)")
     if not lineage and a.header["pack"]["id"] != b.header["pack"]["id"]:
-        raise MendariError("A and B are evaluations of different packs")
+        raise MendariError("A and B are evaluations of different agents")
     if (
         a.header["questions"] != b.header["questions"]
         or a.header["critical"] != b.header["critical"]
     ):
-        raise MendariError("A and B ask different questions: compare runs of one pack's questions")
+        raise MendariError("A and B ask different questions: compare runs of one agent's questions")
     in_b = {case["c"]: case for case in b.cases}
     pairs = [(case, in_b[case["c"]]) for case in a.cases if case["c"] in in_b]
     if not pairs:

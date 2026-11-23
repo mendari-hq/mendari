@@ -167,6 +167,10 @@ DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 VENDOR_DIR = DASHBOARD_DIR / "vendor"  # third-party front-end code (scripts/vendor_docs_ui.py)
 DEMO_AGENT = "mendari/portal-message-agent"  # the one agent a release bundles
 JsonBody = Annotated[dict[str, Any], Body()]
+# The agent a request names by `pack_id`: the parameter keeps its name on the wire, and the API
+# description shows it as what it is.
+AgentId = Annotated[str, Query(title="Agent id")]
+AgentFilter = Annotated[str | None, Query(title="Agent id")]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
     PackNotFoundError: 404,
@@ -225,9 +229,9 @@ _ISSUE_TYPE = {
 
 
 class RegistryApprovalRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200)
+    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
     # The digest the approver reviewed: the approval names exactly it.
-    pack_digest: str = Field(min_length=8, max_length=100)
+    pack_digest: str = Field(min_length=8, max_length=100, title="Agent digest")
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     approver: str | None = Field(
         default=None,
@@ -238,7 +242,7 @@ class RegistryApprovalRequest(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200)
+    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     days: int = Field(default=180, ge=1, le=365, description="how long the approval lasts")
     approver: str | None = Field(
@@ -431,8 +435,10 @@ class EraseRequest(BaseModel):
 
 
 class HoldRequest(BaseModel):
-    pack_id: str | None = Field(default=None, max_length=200)
-    pack_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    pack_id: str | None = Field(default=None, max_length=200, title="Agent id")
+    pack_digest: str | None = Field(
+        default=None, pattern=r"^sha256:[0-9a-f]{64}$", title="Agent digest"
+    )
     reason: str = Field(min_length=1, max_length=200)
 
 
@@ -450,7 +456,7 @@ class LabellingCase(BaseModel):
 
     assignment: str = Field(description="what to send your label to")
     questions: dict[str, list[str]] = Field(description="each question, with its labels")
-    input: Any = Field(description="the case, as the pack reads it")
+    input: Any = Field(description="the case, as the agent reads it")
 
 
 class LabelledSet(BaseModel):
@@ -519,7 +525,7 @@ class EvalsetListed(BaseModel):
 
     set: str
     name: str
-    pack: str
+    pack: str = Field(title="Agent")
     state: SetState
     created_at: str
     cases: int = Field(description="the cases the set holds")
@@ -608,7 +614,7 @@ class CoverageReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["mendari.coverage/1"]
-    pack: str
+    pack: str = Field(title="Agent")
     dataset: NamedDataset
     norm: str
     cases: int
@@ -681,7 +687,7 @@ class AgreementReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["mendari.agreement/1"]
-    pack: str
+    pack: str = Field(title="Agent")
     level: float
     seeds: AgreementSeeds
     questions: dict[str, QuestionAgreement]
@@ -703,7 +709,7 @@ class EvalsetDetail(BaseModel):
 
     set: str
     name: str
-    pack: str
+    pack: str = Field(title="Agent")
     questions: dict[str, list[str]] = Field(description="each question labellers answer")
     state: SetState
     created_at: str
@@ -752,14 +758,15 @@ class GradingRequest(BaseModel):
     pack: str = Field(
         min_length=1,
         max_length=200,
-        description="the id of the pack the set was made for, as this server serves it",
+        title="Agent",
+        description="the id of the agent the set was made for, as this server serves it",
         examples=[DEMO_AGENT],
     )
     variants: dict[SlotName, SlotName] | None = Field(
         default=None,
         max_length=64,
-        description="a variant for any of the pack's provider slots (the others run the "
-        "deployment's choice, or the pack's default); every slot must run a local variant",
+        description="a variant for any of the agent's provider slots (the others run the "
+        "deployment's choice, or the agent's default); every slot must run a local variant",
         examples=[{"reader": "rules"}],
     )
     arms: dict[ArmName, Annotated[dict[SlotName, SlotName], Field(max_length=64)]] | None = Field(
@@ -767,7 +774,7 @@ class GradingRequest(BaseModel):
         min_length=1,
         max_length=4,
         description="the hidden-set scoreboard (LP-17k): each declared arm with its whole "
-        "configuration, a variant for every one of the pack's slots (none is filled in from "
+        "configuration, a variant for every one of the agent's slots (none is filled in from "
         "the deployment's choice); every one local, and each in the arm it is declared under. "
         "With `declared`, never with `variants`: the answer is `mendari.hidden_scoreboard/1`",
         examples=[{"deterministic": {"reader": "rules"}}],
@@ -794,11 +801,11 @@ class GradingRequest(BaseModel):
 GRADING_REFUSALS: dict[str, tuple[int, str]] = {
     # Unknown, malformed and another organization's: one answer, as the curators' routes give.
     "no_set": (404, NO_SET),
-    "wrong_pack": (422, "a hidden set is graded with the pack it was made for: name it as `pack`"),
-    "pack_unavailable": (409, "the set's pack does not run on this server"),
+    "wrong_pack": (422, "a hidden set is graded with the agent it was made for: name it as `pack`"),
+    "pack_unavailable": (409, "the set's agent does not run on this server"),
     "unknown_variant": (
         422,
-        "`variants`, or an arm in `arms`, names a slot or a variant the pack does not have",
+        "`variants`, or an arm in `arms`, names a slot or a variant the agent does not have",
     ),
     "remote_provider": (
         422,
@@ -807,7 +814,7 @@ GRADING_REFUSALS: dict[str, tuple[int, str]] = {
     ),
     "wrong_arm": (
         422,
-        "each arm in `arms` names a variant for every slot of the pack, a configuration of "
+        "each arm in `arms` names a variant for every slot of the agent, a configuration of "
         "that arm",
     ),
     "not_gradable": (409, "only a frozen or active set is graded"),
@@ -906,7 +913,7 @@ def create_app(
     status_org = settings.status_org()  # likewise
     # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
     registry_on = settings.registry_mounted()  # likewise
-    # Organizations' pack stores (LP-20f, ADR-0016): off unless MENDARI_PACK_STORE=on.
+    # Organizations' pack stores (LP-20f, ADR-0016): off unless MENDARI_AGENT_STORE=on.
     store_on = settings.pack_store_on()  # likewise
     # Its reviewers' organization (LP-19e): unset, nobody reviews through the web. Checked once
     # the store is open, below.
@@ -972,7 +979,7 @@ def create_app(
         )
         if why_not is not None:
             phi_logger.warning(
-                "MENDARI_REGISTRY_REVIEW_ORG is not used, so nobody reviews the pack registry "
+                "MENDARI_REGISTRY_REVIEW_ORG is not used, so nobody reviews the agent registry "
                 "through the web (the operator's `mendari registry` commands still do): %s",
                 why_not,
             )
@@ -985,7 +992,7 @@ def create_app(
                 for member in store.memberships(org=review_org)
             )
             phi_logger.info(
-                "the pack registry's reviewers are the %d member(s) of %r holding %s",
+                "the agent registry's reviewers are the %d member(s) of %r holding %s",
                 holding,
                 review_org,
                 accounts.REGISTRY_REVIEWER,
@@ -1125,7 +1132,7 @@ def create_app(
             served = promoted_here().get(pack_id)
             pack = None if served is None else served[0]
         if pack is None:
-            raise PackNotFoundError(f"no pack {pack_id!r}")
+            raise PackNotFoundError(f"no agent {pack_id!r}")
         return pack
 
     skipped_settings: dict[str, list[str]] = {}
@@ -1142,7 +1149,7 @@ def create_app(
     )
     if unused_settings:
         providers_logger.warning(
-            "provider settings that apply to no served pack: %s", ", ".join(unused_settings)
+            "provider settings that apply to no served agent: %s", ", ".join(unused_settings)
         )
     # ...and those no served pack takes at all (above, or a variant no pack with the slot has):
     # what `mendari serve --provider` refuses when typed.
@@ -1563,9 +1570,9 @@ def create_app(
     def health(request: Request) -> dict[str, Any]:
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
-        in open mode) also gets the deployment's settings: packs (and how many come from
+        in open mode) also gets the deployment's settings: agents (and how many come from
         where), storage, the FHIR validation mode, the FHIR and provider allow-lists, PHI mode,
-        the input hash's kind and key id, which provider answers each pack's questions, today's
+        the input hash's kind and key id, which provider answers each agent's questions, today's
         remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
         counts are), the rate limits (where the caller's address is read, and the address seen
         on this request), the session policy, the organization's daily quotas with what it used
@@ -1577,9 +1584,9 @@ def create_app(
         its reference and the types, or null when nothing is declared), and the id of the key
         that signs the daily checkpoint (`checkpoint_key`, or null).
 
-        The packs' state (which provider each runs, the settings skipped, a pack that could not
-        be built, the problems an owned pack loads with, `pack_warnings`) is
-        computed at start-up: health builds no pack and records no deployment (a signed-in
+        The agents' state (which provider each runs, the settings skipped, an agent that could not
+        be built, the problems an owned agent loads with, `pack_warnings`) is
+        computed at start-up: health builds no agent and records no deployment (a signed-in
         caller's session may still be refreshed, as on any route).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
@@ -1728,15 +1735,15 @@ def create_app(
     @app.get(
         "/api/health/ready",
         tags=["Service"],
-        summary="Readiness: the database answers and the packs loaded",
-        responses={503: {"description": "Not ready: the database did not answer, or no pack"}},
+        summary="Readiness: the database answers and the agents loaded",
+        responses={503: {"description": "Not ready: the database did not answer, or no agent"}},
     )
     def ready() -> Response:
         """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`),
         with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and
-        `checks`: `database` (`ok` or `unreachable`) and `packs` (`ok`; `degraded` while a pack
+        `checks`: `database` (`ok` or `unreachable`) and `packs` (`ok`; `degraded` while an agent
         did not load or build, which signed-in `/api/health` lists under `invalid`; `none` when
-        no pack is served). `503` when unready. Fixed codes only: no error text, no pack ids,
+        no agent is served). `503` when unready. Fixed codes only: no error text, no agent ids,
         no counts.
 
         An instance reads the database at most once every 5 s, whoever asks, and waits for the
@@ -1764,12 +1771,13 @@ def create_app(
         app.get,
         "/api/agents",
         tags=["Agents"],
-        summary="List packs",
+        summary="List agents",
+        name="list_agents",
     )
     def list_packs() -> list[dict[str, Any]]:
         """Every agent this deployment serves: id, version, risk level, the labels of its
         main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
-        `local`, with `origin_label` to show; a community pack is not clinically reviewed and
+        `local`, with `origin_label` to show; a community agent is not clinically reviewed and
         never automates)."""
         return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
 
@@ -1777,12 +1785,13 @@ def create_app(
         app.get,
         "/api/agents/{namespace}/{name}",
         tags=["Agents"],
-        summary="Get a pack",
+        summary="Get an agent",
+        name="agent_detail",
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
-        """A pack's manifest, input and output JSON Schemas, active providers, benchmark,
+        """An agent's manifest, input and output JSON Schemas, active providers, benchmark,
         leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation of a complete
-        request, for which the dashboard builds a decision of this pack into a Da Vinci PAS
+        request, for which the dashboard builds a decision of this agent into a Da Vinci PAS
         request (`POST …/pas`, which also builds one that needs attention), or null when its
         main question has none."""
         pack_id = f"{namespace}/{name}"
@@ -1816,7 +1825,8 @@ def create_app(
         app.get,
         "/api/agents/{namespace}/{name}/datasets",
         tags=["Agents"],
-        summary="List a pack's datasets",
+        summary="List an agent's datasets",
+        name="agent_datasets",
     )
     def pack_datasets(namespace: str, name: str) -> list[dict[str, Any]]:
         """The datasets an evaluation can run on, with their size (e.g. to say what a run will
@@ -1830,9 +1840,10 @@ def create_app(
         "/api/agents/{namespace}/{name}/examples",
         tags=["Agents"],
         summary="Example inputs",
+        name="agent_examples",
     )
     def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
-        """Synthetic example inputs: the pack's own behaviour tests. Tests that do not load, or
+        """Synthetic example inputs: the agent's own behaviour tests. Tests that do not load, or
         hold a value JSON cannot (a date, binary, a lone surrogate), answer `422` naming why."""
         pack = pack_or_404(f"{namespace}/{name}")
         return [
@@ -1903,15 +1914,15 @@ def create_app(
         payload: JsonBody,
         shadow: bool = False,
     ) -> dict[str, Any]:
-        """Run the pack on one input (its `input_schema`; see `GET …/examples` for synthetic ones).
+        """Run the agent on one input (its `input_schema`; see `GET …/examples` for synthetic ones).
 
         Every decision is recorded in the audit trail and ends as `AUTO`, `HUMAN_REVIEW`,
-        `ABSTAIN` or `BLOCK`. **An input that fails the pack's schema is not an HTTP error:** it
+        `ABSTAIN` or `BLOCK`. **An input that fails the agent's schema is not an HTTP error:** it
         is a recorded decision with `outcome: BLOCK` and the reason in `reasons`, so check
         `outcome`, not only the status code.
 
         Pass `?shadow=true` or header `X-Mendari-Shadow: 1` to evaluate in shadow mode: automation
-        is held for clinician comparison while recording what the pack would have automated.
+        is held for clinician comparison while recording what the agent would have automated.
 
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
@@ -1948,7 +1959,7 @@ def create_app(
         shadow: bool = False,
     ) -> dict[str, Any]:
         """Decide from FHIR R4 resources: a Bundle, one resource, or a CDS Hooks prefetch object.
-        The pack's `fhir/mapping.yaml` maps them onto its input. Returns the decision and a FHIR
+        The agent's `fhir/mapping.yaml` maps them onto its input. Returns the decision and a FHIR
         `Task` for the work queue.
 
         Inputs first pass a structural R4 check in every mode: an unknown element or resource
@@ -1963,7 +1974,7 @@ def create_app(
         decision is ABSTAIN with the reason (`undecodable`, `not_fetched`). This route never reads
         a link, so a spec 0.3 reference the record does not hold is `not_fetched` too.
         `decision.data_coverage` says what the mapping looked for and found, as counts and the
-        pack's own codes."""
+        agent's own codes."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(
             payload, shadow=_is_shadow(request, shadow)
         )
@@ -1974,6 +1985,7 @@ def create_app(
         "/api/agents/{namespace}/{name}/validation-brief",
         tags=["Evaluation and monitoring"],
         summary="Executive validation & readiness brief",
+        name="agent_validation_brief",
     )
     def pack_validation_brief(
         request: Request,
@@ -1983,7 +1995,7 @@ def create_app(
         minutes_per_case: float = validation_brief.DEFAULT_MINUTES_PER_CASE,
         format: Literal["json", "markdown"] = "json",
     ) -> Any:
-        """Aggregate clinical and operational validation brief for a pack (zero PHI): readiness
+        """Aggregate clinical and operational validation brief for an agent (zero PHI): readiness
         gates, exact Clopper-Pearson confidence intervals, shadow-pilot status, reclaimable
         clinician hours, and clustered human-override patterns for closed-loop improvement."""
         pack = pack_or_404(f"{namespace}/{name}")
@@ -2034,10 +2046,10 @@ def create_app(
     @app.get(
         "/api/monitoring",
         tags=["Evaluation and monitoring"],
-        summary="Monitor a pack over time",
+        summary="Monitor an agent over time",
     )
-    def monitoring(pack_id: str, days: int = 30) -> dict[str, Any]:
-        """The served version of the pack over time for this organisation: weekly series, drift
+    def monitoring(pack_id: AgentId, days: int = 30) -> dict[str, Any]:
+        """The served version of the agent over time for this organisation: weekly series, drift
         and alerts, against its benchmark only when that measured this build with the providers
         and models that run here, under the same governance (`benchmark.comparable`;
         `benchmark.reason` otherwise). `days` is held to 14 to 180, in whole weeks."""
@@ -2061,8 +2073,8 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="List deployments",
     )
-    def deployments(pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Which pack version runs where, with which providers, since when (newest first). In
+    def deployments(pack_id: AgentFilter = None, limit: int = 50) -> list[dict[str, Any]]:
+        """Which agent version runs where, with which providers, since when (newest first). In
         memberships mode the deployment's records are the operator's: `404` (ADR-0008)."""
         if auth.memberships:
             raise HTTPException(404, "the deployment's records are its operator's")
@@ -2075,8 +2087,8 @@ def create_app(
         tags=["Governance"],
         summary="List automation approvals",
     )
-    def governance(pack_id: str | None = None) -> dict[str, Any]:
-        """Approvals for this organization, and what a pack's risk level allows."""
+    def governance(pack_id: AgentFilter = None) -> dict[str, Any]:
+        """Approvals for this organization, and what an agent's risk level allows."""
         found = store.approvals(pack_id)
         if pack_id is None:
             return {"approvals": found}
@@ -2099,9 +2111,9 @@ def create_app(
         summary="Approve automation",
     )
     def approve(request: Request, body: ApprovalRequest) -> dict[str, Any]:
-        """Record an organization's approval for a risk level 2 or 3 pack to automate (ADR-0002): a
+        """Record an organization's approval for a risk level 2 or 3 agent to automate (ADR-0002): a
         reference (e.g. committee minutes) and how long it lasts. It applies to exactly this
-        pack version (its digest)."""
+        agent version (its digest)."""
         pack = pack_or_404(body.pack_id)
         approver = acting_as(request, body.approver, "approver")
         principal = principal_of(request)
@@ -2131,7 +2143,7 @@ def create_app(
         summary="Revoke an approval",
     )
     def revoke(request: Request, approval_id: str) -> Response:
-        """Revoke an approval; the pack's automation falls back to its risk-level cap."""
+        """Revoke an approval; the agent's automation falls back to its risk-level cap."""
         if not store.revoke_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
         log_event(request, "governance.revoked", ids=[approval_id])
@@ -2140,11 +2152,11 @@ def create_app(
     @app.get(
         "/api/registry-approvals",
         tags=["Governance"],
-        summary="List approvals of packs from a registry",
+        summary="List approvals of agents from a registry",
     )
-    def registry_approvals(pack_id: str | None = None) -> dict[str, Any]:
-        """A pack pulled from a registry never automates until your organization approves its
-        exact digest, at every risk level (a risk level 2 or 3 pack needs its governance
+    def registry_approvals(pack_id: AgentFilter = None) -> dict[str, Any]:
+        """An agent pulled from a registry never automates until your organization approves its
+        exact digest, at every risk level (a risk level 2 or 3 agent needs its governance
         approval too). Your organization's approvals, and for `pack_id` where it came from."""
         found = store.registry_approvals(pack_id)
         if pack_id is None:
@@ -2164,16 +2176,17 @@ def create_app(
         "/api/registry-approvals",
         status_code=201,
         tags=["Governance"],
-        summary="Approve a pack from a registry",
+        summary="Approve an agent from a registry",
+        name="approve_registry_agent",
     )
     def approve_registry_pack(request: Request, body: RegistryApprovalRequest) -> dict[str, Any]:
-        """Record that your organization approves exactly this pulled pack (its digest) to
+        """Record that your organization approves exactly this pulled agent (its digest) to
         automate under its policy: chained `registry_pack.approved`. It applies to the digest
         served now, a reference (e.g. the review's minutes) names why, and it lasts until
         revoked. It never lifts a recall, a hold or a risk level's cap."""
         pack = pack_or_404(body.pack_id)
         if pack.origin != "hub":
-            raise HTTPException(422, "only a pack pulled from a registry needs this approval")
+            raise HTTPException(422, "only an agent pulled from a registry needs this approval")
         if body.pack_digest != pack.digest:
             raise HTTPException(422, "pack_digest is not the digest this deployment serves")
         approver = acting_as(request, body.approver, "approver")
@@ -2191,10 +2204,11 @@ def create_app(
         "/api/registry-approvals/{approval_id}",
         status_code=204,
         tags=["Governance"],
-        summary="Revoke an approval of a pack from a registry",
+        summary="Revoke an approval of an agent from a registry",
+        name="revoke_registry_agent",
     )
     def revoke_registry_pack(request: Request, approval_id: str) -> Response:
-        """Revoke it: the pulled pack stops automating at once."""
+        """Revoke it: the pulled agent stops automating at once."""
         if not store.revoke_registry_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
         log_event(request, "registry_pack.revoked", ids=[approval_id])
@@ -2218,7 +2232,7 @@ def create_app(
         summary="Hold automation",
     )
     def hold_automation(request: Request, body: HoldRequest) -> dict[str, Any]:
-        """Stop automation for your organization: every pack, one pack (`pack_id`), or one
+        """Stop automation for your organization: every agent, one agent (`pack_id`), or one
         version of it (`pack_digest`). Decisions still run and are recorded; any that would be
         `AUTO` goes to a person instead, with the same recommendation and priority. Chained as
         `automation.held`; it lasts until lifted (`DELETE /api/holds/{id}`)."""
@@ -2227,7 +2241,7 @@ def create_app(
             if body.pack_digest is not None and body.pack_digest != served.digest:
                 raise HTTPException(422, "pack_digest is not the digest this deployment serves")
         elif body.pack_digest is not None:
-            raise HTTPException(422, "a hold on a digest names its pack")
+            raise HTTPException(422, "a hold on a digest names its agent")
         principal = auth.acting(request)
         try:
             hold = store.hold_automation(
@@ -2268,9 +2282,9 @@ def create_app(
         summary="Run an evaluation",
     )
     def run_eval(namespace: str, name: str, request: EvalRequest, http: Request) -> dict[str, Any]:
-        """Evaluate the pack (or another provider configuration) on one of its datasets, and compare
-        with the published benchmark (a pack from a registry: `comparison` says it is not
-        compared with the benchmark it carries). Calls to remote providers are capped at 200
+        """Evaluate the agent (or another provider configuration) on one of its datasets, and
+        compare with the published benchmark (an agent from a registry: `comparison` says it is
+        not compared with the benchmark it carries). Calls to remote providers are capped at 200
         cases."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
@@ -2288,7 +2302,7 @@ def create_app(
             )
             if refused:
                 raise MendariError(
-                    f"{pack.id} is a community pack: it runs a remote variant only where the "
+                    f"{pack.id} is a community agent: it runs a remote variant only where the "
                     f"deployment names it in its settings ({pack.id}:slot=variant), not "
                     f"{', '.join(refused)}"
                 )
@@ -2329,7 +2343,7 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="List evaluation reports",
     )
-    def list_evals(pack_id: str | None = None) -> list[dict[str, Any]]:
+    def list_evals(pack_id: AgentFilter = None) -> list[dict[str, Any]]:
         """Saved evaluation reports, newest first, each with its figures (`figures`)."""
         return [_with_figures(report) for report in store.reports(pack_id)]
 
@@ -2338,10 +2352,10 @@ def create_app(
     @app.get(
         "/api/review/summary",
         tags=["Review and feedback"],
-        summary="Pending review counts by pack",
+        summary="Pending review counts by agent",
     )
     def review_summary() -> list[dict[str, Any]]:
-        """Pending and urgent review counts across every pack in this organization (aggregate
+        """Pending and urgent review counts across every agent in this organization (aggregate
         counts only, no inputs or PHI)."""
         return store.pending_by_pack()
 
@@ -2351,7 +2365,7 @@ def create_app(
         summary="The review queue",
     )
     def review_queue(
-        request: Request, pack_id: str | None = None, limit: int = 100
+        request: Request, pack_id: AgentFilter = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
         limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
@@ -2381,7 +2395,7 @@ def create_app(
         summary="List decisions",
     )
     def audit_log(
-        pack_id: str | None = None,
+        pack_id: AgentFilter = None,
         outcome: str | None = None,
         review_status: str | None = None,
         limit: int = 50,
@@ -2463,7 +2477,7 @@ def create_app(
     )
     def export_audit_fhir(
         request: Request,
-        pack_id: str | None = None,
+        pack_id: AgentFilter = None,
         since: str | None = None,
         until: str | None = None,
     ) -> StreamingResponse:
@@ -2595,7 +2609,7 @@ def create_app(
         (`input.read`).
 
         The record keeps no value of the input outside PHI mode `off`: under `hash` (or for a
-        pack that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
+        agent that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
         evidence is sealed with the input and comes back with it. An input issue names its
         resource by type and position (`Patient (entry 2)`), never by its id."""
         record = store.get(decision_id, reader=input_reader(request))
@@ -2722,7 +2736,7 @@ def create_app(
         """The scheduled monitor (LP-21f): first the alerts still pending sent again
         (`retry_due`, for MONITOR_RETRY_SECONDS at most), then each organization with a
         decision in the last 30 days, on its own, but the status organization
-        (`MENDARI_STATUS_ORG`): every served pack's report (`evals/monitoring.py`), and one
+        (`MENDARI_STATUS_ORG`): every served agent's report (`evals/monitoring.py`), and one
         alert for the organization when any report alerts, recorded. The organizations are
         taken in order from a different one each day, and none is started once
         MONITOR_SECONDS have passed (the function's limit is 300 s): the ones left are counted,
@@ -2836,7 +2850,7 @@ def create_app(
     )
     def list_feedback(
         request: Request,
-        pack_id: str | None = None,
+        pack_id: AgentFilter = None,
         rating: Literal["up", "down"] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
@@ -2863,12 +2877,12 @@ def create_app(
         source: Literal["ratings", "reviews", "overrides"] = "ratings",
         rating: Literal["up", "down"] | None = None,
     ) -> Response:
-        """What people said about a pack's decisions, as JSONL for evaluation, the newest 1,000:
+        """What people said about an agent's decisions, as JSONL for evaluation, the newest 1,000:
         rated decisions (`source=ratings`, thumbs `rating`, down unless given), decisions a
         reviewer resolved or an outcome was recorded for (`source=reviews`), or only cases where
-        a clinician overrode the pack (`source=overrides`). `x-mendari-skipped` counts the ones
+        a clinician overrode the agent (`source=overrides`). `x-mendari-skipped` counts the ones
         stored without their input. Each record says it was exported (`attributes.exported_by`):
-        a site's cases, which no pack archive holds."""
+        a site's cases, which no agent archive holds."""
         pack = pack_or_404(f"{namespace}/{name}")
         if source in ("reviews", "overrides"):
             if rating is not None:
@@ -2907,7 +2921,7 @@ def create_app(
         tags=["Audit"],
         summary="Decision statistics",
     )
-    def stats(pack_id: str | None = None) -> dict[str, Any]:
+    def stats(pack_id: AgentFilter = None) -> dict[str, Any]:
         """Counts by outcome, the review backlog, override rate, latency and cost; and the
         overview's periods (`periods`: the last 7 and 30 days and all time, each with the one
         before), their shares of cases as figures."""
@@ -2928,7 +2942,7 @@ def create_app(
         summary="CDS Hooks discovery",
     )
     def cds_discovery() -> dict[str, Any]:
-        """The CDS Hooks services this deployment offers (one per pack that declares a hook).
+        """The CDS Hooks services this deployment offers (one per agent that declares a hook).
         With sign-in on, a key or token scoped to deciding reads it, and so does a registered CDS
         client's own signed token (`MENDARI_CDS_CLIENTS`), whose `aud` is this URL."""
         return cds_hooks.discovery(served_here().values())
@@ -2940,7 +2954,7 @@ def create_app(
     )
     def cds_invoke(service_id: str, request: JsonBody, http: Request) -> dict[str, Any]:
         """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons.
-        An order hook decides each draft order the pack is about, at most 50 a request: each
+        An order hook decides each draft order the agent is about, at most 50 a request: each
         counts as one decision against the rate limit and the principal's daily cap. A
         registered CDS client calls with its own signed token (RS384 or ES384, `aud` this
         service's URL, a `jti` used once); the `fhirServer` it sends must be one it registered,
@@ -2952,12 +2966,12 @@ def create_app(
         read, an OperationOutcome, a value that is not a resource, a resource or search page
         that is not R4), the hook still answers `200`: the decision is ABSTAIN with the key and a
         fixed reason, it is recorded with its `data_coverage` record, and its card says so. A spec
-        0.3 pack also reads, from that `fhirServer` only and under its base, what a link the
+        0.3 agent also reads, from that `fhirServer` only and under its base, what a link the
         record does not hold points to (a note's Binary, a followed reference): at most 50 notes
         and 50 followed references a decision and 100 reads a request, inside the decision's
         deadline, each read once a request; a link it does not read abstains the same way. A
         prefetch key of a type the site declared that `fhirServer` does not offer
-        (`MENDARI_EHR_DECLARATIONS`) is not read for a pack that may read its list without it:
+        (`MENDARI_EHR_DECLARATIONS`) is not read for an agent that may read its list without it:
         the decision records the declaration, and never automates."""
         pack = next(
             (
@@ -3040,7 +3054,7 @@ def create_app(
         the suggestion taken or overridden, with one of the reasons the card offered or none,
         and when. Each is chained on the card's decision as `card.feedback`, codes and ids only:
         `userComment` is never kept. All or nothing: a suggestion or reason the card did not
-        offer is a `422`; a card that is not a decision of this service's pack in your
+        offer is a `422`; a card that is not a decision of this service's agent in your
         organization, or, with sign-in on (and for a CDS client's token), not one you asked
         for, is one `404` for them all, and nothing is recorded. Not counted against the daily
         cap: it decides nothing."""
@@ -3136,7 +3150,7 @@ def create_app(
         summary="Da Vinci DTR $questionnaire-package",
     )
     def questionnaire_package(payload: JsonBody) -> JSONResponse:
-        """Da Vinci DTR: the documentation the payer asks for, for orders a pack decided (found by
+        """Da Vinci DTR: the documentation the payer asks for, for orders an agent decided (found by
         CRD's assertion id), pre-answered from the decision, and the questionnaires asked for,
         each version once (`standards/davinci.py`). A questionnaire not found here, or an order
         or a `context` that names no decision of yours, is a warning in `outcome`; orders or a
@@ -3165,7 +3179,7 @@ def create_app(
         """Mendari's FHIR operation (system level, POST only): `Parameters` in (`pack`, `version`,
         `data` as a Bundle, `focus`), a `collection` Bundle out. Its first entry, a
         `GuidanceResponse`, is the decision; act on `outputParameters.outcome`, never on
-        `status`. Then a RequestGroup and the Task (under BLOCK and ABSTAIN, the pack's fallback),
+        `status`. Then a RequestGroup and the Task (under BLOCK and ABSTAIN, the agent's fallback),
         the answers as Parameters, an OperationOutcome when there are findings, and the audit
         trail's Provenance. The definition: `/fhir/OperationDefinition/decide`. Errors are
         OperationOutcomes."""
@@ -3220,9 +3234,9 @@ def create_app(
         summary="Read a Mendari CodeSystem",
     )
     def fhir_code_system(resource_id: str) -> JSONResponse:
-        """One of the CodeSystems Mendari's FHIR uses (decision outcomes, audit events, packs,
-        work queues, each pack's question labels), generated from the code and the served
-        packs. Its canonical `url` is on mendari.co; each deployment serves its own copy."""
+        """One of the CodeSystems Mendari's FHIR uses (decision outcomes, audit events, agents,
+        work queues, each agent's question labels), generated from the code and the served
+        agents. Its canonical `url` is on mendari.co; each deployment serves its own copy."""
         return conformance(terms.get("CodeSystem", resource_id))
 
     @app.get(
@@ -3231,7 +3245,7 @@ def create_app(
         summary="Read a Mendari NamingSystem",
     )
     def fhir_naming_system(resource_id: str) -> JSONResponse:
-        """One of the identifier systems Mendari's FHIR uses (decision ids, input hashes, pack
+        """One of the identifier systems Mendari's FHIR uses (decision ids, input hashes, agent
         versions)."""
         return conformance(terms.get("NamingSystem", resource_id))
 
@@ -3864,7 +3878,7 @@ def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
     @app.get("/api/evalsets", tags=["Evaluation sets"], summary="Your organization's hidden sets")
     def list_evalsets(request: Request) -> list[EvalsetListed]:
         """The hidden evaluation sets of the organization you act for, oldest first: each one's
-        id, name, pack, state, when it was made and how many cases it holds. Nothing is
+        id, name, agent, state, when it was made and how many cases it holds. Nothing is
         recorded."""
         org = curators_org(request)
         return [EvalsetListed.model_validate(item) for item in hidden.named_sets(org=org)]
@@ -3877,7 +3891,7 @@ def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:
         response_model_exclude_unset=True,
     )
     def evalset_detail(request: Request, set_id: str) -> EvalsetDetail:
-        """One of your organization's sets: its name, pack and questions with their labels; its
+        """One of your organization's sets: its name, agent and questions with their labels; its
         state, commitment (once frozen) and grading runs used and left; its cases counted by
         status and each labeller's assignments by user id; and its coverage and rater agreement
         as last stored (by the key holder's `mendari evalset agreement` or `coverage`, or at
@@ -4026,18 +4040,18 @@ def add_grading_routes(
     @app.post(
         "/api/evalsets/{set_id}/runs",
         tags=["Grading"],
-        summary="Grade a pack against a hidden set: aggregates only",
+        summary="Grade an agent against a hidden set: aggregates only",
         response_model=HiddenResult | HiddenScoreboard,
         responses={
             404: {"description": "No set of your organization has that id"},
             409: {"description": "The set is not graded now (`reason` says why)"},
-            422: {"description": "The pack or a variant asked for is not the set's to run"},
+            422: {"description": "The agent or a variant asked for is not the set's to run"},
         },
     )
     def grade_evalset(
         request: Request, set_id: str, body: GradingRequest
     ) -> HiddenResult | HiddenScoreboard:
-        """One grading run of the pack a hidden evaluation set of your organization was made
+        """One grading run of the agent a hidden evaluation set of your organization was made
         for, over the set's cases, with local providers only, answered with aggregates only:
         each question's metrics, the outcome counts and rates, each critical label's counts, the
         threshold sweep and error counts, with the set's id and commitment, how many cases were
@@ -4046,7 +4060,7 @@ def add_grading_routes(
         The set is frozen or active (a frozen set becomes active on its first run), its rotation
         rule allows another run, and its cases still give the commitment chained when it froze;
         each run is chained (`evalset.graded`) before the cases are read, and counts even if it
-        fails. `pack` is the set's pack id, and `variants` may choose a local variant for any of
+        fails. `pack` is the set's agent id, and `variants` may choose a local variant for any of
         its slots. With `arms` and `declared` instead, the run is the hidden-set scoreboard
         (`mendari.hidden_scoreboard/1`, LP-17k): each arm declared with its configuration, every
         one local, decided in turn on the same cases in one run; each arm's figures (every

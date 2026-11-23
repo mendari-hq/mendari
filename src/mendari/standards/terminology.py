@@ -84,12 +84,12 @@ OUTCOMES: dict[Outcome, tuple[str, str]] = {
     Outcome.ABSTAIN: (
         "Abstain",
         "No recommendation: the existing manual workflow handles the case. Any proposed action "
-        "is the pack's fallback, never a recommended action.",
+        "is the agent's fallback, never a recommended action.",
     ),
     Outcome.BLOCK: (
         "Block",
         "The action must not happen: the input was invalid or a blocking policy rule matched. "
-        "Any proposed action is the pack's fallback, never the blocked action.",
+        "Any proposed action is the agent's fallback, never the blocked action.",
     ),
 }
 _ACTIONS = {"C": "create", "R": "read", "U": "update", "D": "delete", "E": "execute"}
@@ -136,8 +136,8 @@ NAMING_SYSTEMS = (
     (
         "decision-pack",
         PACK_ID_SYSTEM,
-        "Mendari Decision Pack version",
-        "A Decision Pack version (`namespace/name@version`) acting as the engine, in "
+        "Mendari agent version",
+        "An agent version (`namespace/name@version`) acting as the engine, in "
         "AuditEvent.agent and Provenance.agent. In Task.meta.tag the same value is a code of "
         f"{PACK_TAG_SYSTEM}.",
     ),
@@ -202,7 +202,7 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
     ids = [pack.id for pack in served]
     repeated = sorted({pack_id for pack_id in ids if ids.count(pack_id) > 1})
     if repeated:
-        raise MendariError(f"terminology for one version of each pack, not several of {repeated}")
+        raise MendariError(f"terminology for one version of each agent, not several of {repeated}")
     found = [
         _outcomes(),
         _audit_events(),
@@ -385,7 +385,7 @@ def _decision_packs(served: list[Pack]) -> dict[str, Any]:
         "decision-pack",
         "Mendari agent",
         "Agent versions (`namespace/name@version`), as Task.meta.tag. Lists the agents "
-        "this deployment serves; decisions made by other packs or versions keep their codes, so "
+        "this deployment serves; decisions made by other agents or versions keep their codes, so "
         "this is a fragment.",
         _served_version(served),
         [
@@ -406,8 +406,8 @@ def _performers(served: list[Pack]) -> Iterator[dict[str, Any]]:
         if len({adapter.pack.community for adapter in adapters}) > 1:
             shared = ", ".join(adapter.pack.id for adapter in adapters)
             raise MendariError(
-                f"the performer system {url} is used by a community pack and another pack "
-                f"({shared}); a community pack's systems are its own"
+                f"the performer system {url} is used by a community agent and another agent "
+                f"({shared}); a community agent's systems are its own"
             )
         community = adapters[0].pack.community
         concepts: dict[str, dict[str, str]] = {}
@@ -489,7 +489,7 @@ def _code_system(
     if community:
         title = f"{title} ({COMMUNITY_LABEL})"
         description = (
-            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this pack, and "
+            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this agent, and "
             "Mendari has not clinically reviewed it."
         )
     resource: dict[str, Any] = {

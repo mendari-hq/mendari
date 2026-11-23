@@ -101,7 +101,7 @@ def test_an_archive_signed_by_an_unregistered_key_is_refused(registry: Registry)
 
 def test_the_archive_must_be_the_pack_and_version_in_the_url(registry: Registry) -> None:
     refused = registry.publish(version="9.9.9")
-    assert refused.status_code == 422 and "not this pack and version" in refused.text
+    assert refused.status_code == 422 and "not this agent and version" in refused.text
 
 
 def test_verification_sets_the_publisher_type(registry: Registry) -> None:
@@ -232,7 +232,7 @@ def test_a_pack_that_fails_to_load_in_any_way_is_refused_not_a_server_error(
     monkeypatch.setattr(archive, "load_pack", load)
     refused = registry.publish()
     assert refused.status_code == 422, refused.text
-    assert "the pack does not load (RecursionError)" in refused.text
+    assert "the agent does not load (RecursionError)" in refused.text
     assert "text from the pack" not in refused.text
 
 
@@ -335,7 +335,7 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     monkeypatch.setattr(registry_module, "describe", describe)
     refused = registry.publish()
     assert refused.status_code == 422, refused.text
-    assert "the pack's metadata cannot be served (PydanticSerializationError)" in refused.text
+    assert "the agent's metadata cannot be served (PydanticSerializationError)" in refused.text
     monkeypatch.undo()
     assert registry.client.get("/v1/search").json() == []
     assert registry.publish().status_code == 201
@@ -373,7 +373,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     refused = registry.publish(owned)
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
-    assert reason.startswith("the pack does not load: ")
+    assert reason.startswith("the agent does not load: ")
     assert "providers.safety_screen.variants.dated: " in reason
     assert "providers.safety_screen.variants.listed: " in reason
     assert registry.client.get("/v1/search").json() == []
@@ -676,7 +676,7 @@ def test_a_publish_that_shadows_a_reference_pack_is_refused(
     refused = registry.publish(load_pack(root))
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
-    assert reason.startswith("the pack does not load: ")
+    assert reason.startswith("the agent does not load: ")
     assert f"{INBOX.id}@{INBOX.version} has the id and version of an agent this release" in reason
     assert "never takes a bundled agent's place" in reason and "remove" not in reason
     assert registry.client.get("/v1/search").json() == []

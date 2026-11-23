@@ -263,7 +263,7 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
     assert problem.startswith(
         f"{reference.id}@{reference.version} has the id and version of an agent this "
         f"release bundles ({reference.id}@{reference.version}) but other files (digest "
-        f"{pack_digest(root)[:23]}): a pack from a registry never takes a bundled agent's place"
+        f"{pack_digest(root)[:23]}): an agent from a registry never takes a bundled agent's place"
     )
     assert problem.endswith(f"; remove {root.resolve()} from the cache")
     # Checked where it is not cached (an archive being checked), it names no directory.
@@ -340,7 +340,7 @@ def test_a_registry_pack_reads_at_most_10000_characters(tmp_path: Path) -> None:
     result = Decision(hub).decide(given)
     assert result.outcome is Outcome.BLOCK
     assert result.reasons == (
-        "input rejected: notes: longer than 10,000 characters, the most a pack from a registry "
+        "input rejected: notes: longer than 10,000 characters, the most an agent from a registry "
         "reads",
     )
     maintained = Decision(load_pack(PACKS / "prior-auth-preflight", origin="maintained"))
@@ -380,9 +380,9 @@ def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
     values = {"message": {"body": "hi"}, "patient": {"tags": [0] * 11_000}}
     long = {"message": {"body": "x" * 10_000, "subject": "y"}}
     expected = {
-        "values": "(root): more than 10,000 values, the most a pack from a registry reads",
-        "depth": "(root): nested more than 32 deep, the most a pack from a registry reads",
-        "long": "the input's texts together: longer than 10,000 characters, the most a pack from "
+        "values": "(root): more than 10,000 values, the most an agent from a registry reads",
+        "depth": "(root): nested more than 32 deep, the most an agent from a registry reads",
+        "long": "the input's texts together: longer than 10,000 characters, the most an agent from "
         "a registry reads",
     }
     given = {"values": values, "depth": nested_input(33), "long": long}
@@ -493,7 +493,7 @@ def test_mendari_test_stops_a_registry_pack_at_the_budget(tmp_path: Path) -> Non
     failures = _run(Decision(slow), case).failures
     assert any("time_budget" in failure for failure in failures)
     assert any(
-        "ran out of the 1 s time budget a pack from a registry has in each decision" in failure
+        "ran out of the 1 s time budget an agent from a registry has in each decision" in failure
         for failure in failures
     )
 
@@ -510,7 +510,7 @@ def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path:
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert any(
-        "uniqueItems" in problem and "a community or registry pack's schema may not use" in problem
+        "uniqueItems" in problem and "a community or registry agent's schema may not use" in problem
         for problem in refused.value.problems
     )
     assert not load_pack(root, origin="local").bounded
@@ -522,8 +522,8 @@ def test_a_registry_packs_caps_are_checked_at_load(tmp_path: Path) -> None:
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert refused.value.problems == [
-        "logic/red_flags.yaml: negation_window is 300; a community or registry pack's is at most "
-        "200 characters (the shipped packs use 30 to 40)"
+        "logic/red_flags.yaml: negation_window is 300; a community or registry agent's is at most "
+        "200 characters (30 to 40 is usual)"
     ]
     assert not load_pack(root, origin="local").bounded
 
@@ -639,7 +639,7 @@ def test_mendari_test_runs_a_registry_pack_on_its_engine(tmp_path: Path) -> None
     root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
     hub = load_pack(root, origin="hub")
     assert any(
-        "its input is too large: more than 10,000 values, the most a pack from a registry reads"
+        "its input is too large: more than 10,000 values, the most an agent from a registry reads"
         in problem
         for problem in input_problems(hub)
     )

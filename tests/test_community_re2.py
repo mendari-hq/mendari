@@ -191,7 +191,7 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
     assert (
-        "RE2 (the engine community packs and packs from a registry run on) does not have: "
+        "RE2 (the engine community agents and agents from a registry run on) does not have: "
         in problem
     )
     root = community_pack(tmp_path / "schema", schema={"pattern": pattern})

@@ -1417,7 +1417,7 @@ def read_mapping(pack: Pack) -> FhirMapping:
     otherwise, and a `FhirError` for a pack that declares none."""
     relative = pack.manifest.inputs.fhir
     if relative is None:
-        raise FhirError(f"pack {pack.id} does not declare a FHIR mapping")
+        raise FhirError(f"agent {pack.id} does not declare a FHIR mapping")
     try:
         return FhirMapping.model_validate(pack.read_yaml(relative))
     except ValidationError as error:

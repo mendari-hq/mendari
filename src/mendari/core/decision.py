@@ -370,7 +370,7 @@ class Decision:
                 url, token = default_registry()
             except HubError:
                 raise PackNotFoundError(
-                    f"no pack {ref!r} here, and no registry to pull it from"
+                    f"no agent {ref!r} here, and no registry to pull it from"
                 ) from None
             with RegistryClient(url, token) as registry:
                 return cls(pull(ref, registry), **kwargs)
@@ -855,7 +855,7 @@ def _check_not_offered(
         if resources.get(key) is not None:
             raise ValueError(f"not_offered {key!r} holds a value")
         if kind not in allowed:
-            raise ValueError(f"not_offered {key!r}: {kind} may not be left out for this pack")
+            raise ValueError(f"not_offered {key!r}: {kind} may not be left out for this agent")
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)

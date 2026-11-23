@@ -103,8 +103,8 @@ RESOURCES: dict[str, tuple[str, str | None]] = {
         "versioned",
     ),
     "CodeSystem": (
-        "Mendari's CodeSystems (decision outcomes, audit events, packs, work queues, each served "
-        "pack's question labels), generated from the code and the served packs; the same for "
+        "Mendari's CodeSystems (decision outcomes, audit events, agents, work queues, each served "
+        "agent's question labels), generated from the code and the served agents; the same for "
         "every organization. Search order: by id.",
         None,
     ),
@@ -143,8 +143,8 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         "operation",
         name="decide",
         definition=f"{DECIDE_URL}|{__version__}",
-        documentation="Decide one case with an agent: Parameters (pack, version, data, "
-        "focus) in, a collection Bundle (GuidanceResponse, RequestGroup, Task, Parameters, "
+        documentation="Decide one case with an agent: Parameters (`pack`, `version`, `data`, "
+        "`focus`) in, a collection Bundle (GuidanceResponse, RequestGroup, Task, Parameters, "
         "OperationOutcome, Provenance) out. Every call is recorded in the audit trail.",
         serves=_takes_fhir,
     ),
@@ -155,11 +155,11 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         resource="Questionnaire",
         name="questionnaire-package",
         definition=DTR_QUESTIONNAIRE_PACKAGE,
-        documentation="Da Vinci DTR: the documentation a payer asks for an order a pack decided "
+        documentation="Da Vinci DTR: the documentation a payer asks for an order an agent decided "
         "(found by the CRD assertion id), pre-answered from the decision. Reads coverage, order, "
         "context and questionnaire, and returns the union of what they name, each questionnaire "
         "version once; ignores changedsince. A questionnaire not found (a version other than "
-        "the pack's too), or an order or a context that names no decision, is a warning in "
+        "the agent's too), or an order or a context that names no decision, is a warning in "
         "outcome; orders or a context that name no decision, with nothing to return, are a 422 "
         "OperationOutcome. DTR's other payer operations "
         "($next-question, $log-questionnaire-errors, ValueSet/$expand) are not implemented.",
@@ -231,7 +231,7 @@ def capability_statement(
             by_type.setdefault(capability.resource, []).append(capability)
     if by_type:
         rest["resource"] = [_resource(name, by_type[name]) for name in sorted(by_type)]
-    served = _packs_sentence(pack_refs, "Packs with FHIR input served here")
+    served = _packs_sentence(pack_refs, "Agents with FHIR input served here")
     system = [_operation(c, served) for c in offered if c.resource is None]
     if system:
         rest["operation"] = system
@@ -347,7 +347,7 @@ def _packs_sentence(packs: list[str] | None, lead: str) -> str:
     """The packs with FHIR input served here, or (None) where they are not public."""
     if packs is None:
         return (
-            f"{lead}: for signed-in callers, the packs GET /api/agents lists whose "
+            f"{lead}: for signed-in callers, the agents GET /api/agents lists whose "
             "GET /api/agents/{namespace}/{name} has manifest.inputs.fhir."
         )
     return f"{lead}: {', '.join(packs) or 'none'}."
@@ -363,7 +363,7 @@ def _narrative(packs: list[str] | None, offered: list[FhirCapability]) -> dict[s
         f"<p>Mendari {html.escape(__version__)}: FHIR R4 (JSON). Operations: "
         f"{html.escape(operations)}. Read: {html.escape(kinds('read'))}. Version read: "
         f"{html.escape(kinds('vread'))}. Search: {html.escape(kinds('search-type'))}. "
-        f"{html.escape(_packs_sentence(packs, 'Packs with FHIR input'))} Decisions are served as "
+        f"{html.escape(_packs_sentence(packs, 'Agents with FHIR input'))} Decisions are served as "
         "read-only Tasks with their audit trail; no clinical resources are stored or served."
         "</p>"
     )

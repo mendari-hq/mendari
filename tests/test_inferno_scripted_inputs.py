@@ -161,7 +161,7 @@ def test_smart_registers_the_open_engines_client_launch_url_and_redirect() -> No
     assert values["client_id"] == engine["MENDARI_SMART_CLIENT_ID"]
     # Inferno adds iss and launch to the launch URL and nothing else: the engine serves one pack.
     assert values["smart_launch_urls"] == f"{public}/smart/launch"
-    assert "," not in engine["MENDARI_PACKS"]
+    assert "," not in engine["MENDARI_AGENTS"]
     assert values["smart_redirect_uris"] == f"{public}/smart/callback"
     patient = json.loads(values["launch_context"])["patient"]
     served = json.loads(values["fhir_read_resources_bundle"])["entry"]

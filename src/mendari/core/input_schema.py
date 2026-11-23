@@ -89,13 +89,13 @@ def problems(schema: Any) -> list[str]:
         for key, value in node.items():
             here = f"{path}/{key}" if path else str(key)
             if key == "$dynamicAnchor":
-                found.append(f"input schema: {here}: not allowed in a pack input schema")
+                found.append(f"input schema: {here}: not allowed in an agent's input schema")
             elif key in _REFERENCES and isinstance(value, str):
                 if value.startswith("#"):
                     references.append((here, value))
                 else:
                     found.append(
-                        f"input schema: {here}: {value!r} is outside the schema (a pack input "
+                        f"input schema: {here}: {value!r} is outside the schema (an agent's input "
                         "schema may only refer to its own parts, '#...')"
                     )
             elif key == "$schema" and (path or value not in (DIALECT, f"{DIALECT}#")):
@@ -106,7 +106,8 @@ def problems(schema: Any) -> list[str]:
                 found.append(f"input schema: {here}: $id is a text")
             elif key == "format" and value == "regex":
                 found.append(
-                    f"input schema: {here}: format 'regex' is not allowed in a pack input schema"
+                    f"input schema: {here}: format 'regex' is not allowed in an agent's input "
+                    "schema"
                 )
             stack.append((here, value))
     if not found and isinstance(schema, dict):
@@ -451,7 +452,7 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
             if key in _UNBOUNDED
             else "not one of the keywords the guide lists"
         )
-        return f"a community or registry pack's schema may not use {key}, {why}: {instead}"
+        return f"a community or registry agent's schema may not use {key}, {why}: {instead}"
     if key == "$defs" and path:
         return "only the root may hold $defs"
     if key == "$ref" and not (

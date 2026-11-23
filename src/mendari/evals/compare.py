@@ -13,7 +13,7 @@ MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy t
 MIN_LABEL_SUPPORT = 10
 # Why an evaluation of a pack from a registry is not compared with the benchmark it carries.
 FROM_REGISTRY = (
-    "the pack is from a registry, and the benchmark it carries is its publisher's upload, "
+    "the agent is from a registry, and the benchmark it carries is its publisher's upload, "
     "never a reference"
 )
 
@@ -69,7 +69,7 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         and isinstance(baseline.get("pack"), dict)
         and isinstance(baseline.get("primary"), str)
     ):
-        return "the published benchmark does not say which pack, dataset and question it measured"
+        return "the published benchmark does not say which agent, dataset and question it measured"
     return None
 
 

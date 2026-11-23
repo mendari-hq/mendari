@@ -92,7 +92,7 @@ SUFFICIENT, INSUFFICIENT = "sufficient", grade.INSUFFICIENT
 MEASURED, NOT_MEASURED = "measured", "not measured"
 UNSIGNED = "unsigned"
 DRAFT = "method draft, not in effect"
-STALE_PACK = "stale: pack changed"
+STALE_PACK = "stale: agent changed"
 STALE_SET = "stale: set changed"
 STALE_METHOD = "stale: method changed"
 STALE_MODEL = "stale: another model reported"
@@ -411,7 +411,7 @@ def _refuse_pack(ledger: Ledger, pack: PackScope) -> None:
     """A ledger of another pack (id, version or digest), or a status line Mendari does not
     write."""
     if pack.status not in STATUSES:
-        raise MendariError("the pack's status line is not one Mendari writes")
+        raise MendariError("the agent's status line is not one Mendari writes")
     of = ledger.header["pack"]
     if (of.get("id"), of.get("version"), of.get("digest")) != (pack.id, pack.version, pack.digest):
         raise MendariError(

@@ -10,7 +10,7 @@ function stagesOf(record) {
   const rejected = reasons.some((r) => r.startsWith("input rejected:"));
   const shadow = reasons.some((r) => r.includes("shadow mode:") || r.includes("shadow pilot:"));
   const held = reasons.some((r) => r.startsWith("automation is on hold:"));
-  const riskCap = reasons.some((r) => r.includes("risk level") || r.includes("community pack") || r.includes("registry"));
+  const riskCap = reasons.some((r) => r.includes("risk level") || /community (?:agent|pack)/.test(r) || r.includes("registry"));
   const providerCap = reasons.some((r) => r.includes("automation requires"));
 
   // Stage 1: Input & schema gate

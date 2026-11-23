@@ -396,7 +396,7 @@ def _a_version(namespace: str, name: str, version: str) -> None:
     """A path that names a version as the registry names one: anything else is a version that
     does not exist (never a lookup, never an echo of what was sent)."""
     if not (_NAME.match(namespace) and _NAME.match(name) and _VERSION.match(version)):
-        raise HTTPException(404, "no such pack version")
+        raise HTTPException(404, "no such agent version")
 
 
 def add_registry_review_routes(
@@ -594,7 +594,7 @@ def add_registry_review_routes(
         request: Request, namespace: str, name: str, version: str, body: ReviewRequest
     ) -> dict[str, Any]:
         """Record the risk level your review of one version found (which may differ from the
-        one its publisher declared) and a short note about the pack: never case text. The
+        one its publisher declared) and a short note about the agent: never case text. The
         newest review of a version is the one shown. Chained `pack.reviewed` with your id."""
         principal = reviewer(request)
         _a_version(namespace, name, version)

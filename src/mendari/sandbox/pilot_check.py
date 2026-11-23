@@ -188,13 +188,13 @@ def run(
                 json={"pack_id": TRIAL, "reference": "AI committee minutes, pilot", "days": 90},
             ),
             201,
-            "the committee approves automation of a level 2 pack",
+            "the committee approves automation of a level 2 agent",
         )
         case = load_cases(resolve_pack(TRIAL))[0]["input"]
         trial = pilot.expect(
             pilot.call("POST", f"/api/agents/{TRIAL}/decide", worker, json=case),
             200,
-            "the worker decides with the approved pack",
+            "the worker decides with the approved agent",
         )
         if (trial.get("governance") or {}).get("approved_by") != email("governance"):
             raise MendariError("the decision does not carry the committee's approval")

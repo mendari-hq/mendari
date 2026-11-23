@@ -22,13 +22,13 @@ risk:
   level: 0
   category: administrative
   rationale: >-
-    The decision is which queue reads a message first. The pack never replies to patients or
+    The decision is which queue reads a message first. The agent never replies to patients or
     makes a clinical judgement, and a message that may describe same-day symptoms always goes to
     a nurse for review.
 
 card:
-  # What the pack's criteria, examples and data were built from: synthetic, de_identified or
-  # site_records. Every surface derives the pack's status line from it.
+  # What the agent's criteria, examples and data were built from: synthetic, de_identified or
+  # site_records. Every surface derives the agent's status line from it.
   provenance: synthetic
   intended_use: >-
     Route portal messages to the refill queue, the scheduling queue or the front desk, and
@@ -45,7 +45,7 @@ inputs:
   schema: schemas/input.schema.json
 
 questions:
-  # Criteria are written for people: they are the pack's documentation and a model's
+  # Criteria are written for people: they are the agent's documentation and a model's
   # instructions.
   request:
     instructions: What does the patient ask for?

@@ -112,7 +112,7 @@ class JobStore:
     ) -> tuple[Pack, dict[str, Any]]:
         """The pack a job evaluates, and how the job names it."""
         if (digest is None) == (pack is None):
-            raise StoreError("a job names a version (its digest) or a pack served here, not both")
+            raise StoreError("a job names a version (its digest) or an agent served here, not both")
         if digest is not None:
             row = self.packs.version(org, digest)
             if row["state"] in (HELD, WITHDRAWN):
@@ -120,7 +120,7 @@ class JobStore:
             return self.packs.load(org, digest), {"digest": digest}
         found = self.served().get(str(pack))
         if found is None:
-            raise StoreError("no such pack served here", 404)
+            raise StoreError("no such agent served here", 404)
         return found, {"pack": found.id, "digest": found.digest}
 
     def _dataset(self, org: str, pack: Pack, ref: Mapping[str, str]) -> Dataset:
@@ -156,7 +156,7 @@ class JobStore:
         data = self._dataset(org, target, dataset)
         problems = record_problems(target.manifest, data)
         if problems:
-            raise StoreError(f"the dataset does not fit the pack: {problems[0]}")
+            raise StoreError(f"the dataset does not fit the agent: {problems[0]}")
         slots = target.manifest.providers
         for slot, variant in (variants or {}).items():
             if slot not in slots or variant not in slots[slot].variants:
@@ -243,7 +243,7 @@ class JobStore:
         named = json.loads(row["target"])
         target, _ = self._target(org, *_named(named))
         if target.digest != named["digest"]:
-            raise StoreError("the pack this job runs is no longer the one it was created for")
+            raise StoreError("the agent this job runs is no longer the one it was created for")
         data = self._dataset(org, target, json.loads(row["dataset"]))
         if data.sha256 != row["dataset_sha256"]:
             raise StoreError("the job's dataset changed since it was created")

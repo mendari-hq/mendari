@@ -359,7 +359,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # method and path under it, before the reads below: a set's answer names its strata,
         # languages and labellers.
         ("*", r"^/api/evalsets(/|$)", "curate"),
-        # An organization's pack store (LP-20f; `MENDARI_PACK_STORE=on` in memberships mode, not
+        # An organization's pack store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
         # mounted otherwise): its authors' keys, managed by its administrators, and every other
         # route of the store its authors' (`pack_author`), people only. Before the reads below:
         # a draft is not served to anyone but its organization's authors.
@@ -838,9 +838,9 @@ def _roles_field(**default: Any) -> Any:
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
         description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
-        "packs in the organization's pack store: author only), labeller (labels hidden "
+        "agents in the organization's agent store: author only), labeller (labels hidden "
         "evaluation sets: label only) and "
-        "registry_reviewer (reviews the pack registry; given in its review organization only, "
+        "registry_reviewer (reviews the agent registry; given in its review organization only, "
         "a 422 in any other). Never grading.",
     )
 
@@ -1631,8 +1631,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         memberships mode, also `accounts: "memberships"` and, for a person, `memberships`: the
         organizations they hold a membership of (theirs only), each with its name and roles;
         `principal.org` is null while they act for none. `principal.registry_review_org` is
-        true for a person acting for the pack registry's review organization, and absent
-        otherwise. `store: true` when organizations' pack stores are served here (LP-20f), so
+        true for a person acting for the agent registry's review organization, and absent
+        otherwise. `store: true` when organizations' agent stores are served here (LP-20f), so
         the dashboard knows whether to show one; absent otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
@@ -1839,7 +1839,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         an administrator elsewhere never makes a reviewer (LP-19e)."""
         if org != auth.review_org and set(roles) & set(accounts.REVIEW_ORG_ONLY):
             raise AuthError(
-                f"{accounts.REGISTRY_REVIEWER!r} is given only in the pack registry's review "
+                f"{accounts.REGISTRY_REVIEWER!r} is given only in the agent registry's review "
                 "organization",
                 422,
             )
@@ -1959,7 +1959,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
         path on this site to put after its address), stored hashed. `grading` is never given,
-        `pack_author` grants `author` (the pack store) and `labeller` grants `label` only.
+        `pack_author` grants `author` (the agent store) and `labeller` grants `label` only.
         Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(

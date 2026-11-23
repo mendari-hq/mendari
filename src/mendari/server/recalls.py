@@ -147,7 +147,7 @@ class RecallWatch:
         self.stale_s = stale_s if stale_s is not None else _seconds(STALE_ENV, DEFAULT_STALE_S)
         if self.stale_s < 2 * self.check_s:
             raise MendariError(
-                f"{STALE_ENV} is at least twice {CHECK_ENV}: otherwise every pack from a registry "
+                f"{STALE_ENV} is at least twice {CHECK_ENV}: otherwise every agent from a registry "
                 "is held between two reads"
             )
         self._fetch, self._fetch_key = fetch, fetch_key
