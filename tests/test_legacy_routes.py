@@ -805,16 +805,17 @@ def test_the_mounted_registry_answers_the_same_at_both_paths(world: World) -> No
 
 
 def test_the_dashboard_and_the_client_ask_at_the_current_paths() -> None:
-    """Every caller in the repository moved: the dashboard's scripts, the API examples, the
-    registry client and the Hub ask at the current paths (a former path is for callers outside
-    the repository)."""
+    """Every caller in the repository moved: the dashboard's scripts, the API examples and the
+    registry client ask at the current paths (a former path is for callers outside the
+    repository, and for the Hub until the registry it reads is deployed with both)."""
     root = Path(__file__).resolve().parents[1]
     callers = [
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.js")),
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.html")),
         *sorted((root / "src" / "mendari" / "dashboard" / "snippets").glob("*")),
         root / "src" / "mendari" / "hub" / "client.py",
-        root / "hub" / "lib" / "registry.ts",
+        # The Hub (`hub/lib/registry.ts`) deploys apart from the registry, so it keeps the former
+        # paths for one release: it moves once every deployed registry answers the current ones.
         root / "deploy" / "status" / "checks.yaml",
         *sorted((root / "scripts").glob("*.py")),
         *sorted((root / ".github" / "workflows").glob("*.yml")),
