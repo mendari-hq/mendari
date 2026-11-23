@@ -167,12 +167,13 @@ export async function search(filters: SearchFilters): Promise<PackSummary[]> {
   return (await get<PackSummary[]>(`/v1/search?${params}`)) ?? [];
 }
 
+// The registry also answers at /v1/agents/...; the Hub moves to it once every deployed registry does.
 export const pack = (namespace: string, name: string) =>
-  get<PackDetail>(`/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+  get<PackDetail>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 
 export const packVersion = (namespace: string, name: string, version: string) =>
   get<PackVersion>(
-    `/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
   );
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
@@ -246,7 +247,7 @@ export type EvidenceGroup = {
 export type SiteEvidence = { format: string; pack: string; note: string; alpha: number; groups: EvidenceGroup[] };
 
 export const siteEvidence = (namespace: string, name: string) =>
-  get<SiteEvidence>(`/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);
+  get<SiteEvidence>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);
 
 // Publisher evaluations (mendari.publisher-evaluations/1, ADR-0020): the publisher's signed
 // evaluations of one version, one per configuration and public dataset. Every share is the
@@ -293,5 +294,5 @@ export type PublisherEvaluations = {
 // null: no such version, or a registry from before publisher evaluations (no such route).
 export const publisherEvaluations = (namespace: string, name: string, version: string) =>
   get<PublisherEvaluations>(
-    `/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/evaluations`,
+    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/evaluations`,
   );
