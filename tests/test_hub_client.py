@@ -460,7 +460,7 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert main(["pull", "site-a/inbox"]) == 0
     out = capsys.readouterr().out
     assert "verified and cached" in out
-    assert "runs on the engine for packs from a registry (RE2, a 1 s CPU budget" in out
+    assert "runs on the engine for agents from a registry (RE2, a 1 s CPU budget" in out
     assert main(["search", "--json", "--risk", "4"]) == 0
     assert json.loads(capsys.readouterr().out) == []
 

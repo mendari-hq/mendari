@@ -81,9 +81,9 @@ def test_the_cli_refuses_settings_that_cannot_apply(
     # Typed, a setting that applies to nothing in the pack is a mistake (LP-15)...
     assert main(["test", trial, "--provider", "router=jev"]) == 1
     err = capsys.readouterr().err
-    assert "provider setting router=jev: the pack has no slot 'router'" in err
+    assert "provider setting router=jev: the agent has no slot 'router'" in err
     assert main(["test", trial, "--provider", "other/pack:screen=llm"]) == 1
-    assert "names other/pack, not this pack" in capsys.readouterr().err
+    assert "names other/pack, not this agent" in capsys.readouterr().err
     # ...but MENDARI_PROVIDERS, a deployment's list for every pack, only warns.
     monkeypatch.setenv("MENDARI_PROVIDERS", "router=jev")
     assert main(["test", trial]) == 0

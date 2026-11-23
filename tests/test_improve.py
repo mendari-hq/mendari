@@ -624,7 +624,7 @@ def test_the_command_reports_and_writes_only_when_asked(
     assert main([*argv, "--write"]) == 0
     printed = capsys.readouterr().out
     assert f"wrote {MODEL}" in printed and f"wrote {TRAIN}" in printed
-    assert "bump the pack's version" in printed
+    assert "It is a changed agent: bump its version" in printed
     assert pack_digest(inbox) != SHIPPED
 
     assert main([*argv, "--write"]) == NOT_KEPT  # nothing new the second time: nothing kept

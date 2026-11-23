@@ -68,14 +68,14 @@ def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> d
 def _unused(pack: Pack, key: str, variant: str, slots: dict[str, set[str]]) -> str:
     target, sep, slot = key.rpartition(":")
     if sep and target != pack.id:
-        return f"provider setting {key}={variant} names {target}, not this pack"
+        return f"provider setting {key}={variant} names {target}, not this agent"
     if not sep and pack.community and slot in slots:
         return (
-            f"provider setting {key}={variant}: a community pack takes only settings that name "
+            f"provider setting {key}={variant}: a community agent takes only settings that name "
             f"it ({pack.id}:{slot}={variant})"
         )
     return (
-        f"provider setting {key}={variant}: the pack has no slot {slot!r} "
+        f"provider setting {key}={variant}: the agent has no slot {slot!r} "
         f"(its slots: {', '.join(sorted(slots))})"
     )
 
@@ -115,14 +115,14 @@ def cmd_list(args: argparse.Namespace) -> int:
         m = pack.manifest
         print(f"{m.id:<40} {m.version:<8} risk {int(m.risk.level)}  {m.name}")
     for root, problem in found.problems.items():
-        print(f"invalid pack at {root}:\n{problem}", file=sys.stderr)
+        print(f"invalid agent at {root}:\n{problem}", file=sys.stderr)
     # An owned pack whose provider configs `mendari validate` refuses still loads: said here.
     for pack in sorted(found.packs, key=lambda p: (p.id, p.root)):
         if pack.warnings:
             listed = "\n".join(f"  - {warning}" for warning in pack.warnings)
             print(f"warnings for {pack.ref} at {pack.root}:\n{listed}", file=sys.stderr)
     if not found.packs:
-        print("No packs found. Set MENDARI_PACKS_PATH or run from a checkout.", file=sys.stderr)
+        print("No agents found. Set MENDARI_AGENTS_PATH or run from a checkout.", file=sys.stderr)
     return 0
 
 
@@ -141,7 +141,7 @@ def cmd_test(args: argparse.Namespace) -> int:
     decision = _decision(args, origin_cap=False)  # the pack's own policy, as its tests say
     outcomes = run_pack_tests(decision)
     if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
-        where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in pack.yaml)"
+        where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in agent.yaml)"
         raise MendariError(
             f"{decision.pack.ref}: no behaviour tests to run: add cases to {where} (spec §10)"
         )
@@ -412,8 +412,8 @@ def cmd_improve(args: argparse.Namespace) -> int:
             raise MendariError(f"--with {Path(path).name}: no such file")
         if kept_in_the_pack(pack, path):
             raise MendariError(
-                f"--with {Path(path).name}: this file is in the pack's own folder, and every "
-                "file there goes into the pack's archive: keep the cases a run is given outside "
+                f"--with {Path(path).name}: this file is in the agent's own folder, and every "
+                "file there goes into the agent's archive: keep the cases a run is given outside "
                 "it (move the file out, do not copy it)"
             )
         given.append(load_dataset(path))
@@ -431,10 +431,10 @@ def cmd_improve(args: argparse.Namespace) -> int:
     for path in apply(pack, found):
         print(f"wrote {path.relative_to(pack.root)}", file=said)
     print(
-        "The pack now holds the cases it learned from, each marked as added by this command, "
+        "The agent now holds the cases it learned from, each marked as added by this command, "
         "and `mendari train` rebuilds this model from them. Keep it where those cases may be: "
-        "`mendari pack build` and `mendari push` refuse a pack that holds a site's cases.\n"
-        "It is a changed pack: bump the pack's version, run `mendari test` and "
+        "`mendari archive build` and `mendari push` refuse an agent that holds a site's cases.\n"
+        "It is a changed agent: bump its version, run `mendari test` and "
         "`mendari eval`, and have it approved wherever a digest is approved.",
         file=said,
     )
@@ -979,7 +979,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # reported (/api/health, the startup log).
     not_taken = app.state.provider_settings_not_taken
     if args.provider and not_taken:
-        raise MendariError(f"--provider settings no served pack takes: {', '.join(not_taken)}")
+        raise MendariError(f"--provider settings no served agent takes: {', '.join(not_taken)}")
     # No uvicorn access log: its line carries the query string (a sign-in callback's code and
     # state, a search's values). Mendari's own access line (server/security_log.py) replaces it.
     _run_server(
@@ -1222,7 +1222,7 @@ def cmd_automation_hold(args: argparse.Namespace) -> int:
     """The break-glass: written straight to the database, so it works with the server down.
     Running servers see it within a few seconds."""
     if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
-        raise MendariError("--digest is a pack digest (sha256:<64 hex>)")
+        raise MendariError("--digest is an agent's digest (sha256:<64 hex>)")
     store, shown = _hold_store(args.db, serving=True)
     if args.pack is not None:
         served = {d["pack_digest"] for d in store.deployments(args.pack, limit=1000)}
@@ -1485,7 +1485,7 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
     if args.administrative and args.pack:
-        print("--pack is for decisions' events, not --administrative ones", file=sys.stderr)
+        print("--agent is for decisions' events, not --administrative ones", file=sys.stderr)
         return 2
     bounds = {"since": args.since, "until": args.until}
     # An older database is exported as it is. With --org, a decision's events are read acting
@@ -1556,8 +1556,8 @@ MAX_EXPORTED = 100_000  # the most decisions one `feedback export` reads
 # Said with every export that wrote a record (`core/site_cases.py`).
 EXPORTED_CASES = (
     "These are a site's cases, and each record says so (`attributes.exported_by`): keep the "
-    "file outside the pack's folder, since `mendari pack build` and `mendari push` refuse a "
-    "pack that holds one."
+    "file outside the agent's folder, since `mendari archive build` and `mendari push` refuse "
+    "an agent that holds one."
 )
 
 
@@ -1861,7 +1861,7 @@ def cmd_omop_dataset(args: argparse.Namespace) -> int:
     if invalid:
         raise MendariError(
             f"{len(invalid)} record(s) don't fit {pack.id}'s input, e.g. {invalid[0]}: "
-            "OMOP gives record packs (conditions, labs, medications) their input"
+            "OMOP gives agents that read a record (conditions, labs, medications) their input"
         )
     _write_jsonl(Path(args.out), records)
     labelled = sum("labels" in r for r in records)
@@ -2501,7 +2501,7 @@ def cmd_site_ticket(args: argparse.Namespace) -> int:
         request = _read_json(args.request, "--request", shape=dict)
     else:
         if not (args.pack and args.dataset):
-            raise MendariError("name the pack and --dataset, or send a carried --request")
+            raise MendariError("name the agent and --dataset, or send a carried --request")
         pack = resolve_pack(args.pack)
         configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
         dataset = resolve_dataset(pack, args.dataset)
@@ -2769,7 +2769,7 @@ def cmd_login(args: argparse.Namespace) -> int:
 
     health = client.login(args.registry, args.token)
     access = "" if args.token else ", read-only"
-    print(f"logged in to {args.registry} ({health['packs']} packs{access})")
+    print(f"logged in to {args.registry} ({health['packs']} agents{access})")
     return 0
 
 
@@ -2810,7 +2810,9 @@ def cmd_pull(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     if pack.bounded:
-        print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
+        print(
+            "  runs on the engine for agents from a registry (RE2, a 1 s CPU budget per decision)"
+        )
     else:
         print("  runs on the maintained engine: a copy of an agent this release bundles")
     print(
@@ -2856,7 +2858,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}")
         print(f"    {item['summary'][:110]}")
     if not found:
-        print("no packs match")
+        print("no agents match")
     return 0
 
 
@@ -3527,7 +3529,7 @@ def cmd_evalset_show(args: argparse.Namespace) -> int:
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
-# Laid over TEMPLATE by `mendari new --agent`: an AI agent pack with an offline mock fixture.
+# Laid over TEMPLATE by `mendari new` otherwise: an AI agent with an offline mock fixture.
 AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = (
@@ -3539,11 +3541,11 @@ COMMUNITY_GUIDE = (
 
 
 def cmd_new(args: argparse.Namespace) -> int:
-    """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
-    With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
-    also passes `mendari community-check`, its benchmark and card written.
-    With `--agent`, an AI agent with an offline mock fixture that switches to a
-    live agent endpoint when `MENDARI_AGENT_URL` is set."""
+    """A new agent from the template: YAML only, and it validates, tests and evaluates as it is,
+    on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
+    is set. `--agent` asked for that when it was not the default, and is still read.
+    With `--community`, a community agent (`community-agents/<name>`, id `community/<name>`)
+    that also passes `mendari community-check`, its benchmark and card written."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
 
@@ -3557,12 +3559,12 @@ def cmd_new(args: argparse.Namespace) -> int:
         folder = target.resolve().name
         if not COMMUNITY_NAME.match(folder):
             raise MendariError(
-                f"a community pack's folder name is lowercase letters, digits and dashes, "
+                f"a community agent's folder name is lowercase letters, digits and dashes, "
                 f"not {folder!r}"
             )
         expected = f"{COMMUNITY_NAMESPACE}/{folder}"
         if pack_id not in (None, expected):
-            raise MendariError(f"a community pack in {folder}/ has the id {expected}")
+            raise MendariError(f"a community agent in {folder}/ has the id {expected}")
         pack_id = expected
     if pack_id is None:
         raise MendariError("--id is required: namespace/name, e.g. my-clinic/refill-router")
@@ -3580,12 +3582,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     def fill(text: str, values: dict[str, str]) -> str:
         return placeholder_re.sub(lambda match: values[match.group(0)], text)
 
-    if args.community:
-        templates = [TEMPLATE, COMMUNITY_TEMPLATE]
-    elif args.agent:
-        templates = [TEMPLATE, AGENT_TEMPLATE]
-    else:
-        templates = [TEMPLATE]
+    templates = [TEMPLATE, COMMUNITY_TEMPLATE if args.community else AGENT_TEMPLATE]
     for template in templates:
         for source in sorted(template.rglob("*")):
             if not source.is_file():
@@ -3605,20 +3602,15 @@ def cmd_new(args: argparse.Namespace) -> int:
             f"mendari eval {target} --dataset examples --baseline none --out {benchmark}",
             f"mendari card {target} --write",
             f"add {{id: {pack_id}, maintainers: [your-github-name]}} to "
-            "community-packs/MAINTAINERS.yaml",
+            "community-agents/MAINTAINERS.yaml",
             f"mendari community-check {target} --base origin/main",
         ]
-    elif args.agent:
+    else:
         steps += [
             f"mendari eval {target} --dataset examples",
             f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
             "--dataset examples",
             f"mendari eval {target} --dataset examples --provider reader=rules",
-        ]
-    else:
-        steps += [
-            f"mendari eval {target} --dataset examples",
-            f"mendari card {target} --write",
         ]
     for step in steps:
         print(f"  {step}")
@@ -3739,11 +3731,15 @@ class UsageError(MendariError):
 
 class _Parser(argparse.ArgumentParser):
     """Every parser and subparser of `mendari` (add_subparsers makes its subparsers of this
-    class): a usage error is one line and exit 1, like any other error (LP-15), and every
-    command takes `--debug`."""
+    class): a usage error is one line and exit 1, like any other error (LP-15), every command
+    takes `--debug`, and a command or an option is still read under the name it had before."""
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        # The name one of this parser's commands or options had -> the name it has now. The old
+        # name is read as the new one when typed whole (never abbreviated), and argparse never
+        # learns it: no usage, help or error names it.
+        self.renamed: dict[str, str] = {}
         self.add_argument(
             "--debug",
             action="store_true",
@@ -3753,6 +3749,35 @@ class _Parser(argparse.ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         raise UsageError(f"{self.prog}: {message} (see {self.prog} --help)")
+
+    def _parse_optional(self, arg_string: str) -> Any:
+        """An option typed under the name it had (`--pack x`, `--pack=x`) is the one it is now."""
+        name, equals, value = arg_string.partition("=")
+        return super()._parse_optional(self.renamed.get(name, name) + equals + value)
+
+    def _get_values(self, action: argparse.Action, arg_strings: list[str]) -> Any:
+        """A command typed under the name it had (`mendari pack build`) is the one it is now."""
+        if action.nargs == argparse.PARSER and arg_strings:
+            arg_strings = [self.renamed.get(arg_strings[0], arg_strings[0]), *arg_strings[1:]]
+        return super()._get_values(action, arg_strings)
+
+
+def _agent_argument(
+    command: argparse.ArgumentParser,
+    about: str = "agent id (namespace/name[@version]) or directory",
+    **kwargs: Any,
+) -> None:
+    """The agent a command takes, shown as `agent`; the commands read it as `args.pack`."""
+    command.add_argument("pack", metavar="agent", help=about, **kwargs)
+
+
+def _agent_option(command: _Parser, **kwargs: Any) -> None:
+    """`--agent`, the agent a command is about; the commands read it as `args.pack`. `--pack`,
+    the name it had, is still read (`_Parser.renamed`)."""
+    if "choices" not in kwargs:  # with choices, the usage lists them
+        kwargs.setdefault("metavar", "AGENT")
+    command.renamed["--pack"] = "--agent"
+    command.add_argument("--agent", dest="pack", **kwargs)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3764,7 +3789,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def pack_command(name: str, handler: Any, help_text: str, providers: bool = False) -> Any:
         command = sub.add_parser(name, help=help_text)
-        command.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+        _agent_argument(command)
         if providers:
             command.add_argument(
                 "--provider",
@@ -3775,9 +3800,11 @@ def build_parser() -> argparse.ArgumentParser:
         command.set_defaults(handler=handler)
         return command
 
-    sub.add_parser("list", help="list packs on the search path").set_defaults(handler=cmd_list)
-    pack_command("validate", cmd_validate, "validate a pack and build every provider variant")
-    pack_command("test", cmd_test, "run the pack's behaviour tests", providers=True)
+    sub.add_parser("list", help="list the agents this machine serves").set_defaults(
+        handler=cmd_list
+    )
+    pack_command("validate", cmd_validate, "validate an agent and build every provider variant")
+    pack_command("test", cmd_test, "run the agent's behaviour tests", providers=True)
 
     decide = pack_command("decide", cmd_decide, "run one decision", providers=True)
     decide.add_argument("--input", help="JSON input file ('-' for stdin)")
@@ -3786,11 +3813,13 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--db", help="record the decision in this audit database")
 
     evaluate = pack_command("eval", cmd_eval, "evaluate on a labelled dataset", providers=True)
-    evaluate.add_argument("--dataset", required=True, help="pack dataset name or JSONL path")
+    evaluate.add_argument(
+        "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
+    )
     evaluate.add_argument(
         "--baseline",
         default="auto",
-        help="'auto' (the pack's benchmark, never one a pack from a registry carries), 'none', "
+        help="'auto' (the agent's benchmark, never one an agent from a registry carries), 'none', "
         "or a report JSON path",
     )
     evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
@@ -3846,19 +3875,21 @@ def build_parser() -> argparse.ArgumentParser:
     data_coverage = data.add_parser(
         "coverage", help="what a labelled set covers: distinct cases, positives and mix"
     )
-    data_coverage.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
-    data_coverage.add_argument("--dataset", required=True, help="pack dataset name or JSONL path")
+    _agent_argument(data_coverage)
+    data_coverage.add_argument(
+        "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
+    )
     data_coverage.add_argument("--json", action="store_true", help="print the JSON report")
     data_coverage.add_argument(
         "--ids", action="store_true", help="also list the ids of duplicate cases"
     )
     data_coverage.set_defaults(handler=cmd_data_coverage)
     data_check = data.add_parser(
-        "check", help="a dataset against its pack: schema, labels, duplicates, training overlap"
+        "check", help="a dataset against its agent: schema, labels, duplicates, training overlap"
     )
-    data_check.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    _agent_argument(data_check)
     data_check.add_argument(
-        "file", nargs="?", help="a JSONL file (default: every dataset the pack declares)"
+        "file", nargs="?", help="a JSONL file (default: every dataset the agent declares)"
     )
     data_check.add_argument("--json", action="store_true", help="print the JSON reports")
     data_check.add_argument(
@@ -3868,7 +3899,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     data_check.set_defaults(handler=cmd_data_check)
 
-    train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")
+    train = pack_command("train", cmd_train, "train the agent's naive_bayes variants")
     train.add_argument("--slot", help="only this provider slot")
     train.add_argument("--train", default="train", help="training dataset (default: train)")
     train.add_argument("--calibration", default="calibration", help="calibration dataset")
@@ -3891,7 +3922,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="CASES",
         help="a JSONL file of labelled cases, such as `feedback export --source reviews` "
-        "writes, kept outside the pack's folder (repeatable)",
+        "writes, kept outside the agent's folder (repeatable)",
     )
     better.add_argument("--slot", help="the classifier's slot, when several slots have one")
     better.add_argument("--train", default="train", help="training dataset (default: train)")
@@ -3900,7 +3931,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--write",
         action="store_true",
         help="keep a better candidate: write its model, and the cases it learned from into "
-        "the pack's training and calibration datasets (default: report only)",
+        "the agent's training and calibration datasets (default: report only)",
     )
     better.add_argument("--out", help="write the JSON report here")
     better.add_argument("--json", action="store_true", help="print the JSON report")
@@ -3923,7 +3954,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset",
         action="append",
         default=[],
-        help="dataset name or file (repeat; default: the pack's tests and every dataset)",
+        help="dataset name or file (repeat; default: the agent's tests and every dataset)",
     )
     agree.add_argument("--json", action="store_true", help="the full report")
 
@@ -3932,7 +3963,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     paired_runs.add_argument("a", help="run A: a ledger (.jsonl) or a report with its ledger")
     paired_runs.add_argument("b", help="run B, on the same dataset")
-    paired_runs.add_argument("--dataset", required=True, help="pack dataset name or JSONL path")
+    paired_runs.add_argument(
+        "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
+    )
     paired_runs.add_argument("--seed", type=int, default=0, help="bootstrap seed (default 0)")
     paired_runs.add_argument("--resamples", type=int, default=2000, help="bootstrap resamples")
     paired_runs.add_argument("--alpha", type=float, default=0.05, help="level (default 0.05)")
@@ -3960,20 +3993,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="add an existing evaluation report, e.g. one from a deployment (repeat)",
     )
-    board.add_argument("--out", help="leaderboard file (default: <pack>/evals/leaderboard.json)")
+    board.add_argument("--out", help="leaderboard file (default: <agent>/evals/leaderboard.json)")
     board.add_argument("--fresh", action="store_true", help="replace instead of merging")
 
     scoreboard = sub.add_parser(
         "scoreboard",
-        help="the scoreboard: a pack's configurations by arm; signing and verifying results; "
+        help="the scoreboard: an agent's configurations by arm; signing and verifying results; "
         "running and storing them",
     ).add_subparsers(dest="scoreboard_command", required=True)
     scoreboard_arms = scoreboard.add_parser(
         "arms",
-        help="a pack's provider configurations by arm: Mendari only, + specialised classifier, "
+        help="an agent's provider configurations by arm: Mendari only, + specialised classifier, "
         "+ general LLM, + both (from its manifest; nothing runs)",
     )
-    scoreboard_arms.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    _agent_argument(scoreboard_arms)
     scoreboard_arms.add_argument("--json", action="store_true", help="print the JSON report")
     scoreboard_arms.set_defaults(handler=cmd_scoreboard_arms)
     scoreboard_sign = scoreboard.add_parser(
@@ -3996,16 +4029,16 @@ def build_parser() -> argparse.ArgumentParser:
     scoreboard_verify.set_defaults(handler=cmd_scoreboard_verify)
     scoreboard_run = scoreboard.add_parser(
         "run",
-        help="run configurations of a maintained pack over its public scoring sets, and store "
+        help="run configurations of a maintained agent over its public scoring sets, and store "
         "each result (unsigned) in the results store; a remote one by hand, never in CI",
     )
-    scoreboard_run.add_argument("pack", help="pack id (namespace/name[@version])")
+    _agent_argument(scoreboard_run, "agent id (namespace/name[@version])")
     scoreboard_run.add_argument(
         "--dataset",
         action="append",
         default=[],
         metavar="NAME",
-        help="a public scoring set of the pack, by name (repeatable; default: each of them)",
+        help="a public scoring set of the agent, by name (repeatable; default: each of them)",
     )
     chosen = scoreboard_run.add_mutually_exclusive_group()
     chosen.add_argument(
@@ -4014,10 +4047,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="SLOT=VARIANT",
         help="a slot's variant (repeatable, or comma-separated); the other slots take the "
-        "pack's defaults",
+        "agent's defaults",
     )
     chosen.add_argument(
-        "--every-local", action="store_true", help="each local configuration of the pack"
+        "--every-local", action="store_true", help="each local configuration of the agent"
     )
     scoreboard_run.add_argument(
         "--again",
@@ -4046,14 +4079,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="by hand, never in CI: a seeded draw of 30 test cases, decided once by a remote "
         "configuration and compared with its replicates",
     )
-    scoreboard_canary.add_argument("pack", help="pack id (namespace/name[@version])")
+    _agent_argument(scoreboard_canary, "agent id (namespace/name[@version])")
     scoreboard_canary.add_argument(
         "--config",
         action="append",
         default=[],
         metavar="SLOT=VARIANT",
         help="a slot's variant (repeatable, or comma-separated); the other slots take the "
-        "pack's defaults",
+        "agent's defaults",
     )
     scoreboard_canary.add_argument(
         "--size", type=int, default=30, help="cases drawn from the test set (the method's 30)"
@@ -4078,7 +4111,9 @@ def build_parser() -> argparse.ArgumentParser:
     scoreboard_add.set_defaults(handler=cmd_scoreboard_add)
 
     card = pack_command("card", cmd_card, "render the Decision Card")
-    card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")
+    card.add_argument(
+        "--write", action="store_true", help="write DECISION_CARD.md into the agent's folder"
+    )
 
     schema = pack_command("schema", cmd_schema, "print the input (or output) JSON Schema")
     schema.add_argument("--output", action="store_true", help="print the output schema")
@@ -4153,7 +4188,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit_export.add_argument(
         "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
     )
-    audit_export.add_argument("--pack", help="only this pack's decisions (namespace/name)")
+    _agent_option(audit_export, help="only this agent's decisions (namespace/name)")
     audit_export.add_argument(
         "--org", help="only this organization's events (default: every organization's)"
     )
@@ -4191,8 +4226,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-orgs", action="store_true", help="every organization (the deployment)"
     )
     scope.add_argument("--org", help="one organization")
-    hold.add_argument("--pack", help="one pack (namespace/name); default: every pack")
-    hold.add_argument("--digest", help="one version of --pack (sha256:...)")
+    _agent_option(hold, help="one agent (namespace/name); default: every agent")
+    hold.add_argument("--digest", help="one version of --agent (sha256:...)")
     hold.add_argument(
         "--reason", required=True, help="why, in a few words (at most 200 characters)"
     )
@@ -4297,7 +4332,7 @@ def build_parser() -> argparse.ArgumentParser:
     export = feedback.add_parser(
         "export", help="export rated or reviewed decisions as a dataset of cases"
     )
-    export.add_argument("pack", help="pack id or directory")
+    _agent_argument(export, "agent id or directory")
     export.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
     export.add_argument(
         "--source",
@@ -4323,13 +4358,19 @@ def build_parser() -> argparse.ArgumentParser:
         "generate", help="regenerate a test-fixture agent's synthetic data"
     )
     generate.add_argument("--kind", choices=sorted(SANDBOX_KINDS), default="inbox")
-    generate.add_argument("--pack-dir", help="default: the kind's agent in the test fixtures")
+    generate.renamed["--pack-dir"] = "--agent-dir"
+    generate.add_argument(
+        "--agent-dir",
+        dest="pack_dir",
+        metavar="DIR",
+        help="default: the kind's agent in the test fixtures",
+    )
     generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
     generate.set_defaults(handler=cmd_sandbox_generate)
     seed = sandbox.add_parser("seed", help="load synthetic cases into FHIR as US Core resources")
     seed.add_argument("--fhir", required=True, help="FHIR R4 base URL")
-    seed.add_argument(
-        "--pack",
+    _agent_option(
+        seed,
         default="mendari/patient-inbox-router",
         choices=[  # fhir_workflow.SEEDS
             "mendari/patient-inbox-router",
@@ -4347,7 +4388,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker = sandbox.add_parser("worker", help="route new FHIR Communications through the engine")
     worker.add_argument("--fhir", required=True)
     worker.add_argument("--engine", required=True, help="engine base URL")
-    worker.add_argument("--pack", default="mendari/patient-inbox-router")
+    _agent_option(worker, default="mendari/patient-inbox-router")
     worker.add_argument("--interval", type=float, default=5.0)
     worker.add_argument("--once", action="store_true")
     worker.set_defaults(handler=cmd_sandbox_worker)
@@ -4390,8 +4431,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="instead of --launcher and --fhir: the launch URL an EHR made (the engine's "
         "/smart/launch with the EHR's iss and launch); read the patient in context and log out",
     )
-    smart.add_argument(
-        "--pack",
+    _agent_option(
+        smart,
         default="mendari/referral-router",
         choices=["mendari/patient-inbox-router", "mendari/referral-router"],
     )
@@ -4430,13 +4471,13 @@ def build_parser() -> argparse.ArgumentParser:
         "omop-check", help="round-trip a dataset through OMOP and compare the evaluations"
     )
     omop_check.add_argument("--dataset", required=True, help="a labelled JSONL dataset")
-    omop_check.add_argument("--pack", default="mendari/clinical-trial-prescreener")
+    _agent_option(omop_check, default="mendari/clinical-trial-prescreener")
     omop_check.set_defaults(handler=cmd_sandbox_omop_check)
     bulk_check = sandbox.add_parser(
         "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
     )
     bulk_check.add_argument("--fhir", required=True, help="the sandbox's FHIR R4 base URL")
-    bulk_check.add_argument("--pack", default="mendari/referral-router")
+    _agent_option(bulk_check, default="mendari/referral-router")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
 
     pas_cmd = sub.add_parser(
@@ -4483,7 +4524,7 @@ def build_parser() -> argparse.ArgumentParser:
     pas_build.set_defaults(handler=cmd_pas_build)
 
     omop_cmd = sub.add_parser(
-        "omop", help="OMOP CDM databases as pack inputs (population-level evaluation)"
+        "omop", help="OMOP CDM databases as an agent's input (population-level evaluation)"
     ).add_subparsers(dest="omop_command", required=True)
     for name, handler, text in (
         ("dataset", cmd_omop_dataset, "write each person's record as a local dataset"),
@@ -4492,7 +4533,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = omop_cmd.add_parser(name, help=text)
         command.add_argument("--db", required=True, help="SQLite path or postgresql:// URL")
         command.add_argument("--schema", default="", help="the CDM's schema (e.g. cdm)")
-        command.add_argument("--pack", required=True, help="a record pack")
+        _agent_option(command, required=True, help="an agent that reads a patient's record")
         command.add_argument(
             "--as-of", type=_iso_date, help="screening date (default: each person's last day)"
         )
@@ -4520,8 +4561,8 @@ def build_parser() -> argparse.ArgumentParser:
     export_bulk.add_argument("--key-id", default="mendari", help="the key's kid in your JWKS")
     export_bulk.add_argument("--scope", default="system/*.rs", help="backend services scope")
     export_bulk.set_defaults(handler=cmd_bulk_export)
-    dataset_bulk = bulk.add_parser("dataset", help="turn an export into a pack's local dataset")
-    dataset_bulk.add_argument("--pack", required=True, help="namespace/name")
+    dataset_bulk = bulk.add_parser("dataset", help="turn an export into an agent's local dataset")
+    _agent_option(dataset_bulk, required=True, help="namespace/name")
     dataset_bulk.add_argument("--ndjson", required=True, help="directory of NDJSON files")
     dataset_bulk.add_argument(
         "--labels", required=True, help='JSONL of {"id", "labels"} (a dataset file works)'
@@ -4550,12 +4591,12 @@ def build_parser() -> argparse.ArgumentParser:
     login_cmd.add_argument("--registry", required=True, help="registry URL")
     login_cmd.add_argument("--token", help="publisher token (omit for read-only)")
     login_cmd.set_defaults(handler=cmd_login)
-    push_cmd = sub.add_parser("push", help="sign a pack and publish it to the registry")
-    push_cmd.add_argument("pack", help="namespace/name[@version] or a directory")
+    push_cmd = sub.add_parser("push", help="sign an agent and publish it to the registry")
+    _agent_argument(push_cmd, "namespace/name[@version] or a directory")
     push_cmd.add_argument("--key", required=True, help="publisher private key (PEM)")
     push_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
     push_cmd.set_defaults(handler=cmd_push)
-    pull_cmd = sub.add_parser("pull", help="download, verify and cache a pack from the registry")
+    pull_cmd = sub.add_parser("pull", help="download, verify and cache an agent from the registry")
     pull_cmd.add_argument("ref", help="namespace/name[@version]")
     pull_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
     pull_cmd.add_argument(
@@ -4583,11 +4624,12 @@ def build_parser() -> argparse.ArgumentParser:
     search_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
     search_cmd.add_argument("--json", action="store_true")
     search_cmd.set_defaults(handler=cmd_search)
-    pack_cmd = sub.add_parser("pack", help="signed pack archives").add_subparsers(
-        dest="pack_command", required=True
+    pack_cmd = sub.add_parser("archive", help="signed agent archives").add_subparsers(
+        dest="archive_command", required=True
     )
+    parser.renamed["pack"] = "archive"
     build_pack = pack_cmd.add_parser("build", help="build a signed .ohpack archive")
-    build_pack.add_argument("pack", help="namespace/name[@version] or a directory")
+    _agent_argument(build_pack, "namespace/name[@version] or a directory")
     build_pack.add_argument("--key", required=True, help="publisher private key (PEM)")
     build_pack.add_argument("--out", default="dist", help="directory for the archive")
     build_pack.set_defaults(handler=cmd_pack_build)
@@ -4616,7 +4658,7 @@ def build_parser() -> argparse.ArgumentParser:
     site_ticket = site_cmd.add_parser(
         "ticket", help="ask the registry for a ticket before an evaluation (signed)"
     )
-    site_ticket.add_argument("pack", nargs="?", help="pack id (namespace/name[@version])")
+    _agent_argument(site_ticket, "agent id (namespace/name[@version])", nargs="?")
     site_ticket.add_argument("--dataset", help="the site's labelled cases (JSONL)")
     site_ticket.add_argument(
         "--request", metavar="FILE", help="send a signed request carried from the site (--out)"
@@ -4647,7 +4689,7 @@ def build_parser() -> argparse.ArgumentParser:
     site_submit.add_argument("--ticket", metavar="FILE", help="its ticket file (default: kept)")
     site_submit.add_argument("--registry", help="registry URL (default: logged into)")
     site_submit.set_defaults(handler=cmd_site_submit)
-    registry_cmd = sub.add_parser("registry", help="the pack registry service").add_subparsers(
+    registry_cmd = sub.add_parser("registry", help="the agent registry service").add_subparsers(
         dest="registry_command", required=True
     )
     serve_registry = registry_cmd.add_parser(
@@ -4834,7 +4876,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--risk-level", type=int, required=True, choices=range(5), help="0 to 4"
     )
     review_version.add_argument(
-        "--reason", required=True, help="a short note about the pack (chained and shown)"
+        "--reason", required=True, help="a short note about the agent (chained and shown)"
     )
     review_version.set_defaults(handler=cmd_registry_review)
     recall_version = registry_cmd.add_parser(
@@ -4882,11 +4924,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     countersign.set_defaults(handler=cmd_registry_countersign)
 
-    monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
+    monitor_cmd = sub.add_parser("monitor", help="check deployed agents for drift and degradation")
     monitor_cmd.add_argument(
         "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
     )
-    monitor_cmd.add_argument("--pack", help="one pack (default: every pack)")
+    _agent_option(monitor_cmd, help="one agent (default: every agent)")
     monitor_cmd.add_argument(
         "--days", type=_monitored_days, default=30, help="14 to 180, in whole weeks (default 30)"
     )
@@ -4976,11 +5018,11 @@ def build_parser() -> argparse.ArgumentParser:
     erase.set_defaults(handler=cmd_notes_erase)
 
     store = sub.add_parser(
-        "store", help="organizations' pack stores: the operator's (LP-20)"
+        "store", help="organizations' agent stores: the operator's (LP-20)"
     ).add_subparsers(dest="store_command", required=True)
     store_versions = store.add_parser("versions", help="an organization's versions, newest first")
     store_versions.add_argument("--org", required=True, help="the organization")
-    store_versions.add_argument("--pack", help="only this pack id")
+    _agent_option(store_versions, help="only this agent (its id)")
     store_versions.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_versions.set_defaults(handler=cmd_store_versions)
     store_verify = store.add_parser(
@@ -5022,9 +5064,9 @@ def build_parser() -> argparse.ArgumentParser:
         "evalset", help="hidden evaluation sets: the key holder's (LP-11)"
     ).add_subparsers(dest="evalset_command", required=True)
     evalset_create = evalset.add_parser(
-        "create", help="a new draft set of an organization for a pack"
+        "create", help="a new draft set of an organization for an agent"
     )
-    evalset_create.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    _agent_argument(evalset_create)
     evalset_create.add_argument("--org", required=True, help="the organization it belongs to")
     evalset_create.add_argument("--name", required=True, help="the set's name (kept sealed)")
     evalset_create.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
@@ -5113,8 +5155,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     for measuring in (evalset_agreement, evalset_coverage):
         measuring.add_argument("set_id", metavar="SET", help="the set's id")
-        measuring.add_argument(
-            "--pack", help="the set's pack (id or directory), if its id does not resolve here"
+        _agent_option(
+            measuring,
+            help="the set's agent (id or directory), if its id does not resolve here",
         )
         measuring.add_argument("--json", action="store_true", help="the report as JSON")
         measuring.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
@@ -5143,8 +5186,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="remove the cases never drawn (each removal chained) instead of refusing",
     )
-    evalset_freeze.add_argument(
-        "--pack", help="the set's pack (id or directory), if its id does not resolve here"
+    _agent_option(
+        evalset_freeze,
+        help="the set's agent (id or directory), if its id does not resolve here",
     )
     evalset_freeze.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     evalset_freeze.set_defaults(handler=cmd_evalset_freeze)
@@ -5161,7 +5205,13 @@ def build_parser() -> argparse.ArgumentParser:
     evalset_show.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     evalset_show.set_defaults(handler=cmd_evalset_show)
 
-    new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
+    new = sub.add_parser(
+        "new",
+        help="start a new agent from a template (YAML only)",
+        description="A new agent in YAML that validates, tests and evaluates as written. Unless "
+        "it is a community agent, it answers from an offline mock fixture until "
+        "MENDARI_AGENT_URL names your agent.",
+    )
     new.add_argument("dir", help="an empty or new directory")
     new.add_argument("--id", help="namespace/name, e.g. my-clinic/refill-router")
     new.add_argument("--name", help="a display name (default: from the id)")
@@ -5169,21 +5219,18 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument(
         "--community",
         action="store_true",
-        help="a community pack for community-packs/<name> (id community/<name>), with the "
+        help="a community agent for community-agents/<name> (id community/<name>), with the "
         "defaults community-check asks for",
     )
-    new.add_argument(
-        "--agent",
-        action="store_true",
-        help="an AI agent pack wired to an offline mock fixture that switches to MENDARI_AGENT_URL",
-    )
+    # What `mendari new` writes without it, since an agent became the default: still read.
+    new.add_argument("--agent", action="store_true", help=argparse.SUPPRESS)
     new.set_defaults(handler=cmd_new)
 
     community = sub.add_parser(
         "community-check",
-        help="the checks CI runs on a community pack (community-packs/<name>), with what to fix",
+        help="the checks CI runs on a community agent (community-agents/<name>), with what to fix",
     )
-    community.add_argument("dir", help="the pack's folder, community-packs/<name>")
+    community.add_argument("dir", help="the agent's folder, community-agents/<name>")
     community.add_argument(
         "--base",
         help="a git commit to compare with (e.g. origin/main): also checks the change's scope, "

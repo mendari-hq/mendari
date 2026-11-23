@@ -529,7 +529,7 @@ def test_every_record_an_export_writes_says_it_was_exported(
     argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", source]) == 0
     said = capsys.readouterr().out
-    assert "a site's cases" in said and "outside the pack's folder" in said
+    assert "a site's cases" in said and "outside the agent's folder" in said
     served = TestClient(create_app(db_path=db)).get(
         "/api/packs/mendari/patient-inbox-router/feedback/export", params={"source": source}
     )
@@ -553,7 +553,7 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
     export = ["feedback", "export", str(root), "--db", str(db), "--source", "reviews"]
     assert main([*export, "--out", str(saved)]) == 0
     said = capsys.readouterr().out
-    assert "a site's cases" in said and "outside the pack's folder" in said
+    assert "a site's cases" in said and "outside the agent's folder" in said
     cases = lines(saved)
     assert len(cases) == 2
 
@@ -687,7 +687,7 @@ def test_a_run_is_not_given_cases_kept_in_the_packs_own_folder(
         for extra in ([], ["--write"]):
             assert main(["improve", str(root), "--with", str(spelt), *extra]) == 1
             printed = capsys.readouterr()
-            assert "--with reviewed.jsonl: this file is in the pack's own folder" in printed.err
+            assert "--with reviewed.jsonl: this file is in the agent's own folder" in printed.err
             assert "keep the cases a run is given outside it" in printed.err
             assert printed.out == ""  # no run was made
     assert pack_digest(root) == before
