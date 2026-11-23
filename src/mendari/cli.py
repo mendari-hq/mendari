@@ -518,8 +518,10 @@ def cmd_compare(args: argparse.Namespace) -> int:
     from mendari.evals.harness import load_dataset, resolve_dataset
     from mendari.evals.ledger import case_hash
 
-    if args.seed < 0 or args.resamples < 1 or not 0 < args.alpha < 1:
-        raise MendariError("--seed is 0 or more, --resamples 1 or more, --alpha between 0 and 1")
+    if args.seed < 0 or not 0 < args.alpha < 1:
+        raise MendariError("--seed is 0 or more, --alpha between 0 and 1")
+    if not 1 <= args.resamples <= MAX_RESAMPLES:
+        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
     a = paired.load(args.a, flag="A")
     b = paired.load(args.b, flag="B")
     if Path(args.dataset).is_file():

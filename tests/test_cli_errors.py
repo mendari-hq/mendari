@@ -455,3 +455,13 @@ def test_serve_refuses_a_typed_provider_setting_no_pack_takes(
         assert main(["serve", "--db", db, "--provider", setting]) == 1
         assert f"--provider settings no served pack takes: {setting}" in capsys.readouterr().err
     assert main(["serve", "--db", db, "--provider", "router=naive_bayes"]) == 0
+
+
+@pytest.mark.parametrize("resamples", ["0", "100001"])
+def test_compare_caps_its_resamples_like_every_bootstrap(
+    resamples: str, places: dict[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Checked before either run is read: a typo of 10**9 resamples is never hours of work.
+    args = [places["missing"], places["missing"], "--dataset", "test", "--resamples", resamples]
+    assert main(["compare", *args]) == 1
+    assert capsys.readouterr().err.strip() == "error: --resamples is 1 to 100000"
