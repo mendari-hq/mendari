@@ -319,7 +319,8 @@ MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval my-agent --data
   server with sign-in on (as every production deployment is) never automates on those answers:
   an `AUTO` decision becomes `HUMAN_REVIEW`, and its reasons end with
   `canned answers: MENDARI_AGENT_URL is not set; a person decides`, in the dashboard and the
-  audit trail alike. Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
+  audit trail alike. A rule's `BLOCK` (final at once) goes to a person as well, the reason
+  `canned answers: MENDARI_AGENT_URL is not set: a person decides instead of its rule's BLOCK`. Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
 
 An agent you publish to a registry or contribute as a community agent is one the deployment
 that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the

@@ -285,8 +285,9 @@ class Decision:
         policy (`mendari test`, `mendari eval`), never for serving.
 
         `canned_cap` (a server with sign-in) never automates on canned answers (an agent's
-        `mock_file` read while `MENDARI_AGENT_URL` is unset): AUTO becomes HUMAN_REVIEW, with
-        the reason (`policy.apply_policy`'s `canned` cap). Off, they decide as live answers do."""
+        `mock_file` read while `MENDARI_AGENT_URL` is unset): AUTO and a rule's BLOCK become
+        HUMAN_REVIEW, with the reason (`policy.apply_policy`'s `canned` cap). Off, they decide
+        as live answers do."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
