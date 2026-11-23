@@ -2238,16 +2238,18 @@ class AuditStore(RateBuckets):
         """Erase a note (`mendari notes erase`): its row keeps its id, decision and when, and
         loses its text and salt, so the commitment chained on its event is noise from now on;
         `note.erased` is chained on its decision. Backups, the database's history and earlier
-        exports still hold it (docs/deploying-with-phi.md)."""
+        exports still hold it (docs/deploying-with-phi.md). Another organization's note is
+        refused as an unknown one is (through its decision, as `erase_input`)."""
         if reason not in ERASE_REASONS:
             raise NoteError(f"the reason is one of {ERASE_REASONS}")
         if not SYSTEM_ID.fullmatch(erased_by):
             raise NoteError("who erases is an identifier, such as an email address")
+        scope, scoped = _scope()
         with self._db.session(exclusive=True) as db:
             row = db.one(
                 "SELECT n.decision_id, n.sealed, d.org FROM notes n "
-                "LEFT JOIN decisions d ON d.id = n.decision_id WHERE n.id = ?",
-                (note_id,),
+                f"LEFT JOIN decisions d ON d.id = n.decision_id WHERE n.id = ? AND {scope}",
+                (note_id, *scoped),
             )
             if row is None or row["sealed"] is None:
                 raise NoteError(f"no note {note_id} to erase")

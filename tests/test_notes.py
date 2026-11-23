@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import audit as audit_module
+from mendari.core import tenancy
 from mendari.core.db import Session
 from mendari.core.phi import PhiMode, PhiPolicy
 from mendari.errors import MendariError, NoteError
@@ -266,6 +267,26 @@ def test_an_erased_note_is_gone_and_the_chain_still_verifies(
     shown = [(r["action"], r["agent"][0]["who"]["display"]) for r in erasures]
     assert shown == [("D", "dpo@example.org")] * 2
     assert {"type": "reason", "valueString": "request"} in erasures[0]["entity"][0]["detail"]
+
+
+def test_another_organization_s_note_is_not_erased(db_target: str, inbox_pack: Pack) -> None:
+    """A note is erased through its decision's organization: another one's is refused as an
+    unknown note is, and nothing is erased or chained."""
+    store = keeping(db_target)
+    decision_id = reviewed(store, inbox_pack)  # the default organization's
+    item = store.get(decision_id, reader="rn-7")
+    assert item is not None
+    review_note = next(e["payload"]["note_ref"]["id"] for e in with_note(item["events"]))
+    before = store.verify()["events"]
+    with tenancy.acting_for("clinic-b"), pytest.raises(NoteError, match="no note"):
+        store.erase_note(review_note, erased_by="dpo@example.org", reason="request")
+    assert store.verify()["events"] == before
+    item = store.get(decision_id, reader="rn-7")
+    assert item is not None
+    assert with_note(item["events"])[0]["note_status"] == "open"
+    with tenancy.acting_for(tenancy.DEFAULT_ORG):
+        erased = store.erase_note(review_note, erased_by="dpo@example.org", reason="request")
+    assert erased["decision_id"] == decision_id
 
 
 def test_retention_erases_old_notes_with_the_inputs(
