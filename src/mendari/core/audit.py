@@ -2122,6 +2122,9 @@ class AuditStore(RateBuckets):
         head the insert follows."""
         if not entries:
             return []
+        # A separator in either would let two different events hash alike (`_chain_hash`).
+        if _SEPARATOR in event or any(_SEPARATOR in decision_id for decision_id, _ in entries):
+            raise ValueError("an event's kind or subject never holds the chain's separator")
         if not db.exclusive:
             # Outside the chain's lock two writers read the same head and fork the chain.
             raise RuntimeError("the audit chain is appended to in an exclusive session only")
@@ -6856,8 +6859,15 @@ def _checkpoints(db: _Session) -> list[dict[str, Any]]:
     return db.all("SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq")
 
 
+# The fields are joined with US (\x1f), unescaped, so the join is unambiguous only while no
+# field holds one: `prev` is 64 hex digits, `payload` canonical JSON (which escapes every control
+# character), `created_at` an ISO time, and `decision_id` and `event` are refused with one by
+# `_append_many` (`_SEPARATOR`). Every event already chained hashes as before: never change this.
+_SEPARATOR = "\x1f"
+
+
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:
-    joined = "\x1f".join((prev, decision_id, event, payload, created_at))
+    joined = _SEPARATOR.join((prev, decision_id, event, payload, created_at))
     return hashlib.sha256(joined.encode()).hexdigest()
 
 
