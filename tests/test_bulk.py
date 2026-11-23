@@ -244,6 +244,59 @@ def test_files_on_another_server_are_not_downloaded(tmp_path: Path) -> None:
         run(Elsewhere({}, pending=0), tmp_path)
 
 
+OTHER = "https://files.example.org"  # allow-listed, but not the server the token is for
+
+
+class FilesElsewhere(FakeBulk):
+    """The manifest's file is on another allow-listed origin, which serves it."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(OTHER):
+            self.requests.append(request)
+            return httpx.Response(200, text='{"resourceType": "Patient", "id": "p1"}\n')
+        response = super().__call__(request)
+        if str(request.url) == STATUS and response.status_code == 200:
+            manifest = json.loads(response.content)
+            manifest["output"] = [{"type": "Patient", "url": f"{OTHER}/Patient.ndjson"}]
+            return httpx.Response(200, json=manifest)
+        return response
+
+
+def test_the_token_never_goes_to_a_file_on_another_allow_listed_server(tmp_path: Path) -> None:
+    """requiresAccessToken with a file on another origin: refused, and nothing is sent there."""
+    fake = FilesElsewhere({}, pending=0)
+    with (
+        http_for(fake, {"https://ehr.example.org", OTHER}) as http,
+        pytest.raises(BulkError, match="sent only to the server it was issued for"),
+    ):
+        bulk.export(FHIR, tmp_path, http=http, token="t0", sleep=lambda _: None)
+    assert not [r for r in fake.requests if str(r.url).startswith(OTHER)]
+
+
+def test_a_file_on_another_server_without_requires_access_token_is_fetched_without_it(
+    tmp_path: Path,
+) -> None:
+    fake = FilesElsewhere({}, pending=0)
+    fake.manifest_extra = {"requiresAccessToken": False}
+    with http_for(fake, {"https://ehr.example.org", OTHER}) as http:
+        bulk.export(FHIR, tmp_path, http=http, token="t0", sleep=lambda _: None)
+    (download,) = [r for r in fake.requests if str(r.url).startswith(OTHER)]
+    assert "authorization" not in download.headers
+
+
+def test_the_token_never_goes_to_a_status_url_on_another_allow_listed_server(
+    tmp_path: Path,
+) -> None:
+    fake = FakeBulk({}, pending=0)
+    fake.kickoff = httpx.Response(202, headers={"content-location": f"{OTHER}/status/1"})
+    with (
+        http_for(fake, {"https://ehr.example.org", OTHER}) as http,
+        pytest.raises(BulkError, match="status URL is on another server"),
+    ):
+        bulk.export(FHIR, tmp_path, http=http, token="t0", sleep=lambda _: None)
+    assert len(fake.requests) == 1  # the kick-off only
+
+
 @pytest.mark.parametrize(
     ("manifest", "said"),
     [
