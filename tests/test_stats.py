@@ -95,6 +95,13 @@ def test_a_proportion_keeps_k_n_and_its_interval() -> None:
     assert stats.proportion(0, 0).rate is None and stats.proportion(1, 4).rate == 0.25
 
 
+def test_a_proportion_refuses_what_is_not_k_of_n() -> None:
+    # 3 hits of no cases used to come back as a blank interval, as if nothing had run.
+    for bad in [(3, 0), (-1, 0), (-1, 5), (6, 5), (0, -1)]:
+        with pytest.raises(ValueError, match="0 <= k <= n"):
+            stats.proportion(*bad)
+
+
 def test_mcnemar_matches_statsmodels_and_exact_arithmetic() -> None:
     for b in range(41):
         for c in range(41):
