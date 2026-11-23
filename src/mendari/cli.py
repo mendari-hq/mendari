@@ -46,11 +46,11 @@ def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
 
 
 def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> dict[str, str]:
-    """The settings that apply to this pack. A setting that names it but cannot apply (a slot's
+    """The settings that apply to this agent. A setting that names it but cannot apply (a slot's
     unknown variant) is an error here, where the server only reports it. So is a typed setting
-    (`--provider`, `--run`) that applies to nothing in the pack: an unknown slot, another pack's
-    setting, or an unscoped one for a community pack. From $MENDARI_PROVIDERS, a deployment-wide
-    list naming other packs' slots too, such a setting is only a warning."""
+    (`--provider`, `--run`) that applies to nothing in the agent: an unknown slot, another
+    agent's setting, or an unscoped one for a community agent. From $MENDARI_PROVIDERS, a
+    deployment-wide list naming other agents' slots too, such a setting is only a warning."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
     chosen, skipped = providers_for(pack.id, slots, settings, community=pack.named_settings_only)
     if skipped:
@@ -118,7 +118,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(f"{m.id:<40} {m.version:<8} risk {int(m.risk.level)}  {m.name}")
     for root, problem in found.problems.items():
         print(f"invalid agent at {root}:\n{problem}", file=sys.stderr)
-    # An owned pack whose provider configs `mendari validate` refuses still loads: said here.
+    # An owned agent whose provider configs `mendari validate` refuses still loads: said here.
     for pack in sorted(found.packs, key=lambda p: (p.id, p.root)):
         if pack.warnings:
             listed = "\n".join(f"  - {warning}" for warning in pack.warnings)
@@ -140,7 +140,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     from mendari.evals import run_pack_tests
 
-    decision = _decision(args, origin_cap=False)  # the pack's own policy, as its tests say
+    decision = _decision(args, origin_cap=False)  # the agent's own policy, as its tests say
     outcomes = run_pack_tests(decision)
     if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
         where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in agent.yaml)"
@@ -170,7 +170,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             return None if hold is None else f"hold {hold['id']}"
 
     approved = None
-    if store is not None:  # a pack from a registry, approved in that deployment's trail
+    if store is not None:  # an agent from a registry, approved in that deployment's trail
 
         def approved(pack: Pack) -> bool:
             return (
@@ -217,7 +217,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, args.dataset)
         issued = _ticket_for(args, pack, configuration, dataset)
     else:
-        decision = _decision(args, origin_cap=False)  # measures the pack's own policy
+        decision = _decision(args, origin_cap=False)  # measures the agent's own policy
         pack = decision.pack
         dataset = resolve_dataset(pack, args.dataset)
         if args.limit:
@@ -236,7 +236,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         if baseline is not None:
             tolerance = pack.manifest.evaluation.degradation_tolerance
             if args.baseline == "auto" and pack.origin == "hub":
-                # A pack from a registry carries its publisher's benchmark, never a reference
+                # An agent from a registry carries its publisher's benchmark, never a reference
                 # (ADR-0012); a report given with --baseline is the caller's own.
                 comparison = not_compared(FROM_REGISTRY)
             else:
@@ -556,7 +556,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         datasets.append(dataset.head(args.limit) if args.limit else dataset)
     for run in args.run:
         providers = _providers(pack, parse_providers(run.split(",")))
-        decision = Decision(pack, providers=providers, origin_cap=False)  # the pack's policy
+        decision = Decision(pack, providers=providers, origin_cap=False)  # the agent's policy
         workers = args.workers or (8 if decision.is_remote else 1)
         for dataset in datasets:
             report = evaluate(decision, dataset, workers=workers)
@@ -597,8 +597,8 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
 
 
 def cmd_data_check(args: argparse.Namespace) -> int:
-    """A dataset checked against its pack (`mendari.dataset-check/1`, LP-20c): every dataset the
-    pack declares (none is nothing to check), or one file. Exit 1 on a schema or label problem;
+    """A dataset checked against its agent (`mendari.dataset-check/1`, LP-20c): every dataset the
+    agent declares (none is nothing to check), or one file. Exit 1 on a schema or label problem;
     duplicates, overlap with the training data and labels too thin to estimate are reported and
     do not fail. `--phi` also runs the PHI detector over each file (`mendari.phi-check/1`,
     LP-20d: kinds, files and lines, never a value), and a finding it rejects fails too."""
@@ -653,7 +653,7 @@ def _phi_text(report: Any) -> str:
 
 
 def cmd_scoreboard_arms(args: argparse.Namespace) -> int:
-    """A pack's provider configurations by arm (`mendari.arms/1`, LP-17c): Mendari only, with a
+    """An agent's provider configurations by arm (`mendari.arms/1`, LP-17c): Mendari only, with a
     specialised classifier, with a general LLM, or with both. From the manifest alone: nothing
     is run, called or written."""
     from mendari.evals.arms import arms_report, arms_text
@@ -733,8 +733,8 @@ def cmd_scoreboard_sign(args: argparse.Namespace) -> int:
         f"with {signer}, public key {public_text(key.public_key())}: list it once in "
         f"{signing.KEYS_PATH} with the dates it is valid for"
     )
-    # The page marks each unsigned result and counts the signed ones: written before the
-    # signatures, its check (CI's `reference-pack` job) fails.
+    # The page marks each unsigned result and counts the signed ones: one written before the
+    # signatures no longer matches them.
     print(
         "then: uv run python scripts/scoreboard_page.py (the page), and commit both with the keys "
         "file"
@@ -797,19 +797,19 @@ def cmd_scoreboard_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_scoreboard_run(args: argparse.Namespace) -> int:
-    """Run configurations of a maintained pack over its public scoring sets (LP-17f, LP-17h) and
-    store each result, unsigned, with its ledger and its run record (each case's latency and
+    """Run configurations of a maintained agent over its public scoring sets (LP-17f, LP-17h)
+    and store each result, unsigned, with its ledger and its run record (each case's latency and
     tokens) in the results store (`scoreboard/`, from the repository's root, or --store). A
-    result that is still current (the pack's digest, the set and the method unchanged, and not
+    result that is still current (the agent's digest, the set and the method unchanged, and not
     past its stale date) is kept, not run again, unless --again; a new one supersedes the stored
     one. A local configuration runs one replicate. A remote one is run by hand, never in CI (`CI`
     or `GITHUB_ACTIONS` set): `--replicates 3` to `5`, as its arm's remote configuration in the
-    pack's declaration (`scoreboard/declared/<pack name>.json`, committed before the run), and
+    agent's declaration (`scoreboard/declared/<agent name>.json`, committed before the run), and
     with `--prices FILE` when it calls a model. Refused before anything runs: any of those
-    unmet, a fitting set (`train`, `calibration`), anything but a set the pack names (so no file
-    and no hidden set), and a pack Mendari does not maintain: the pack is read from the bundled
-    packs alone (the repository's `packs/`), never from `MENDARI_PACKS_PATH` or the registry
-    cache."""
+    unmet, a fitting set (`train`, `calibration`), anything but a set the agent names (so no file
+    and no hidden set), and an agent Mendari does not maintain: the agent is read from the
+    bundled agents alone (the repository's `agents/`), never from `MENDARI_AGENTS_PATH` or the
+    registry cache."""
     from mendari.evals import results_store, runs
 
     store = results_store.Store.at(args.store)
@@ -859,11 +859,11 @@ def cmd_scoreboard_run(args: argparse.Namespace) -> int:
 
 def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
     """A canary (LP-17h; the grading method's section 12): a seeded draw of 30 cases from a
-    maintained pack's `test` set, decided once by a remote configuration, by hand and never in
+    maintained agent's `test` set, decided once by a remote configuration, by hand and never in
     CI, with no schedule, and compared with replicate 1 of its current result there, which must
     hold replicates. Stored in the results store (`canaries/`, with its ledger and run record):
     when it shows drift (its flip rate's lower bound above the replicates' upper bound), the page
-    marks the remote results of the pack's arm stale; when it reports another model of a type,
+    marks the remote results of the agent's arm stale; when it reports another model of a type,
     every result of that type measured no later that reported other models."""
     from mendari.evals import results_store, scoreboard
 
@@ -886,7 +886,7 @@ def cmd_scoreboard_canary(args: argparse.Namespace) -> int:
         )
         if on
     ]
-    # Drift marks the remote results of the pack's arm; another model, every result of a type
+    # Drift marks the remote results of the agent's arm; another model, every result of a type
     # it names that reported other models (the page works both out).
     print(f"it marks: {', '.join(marks) if marks else 'nothing'}")
     print("then: uv run python scripts/scoreboard_page.py (the page), and commit both")
@@ -897,9 +897,9 @@ def cmd_scoreboard_add(args: argparse.Namespace) -> int:
     """Store a result made elsewhere (LP-17f) in the results store, under its body's SHA-256,
     never over another file. `--supersedes HASH` names the stored result it replaces, which
     becomes part of its body: refused for a signed result, whose signature would no longer
-    hold. A public result must be on its pack's current digest, set and method, measured no
+    hold. A public result must be on its agent's current digest, set and method, measured no
     later than today, and what its stored inputs give; a remote configuration's must also hold
-    3 to 5 replicates and its pack's declaration of it (LP-17h); a hidden set's (the grading
+    3 to 5 replicates and its agent's declaration of it (LP-17h); a hidden set's (the grading
     route's `mendari.hidden_scoreboard/1` answer, LP-17k) must fit its closed schema, under the
     current method, and agree with its own figures; a signed one must verify against the
     store's keys."""
@@ -976,7 +976,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
-    # A typed --provider that no served pack takes (an unknown slot, a variant no pack with the
+    # A typed --provider that no served agent takes (an unknown slot, a variant no agent with the
     # slot has) is a mistake; MENDARI_PROVIDERS, shared by a deployment's instances, is only
     # reported (/api/health, the startup log).
     not_taken = app.state.provider_settings_not_taken
@@ -1572,7 +1572,7 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     if not 1 <= args.limit <= MAX_EXPORTED:
         raise MendariError(f"--limit is 1 to {MAX_EXPORTED:,}")
     pack = resolve_pack(args.pack)
-    # With --org, one organization's decisions: what a pack learns from is one site's.
+    # With --org, one organization's decisions: what an agent learns from is one site's.
     with _read_store(args.db) as store, contextlib.ExitStack() as acting:
         store.require_current("feedback export")
         if args.org is not None:
@@ -1658,7 +1658,7 @@ def cmd_sandbox_generate(args: argparse.Namespace) -> int:
     }
     generator = generators[args.kind]
     pack_dir, local_out = SANDBOX_KINDS[args.kind]
-    # Takes a directory rather than a pack reference: the pack cannot load before its data exists.
+    # Takes a directory, not an agent reference: the agent cannot load before its data exists.
     data_dir = Path(args.pack_dir or pack_dir) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     for split, records in generator.public_splits().items():
@@ -2330,8 +2330,8 @@ def cmd_registry_sites(args: argparse.Namespace) -> int:
 
 def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool) -> dict[str, str]:
     """The configuration a site evaluates and shares (LP-22e): the variants `--provider` names
-    (with the pack's defaults for the other slots), or with none named the deterministic arm,
-    the pack's defaults when they are local and else its first wholly local configuration. A
+    (with the agent's defaults for the other slots), or with none named the deterministic arm,
+    the agent's defaults when they are local and else its first wholly local configuration. A
     configuration that calls anything off the site's machines needs `--consent-remote`."""
     from mendari.evals import arms
 
@@ -2488,7 +2488,7 @@ def _submission_summary(submission: Mapping[str, Any]) -> str:
 
 def cmd_site_ticket(args: argparse.Namespace) -> int:
     """Ask the registry for a ticket before evaluating (LP-22e): signed with this site's key,
-    bound to the pack's digest, the configuration, the dataset's size and a keyed commitment to
+    bound to the agent's digest, the configuration, the dataset's size and a keyed commitment to
     the dataset (an HMAC under the site's secret; the file's own hash never leaves). The ticket
     and its one-time submission secret are kept private here (`tickets/ID.json`). Offline:
     `--out FILE` writes the signed request and sends nothing; on a machine that reaches the
@@ -2620,7 +2620,7 @@ def cmd_registry_publisher_type(args: argparse.Namespace) -> int:
 
 def cmd_registry_review(args: argparse.Namespace) -> int:
     """Record a version's review as the operator (LP-19e): the risk level the review found and
-    why, a short line about the pack, never case text. Chained (`pack.reviewed`) with who ran
+    why, a short line about the agent, never case text. Chained (`pack.reviewed`) with who ran
     this."""
     from mendari.hub.registry import RegistryStore, ReviewRequest
 
@@ -2872,7 +2872,7 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    """For a scheduler: every pack's alerts (the served, newest, version of each), for one
+    """For a scheduler: every agent's alerts (the served, newest, version of each), for one
     organization with --org, each organization on its own with --each-org (but the status
     organization, MENDARI_STATUS_ORG), otherwise all of them together; posted to a webhook when
     one is set (`mendari.alerts`: in its format, signed with its secret, tried up to three
@@ -2897,7 +2897,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     skip = status_org() if args.each_org else None  # likewise
     if args.pack:
         packs = [resolve_pack(args.pack)]
-    else:  # the version a server serves of each pack: the newest
+    else:  # the version a server serves of each agent: the newest
         newest: dict[str, Pack] = {}
         for pack in discover().packs:
             if pack.id not in newest or version_key(pack.version) > version_key(
@@ -3105,7 +3105,7 @@ def _evalset_store(target: str | None, keys: Any, *, writes: bool) -> tuple[Any,
 def _pack_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
     """The deployment's database for `mendari store` (LP-20e): given, or $DATABASE_URL. To
     write, it must be a server's (`_servers_database`); otherwise opened read-only. Returns the
-    pack store (`core/pack_store.py`) and the database's name as shown (no password)."""
+    agent store (`core/pack_store.py`) and the database's name as shown (no password)."""
     from mendari.core.pack_store import PackStore
 
     if target is None:
@@ -3119,7 +3119,7 @@ def _pack_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
 
 
 def cmd_store_versions(args: argparse.Namespace) -> int:
-    """An organization's pack store versions, newest first (LP-20e): ids, digests, states and
+    """An organization's agent store versions, newest first (LP-20e): ids, digests, states and
     files' hashes, never a file's content. Read-only."""
     store, _ = _pack_store(args.db, writes=False)
     with store.store:
@@ -3128,7 +3128,7 @@ def cmd_store_versions(args: argparse.Namespace) -> int:
 
 
 def cmd_store_verify(args: argparse.Namespace) -> int:
-    """Every kept file of every pack store hashes to its key, and every version whose files are
+    """Every kept file of every agent store hashes to its key, and every version whose files are
     kept to its digest (LP-20e). Read-only; exit 1 on a problem."""
     store, _ = _pack_store(args.db, writes=False)
     with store.store:
@@ -3227,8 +3227,8 @@ def _is_checkout(directory: Path) -> bool:
 
 
 def cmd_evalset_create(args: argparse.Namespace) -> int:
-    """A new draft hidden evaluation set of an organization for a pack (LP-11e): its header
-    (the pack's questions, labels and critical labels, and the set's name) sealed; chained. Its
+    """A new draft hidden evaluation set of an organization for an agent (LP-11e): its header
+    (the agent's questions, labels and critical labels, and the set's name) sealed; chained. Its
     id is printed, never its name."""
     keys = _evalset_keys()
     pack = resolve_pack(args.pack)
@@ -3623,7 +3623,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 
 def _publish_benchmark(target: Path) -> None:
-    """Write a new pack's benchmark (`evaluation.benchmark`) and Decision Card, as `mendari
+    """Write a new agent's benchmark (`evaluation.benchmark`) and Decision Card, as `mendari
     eval --baseline none --out` and `mendari card --write` would."""
     from mendari.core.card import render_card
     from mendari.core.pack import load_pack
