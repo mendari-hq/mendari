@@ -209,6 +209,49 @@ def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
             store.close()
 
 
+# -- verification reads the chain a page at a time ------------------------------------------
+
+
+def test_verification_reads_the_chain_in_pages_with_the_same_results(
+    store: AuditStore, decide: Decide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`verify` holds `_VERIFY_PAGE` events at once: whatever the page, every verification
+    (full, from a checkpoint, against a signed head, with notes) says exactly the same, on a
+    whole chain and on a broken one."""
+    from mendari.core import audit as audit_module
+
+    for body in (EMERGENCY, ROUTINE, REVIEW):
+        decide(body)
+    store.record_checkpoint()
+    for body in (EMERGENCY, ROUTINE, REVIEW, ROUTINE):
+        decide(body)
+    head = store.verify()["head"]
+
+    def every_verification() -> list[dict[str, Any]]:
+        return [
+            store.verify(),
+            store.verify(since_checkpoint=True),
+            store.verify(head=head),
+            store.verify(head="f" * 64),
+            store.verify(notes=True),
+        ]
+
+    whole = every_verification()
+    assert whole[0]["ok"] is True and whole[0]["events"] == 7
+    assert whole[1]["ok"] is True and whole[1]["events"] == 4
+    for page in (1, 2, 3, 7):
+        monkeypatch.setattr(audit_module, "_VERIFY_PAGE", page)
+        assert every_verification() == whole, page
+    monkeypatch.undo()
+    tamper(store, "UPDATE audit_events SET payload = payload || ' ' WHERE seq = 5")
+    broken = every_verification()
+    assert broken[0] == {"ok": False, "events": 7, "broken_at": 5}
+    assert broken[1] == {"ok": False, "events": 4, "broken_at": 5}
+    for page in (1, 2, 3, 7):
+        monkeypatch.setattr(audit_module, "_VERIFY_PAGE", page)
+        assert every_verification() == broken, page
+
+
 # -- decision rows changed past the store -----------------------------------------------------
 
 

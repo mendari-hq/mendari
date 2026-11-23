@@ -5587,28 +5587,22 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             recorded = _checkpoints(db)
             start = recorded[-1] if since_checkpoint and recorded else None
-            # Events first, then rows: a row is written with its first event and never deleted
-            # or moved, so every row an event read here names is in what is read after.
-            if start is None:
-                events = db.all("SELECT * FROM audit_events ORDER BY seq")
-            else:
-                events = db.all(
-                    "SELECT * FROM audit_events WHERE seq >= ? ORDER BY seq", (start["seq"],)
-                )
+            # The events checked are those up to the head as it is now (`top`), read a page at
+            # a time (`_chain_pages`), so a long chain is never held whole. Appends are
+            # serialized (the chain's lock), so every event up to `top` is written, with its
+            # decision row, before anything below is read: every row an event checked names is
+            # in what is read after, as when the events were read first.
+            found_top = db.one("SELECT MAX(seq) AS top FROM audit_events")
+            top = None if found_top is None or found_top["top"] is None else int(found_top["top"])
+            first = None if start is None else int(start["seq"])
+            counted = _chain_count(db, first, top)
+            # `events` counts what is checked: from a checkpoint, not its own event.
+            total = counted - 1 if start is not None and counted else counted
             with_org = "decisions.org" not in self.unmigrated
             columns = f"{', '.join(_DECISION_CHAINED)}, review_status, record"
             columns += ", org" if with_org else ""
-            if start is None:
-                decided = db.all(f"SELECT {columns} FROM decisions")
-            else:  # the decisions the events read name, and no others
-                named = sorted({str(event["decision_id"]) for event in events})
-                decided = []
-                for at in range(0, len(named), _VERIFY_BATCH):
-                    batch = named[at : at + _VERIFY_BATCH]
-                    marks = ", ".join("?" for _ in batch)
-                    decided += db.all(
-                        f"SELECT {columns} FROM decisions WHERE id IN ({marks})", tuple(batch)
-                    )
+            # From a checkpoint, only the decisions the events read name (page by page, below).
+            decided = db.all(f"SELECT {columns} FROM decisions") if start is None else []
             records = {row["id"]: json.loads(row["record"]) for row in decided}
             rows_of = {row["id"]: row for row in decided}
             owners = {row["id"]: _org_of(row["org"]) for row in decided} if with_org else None
@@ -5619,7 +5613,7 @@ class AuditStore(RateBuckets):
                 for row in db.all(
                     "SELECT decision_id, event FROM audit_events WHERE seq > ? "
                     "AND event IN (?, ?, ?)",
-                    (int(events[-1]["seq"]) if events else 0, *_DECISION_STATES),
+                    (top or 0, *_DECISION_STATES),
                 ):
                     later.setdefault(str(row["decision_id"]), set()).add(str(row["event"]))
             subjects = _subject_orgs(db)
@@ -5628,102 +5622,98 @@ class AuditStore(RateBuckets):
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
             held = None
             if evalsets is not False:
-                held = self._evalset_rows(db, int(events[-1]["seq"]) if events else 0)
+                held = self._evalset_rows(db, top or 0)
             # A pack store's versions (LP-20e): each against its chained hash and newest state.
             stored = (
                 {str(row["id"]): row for row in db.all("SELECT * FROM store_versions")}
                 if db.columns("store_versions")
                 else {}
             )
-        states: dict[str, str] = {}
-        prev = GENESIS
-        if start is not None:
-            first = events[0] if events else None
-            if first is None or first["seq"] != start["seq"] or first["hash"] != start["hash"]:
+            states: dict[str, str] = {}
+            prev = GENESIS
+            expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
+            # Each decision's events that make or settle it (`_DECISION_STATES`), and the `seq`
+            # of its `decision.created`, for the rows' own check after the chain's.
+            settled: dict[str, set[str]] = {}
+            created_at_seq: dict[str, int] = {}
+            # Kept for the checks after the chain's, and only what they read: the events with a
+            # note and the erasures (`_check_notes`), the evaluation sets' (`_check_evalsets`).
+            noted: list[dict[str, Any]] = []
+            of_evalsets: list[dict[str, Any]] = []
+            seen_head = False
+            last: dict[str, Any] | None = None
+            for page in _chain_pages(db, first, top):
+                if start is not None and last is None:
+                    opening = page[0]
+                    if opening["seq"] != start["seq"] or opening["hash"] != start["hash"]:
+                        cut = {"ok": False, "events": 0, "broken_at": start["seq"]}
+                        return {**cut, "reason": "checkpoint"}, None
+                    prev, page = start["hash"], page[1:]
+                    last = {"seq": start["seq"], "hash": start["hash"]}
+                if start is not None:
+                    named = sorted({str(event["decision_id"]) for event in page} - rows_of.keys())
+                    for at in range(0, len(named), _VERIFY_BATCH):
+                        batch = named[at : at + _VERIFY_BATCH]
+                        marks = ", ".join("?" for _ in batch)
+                        for row in db.all(
+                            f"SELECT {columns} FROM decisions WHERE id IN ({marks})", tuple(batch)
+                        ):
+                            records[row["id"]] = json.loads(row["record"])
+                            rows_of[row["id"]] = row
+                            if owners is not None:
+                                owners[row["id"]] = _org_of(row["org"])
+                for event in page:
+                    breaks = _chain_break(
+                        event, prev, expected, records, rows_of, stored, states, owners, subjects
+                    )
+                    if breaks is not None:
+                        return {"ok": False, "events": total, **breaks}, None
+                    kind = str(event["event"])
+                    if kind in _DECISION_STATES:
+                        settled.setdefault(str(event["decision_id"]), set()).add(kind)
+                        if kind == "decision.created":
+                            created_at_seq.setdefault(str(event["decision_id"]), int(event["seq"]))
+                    if notes and (kind == "note.erased" or '"note_ref":' in event["payload"]):
+                        noted.append(event)
+                    if held is not None and kind.startswith("evalset."):
+                        of_evalsets.append(event)
+                    seen_head = seen_head or event["hash"] == head
+                    prev = event["hash"]
+                    last = {"seq": event["seq"], "hash": event["hash"]}
+            if start is not None and last is None:  # the checkpoint's event is gone
                 cut = {"ok": False, "events": 0, "broken_at": start["seq"]}
                 return {**cut, "reason": "checkpoint"}, None
-            prev, events = start["hash"], events[1:]
-        expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
-        # Each decision's events that make or settle it (`_DECISION_STATES`), and the `seq` of
-        # its `decision.created`, for the rows' own check after the chain's.
-        settled: dict[str, set[str]] = {}
-        created_at_seq: dict[str, int] = {}
-        for event in events:
-            if event["event"] in _DECISION_STATES:
-                settled.setdefault(str(event["decision_id"]), set()).add(str(event["event"]))
-                if event["event"] == "decision.created":
-                    created_at_seq.setdefault(str(event["decision_id"]), int(event["seq"]))
-        for event in events:
-            chained = _chain_hash(
-                prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
-            )
-            if event["prev_hash"] != prev or event["hash"] != chained:
-                return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
-            if expected.pop(event["seq"], event["hash"]) != event["hash"]:
-                moved = {"ok": False, "events": len(events), "broken_at": event["seq"]}
-                return {**moved, "reason": "checkpoint"}, None
-            if event["event"] == "decision.created":
-                record = records.get(event["decision_id"])
-                if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
-                    return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
-                if not _row_as_chained(rows_of[event["decision_id"]], record):
-                    moved = {"ok": False, "events": len(events), "broken_at": event["seq"]}
-                    return {**moved, "reason": "decision"}, None
-            if event["event"] in STORE_STATES:
-                version_id = str(event["decision_id"]).partition(":")[2]
-                row = stored.get(version_id)
-                if event["event"] == "pack_version.created" and (
-                    row is None
-                    or json.loads(event["payload"]).get("version_sha256")
-                    != store_version_sha256(row)
-                ):
-                    where = {"ok": False, "events": len(events), "broken_at": event["seq"]}
-                    return {**where, "reason": "store"}, None
-                states[version_id] = STORE_STATES[event["event"]]
-            if '"org":' in event["payload"] and not _attributed(event, owners, subjects):
-                return {
-                    "ok": False,
-                    "events": len(events),
-                    "broken_at": event["seq"],
-                    "reason": "organization",
-                }, None
-            prev = event["hash"]
         # Every store version's state is its newest event's, and none is unchained.
         if start is None and any(states.get(i) != row["state"] for i, row in stored.items()):
-            return {"ok": False, "events": len(events), "reason": "store"}, None
+            return {"ok": False, "events": total, "reason": "store"}, None
         if expected:  # a checkpoint's event is gone: the chain was cut short of it
-            cut = {"ok": False, "events": len(events), "broken_at": min(expected)}
+            cut = {"ok": False, "events": total, "broken_at": min(expected)}
             return {**cut, "reason": "checkpoint"}, None
-        if head is not None and not any(event["hash"] == head for event in events):
-            return {"ok": False, "events": len(events), "reason": "statement"}, None
+        if head is not None and not seen_head:
+            return {"ok": False, "events": total, "reason": "statement"}, None
         # The rows themselves, once the chain holds: a chain cut short reads as cut first.
         if start is None:
             found = _unsettled(rows_of, settled, later, created_at_seq)
             if found is not None:
-                return {"ok": False, "events": len(events), **found, "reason": "decision"}, None
-        last = (
-            {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
-            if events
-            else (None if start is None else {"seq": start["seq"], "hash": start["hash"]})
-        )
+                return {"ok": False, "events": total, **found, "reason": "decision"}, None
         since = {} if start is None else {"checkpoint": start}
         checked: dict[str, Any] = {}
         if notes:
-            broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
+            broken, counts, unopenable = self._check_notes(noted, {row["id"]: row for row in kept})
             if broken is not None:
-                failed = {"ok": False, "events": len(events), "broken_at": broken}
+                failed = {"ok": False, "events": total, "broken_at": broken}
                 return {**failed, "notes": counts}, None
             if unopenable:  # the chain holds; these notes cannot be checked with this ring
-                status = {"ok": False, "events": len(events), "notes": counts}
+                status = {"ok": False, "events": total, "notes": counts}
                 return {**status, "unopenable": unopenable}, None
             checked["notes"] = counts
         if held is not None:
-            refused, counts = self._check_evalsets(events, held, evalsets)
+            refused, counts = self._check_evalsets(of_evalsets, held, evalsets)
             if refused is not None:
-                status = {"ok": False, "events": len(events), **checked}
+                status = {"ok": False, "events": total, **checked}
                 return {**status, **refused, "evalsets": counts}, None
             checked["evalsets"] = counts
-        return {"ok": True, "events": len(events), "head": prev, **since, **checked}, last
+        return {"ok": True, "events": total, "head": prev, **since, **checked}, last
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
@@ -6782,6 +6772,86 @@ def _show_own_note(
         item["note"] = item["note"] if reader else None
         return
     item["note_status"], item["note"] = views.get(str(item["id"]), (None, None))
+
+
+# Events a verification reads per query (`_chain_pages`): what it holds of the chain at once.
+_VERIFY_PAGE = 2000
+
+
+def _chain_bound(first: int | None, top: int) -> tuple[str, tuple[int, ...]]:
+    """The events from `first` (None: the start) up to `top`, as a condition on `seq`."""
+    if first is None:
+        return "seq <= ?", (top,)
+    return "seq >= ? AND seq <= ?", (first, top)
+
+
+def _chain_count(db: _Session, first: int | None, top: int | None) -> int:
+    """How many events `_chain_pages` gives."""
+    if top is None:
+        return 0
+    bound, values = _chain_bound(first, top)
+    row = db.one(f"SELECT COUNT(*) AS n FROM audit_events WHERE {bound}", values)
+    return 0 if row is None else int(row["n"])
+
+
+def _chain_pages(
+    db: _Session, first: int | None, top: int | None
+) -> Iterator[list[dict[str, Any]]]:
+    """The events from `first` (None: the start) up to `top` (None: there are none), in chain
+    order, `_VERIFY_PAGE` at a time (keyset on `seq`)."""
+    if top is None:
+        return
+    bound, values = _chain_bound(first, top)
+    while True:
+        page = db.all(
+            f"SELECT * FROM audit_events WHERE {bound} ORDER BY seq LIMIT ?",
+            (*values, _VERIFY_PAGE),
+        )
+        if page:
+            yield page
+        if len(page) < _VERIFY_PAGE:
+            return
+        bound, values = "seq > ? AND seq <= ?", (int(page[-1]["seq"]), top)
+
+
+def _chain_break(
+    event: Mapping[str, Any],
+    prev: str,
+    expected: dict[Any, Any],
+    records: Mapping[str, Any],
+    rows_of: Mapping[str, Any],
+    stored: Mapping[str, Any],
+    states: dict[str, str],
+    owners: Mapping[str, str] | None,
+    subjects: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Where `event`, following `prev`, breaks the chain (`broken_at`, with a `reason` but for
+    its hash's own), or None. `expected` loses its checkpoint and `states` takes its state."""
+    chained = _chain_hash(
+        prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
+    )
+    if event["prev_hash"] != prev or event["hash"] != chained:
+        return {"broken_at": event["seq"]}
+    if expected.pop(event["seq"], event["hash"]) != event["hash"]:
+        return {"broken_at": event["seq"], "reason": "checkpoint"}
+    if event["event"] == "decision.created":
+        record = records.get(event["decision_id"])
+        if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
+            return {"broken_at": event["seq"]}
+        if not _row_as_chained(rows_of[event["decision_id"]], record):
+            return {"broken_at": event["seq"], "reason": "decision"}
+    if event["event"] in STORE_STATES:
+        version_id = str(event["decision_id"]).partition(":")[2]
+        row = stored.get(version_id)
+        if event["event"] == "pack_version.created" and (
+            row is None
+            or json.loads(event["payload"]).get("version_sha256") != store_version_sha256(row)
+        ):
+            return {"broken_at": event["seq"], "reason": "store"}
+        states[version_id] = STORE_STATES[event["event"]]
+    if '"org":' in event["payload"] and not _attributed(event, owners, subjects):
+        return {"broken_at": event["seq"], "reason": "organization"}
+    return None
 
 
 # Decisions a verification from a checkpoint reads per query (`_verify`).
