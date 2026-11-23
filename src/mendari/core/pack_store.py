@@ -17,7 +17,9 @@ database, keyed by content digest, as `EvalsetStore` keeps hidden sets.
 - **Each file is kept once** (`store_files`, by SHA-256), whichever versions and organizations
   hold it; `purge` removes a file no version holds but one withdrawn more than
   `PURGE_AFTER_DAYS` ago. An organization keeps at most `settings.store_org_bytes()` of files
-  and uploads at most its `store_uploads` quota a day (`MENDARI_ORG_DAILY_LIMITS`).
+  and datasets, and adds at most its `store_uploads` quota of versions and its `store_datasets`
+  quota of datasets a day (`MENDARI_ORG_DAILY_LIMITS`), each quota checked before the costly
+  load and checks, and again in the write's own transaction.
 - **`load` rebuilds from the database alone**: a serverless instance has no persistent disk,
   only a scratch one, so a version is written there on its first use in a process, checked
   against its digest, and kept in a cache bounded in count and bytes.
@@ -301,6 +303,9 @@ def _reserved(namespace: str) -> bool:
     return any(namespace == held or namespace.startswith(f"{held}-") for held in STORE_RESERVED)
 
 
+# Each daily store quota (`MENDARI_ORG_DAILY_LIMITS`): its `store_usage` column, and what it
+# counts, as a refusal names it.
+_DAILY = {"store_uploads": ("uploads", "versions"), "store_datasets": ("datasets", "datasets")}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
@@ -393,6 +398,7 @@ class PackStore:
         passed. The checks of an upload (PHI, namespace, hidden cases) are `admit`'s."""
         org, by = _org(org), _actor(by)
         _check_source(source, parent)
+        self._refuse_over_quota(org, "store_uploads")
         ready = _prepare(files)
         return self._insert(
             org,
@@ -435,6 +441,7 @@ class PackStore:
         org, by = _org(org), _actor(by)
         _check_source(source, parent)
         self._refuse_stopped(org)
+        self._refuse_over_quota(org, "store_uploads")
         for path in files:
             _check_path(path)
         found = phi_detect.detect_files({p: d for p, d in files.items() if _kept(p)})
@@ -492,6 +499,51 @@ class PackStore:
                 429,
             )
 
+    def _refuse_over_quota(self, org: str, metric: str, db: Any = None) -> None:
+        """A `StoreError` (429) when `org` has added today what its `metric` quota allows
+        (`store_uploads` versions, `store_datasets` datasets; `MENDARI_ORG_DAILY_LIMITS`, none
+        unset); read in `db` when given. Checked before the costly load and checks, and again
+        in the write's transaction, where parallel writes count too."""
+        from mendari import settings
+
+        quota = settings.org_daily_limits().get(metric)
+        if quota is None:
+            return
+        column, what = _DAILY[metric]
+        query = f"SELECT {column} AS n FROM store_usage WHERE org = ? AND day = ?"
+        params = (org, clock.today().isoformat())
+        if db is None:
+            with self.store._db.session(exclusive=False) as session:
+                used = session.one(query, params)
+        else:
+            used = db.one(query, params)
+        if used is not None and int(used["n"] or 0) >= quota:
+            raise StoreError(f"this organization has added its {quota} {what} for today", 429)
+
+    def _refuse_over_bytes(self, db: Any, org: str, adding: int, held: set[str]) -> None:
+        """A `StoreError` (413) when `org`'s store would keep more than
+        `settings.store_org_bytes()` with `adding` more bytes: the files its versions hold
+        (`held`, by SHA-256, each counted once) and its datasets as kept."""
+        from mendari import settings
+
+        allowed = settings.store_org_bytes()
+        files = sum(
+            int(row["size"])
+            for row in db.all("SELECT sha256, size FROM store_files")
+            if str(row["sha256"]) in held
+        )
+        datasets = db.one(
+            "SELECT COALESCE(SUM(COALESCE(size, LENGTH(data))), 0) AS n FROM store_datasets "
+            "WHERE org = ?",
+            (org,),
+        )
+        if files + int(datasets["n"] if datasets else 0) + adding > allowed:
+            raise StoreError(
+                f"this organization's store would hold more than {allowed} bytes of files and "
+                "datasets (MENDARI_STORE_ORG_BYTES)",
+                413,
+            )
+
     def _insert(
         self,
         org: str,
@@ -507,10 +559,6 @@ class PackStore:
         checks: Mapping[str, Any] | None = None,
         matches: list[dict[str, str]] | None = None,
     ) -> Stored:
-        from mendari import settings
-
-        uploads = settings.org_daily_limits().get("store_uploads")
-        allowed_bytes = settings.store_org_bytes()
         by_sha = {item["sha256"]: kept[item["path"]] for item in listed}
         day = clock.today().isoformat()
         with self.store._db.session(exclusive=True) as db:
@@ -532,24 +580,10 @@ class PackStore:
                     raise StoreError("no such version in this organization's store", 404)
                 if above["state"] in (HELD, WITHDRAWN):
                     raise StoreError(f"version {parent} is {above['state']}: nothing builds on it")
-            used = db.one("SELECT uploads FROM store_usage WHERE org = ? AND day = ?", (org, day))
-            if uploads is not None and (used["uploads"] if used else 0) >= uploads:
-                raise StoreError(
-                    f"this organization has added its {uploads} versions for today", 429
-                )
+            self._refuse_over_quota(org, "store_uploads", db)
             held = self._org_shas(db, org)
-            sizes = {
-                str(row["sha256"]): int(row["size"])
-                for row in db.all("SELECT sha256, size FROM store_files")
-                if str(row["sha256"]) in held
-            }
             new = {sha: len(data) for sha, data in by_sha.items() if sha not in held}
-            if sum(sizes.values()) + sum(new.values()) > allowed_bytes:
-                raise StoreError(
-                    f"this organization's store would hold more than {allowed_bytes} bytes of "
-                    "files (MENDARI_STORE_ORG_BYTES)",
-                    413,
-                )
+            self._refuse_over_bytes(db, org, sum(new.values()), held)
             for sha, data in by_sha.items():
                 db.all(
                     "INSERT INTO store_files (sha256, size, data) VALUES (?, ?, ?) "
@@ -997,8 +1031,10 @@ class PackStore:
         detector (`PhiRejected`), the dataset checks against version `digest` (kept and shown;
         a schema or label problem refuses it) and the hidden-set check (held on any match, for
         the operator, its uploader told only that). Kept sealed under the PHI policy when the
-        mode is `encrypt`. Chained `store_dataset.created` (and `store_dataset.held`), with
-        counts only."""
+        mode is `encrypt`. It counts against `org`'s quotas as a version does: its `store_datasets`
+        quota a day (429), checked first, and its bytes as kept with the files its versions
+        hold (`MENDARI_STORE_ORG_BYTES`, 413). Chained `store_dataset.created` (and
+        `store_dataset.held`), with counts only."""
         from mendari.core import phi_detect
         from mendari.evals import dataset_checks
         from mendari.evals.harness import load_dataset
@@ -1008,6 +1044,7 @@ class PackStore:
             raise StoreError("a dataset's name is lower-case letters, digits and hyphens")
         if kind not in ("upload", "improvement"):
             raise ValueError("a dataset is an upload or an improvement dataset")
+        self._refuse_over_quota(org, "store_datasets")  # before the detector, load and checks
         # An improvement dataset (LP-20i) is the organization's own reviewed decisions: patients'
         # inputs by construction, so neither the PHI detector nor the hidden-set check is for it;
         # it is always sealed where the policy seals.
@@ -1048,6 +1085,7 @@ class PackStore:
             if self.store.phi.mode == "encrypt"
             else text
         )
+        size = len(kept.encode("utf-8"))
         with self.store._db.session(exclusive=True) as db:
             if kind == "upload":
                 self._refuse_stopped(org, db)
@@ -1055,14 +1093,23 @@ class PackStore:
                 self.store._refuse_plaintext(db)
             if self.store.phi.mode == "encrypt":
                 self.store._refuse_retired(db)
+            self._refuse_over_quota(org, "store_datasets", db)
+            self._refuse_over_bytes(db, org, size, self._org_shas(db, org))
             db.all(
                 "INSERT INTO store_datasets (id, org, name, pack_id, digest, sha256, cases, "
-                "data, sealed, report, created_by, created_at, state, kind) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "data, sealed, report, created_by, created_at, state, kind, size) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (dataset_id, org, name, pack.id, digest, data.sha256, len(data.records), kept,
                  int(self.store.phi.mode == "encrypt"), _canonical(report.data), by, now, state,
-                 kind),
+                 kind, size),
             )  # fmt: skip
+            db.all(
+                "INSERT INTO store_usage (org, day, uploads, bytes, datasets) "
+                "VALUES (?, ?, 0, ?, 1) ON CONFLICT (org, day) DO UPDATE SET "
+                "datasets = COALESCE(store_usage.datasets, 0) + 1, "
+                "bytes = store_usage.bytes + excluded.bytes",
+                (org, clock.today().isoformat(), size),
+            )
             payload = {"dataset": dataset_id, "sha256": data.sha256, "kind": kind,
                        "cases": len(data.records), "by": by}  # fmt: skip
             chained = self.store._bound("store_dataset.created", payload, org)

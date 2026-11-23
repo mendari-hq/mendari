@@ -302,7 +302,11 @@ evaluations", apart from what the registry checked and from site evidence.
 A publisher key that is lost is revoked by the operator: `mendari registry revoke-key NAMESPACE
 KEY_ID --reason "..." --db …` (chained `key.revoked`). It signs no archive, recall or evaluation
 after; the versions it signed stay, and its evaluations stay listed with `excluded: "key
-revoked"`, out of the comparison.
+revoked"`, out of the comparison. `GET /v1/namespaces/{namespace}` lists each key with
+`revoked_at` (null while it is live), and the Agent Hub marks a revoked key on the publisher's
+page. `mendari pull` follows the registry: a revoked key still verifies a version the registry
+received before it was revoked (the version's `published_at`) and a recall signed before then;
+anything it signed later, or with no time, is refused (a recall stays a recall, unverified).
 
 ## Publisher tokens that belong to someone
 

@@ -167,7 +167,7 @@ def test_every_response_carries_a_request_id_and_errors_repeat_it(
         ({"authorization": "Bearer mat_0123456789"}, {}, "auth.credential.refused", "token", 401),
         ({"authorization": "Bearer ohk_a=b"}, {}, "auth.credential.refused", "malformed", 401),
         ({"authorization": "Basic dXNlcjpwYXNz"}, {}, "auth.credential.refused", "scheme", 401),
-        ({"cookie": "mendari_session=ended"}, {}, "auth.credential.refused", "session", 401),
+        ({"cookie": "__Host-mendari_session=ended"}, {}, "auth.credential.refused", "session", 401),
         ({}, {"access_token": "ohk_x"}, "auth.credential.refused", "in_url_or_form", 400),
         ("viewer", {}, "auth.permission.refused", "decide", 403),
         ("service", {}, "auth.permission.refused", "people_only", 403),

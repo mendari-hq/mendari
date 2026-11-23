@@ -105,7 +105,7 @@ def test_a_launch_session_row_holds_nothing_readable(
     assert "refresh_token" not in kept and "id_token" not in kept
     assert set(kept) == {
         *("iss", "access_token", "scope", "patient", "encounter", "fhir_user", "expires_at"),
-        *("pack", "launch_id", "v", "absolute_at", "identity", "actor"),
+        *("pack", "launch_id", "absolute_at", "identity", "actor"),
     }
     assert kept["identity"] == {"iss": ISS, "sub": "clinician-1"}  # no email kept
 

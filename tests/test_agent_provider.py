@@ -30,6 +30,7 @@ from mendari.providers import (
     provider_allow_list,
 )
 from mendari.providers.agent import (
+    CANNED,
     ENDPOINT_ENV,
     TOKEN_ENV,
     AgentConfig,
@@ -37,7 +38,14 @@ from mendari.providers.agent import (
     validate_response,
 )
 from mendari.providers.deadline import decision_deadline
-from tests.conftest import LIVE_SETTINGS, message
+from tests.conftest import (
+    DEMO_AGENT_DIR,
+    LIVE_SETTINGS,
+    encrypt_mode,
+    encrypted_store,
+    message,
+    signed_in,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_URL = "https://agent.test/v1/decide"
@@ -682,3 +690,88 @@ def test_the_landing_pages_example_is_the_demo_agents_decision() -> None:
 
     right = evaluate(decision, resolve_dataset(pack, "examples"))["proportions"]["accuracy"]
     assert f'<span class="k">{right["k"]} / {right["n"]}</span>' in site
+
+
+# -- canned answers never automate on a server with sign-in (owner decision, 2026-11-22) ---------
+
+REFILL = message("Could you refill my lisinopril? I am running low.")
+CANNED_REASON = "canned answers: MENDARI_AGENT_URL is not set; a person decides"
+
+
+def test_canned_answers_are_said_to_be_canned_and_live_ones_are_not(
+    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ENDPOINT_ENV, raising=False)
+    assert CANNED == "canned answers: MENDARI_AGENT_URL is not set"
+    assert make_agent_provider(agent_pack).answer(message("refill please")).canned == CANNED
+    monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
+    live = make_agent_provider(
+        agent_pack, lambda request: httpx.Response(200, json=agent_response())
+    )
+    assert live.answer(message("refill please")).canned is None
+
+
+def test_with_the_canned_cap_the_demo_agents_routine_refill_goes_to_a_person(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap only lowers automation: the same answers, recommendation and priority, with the
+    reason; without it (`mendari demo`, tests, open mode) the refill is AUTO as before."""
+    monkeypatch.delenv(ENDPOINT_ENV, raising=False)
+    pack = load_pack(DEMO_AGENT_DIR)
+    before = Decision(pack).decide(REFILL)
+    assert before.outcome is Outcome.AUTO and CANNED_REASON not in before.reasons
+    capped = Decision(pack, canned_cap=True).decide(REFILL)
+    assert capped.outcome is Outcome.HUMAN_REVIEW
+    assert capped.recommendation == before.recommendation == "refill"
+    assert capped.priority == before.priority
+    assert capped.reasons == (*before.reasons, CANNED_REASON)
+    # Already going to a person: the outcome is the rule's, and the reason says it is canned.
+    urgent = message("Please refill my inhaler. Also I have had chest pain since last night.")
+    review = Decision(pack, canned_cap=True).decide(urgent)
+    assert review.outcome is Outcome.HUMAN_REVIEW and review.rule == "same-day-symptoms"
+    assert review.reasons[-1] == CANNED_REASON
+
+
+def test_with_the_canned_cap_a_live_agent_still_automates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
+    monkeypatch.setattr(
+        "mendari.providers.agent.post_json", lambda *args, **kwargs: agent_response()
+    )
+    result = Decision(load_pack(DEMO_AGENT_DIR), canned_cap=True).decide(REFILL)
+    assert result.outcome is Outcome.AUTO and result.recommendation == "refill"
+    assert not any(reason.startswith("canned answers") for reason in result.reasons)
+
+
+def test_a_server_with_sign_in_never_automates_on_canned_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production (sign-in on) without MENDARI_AGENT_URL: the bundled agent's routine refill is
+    HUMAN_REVIEW, and the decision record and its audit trail say why. In open mode, as on a
+    laptop running the dashboard demo, it is AUTO as before."""
+    from fastapi.testclient import TestClient
+
+    from mendari.server.app import create_app
+    from tests.conftest import DASHBOARD
+
+    monkeypatch.delenv(ENDPOINT_ENV, raising=False)
+    route = "/api/packs/mendari/portal-message-agent/decide"
+    agents = [ROOT / "agents"]
+    open_mode = TestClient(create_app(db_path=tmp_path / "open.db", packs_paths=agents))
+    assert open_mode.post(route, json=REFILL).json()["outcome"] == "AUTO"
+
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-tests")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    db = tmp_path / "signed.db"
+    app = create_app(db_path=db, packs_paths=agents)
+    with encrypted_store(db) as served:
+        headers = signed_in(served, role="reviewer")
+    client = TestClient(app, base_url="https://mendari.test", headers=DASHBOARD)
+    decided = client.post(route, json=REFILL, headers=headers).json()
+    assert decided["outcome"] == "HUMAN_REVIEW", decided["reasons"]
+    assert decided["recommendation"] == "refill"
+    assert decided["reasons"][-1] == CANNED_REASON
+    record = client.get(f"/api/audit/{decided['id']}", headers=headers).json()
+    assert record["outcome"] == "HUMAN_REVIEW" and record["review_status"] == "pending"
+    assert record["record"]["reasons"][-1] == CANNED_REASON
+    assert record["events"][0]["event"] == "decision.created"

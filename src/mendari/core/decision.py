@@ -267,6 +267,7 @@ class Decision:
         deadline_s: float | None = None,
         site_codes: SiteCodeMaps | None = None,
         promotion: str | None = None,
+        canned_cap: bool = False,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
         for each decision instead (a deployment's recorded approvals, per organization).
@@ -281,7 +282,11 @@ class Decision:
         (`origin_approval`, the deployment's `registry_approvals`; without one, never), nor while
         the registry recalled it (LP-18d, ADR-0012): AUTO becomes HUMAN_REVIEW, as under a hold.
         Nothing in the pack lifts it. `origin_cap=False` is only for checking the pack's own
-        policy (`mendari test`, `mendari eval`), never for serving."""
+        policy (`mendari test`, `mendari eval`), never for serving.
+
+        `canned_cap` (a server with sign-in) never automates on canned answers (an agent's
+        `mock_file` read while `MENDARI_AGENT_URL` is unset): AUTO becomes HUMAN_REVIEW, with
+        the reason (`policy.apply_policy`'s `canned` cap). Off, they decide as live answers do."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
@@ -302,6 +307,7 @@ class Decision:
         self.site_codes = site_codes
         # A pack store's version is served under its promotion (LP-20h), named on each record.
         self.promotion = promotion
+        self.canned_cap = canned_cap
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -487,6 +493,7 @@ class Decision:
         failures: dict[str, str] = {}
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
+        canned: str | None = None  # why an answer is canned (`ProviderOutput.canned`), if one is
         meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
@@ -579,6 +586,7 @@ class Decision:
                                 continue
                             answers.update(output.answers)
                             failures.update(output.failures)
+                            canned = canned or output.canned
                             tokens_in += output.input_tokens
                             tokens_out += output.output_tokens
                             if cost is not None:
@@ -616,6 +624,7 @@ class Decision:
                     blocks_to_person="; ".join(origin_holds) or None,
                     site_code=translated,
                     not_offered=not_offered,
+                    canned=canned if self.canned_cap else None,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:

@@ -304,7 +304,17 @@ def daily_limits() -> dict[str, int | None]:
 # organization's evaluations make (`eval_jev`, `eval_llm`, LP-21h).
 # `store_uploads`: the versions an organization adds to its pack store a day (LP-20e).
 # `store_jobs`: the evaluation jobs it makes there a day (LP-20g).
-ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm", "store_uploads", "store_jobs")
+# `store_datasets`: the datasets it adds there a day, uploaded or built from its reviews.
+ORG_METRICS = (
+    "decisions",
+    "jev",
+    "llm",
+    "eval_jev",
+    "eval_llm",
+    "store_uploads",
+    "store_jobs",
+    "store_datasets",
+)
 # What one organization's pack store may keep, in bytes of files (LP-20e, owner decision 14).
 DEFAULT_STORE_ORG_BYTES = 256 * 1024 * 1024
 
@@ -333,8 +343,9 @@ def org_daily_limits() -> dict[str, int]:
 
 
 def store_org_bytes() -> int:
-    """$MENDARI_STORE_ORG_BYTES: the bytes of files one organization's pack store may keep
-    (LP-20e); 256 MiB unset. Each file is counted once however many of its versions hold it."""
+    """$MENDARI_STORE_ORG_BYTES: the bytes of files and datasets one organization's pack store
+    may keep (LP-20e); 256 MiB unset. Each file is counted once however many of its versions hold
+    it; each dataset as it is kept (sealed, under encrypt)."""
     raw = os.environ.get("MENDARI_STORE_ORG_BYTES", "").strip()
     if not raw:
         return DEFAULT_STORE_ORG_BYTES

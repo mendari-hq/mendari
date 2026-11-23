@@ -18,6 +18,10 @@ Order of evaluation:
    not offer (`standards/ehr_declarations.py`) may be incomplete, so the decision never
    automates and its rule's BLOCK goes to a person, the limitation a reason whatever the
    outcome. Without the declaration the pack alone abstains, so nothing lifts this one either.
+6. The `canned` cap: on a server with sign-in, answers an agent read from its `mock_file`
+   (`MENDARI_AGENT_URL` unset, `providers/agent.py`) never automate: AUTO becomes HUMAN_REVIEW
+   and the reason says so whatever the outcome. Nothing lifts it, governance included. Without
+   sign-in (`mendari demo`, tests, a local dashboard) the server passes none and nothing changes.
 """
 
 from __future__ import annotations
@@ -80,6 +84,7 @@ def apply_policy(
     blocks_to_person: str | None = None,
     site_code: Sequence[str] = (),
     not_offered: Sequence[str] = (),
+    canned: str | None = None,
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
@@ -90,7 +95,9 @@ def apply_policy(
     code sets a site's translation gave the input a value through (LP-23i): with any, AUTO and
     a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
     nothing else changes. `not_offered` names each limitation of a list read without a source the
-    site declared its EHR does not offer (`limitation`): the same cap, its own reason."""
+    site declared its EHR does not offer (`limitation`): the same cap, its own reason. `canned`
+    says why the answers are canned (`ProviderOutput.canned`): AUTO becomes HUMAN_REVIEW, and the
+    reason is given whatever the outcome."""
     translated = tuple(sorted(set(site_code)))
     limits = tuple(dict.fromkeys(not_offered))
     policy = manifest.policy
@@ -178,7 +185,10 @@ def apply_policy(
             hold,
             translated,
             limits,
+            canned,
         )
+    if canned is not None and not any(reason.startswith(canned) for reason in reasons):
+        reasons.append(canned_reason(canned))  # already not AUTO: the reason only
     site_reason = f"site code translated ({', '.join(translated)}): a person decides"
     if translated and not any(reason.startswith(site_reason) for reason in reasons):
         # Already HUMAN_REVIEW or ABSTAIN: the reason only says a translation was read, for the
@@ -190,6 +200,11 @@ def apply_policy(
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
+
+
+def canned_reason(canned: str) -> str:
+    """The `canned` cap's reason: why the answers are canned, and that a person decides."""
+    return f"{canned}; a person decides"
 
 
 def limitation(name: str, types: Sequence[str], attested_by: str) -> str:
@@ -231,15 +246,19 @@ def _cap(
     hold: str | None = None,
     site_code: Sequence[str] = (),
     not_offered: Sequence[str] = (),
+    canned: str | None = None,
 ) -> Outcome:
-    """AUTO, or HUMAN_REVIEW with why. The site code and not-offered caps and a hold keep the
-    reason the other caps would give too."""
+    """AUTO, or HUMAN_REVIEW with why. The site code, not-offered and canned caps and a hold
+    keep the reason the other caps would give too."""
     outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
     if site_code:
         reasons.append(f"site code translated ({', '.join(site_code)}): a person decides")
         outcome = Outcome.HUMAN_REVIEW
     for limit in not_offered:
         reasons.append(f"{limit}: a person decides")
+        outcome = Outcome.HUMAN_REVIEW
+    if canned is not None:
+        reasons.append(canned_reason(canned))
         outcome = Outcome.HUMAN_REVIEW
     if hold is not None:
         reasons.append(f"automation is on hold: {hold}")

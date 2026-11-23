@@ -1197,6 +1197,7 @@ def create_app(
                 recall_source=recall_watch.held,
                 deadline_s=deadline_s,
                 site_codes=site_maps,
+                canned_cap=sign_in is not None,  # canned answers never automate with sign-in
             )
         except MendariError:
             raise
@@ -1242,6 +1243,7 @@ def create_app(
                             deadline_s=deadline_s,
                             site_codes=site_maps,
                             promotion=promotion,
+                            canned_cap=sign_in is not None,
                         )
                     except MendariError:
                         raise

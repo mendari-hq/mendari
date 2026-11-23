@@ -76,6 +76,9 @@ class ProviderOutput:
     # Questions answered despite a partial failure (e.g. one member of a composite screen was
     # down). The policy treats them like failures: no AUTO when a check ran incomplete.
     failures: dict[str, str] = field(default_factory=dict)
+    # Why the answers are canned rather than a live call's (an agent's `mock_file`, read while
+    # `MENDARI_AGENT_URL` is unset), or None. A server with sign-in never automates on them.
+    canned: str | None = None
 
 
 # A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote

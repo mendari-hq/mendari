@@ -10,7 +10,9 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -370,6 +372,60 @@ def test_a_rotated_key_needs_consent(hub: Hub, tmp_path: Path) -> None:
     with pytest.raises(HubError, match="has not seen before"):
         pull("site-a/inbox@0.2.0", hub.client())
     assert pull("site-a/inbox@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
+
+
+def test_the_namespace_listing_marks_a_revoked_key(hub: Hub) -> None:
+    token, key = hub.namespace("site-a")
+    _, public = archive.generate_key()
+    live = hub.client(token).add_key("site-a", public)
+    revoked = archive.key_id(key.public_key())
+    with hub.operator() as store:
+        store.revoke_key("site-a", revoked, reason="lost laptop", by="operator")
+    keys = {k["key_id"]: k for k in hub.client().namespace("site-a")["keys"]}
+    # Additive: every field a key had, and `revoked_at` (null while the key is live).
+    fields = {"key_id", "public_pem", "created_at", "revoked_at"}
+    assert all(set(k) == fields for k in keys.values())
+    assert keys[live]["revoked_at"] is None
+    when = datetime.fromisoformat(keys[revoked]["revoked_at"])
+    assert when.utcoffset() == timedelta(0)
+    assert when >= datetime.fromisoformat(keys[revoked]["created_at"])
+
+
+def test_a_revoked_key_is_trusted_only_for_what_was_published_before_it(
+    hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token, old = hub.namespace("site-a")
+    publisher = hub.client(token)
+    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.1.0"), old)
+    private, public = archive.generate_key()
+    publisher.add_key("site-a", public)
+    with hub.operator() as store:
+        store.revoke_key("site-a", archive.key_id(old.public_key()), reason="lost", by="operator")
+    new = archive.load_private_key(private)
+    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.2.0"), new)
+    (listed,) = [k for k in hub.client().namespace("site-a")["keys"] if k["revoked_at"]]
+    revoked_at = datetime.fromisoformat(listed["revoked_at"])
+
+    # A version the registry says it received after the key was revoked (a row written straight
+    # into its database, say), or with no time at all, is refused, and nothing is cached.
+    served = RegistryClient.version
+    for published_at in ((revoked_at + timedelta(seconds=1)).isoformat(), None):
+
+        def version(self: RegistryClient, *args: Any, at: Any = published_at) -> dict[str, Any]:
+            meta = served(self, *args)
+            return {**meta, "published_at": at}
+
+        monkeypatch.setattr(RegistryClient, "version", version)
+        with pytest.raises(HubError, match="lists as revoked since"):
+            pull("site-a/inbox@0.1.0", hub.client(), accept_new_key=True)
+        assert not (client.packs_cache() / "site-a" / "inbox" / "0.1.0").exists()
+        # A live key is unaffected, with or without a time.
+        assert pull("site-a/inbox@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
+        shutil.rmtree(client.packs_cache() / "site-a" / "inbox" / "0.2.0")
+    monkeypatch.setattr(RegistryClient, "version", served)
+    # What the revoked key signed before it was revoked still verifies, as on the registry.
+    assert pull("site-a/inbox@0.1.0", hub.client()).version == "0.1.0"
+    assert pull("site-a/inbox@0.2.0", hub.client()).version == "0.2.0"
 
 
 def test_from_hub_pulls_a_pack_that_is_not_local(

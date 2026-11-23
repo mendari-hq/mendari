@@ -32,7 +32,11 @@ from as before, and the marker beside the pack records `accepted: null`; unless
 pinned key) or `shipped` (by a shipped key only: nothing is trusted on first use).
 
 Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
-is refused, unless the user accepts the new key, the way SSH treats a changed host key.
+is refused, unless the user accepts the new key, the way SSH treats a changed host key. A key the
+registry lists as revoked (`revoked_at`) is trusted only for what was signed before then: a
+version the registry received before (its `published_at`), or a recall whose signed time is
+before; anything later, or with no time, is refused. The registry itself does the same: it takes
+nothing from a revoked key and still verifies what the key signed before (ADR-0020).
 
 Pulled packs are cached under `~/.cache/mendari/packs/<namespace>/<name>/<version>`, which is
 on the pack search path, so `mendari test`, `Decision.from_hub` and the server find them like
@@ -440,7 +444,15 @@ def pull(
             # Cached: what the registry says of it now (a recall since) is written beside it.
             _write_origin(target, client, namespace, meta, accepted)
             return pack
-    keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
+    # Signed when the registry received it (it takes nothing from a revoked key): a key revoked
+    # since still verifies it, one revoked before does not.
+    keys = _trusted_keys(
+        client,
+        namespace,
+        meta["key_id"],
+        signed_at=meta.get("published_at"),
+        accept_new_key=accept_new_key,
+    )
     data = client.archive(namespace, name, version)
     if hashlib.sha256(data).hexdigest() != meta["archive_sha256"]:
         raise HubError("the downloaded archive is not the one the registry recorded")
@@ -538,7 +550,13 @@ def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> di
         try:
             if record["signer"] == "publisher":
                 namespace = pack.id.split("/")[0]
-                keys = _trusted_keys(client, namespace, str(record["key_id"]), accept_new_key=False)
+                keys = _trusted_keys(
+                    client,
+                    namespace,
+                    str(record["key_id"]),
+                    signed_at=str(record["at"]),
+                    accept_new_key=False,
+                )
                 key = keys.get(str(record["key_id"]))
             else:
                 key = _registry_key(client)
@@ -659,15 +677,55 @@ def _accepted(
 _REGISTRY_PIN = "@registry"  # never a namespace (a namespace is letters, digits and dashes)
 
 
+def _revoked_at(listed: Mapping[str, Any]) -> datetime | None:
+    """When the registry says a listed key was revoked (None: it is live, or the registry is
+    one from before `revoked_at`). A value that is not a UTC time is refused, never read as
+    live."""
+    from mendari.hub import yank
+
+    value = listed.get("revoked_at")
+    if value is None:
+        return None
+    when = yank.at({"at": value}) if isinstance(value, str) else None
+    if when is None:
+        raise HubError("the registry listed a key whose revoked_at is not a UTC time")
+    return when
+
+
 def _trusted_keys(
-    client: RegistryClient, namespace: str, signer: str, *, accept_new_key: bool
+    client: RegistryClient,
+    namespace: str,
+    signer: str,
+    *,
+    signed_at: str | None,
+    accept_new_key: bool,
 ) -> dict[str, Ed25519PublicKey]:
-    """The namespace's keys this machine trusts, pinning them the first time it sees them."""
+    """The namespace's keys this machine trusts for what was signed at `signed_at`, pinning
+    them the first time it sees them. A key the registry lists as revoked (`revoked_at`) is
+    trusted only for what was signed strictly before it was revoked, as the registry itself
+    keeps verifying what such a key signed before (`mendari registry revoke-key`, ADR-0020);
+    for a `signed_at` that is missing or not a UTC time, never. Refused outright when `signer`
+    is such a key."""
+    from mendari.hub import yank
+
     listed = client.namespace(namespace)["keys"]
     found = {k["key_id"]: archive.load_public_key(k["public_pem"].encode()) for k in listed}
     for key_id, key in found.items():
         if archive.key_id(key) != key_id:
             raise HubError("the registry listed a key under the wrong id")
+    revoked = {k["key_id"]: _revoked_at(k) for k in listed}
+    when = yank.at({"at": signed_at}) if isinstance(signed_at, str) else None
+    untrusted = {
+        key_id: at
+        for key_id, at in revoked.items()
+        if at is not None and (when is None or when >= at)
+    }
+    if signer in untrusted:
+        raise HubError(
+            f"{namespace} is signed by {signer}, which the registry lists as revoked since "
+            f"{untrusted[signer].isoformat()}: nothing it signed after that is trusted"
+            + ("" if when is not None else ", and when this was signed is not known")
+        )
     pins = _read_pins()
     mine = _pins_of(pins, client.url)
     pinned = set(mine.get(namespace, []))
@@ -680,4 +738,6 @@ def _trusted_keys(
             f"{namespace} is signed by {signer}, which this machine has not seen before; "
             "if the publisher rotated their key, pull again with --accept-new-key"
         )
-    return {key_id: key for key_id, key in found.items() if key_id in pinned}
+    return {
+        key_id: key for key_id, key in found.items() if key_id in pinned and key_id not in untrusted
+    }

@@ -263,6 +263,98 @@ def test_an_organization_over_its_bytes_or_its_daily_uploads_is_refused(
     packs.put(ORG_B, files, by="user-2", source="upload")  # another organization's own quota
 
 
+def a_dataset(lines: int = 1) -> bytes:
+    """The inbox pack's own test cases, `lines` of them, as JSON Lines."""
+    kept = (INBOX_DIR / "data" / "test.jsonl").read_bytes().splitlines()[:lines]
+    return b"\n".join(kept) + b"\n"
+
+
+def files_bytes(store: AuditStore) -> int:
+    with store._db.session(exclusive=False) as db:
+        return int(db.one("SELECT SUM(size) AS n FROM store_files")["n"])
+
+
+def test_a_datasets_bytes_count_against_the_organizations_store_with_the_files(
+    packs: PackStore, store: AuditStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dataset is kept in the store's database as a version's files are: its bytes count
+    toward MENDARI_STORE_ORG_BYTES with them, refused past it (413) whether the dataset or a
+    version comes last. Before, datasets were bounded only by the per-person rate limit."""
+    stored = packs.put(ORG_A, files_of(renamed(tmp_path)), by="user-1", source="upload")
+    files = files_bytes(store)
+    raw = a_dataset(3)
+    monkeypatch.setenv("MENDARI_STORE_ORG_BYTES", str(files + len(raw) - 1))
+    with pytest.raises(StoreError) as error:
+        packs.add_dataset(ORG_A, raw, by="user-1", name="cases", digest=stored.digest)
+    assert error.value.status == 413 and "MENDARI_STORE_ORG_BYTES" in str(error.value)
+    assert packs.datasets(ORG_A) == []
+    monkeypatch.setenv("MENDARI_STORE_ORG_BYTES", str(files + len(raw)))
+    packs.add_dataset(ORG_A, raw, by="user-1", name="cases", digest=stored.digest)
+    # The store is full: a version with one new file is refused for the dataset's bytes.
+    edited = files_of(renamed(tmp_path / "edit"))
+    edited["tests/cases.yaml"] += b"\n# another\n"
+    with pytest.raises(StoreError) as error:
+        packs.put(ORG_A, edited, by="user-1", source="edit", parent=stored.digest)
+    assert error.value.status == 413
+    # Another organization's store is its own.
+    other = packs.put(ORG_B, files_of(renamed(tmp_path / "b", "clinic-b/inbox-router")),
+                      by="user-2", source="upload")  # fmt: skip
+    assert other.digest
+
+
+def test_an_organizations_datasets_a_day_are_bounded_and_checked_before_the_costly_work(
+    packs: PackStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`store_datasets` in MENDARI_ORG_DAILY_LIMITS: past it a dataset is refused (429) before
+    the PHI detector, the version's load and the dataset checks run; each organization has its
+    own count."""
+    from mendari.core import phi_detect
+
+    a = packs.put(ORG_A, files_of(renamed(tmp_path)), by="user-1", source="upload")
+    b = packs.put(ORG_B, files_of(renamed(tmp_path / "b", "clinic-b/inbox-router")),
+                  by="user-2", source="upload")  # fmt: skip
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "store_datasets=1")
+    packs.add_dataset(ORG_A, a_dataset(), by="user-1", name="one", digest=a.digest)
+
+    def costly(*_: Any, **__: Any) -> Any:
+        raise AssertionError("the costly work ran past the quota")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(phi_detect, "detect_files", costly)
+        patched.setattr(PackStore, "load", costly)
+        with pytest.raises(StoreError) as error:
+            packs.add_dataset(ORG_A, a_dataset(), by="user-1", name="two", digest=a.digest)
+    assert error.value.status == 429 and "1 datasets for today" in str(error.value)
+    assert [d["name"] for d in packs.datasets(ORG_A)] == ["one"]
+    packs.add_dataset(ORG_B, a_dataset(), by="user-2", name="one", digest=b.digest)
+    # The versions' own quota is apart: a version is still added today.
+    edited = files_of(renamed(tmp_path / "edit"))
+    edited["tests/cases.yaml"] += b"\n# another\n"
+    packs.put(ORG_A, edited, by="user-1", source="edit", parent=a.digest)
+
+
+def test_the_daily_versions_quota_is_checked_before_the_archive_is_loaded(
+    packs: PackStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Past `store_uploads`, an upload is refused (429) before the pack is loaded and
+    validated on the bounded engine, which is the costly part, not after."""
+    from mendari.core import pack_store
+
+    files = files_of(renamed(tmp_path))
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "store_uploads=1")
+    packs.put(ORG_A, files, by="user-1", source="upload")
+    files["tests/cases.yaml"] += b"\n# another\n"
+
+    def costly(*_: Any, **__: Any) -> Any:
+        raise AssertionError("the pack was loaded past the quota")
+
+    monkeypatch.setattr(pack_store, "_prepare", costly)
+    for write in (packs.put, packs.admit):
+        with pytest.raises(StoreError) as error:
+            write(ORG_A, files, by="user-1", source="upload")
+        assert error.value.status == 429 and "1 versions for today" in str(error.value)
+
+
 def test_a_fresh_process_loads_a_version_from_the_database_alone(
     db_target: str, tmp_path: Path
 ) -> None:

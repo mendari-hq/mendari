@@ -48,7 +48,9 @@ class CardLink(NamedTuple):
 # The bundled demo agent answers offline from its fixture (`fixtures/mock_agent.json`) unless the
 # deployment points it at a live agent (`MENDARI_AGENT_URL`), so every server shows this answer
 # and the page says whose it is; with sign-in on that tells nothing of the deployment (threat
-# model I6). tests/test_landing.py checks it against what a server decides.
+# model I6). It is open mode's answer: with sign-in on, canned answers never automate (the
+# decision is HUMAN_REVIEW, `policy.apply_policy`'s `canned` cap), and the label says so on
+# every server alike. tests/test_landing.py checks it against what a server decides.
 QUICKSTART_PACK = "mendari/portal-message-agent"
 PRINTED = {
     "id": "…",
@@ -57,7 +59,7 @@ PRINTED = {
     "priority": "routine",
     "reasons": ["confidence 0.95 >= auto threshold 0.90"],
 }
-PRINTED_LABEL = "Prints with the agent's offline fixture, abridged"
+PRINTED_LABEL = "Prints with the agent's offline fixture in open mode, abridged"
 
 # The setup the examples share. The address is filled in by docs.js from the address bar.
 _SETUP = (

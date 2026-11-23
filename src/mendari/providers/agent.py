@@ -17,7 +17,8 @@ Configuration & security:
   `endpoint`, and has its `timeout_seconds` capped by the deployment (`core/origin.py`).
 - `mock_file`: optional pack-relative JSON or YAML fixture used offline when no live endpoint is
   configured, so agent packs validate, test, and evaluate cleanly without network calls, and
-  switch to a real agent automatically when `MENDARI_AGENT_URL` is set.
+  switch to a real agent automatically when `MENDARI_AGENT_URL` is set. Its answers are canned
+  (`CANNED`): on a server with sign-in, a decision on them never automates (HUMAN_REVIEW).
 """
 
 from __future__ import annotations
@@ -53,6 +54,10 @@ from mendari.providers.http import post_json, require_https, require_secure
 
 ENDPOINT_ENV = "MENDARI_AGENT_URL"
 TOKEN_ENV = "MENDARI_AGENT_TOKEN"
+# Why an answer read from the variant's `mock_file` is canned (`ProviderOutput.canned`): a server
+# with sign-in never automates on it (`policy.apply_policy`'s `canned` cap). Stable: the
+# dashboard and the audit trail show it.
+CANNED = f"canned answers: {ENDPOINT_ENV} is not set"
 
 # Same character class as `evals/share.py` `_MODEL_PART` so provenance ids are always shareable.
 AGENT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$"
@@ -291,6 +296,7 @@ class AgentProvider(Provider):
             output_tokens=usage["output_tokens"],
             cost_usd=cost_usd,
             extra=extra,
+            canned=CANNED if used_mock else None,
         )
 
 

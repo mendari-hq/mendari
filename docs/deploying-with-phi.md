@@ -137,7 +137,8 @@ about sessions:
 - **Cookies** are `__Host-mendari_session` (and `__Host-mendari_smart` for an EHR launch):
   HttpOnly, Secure, SameSite=Lax, for this exact host only, so another subdomain of your domain
   cannot set or replace them. On `localhost`, `127.0.0.1` and dotless hosts (a compose service)
-  they keep their plain names, `mendari_session` and `mendari_smart`. Serve Mendari over https:
+  they keep their plain names, `mendari_session` and `mendari_smart`; on any other host the
+  plain names are never read. Serve Mendari over https:
   browsers refuse Secure cookies on plain http anywhere but localhost.
 - **A sign-in works only in the browser that started it.** `/auth/login` (and `/smart/launch`)
   set a ten-minute cookie (`__Host-mendari_signin`, `__Host-mendari_launch`) that the callback
@@ -448,10 +449,12 @@ logged as `auth.origin.refused` (§7), with a reason code and the request id
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
-EHR launches the app again. Phase 4b signs nobody out: sessions from before it keep their
-8 hours (and take up the idle limit at their next request), their old cookie name is still read
-for them for one release, their roles are the ones they signed in with, and a sign-in or launch
-in flight at the deploy completes once without the browser cookie.
+EHR launches the app again. Phase 4b signed nobody out: sessions from before it kept their
+8 hours (and took up the idle limit at their next request), their old cookie name was read for
+them for one release, and a sign-in in flight at the deploy completed once without the browser
+cookie. Since 2026-11-22 neither is accepted: on a host that uses `__Host-` names the plain
+`mendari_session` and `mendari_smart` are never read, and a pending sign-in without the browser
+cookie's digest is refused.
 
 The release that seals EHR launch rows (ADR-0006) signs nobody out either: people's sessions
 and sign-ins are untouched. An EHR launch in flight at the upgrade, or a launch session from

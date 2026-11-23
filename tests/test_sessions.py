@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Browser sessions (server/sessions.py): idle and absolute expiry held in the row's
-`expires_at`, roles worked out on every request, `__Host-` cookie names with the old name read
-for rows from before the release, and sign-ins and EHR launches tied to the browser that
+`expires_at`, roles worked out on every request, `__Host-` cookie names (the old plain names
+never read on a host that uses them), and sign-ins and EHR launches tied to the browser that
 started them. The store's side runs on SQLite and Postgres (`db_target`)."""
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from mendari.core.audit import AuditStore
@@ -142,18 +143,44 @@ def test_concurrent_touches_never_shorten_a_session(store: AuditStore, db_target
     assert store.smart_touch("sid", "session", now + 9000) is False  # its own kind only
 
 
-def test_a_row_from_the_previous_release_keeps_working(
+def test_the_old_cookie_name_is_ignored(server: TestClient, db_target: str) -> None:
+    """On a host that uses `__Host-` names, the plain `mendari_session` and `mendari_smart` (read
+    for one release, for rows from before Phase 4b) are never read: a row they name, old or new,
+    is not reached, and is left as it was."""
+    now = int(time.time())
+    old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
+    with AuditStore(db_target) as store:
+        store.smart_put("old-sid", "user", old, now + 7 * HOUR)
+        person = signed_in(store, role="viewer")
+    for sid in ("old-sid", sid_of(person)):
+        plain = {"cookie": f"mendari_session={sid}"}
+        assert server.get("/api/audit", headers=plain).status_code == 401
+        assert server.get("/api/auth/me", headers=plain).json()["signed_in"] is False
+    for base in (sessions.SESSION, sessions.SMART):
+        for host, read in (("mendari.test", None), ("127.0.0.1", "sid")):
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/",
+                "server": (host, 443),
+                "headers": [(b"host", host.encode()), (b"cookie", f"{base}=sid".encode())],
+            }
+            assert sessions.read(Request(scope), base) == read, (base, host)
+    assert expiry(db_target, "old-sid") == now + 7 * HOUR  # untouched: never resumed
+    assert server.get("/api/audit", headers=person).status_code == 200
+
+
+def test_a_row_without_an_absolute_limit_keeps_its_own(
     server: TestClient, db_target: str, clock: Callable[[int], None]
 ) -> None:
-    """Made before this release: no `v`, no `absolute_at`, no claims, eight hours from sign-in,
-    under the plain cookie name. Nobody is signed out by the deploy: its stored roles hold, the
-    plain name still reaches it, its expiry is its absolute limit, and the idle limit starts at
+    """A row with no `absolute_at` and no claims, eight hours from sign-in (as Phase 4b found
+    them): its stored roles hold, its expiry is its absolute limit, and the idle limit starts at
     its first request."""
     now = int(time.time())
     old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
     with AuditStore(db_target) as store:
         store.smart_put("old-sid", "user", old, now + 7 * HOUR)
-    cookie = {"cookie": "mendari_session=old-sid"}
+    cookie = {"cookie": "__Host-mendari_session=old-sid"}
     me = server.get("/api/auth/me", headers=cookie).json()["principal"]
     assert me["roles"] == ["reviewer"] and me["actor"] == f"{IDP}|u1"
     assert expiry(db_target, "old-sid") == now + 30 * MINUTE  # idle from now on
@@ -170,7 +197,7 @@ def test_an_idle_old_row_ends_too(
     with AuditStore(db_target) as store:
         old = {"sub": "u1", "name": "x", "roles": ["viewer"], "org": "default"}
         store.smart_put("old-sid", "user", old, int(time.time()) + 7 * HOUR)
-    cookie = {"cookie": "mendari_session=old-sid"}
+    cookie = {"cookie": "__Host-mendari_session=old-sid"}
     assert server.get("/api/audit", headers=cookie).status_code == 200
     clock(31 * MINUTE)
     assert server.get("/api/audit", headers=cookie).status_code == 401
@@ -263,23 +290,16 @@ def test_a_role_from_an_email_is_checked_again_against_the_map(
 # -- cookie names -------------------------------------------------------------------------------
 
 
-def test_a_plain_name_cookie_works_only_for_a_row_from_before_the_release(
-    server: TestClient, db_target: str
-) -> None:
+def test_a_plain_name_cookie_reaches_no_row(server: TestClient, db_target: str) -> None:
     """A sibling subdomain can set a plain-named cookie for this host, never a `__Host-` one: a
-    row made under the new name is reached only through it."""
+    row is reached only through the `__Host-` name."""
     with AuditStore(db_target) as store:
         person = signed_in(store, role="viewer")
-        old = {"sub": "u1", "name": "x", "roles": ["viewer"], "org": "default"}
-        store.smart_put("old-sid", "user", old, int(time.time()) + HOUR)
     sid = sid_of(person)
     assert person["cookie"].startswith("__Host-mendari_session=")
     assert server.get("/api/audit", headers=person).status_code == 200
     plain = {"cookie": f"mendari_session={sid}"}
     assert server.get("/api/audit", headers=plain).status_code == 401
-    assert (
-        server.get("/api/audit", headers={"cookie": "mendari_session=old-sid"}).status_code == 200
-    )
     with AuditStore(db_target) as store:
         assert store.smart_get(sid, "user") is not None  # refused, not ended
 
@@ -304,12 +324,12 @@ def test_local_and_dotless_hosts_keep_the_plain_names(
         assert local.get("/api/audit", headers=person).status_code == 200
 
 
-def test_logging_out_clears_both_names(server: TestClient, db_target: str) -> None:
+def test_logging_out_clears_the_cookie_under_its_name(server: TestClient, db_target: str) -> None:
     with AuditStore(db_target) as store:
         person = signed_in(store, role="viewer")
     done = server.post("/auth/logout", headers=person)
     cleared = [c for c in done.headers.get_list("set-cookie") if "max-age=0" in c.lower()]
-    assert sorted(c.split("=")[0] for c in cleared) == ["__Host-mendari_session", "mendari_session"]
+    assert [c.split("=")[0] for c in cleared] == ["__Host-mendari_session"]
     assert server.get("/api/audit", headers=person).status_code == 401
 
 
@@ -424,10 +444,11 @@ def test_a_proxy_that_rewrites_the_host_gets_one_move_never_a_loop(
         assert pending_rows(tmp_path / "a.db", "oidc-pending") == 1
 
 
-def test_a_sign_in_in_flight_at_the_deploy_is_accepted_once(
+def test_a_pending_sign_in_without_a_digest_is_refused(
     tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Its pending row keeps no digest (made by the release before): accepted, as before, once."""
+    """A pending row that keeps no browser digest (as the release before Phase 4b made them) is
+    refused, from any browser, and is used up: it never signs anyone in."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
     with signing_in_with(idp, tmp_path, monkeypatch) as app:
         code, state = started_sign_in(app, idp, roles=["clinicians"])
@@ -436,13 +457,15 @@ def test_a_sign_in_in_flight_at_the_deploy_is_accepted_once(
             assert pending is not None and "browser" in pending
             del pending["browser"]
             store.smart_put(state, "oidc-pending", pending, int(time.time()) + 600)
-        app.cookies.clear()
+        # Even the browser that started it (its binding cookie still held) is refused.
+        assert any(name.endswith("mendari_signin") for name in app.cookies)
         done = app.get(
             "/auth/callback", params={"code": code, "state": state}, follow_redirects=False
         )
-        assert done.status_code == 302
+        assert done.status_code == 400 and "another browser or tab" in done.text
+        assert not [c for c in app.cookies if "mendari_session" in c]
         again = app.get("/auth/callback", params={"code": code, "state": state})
-        assert again.status_code == 400
+        assert again.status_code == 400 and "unknown, used or expired" in again.text
 
 
 @pytest.mark.parametrize(
