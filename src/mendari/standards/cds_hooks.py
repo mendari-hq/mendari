@@ -9,7 +9,8 @@ default; see `fhir_client`). A key sent empty (`{}`, `[]`, `""`) counts as left 
 key left out with no `fhirServer` is a `412` (`PrefetchRequired`), as CDS Hooks 2.0 says; a key
 whose value is null is "no data" and is not fetched, and one whose value is neither null nor a
 resource cannot be read. What the client sent goes through the structural R4 check, every
-value of it (a `400`), before any of it is set aside.
+value of it and the draft orders (a `400`), before any of it is set aside and before anything is
+fetched for the request.
 
 The hook always answers (LP-23d). A key that could not be read (each read on its own: a failed
 fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
@@ -262,6 +263,14 @@ def invoke(
     if charge is not None:
         charge(len(orders) if hooks.hook in ORDER_HOOKS else 1)
     sent = _object(request, "prefetch")
+    # Every value the client sent goes through the structural R4 check before any is set aside,
+    # as before: a structure error is the request's fault (a `400`), whatever the value is. So do
+    # the draft orders, and a Patient the prefetch holds must be the context's: all before
+    # anything is fetched on the request's behalf, so input refused is never a network call.
+    _require_r4(sent)
+    if orders:
+        _require_r4(orders)
+    _require_one_patient(request, sent)
     # A key left out, or sent empty, is fetched, as before; a null value is "no data" (CDS
     # Hooks 2.0), never fetched.
     missing = [key for key in hooks.prefetch if _left_out(sent, key)]
@@ -286,9 +295,6 @@ def invoke(
     wanted = [key for key in missing if key not in not_offered]
     if wanted:
         found, unreadable = fetch(hooks.prefetch, wanted, request, statuses=statuses)
-    # Every value the client sent goes through the structural R4 check before any is set aside,
-    # as before: a structure error is the request's fault (a `400`), whatever the value is.
-    _require_r4(sent)
     prefetch: dict[str, Any] = {}
     for key, value in sent.items():
         if value is None or key in missing or key in not_offered:
@@ -536,9 +542,10 @@ def _require_one_patient(request: Mapping[str, Any], prefetch: Mapping[str, Any]
                 raise FhirError(f"prefetch {key!r} holds a Patient other than context.patientId")
 
 
-def _require_r4(sent: Mapping[str, Any]) -> None:
-    """The structural R4 check on the prefetch the client sent (`fhir_structure`): a blocking
-    issue is the request's fault, a `FhirStructureError` (`400`), paths only."""
+def _require_r4(sent: Mapping[str, Any] | list[dict[str, Any]]) -> None:
+    """The structural R4 check on the prefetch (or the draft orders) the client sent
+    (`fhir_structure`): a blocking issue is the request's fault, a `FhirStructureError` (`400`),
+    paths only."""
     malformed = fhir_structure.blocking(fhir_structure.check(sent))
     if malformed:
         raise FhirStructureError(

@@ -531,6 +531,33 @@ def test_request_faults_stay_4xx_and_the_r4_gate_is_unchanged(
     assert app.get("/api/audit").json() == []
 
 
+def test_input_refused_by_the_r4_gate_is_refused_before_anything_is_fetched(
+    monkeypatch: pytest.MonkeyPatch, app: TestClient
+) -> None:
+    """The prefetch the client sent and its draft orders are checked (structure, the context's
+    patient) before Mendari fetches the keys left out on the request's behalf: a request refused
+    is never a call to its `fhirServer`."""
+    request, seen = ehr_failing(monkeypatch, None)
+
+    def sent(change: Callable[[dict[str, Any]], None]) -> int:
+        body = copy.deepcopy(request)
+        change(body)
+        return app.post(SERVICE, json=body).status_code
+
+    def bad_order(body: dict[str, Any]) -> None:
+        body["context"]["draftOrders"]["entry"][0]["resource"]["status"] = 7
+
+    patient = {"resourceType": "Patient", "id": "ref-p1", "gender": 7}
+    other = {"resourceType": "Patient", "id": "someone-else"}
+    assert sent(lambda body: body.update(prefetch={"patient": patient})) == 400
+    assert sent(bad_order) == 400
+    assert sent(lambda body: body.update(prefetch={"patient": other})) == 422
+    assert seen == []
+    assert app.get("/api/audit").json() == []
+    assert sent(lambda body: None) == 200  # the same request, well formed, is fetched for
+    assert seen
+
+
 def test_an_unreadable_abstain_shows_a_card_whatever_show_says(app: TestClient) -> None:
     """The trial pack shows cards for `candidate` and `needs_review` only, so an ABSTAIN (no
     recommendation) would be silent; over unreadable data it shows an `info` card, so the
