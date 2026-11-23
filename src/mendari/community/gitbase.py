@@ -9,9 +9,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from mendari.core.origin import COMMUNITY_FOLDER
 from mendari.errors import MendariError
 
-COMMUNITY_DIR = "community-packs"
+COMMUNITY_DIR = COMMUNITY_FOLDER
 
 
 def _git(repo: Path, *args: str) -> bytes:

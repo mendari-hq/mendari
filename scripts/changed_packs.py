@@ -5,14 +5,15 @@ characters it holds.
 
     uv run python scripts/changed_packs.py BASE_SHA | while IFS= read -r -d '' dir; do ...; done
 
-Under `agents/`, a changed file belongs to the nearest folder above it that holds a `pack.yaml`
-(a pack can sit up to four levels deep, as the registry finds it). A file under no pack, such as
-one left over from a removed pack, is reported as its top folder, `agents/<name>`, which then has
-no `pack.yaml`: the workflow says it was removed.
+Under `agents/`, a changed file belongs to the nearest folder above it that holds a manifest
+(`agent.yaml`, or `pack.yaml`, the name it had before: `mendari.core.pack.MANIFEST_NAMES`; an
+agent can sit up to four levels deep, as the registry finds it). A file under no agent, such as
+one left over from a removed agent, is reported as its top folder, `agents/<name>`, which then
+has no manifest: the workflow says it was removed.
 
-Under `community-packs/`, a pack is exactly one folder, `community-packs/<name>`, whatever its
-files (a `pack.yaml` deeper is the pack's mistake, which `mendari community-check` reports).
-Files directly in `community-packs/` (`MAINTAINERS.yaml`, `README.md`) belong to no pack.
+Under `community-packs/`, an agent is exactly one folder, `community-packs/<name>`, whatever its
+files (a manifest deeper is the agent's mistake, which `mendari community-check` reports).
+Files directly in `community-packs/` (`MAINTAINERS.yaml`, `README.md`) belong to no agent.
 """
 
 from __future__ import annotations
@@ -24,10 +25,13 @@ from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from mendari.core.pack import has_manifest  # noqa: E402
+
 PACKS = "agents"
 COMMUNITY = "community-packs"
-MANIFEST = "pack.yaml"
-MAX_DEPTH = 4  # the deepest pack.yaml the registry loads: agents/a/b/c/pack.yaml
+MAX_DEPTH = 4  # the deepest manifest the registry loads: agents/a/b/c/agent.yaml
 
 
 def pack_dirs(paths: Iterable[str], root: Path) -> list[str]:
@@ -43,7 +47,7 @@ def pack_dirs(paths: Iterable[str], root: Path) -> list[str]:
         owner = PurePosixPath(*parts[:2])
         for depth in range(min(len(parts) - 1, MAX_DEPTH), 1, -1):
             candidate = PurePosixPath(*parts[:depth])
-            if (root / candidate / MANIFEST).is_file():
+            if has_manifest(root / candidate):
                 owner = candidate
                 break
         found.add(str(owner))

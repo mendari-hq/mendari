@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local hub: find agents on the search path.
 
-Search order: `MENDARI_PACKS_PATH` (os.pathsep-separated), then packs pulled from a registry
-(the verified cache, `mendari pull`), then the packs bundled with the installed distribution
-(or the repository's `packs/` directory in a source checkout), then, with
-`MENDARI_COMMUNITY_PACKS=on`, the repository's `community-packs/`.
+Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated; `MENDARI_PACKS_PATH`, the name it
+had before, is read while it is unset), then packs pulled from a registry (the verified cache,
+`mendari pull`), then the packs bundled with the installed distribution (or the repository's
+`agents/` directory in a source checkout), then, with `MENDARI_COMMUNITY_AGENTS=on`, the
+repository's `community-packs/`.
 
 Each directory has an origin (`core/origin.py`): `maintained`, `community`, `hub` or `local`.
 A pack found under a `local` directory takes the origin of where it sits, so a path that holds
@@ -26,21 +27,23 @@ from pathlib import Path
 from typing import NamedTuple
 
 from mendari.core.origin import (
+    COMMUNITY_FOLDER,
     Origin,
     community_problems,
     namespace_problem,
     performer_problem,
 )
-from mendari.core.pack import MANIFEST, Pack, load_pack
+from mendari.core.pack import MANIFEST, Pack, has_manifest, load_pack, manifests_under
 from mendari.core.reference import BUNDLED_DIRS, bundled_dir
 from mendari.core.spec import version_key  # also imported from here (the server, the hub)
 from mendari.errors import MendariError, PackNotFoundError
+from mendari.legacy import setting
 from mendari.settings import community_packs_enabled
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
 _BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`; `community/check.py` reads this name
-_COMMUNITY_DIR = _PACKAGE_DIR.parents[1] / "community-packs"
-MAX_DEPTH = 4  # `pack.yaml` at most this many path parts below a search directory
+_COMMUNITY_DIR = _PACKAGE_DIR.parents[1] / COMMUNITY_FOLDER
+MAX_DEPTH = 4  # a manifest at most this many path parts below a search directory
 
 
 class SearchPath(NamedTuple):
@@ -58,10 +61,10 @@ def search_paths() -> list[SearchPath]:
     community = community_packs_enabled()  # an invalid value fails here, at startup
     paths = [
         SearchPath(Path(p), origin_of(Path(p)))
-        for p in os.environ.get("MENDARI_PACKS_PATH", "").split(os.pathsep)
+        for p in setting("MENDARI_AGENTS_PATH")[1].split(os.pathsep)
         if p
     ]
-    # Off means off: `MENDARI_PACKS_PATH` naming community-packs/ does not serve them either.
+    # Off means off: `MENDARI_AGENTS_PATH` naming community-packs/ does not serve them either.
     paths = [entry for entry in paths if community or entry.origin != "community"]
     from mendari.hub.client import packs_cache  # packs pulled from a registry, verified
 
@@ -118,7 +121,8 @@ def _inside(path: Path, directory: Path) -> bool:
 
 def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     """Every pack on the search path (or `paths`; a plain path's origin is `origin_of` it),
-    and why each other `pack.yaml` found is not served, by directory. A pack never stops a
+    and why each other manifest found (`agent.yaml`, or `pack.yaml`, the name it had before:
+    `core/pack.py` `manifest_name`) is not served, by directory. A pack never stops a
     discovery: whatever its content raises, it is listed by its directory and the others are
     found."""
     bases = [
@@ -130,7 +134,7 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     seen: set[Path] = set()
     community_on: bool | None = None
     for order, (base, base_origin) in enumerate(bases):
-        for manifest in sorted(Path(base).glob(f"**/{MANIFEST}")):
+        for manifest in manifests_under(Path(base)):
             root = manifest.parent.resolve()
             depth = len(manifest.relative_to(base).parts)
             if root in seen or depth > MAX_DEPTH:
@@ -145,12 +149,12 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
                         community_on = community_packs_enabled()
                     if not community_on:
                         continue
-                    depth = len((root / MANIFEST).relative_to(_COMMUNITY_DIR.resolve()).parts)
+                    depth = len(root.relative_to(_COMMUNITY_DIR.resolve()).parts) + 1
             seen.add(root)
             if origin == "community" and depth != 2:
                 problems[str(root)] = (
-                    "a community pack sits exactly one level deep: community-packs/<name>/"
-                    f"{MANIFEST}"
+                    "a community agent sits exactly one level deep: "
+                    f"{COMMUNITY_FOLDER}/<name>/{MANIFEST}"
                 )
                 continue
             if origin == "community" and (root / ".git").exists():
@@ -230,7 +234,7 @@ def resolve_pack(
     """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`.
     `missing_models_ok` applies to a directory: a pack about to be trained."""
     as_path = Path(ref)
-    if (as_path / MANIFEST).is_file():
+    if has_manifest(as_path):
         return load_pack(as_path, missing_models_ok=missing_models_ok, origin=origin_of(as_path))
     pack_id, _, version = ref.partition("@")
     matches = [

@@ -25,7 +25,7 @@ from typing import Literal
 from mendari.core import input_schema
 from mendari.core.decision import Decision, _schema_rule, _where
 from mendari.core.origin import bounded_reader, shape_problem
-from mendari.core.pack import MANIFEST, Pack, manifest_template_problems
+from mendari.core.pack import Pack, manifest_template_problems
 from mendari.core.patterns import OutOfTime, time_budget
 from mendari.errors import MendariError, PackValidationError
 
@@ -75,8 +75,9 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
     # whatever the pack was loaded with. Then what only a build finds: the deployment's model
     # settings.
     found = [
-        _manifest_problem("manifest", text) for text in manifest_template_problems(pack.manifest)
-    ] + [_manifest_problem("provider", text) for text in config_problems(pack)]
+        _manifest_problem(pack, "manifest", text)
+        for text in manifest_template_problems(pack.manifest)
+    ] + [_manifest_problem(pack, "provider", text) for text in config_problems(pack)]
     if found:
         return found
     for slot, spec in pack.manifest.providers.items():
@@ -87,7 +88,8 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
                 if raising:
                     raise
                 where = f"providers.{slot}.variants.{variant}"
-                return [Problem("provider", MANIFEST, where, f"{where}: {_said(error)}")]
+                problem = f"{where}: {_said(error)}"
+                return [Problem("provider", pack.manifest_file, where, problem)]
     if pack.manifest.inputs.fhir:
         from mendari.standards.fhir import FhirAdapter
 
@@ -110,11 +112,11 @@ def _said(error: Exception) -> str:
     return f"it cannot be built ({type(error).__name__})"
 
 
-def _manifest_problem(kind: Kind, text: str) -> Problem:
+def _manifest_problem(pack: Pack, kind: Kind, text: str) -> Problem:
     # Each starts with the manifest key it is about (`providers.x.variants.y: …`,
-    # `cds_hooks.card.summary …`).
+    # `cds_hooks.card.summary …`), in the manifest as the pack names it (`Pack.manifest_file`).
     head = text.split(None, 1)[0] if text.strip() else ""
-    return Problem(kind, MANIFEST, head.rstrip(":"), text)
+    return Problem(kind, pack.manifest_file, head.rstrip(":"), text)
 
 
 def input_problems(pack: Pack) -> list[Problem]:

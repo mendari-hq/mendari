@@ -62,6 +62,9 @@ Origin = Literal["maintained", "community", "hub", "local", "store"]
 NOT_OWNED: frozenset[Origin] = frozenset({"hub", "store"})
 
 COMMUNITY_NAMESPACE = "community"
+# The repository's folder of community agents, by the name it has kept: every message that
+# names the folder reads it here.
+COMMUNITY_FOLDER = "community-packs"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
 RESERVED_NAMESPACES: Mapping[str, Origin] = {
     "mendari": "maintained",

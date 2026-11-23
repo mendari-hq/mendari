@@ -672,8 +672,27 @@ def test_pack_check_runs_on_every_pull_request() -> None:
 def test_ci_runs_every_community_packs_tests() -> None:
     ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
     scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
-    (loop,) = [run for run in scripts if "community-packs/*/pack.yaml" in run]
+    # By either name of the manifest (`core/pack.py` `MANIFEST_NAMES`).
+    names = "community-packs/*/agent.yaml community-packs/*/pack.yaml"
+    (loop,) = [run for run in scripts if names in run]
     assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
+
+
+def test_the_pack_workflow_finds_a_manifest_by_either_name() -> None:
+    """A folder with no manifest is "removed", and nothing of it is checked: so the workflow
+    looks for both names, `agent.yaml` and `pack.yaml`. Looking for `pack.yaml` alone, it took
+    the bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
+    workflow = _workflow(ROOT / ".github" / "workflows" / "packs.yml")
+    steps = workflow["jobs"]["pack-check"]["steps"]
+    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
+    removed = 'if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then'
+    assert removed in maintained["run"] and "was removed" in maintained["run"]
+    (data,) = [step for step in steps if step.get("name", "").endswith("dataset checks")]
+    assert '[ -f "$dir/agent.yaml" ] || [ -f "$dir/pack.yaml" ] || continue' in data["run"]
+    for step in steps:  # no step that asks for one name alone
+        for line in step.get("run", "").splitlines():
+            if ".yaml" in line and ("agent.yaml" in line) != ("pack.yaml" in line):
+                raise AssertionError(line)
 
 
 def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
@@ -685,7 +704,12 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
     ):
         (tmp_path / pack).mkdir(parents=True)
         (tmp_path / pack / "pack.yaml").write_text("id: x/y\n")
+    for agent in ("agents/renamed", "agents/group/renamed/deeper"):  # the manifest's new name
+        (tmp_path / agent).mkdir(parents=True)
+        (tmp_path / agent / "agent.yaml").write_text("id: x/y\n")
     changed = [
+        "agents/renamed/logic/rules.yaml",
+        "agents/group/renamed/deeper/data/test.jsonl",
         "agents/inbox/rules/red_flags.yaml",
         "agents/inbox/pack.yaml",
         "agents/my pack; $(touch x)/tests/cases.yaml",
@@ -702,9 +726,11 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
     assert _changed_packs().pack_dirs(changed, tmp_path) == [
         "agents/a/b/c",
         "agents/group/nested",
+        "agents/group/renamed/deeper",
         "agents/inbox",
         "agents/my pack; $(touch x)",
         "agents/removed",
+        "agents/renamed",
         "community-packs/gone; $(touch x)",
         "community-packs/visit-sorter",
     ]

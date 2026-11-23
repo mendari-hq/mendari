@@ -58,6 +58,7 @@ import mendari
 from mendari import __version__
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
+from mendari.core.pack import has_manifest
 from mendari.core.spec import is_pack_id
 from mendari.errors import MendariError
 from mendari.evals import arms, method, stats
@@ -470,8 +471,9 @@ def prices(raw: bytes, *, where: str = "price table") -> Prices:
 
 def load_prices(path: str | Path) -> Prices:
     """A price table from a file outside Mendari's code: one in the package (or the repository's
-    `src/`) or in a pack's directory is refused before it is read, so no built-in price and no
-    price a pack sets is ever used."""
+    `src/`) or in an agent's folder (one that holds a manifest, by either of its names, or is
+    below one) is refused before it is read, so no built-in price and no price an agent sets is
+    ever used."""
     return read_prices(path)[1]
 
 
@@ -481,8 +483,8 @@ def read_prices(path: str | Path) -> tuple[bytes, Prices]:
     where = Path(path)
     if _inside_code_or_pack(where):
         raise MendariError(
-            f"{where.name}: a price table is never read from Mendari's code or a pack "
-            "(keep it under scoreboard/prices/)"
+            f"{where.name}: a price table is never read from Mendari's code or an agent's "
+            "folder (keep it under scoreboard/prices/)"
         )
     try:
         raw = where.read_bytes()
@@ -499,7 +501,7 @@ def _inside_code_or_pack(path: Path) -> bool:
     code = [package, package.parent] if package.parent.name == "src" else [package]
     if any(resolved.is_relative_to(root) for root in code):
         return True
-    return any((parent / "pack.yaml").is_file() for parent in resolved.parents)
+    return any(has_manifest(parent) for parent in resolved.parents)
 
 
 # --------------------------------------------------------------------------------------------

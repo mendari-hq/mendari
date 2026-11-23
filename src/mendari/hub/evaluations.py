@@ -7,7 +7,7 @@ dataset, as a `mendari.publisher-evaluation/1` record it signs with one of its n
 (`mendari eval AGENT --dataset NAME --publish --key publisher.key`):
 
     {"format": "mendari.publisher-evaluation/1",
-     "pack": {"id": "mendari/portal-message-agent", "version": "0.1.1", "digest": "sha256:…"},
+     "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
      "configuration": {"reader": "rules"},          # a variant for every slot
      "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600},
      "report": {...mendari.site-report/2 counts...},

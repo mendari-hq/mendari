@@ -169,7 +169,9 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _no_community_packs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Community packs are off unless a test turns them on (tests/test_community_packs.py), as
-    in a deployment that never set MENDARI_COMMUNITY_PACKS."""
+    in a deployment that never set MENDARI_COMMUNITY_AGENTS (nor MENDARI_COMMUNITY_PACKS, the
+    name it had before)."""
+    monkeypatch.delenv("MENDARI_COMMUNITY_AGENTS", raising=False)
     monkeypatch.delenv("MENDARI_COMMUNITY_PACKS", raising=False)
 
 

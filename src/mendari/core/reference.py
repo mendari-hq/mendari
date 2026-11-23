@@ -23,7 +23,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
 
-from mendari.core.pack import MANIFEST, pack_digest, parse_yaml
+from mendari.core.pack import manifest_name, pack_digest, parse_yaml
 from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import PackValidationError
 
@@ -47,21 +47,21 @@ class ReferencePack(NamedTuple):
 @functools.cache
 def reference_packs() -> Mapping[str, tuple[ReferencePack, ...]]:
     """The packs of the installed release by id (each directory of `bundled_dir()` holding a
-    `pack.yaml`, one level deep), with their versions and digests; computed once per process.
+    manifest, one level deep), with their versions and digests; computed once per process.
     The id and version are read from the manifest alone, not by loading the pack. A directory
-    that cannot be hashed, or whose manifest names no id or version, is left out, never raised:
-    it is no reference."""
+    that cannot be hashed, that holds the manifest under both its names, or whose manifest
+    names no id or version, is left out, never raised: it is no reference."""
     root = bundled_dir()
     if root is None:
         return MappingProxyType({})
     found: dict[str, list[ReferencePack]] = {}
     for directory in sorted(root.iterdir()):
-        manifest = directory / MANIFEST
-        if not manifest.is_file():
-            continue
         try:
+            manifest = manifest_name(directory)
+            if manifest is None:
+                continue
             digest = pack_digest(directory)
-            raw = parse_yaml(manifest.read_bytes(), MANIFEST, str(directory))
+            raw = parse_yaml((directory / manifest).read_bytes(), manifest, str(directory))
         except (OSError, PackValidationError):
             continue
         pack_id = raw.get("id") if isinstance(raw, dict) else None

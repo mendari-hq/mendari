@@ -386,7 +386,9 @@ def add_store_routes(
             path.relative_to(source.root).as_posix(): path.read_bytes()
             for path in pack_files(source.root)
         }
-        files["pack.yaml"] = _renamed(files["pack.yaml"], f"{org}/{body.name}")
+        # The manifest under the name the served agent has it (`Pack.manifest_file`).
+        manifest = source.manifest_file
+        files[manifest] = _renamed(files[manifest], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
         return admitted(request, org, by, files, source="copy", copied_from=copied)
 
@@ -419,7 +421,7 @@ def add_store_routes(
             except UnicodeDecodeError:
                 raise HTTPException(422, f"{edited.path}: not a text file") from None
             files[edited.path] = edited.content.encode("utf-8")
-        if _trained_paths(files.get("pack.yaml", b"")) != trained:
+        if _trained_paths(files.get(pack.manifest_file, b"")) != trained:
             raise HTTPException(422, "an edit does not change which files are trained")
         return admitted(request, org, by, files, source="edit", parent=digest)
 

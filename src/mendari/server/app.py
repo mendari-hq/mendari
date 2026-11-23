@@ -112,7 +112,7 @@ from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
 from mendari.evals.monitoring import organizations as monitored_organizations
 from mendari.evals.pack_tests import load_cases
-from mendari.legacy import current_pack_id
+from mendari.legacy import current_pack_id, setting
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, security_log, sessions
@@ -943,8 +943,9 @@ def create_app(
         mode = "open" if sign_in is None else sign_in.accounts
         unmet = prerequisites(mode)
         if unmet:
+            switch = setting("MENDARI_AGENT_STORE")[0]  # by the name it was set under
             raise MendariError(
-                "MENDARI_PACK_STORE is on, but the pack store cannot open: " + "; ".join(unmet)
+                f"{switch} is on, but the agent store cannot open: " + "; ".join(unmet)
             )
     if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
         store.evalset_ready(evalsets)
@@ -1031,7 +1032,8 @@ def create_app(
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
     if missing:
-        raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
+        named = setting("MENDARI_AGENTS")[0]  # by the name it was set under
+        raise MendariError(f"{named}: agents not installed here: {sorted(missing)}")
     # The newest version of every pack found, served or not. `discover` refuses any second
     # claim to an id a community pack takes part in, so a community pack never competes here.
     installed: dict[str, Pack] = {}

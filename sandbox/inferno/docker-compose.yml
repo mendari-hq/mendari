@@ -43,10 +43,10 @@ services:
       # Inferno and the inputs script reach this open engine over Docker's network, never from
       # loopback, so its CDS Hooks services answer only under the sandbox flag (LP-23c).
       MENDARI_CDS_SANDBOX: "1"
-      MENDARI_PACKS: mendari/prior-auth-preflight
+      MENDARI_AGENTS: mendari/prior-auth-preflight
       MENDARI_PUBLIC_URL: http://engine:8000
       # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - ../../tests/fixtures/reference-packs:/sandbox/agents:ro

@@ -54,13 +54,13 @@ services:
     image: mendari-engine:inferno
     environment:
       MENDARI_PHI_MODE: "off"
-      MENDARI_PACKS: mendari/referral-router
+      MENDARI_AGENTS: mendari/referral-router
       MENDARI_PUBLIC_URL: http://engine:8000
       MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
       MENDARI_SMART_CLIENT_ID: mendari-sandbox
       MENDARI_SMART_SCOPES: launch patient/*.rs
       # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro
@@ -92,7 +92,7 @@ services:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro

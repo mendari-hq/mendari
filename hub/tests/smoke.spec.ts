@@ -12,7 +12,7 @@ const DEMO = "/packs/mendari/portal-message-agent";
 // The demo agent's version as it ships: the registry the tests run against publishes it.
 // `npm test` runs in hub/.
 function shippedVersion(): string {
-  const manifest = "../agents/portal-message-agent/pack.yaml";
+  const manifest = "../agents/portal-message-agent/agent.yaml";
   const version = /^version: (.+)$/m.exec(readFileSync(manifest, "utf8"))?.[1];
   if (!version) throw new Error(`no version in ${manifest}`);
   return version;

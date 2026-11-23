@@ -81,14 +81,14 @@ jobs:
       - name: The test fixtures' agents pass their behaviour tests
         if: matrix.python == '3.12'
         env:
-          MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+          MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
           MENDARI_DATASETS_PATH: tests/fixtures/datasets
         run: for agent in tests/fixtures/reference-packs/*/; do uv run mendari test "$agent"; done
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
         if: matrix.python == '3.12'
         run: |
           failed=0
-          for manifest in community-packs/*/pack.yaml; do
+          for manifest in community-packs/*/agent.yaml community-packs/*/pack.yaml; do
             [ -f "$manifest" ] || continue
             uv run mendari test "$(dirname "$manifest")" || failed=1
           done
@@ -170,7 +170,7 @@ jobs:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
       # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
-      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
       MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -409,8 +409,8 @@ jobs:
           # The wheel's bundled agent is the checkout's: the pulled copy keeps the maintained
           # engine (ADR-0009).
           grep -q "a copy of an agent this release bundles" /tmp/pull.txt
-          version=$(sed -n 's/^version: //p' agents/portal-message-agent/pack.yaml)
-          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/portal-message-agent/$version/pack.yaml"
+          version=$(sed -n 's/^version: //p' agents/portal-message-agent/agent.yaml)
+          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/portal-message-agent/$version/agent.yaml"
           /tmp/clean/bin/mendari test mendari/portal-message-agent
           /tmp/clean/bin/mendari demo
           /tmp/clean/bin/mendari search --risk 0
@@ -426,7 +426,7 @@ jobs:
       # outbound sockets during image pull).
       MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
       # The agent with CQL beside its criteria is served from the test fixtures.
-      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -635,7 +635,7 @@ jobs:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
       # The pilot runs a portal-message agent of the test fixtures.
-      MENDARI_PACKS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

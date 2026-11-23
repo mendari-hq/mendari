@@ -8,7 +8,7 @@ import json
 import math
 import os
 import stat
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
@@ -45,7 +45,12 @@ from mendari.core.spec import (
 from mendari.core.templates import template_problems
 from mendari.errors import PackValidationError
 
-MANIFEST = "pack.yaml"
+MANIFEST = "agent.yaml"
+# The manifest's name until 2026-11, while what Mendari governed was called a Decision Pack. A
+# folder, an archive or a stored version that holds only this one loads as it always did; one
+# that holds both names is refused (`manifest_name`): which of the two decides would be a guess.
+LEGACY_MANIFEST = "pack.yaml"
+MANIFEST_NAMES = (MANIFEST, LEGACY_MANIFEST)
 # Attestations *about* a pack (eval reports, the rendered card) are excluded from its digest,
 # otherwise publishing a benchmark would change the identity of the pack it describes.
 _DIGEST_EXCLUDED_DIRS = {"evals"}
@@ -92,6 +97,9 @@ class Pack:
     # /api/health's `pack_warnings`); `mendari validate` refuses it. A pack the deployment does
     # not own is refused at load instead, so it has none.
     warnings: tuple[str, ...] = field(default=(), compare=False)
+    # What the manifest is called in `root` (`manifest_name`): `agent.yaml`, or `pack.yaml` in a
+    # folder that keeps the name it had before. A problem in the manifest names this file.
+    manifest_file: str = field(default=MANIFEST, compare=False)
 
     @property
     def id(self) -> str:
@@ -252,6 +260,58 @@ class Pack:
         }
 
 
+def manifest_name(where: Path | Iterable[str], label: str = "") -> str | None:
+    """What the manifest is called among an agent's files: `agent.yaml`, or `pack.yaml` (the
+    name it had before, `LEGACY_MANIFEST`) where that is the only one of the two; None when
+    neither is there. `where` is the agent's folder, or its files' paths relative to it (an
+    archive's, a stored version's). Every reader that finds the manifest by name asks here, so
+    the two names are told apart in one place.
+
+    A folder holds one manifest. Both names together are a `PackValidationError` (labelled
+    `label`), and so are two spellings that differ only in case (`Agent.yaml` beside
+    `pack.yaml`), which a filesystem that ignores case reads as both."""
+    if isinstance(where, Path):
+        try:
+            listed = os.listdir(where)
+        except OSError:  # not a folder, or one that cannot be read: no manifest here
+            listed = []
+        spelled = [name for name in listed if name.casefold() in MANIFEST_NAMES]
+        spelled = [name for name in spelled if (where / name).is_file()]
+        present = [name for name in MANIFEST_NAMES if (where / name).is_file()]
+    else:
+        files = [path for path in where if "/" not in path]
+        spelled = [name for name in files if name.casefold() in MANIFEST_NAMES]
+        present = [name for name in MANIFEST_NAMES if name in files]
+    if len(present) > 1 or len(spelled) > 1:
+        both = " and ".join(sorted(spelled if len(spelled) > 1 else present))  # as spelled there
+        raise PackValidationError(
+            label or str(where),
+            [
+                f"{both} are both here: an agent has one manifest, {MANIFEST} "
+                f"({LEGACY_MANIFEST} is the name it had before); remove the other"
+            ],
+        )
+    return present[0] if present else None
+
+
+def has_manifest(folder: Path) -> bool:
+    """Whether `folder` holds a manifest, by either name (`MANIFEST_NAMES`). A folder that
+    holds both has one too: `load_pack` is what refuses it, saying why."""
+    return any((folder / name).is_file() for name in MANIFEST_NAMES)
+
+
+def manifests_under(base: Path) -> list[Path]:
+    """Every manifest in `base` or below it, by either name, sorted by path: one walk of its
+    folders, links to folders not followed, each name looked for as `Path.glob` looks for a
+    file's (by whether it is there, so a filesystem that ignores case finds either spelling)."""
+    return sorted(
+        Path(folder, name)
+        for folder, _, _ in os.walk(base)
+        for name in MANIFEST_NAMES
+        if Path(folder, name).exists()
+    )
+
+
 def load_pack(
     path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
 ) -> Pack:
@@ -279,16 +339,18 @@ def load_pack(
         raise PackValidationError(
             str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
         )
-    if not (root / MANIFEST).is_file():
+    # By either name, and never both (`manifest_name`).
+    manifest_file = manifest_name(root, str(path))
+    if manifest_file is None:
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     # Hashed first: everything below is read through `_read`, which accepts only a file the
     # digest covers, whatever spelling reaches it, and only the bytes the digest hashed.
     digest, digested, named = _digest(root, str(path))
-    if not _pack_file(root, MANIFEST, str(path), digested).is_file():
+    if not _pack_file(root, manifest_file, str(path), digested).is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
-    raw = parse_yaml(_read(root, MANIFEST, str(path), digested), MANIFEST, str(path))
+    raw = parse_yaml(_read(root, manifest_file, str(path), digested), manifest_file, str(path))
     if not isinstance(raw, dict):
-        raise PackValidationError(str(path), [f"{MANIFEST} must be a mapping"])
+        raise PackValidationError(str(path), [f"{manifest_file} must be a mapping"])
     label = str(raw.get("id", path))
 
     # `policy: policy.yaml` keeps governance-relevant settings in their own reviewable file.
@@ -390,6 +452,7 @@ def load_pack(
         parsed=parsed,
         digested=digested,
         origin=origin,
+        manifest_file=manifest_file,
     )
     # Every variant against its provider's closed config, as `mendari validate` checks it.
     from mendari.providers import config_problems  # `providers/base.py` imports this module

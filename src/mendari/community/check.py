@@ -79,10 +79,14 @@ from mendari.core.origin import (
 )
 from mendari.core.pack import (
     MANIFEST,
+    MANIFEST_NAMES,
     Pack,
     PatternsRefused,
     authored_patterns,
+    has_manifest,
     load_pack,
+    manifest_name,
+    manifests_under,
     pack_digest,
     parse_yaml,
 )
@@ -222,7 +226,7 @@ def check(
             "scope",
             f"a community pack lives in {COMMUNITY_DIR}/<name>/; move this folder there",
         )
-    if not (root / MANIFEST).is_file():
+    if not has_manifest(root):
         report.error("correctness", f"there is no {MANIFEST} in {report.folder}")
         return report
     if base is not None:
@@ -366,7 +370,7 @@ def _scope(ctx: _Context) -> None:
 def _nested_manifests(ctx: _Context) -> None:
     nested = sorted(
         path.relative_to(ctx.root).as_posix()
-        for path in ctx.root.rglob(MANIFEST)
+        for path in manifests_under(ctx.root)
         if path.parent != ctx.root
     )
     if nested:
@@ -381,10 +385,11 @@ def _nested_manifests(ctx: _Context) -> None:
 
 
 def _load(ctx: _Context) -> None:
+    name = _manifest_file(ctx)
     try:
-        raw = parse_yaml((ctx.root / MANIFEST).read_bytes(), MANIFEST, ctx.shown)
+        raw = parse_yaml((ctx.root / name).read_bytes(), name, ctx.shown)
     except (OSError, MendariError) as error:
-        ctx.report.error("correctness", f"{MANIFEST} cannot be read: {error}")
+        ctx.report.error("correctness", f"{name} cannot be read: {error}")
         return
     ctx.raw = raw if isinstance(raw, dict) else {}
     if isinstance(ctx.raw.get("id"), str):
@@ -512,11 +517,12 @@ def _maintainers(ctx: _Context, pack_id: str) -> None:
 
 def _unique(ctx: _Context, pack_id: str) -> None:
     claims: list[str] = []
-    for other in sorted(ctx.community_dir.glob(f"*/{MANIFEST}")):
+    others = (path for name in MANIFEST_NAMES for path in ctx.community_dir.glob(f"*/{name}"))
+    for other in sorted(others):
         if other.parent.resolve() == ctx.root:
             continue
         try:
-            raw = parse_yaml(other.read_bytes(), MANIFEST, str(other))
+            raw = parse_yaml(other.read_bytes(), other.name, str(other))
         except (OSError, MendariError):
             continue
         if isinstance(raw, dict) and raw.get("id") == pack_id:
@@ -1013,7 +1019,10 @@ def _on_the_bases_dataset(
     from mendari.evals.gate import gate
 
     assert ctx.pack is not None and ctx.base is not None
-    base_manifest = _parsed(ctx.base.read(f"{ctx.folder}/{MANIFEST}"))
+    try:
+        base_manifest = _parsed(_base_manifest(ctx))
+    except MendariError:  # both names in the base: `_base_benchmark` has said so
+        base_manifest = {}
     evaluation = base_manifest.get("evaluation")
     evaluation = evaluation if isinstance(evaluation, dict) else {}
     kept = {(c.question, c.label) for c in ctx.pack.manifest.evaluation.critical}
@@ -1105,7 +1114,7 @@ def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
     if ctx.base is None:
         return None, MAX_TOLERANCE
     try:
-        manifest_bytes = ctx.base.read(f"{ctx.folder}/{MANIFEST}")
+        manifest_bytes = _base_manifest(ctx)
         if manifest_bytes is None:
             return None, MAX_TOLERANCE
         raw = parse_yaml(manifest_bytes, MANIFEST, f"the base's {ctx.folder}")
@@ -1340,11 +1349,36 @@ def _hygiene_files(ctx: _Context) -> None:
 
 
 def _raw_manifest(ctx: _Context) -> dict[str, Any]:
+    name = _manifest_file(ctx)
     try:
-        raw = parse_yaml((ctx.root / MANIFEST).read_bytes(), MANIFEST, ctx.shown)
+        raw = parse_yaml((ctx.root / name).read_bytes(), name, ctx.shown)
     except (OSError, MendariError):
         return {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _manifest_file(ctx: _Context) -> str:
+    """What the folder's manifest is called (`manifest_name`). A folder that holds both names
+    is read by the current one here: `load_pack` is what refuses it, saying why."""
+    try:
+        return manifest_name(ctx.root, ctx.shown) or MANIFEST
+    except PackValidationError:
+        return MANIFEST
+
+
+def _base_manifest(ctx: _Context) -> bytes | None:
+    """This agent's manifest in the base, under whichever name the base holds it (a change may
+    rename `pack.yaml` to `agent.yaml`, and the benchmark, tolerance and critical labels it is
+    held to are still the base's); None: the base has none, a new agent. Both names in the base
+    are a `PackValidationError`, as they are in a folder."""
+    assert ctx.base is not None
+    found = {
+        name: data
+        for name in MANIFEST_NAMES
+        if (data := ctx.base.read(f"{ctx.folder}/{name}")) is not None
+    }
+    name = manifest_name(found, f"the base's {ctx.folder}")
+    return None if name is None else found[name]
 
 
 def _ledger_problems(ctx: _Context, relative: str, committed: dict[str, Any]) -> list[str]:
@@ -1517,7 +1551,10 @@ def _changelog(ctx: _Context) -> None:
         base_digest = pack_digest(Path(temp))
     if base_digest == pack_digest(ctx.root):
         return
-    raw = _parsed(before.get(MANIFEST))
+    try:
+        raw = _parsed(before.get(manifest_name(before, f"the base's {ctx.folder}") or MANIFEST))
+    except MendariError:  # both names in the base: no version to compare with
+        raw = {}
     base_version = raw.get("version") if isinstance(raw.get("version"), str) else None
     if base_version is None or version_key(version) <= version_key(base_version):
         ctx.report.error(

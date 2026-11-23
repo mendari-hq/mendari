@@ -526,13 +526,13 @@ def test_a_pack_set_or_built_in_price_is_never_used(jev_run: Built, tmp_path: Pa
         ROOT / "src" / "mendari" / "evals" / "method.py",
         ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard" / "pack.yaml",
     ):
-        with pytest.raises(MendariError, match="never read from Mendari's code or a pack"):
+        with pytest.raises(MendariError, match="never read from Mendari's code or an agent"):
             runs.load_prices(inside)
     pack_dir = tmp_path / "a-pack"
     pack_dir.mkdir()
     (pack_dir / "pack.yaml").write_text("id: someone/pack\n")
     (pack_dir / "prices.json").write_text((tmp_path / "prices" / "2026-10-18.json").read_text())
-    with pytest.raises(MendariError, match="never read from Mendari's code or a pack"):
+    with pytest.raises(MendariError, match="never read from Mendari's code or an agent"):
         runs.load_prices(pack_dir / "prices.json")
 
 

@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 
 from mendari.core import accounts, clock
 from mendari.core.audit import STORE_STATES, _canonical, _now, store_version_sha256
-from mendari.core.pack import Pack, load_pack, pack_digest
+from mendari.core.pack import MANIFEST, Pack, load_pack, pack_digest
 from mendari.errors import MendariError
 
 if TYPE_CHECKING:
@@ -209,7 +209,7 @@ def _prepare(files: Mapping[str, bytes]) -> Prepared:
         _check_path(path)
     kept = {path: bytes(data) for path, data in files.items() if _kept(path)}
     if not kept:
-        raise StoreError("no file of a pack: a pack.yaml and the files it names")
+        raise StoreError(f"no file of an agent: an {MANIFEST} and the files it names")
     if len(kept) > MAX_FILES:
         raise StoreError(f"more than {MAX_FILES} files", 413)
     large = sorted(path for path, data in kept.items() if len(data) > MAX_FILE_BYTES)

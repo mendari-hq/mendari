@@ -99,7 +99,8 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
-        manifest = yaml.safe_load((root / "pack.yaml").read_text(encoding="utf-8"))
+        manifest_file = root / inbox.manifest_file
+        manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8"))
         manifest["id"], manifest["version"] = HOSTILE_ID, "1.0.0"
         manifest["name"] = "Hostile Text Example"
         manifest["summary"] = f"Publisher text that tries to run: {HOSTILE_SCRIPT}"
@@ -114,7 +115,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
             for version in ("0.9.0", "1.0.0"):
                 manifest["version"] = version
                 text = yaml.safe_dump(manifest, sort_keys=False)
-                (root / "pack.yaml").write_text(text, encoding="utf-8")
+                manifest_file.write_text(text, encoding="utf-8")
                 published = client.push(load_pack(root), key)
                 print(f"published {published['id']}@{published['version']}")
             client.yank(

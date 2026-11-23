@@ -86,7 +86,7 @@ services:
       MENDARI_PAS_SELF_RELATIONSHIP: ${MENDARI_PAS_SELF_RELATIONSHIP:-18}
       MENDARI_PAS_PAYER_ENTITY: ${MENDARI_PAS_PAYER_ENTITY:-PR}
       MENDARI_PAS_REQUESTER_ENTITY: ${MENDARI_PAS_REQUESTER_ENTITY:-1P}
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-data:/data
@@ -131,7 +131,7 @@ services:
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
       MENDARI_OIDC_ORG_CLAIM: org
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-signin-data:/data
@@ -178,7 +178,7 @@ services:
   workflow:
     image: mendari-engine:0.1.0
     environment:
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes: *sandbox-agents
     depends_on:
@@ -213,7 +213,7 @@ services:
     profiles: [signin]
     image: mendari-engine:0.1.0
     environment:
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes: *sandbox-agents
     depends_on:

@@ -169,9 +169,9 @@ def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -
         },
     }
     (target / "fixtures" / "mock_agent.yaml").write_text(yaml.safe_dump(yaml_mock))
-    manifest = yaml.safe_load((target / "pack.yaml").read_text())
+    manifest = yaml.safe_load((target / "agent.yaml").read_text())
     manifest["providers"]["reader"]["variants"]["agent"]["mock_file"] = "fixtures/mock_agent.yaml"
-    (target / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     pack = load_pack(target)
     provider = build_provider(pack, "reader", "agent")
@@ -528,9 +528,9 @@ def test_bounded_pack_cannot_set_endpoint_or_steal_agent_token(
 ) -> None:
     """Untrusted/bounded packs cannot set `endpoint`, must declare `state_fields`, have
     `timeout_seconds` capped, and can never exfiltrate `MENDARI_AGENT_TOKEN`."""
-    manifest = yaml.safe_load((agent_pack_dir / "pack.yaml").read_text())
+    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
     manifest["providers"]["reader"]["variants"]["agent"]["endpoint"] = "https://evil.test/steal"
-    (agent_pack_dir / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     # Refused at load for a bounded (hub) pack
     with pytest.raises(PackValidationError, match="may not set endpoint"):
@@ -551,7 +551,7 @@ def test_bounded_pack_cannot_set_endpoint_or_steal_agent_token(
     # Even if a bounded pack is loaded cleanly and run against deployment's MENDARI_AGENT_URL,
     # no request ever goes to evil.test
     manifest["providers"]["reader"]["variants"]["agent"].pop("endpoint")
-    (agent_pack_dir / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     bounded_pack = load_pack(agent_pack_dir, origin="hub")
     assert bounded_pack.bounded
 
@@ -561,16 +561,16 @@ def test_bounded_pack_cannot_set_endpoint_or_steal_agent_token(
 
     # Bounded pack without `state_fields` is refused at load
     manifest["providers"]["reader"]["variants"]["agent"].pop("state_fields")
-    (agent_pack_dir / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with pytest.raises(PackValidationError, match="must name its state_fields"):
         load_pack(agent_pack_dir, origin="hub")
 
 
 @pytest.mark.parametrize("field", ["endpoint_env", "token_env", "api_key_env"])
 def test_agent_pack_may_not_choose_deployment_env_vars(agent_pack_dir: Path, field: str) -> None:
-    manifest = yaml.safe_load((agent_pack_dir / "pack.yaml").read_text())
+    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
     manifest["providers"]["reader"]["variants"]["agent"][field] = "PACK_SAFETY_CANARY"
-    (agent_pack_dir / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with pytest.raises(PackValidationError, match=f"Remove: {field}"):
         load_pack(agent_pack_dir)
 
@@ -583,7 +583,7 @@ def test_agent_works_inside_composite_safety_screen(
 ) -> None:
     """Wrap an external agent with deterministic keyword rules via `any_of`: if the agent fails,
     the deterministic safety screen still escalates urgent symptoms and never automates."""
-    manifest = yaml.safe_load((agent_pack_dir / "pack.yaml").read_text())
+    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
     manifest["providers"]["reader"]["variants"]["guarded"] = {
         "type": "any_of",
         "escalate": {"request": "other", "urgent_symptoms": "yes"},
@@ -597,7 +597,7 @@ def test_agent_works_inside_composite_safety_screen(
             },
         },
     }
-    (agent_pack_dir / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     pack = load_pack(agent_pack_dir)
     decision = Decision(pack, providers={"reader": "guarded"})
     urgent = decision.decide(message("I have crushing chest pain right now."))
