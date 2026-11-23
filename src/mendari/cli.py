@@ -9,11 +9,13 @@ import errno
 import json
 import os
 import re
+import shutil
 import sys
+import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
@@ -3665,6 +3667,24 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_help(args: argparse.Namespace) -> int:
+    """`mendari help`: the commands to start with, as `mendari --help` prints them; `mendari
+    help all`: every command; `mendari help <command>` (and its subcommand): that command's own
+    help, as its `--help` prints it."""
+    parser = build_parser()
+    if args.topic in ([], ["all"]):
+        print(overview(parser, everything=bool(args.topic)))
+        return 0
+    command = _command(parser, args.topic)
+    if command is None:
+        raise MendariError(
+            f"`mendari {' '.join(args.topic)}` is not a command: `mendari help all` lists "
+            "every command"
+        )
+    command.print_help()
+    return 0
+
+
 def _write_jsonl(path: Path, records: Sequence[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for record in records:
@@ -3780,12 +3800,136 @@ def _agent_option(command: _Parser, **kwargs: Any) -> None:
     command.add_argument("--agent", dest="pack", **kwargs)
 
 
+class Group(NamedTuple):
+    """Commands with one purpose, under the heading the help lists them by."""
+
+    heading: str
+    first: tuple[str, ...]  # what `mendari --help` shows: the commands to start with
+    more: tuple[str, ...]  # the rest, which `mendari help all` shows after them
+
+
+# Every command is in exactly one group (tests/test_cli_vocabulary.py), so `mendari help all`
+# misses none. A new command goes in `more`, unless most people need it in their first hour.
+GROUPS = (
+    Group("Start", ("demo", "new"), ("help",)),
+    Group(
+        "Build and check",
+        ("validate", "test", "eval", "compare"),
+        ("card", "schema", "community-check"),
+    ),
+    Group("Run", ("decide", "serve"), ("list", "mcp")),
+    Group("Share", ("login", "search", "pull", "push"), ("keys", "archive", "yank", "site")),
+    Group(
+        "Evaluation",
+        (),
+        (
+            *("data", "leaderboard", "agreement", "calibrate", "train", "improve"),
+            *("feedback", "evalset", "scoreboard"),
+        ),
+    ),
+    Group(
+        "Operations",
+        (),
+        (
+            *("monitor", "alerts", "usage", "audit", "automation", "access"),
+            *("phi", "notes", "store", "registry"),
+        ),
+    ),
+    Group("Standards", (), ("smart", "bulk", "omop", "pas", "sandbox")),
+)
+EVERY_COMMAND = "`mendari help all` (also `mendari --help-all`) lists every command."
+ONE_COMMAND = "`mendari help <command>` (also `mendari <command> --help`) shows its options."
+
+
+def _subcommands(parser: argparse.ArgumentParser) -> Any:
+    """The argument that holds a parser's commands (argparse keeps them in one), or None."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _command(parser: Any, words: Sequence[str]) -> argparse.ArgumentParser | None:
+    """The parser of the command `words` spell from `parser` down (`audit verify`), or None when
+    they spell none. A name a command had before is read here too."""
+    for word in words:
+        commands = _subcommands(parser)
+        name = parser.renamed.get(word, word)
+        if commands is None or name not in commands.choices:
+            return None
+        parser = commands.choices[name]
+    return parser
+
+
+def overview(parser: argparse.ArgumentParser, *, everything: bool = False) -> str:
+    """What `mendari --help` prints: the commands to start with, under what each is for. With
+    `everything` (`mendari help all`, `mendari --help-all`): every command, then the options."""
+    about = {command.dest: command.help for command in _subcommands(parser)._get_subactions()}
+    sections = []
+    for group in GROUPS:
+        names = group.first + (group.more if everything else ())
+        if names:
+            sections.append((group.heading, [(name, about.get(name)) for name in names]))
+    if everything:
+        options = [action for action in parser._actions if action.option_strings]
+        sections.append(("Options", [(", ".join(o.option_strings), o.help) for o in options]))
+    column = max(len(name) for _, rows in sections for name, _ in rows) + 4
+    # As wide as argparse makes a command's own help, and never too narrow to say anything. A
+    # line breaks between words only: never inside `--help-all` or a path.
+    width = max(shutil.get_terminal_size().columns - 2, column + 20)
+    lines = [parser.format_usage().rstrip(), "", parser.description or ""]
+    for heading, rows in sections:
+        lines += ["", heading]
+        for name, text in rows:
+            lines += textwrap.wrap(
+                text or "",
+                width,
+                initial_indent=f"  {name:<{column - 2}}",
+                subsequent_indent=" " * column,
+                break_on_hyphens=False,
+            ) or [f"  {name}"]
+    footer = ONE_COMMAND if everything else EVERY_COMMAND
+    lines += ["", *textwrap.wrap(footer, width, break_on_hyphens=False)]
+    return "\n".join(lines)
+
+
+class _Overview(argparse.Action):
+    """`mendari --help`: print the commands to start with, and stop. With `const` set
+    (`mendari --help-all`): every command."""
+
+    def __init__(self, option_strings: Sequence[str], dest: str, **kwargs: Any):
+        super().__init__(
+            option_strings, argparse.SUPPRESS, nargs=0, default=argparse.SUPPRESS, **kwargs
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        print(overview(parser, everything=bool(self.const)))
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
+    # Its help is `overview`, not the list of every command argparse would print.
     parser = _Parser(
-        prog="mendari", description="Evaluate, govern and deploy healthcare AI agents."
+        prog="mendari",
+        usage="%(prog)s <command> [options]",
+        description="Evaluate, govern and deploy healthcare AI agents.",
+        add_help=False,
+    )
+    parser.add_argument(
+        "-h", "--help", action=_Overview, help="show the commands to start with, and exit"
+    )
+    parser.add_argument(
+        "--help-all", action=_Overview, const=True, help="show every command, and exit"
     )
     parser.add_argument("--version", action="version", version=f"mendari {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # `prog`: argparse would name each command after this parser's usage line.
+    sub = parser.add_subparsers(dest="command", required=True, prog=parser.prog)
 
     def pack_command(name: str, handler: Any, help_text: str, providers: bool = False) -> Any:
         command = sub.add_parser(name, help=help_text)
@@ -5251,6 +5395,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp.add_argument("--db", help="audit database to record decisions in (default: in memory)")
     mcp.set_defaults(handler=cmd_mcp)
+
+    helper = sub.add_parser(
+        "help", help="list the commands (`help all`: every one), or show one command's help"
+    )
+    helper.add_argument(
+        "topic",
+        nargs="*",
+        metavar="command",
+        help="a command, with its subcommand if it has any; `all` lists every command",
+    )
+    helper.set_defaults(handler=cmd_help)
     return parser
 
 

@@ -2,7 +2,8 @@
 """The command line speaks one vocabulary: what Mendari governs is an agent, and "pack" is never
 read or typed. No usage, help, message or error says it. The names people typed before
 (`--pack`, `--pack-dir`, `mendari pack`, `mendari new --agent`) are still read, and shown
-nowhere."""
+nowhere. And `mendari --help` is short: the commands to start with, under what each is for,
+with every command behind `mendari help all`."""
 
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from mendari import cli, load_pack
-from mendari.cli import build_parser, main
+from mendari.cli import GROUPS, build_parser, main, overview
 
 # The old names rest on how argparse reads a command line, which changes between Python
 # versions; CI runs only the core tests on every version it supports.
@@ -76,6 +77,24 @@ def shown(parser: argparse.ArgumentParser) -> str:
     return parser.format_usage() + parser.format_help()
 
 
+def listed(text: str) -> list[str]:
+    """The commands a help text lists: the first word of each indented entry."""
+    return re.findall(r"(?m)^  ([a-z][a-z-]*)\b", text)
+
+
+def helped(capsys: pytest.CaptureFixture[str], *argv: str) -> str:
+    """What a help flag prints before it stops, with exit 0."""
+    with pytest.raises(SystemExit) as stopped:
+        main(list(argv))
+    assert stopped.value.code == 0
+    return capsys.readouterr().out
+
+
+@pytest.fixture(autouse=True)
+def _a_terminal_80_wide(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLUMNS", "80")
+
+
 # -- one vocabulary ------------------------------------------------------------------------------
 
 
@@ -102,6 +121,8 @@ def test_no_usage_or_help_says_pack() -> None:
         for found in OLD_WORD.finditer(shown(parser))
     ]
     assert said == []
+    for everything in (False, True):  # `mendari --help` and `mendari help all`
+        assert not OLD_WORD.search(overview(root, everything=everything))
 
 
 def test_no_message_says_pack() -> None:
@@ -121,7 +142,7 @@ def test_no_message_says_pack() -> None:
         and isinstance(node.value, str)
         and id(node) not in docstrings
     ]
-    assert "no agents match" in strings  # it reads them all
+    assert cli.EVERY_COMMAND in strings and "no agents match" in strings  # it reads them all
     said = [
         text
         for text in strings
@@ -248,3 +269,67 @@ def test_new_writes_an_agent_with_or_without_the_flag_that_asked_for_one(tmp_pat
     assert contributed.manifest.providers["reader"].use == "rules"
     assert main(["new", str(tmp_path / "both"), "--community", "--agent"]) == 1
     assert not (tmp_path / "both").exists()
+
+
+# -- a short help --------------------------------------------------------------------------------
+
+
+def test_every_command_is_in_exactly_one_group() -> None:
+    grouped = [name for group in GROUPS for name in (*group.first, *group.more)]
+    assert sorted(grouped) == sorted(commands(build_parser()))
+    assert len({group.heading for group in GROUPS}) == len(GROUPS)
+
+
+def test_help_is_the_commands_to_start_with(capsys: pytest.CaptureFixture[str]) -> None:
+    text = helped(capsys, "--help")
+    assert listed(text) == [name for group in GROUPS for name in group.first]
+    assert text.startswith("usage: mendari <command> [options]\n")
+    for group in GROUPS:
+        assert (f"\n\n{group.heading}\n  " in text) == bool(group.first), group.heading
+    lines = text.splitlines()
+    assert len(lines) <= 25 and max(map(len, lines)) <= 78  # one screen, no line wrapped
+    assert lines[-1] == "`mendari help all` (also `mendari --help-all`) lists every command."
+    assert helped(capsys, "-h") == text
+    assert main(["help"]) == 0
+    assert capsys.readouterr().out == text
+
+
+def test_help_all_lists_every_command(capsys: pytest.CaptureFixture[str]) -> None:
+    text = helped(capsys, "--help-all")
+    every = [name for group in GROUPS for name in (*group.first, *group.more)]
+    assert listed(text) == every
+    assert set(every) == set(commands(build_parser()))
+    for group in GROUPS:
+        assert f"\n\n{group.heading}\n  {group.first[0] if group.first else group.more[0]} " in text
+    # Then the options, and where one command's own help is.
+    assert all(f"\n  {option}" in text for option in ("-h, --help", "--help-all", "--version"))
+    assert text.splitlines()[-1].startswith("`mendari help <command>` ")
+    assert main(["help", "all"]) == 0
+    assert capsys.readouterr().out == text
+
+
+def test_help_shows_any_commands_own_help(capsys: pytest.CaptureFixture[str]) -> None:
+    root = build_parser()
+    for command, parser in parsers(root):  # every command, however deep
+        assert cli._command(root, command.split()) is parser, command
+    # As its `--help` prints it; a group lists its own commands.
+    for words in (["eval"], ["audit"], ["audit", "verify"], ["access", "revoke", "key"]):
+        assert main(["help", *words]) == 0
+        assert capsys.readouterr().out == helped(capsys, *words, "--help")
+    assert main(["help", "pack", "build"]) == 0  # under the name the command had
+    assert capsys.readouterr().out.startswith("usage: mendari archive build ")
+
+
+@pytest.mark.parametrize(
+    "command", [["no-such-command"], ["audit", "no-such-command"], ["all", "x"]]
+)
+def test_help_for_no_command_is_one_line(
+    command: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["help", *command]) == 1
+    printed = capsys.readouterr()
+    assert printed.out == ""
+    assert printed.err == (
+        f"error: `mendari {' '.join(command)}` is not a command: `mendari help all` lists every "
+        "command\n"
+    )
