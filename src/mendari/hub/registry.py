@@ -1758,11 +1758,40 @@ class RegistryStore(
         ]
 
 
+# One chain runs through the whole table (`record_event` reads its head over every row), so
+# each event follows a different one: no two rows share a `prev_hash`, the first row's GENESIS
+# included. The unique index makes the database itself refuse a second event chained after the
+# same head (a fork), whatever a future writer gets wrong. As `audit_events` (core/audit.py).
+_CHAIN_LINKS_INDEX = "hub_events_prev_hash"
+
+
+def _index_chain_links(db: Session) -> None:
+    """Create the chain's unique `prev_hash` index on a registry from before it. One that
+    already holds a fork cannot take it: refused, naming no event, so the operator finds the
+    fork with `registry verify` rather than the start half-migrating. Once the index is there
+    nothing is scanned again."""
+    if _CHAIN_LINKS_INDEX in db.indexes("hub_events"):
+        return
+    forked = db.one(
+        "SELECT prev_hash FROM hub_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1"
+    )
+    if forked is not None:
+        raise MendariError(
+            "the registry's chain forks (two events follow the same one), so it cannot be given "
+            "the index that keeps it from forking: nothing was migrated. Run `mendari registry "
+            "verify --db <this database>` (read-only) to find where it breaks, and restore the "
+            "database from a backup taken before that point (docs/operations/incident-runbook.md)"
+        )
+    db.all(f"CREATE UNIQUE INDEX {_CHAIN_LINKS_INDEX} ON hub_events (prev_hash)")
+
+
 def _migrate(db: Session) -> None:
-    """New tables come from the schema (`CREATE TABLE IF NOT EXISTS`). The first time a registry
-    opens with a chain, it marks itself (`hub_meta`) and, if it held rows from before, hashes
-    them once in its first event (`registry.chain_started`). Marked, it never does again: a
-    chain emptied later is reported by `verify`, never started anew."""
+    """New tables come from the schema (`CREATE TABLE IF NOT EXISTS`); the chain's unique links
+    are indexed (`_index_chain_links`). The first time a registry opens with a chain, it marks
+    itself (`hub_meta`) and, if it held rows from before, hashes them once in its first event
+    (`registry.chain_started`). Marked, it never does again: a chain emptied later is reported
+    by `verify`, never started anew."""
+    _index_chain_links(db)
     if db.one("SELECT value FROM hub_meta WHERE key = 'chain'") is not None:
         return
     db.all("INSERT INTO hub_meta (key, value) VALUES ('chain', ?)", (_now_ms(),))
