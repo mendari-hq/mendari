@@ -2377,14 +2377,22 @@ def cmd_site_init(args: argparse.Namespace) -> int:
 
 def cmd_site_key(args: argparse.Namespace) -> int:
     """A new key for this site (`--new`), the id and commitment secret kept: register it, then
-    revoke the old one (`mendari registry site-revoke-key`, or the dashboard)."""
-    from mendari.hub.site_signing import Site
+    revoke the old one (`mendari registry site-revoke-key`, or the dashboard). The old private
+    key is kept beside the new one (`site_key.<hex>.pem`), never deleted."""
+    from mendari.hub.site_signing import Site, retired_key_path, site_dir
 
     if not args.new:
         raise MendariError("`mendari site key --new` makes a new key; nothing else is asked")
-    args.site = Site().id
+    site = Site()
+    args.site = site.id
     args.command_name = "key"
-    return cmd_site_init(args)
+    code = cmd_site_init(args)
+    print(
+        f"the old key ({site.key_id}) is kept in {retired_key_path(site_dir(), site.key_id)}: "
+        "delete it once the new key is registered and the old one revoked.",
+        file=sys.stderr,
+    )
+    return code
 
 
 def _ticket_request(

@@ -42,7 +42,8 @@ error, Brier scores, latency and cost, and your keys and secrets.
    verifies the site. Until then the site gets no ticket.
 
 A new key, later: `mendari site key --new`, give the new `site-key.json` to the registry, and
-revoke the old key there. If a key may have been copied, revoke it as compromised: every
+revoke the old key there. The old private key is kept beside the new one
+(`site_key.<hex>.pem`, the command says where); delete it once the old key is revoked. If a key may have been copied, revoke it as compromised: every
 report it signed then leaves the pooled figures.
 
 ## Each evaluation: a ticket, the run, the signed report

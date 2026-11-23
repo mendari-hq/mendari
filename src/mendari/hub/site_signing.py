@@ -25,7 +25,8 @@ Formats:
 The site's own files, in the client's configuration directory (`client.config_dir()`), written
 private (0600) as credentials are: `site.json` (the site's id and its key's id),
 `site_key.pem` (the private key) and `site_secret` (32 random bytes in base64, the commitment
-secret). None of them ever leaves the site.
+secret). A key `mendari site key --new` replaces is kept beside them as `site_key.<hex>.pem`
+(its key id's hex), never overwritten. None of them ever leaves the site.
 
 The commitment to a dataset is HMAC-SHA256 of the dataset file's bytes under the commitment
 secret: only the site can make it, the same file gives the same value, and nobody without the
@@ -72,7 +73,6 @@ _COMMITMENT = re.compile(r"^hmac-sha256:[0-9a-f]{64}\Z")
 KEY_FILE_FORMAT = "mendari.site-key/1"
 SITE_FILE = "site.json"
 KEY_FILE = "site_key.pem"
-PREVIOUS_KEY_FILE = "site_key.previous.pem"  # the key `site key --new` replaced
 SECRET_FILE = "site_secret"
 
 
@@ -188,6 +188,12 @@ def _write_private_bytes(path: Path, data: bytes) -> None:
         raise
 
 
+def retired_key_path(where: Path, key_id: str) -> Path:
+    """Where a key `mendari site key --new` replaced is kept: named by its own key id, so a
+    second new key never writes over the first one's predecessor."""
+    return where / f"site_key.{key_id.removeprefix('ed25519:')}.pem"
+
+
 def init_site(
     site_id: str, *, directory: Path | None = None, new_key: bool = False
 ) -> dict[str, Any]:
@@ -211,8 +217,17 @@ def init_site(
         _write_private_bytes(secret_path, base64.b64encode(secrets.token_bytes(SECRET_BYTES)))
     elif not (where / SITE_FILE).exists():
         raise MendariError("this machine is not a site yet: run `mendari site init` first")
-    if new_key and (where / KEY_FILE).exists():  # kept until the new key is registered
-        _write_private_bytes(where / PREVIOUS_KEY_FILE, (where / KEY_FILE).read_bytes())
+    if new_key and (where / KEY_FILE).exists():  # kept: never destroy a key
+        old = (where / KEY_FILE).read_bytes()
+        try:
+            old_id = archive.key_id(archive.load_private_key(old).public_key())
+        except (ValueError, HubError):
+            raise MendariError(
+                f"{where / KEY_FILE} is not a key: move it aside before making a new one"
+            ) from None
+        kept = retired_key_path(where, old_id)
+        if not kept.exists():
+            _write_private_bytes(kept, old)
     private = Ed25519PrivateKey.generate()
     pem = private.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
