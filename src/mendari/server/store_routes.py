@@ -494,6 +494,9 @@ def add_store_routes(
         if (body.content is None) == (body.upload is None):
             raise HTTPException(422, "send the dataset as content or as an upload, not both")
         try:
+            # The day's quota before the parts are joined (an upload refused today stays for
+            # tomorrow); the size again, with the content's bytes, before it is parsed.
+            store.refuse_over_dataset_quota(org)
             raw = (
                 body.content.encode("utf-8")
                 if body.content is not None
@@ -664,6 +667,10 @@ def add_store_routes(
                 break
             parent = current["parent_digest"]
             current = None if parent is None else store.version(org, parent)
+        try:  # the quota before any patient's input is read (each read is chained)
+            store.refuse_over_dataset_quota(org)
+        except StoreError as error:
+            raise _refused(error) from None
         records, skipped = corrections_dataset(
             store.store, org=org, pack_ids=sources, limit=body.limit, reader=principal.actor
         )

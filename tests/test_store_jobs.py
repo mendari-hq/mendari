@@ -406,3 +406,31 @@ def test_a_dataset_is_sealed_and_a_phi_key_rotation_reseals_it(
         assert PackStore(store).dataset_bytes(ORG_A, made["id"])[0] == raw
         assert store.phi_check()["by_key"]["datasets"] == {key_id(new): 1}
         assert store.verify()["ok"]
+
+
+def test_past_the_daily_quota_an_uploaded_dataset_is_not_joined_and_stays(
+    world: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`store_datasets` is checked before an upload's parts are joined (which deletes the
+    upload): refused today (429), the same upload is a dataset once the quota allows it."""
+    import hashlib
+
+    digest = _copy(world)
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "store_datasets=1")
+    assert _dataset(world, digest).status_code == 201
+    data = ("\n".join(CASES[:4]) + "\n").encode()
+    author = _author(world)
+    begun = world.client.post(
+        "/api/store/uploads",
+        json={"size": len(data), "sha256": hashlib.sha256(data).hexdigest()},
+        headers=author,
+    )
+    upload = begun.json()["upload"]
+    sent = world.client.put(f"/api/store/uploads/{upload}/parts/0", content=data, headers=author)
+    assert sent.status_code == 200, sent.text
+    body = {"name": "parts", "version": digest, "upload": upload}
+    refused = world.client.post("/api/store/datasets", json=body, headers=author)
+    assert refused.status_code == 429, refused.text
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "store_datasets=2")
+    made = world.client.post("/api/store/datasets", json=body, headers=author)
+    assert made.status_code == 201 and made.json()["cases"] == 4, made.text
