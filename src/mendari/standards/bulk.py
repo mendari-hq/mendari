@@ -144,6 +144,11 @@ def export(
     _check_token_origin(status_url, origin, auth, "status URL")
     manifest = _wait(status_url, http=http, auth=auth, sleep=sleep, limit=max_wait)
     outputs = _outputs(manifest)
+    needs_token = bool(manifest.get("requiresAccessToken", False))
+    if needs_token:
+        # Every file's origin before any download: a manifest naming another server fails whole.
+        for output in outputs:
+            _check_token_origin(output["url"], origin, auth, "file")
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = defaultdict(int)
     left = MAX_EXPORT_BYTES
@@ -153,9 +158,6 @@ def export(
             raise BulkError(f"the manifest names an odd resource type {kind!r}")
         counts[kind] += 1
         path = out / f"{kind}.{counts[kind]:03d}.ndjson"
-        needs_token = bool(manifest.get("requiresAccessToken", False))
-        if needs_token:
-            _check_token_origin(output["url"], origin, auth, "file")
         most = min(MAX_FILE_BYTES, left)
         try:
             left -= http.download(

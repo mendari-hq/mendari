@@ -273,6 +273,28 @@ def test_the_token_never_goes_to_a_file_on_another_allow_listed_server(tmp_path:
     assert not [r for r in fake.requests if str(r.url).startswith(OTHER)]
 
 
+def test_one_file_on_another_server_fails_the_export_before_any_download(tmp_path: Path) -> None:
+    """The manifest's own files come first, another server's last: nothing is downloaded."""
+
+    class OneElsewhere(FilesElsewhere):
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            response = FakeBulk.__call__(self, request)
+            if str(request.url) == STATUS and response.status_code == 200:
+                manifest = json.loads(response.content)
+                manifest["output"].append({"type": "Patient", "url": f"{OTHER}/Patient.ndjson"})
+                return httpx.Response(200, json=manifest)
+            return response
+
+    fake = OneElsewhere({"Patient": [{"resourceType": "Patient", "id": "p1"}]}, pending=0)
+    with (
+        http_for(fake, {"https://ehr.example.org", OTHER}) as http,
+        pytest.raises(BulkError, match="sent only to the server it was issued for"),
+    ):
+        bulk.export(FHIR, tmp_path, http=http, token="t0", sleep=lambda _: None)
+    assert not [r for r in fake.requests if "/files/" in str(r.url) or str(r.url).startswith(OTHER)]
+    assert not list(tmp_path.glob("*.ndjson"))
+
+
 def test_a_file_on_another_server_without_requires_access_token_is_fetched_without_it(
     tmp_path: Path,
 ) -> None:
