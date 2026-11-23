@@ -690,7 +690,7 @@ jobs:
           docker run --rm mendari-engine:ci python -c "
           from fastapi.testclient import TestClient
           from mendari.server.app import create_app
-          packs = TestClient(create_app(db_path='/tmp/a.db')).get('/api/packs').json()
+          packs = TestClient(create_app(db_path='/tmp/a.db')).get('/api/agents').json()
           assert [p['id'] for p in packs] == ['mendari/portal-message-agent'], packs
           print('serves', packs[0]['id'])
           "

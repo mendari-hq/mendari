@@ -171,7 +171,7 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
     assert set(job["env"]) == {
         "VALIDATOR_VERSION",
         "VALIDATOR_SHA256",
-        "MENDARI_PACKS_PATH",  # the sample scripts decide with the test fixtures' agents
+        "MENDARI_AGENTS_PATH",  # the sample scripts decide with the test fixtures' agents
         "MENDARI_DATASETS_PATH",
     }
     runs = _runs(job)

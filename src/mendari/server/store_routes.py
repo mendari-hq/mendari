@@ -35,7 +35,7 @@ from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.pack_store import DRAFT, HELD, PackStore, PhiRejected, StoreError
 from mendari.errors import HubError, MendariError
-from mendari.server import security_log
+from mendari.server import paths, security_log
 from mendari.server.auth import Auth, org_of
 
 TAG = "Pack store"
@@ -229,7 +229,9 @@ def add_store_routes(
             raise HTTPException(409, f"version {digest} is {said}")
         return row
 
-    @app.get("/api/store/packs", tags=[TAG], summary="Your organization's packs in the store")
+    @paths.route(
+        app.get, "/api/store/agents", tags=[TAG], summary="Your organization's packs in the store"
+    )
     def store_packs(request: Request) -> list[dict[str, Any]]:
         """The packs in the store of the organization you act for, each with its versions,
         newest first: state, whether it validated, where it came from, who made it and when. A
@@ -240,8 +242,9 @@ def add_store_routes(
             lineages.setdefault(row["pack_id"], []).append(_listed(row))
         return [{"pack_id": pack_id, "versions": found} for pack_id, found in lineages.items()]
 
-    @app.get(
-        "/api/store/packs/{namespace}/{name}",
+    @paths.route(
+        app.get,
+        "/api/store/agents/{namespace}/{name}",
         tags=[TAG],
         summary="One pack's versions in the store",
     )
@@ -634,8 +637,9 @@ def add_store_routes(
             )
         return results
 
-    @app.post(
-        "/api/store/packs/{namespace}/{name}/improvement",
+    @paths.route(
+        app.post,
+        "/api/store/agents/{namespace}/{name}/improvement",
         status_code=201,
         tags=[TAG],
         summary="Build the improvement dataset from reviewers' corrections",

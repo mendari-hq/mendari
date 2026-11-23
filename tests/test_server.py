@@ -315,7 +315,7 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
         assert operation.get("summary") and operation.get("description"), (method, path)
     assert "securitySchemes" not in schema.get("components", {})  # sign-in is off here
     assert "Sign-in is off here" in schema["info"]["description"]
-    decide = schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = schema["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     # No demo agent among the tests' fixtures: the packs come by id (the demo agent first where a
     # release serves it: test_a_release_offers_the_demo_agent_first).
@@ -330,8 +330,8 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
         name = next(p for p in operation["parameters"] if p["name"] == "name")
         return list(name["examples"])
 
-    assert offered("/api/packs/{namespace}/{name}/guard") == ["ai-guard"]  # the guard pack
-    fhir_packs = offered("/api/packs/{namespace}/{name}/fhir/decide")
+    assert offered("/api/agents/{namespace}/{name}/guard") == ["ai-guard"]  # the guard pack
+    fhir_packs = offered("/api/agents/{namespace}/{name}/fhir/decide")
     assert "patient-inbox-router" in fhir_packs and "ai-guard" not in fhir_packs
     smart = schema["paths"]["/api/smart/decide"]["post"]
     assert "Needs an EHR launch" in smart["description"]  # not a session or a key
@@ -346,13 +346,13 @@ def test_a_release_offers_the_demo_agent_first(
     monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)  # its offline fixture
     client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=[ROOT / "agents"]))
     schema = client.get("/openapi.json").json()
-    decide = schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = schema["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert list(examples) == ["portal-message-agent"]
     for example in examples.values():
         decided = client.post(f"/api/packs/{DEMO_AGENT}/decide", json=example["value"]).json()
         assert decided["outcome"] != "BLOCK", decided["reasons"]
-    fhir = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
+    fhir = schema["paths"]["/api/agents/{namespace}/{name}/fhir/decide"]["post"]
     name = next(p for p in fhir["parameters"] if p["name"] == "name")
     assert list(name["examples"]) == ["portal-message-agent"]
     bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]

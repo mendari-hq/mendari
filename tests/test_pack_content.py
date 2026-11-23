@@ -142,7 +142,7 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     client = _client(tmp_path, outside)
     reference = client.get("/openapi.json")
     assert reference.status_code == 200
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert "patient-inbox-router" in examples
     assert client.get(f"/api/packs/{REFERRAL}/examples").status_code == 422
@@ -164,7 +164,7 @@ def test_one_packs_tests_can_never_fail_the_api_reference(
     client = TestClient(create_app(db_path=tmp_path / "m.db", packs_paths=[PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert "patient-inbox-router" in examples and "referral-router" not in examples
 

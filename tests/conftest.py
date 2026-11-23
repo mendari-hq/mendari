@@ -795,3 +795,73 @@ def runbook_body(
         assert arms is not None
         sent["arms"] = arms
     return sent
+
+
+# The routes renamed in 2026-11 (`server/paths.py`), each at the path it had before, with the
+# route that answers it now: written out here, not computed, so the tests that hold the two
+# spellings to the same rules have a table of their own to hold the helper to. The engine's
+# own; those of what it mounts when on (the agent store, the registry's reviewers); and the
+# registry's, which the engine serves under `/registry`.
+RenamedRoutes = dict[tuple[str, str], tuple[str, str]]
+FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/packs{rest}"): (method, f"/api/agents{rest}")
+    for method, rest in [
+        ("GET", ""),
+        ("GET", "/{namespace}/{name}"),
+        ("GET", "/{namespace}/{name}/datasets"),
+        ("GET", "/{namespace}/{name}/examples"),
+        ("POST", "/{namespace}/{name}/decide"),
+        ("POST", "/{namespace}/{name}/guard"),
+        ("POST", "/{namespace}/{name}/fhir/decide"),
+        ("GET", "/{namespace}/{name}/validation-brief"),
+        ("POST", "/{namespace}/{name}/evals"),
+        ("GET", "/{namespace}/{name}/feedback/export"),
+        ("POST", "/{namespace}/{name}/pas"),
+    ]
+}
+STORE_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/store/packs{rest}"): (method, f"/api/store/agents{rest}")
+    for method, rest in [
+        ("GET", ""),
+        ("GET", "/{namespace}/{name}"),
+        ("POST", "/{namespace}/{name}/improvement"),
+    ]
+}
+REVIEW_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/registry/review/packs{rest}"): (method, f"/api/registry/review/agents{rest}")
+    for method, rest in [
+        ("GET", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}/recall"),
+        ("POST", "/{namespace}/{name}/{version}/delete"),
+    ]
+}
+REGISTRY_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/v1/packs{rest}"): (method, f"/v1/agents{rest}")
+    for method, rest in [
+        ("PUT", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}/yank"),
+        ("GET", "/{namespace}/{name}"),
+        ("GET", "/{namespace}/{name}/tickets"),
+        ("GET", "/{namespace}/{name}/site-evidence"),
+        ("GET", "/{namespace}/{name}/reports/{report_id}"),
+        ("GET", "/{namespace}/{name}/reports"),
+        ("GET", "/{namespace}/{name}/{version}"),
+        ("GET", "/{namespace}/{name}/{version}/archive"),
+        ("POST", "/{namespace}/{name}/{version}/reports"),
+        ("POST", "/{namespace}/{name}/{version}/evaluations"),
+        ("GET", "/{namespace}/{name}/{version}/evaluations"),
+    ]
+}
+ENGINE_FORMER_ROUTES: RenamedRoutes = {
+    **FORMER_ROUTES,
+    **STORE_FORMER_ROUTES,
+    **REVIEW_FORMER_ROUTES,
+}
+
+
+def as_now(route: tuple[str, str]) -> tuple[str, str]:
+    """A route of the engine as it is listed now: a former route's current one, any other as
+    it is. A test's own table of what each route needs names current paths; a former route is
+    held to what that table says of the route that answers it now."""
+    return ENGINE_FORMER_ROUTES.get(route, route)

@@ -161,7 +161,7 @@ def test_the_dashboard_works_in_a_browser_without_fetch_metadata(
     reads += [(m, p, own, status) for m, p, own, status in sent if p == "/openapi.json"]
     called = {p for _, p, _, _ in reads}
     assert {"/api/audit/export/fhir", "/api/audit/administrative", "/openapi.json"} <= called
-    assert f"/api/packs/{INBOX}/feedback/export" in called
+    assert f"/api/agents/{INBOX}/feedback/export" in called
     assert [r for r in reads if r[2] != "1" or r[3] == 403] == []
     logged = security_lines(capsys.readouterr().out)
     assert {"export.audit", "export.audit.administrative"} <= {e["event"] for e in logged}

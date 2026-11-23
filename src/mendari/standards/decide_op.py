@@ -82,7 +82,7 @@ def parse(body: Any) -> DecideRequest:
             "invalid",
             "resourceType",
             "send a Parameters resource (pack, version, data, focus); to send a bare Bundle, "
-            "use /api/packs/{namespace}/{name}/fhir/decide",
+            "use /api/agents/{namespace}/{name}/fhir/decide",
         )
     malformed = fhir_structure.blocking(fhir_structure.check(body))
     if malformed:

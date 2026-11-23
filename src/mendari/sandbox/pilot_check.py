@@ -126,7 +126,7 @@ def run(
         ]
         decided = [
             pilot.expect(
-                pilot.call("POST", f"/api/packs/{INBOX}/decide", worker, json=item),
+                pilot.call("POST", f"/api/agents/{INBOX}/decide", worker, json=item),
                 200,
                 "the worker decides a message",
                 log=False,
@@ -192,7 +192,7 @@ def run(
         )
         case = load_cases(resolve_pack(TRIAL))[0]["input"]
         trial = pilot.expect(
-            pilot.call("POST", f"/api/packs/{TRIAL}/decide", worker, json=case),
+            pilot.call("POST", f"/api/agents/{TRIAL}/decide", worker, json=case),
             200,
             "the worker decides with the approved pack",
         )

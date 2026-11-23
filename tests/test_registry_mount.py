@@ -478,7 +478,7 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
     reader = world.person(role="viewer")
     assert world.http.get("/api/health", headers=reader).json()["registry"] is True
     schema = world.http.get("/openapi.json", headers=reader).json()
-    publish = schema["paths"]["/registry/v1/packs/{namespace}/{name}/{version}"]["put"]
+    publish = schema["paths"]["/registry/v1/agents/{namespace}/{name}/{version}"]["put"]
     assert publish["security"] == [{"publisherToken": []}]
     assert schema["paths"]["/registry/v1/search"]["get"]["security"] == []
     assert schema["paths"]["/api/registry/tokens"]["post"]["security"] == [{"session": []}]

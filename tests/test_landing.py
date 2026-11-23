@@ -275,7 +275,7 @@ def test_the_quickstart_prints_what_the_server_decides(
     body = re.search(r"-d '(.*?)'", step.text, re.S)
     assert body
     ((method, path),) = step.calls()
-    assert (method, path) == ("POST", f"/api/packs/{landing.QUICKSTART_PACK}/decide")
+    assert (method, path) == ("POST", f"/api/agents/{landing.QUICKSTART_PACK}/decide")
     decided = client.post(path, json=json.loads(body[1])).json()
     shown = {key: value for key, value in printed.items() if key != "id"}
     assert {key: decided[key] for key in shown} == shown

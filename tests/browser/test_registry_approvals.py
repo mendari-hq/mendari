@@ -59,7 +59,7 @@ def from_registry(page: Page, pack_id: str = INBOX) -> None:
         detail.update(origin="hub", origin_label="From a registry", digest=DIGEST)
         route.fulfill(json=detail)
 
-    page.route(f"**/api/packs/{pack_id}", answer)
+    page.route(f"**/api/agents/{pack_id}", answer)
 
 
 def registry_approvals(

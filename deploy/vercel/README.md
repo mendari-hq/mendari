@@ -111,7 +111,7 @@ namespace (`MENDARI_REGISTRY_RATE_LIMITS`), counted in the engine's database.
 
 What to watch, in the project's Observability tab and the database's console:
 
-- **Function duration on a publish** (`POST /registry/v1/packs/...`). Near 180 s, the regression
+- **Function duration on a publish** (`POST /registry/v1/agents/...`). Near 180 s, the regression
   check is running out of time: it then records that it failed and the publish still succeeds
   (LP-18g). If the check cannot start on the platform at all, every publish says so
   (`failed: the check could not start`); `MENDARI_REGISTRY_REGRESSION=off` then publishes

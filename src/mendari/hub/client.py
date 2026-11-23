@@ -275,8 +275,8 @@ class RegistryClient:
 
     def version(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
         if version:
-            return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}"))
-        latest = self._get(f"/v1/packs/{namespace}/{name}").get("latest")
+            return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}"))
+        latest = self._get(f"/v1/agents/{namespace}/{name}").get("latest")
         if not isinstance(latest, dict):
             raise HubError(
                 f"every version of {namespace}/{name} is recalled: pull an exact version to "
@@ -318,14 +318,14 @@ class RegistryClient:
             key_id=archive.key_id(key.public_key()),
         )
         response = self._http.post(
-            f"/v1/packs/{namespace}/{name}/{version}/yank", json={"record": record}
+            f"/v1/agents/{namespace}/{name}/{version}/yank", json={"record": record}
         )
         return dict(self._json(response))
 
     def archive(self, namespace: str, name: str, version: str) -> bytes:
         """The archive's bytes, read as they come and refused past `archive.MAX_ARCHIVE_BYTES`
         (what `archive.verify` takes): a registry cannot make a pull hold more in memory."""
-        path = f"/v1/packs/{namespace}/{name}/{version}/archive"
+        path = f"/v1/agents/{namespace}/{name}/{version}/archive"
         with self._http.stream("GET", path) as response:
             if response.status_code >= 400:
                 response.read()
@@ -354,7 +354,7 @@ class RegistryClient:
         except ValidationError:
             raise MendariError("not a signed site submission (mendari eval --share-out)") from None
         namespace, name = pack.id.split("/")
-        path = f"/v1/packs/{namespace}/{name}/{pack.version}/reports"
+        path = f"/v1/agents/{namespace}/{name}/{pack.version}/reports"
         response = self._http.post(
             path, json=dict(submission), headers={"authorization": f"Bearer {secret}"}
         )
@@ -370,7 +370,7 @@ class RegistryClient:
         return dict(self._json(response))
 
     def pack_tickets(self, pack_id: str) -> list[dict[str, Any]]:
-        return list(self._get(f"/v1/packs/{pack_id}/tickets")["tickets"])
+        return list(self._get(f"/v1/agents/{pack_id}/tickets")["tickets"])
 
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}
@@ -386,19 +386,19 @@ class RegistryClient:
         pack = parse(record).pack  # the path is built from it: only the record's own pack
         namespace, name = pack.id.split("/")
         response = self._http.post(
-            f"/v1/packs/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
+            f"/v1/agents/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
         )
         return dict(self._json(response))
 
     def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations, with the registry's figures."""
-        return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}/evaluations"))
+        return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}/evaluations"))
 
     def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
         namespace, name = pack.id.split("/")
         data = archive.build(pack, key)
         response = self._http.put(
-            f"/v1/packs/{namespace}/{name}/{pack.version}",
+            f"/v1/agents/{namespace}/{name}/{pack.version}",
             content=data,
             headers={"content-type": "application/octet-stream"},
         )

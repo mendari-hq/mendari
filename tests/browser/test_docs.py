@@ -32,7 +32,7 @@ def test_try_it_out_works_under_the_csp_and_nothing_leaves_the_origin(
     assert page.url == f"{live_server}/docs/reference"
     expect(page.locator(".swagger-ui .info .title")).to_contain_text("Mendari")
     operation = page.locator(
-        ".opblock-get", has=page.locator('.opblock-summary-path[data-path="/api/packs"]')
+        ".opblock-get", has=page.locator('.opblock-summary-path[data-path="/api/agents"]')
     )
     operation.locator(".opblock-summary-control").click()
     operation.get_by_role("button", name="Try it out").click()
@@ -45,7 +45,7 @@ def test_try_it_out_works_under_the_csp_and_nothing_leaves_the_origin(
 
     assert page.evaluate("window.__violations") == []
     assert [url for url in requests if not url.startswith(f"{live_server}/")] == []
-    assert f"{live_server}/api/packs" in requests  # Try it out called this origin
+    assert f"{live_server}/api/agents" in requests  # Try it out called this origin
     assert not [url for url in requests if "validator" in url]
     assert errors == []
 

@@ -142,7 +142,7 @@ def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: b
     with httpx.Client(timeout=30) as client:
         while True:
             processed = _process_batch(
-                client, fhir, f"{engine}/api/packs/{namespace}/{name}/fhir/decide"
+                client, fhir, f"{engine}/api/agents/{namespace}/{name}/fhir/decide"
             )
             if once:
                 return

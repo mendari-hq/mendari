@@ -134,7 +134,7 @@ def serve_board(page: Page, pack_id: str, board: dict[str, Any]) -> None:
         body["leaderboard"] = board
         route.fulfill(json=body)
 
-    page.route(re.compile(rf".*/api/packs/{re.escape(pack_id)}$"), handle)
+    page.route(re.compile(rf".*/api/agents/{re.escape(pack_id)}$"), handle)
 
 
 @pytest.mark.parametrize("pack_id", PACKS)
@@ -302,14 +302,14 @@ def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page:
     page.locator('.nav a[data-view="audit"]').click()
     expect(page.locator("main h1")).to_have_text("Audit trail")
     held: list[Route] = []
-    page.route(f"**/api/packs/{GUARD}", lambda route: held.append(route))
-    with page.expect_request(f"**/api/packs/{GUARD}"):
+    page.route(f"**/api/agents/{GUARD}", lambda route: held.append(route))
+    with page.expect_request(f"**/api/agents/{GUARD}"):
         page.select_option("#pack-select", GUARD)
     page.go_back()
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
     for route in held:
         route.continue_()
-    page.unroute(f"**/api/packs/{GUARD}")
+    page.unroute(f"**/api/agents/{GUARD}")
     page.wait_for_timeout(300)  # time for the late answer and any render it could start
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
     expect(page.locator("#pack-select")).to_have_value(INBOX)
@@ -692,7 +692,7 @@ def test_a_report_with_nothing_labelled_for_its_question_still_shows(page: Page)
         body["benchmark"] = {**report, "figures": figures.guarded(lambda: figures.report(report))}
         route.fulfill(json=body)
 
-    page.route(re.compile(rf".*/api/packs/{re.escape(INBOX)}$"), handle)
+    page.route(re.compile(rf".*/api/agents/{re.escape(INBOX)}$"), handle)
     open_pack(page, INBOX, "evals")
     page.goto("/#evals/report")
     body = page.locator("#evals-body")
@@ -1031,7 +1031,7 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
         body["benchmark"]["decisions"]["outcome_rates"]["AUTO"] = 0.91
         route.fulfill(json=body)
 
-    page.route(f"**/api/packs/{INBOX}", automating)
+    page.route(f"**/api/agents/{INBOX}", automating)
     page.select_option("#pack-select", INBOX)
     expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
@@ -1309,7 +1309,7 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
         body["active_providers"]["safety_screen"] = {"variant": "rules_and_jev", "model": jev}
         route.fulfill(json=body)
 
-    page.route(f"**/api/packs/{INBOX}", screened)
+    page.route(f"**/api/agents/{INBOX}", screened)
     open_pack(page, INBOX, "card")
     expect(page.locator("dl.facts")).to_contain_text(
         "At confidence 0.90 or more (some labels need more; see Policy)."
@@ -1354,7 +1354,7 @@ def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
 
     runs: list[str] = []
     page.on("request", lambda r: runs.append(r.url) if r.url.endswith("/evals") else None)
-    page.route(f"**/api/packs/{INBOX}", remote)
+    page.route(f"**/api/agents/{INBOX}", remote)
     open_pack(page, INBOX, "evals")
     page.goto("/#evals/run")
     run = page.get_by_role("button", name="Run evaluation")

@@ -606,7 +606,7 @@ async function showCard(event) {
   details.dataset.loaded = "1";
   pre.textContent = "Loading the card…";
   try {
-    const version = await api(`/api/registry/review/packs/${details.dataset.card}`);
+    const version = await api(`/api/registry/review/agents/${details.dataset.card}`);
     pre.textContent = version.card_markdown ?? "No card: this version was published before the registry rendered its own.";
   } catch (error) {
     delete details.dataset.loaded; // asked again when opened again

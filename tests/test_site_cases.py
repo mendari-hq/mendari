@@ -367,7 +367,7 @@ def test_the_push_command_refuses_it_and_sends_nothing(
     ordinary = copy_of_the_inbox(tmp_path / "patient-inbox-router")
     assert main([*argv, str(ordinary)]) == 1
     assert "could not reach http://127.0.0.1:9" in capsys.readouterr().err
-    assert sent == [f"PUT /v1/packs/mendari/patient-inbox-router/{VERSION}"]
+    assert sent == [f"PUT /v1/agents/mendari/patient-inbox-router/{VERSION}"]
 
 
 # -- wherever in the pack they are, and nothing else ---------------------------------------------

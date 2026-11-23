@@ -117,7 +117,7 @@ async function boot() {
     return;
   }
   syncNavGroups();
-  state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/packs");
+  state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/agents");
   const select = $("#pack-select");
   if (!state.packs.length) {
     $("#view").removeAttribute("aria-busy");

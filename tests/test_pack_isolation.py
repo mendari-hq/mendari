@@ -459,7 +459,7 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
     client = TestClient(create_app(db_path=tmp_path / "x.db", packs_paths=[outside, PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200 and "\\u0000" not in reference.text
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     summaries = [
         e["summary"]
         for e in decide["requestBody"]["content"]["application/json"]["examples"].values()

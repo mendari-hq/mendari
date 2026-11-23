@@ -115,7 +115,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id, setting
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs, landing, security_log, sessions
+from mendari.server import api_docs, landing, paths, security_log, sessions
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -199,7 +199,16 @@ _PROVIDER_STATUS = {
 }
 _PROVIDER_UPSTREAM = 502
 # FHIR routes answer errors with an OperationOutcome: its issue type, by HTTP status.
-_FHIR_ROUTE = re.compile(r"^/(fhir/|api/packs/[^/]+/[^/]+/fhir/)")
+_FHIR_ROUTE = re.compile(r"^/(fhir/|api/agents/[^/]+/[^/]+/fhir/)")
+
+
+def fhir_route(path: str) -> bool:
+    """Whether `path` is a FHIR route: under `/fhir/`, or an agent's `fhir/decide`, by its
+    current path or the one it had before (`server/paths.py`). FHIR routes take and answer FHIR
+    R4 JSON only, and answer an error with an OperationOutcome."""
+    return _FHIR_ROUTE.match(paths.current(path)) is not None
+
+
 _ISSUE_TYPE = {
     400: "invalid",
     401: "login",
@@ -1032,8 +1041,8 @@ def create_app(
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
     if missing:
-        named = setting("MENDARI_AGENTS")[0]  # by the name it was set under
-        raise MendariError(f"{named}: agents not installed here: {sorted(missing)}")
+        variable = setting("MENDARI_AGENTS")[0]  # by the name it was set under
+        raise MendariError(f"{variable}: agents not installed here: {sorted(missing)}")
     # The newest version of every pack found, served or not. `discover` refuses any second
     # claim to an id a community pack takes part in, so a community pack never competes here.
     installed: dict[str, Pack] = {}
@@ -1488,7 +1497,7 @@ def create_app(
             {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": e.get("msg")}
             for e in error.errors()
         ]
-        if _FHIR_ROUTE.match(request.url.path):
+        if fhir_route(request.url.path):
             issues = [
                 {
                     "code": "structure",
@@ -1502,7 +1511,7 @@ def create_app(
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, error: StarletteHTTPException) -> Response:
-        if _FHIR_ROUTE.match(request.url.path):
+        if fhir_route(request.url.path):
             code = _ISSUE_TYPE.get(error.status_code, "processing")
             issue = {"code": code, "diagnostics": str(error.detail)}
             return operation_outcome(error.status_code, [issue], error.headers)
@@ -1527,7 +1536,7 @@ def create_app(
             ),
             **({"X-Request-Id": rid} if rid else {}),
         }
-        if _FHIR_ROUTE.match(request.url.path):
+        if fhir_route(request.url.path):
             issue = {"code": "exception", "diagnostics": "internal error"}
             return operation_outcome(500, [issue], headers)
         body = {"error": "InternalError", "detail": "internal error"}
@@ -1751,9 +1760,10 @@ def create_app(
         """The models this deployment's Jev account can use. `503` when Jev is not set up here."""
         return {"models": jev.list_models()}
 
-    @app.get(
-        "/api/packs",
-        tags=["Packs"],
+    @paths.route(
+        app.get,
+        "/api/agents",
+        tags=["Agents"],
         summary="List packs",
     )
     def list_packs() -> list[dict[str, Any]]:
@@ -1763,9 +1773,10 @@ def create_app(
         never automates)."""
         return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
 
-    @app.get(
-        "/api/packs/{namespace}/{name}",
-        tags=["Packs"],
+    @paths.route(
+        app.get,
+        "/api/agents/{namespace}/{name}",
+        tags=["Agents"],
         summary="Get a pack",
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
@@ -1801,9 +1812,10 @@ def create_app(
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
 
-    @app.get(
-        "/api/packs/{namespace}/{name}/datasets",
-        tags=["Packs"],
+    @paths.route(
+        app.get,
+        "/api/agents/{namespace}/{name}/datasets",
+        tags=["Agents"],
         summary="List a pack's datasets",
     )
     def pack_datasets(namespace: str, name: str) -> list[dict[str, Any]]:
@@ -1813,9 +1825,10 @@ def create_app(
         names = [*pack.manifest.evaluation.datasets, *local_datasets(pack)]
         return [{"name": n, "n": len(dataset_for(pack, n).records)} for n in names]
 
-    @app.get(
-        "/api/packs/{namespace}/{name}/examples",
-        tags=["Packs"],
+    @paths.route(
+        app.get,
+        "/api/agents/{namespace}/{name}/examples",
+        tags=["Agents"],
         summary="Example inputs",
     )
     def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
@@ -1832,7 +1845,7 @@ def create_app(
             if isinstance(case, dict) and isinstance(case.get("input"), dict)
         ]
 
-    @app.get("/api/notice", tags=["Packs"], summary="The notice, and whether you acknowledged it")
+    @app.get("/api/notice", tags=["Agents"], summary="The notice, and whether you acknowledged it")
     def notice(request: Request) -> dict[str, Any]:
         """What Mendari is (`text`), shown on its pages and in every JSON decide answer, and what
         a signed-in person who may decide or review acknowledges before taking data in
@@ -1853,7 +1866,7 @@ def create_app(
 
     @app.post(
         "/api/notice/acknowledge",
-        tags=["Packs"],
+        tags=["Agents"],
         summary="Acknowledge the notice",
     )
     def acknowledge_notice(request: Request) -> dict[str, Any]:
@@ -1877,8 +1890,9 @@ def create_app(
         header = (request.headers.get("x-mendari-shadow") or "").strip().lower()
         return header in {"1", "true", "yes", "on"}
 
-    @app.post(
-        "/api/packs/{namespace}/{name}/decide",
+    @paths.route(
+        app.post,
+        "/api/agents/{namespace}/{name}/decide",
         tags=["Decisions"],
         summary="Make a decision",
     )
@@ -1907,8 +1921,9 @@ def create_app(
         )
         return {**decided.to_dict(), **NOTICE}
 
-    @app.post(
-        "/api/packs/{namespace}/{name}/guard",
+    @paths.route(
+        app.post,
+        "/api/agents/{namespace}/{name}/guard",
         tags=["Decisions"],
         summary="Check an LLM's draft reply",
     )
@@ -1919,8 +1934,9 @@ def create_app(
         result = guard.check(decision_for(f"{namespace}/{name}"), payload)
         return {**result.to_dict(), "decision": result.decision.to_dict(), **NOTICE}
 
-    @app.post(
-        "/api/packs/{namespace}/{name}/fhir/decide",
+    @paths.route(
+        app.post,
+        "/api/agents/{namespace}/{name}/fhir/decide",
         tags=["FHIR and CDS Hooks"],
         summary="Make a decision from FHIR",
     )
@@ -1953,8 +1969,9 @@ def create_app(
         )
         return {"decision": result.to_dict(), "task": task, **NOTICE}
 
-    @app.get(
-        "/api/packs/{namespace}/{name}/validation-brief",
+    @paths.route(
+        app.get,
+        "/api/agents/{namespace}/{name}/validation-brief",
         tags=["Evaluation and monitoring"],
         summary="Executive validation & readiness brief",
     )
@@ -2244,8 +2261,9 @@ def create_app(
 
     # -- evaluation --------------------------------------------------------------------------
 
-    @app.post(
-        "/api/packs/{namespace}/{name}/evals",
+    @paths.route(
+        app.post,
+        "/api/agents/{namespace}/{name}/evals",
         tags=["Evaluation and monitoring"],
         summary="Run an evaluation",
     )
@@ -2832,8 +2850,9 @@ def create_app(
         logged_reads(request, ratings, id_key="decision_id")
         return ratings
 
-    @app.get(
-        "/api/packs/{namespace}/{name}/feedback/export",
+    @paths.route(
+        app.get,
+        "/api/agents/{namespace}/{name}/feedback/export",
         tags=["Review and feedback"],
         summary="Export feedback as a dataset",
     )
@@ -3039,8 +3058,9 @@ def create_app(
         recorded = store.record_card_feedback(pack.id, service_id, items)
         return {"recorded": len(recorded)}
 
-    @app.post(
-        "/api/packs/{namespace}/{name}/pas",
+    @paths.route(
+        app.post,
+        "/api/agents/{namespace}/{name}/pas",
         tags=["FHIR and CDS Hooks"],
         summary="Da Vinci PAS request",
     )
@@ -3375,7 +3395,7 @@ def create_app(
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
         """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first. The
         SMART configuration is plain JSON whatever the client accepts (SMART App Launch 2.2)."""
-        if _FHIR_ROUTE.match(request.url.path) and request.url.path != DISCOVERY_PATH:
+        if fhir_route(request.url.path) and request.url.path != DISCOVERY_PATH:
             refused = fhir_media_refusal(request)
             if refused is not None:
                 return refused
@@ -4108,11 +4128,12 @@ def _counted(made: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
-    """(method, path) of every route the app serves."""
+    """(method, path) of every route the app serves, a renamed route once, at its current
+    path: the path it had before answers the same and is listed nowhere (`server/paths.py`)."""
     return [
         (method, route.path)
         for route in app.routes
-        if isinstance(route, APIRoute)
+        if isinstance(route, APIRoute) and not paths.is_former(route.path)
         for method in route.methods or ()
     ]
 
@@ -4130,7 +4151,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     asked = error.challenge if isinstance(error, AuthError) else None
     headers = {"WWW-Authenticate": asked} if asked else {}
     headers.update(retry_headers(error))
-    if not _FHIR_ROUTE.match(path):
+    if not fhir_route(path):
         said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
         if isinstance(error, InvitationRefused | GradingRefused):  # which refusal: a fixed code
             said["reason"] = error.reason
@@ -4398,7 +4419,7 @@ class BodyCap:
 
     def too_large(self, path: str) -> JSONResponse:
         """The `413` a route gives (`_http_error`): an OperationOutcome on FHIR routes."""
-        if _FHIR_ROUTE.match(path):
+        if fhir_route(path):
             return operation_outcome(413, [{"code": "too-costly", "diagnostics": self.detail}])
         return JSONResponse(identified({"detail": self.detail}), 413)
 

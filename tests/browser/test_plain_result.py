@@ -115,7 +115,7 @@ def test_a_provider_failure_keeps_its_safety_caveat_and_names_the_question(page:
         "reasons": ["provider failure (provider_unavailable); safety checks may be incomplete"],
     }
     page.route(
-        f"**/api/packs/{INBOX}/decide",
+        f"**/api/agents/{INBOX}/decide",
         lambda route: (
             route.fulfill(json=failed) if route.request.method == "POST" else route.continue_()
         ),

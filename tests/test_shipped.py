@@ -22,7 +22,15 @@ import mendari
 from mendari.hub.registry import create_registry_app
 from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
-from tests.conftest import encrypt_mode, encrypted_store, evalset_on, evalsets_are_on, member
+from tests.conftest import (
+    ENGINE_FORMER_ROUTES,
+    REGISTRY_FORMER_ROUTES,
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    member,
+)
 from tests.test_spdx import COMMENTS, IDENTIFIER, NOT_OURS, VERBATIM
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,26 +173,26 @@ Route = tuple[str, str, str]  # (app, method, path)
 
 CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/notice/acknowledge"): ("notice.acknowledged",),
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/guard"): ("decision.created",),
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/fhir/decide"): ("decision.created",),
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/decide"): ("decision.created",),
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/guard"): ("decision.created",),
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/fhir/decide"): ("decision.created",),
     (ENGINE, "POST", "/fhir/$decide"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
     # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over
     # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
-    (REGISTRY, "PUT", "/v1/packs/{namespace}/{name}/{version}"): ("pack.published",),
+    (REGISTRY, "PUT", "/v1/agents/{namespace}/{name}/{version}"): ("pack.published",),
     # A verified site's signed report, sent with its ticket's secret (LP-22f).
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/reports"): (
+    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/reports"): (
         "report.shared",
         "site.ticket_reported",
     ),
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
     # A publisher's signed evaluation of a listed version (ADR-0020); a later one supersedes.
-    (REGISTRY, "POST", "/v1/packs/{namespace}/{name}/{version}/evaluations"): (
+    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/evaluations"): (
         "evaluation.published",
         "evaluation.superseded",
     ),
@@ -210,11 +218,13 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "namespace.publisher_type_set",
     ),
     (ENGINE, "POST", "/api/registry/review/sites/{site_id}"): ("site.verified", "site.refused"),
-    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}"): ("pack.reviewed",),
-    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}/recall"): (
+    (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}"): (
+        "pack.reviewed",
+    ),
+    (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/recall"): (
         "pack.yanked",
     ),
-    (ENGINE, "POST", "/api/registry/review/packs/{namespace}/{name}/{version}/delete"): (
+    (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/delete"): (
         "pack.deleted",
     ),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
@@ -255,7 +265,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "access.handled",
         "membership.created",
     ),
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/evals"): ("eval.recorded",),
     # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
     (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
     # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
@@ -289,7 +299,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("pack_version.retired",),
     # The improvement dataset (LP-20i): each input read chained, the dataset with counts only;
     # a proposed test accepted or dismissed.
-    (ENGINE, "POST", "/api/store/packs/{namespace}/{name}/improvement"): (
+    (ENGINE, "POST", "/api/store/agents/{namespace}/{name}/improvement"): (
         "store_dataset.created",
         "input.read",
     ),
@@ -310,7 +320,7 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/audit/{decision_id}"): ("input.read",),  # encrypt mode, a reader
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
-    (ENGINE, "GET", "/api/packs/{namespace}/{name}/feedback/export"): ("input.read",),
+    (ENGINE, "GET", "/api/agents/{namespace}/{name}/feedback/export"): ("input.read",),
     # A labeller shown their next hidden case, each time, before it is sent (LP-11j).
     (ENGINE, "GET", "/api/labelling/next"): ("evalset.case_read",),
 }
@@ -356,12 +366,19 @@ def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[R
     """Every route by its methods (an APIRoute is a starlette Route). Anything else, a mount, a
     websocket or a host, would hide its routes here: only the dashboard's /static is allowed,
     and the registry under the engine (LP-19d), whose routes must be the registry's own
-    (`mounted`), which are listed as the registry's."""
+    (`mounted`), which are listed as the registry's. A renamed route is one route: the path it
+    had before is the same handler (`server/paths.py`; tests/test_legacy_routes.py holds the
+    two to that), so it is listed once, at its current path."""
+    former = {**ENGINE_FORMER_ROUTES, **REGISTRY_FORMER_ROUTES}
     found: set[Route] = set()
     for route in app.routes:
         if isinstance(route, ServedRoute):
             methods = route.methods if route.methods is not None else UNSAFE | {"GET"}
-            found |= {(name, method, route.path) for method in methods}
+            found |= {
+                (name, method, route.path)
+                for method in methods
+                if (method, route.path) not in former
+            }
         elif isinstance(route, Mount) and route.path == "/registry" and mounted is not None:
             assert isinstance(route.app, FastAPI), route
             within = {(method, path) for _, method, path in _routes(route.app, name)}

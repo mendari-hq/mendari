@@ -188,7 +188,7 @@ def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
             assert body["prefetch"] == {"patient": patient, "communication": message}
             assert body["context"] == {"patientId": patient["id"], "communicationId": message["id"]}
             continue
-        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/decide", path)
+        pack_id = re.fullmatch(r"/api/agents/([^/]+/[^/]+)/decide", path)
         assert pack_id is not None, f"{step.file}.sh {step.name}: a body for {path}"
         inputs = [case["input"] for case in load_cases(packs[pack_id.group(1)])]
         assert body in inputs, f"{step.file}.sh {step.name}: not one of the pack's examples"

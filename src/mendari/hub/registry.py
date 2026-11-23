@@ -4,7 +4,7 @@
 - **Namespaces** are owned by publishers. Each has a publisher type (community, verified,
   institutional) that the registry's reviewers set after verification; a pack's own
   `publisher.type` is only what it claims. Each namespace registers Ed25519 public keys.
-- **Publishing** (`PUT /v1/packs/{ns}/{name}/{version}`, with a namespace's owned token) accepts an
+- **Publishing** (`PUT /v1/agents/{ns}/{name}/{version}`, with a namespace's owned token) accepts an
   archive only if:
   - its signature verifies with one of the namespace's keys;
   - its manifest names this pack and version;
@@ -124,6 +124,7 @@ from mendari.hub import checkpoint as chain_checkpoint
 from mendari.hub import evaluations as publisher_evaluations
 from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
+from mendari.server import paths
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
@@ -2221,7 +2222,9 @@ REGISTRY_RATES: dict[str, Rate] = {
     "registry_ticket": Rate(60, 3600, 10),
     "registry_ticket_key": Rate(20, 3600, 5),
 }
-_REPORTS = re.compile(r"^/v1/packs/[^/]+/[^/]+/[^/]+/reports$")
+# A route's current path; `_rate_class` reads a renamed route's former path as its current one
+# first (`server/paths.py`), so a report counts against the same limit under either.
+_REPORTS = re.compile(r"^/v1/agents/[^/]+/[^/]+/[^/]+/reports$")
 _TICKETS = re.compile(r"^/v1/tickets(?:/[^/]+/withdraw)?$")
 
 
@@ -2270,7 +2273,7 @@ def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[s
     # The path as the registry's routes see it: under a mount (LP-19d) without the mount's.
     root = str(request.scope.get("root_path", ""))
     path = str(request.scope["path"])
-    path = path[len(root) :] if root and path.startswith(root) else path
+    path = paths.current(path[len(root) :] if root and path.startswith(root) else path)
     if _TICKETS.match(path):  # a site signs, it has no token: per address
         return "registry_ticket", f"ip:{client_ip(request)}"
     kind = "registry_report" if _REPORTS.match(path) else "registry_write"
@@ -2457,7 +2460,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         packs = sorted(p["id"] for p in store.latest(viewer) if p["namespace"] == namespace)
         return {**found, "packs": packs}
 
-    @app.put("/v1/packs/{namespace}/{name}/{version}", status_code=201)
+    @paths.route(app.put, "/v1/agents/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         await run_in_threadpool(require_publisher, request, namespace)
         if not _NAME.match(name) or not _VERSION.match(version):
@@ -2490,8 +2493,9 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         except ValidationError as error:
             raise RequestValidationError(error.errors()) from None
 
-    @app.post(
-        "/v1/packs/{namespace}/{name}/{version}/yank",
+    @paths.route(
+        app.post,
+        "/v1/agents/{namespace}/{name}/{version}/yank",
         status_code=201,
         openapi_extra=_body_of(YankRequest),
     )
@@ -2526,7 +2530,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         a running server checks the packs it pulled against this list."""
         return store.recalled(viewer_of(request))
 
-    @app.get("/v1/packs/{namespace}/{name}")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}")
     def pack(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """A pack: its versions, the recalled ones apart, and its newest version that is not
         recalled (`latest`, null when every version is)."""
@@ -2546,14 +2550,14 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "latest": served(live[-1], viewer) if live else None,
         }
 
-    @app.get("/v1/packs/{namespace}/{name}/tickets")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/tickets")
     def pack_tickets(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """A pack's tickets by verified site, digest and configuration: how many were
         reported, are unreported (open or expired) and were withdrawn (LP-22e). No commitment
         and no secret is served."""
         return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
 
-    @app.get("/v1/packs/{namespace}/{name}/site-evidence")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/site-evidence")
     def pack_site_evidence(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """What sites' signed reports say of a pack (`mendari.site-evidence/1`, LP-22g): per
         digest and configuration, each site's k of n, then the pooled figures and the
@@ -2562,7 +2566,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError("no such pack", 404)
         return site_evidence.evidence(store, namespace, name)
 
-    @app.get("/v1/packs/{namespace}/{name}/reports/{report_id}")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/reports/{report_id}")
     def signed_report(
         request: Request, namespace: str, name: str, report_id: str
     ) -> dict[str, Any]:
@@ -2573,7 +2577,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
                 raise HubError("no such report", 404)
         return store.signed_report(namespace, name, report_id)
 
-    @app.get("/v1/packs/{namespace}/{name}/reports")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/reports")
     def reports(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """Each site's shared results, version by version (unverified until sites sign them)."""
         viewer = viewer_of(request)
@@ -2581,7 +2585,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError(f"no pack {namespace}/{name}", 404)
         return {"id": f"{namespace}/{name}", **store.reports(namespace, name, viewer)}
 
-    @app.get("/v1/packs/{namespace}/{name}/{version}")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}")
     def pack_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         viewer = viewer_of(request)
         return served(store.version(namespace, name, version, viewer), viewer)
@@ -2598,7 +2602,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "figures": figures.registry(version),
         }
 
-    @app.get("/v1/packs/{namespace}/{name}/{version}/archive")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}/archive")
     def pack_archive(request: Request, namespace: str, name: str, version: str) -> Response:
         viewer = viewer_of(request)
         found = store.version(namespace, name, version, viewer)
@@ -2616,7 +2620,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             },
         )
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/reports", status_code=201)
+    @paths.route(app.post, "/v1/agents/{namespace}/{name}/{version}/reports", status_code=201)
     async def add_report(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
@@ -2670,7 +2674,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             )
         )
 
-    @app.post("/v1/packs/{namespace}/{name}/{version}/evaluations", status_code=201)
+    @paths.route(app.post, "/v1/agents/{namespace}/{name}/{version}/evaluations", status_code=201)
     async def publish_evaluation(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
@@ -2694,7 +2698,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             lambda: store.publish_evaluation(namespace, name, version, parsed, by=actor(request))
         )
 
-    @app.get("/v1/packs/{namespace}/{name}/{version}/evaluations")
+    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}/evaluations")
     def evaluations(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations (`mendari.publisher-evaluations/1`), each
         with the figures the registry works out from its counts, whether it re-ran it, and

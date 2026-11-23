@@ -283,7 +283,7 @@ def test_every_request_names_the_organization_the_window_shows(page: Page) -> No
     open_pack(page, INBOX)
     decide_and_download(page)
     assert {"GET", "POST"} <= {method for method, _, _ in seen}
-    assert f"/api/packs/{INBOX}/feedback/export" in {path for _, path, _ in seen}
+    assert f"/api/agents/{INBOX}/feedback/export" in {path for _, path, _ in seen}
     assert {org for _, _, org in seen} == {"default"}, seen
 
 

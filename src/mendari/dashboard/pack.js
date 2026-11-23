@@ -5,7 +5,7 @@ import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
-// Where a pack comes from (`origin`, from /api/packs): set by where the deployment found it, never
+// Where a pack comes from (`origin`, from /api/agents): set by where the deployment found it, never
 // by its manifest. A community pack is not clinically reviewed and never automates
 // (core/origin.py); every view that shows a pack says so.
 export const isCommunity = (pack) => pack?.origin === "community";

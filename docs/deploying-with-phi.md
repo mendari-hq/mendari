@@ -207,10 +207,10 @@ Give each key the least it needs:
 <!-- presets:start (generated from src/mendari/server/presets.py; a test keeps it equal) -->
 | Preset | For | Role | Scope | Calls |
 |---|---|---|---|---|
-| `rest` | REST API | `service` | none: the role's own | `GET /api/packs`<br>`POST /api/packs/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
+| `rest` | REST API | `service` | none: the role's own | `GET /api/agents`<br>`POST /api/agents/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
 | `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 | `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}`<br>`POST /cds-services/{service_id}/feedback` |
-| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/packs/{namespace}/{name}/pas` |
+| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/agents/{namespace}/{name}/pas` |
 | `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
 | `fhir-reader` | FHIR reader | `viewer` | `system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 <!-- presets:end -->

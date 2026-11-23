@@ -105,11 +105,11 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     "the chain's table and the packs start-up found",
     ("GET", "/invite"): "the invitation page, static: the token stays in the fragment",
     ("GET", "/openapi.json"): "generated from code, settings and the served packs",
-    ("GET", "/api/packs"): "the served packs, read from files, never the store",
-    ("GET", "/api/packs/{namespace}/{name}"): "a served pack, from its files",
-    ("GET", "/api/packs/{namespace}/{name}/datasets"): "the pack's and the deployment's "
+    ("GET", "/api/agents"): "the served packs, read from files, never the store",
+    ("GET", "/api/agents/{namespace}/{name}"): "a served pack, from its files",
+    ("GET", "/api/agents/{namespace}/{name}/datasets"): "the pack's and the deployment's "
     "datasets folder, from files (what it may hold in memberships mode is an owner decision)",
-    ("GET", "/api/packs/{namespace}/{name}/examples"): "the pack's examples, from its files",
+    ("GET", "/api/agents/{namespace}/{name}/examples"): "the pack's examples, from its files",
     ("GET", "/cds-services"): "the CDS services, generated from the packs",
     ("GET", "/fhir/metadata"): "conformance; capability_versions is deployment-wide, unchained",
     ("GET", "/fhir/OperationDefinition/{resource_id}"): "conformance",
@@ -174,8 +174,8 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("POST", "/api/evalsets/{set_id}/adjudication"),
     # An organization's pack store (LP-20f): MENDARI_PACK_STORE=on, which this world sets in
     # memberships mode.
-    ("GET", "/api/store/packs"),
-    ("GET", "/api/store/packs/{namespace}/{name}"),
+    ("GET", "/api/store/agents"),
+    ("GET", "/api/store/agents/{namespace}/{name}"),
     ("GET", "/api/store/versions/{digest}"),
     ("GET", "/api/store/versions/{digest}/file"),
     ("POST", "/api/store/versions"),
@@ -200,7 +200,7 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/store/promotions"),
     ("POST", "/api/store/promotions"),
     ("POST", "/api/store/promotions/{promotion_id}/retire"),
-    ("POST", "/api/store/packs/{namespace}/{name}/improvement"),
+    ("POST", "/api/store/agents/{namespace}/{name}/improvement"),
     ("GET", "/api/store/versions/{digest}/proposed-tests"),
     ("POST", "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}"),
 }
@@ -307,7 +307,7 @@ class World:
         the scan, with every value the caller sent (`sent`, the URL, query, form and body)."""
         start = self.head()
         sending = dict(options)
-        if self.pinned and url.startswith("/api/") and not url.startswith("/api/packs/"):
+        if self.pinned and url.startswith("/api/") and not url.startswith("/api/agents/"):
             name = self.other(org).name  # never in `sent`: an answer echoing it is a leak
             sending["params"] = {"org": name, **(options.get("params") or {})}
             if isinstance(options.get("json"), dict):
@@ -666,8 +666,8 @@ def seed(world: World, org: Org) -> None:
         made = world.call(
             org,
             service,
-            ("POST", "/api/packs/{namespace}/{name}/decide"),
-            f"/api/packs/{INBOX}/decide",
+            ("POST", "/api/agents/{namespace}/{name}/decide"),
+            f"/api/agents/{INBOX}/decide",
             json=message(words),
             expect=200,
         ).json()
@@ -687,8 +687,8 @@ def seed(world: World, org: Org) -> None:
     packed = world.call(
         org,
         org.people["reviewer"],
-        ("POST", "/api/packs/{namespace}/{name}/fhir/decide"),
-        f"/api/packs/{INBOX}/fhir/decide",
+        ("POST", "/api/agents/{namespace}/{name}/fhir/decide"),
+        f"/api/agents/{INBOX}/fhir/decide",
         json=FHIR_EXAMPLE,
         expect=200,
     ).json()
@@ -696,8 +696,8 @@ def seed(world: World, org: Org) -> None:
     guarded = world.call(
         org,
         service,
-        ("POST", "/api/packs/{namespace}/{name}/guard"),
-        f"/api/packs/{GUARD}/guard",
+        ("POST", "/api/agents/{namespace}/{name}/guard"),
+        f"/api/agents/{GUARD}/guard",
         json={**SAFE, "question": f"{SAFE['question']} {m}"},
         expect=200,
     ).json()
@@ -783,8 +783,8 @@ def seed(world: World, org: Org) -> None:
     run = world.call(
         org,
         admin,
-        ("POST", "/api/packs/{namespace}/{name}/evals"),
-        f"/api/packs/{INBOX}/evals",
+        ("POST", "/api/agents/{namespace}/{name}/evals"),
+        f"/api/agents/{INBOX}/evals",
         json={"dataset": "test", "limit": 2},
         expect=200,
     ).json()
@@ -1157,8 +1157,8 @@ def refusals(world: World, x: Org, o: Org) -> None:
     }
     refused(
         service,
-        ("POST", "/api/packs/{namespace}/{name}/pas"),
-        f"/api/packs/{PA}/pas",
+        ("POST", "/api/agents/{namespace}/{name}/pas"),
+        f"/api/agents/{PA}/pas",
         o.one("prior"),
         404,
         json=pas,
@@ -1477,8 +1477,8 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/review/summary"), "/api/review/summary", {}),
         (
             viewer,
-            ("GET", "/api/packs/{namespace}/{name}/validation-brief"),
-            f"/api/packs/{INBOX}/validation-brief",
+            ("GET", "/api/agents/{namespace}/{name}/validation-brief"),
+            f"/api/agents/{INBOX}/validation-brief",
             {},
         ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
@@ -1649,8 +1649,8 @@ def served(world: World, x: Org) -> None:
     world.call(
         x,
         admin,
-        ("GET", "/api/packs/{namespace}/{name}/feedback/export"),
-        f"/api/packs/{INBOX}/feedback/export",
+        ("GET", "/api/agents/{namespace}/{name}/feedback/export"),
+        f"/api/agents/{INBOX}/feedback/export",
         expect=200,
     )
     for who in (viewer, admin):
@@ -1706,8 +1706,8 @@ def served(world: World, x: Org) -> None:
     world.call(
         x,
         service,
-        ("POST", "/api/packs/{namespace}/{name}/pas"),
-        f"/api/packs/{PA}/pas",
+        ("POST", "/api/agents/{namespace}/{name}/pas"),
+        f"/api/agents/{PA}/pas",
         json=pas,
         expect=200,
     )
@@ -1884,8 +1884,8 @@ def served_store(world: World, x: Org) -> None:
         world.call(
             x,
             author,
-            ("GET", "/api/store/packs/{namespace}/{name}"),
-            f"/api/store/packs/{o.name}/inbox-copy",
+            ("GET", "/api/store/agents/{namespace}/{name}"),
+            f"/api/store/agents/{o.name}/inbox-copy",
             expect=404,
         )
 
@@ -1971,7 +1971,7 @@ def served_store(world: World, x: Org) -> None:
         expect=201,
     ).json()
     x.made("store version", parts["digest"])
-    listed = world.call(x, author, ("GET", "/api/store/packs"), "/api/store/packs", expect=200)
+    listed = world.call(x, author, ("GET", "/api/store/agents"), "/api/store/agents", expect=200)
     assert {lineage["pack_id"] for lineage in listed.json()} == {
         f"{x.name}/inbox-copy",
         f"{x.name}/inbox-upload",
@@ -1979,8 +1979,8 @@ def served_store(world: World, x: Org) -> None:
     world.call(
         x,
         author,
-        ("GET", "/api/store/packs/{namespace}/{name}"),
-        f"/api/store/packs/{x.name}/inbox-copy",
+        ("GET", "/api/store/agents/{namespace}/{name}"),
+        f"/api/store/agents/{x.name}/inbox-copy",
         expect=200,
     )
     world.call(
@@ -2126,7 +2126,7 @@ def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> No
     ).json()
     x.made("store promotion", made["id"])
     pack_id = f"{x.name}/inbox-copy"
-    served = world.call(x, x.people["viewer"], ("GET", "/api/packs"), "/api/packs", expect=200)
+    served = world.call(x, x.people["viewer"], ("GET", "/api/agents"), "/api/agents", expect=200)
     assert pack_id in {p["id"] for p in served.json()}
     world.call(
         x,
@@ -2160,8 +2160,8 @@ def served_store_improvement(world: World, x: Org, digest: str) -> None:
     made = world.call(
         x,
         reader,
-        ("POST", "/api/store/packs/{namespace}/{name}/improvement"),
-        f"/api/store/packs/{x.name}/inbox-copy/improvement",
+        ("POST", "/api/store/agents/{namespace}/{name}/improvement"),
+        f"/api/store/agents/{x.name}/inbox-copy/improvement",
         json={"version": digest, "limit": 5},
         expect=(201, 422),
     )
@@ -2336,18 +2336,18 @@ def deployment_wide(world: World, x: Org) -> None:
         (viewer, ("GET", "/redoc"), "/redoc", {}),
         (viewer, ("GET", "/favicon.ico"), "/favicon.ico", {}),
         (viewer, ("GET", "/openapi.json"), "/openapi.json", {}),
-        (viewer, ("GET", "/api/packs"), "/api/packs", {}),
-        (viewer, ("GET", "/api/packs/{namespace}/{name}"), f"/api/packs/{INBOX}", {}),
+        (viewer, ("GET", "/api/agents"), "/api/agents", {}),
+        (viewer, ("GET", "/api/agents/{namespace}/{name}"), f"/api/agents/{INBOX}", {}),
         (
             viewer,
-            ("GET", "/api/packs/{namespace}/{name}/datasets"),
-            f"/api/packs/{INBOX}/datasets",
+            ("GET", "/api/agents/{namespace}/{name}/datasets"),
+            f"/api/agents/{INBOX}/datasets",
             {},
         ),
         (
             viewer,
-            ("GET", "/api/packs/{namespace}/{name}/examples"),
-            f"/api/packs/{INBOX}/examples",
+            ("GET", "/api/agents/{namespace}/{name}/examples"),
+            f"/api/agents/{INBOX}/examples",
             {},
         ),
         (viewer, ("GET", "/cds-services"), "/cds-services", {}),
@@ -2418,7 +2418,7 @@ def again(world: World, x: Org) -> None:
     decision, then a hold of the inbox and a decision it holds (citing it, while the other's
     automation runs on); a review, an outcome and a rating; an approval, an evaluation, a key and
     a client; in memberships mode an invitation and a request to join."""
-    decide, url = ("POST", "/api/packs/{namespace}/{name}/decide"), f"/api/packs/{INBOX}/decide"
+    decide, url = ("POST", "/api/agents/{namespace}/{name}/decide"), f"/api/agents/{INBOX}/decide"
     service, reviewer = x.keys["service"], x.people["reviewer"]
     free = world.call(x, service, decide, url, json=message(f"{REFILL} {x.marker}"), expect=200)
     assert free.json()["outcome"] == "AUTO", free.json()["reasons"]  # no one else's hold here
@@ -2473,8 +2473,8 @@ def again(world: World, x: Org) -> None:
     run = world.call(
         x,
         x.people["admin"],
-        ("POST", "/api/packs/{namespace}/{name}/evals"),
-        f"/api/packs/{INBOX}/evals",
+        ("POST", "/api/agents/{namespace}/{name}/evals"),
+        f"/api/agents/{INBOX}/evals",
         json={"dataset": "test", "limit": 1},
         expect=200,
     ).json()

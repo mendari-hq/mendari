@@ -97,7 +97,7 @@ function defaultTab() {
 // -- packs ---------------------------------------------------------------------------------------
 
 async function showPacks(body) {
-  const lineages = await api("/api/store/packs");
+  const lineages = await api("/api/store/agents");
   const list = lineages.length
     ? lineages.map(lineageHtml).join("")
     : emptyState({ icon: "package", title: "No agent in your store yet", text: "Copy an agent this deployment serves, or upload a signed archive." });
@@ -301,7 +301,7 @@ function testsHtml(ran) {
 // -- results ----------------------------------------------------------------------------------------
 
 async function showResults(body) {
-  const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/packs")]);
+  const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/agents")]);
   const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "held" && v.state !== "withdrawn"));
   const datasetRows = datasets.map((d) => [
     { html: esc(d.name) },

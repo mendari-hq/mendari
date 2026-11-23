@@ -53,7 +53,7 @@ NOT_A_DATA_SERVER = (
     "hash-chained audit trail as AuditEvents and Provenances (read and search, each caller "
     "seeing only its organization's); the conformance resources that describe it; and Da Vinci "
     "DTR's $questionnaire-package. Outside this FHIR base it also offers "
-    "/api/packs/{namespace}/{name}/fhir/decide (FHIR in, Mendari JSON out), CDS Hooks at "
+    "/api/agents/{namespace}/{name}/fhir/decide (FHIR in, Mendari JSON out), CDS Hooks at "
     "/cds-services (with each service's card feedback, and an EHR's own signed token once the "
     "EHR is registered), the whole audit trail as FHIR NDJSON at /api/audit/export/fhir, and a "
     "SMART on FHIR app launch at /smart/launch. It reads an EHR's FHIR server only when that "
@@ -200,7 +200,7 @@ def capability_statement(
     `since(version)`: when that version went live here (`AuditStore.capability_since`).
 
     It needs no credential. With sign-in on it names no pack (which packs run here is for
-    signed-in callers, as in /api/health and /api/packs, whose list a decide-scoped credential
+    signed-in callers, as in /api/health and /api/agents, whose list a decide-scoped credential
     also reads); the operations it offers are still the ones the served packs use."""
     mounted = set(routes)
     offered = [
@@ -347,8 +347,8 @@ def _packs_sentence(packs: list[str] | None, lead: str) -> str:
     """The packs with FHIR input served here, or (None) where they are not public."""
     if packs is None:
         return (
-            f"{lead}: for signed-in callers, the packs GET /api/packs lists whose "
-            "GET /api/packs/{namespace}/{name} has manifest.inputs.fhir."
+            f"{lead}: for signed-in callers, the packs GET /api/agents lists whose "
+            "GET /api/agents/{namespace}/{name} has manifest.inputs.fhir."
         )
     return f"{lead}: {', '.join(packs) or 'none'}."
 

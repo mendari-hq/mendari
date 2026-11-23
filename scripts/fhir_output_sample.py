@@ -114,7 +114,7 @@ def served_reads_and_searches(client: TestClient) -> dict[str, Any]:
     inbox = PACKS["inbox"]
 
     def decided(body: str) -> str:
-        made = call(client.post(f"/api/packs/{inbox}/decide", json={"message": {"body": body}}))
+        made = call(client.post(f"/api/agents/{inbox}/decide", json={"message": {"body": body}}))
         return str(made["id"])
 
     reviewed = decided("Crushing chest pain and my left arm is numb")

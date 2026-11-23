@@ -556,7 +556,7 @@ def test_a_request_to_join_is_refused(site: Site) -> None:
     assert site.store.open_access_requests("clinic-a") == []
 
 
-PACK_DETAIL = "**/api/packs/*/*"  # one pack's details, not its datasets, examples or evaluations
+PACK_DETAIL = "**/api/agents/*/*"  # one pack's details, not its datasets, examples or evaluations
 
 
 def test_the_access_view_does_not_wait_for_the_packs_details(site: Site) -> None:

@@ -29,7 +29,7 @@ TAGS = [
         "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
         "clinical resources.",
     },
-    {"name": "Packs", "description": "The agents this deployment serves."},
+    {"name": "Agents", "description": "The agents this deployment serves."},
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
@@ -173,9 +173,9 @@ in a hash-chained audit trail.
 
 ### A first request
 
-1. `GET /api/packs` lists the packs.
-2. `GET /api/packs/{pack}/examples` gives synthetic inputs.
-3. `POST /api/packs/{pack}/decide` with an example's `input` returns the decision; its `id`
+1. `GET /api/agents` lists the packs.
+2. `GET /api/agents/{pack}/examples` gives synthetic inputs.
+3. `POST /api/agents/{pack}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
@@ -189,7 +189,7 @@ The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it do
 `POST /fhir/$decide` takes `Parameters` (`pack`, `data` as a Bundle) and returns the decision as
 a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status`). To send a
 bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
-`POST /api/packs/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
+`POST /api/agents/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
 check (a `400` otherwise), then R4 and US Core 6.1.0 rules; an error on a FHIR route is an
 `OperationOutcome`.
 
@@ -448,7 +448,7 @@ def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
 def _body_examples(
     path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], packs: Mapping[str, Pack]
 ) -> dict[str, Any]:
-    if path in ("/api/packs/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
+    if path in ("/api/agents/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
         if FHIR_EXAMPLE_PACK not in packs:
             return {}
         value: dict[str, Any] = FHIR_EXAMPLE
@@ -466,7 +466,10 @@ def _body_examples(
                 "value": value,
             }
         }
-    if path not in ("/api/packs/{namespace}/{name}/decide", "/api/packs/{namespace}/{name}/guard"):
+    if path not in (
+        "/api/agents/{namespace}/{name}/decide",
+        "/api/agents/{namespace}/{name}/guard",
+    ):
         return {}
     guards = path.endswith("/guard")
     return {

@@ -45,6 +45,8 @@ from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
     DASHBOARD,
+    FORMER_ROUTES,
+    as_now,
     encrypt_mode,
     encrypted_store,
     evalset_on,
@@ -423,11 +425,17 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     ]
     # Nothing that writes needs only what every role holds (`read`, `discover`).
     assert all(permission_for(m, p) not in ("read", "discover") for m, p in writes), writes
-    # `discover` reaches the two lists of packs to decide with, and nothing else.
+    # `discover` reaches the two lists of agents to decide with, and nothing else (the list
+    # of agents at the path it had before too, which answers the same: `server/paths.py`).
     assert {r for r in routes if permission_for(*r) == "discover"} == {
+        ("GET", "/api/agents"),
         ("GET", "/api/packs"),
         ("GET", "/cds-services"),
     }
+    assert {r: permission_for(*r) for r in FORMER_ROUTES} == {
+        old: permission_for(*now) for old, now in FORMER_ROUTES.items()
+    }
+    assert permission_for("POST", "/api/agents/a/b/evals") == "evaluate"
     assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
     assert permission_for("POST", "/fhir/$decide") == "decide"
     # CDS Hooks card feedback (LP-23f): its own rule before the catch-all, which needs `admin`.
@@ -620,19 +628,22 @@ ROUTE_SCOPE = {
     ("GET", "/fhir/NamingSystem/{resource_id}"): "system/NamingSystem.r",
     **{("GET", f"/fhir/{kind}"): f"system/{kind}.s" for kind in SEARCHED},
     **{("POST", f"/fhir/{kind}/_search"): f"system/{kind}.s" for kind in SEARCHED},
-    ("POST", "/api/packs/{namespace}/{name}/decide"): DECIDE,
-    ("POST", "/api/packs/{namespace}/{name}/guard"): DECIDE,
-    ("POST", "/api/packs/{namespace}/{name}/fhir/decide"): DECIDE,
-    ("POST", "/api/packs/{namespace}/{name}/pas"): DECIDE,
+    ("POST", "/api/agents/{namespace}/{name}/decide"): DECIDE,
+    ("POST", "/api/agents/{namespace}/{name}/guard"): DECIDE,
+    ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): DECIDE,
+    ("POST", "/api/agents/{namespace}/{name}/pas"): DECIDE,
     ("POST", "/cds-services/{service_id}"): DECIDE,
     ("POST", "/cds-services/{service_id}/feedback"): DECIDE,  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): DECIDE,
     ("POST", "/fhir/Questionnaire/$questionnaire-package"): DECIDE,
     ("POST", "/api/audit/{decision_id}/outcome"): OUTCOME,
-    # Deciding implies listing the packs to decide with (`discover`, ADR-0004 as amended).
-    ("GET", "/api/packs"): DECIDE,
+    # Deciding implies listing the agents to decide with (`discover`, ADR-0004 as amended).
+    ("GET", "/api/agents"): DECIDE,
     ("GET", "/cds-services"): DECIDE,
 }
+# A renamed route at the path it had before (`server/paths.py`): reached with the scope that
+# reaches it now, and by nothing else.
+FORMER_SCOPE = {old: ROUTE_SCOPE[now] for old, now in FORMER_ROUTES.items() if now in ROUTE_SCOPE}
 SCOPED_KEYS = [
     ("viewer", "system/*.rs"),
     ("viewer", "system/Task.r"),
@@ -790,8 +801,12 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         ("POST", "/api/auth/clients/{client_id}/keys"),
     }
     assert set(ROUTE_SCOPE) <= set(routes)
-    assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
-    lists = {("GET", "/api/packs"), ("GET", "/cds-services")}
+    # Every renamed route is mounted at its former path too, and each of those is held, below,
+    # to what this file's tables say of the route that answers it now (`as_now`).
+    assert set(FORMER_ROUTES) <= set(routes) and set(FORMER_ROUTES.values()) <= set(routes)
+    assert len(FORMER_SCOPE) == 5
+    assert {r: needed(*r) for r in routes if needed(*r)} == {**ROUTE_SCOPE, **FORMER_SCOPE}
+    lists = {("GET", "/api/agents"), ("GET", "/cds-services")}
     for route, scope in ROUTE_SCOPE.items():  # a scope stands for the route's own permission
         implied = (
             "discover" if route in lists else next(iter(parse(scope).permissions - {"discover"}))
@@ -910,7 +925,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         for got, want in [
             (
                 attempt(guards.get(kind, signed), method, path, sent(kind, headers, path)),
-                expected(kind, role, scope, method, path),
+                expected(kind, role, scope, *as_now((method, path))),
             )
         ]
         if got != want
@@ -930,7 +945,8 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         for method, path in routes
         if attempt(signed, method, path, headers)[0] == 200
     }
-    assert reached == PUBLIC | BACKEND_PUBLIC | set(ROUTE_SCOPE)  # each reachable by some key
+    # Each reachable by some key, a renamed route under both its paths.
+    assert reached == PUBLIC | BACKEND_PUBLIC | set(ROUTE_SCOPE) | set(FORMER_SCOPE)
 
 
 def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
@@ -949,7 +965,8 @@ def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
     assert len(data) == 10  # reads, the Task vread, and GET and POST search of each
     assert {permission_for(m, p) for m, p in data} == {"read"}
     assert all(permission_for(m, p) != "public" for m, p in fhir - discovery)
-    assert permission_for("GET", "/api/packs/a/b/feedback/export") == "admin"
+    assert permission_for("GET", "/api/agents/a/b/feedback/export") == "admin"
+    assert permission_for("GET", "/api/packs/a/b/feedback/export") == "admin"  # its former path
     assert permission_for("DELETE", "/api/something/new") == "admin"  # deny by default
 
 
@@ -1101,7 +1118,8 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
         for method, operation in methods.items()
     }
     assert operations[("GET", "/api/health")]["security"] == []
-    decide = operations[("POST", "/api/packs/{namespace}/{name}/decide")]
+    decide = operations[("POST", "/api/agents/{namespace}/{name}/decide")]
+    assert not set(FORMER_ROUTES) & set(operations)  # a former path answers, and is not listed
     assert decide["security"] == [{"apiKey": []}, {"session": []}]
     assert "the `decide` permission" in decide["description"]
     # Only an EHR launch decides there: never a session or a key.
