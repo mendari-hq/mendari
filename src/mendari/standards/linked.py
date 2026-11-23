@@ -306,7 +306,7 @@ class Linker:
             wait = self._wait()
             if wait is None:
                 return "timeout", True  # a clock has run out: nothing is sent
-            found, kept = self._fetch(client, url, named[0], wait)
+            found, kept = self._fetch(client, url, named, wait)
             if kept:
                 self._read[url] = found
         urls.add(url)
@@ -314,11 +314,15 @@ class Linker:
             decision.statuses[self._statuses[url]] += 1
         return found, True
 
-    def _fetch(self, client: FhirClient, url: str, kind: str, wait: float) -> tuple[Read, bool]:
-        """One resource of type `kind` at `url`, waiting at most `wait` (`_wait`), or why it was
-        not read; and whether the request's later decisions may reuse that: not when the clocks
-        stopped it (its answer did not arrive before them), since each decision has a deadline
-        of its own."""
+    def _fetch(
+        self, client: FhirClient, url: str, named: tuple[str, str], wait: float
+    ) -> tuple[Read, bool]:
+        """The resource `named` (`Type/id`) at `url`, waiting at most `wait` (`_wait`), or why it
+        was not read; and whether the request's later decisions may reuse that: not when the
+        clocks stopped it (its answer did not arrive before them), since each decision has a
+        deadline of its own. An answer of another type or id than the one asked for is
+        `unsupported_type`: never read as the resource the link names."""
+        kind, wanted = named
         started = _now()
 
         def stop() -> bool:
@@ -340,7 +344,7 @@ class Linker:
             self._spent += _now() - started
         if found.get("resourceType") == "OperationOutcome":
             return "operation_outcome", True
-        if found.get("resourceType") != kind:
+        if found.get("resourceType") != kind or found.get("id") != wanted:
             return "unsupported_type", True
         if fhir_structure.blocking(fhir_structure.check(found)):
             return "not_r4", True

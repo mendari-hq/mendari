@@ -162,7 +162,16 @@ read-only transaction, must return no row:
 psql "$DATABASE_URL" -c "BEGIN READ ONLY; SELECT 1 FROM audit_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1; ROLLBACK;"
 ```
 
-If either fails, do not deploy: treat it as a SEV1 (the chain fails verification) and restore
+The registry's chain gets the same index (`hub_events_prev_hash`), and its start the same
+refusal, naming `mendari registry verify`. Check the registry's database likewise, with the
+registry deployment's own `$DATABASE_URL`: `mendari registry verify --db "$DATABASE_URL"`
+must pass, and its fork check must return no row:
+
+```bash
+psql "$DATABASE_URL" -c "BEGIN READ ONLY; SELECT 1 FROM hub_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1; ROLLBACK;"
+```
+
+If any of these fails, do not deploy: treat it as a SEV1 (the chain fails verification) and restore
 from a backup taken before the break, as above.
 
 ## The firewall (the owner's)

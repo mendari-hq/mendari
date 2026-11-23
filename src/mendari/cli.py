@@ -518,8 +518,10 @@ def cmd_compare(args: argparse.Namespace) -> int:
     from mendari.evals.harness import load_dataset, resolve_dataset
     from mendari.evals.ledger import case_hash
 
-    if args.seed < 0 or args.resamples < 1 or not 0 < args.alpha < 1:
-        raise MendariError("--seed is 0 or more, --resamples 1 or more, --alpha between 0 and 1")
+    if args.seed < 0 or not 0 < args.alpha < 1:
+        raise MendariError("--seed is 0 or more, --alpha between 0 and 1")
+    if not 1 <= args.resamples <= MAX_RESAMPLES:
+        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
     a = paired.load(args.a, flag="A")
     b = paired.load(args.b, flag="B")
     if Path(args.dataset).is_file():
@@ -2375,14 +2377,22 @@ def cmd_site_init(args: argparse.Namespace) -> int:
 
 def cmd_site_key(args: argparse.Namespace) -> int:
     """A new key for this site (`--new`), the id and commitment secret kept: register it, then
-    revoke the old one (`mendari registry site-revoke-key`, or the dashboard)."""
-    from mendari.hub.site_signing import Site
+    revoke the old one (`mendari registry site-revoke-key`, or the dashboard). The old private
+    key is kept beside the new one (`site_key.<hex>.pem`), never deleted."""
+    from mendari.hub.site_signing import Site, retired_key_path, site_dir
 
     if not args.new:
         raise MendariError("`mendari site key --new` makes a new key; nothing else is asked")
-    args.site = Site().id
+    site = Site()
+    args.site = site.id
     args.command_name = "key"
-    return cmd_site_init(args)
+    code = cmd_site_init(args)
+    print(
+        f"the old key ({site.key_id}) is kept in {retired_key_path(site_dir(), site.key_id)}: "
+        "delete it once the new key is registered and the old one revoked.",
+        file=sys.stderr,
+    )
+    return code
 
 
 def _ticket_request(
@@ -5212,6 +5222,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     quiet = _quiet_libraries(debug)
     try:
         args = build_parser().parse_args(arguments)
+        if tenancy.is_blank(getattr(args, "org", None)):
+            raise MendariError("--org names an organization: it is never empty")
         code = int(args.handler(args))
         sys.stdout.flush()  # here, where a closed pipe is caught, not at interpreter exit
         return code

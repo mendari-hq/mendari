@@ -717,6 +717,10 @@ def interval(k: int, n: int) -> tuple[float, float]:
 
 
 def proportion(k: int, n: int, level: float = LEVEL) -> Proportion:
+    """k of n with its interval; no cases (n 0) has no interval. Anything that is not a count
+    of hits among n cases (k < 0, k > n, n < 0) is refused, never shown as a rate."""
+    if n < 0 or not 0 <= k <= n:
+        raise ValueError(f"a proportion needs 0 <= k <= n, got k={k} of n={n}")
     if n == 0:
         return Proportion(k, n, None, None, level)
     low, high = clopper_pearson(k, n, level)

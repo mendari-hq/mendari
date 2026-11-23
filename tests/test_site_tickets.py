@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari.cli import _site_configuration
+from mendari.cli import _site_configuration, main
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals import arms
@@ -261,6 +261,34 @@ def test_the_sites_key_and_secret_are_written_private(tmp_path: Path) -> None:
     rotated = init_site("0123456789abcdef", directory=where, new_key=True)
     assert rotated["key_id"] != made["key_id"]
     assert (where / site_signing.SECRET_FILE).read_bytes()  # the secret stays
+
+
+def test_a_new_key_keeps_every_key_it_replaces(tmp_path: Path) -> None:
+    # A second `site key --new` before the first new key was registered used to write over the
+    # one backup, losing the key the registry still knew.
+    where = tmp_path / "site"
+    first = init_site("0123456789abcdef", directory=where)
+    first_pem = (where / site_signing.KEY_FILE).read_bytes()
+    second = init_site("0123456789abcdef", directory=where, new_key=True)
+    second_pem = (where / site_signing.KEY_FILE).read_bytes()
+    init_site("0123456789abcdef", directory=where, new_key=True)
+    for made, pem in ((first, first_pem), (second, second_pem)):
+        kept = site_signing.retired_key_path(where, made["key_id"])
+        assert kept.read_bytes() == pem
+        assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+
+
+def test_site_key_new_says_where_the_old_key_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MENDARI_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.chdir(tmp_path)
+    assert main(["site", "init", "--site", "0123456789abcdef", "--out", "a.json"]) == 0
+    old = json.loads((tmp_path / "a.json").read_text())["key_id"]
+    capsys.readouterr()
+    assert main(["site", "key", "--new", "--out", "b.json"]) == 0
+    kept = site_signing.retired_key_path(tmp_path / "config", old)
+    assert kept.is_file() and f"the old key ({old}) is kept in {kept}" in capsys.readouterr().err
 
 
 def test_a_recall_or_a_scoreboard_signature_is_not_a_sites(

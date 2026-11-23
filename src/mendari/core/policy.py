@@ -19,9 +19,10 @@ Order of evaluation:
    automates and its rule's BLOCK goes to a person, the limitation a reason whatever the
    outcome. Without the declaration the pack alone abstains, so nothing lifts this one either.
 6. The `canned` cap: on a server with sign-in, answers an agent read from its `mock_file`
-   (`MENDARI_AGENT_URL` unset, `providers/agent.py`) never automate: AUTO becomes HUMAN_REVIEW
-   and the reason says so whatever the outcome. Nothing lifts it, governance included. Without
-   sign-in (`mendari demo`, tests, a local dashboard) the server passes none and nothing changes.
+   (`MENDARI_AGENT_URL` unset, `providers/agent.py`) never automate: AUTO and a rule's BLOCK
+   (final at once) become HUMAN_REVIEW, and the reason says so whatever the outcome. Nothing
+   lifts it, governance included. Without sign-in (`mendari demo`, tests, a local dashboard)
+   the server passes none and nothing changes.
 """
 
 from __future__ import annotations
@@ -96,8 +97,8 @@ def apply_policy(
     a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
     nothing else changes. `not_offered` names each limitation of a list read without a source the
     site declared its EHR does not offer (`limitation`): the same cap, its own reason. `canned`
-    says why the answers are canned (`ProviderOutput.canned`): AUTO becomes HUMAN_REVIEW, and the
-    reason is given whatever the outcome."""
+    says why the answers are canned (`ProviderOutput.canned`): AUTO and a rule's BLOCK become
+    HUMAN_REVIEW, and the reason is given whatever the outcome."""
     translated = tuple(sorted(set(site_code)))
     limits = tuple(dict.fromkeys(not_offered))
     policy = manifest.policy
@@ -169,6 +170,11 @@ def apply_policy(
     if limits and was_block:
         # A rule's BLOCK on a list the EHR could not give whole: a person decides, as above.
         reasons.extend(f"{limit}: a person decides instead of its rule's BLOCK" for limit in limits)
+        outcome = Outcome.HUMAN_REVIEW
+    if canned is not None and was_block:
+        # A rule's BLOCK on canned answers: a block is final at once and seen by nobody, and
+        # canned answers never decide alone on a server with sign-in.
+        reasons.append(f"{canned}: a person decides instead of its rule's BLOCK")
         outcome = Outcome.HUMAN_REVIEW
     if outcome is Outcome.AUTO and recommendation is None:
         outcome = Outcome.ABSTAIN

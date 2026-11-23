@@ -520,6 +520,17 @@ class PackStore:
         if used is not None and int(used["n"] or 0) >= quota:
             raise StoreError(f"this organization has added its {quota} {what} for today", 429)
 
+    def refuse_over_dataset_quota(self, org: str, adding: int = 0) -> None:
+        """Refused (`StoreError`) before a dataset is read, parsed or built: 429 when `org` has
+        added its `store_datasets` datasets today, 413 when `adding` bytes (what is known of its
+        size before it is sealed, which only adds to it) would pass `MENDARI_STORE_ORG_BYTES`.
+        `add_dataset` checks both again with the size as kept, in its write."""
+        org = _org(org)
+        self._refuse_over_quota(org, "store_datasets")
+        if adding:
+            with self.store._db.session(exclusive=False) as db:
+                self._refuse_over_bytes(db, org, adding, self._org_shas(db, org))
+
     def _refuse_over_bytes(self, db: Any, org: str, adding: int, held: set[str]) -> None:
         """A `StoreError` (413) when `org`'s store would keep more than
         `settings.store_org_bytes()` with `adding` more bytes: the files its versions hold
@@ -1044,7 +1055,7 @@ class PackStore:
             raise StoreError("a dataset's name is lower-case letters, digits and hyphens")
         if kind not in ("upload", "improvement"):
             raise ValueError("a dataset is an upload or an improvement dataset")
-        self._refuse_over_quota(org, "store_datasets")  # before the detector, load and checks
+        self.refuse_over_dataset_quota(org, len(raw))  # before the detector, load and checks
         # An improvement dataset (LP-20i) is the organization's own reviewed decisions: patients'
         # inputs by construction, so neither the PHI detector nor the hidden-set check is for it;
         # it is always sealed where the policy seals.

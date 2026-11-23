@@ -3448,7 +3448,7 @@ def create_app(
         who = principal if principal is not None and principal.kind != "open" else None
         acting = (
             tenancy.acting_for_nobody(who.actor)
-            if who is not None and who.org is None
+            if who is not None and (who.org is None or tenancy.is_blank(who.org))
             else tenancy.acting_for(who.org if who else None, who.actor if who else None)
         )
         with acting:

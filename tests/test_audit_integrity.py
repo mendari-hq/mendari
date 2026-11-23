@@ -50,6 +50,27 @@ def test_the_chain_is_never_appended_to_outside_an_exclusive_session(store: Audi
     assert store.verify() == {"ok": True, "events": 0, "head": "0" * 64}
 
 
+def test_no_event_s_subject_or_kind_holds_the_chain_s_separator(store: AuditStore) -> None:
+    """The chain's hash joins its fields with an unescaped \\x1f: one in a subject or a kind
+    would let ("a\\x1fb", "c") and ("a", "b\\x1fc") hash alike. Refused before anything is
+    written; the hash of what is chained is unchanged."""
+    from mendari.core.audit import _chain_hash
+
+    assert _chain_hash("0" * 64, "a\x1fb", "c", "{}", "t") == _chain_hash(
+        "0" * 64, "a", "b\x1fc", "{}", "t"
+    )  # why: the join alone does not tell them apart
+    for subject, kind in (("deployment:x\x1f", "deployment.recorded"), ("x", "a\x1fb")):
+        with (
+            pytest.raises(ValueError, match="separator"),
+            store._db.session(exclusive=True) as db,
+        ):
+            store._append(db, subject, kind, {"id": "x"})
+    assert store.verify() == {"ok": True, "events": 0, "head": "0" * 64}
+    with store._db.session(exclusive=True) as db:
+        store._append(db, "deployment:x", "deployment.recorded", {"id": "x"})
+    assert store.verify()["ok"] is True
+
+
 # -- the chain's unique links: no two events follow the same one ------------------------------
 
 LINKS = "audit_events_prev_hash"
@@ -186,6 +207,49 @@ def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
     finally:
         for store in stores:
             store.close()
+
+
+# -- verification reads the chain a page at a time ------------------------------------------
+
+
+def test_verification_reads_the_chain_in_pages_with_the_same_results(
+    store: AuditStore, decide: Decide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`verify` holds `_VERIFY_PAGE` events at once: whatever the page, every verification
+    (full, from a checkpoint, against a signed head, with notes) says exactly the same, on a
+    whole chain and on a broken one."""
+    from mendari.core import audit as audit_module
+
+    for body in (EMERGENCY, ROUTINE, REVIEW):
+        decide(body)
+    store.record_checkpoint()
+    for body in (EMERGENCY, ROUTINE, REVIEW, ROUTINE):
+        decide(body)
+    head = store.verify()["head"]
+
+    def every_verification() -> list[dict[str, Any]]:
+        return [
+            store.verify(),
+            store.verify(since_checkpoint=True),
+            store.verify(head=head),
+            store.verify(head="f" * 64),
+            store.verify(notes=True),
+        ]
+
+    whole = every_verification()
+    assert whole[0]["ok"] is True and whole[0]["events"] == 7
+    assert whole[1]["ok"] is True and whole[1]["events"] == 4
+    for page in (1, 2, 3, 7):
+        monkeypatch.setattr(audit_module, "_VERIFY_PAGE", page)
+        assert every_verification() == whole, page
+    monkeypatch.undo()
+    tamper(store, "UPDATE audit_events SET payload = payload || ' ' WHERE seq = 5")
+    broken = every_verification()
+    assert broken[0] == {"ok": False, "events": 7, "broken_at": 5}
+    assert broken[1] == {"ok": False, "events": 4, "broken_at": 5}
+    for page in (1, 2, 3, 7):
+        monkeypatch.setattr(audit_module, "_VERIFY_PAGE", page)
+        assert every_verification() == broken, page
 
 
 # -- decision rows changed past the store -----------------------------------------------------

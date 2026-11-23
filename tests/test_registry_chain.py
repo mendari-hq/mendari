@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from mendari.cli import main
 from mendari.core.registry import resolve_pack
-from mendari.errors import HubError
+from mendari.errors import HubError, MendariError
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
 from tests.conftest import Registry, share_signed, shared_benchmark, verified_site
 
@@ -263,6 +263,96 @@ def test_a_registry_from_before_the_chain_records_what_it_held_once(
     _write(db_target, "DELETE FROM hub_events")
     assert _events(db_target) == []  # opened again: not started anew
     assert _verify(db_target)["problem"] == "the chain was emptied"
+
+
+# -- the chain's unique links: no two events follow the same one ------------------------------
+
+LINKS = "hub_events_prev_hash"
+
+
+def _refused_by_the_database() -> tuple[type[BaseException], ...]:
+    import sqlite3
+
+    import psycopg
+
+    return (sqlite3.IntegrityError, psycopg.IntegrityError)
+
+
+def _fork(db_target: str, *, unindexed: bool = False) -> None:
+    """A second event chained after the event the head follows, written past the store; with
+    `unindexed`, after dropping the index in the same session (opening a store creates it)."""
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        if unindexed:
+            db.all(f"DROP INDEX {LINKS}")
+        db.all(
+            "INSERT INTO hub_events (subject, event, payload, created_at, prev_hash, hash) "
+            "SELECT subject, event, payload, created_at, prev_hash, ? FROM hub_events "
+            "WHERE seq = (SELECT MAX(seq) FROM hub_events)",
+            ("f" * 64,),
+        )
+
+
+def _links_indexed(store: RegistryStore) -> bool:
+    with store._db.session(exclusive=False) as db:
+        return LINKS in db.indexes("hub_events")
+
+
+def test_the_registry_refuses_a_second_event_after_the_same_head(
+    registry: Registry, db_target: str
+) -> None:
+    """Even a writer that skipped the chain's lock cannot fork the registry's chain: the
+    database refuses the row, and the chain stays whole."""
+    assert registry.publish().status_code == 201
+    with RegistryStore(db_target) as store:
+        assert _links_indexed(store)
+    with pytest.raises(_refused_by_the_database()):
+        _fork(db_target)
+    assert _verify(db_target)["ok"] is True
+    with pytest.raises(_refused_by_the_database()):  # only the first event follows GENESIS
+        _write(
+            db_target,
+            "INSERT INTO hub_events (subject, event, payload, created_at, prev_hash, hash) "
+            "VALUES ('x', 'namespace.created', '{}', '2026-01-01', ?, ?)",
+            ("0" * 64, "e" * 64),
+        )
+
+
+def test_a_registry_that_already_forks_refuses_the_migration(
+    registry: Registry, db_target: str
+) -> None:
+    """A registry from before the index that holds a fork: the start stops, says to run
+    `registry verify`, names no event or hash, and migrates nothing (the index is still absent,
+    so a fixed database takes it on the next start)."""
+    assert registry.publish().status_code == 201
+    _fork(db_target, unindexed=True)
+    with (
+        RegistryStore(db_target, read_only=True) as reader,
+        reader._db.session(exclusive=False) as db,
+    ):
+        hashes = [str(row["hash"]) for row in db.all("SELECT hash FROM hub_events")]
+    with pytest.raises(MendariError, match="mendari registry verify") as refused:
+        RegistryStore(db_target)
+    said = str(refused.value)
+    assert "forks" in said and "nothing was migrated" in said
+    assert not any(digest in said for digest in hashes)
+    with RegistryStore(db_target, read_only=True) as reader:
+        assert not _links_indexed(reader)
+        assert reader.verify()["ok"] is False  # what the operator is told to run finds it
+
+
+def test_a_clean_registry_from_before_the_index_migrates(
+    registry: Registry, db_target: str
+) -> None:
+    assert registry.publish().status_code == 201
+    _write(db_target, f"DROP INDEX {LINKS}")
+    with RegistryStore(db_target, read_only=True) as reader:
+        assert not _links_indexed(reader)
+    with RegistryStore(db_target) as store:
+        assert _links_indexed(store)
+        assert store.verify()["ok"] is True
+    with pytest.raises(_refused_by_the_database()):
+        _fork(db_target)
+    assert _verify(db_target)["ok"] is True
 
 
 def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registry) -> None:

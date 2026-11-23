@@ -131,6 +131,32 @@ def test_a_site_code_is_named_in_the_reasons_whatever_the_outcome(inbox_pack: Pa
             )
 
 
+def test_canned_answers_never_block_alone(inbox_pack: Pack) -> None:
+    """The `canned` cap turns a rule's BLOCK (final at once, seen by nobody) into HUMAN_REVIEW,
+    as it turns AUTO: the rule, recommendation and priority stay, and the reason says why."""
+    canned = "canned answers: MENDARI_AGENT_URL is not set"
+    policy = inbox_pack.manifest.policy
+    blocking = policy.rules[0].model_copy(update={"outcome": Outcome.BLOCK})
+    manifest = inbox_pack.manifest.model_copy(
+        update={"policy": policy.model_copy(update={"rules": [blocking, *policy.rules[1:]]})}
+    )
+    emergency = {
+        "destination": answer("destination", "billing", 0.99),
+        "urgency": answer("urgency", "urgent", 0.40),
+    }
+    live = apply_policy(manifest, emergency, {})
+    assert live.outcome is Outcome.BLOCK and live.rule == "possible-emergency"
+    held = apply_policy(manifest, emergency, {}, canned=canned)
+    assert held.outcome is Outcome.HUMAN_REVIEW
+    assert (held.rule, held.recommendation, held.priority) == (
+        live.rule,
+        live.recommendation,
+        live.priority,
+    )
+    instead = f"{canned}: a person decides instead of its rule's BLOCK"
+    assert held.reasons == (*live.reasons, instead)
+
+
 def test_missing_primary_answer_abstains(inbox_pack: Pack) -> None:
     answers = {"urgency": answer("urgency", "routine", 0.9)}
     result = apply_policy(inbox_pack.manifest, answers, {"destination": "rate_limited"})

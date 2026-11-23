@@ -7,7 +7,9 @@ manifest. With every file downloaded, it asks the server to delete the export (a
 status URL, which Bulk Data STU2 says a client MAY send, so the server can drop the files at
 once): one try, whose outcome is one of `DELETE_OUTCOMES` in the result, and never a failure of
 the export, which is complete by then. Every URL, including the status URL and the file URLs the
-server hands back, goes through the allow-listed `GuardedHttp`.
+server hands back, goes through the allow-listed `GuardedHttp`. The token goes only to the origin
+of the FHIR base it was issued for: a status URL, or a file the manifest says `requiresAccessToken`,
+on another origin (even an allow-listed one) is refused before anything is sent there.
 
 Authentication is none (the sandbox), a bearer token, or SMART Backend Services: a
 `client_credentials` grant with a `private_key_jwt` assertion signed RS384 or ES384, for which the
@@ -38,7 +40,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.errors import FhirError, MendariError
 from mendari.standards.fhir import FhirAdapter
-from mendari.standards.fhir_client import GuardedHttp
+from mendari.standards.fhir_client import GuardedHttp, origin_of
 
 MAX_FILE_BYTES = 1024 * 1024 * 1024  # one NDJSON file
 MAX_FILES = 1000  # the files one export's manifest may list
@@ -138,8 +140,15 @@ def export(
     if status != 202 or not answer.get("content-location"):
         raise BulkError(f"the server did not start an export (HTTP {status}){_diagnostics(body)}")
     status_url = answer["content-location"]
+    origin = origin_of(base)
+    _check_token_origin(status_url, origin, auth, "status URL")
     manifest = _wait(status_url, http=http, auth=auth, sleep=sleep, limit=max_wait)
     outputs = _outputs(manifest)
+    needs_token = bool(manifest.get("requiresAccessToken", False))
+    if needs_token:
+        # Every file's origin before any download: a manifest naming another server fails whole.
+        for output in outputs:
+            _check_token_origin(output["url"], origin, auth, "file")
     out.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = defaultdict(int)
     left = MAX_EXPORT_BYTES
@@ -149,7 +158,6 @@ def export(
             raise BulkError(f"the manifest names an odd resource type {kind!r}")
         counts[kind] += 1
         path = out / f"{kind}.{counts[kind]:03d}.ndjson"
-        needs_token = manifest.get("requiresAccessToken", False)
         most = min(MAX_FILE_BYTES, left)
         try:
             left -= http.download(
@@ -167,6 +175,16 @@ def export(
         output["file"], output["count"] = path.name, lines
     manifest["delete"] = _delete(status_url, http=http, auth=auth)
     return manifest
+
+
+def _check_token_origin(url: str, origin: str | None, auth: Mapping[str, str], what: str) -> None:
+    """A `BulkError` when the token (`auth`) would go to `url` on another origin than the FHIR
+    base's (`origin`): a token is the server's own, never another allow-listed server's."""
+    if auth and origin_of(url) != origin:
+        raise BulkError(
+            f"the export's {what} is on another server than the FHIR base; "
+            "its access token is sent only to the server it was issued for"
+        )
 
 
 def _outputs(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:

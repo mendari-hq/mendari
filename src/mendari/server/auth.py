@@ -592,8 +592,9 @@ def key_reaches(
 def org_of(principal: Principal) -> str:
     """The organization `principal` acts for. A person of no organization never reaches a route
     that asks (`Auth.check`); should one, it is refused here too (`NoOrganization`, 403), never
-    widened to every organization or to `default`."""
-    if principal.org is None:
+    widened to every organization or to `default`. A blank organization (a credential minted
+    with one) is no organization."""
+    if principal.org is None or tenancy.is_blank(principal.org):
         raise NoOrganization()
     return principal.org
 
@@ -1382,8 +1383,8 @@ def _refused_permission(principal: Principal, reason: str) -> None:
 def _signin_refused(reason: str, *, actor: str | None = None) -> None:
     """A sign-in that did not complete: `idp_configuration`, `idp_unavailable`, `idp_error`,
     `state_unknown`, `browser` (the callback reached a browser that did not start the sign-in),
-    `token_exchange`, `id_token_invalid`, `no_subject` or `no_role` (with the person's opaque
-    id)."""
+    `token_exchange`, `id_token_invalid`, `no_subject`, `no_role` or `no_organization` (an
+    organization claim that is empty or not a string; both with the person's opaque id)."""
     security_log.event("auth.signin.refused", outcome="refused", reason=reason, actor=actor)
 
 
@@ -1512,9 +1513,12 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         if not roles:
             _signin_refused("no_role", actor=person)
             raise AuthError("your account has no Mendari role; ask an administrator", 403)
-        org = (
-            str(claims.get(options.org_claim) or DEFAULT_ORG) if options.org_claim else DEFAULT_ORG
-        )
+        claimed = claims.get(options.org_claim) if options.org_claim else None
+        if claimed is not None and (not isinstance(claimed, str) or tenancy.is_blank(claimed)):
+            # Never `default` for an organization claim that names none ("" collapsed into it).
+            _signin_refused("no_organization", actor=person)
+            raise AuthError("your account's organization claim is empty; ask an administrator", 403)
+        org = claimed or DEFAULT_ORG
         name = str(claims.get("name") or claims.get("email") or claims.get("sub"))
         session, expires_at = sessions.begin(
             {

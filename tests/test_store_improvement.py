@@ -214,3 +214,24 @@ def test_no_chained_event_or_log_holds_an_input(
     for body in BODIES:
         assert body not in chain and body not in caplog.text
     assert world.db.verify()["ok"]
+
+
+def test_past_the_daily_quota_no_input_is_read(
+    world: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`store_datasets` in MENDARI_ORG_DAILY_LIMITS is checked before the reviewers' corrections
+    are read: each read of a patient's input is chained, so a refused build reads none."""
+    from mendari.evals import corrections
+
+    _corrected(world)
+    reader = _author_reader(world)
+    digest = _draft(world, reader)
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "store_datasets=1")
+    assert _build(world, reader, digest).status_code == 201
+
+    def reads(*_: Any, **__: Any) -> Any:
+        raise AssertionError("inputs were read past the quota")
+
+    monkeypatch.setattr(corrections, "corrections_dataset", reads)
+    refused = _build(world, reader, digest)
+    assert refused.status_code == 429 and "1 datasets for today" in refused.text
