@@ -5212,6 +5212,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     quiet = _quiet_libraries(debug)
     try:
         args = build_parser().parse_args(arguments)
+        if tenancy.is_blank(getattr(args, "org", None)):
+            raise MendariError("--org names an organization: it is never empty")
         code = int(args.handler(args))
         sys.stdout.flush()  # here, where a closed pipe is caught, not at interpreter exit
         return code

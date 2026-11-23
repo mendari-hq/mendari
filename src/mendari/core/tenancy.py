@@ -47,8 +47,19 @@ def requester() -> str | None:
     return _requester.get()
 
 
+def is_blank(org: str | None) -> bool:
+    """Whether `org` is an empty or whitespace-only organization: never one to act for. Writes
+    stamp `current() or DEFAULT_ORG` while reads filter by `current()`, so acting for "" would
+    write into `default` and read nothing: refused where an organization comes in instead."""
+    return org is not None and not org.strip()
+
+
 @contextmanager
 def acting_for(org: str | None, requester: str | None = None) -> Iterator[None]:
+    """Act for `org` (None: every organization). A blank one is refused (`NoOrganization`),
+    never taken as `default` or as every organization."""
+    if is_blank(org):
+        raise NoOrganization("an organization's id is never empty")
     token = _current.set(org)
     asked = _requester.set(requester)
     somebody = _nobody.set(False)

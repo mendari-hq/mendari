@@ -7,13 +7,16 @@ one. And an empty organization is an organization, never "any"."""
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from mendari import AuditStore, Decision, Pack
+from mendari.cli import main
 from mendari.core import tenancy
 from mendari.errors import AuthError, MendariError, NoOrganization
+from mendari.server.auth import Principal, org_of
 from tests.conftest import message
 from tests.test_backend_services import RSA_KEY
 
@@ -33,6 +36,28 @@ def test_none_is_every_organization_and_nobody_is_none() -> None:
         with pytest.raises(NoOrganization):
             tenancy.current()
     assert tenancy.current() is None and tenancy.requester() is None
+
+
+def test_a_blank_organization_is_never_acted_for() -> None:
+    """Writes stamp `current() or default` and reads filter by `current()`: acting for "" would
+    write into `default` and read nothing, so a blank organization is refused where it comes in
+    (the guard, `org_of`, the command line's `--org`)."""
+    for blank in ("", "  ", "\t"):
+        with pytest.raises(NoOrganization), tenancy.acting_for(blank):
+            pass  # pragma: no cover
+        with pytest.raises(NoOrganization):
+            org_of(Principal("key", "k", id="key:1", actor="key 1", org=blank))
+    assert tenancy.current() is None
+    assert org_of(Principal("key", "k", id="key:1", actor="key 1", org="clinic-a")) == "clinic-a"
+
+
+def test_the_command_line_refuses_a_blank_org(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for blank in ("", " "):
+        code = main(["access", "keys", "--db", str(tmp_path / "a.db"), "--org", blank])
+        assert code == 1
+        assert "--org names an organization: it is never empty" in capsys.readouterr().err
 
 
 def test_nobody_reads_any_organization_data(store: AuditStore) -> None:

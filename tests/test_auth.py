@@ -1373,6 +1373,29 @@ def test_keys_are_managed_by_people_only(app: TestClient, idp: FakeIdp, tmp_path
     assert app.get("/api/auth/keys").status_code == 403
 
 
+def test_an_empty_organization_is_never_one_to_act_for(
+    idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An organization claim that names none ("" or blanks, or not a string) refuses the
+    sign-in, never placing the person in `default`; a credential minted for a blank
+    organization acts for none (403), never writing into `default` while reading nothing."""
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
+    client = signing_in_with(idp, tmp_path, monkeypatch)
+    for claimed in ("", "   ", ["clinic-a"]):
+        refused = sign_in(client, idp, roles=["admin"], org=claimed)
+        assert refused.status_code == 403 and "organization claim is empty" in refused.text
+        assert client.get("/api/audit").status_code == 401  # no session
+    with AuditStore(tmp_path / "a.db") as store:
+        blank = store.create_api_key(name="k", role="service", org=" ", created_by="ops")
+    client.cookies.clear()
+    machine = {"authorization": f"Bearer {blank['key']}"}
+    assert client.get("/api/audit", headers=machine).status_code == 403
+    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    assert decided.status_code == 403
+    with AuditStore(tmp_path / "a.db") as store:
+        assert store.query() == []  # nothing written into `default`
+
+
 def test_claims_mode_reads_its_own_organizations_credential_history(
     idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
