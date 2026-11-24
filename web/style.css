@@ -1286,54 +1286,6 @@ td .interval {
   color: var(--review-text);
 }
 
-.packs {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(21rem, 100%), 1fr));
-  gap: 1rem;
-}
-
-.pack {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 1.625rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-}
-
-.pack:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
-}
-
-.pack p {
-  font-size: 0.9375rem;
-  line-height: 1.55;
-  color: var(--ink-2);
-}
-
-.pack-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.pack h3 {
-  font-family: var(--serif);
-  font-size: 1.55rem;
-  line-height: 1.18;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
 .risk {
   font-family: var(--mono);
   font-size: 0.72rem;
@@ -1345,50 +1297,6 @@ td .interval {
   border-radius: 999px;
   padding: 0.3rem 0.7rem;
   white-space: nowrap;
-}
-
-.pack .score {
-  margin-top: auto;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.625rem;
-  font-size: 0.8125rem;
-}
-
-.pack .k {
-  font-family: var(--mono);
-  font-size: 1.5rem;
-  font-weight: 500;
-  color: var(--ink);
-}
-
-.pack-yours {
-  border: 1px solid var(--band-line);
-  justify-content: center;
-  background: var(--band);
-  color: var(--band-text);
-}
-
-.pack-yours h3 {
-  color: #ffffff;
-}
-
-.pack-yours p {
-  color: var(--band-muted);
-}
-
-.pack-yours code {
-  display: block;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  background: var(--terminal);
-  border: 1px solid var(--terminal-line);
-  color: #93b4ff;
-  font-size: 0.84rem;
-  overflow-wrap: anywhere;
 }
 
 /* Standards */
@@ -1702,7 +1610,6 @@ td .interval {
   .notice,
   .decision,
   .board,
-  .pack,
   .loop-card,
   .byo-panel,
   .demo-featured {
