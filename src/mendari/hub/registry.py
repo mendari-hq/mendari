@@ -48,7 +48,14 @@
   address), site reports per namespace. A refused one is `429` with `Retry-After`, before its body
   is read. Every answer carries the security headers, a CSP that loads nothing
   (`default-src 'none'; frame-ancestors 'none'`), `Cache-Control: no-store`, and HSTS but on
-  this machine.
+  this machine. One answer sets three of them otherwise (`BADGE_HEADERS`): an agent's
+  evaluation badge, an image a README on any site shows.
+- **An agent's evaluation, in public** (`hub/evaluation_page.py`, `hub/badge.py`). What its
+  publisher's signed evaluations say of its newest version, each record checked again as it is
+  read: `GET /v1/agents/{ns}/{name}/evaluation` (what the Agent Hub's evaluation page shows:
+  the configurations compared, what is not shown and why) and `.../badge.svg` (the same in one
+  line, words and whole numbers only). `GET .../{version}/evaluations/{id}` serves one signed
+  record as stored, for anyone to check.
 - **Claims** (LP-19c). An organization claims a namespace (`RegistryStore.claim`): the claim is
   its link to the namespace, and it is `pending` until a reviewer approves or refuses it, once
   there is a published version to look at. Until it is approved the publisher works as usual
@@ -119,7 +126,16 @@ from mendari.evals.share import (
     composite_members,
     where,
 )
-from mendari.hub import acceptance, archive, regression, site_evidence, site_signing, yank
+from mendari.hub import (
+    acceptance,
+    archive,
+    evaluation_page,
+    regression,
+    site_evidence,
+    site_signing,
+    yank,
+)
+from mendari.hub import badge as evaluation_badge
 from mendari.hub import checkpoint as chain_checkpoint
 from mendari.hub import evaluations as publisher_evaluations
 from mendari.hub import site_reports as site_report_store
@@ -2213,6 +2229,19 @@ REGISTRY_HEADERS = {
     "Cross-Origin-Embedder-Policy": "require-corp",
     "Cache-Control": "no-store",
 }
+# The one answer that is not JSON or an archive: an agent's evaluation badge (`hub/badge.py`),
+# an image a README on any site shows. So it alone may be kept for a few minutes by whoever
+# fetched it (a browser, a README's image proxy) and may be embedded by another site's page;
+# and, opened by itself, it is a document of no origin that runs nothing (`sandbox`). Every other
+# header is the registry's own. It names no reader and sets no cookie: nothing tells one request
+# for it from another but the address the rate is counted by, as for every read.
+BADGE_MAX_AGE_S = 300
+BADGE_HEADERS = {
+    "Content-Security-Policy": f"{REGISTRY_CSP}; sandbox",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Cache-Control": f"public, max-age={BADGE_MAX_AGE_S}",
+}
+BADGE_TYPE = "image/svg+xml"
 REGISTRY_RATES: dict[str, Rate] = {
     "registry_read": Rate(600, 60, 200),  # per address
     "registry_write": Rate(120, 3600, 30),  # per namespace, or address without a token
@@ -2322,6 +2351,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     )
     app = FastAPI(title="Mendari Hub registry", version=__version__, lifespan=lifespan, **pages)
     limiter = Limiter(store, registry_limit_settings())
+    evaluation_page.hub_url()  # a Hub address that is not one stops the registry here, not later
     described = app.openapi
 
     def openapi() -> dict[str, Any]:
@@ -2382,6 +2412,9 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             response = await call_next(request)
         for name, value in _answer_headers(request).items():
             response.headers[name] = value
+        if getattr(request.state, "badge", False):  # the badge's route answered: its headers
+            for name, value in BADGE_HEADERS.items():
+                response.headers[name] = value
         return response
 
     @app.exception_handler(HubError)
@@ -2585,6 +2618,62 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError(f"no agent {namespace}/{name}", 404)
         return {"id": f"{namespace}/{name}", **store.reports(namespace, name, viewer)}
 
+    # Routes made after the rename: they never had a former path, so `paths.route` is not
+    # theirs. Each is registered before `/{version}`, which would read its last part as one.
+    @app.get("/v1/agents/{namespace}/{name}/evaluation", name="agent_evaluation")
+    def agent_evaluation(
+        request: Request, namespace: str, name: str, version: str | None = None
+    ) -> dict[str, Any]:
+        """An agent's published evaluation (`mendari.agent-evaluation/1`), which the Agent Hub
+        shows as the agent's evaluation page: of its newest version that is not recalled, or
+        of `version`. Its publisher's signed evaluations, each checked again as it is read,
+        by dataset; every figure k of n with its exact interval, worked out here from the
+        counts; the configurations of a dataset compared, with what decides which is first
+        and whether the difference could be chance; what is not shown, and why (a record that
+        no longer verifies, a key revoked since); the badge's words; and where the Hub shows
+        it. An agent with no evaluation says so (`state`)."""
+        if version is not None and not _VERSION.match(version):
+            raise HubError("version: not a version", 404)
+        return evaluation_page.evaluation(
+            store, namespace, name, viewer_of(request), version=version
+        )
+
+    @app.get(
+        "/v1/agents/{namespace}/{name}/badge.svg",
+        name="agent_badge",
+        response_class=Response,
+        responses={
+            200: {
+                "description": "The badge",
+                "content": {BADGE_TYPE: {"schema": {"type": "string"}}},
+            },
+            404: {
+                "description": "No such agent: a badge that says so",
+                "content": {BADGE_TYPE: {"schema": {"type": "string"}}},
+            },
+        },
+    )
+    def agent_badge(request: Request, namespace: str, name: str) -> Response:
+        """An agent's evaluation badge, for a README: an SVG image that says the state of the
+        published evaluation of its newest version, in words and whole numbers only ("evaluated,
+        600 synthetic cases, 0 critical automated"; "no evaluation published"; "evaluation not
+        verified"; "recalled"), as `GET .../evaluation` works it out. It is what the public
+        reads, whoever asks: a token changes nothing. It may be kept for five minutes and
+        shown by any site's page; it sets no cookie and reads nothing of who asks. An agent
+        that does not exist is a `404` with a badge that says so."""
+        (words, tone), status = evaluation_badge.message(evaluation_badge.NOT_FOUND), 404
+        if _NAME.match(namespace) and _NAME.match(name):  # never looked up otherwise
+            try:
+                found = evaluation_page.evaluation(store, namespace, name, PUBLIC)
+            except HubError as error:
+                if error.status != 404:
+                    raise
+            else:
+                words, tone, status = found["badge"]["message"], found["badge"]["tone"], 200
+        image = evaluation_badge.svg(words, tone).encode("ascii", "xmlcharrefreplace")
+        request.state.badge = True  # an image was made: the badge's headers (the middleware)
+        return Response(image, status, media_type=BADGE_TYPE)
+
     @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}", name="agent_version")
     def pack_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         viewer = viewer_of(request)
@@ -2705,6 +2794,22 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         the publisher's own latency, cost and models, labelled. Never a ranking."""
         store.version(namespace, name, version, viewer_of(request))  # 404 as the version
         return store.evaluations(namespace, name, version)
+
+    # Made after the rename, as the two above `/{version}`: no former path.
+    @app.get(
+        "/v1/agents/{namespace}/{name}/{version}/evaluations/{evaluation_id}",
+        name="agent_evaluation_record",
+    )
+    def evaluation_record(
+        request: Request, namespace: str, name: str, version: str, evaluation_id: str
+    ) -> dict[str, Any]:
+        """One publisher evaluation as the registry stores it, live or superseded: the signed
+        record itself (`record`), to check against the namespace's key (`GET
+        /v1/namespaces/{namespace}`), with whether it verifies here now (`signature`) and
+        whether its key was revoked since. Its id is the SHA-256 of the record's canonical
+        JSON."""
+        store.version(namespace, name, version, viewer_of(request))  # 404 as the version
+        return store.evaluation_record(namespace, name, version, evaluation_id)
 
     async def site_record_body(request: Request, format: str) -> dict[str, Any]:
         """A site's signed record, read up to `site_store.MAX_TICKET_BYTES`, then its key and

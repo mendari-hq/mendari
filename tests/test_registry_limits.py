@@ -59,19 +59,32 @@ def _example(path: str) -> str:
     )
 
 
+# The one route whose answer is an image for any site's page (an agent's evaluation badge,
+# `hub/badge.py`): what it sets otherwise, and only that. Every other header is as on any route.
+BADGE = "/v1/agents/{namespace}/{name}/badge.svg"
+BADGE_EXPECTED = {
+    **EXPECTED,
+    "cross-origin-resource-policy": "cross-origin",
+    "content-security-policy": EXPECTED["content-security-policy"] + "; sandbox",
+    "cache-control": "public, max-age=300",
+}
+
+
 def test_every_registry_route_answers_with_the_headers(tmp_path: Path) -> None:
     """On every route, as every method it takes, answered or refused: the exact values, and
-    HSTS but on this machine."""
+    HSTS but on this machine. The badge alone sets three of them otherwise."""
     app = create_registry_app(tmp_path / "r.db")
     with TestClient(app, base_url="https://hub.example.org") as remote:
         local = TestClient(app, base_url="http://localhost")
-        seen = 0
+        seen, badges = 0, 0
         for route in app.routes:
             if not isinstance(route, APIRoute):
                 continue
             for method in route.methods or ():
                 answer = remote.request(method, _example(route.path))
-                for name, value in EXPECTED.items():
+                expected = BADGE_EXPECTED if route.path == BADGE else EXPECTED
+                badges += route.path == BADGE
+                for name, value in expected.items():
                     assert answer.headers.get(name) == value, (method, route.path, name)
                 assert answer.headers["strict-transport-security"] == "max-age=63072000"
                 assert (
@@ -79,7 +92,7 @@ def test_every_registry_route_answers_with_the_headers(tmp_path: Path) -> None:
                     not in local.request(method, _example(route.path)).headers
                 )
                 seen += 1
-    assert seen >= 14
+    assert seen >= 17 and badges == 1
     assert EXPECTED["content-security-policy"] == REGISTRY_CSP
 
 

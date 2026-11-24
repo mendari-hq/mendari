@@ -394,9 +394,9 @@ class RegistryClient:
         return str(self._json(response)["key_id"])
 
     def publish_evaluation(self, record: Mapping[str, Any]) -> dict[str, Any]:
-        """Send a signed `mendari.publisher-evaluation/1` (ADR-0020, `mendari eval --publish`)
-        with this namespace's publisher token: the registry's answer names its id and whether
-        it re-ran it."""
+        """Send a signed publisher evaluation (ADR-0020: `mendari push --evaluate`, `mendari
+        eval --publish`) with this namespace's publisher token: the registry's answer names its
+        id and whether it re-ran it."""
         from mendari.hub.evaluations import parse
 
         pack = parse(record).pack  # the path is built from it: only the record's own pack
@@ -409,6 +409,38 @@ class RegistryClient:
     def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations, with the registry's figures."""
         return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}/evaluations"))
+
+    def evaluation_record(
+        self, namespace: str, name: str, version: str, evaluation_id: str
+    ) -> dict[str, Any]:
+        """One publisher evaluation as the registry stores it: the signed record, to check
+        against the namespace's key (`evaluations.signature_holds`)."""
+        if not is_pack_id(f"{namespace}/{name}") or not is_version(version):
+            raise HubError(f"{namespace}/{name}@{version} is not namespace/name@version")
+        if len(evaluation_id) != 64 or not set(evaluation_id) <= set("0123456789abcdef"):
+            raise HubError("an evaluation's id is 64 hex digits")
+        path = f"/v1/agents/{namespace}/{name}/{version}/evaluations/{evaluation_id}"
+        return dict(self._get(path))
+
+    def evaluation(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
+        """An agent's published evaluation as its page shows it (`mendari.agent-evaluation/1`):
+        of its newest version, or of `version`."""
+        return dict(self._get(self._evaluation_path(namespace, name), version=version))
+
+    @staticmethod
+    def _evaluation_path(namespace: str, name: str) -> str:
+        if not is_pack_id(f"{namespace}/{name}"):  # a path is built from it
+            raise HubError(f"{namespace}/{name} is not namespace/name")
+        return f"/v1/agents/{namespace}/{name}/evaluation"
+
+    def evaluation_url(self, namespace: str, name: str) -> str:
+        """The address of that answer at this registry."""
+        return f"{self.url}{self._evaluation_path(namespace, name)}"
+
+    def badge_url(self, namespace: str, name: str) -> str:
+        """The address of an agent's evaluation badge at this registry: the image a README
+        shows (`hub/badge.py`)."""
+        return self.evaluation_url(namespace, name).removesuffix("/evaluation") + "/badge.svg"
 
     def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
         namespace, name = pack.id.split("/")
