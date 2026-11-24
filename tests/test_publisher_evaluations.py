@@ -129,9 +129,18 @@ def test_the_figures_are_the_registrys_from_the_counts(published: Registry) -> N
         report["decisions"]["false_automation"], primary["n"]
     )
     assert shown["figures"]["outcomes"]["AUTO"]["count"] == report["decisions"]["outcomes"]["AUTO"]
-    assert shown["dataset"] == {"name": "test", "n": 600, "sha256": record["dataset"]["sha256"]}
+    assert shown["dataset"] == {
+        "name": "test",
+        "n": 600,
+        "sha256": record["dataset"]["sha256"],
+        "provenance": "synthetic",  # as the demo agent's manifest says of its data
+        "labelled_by": None,
+    }
     assert shown["claimed"] == record["claimed"] and shown["models"] == record["models"]
     assert shown["excluded"] is None and shown["key_id"] == record["key_id"]
+    # Checked again as it was read: the stored record still verifies with the namespace's key.
+    assert shown["signature"] == {"key_id": record["key_id"], "verified": True, "problem": None}
+    assert shown["record_format"] == "mendari.publisher-evaluation/2"
 
 
 def test_a_local_evaluation_with_one_count_changed_is_refused(published: Registry) -> None:
@@ -287,7 +296,7 @@ def test_a_digest_that_is_not_the_versions_is_refused(published: Registry) -> No
     ("dataset", "words"),
     [
         ({"name": SECRET}, "dataset.name: it is not a dataset the agent's manifest declares"),
-        ({"name": "data/test.jsonl"}, "not a mendari.publisher-evaluation/1 record: dataset.name"),
+        ({"name": "data/test.jsonl"}, "not a mendari.publisher-evaluation/2 record: dataset.name"),
         ({"sha256": "0" * 64}, "dataset.sha256: it is not the archived dataset's"),
     ],
 )
@@ -358,7 +367,7 @@ def test_a_record_of_another_kind_or_time_is_refused(published: Registry) -> Non
     as_site = base64.b64encode(published.key.sign(site_signing.signed_bytes(fields))).decode()
     refused(send(published, {**record, "signature": as_site}), 403, "signature")
     extra = {**record, "note": SECRET}
-    refused(send(published, extra), 422, "not a mendari.publisher-evaluation/1 record")
+    refused(send(published, extra), 422, "not a mendari.publisher-evaluation/2 record")
     with_null = copy.deepcopy(record["report"])
     with_null["decisions"]["outcomes"]["BLOCK"] = None
     refused(send(published, signed(published.key, report=with_null)), 422, "no null cell")
